@@ -121,7 +121,7 @@ class JmapClient internal constructor(
                                 put("isAscending", false)
                             }
                         }
-                        put("collapseThreads", false)
+                        put("collapseThreads", true)
                         put("position", 0)
                         put("limit", limit)
                     }
@@ -271,6 +271,62 @@ class JmapClient internal constructor(
             }
             decodeList(body, "Email/get", Email.serializer()).firstOrNull()
                 ?: throw JmapException("Email not found: $emailId")
+        }
+    }
+
+    /** Fetch all emails in a thread (lightweight, no body) via Thread/get + Email/get (RFC 8621 §3). */
+    suspend fun getThreadEmails(
+        session: JmapSession,
+        accountId: String,
+        threadId: String,
+        auth: JmapAuth,
+    ): List<Email> = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Thread/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("ids") { add(threadId) }
+                    }
+                    add("t0")
+                }
+                addJsonArray {
+                    add("Email/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("#ids") {
+                            put("resultOf", "t0")
+                            put("name", "Thread/get")
+                            put("path", "/list/*/emailIds")
+                        }
+                        putJsonArray("properties") {
+                            listOf(
+                                "id", "threadId", "subject", "preview", "receivedAt",
+                                "from", "hasAttachment", "keywords",
+                            ).forEach { add(it) }
+                        }
+                    }
+                    add("g0")
+                }
+            }
+        }
+        val request = Request.Builder()
+            .url(session.apiUrl)
+            .header("Authorization", auth.authorizationHeader())
+            .header("Accept", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw JmapException("Thread/get failed: HTTP ${response.code} ${response.message}")
+            }
+            decodeList(body, "Email/get", Email.serializer())
         }
     }
 

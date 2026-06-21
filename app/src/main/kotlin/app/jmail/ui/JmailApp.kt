@@ -92,6 +92,7 @@ private fun MainNavHost(onSignOut: () -> Unit) {
                 emailId = emailId,
                 onBack = { nav.popBackStack() },
                 onReply = { mode -> nav.navigate("compose?replyTo=${Uri.encode(emailId)}&mode=$mode") },
+                onOpenEmail = { id -> nav.navigate("message/${Uri.encode(id)}") },
             )
         }
         composable(

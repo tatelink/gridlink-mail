@@ -23,6 +23,10 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val _state = MutableStateFlow<MessageState>(MessageState.Loading)
     val state = _state.asStateFlow()
 
+    /** Other messages in the same conversation (excludes the opened one). */
+    private val _thread = MutableStateFlow<List<Email>>(emptyList())
+    val thread = _thread.asStateFlow()
+
     private var loadedId: String? = null
 
     /** Loads the email once per id (idempotent across recompositions). */
@@ -30,11 +34,16 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         if (loadedId == emailId && _state.value !is MessageState.Error) return
         loadedId = emailId
         _state.value = MessageState.Loading
+        _thread.value = emptyList()
         viewModelScope.launch {
             try {
                 val credentials = store.load() ?: error("No saved account.")
                 val email = repo.openEmail(credentials, emailId)
                 _state.value = MessageState.Loaded(email)
+                email.threadId?.let { threadId ->
+                    runCatching { repo.threadEmails(credentials, threadId) }
+                        .onSuccess { siblings -> _thread.value = siblings.filter { it.id != email.id } }
+                }
             } catch (t: Throwable) {
                 _state.value = MessageState.Error(t.message ?: t.javaClass.simpleName)
             }

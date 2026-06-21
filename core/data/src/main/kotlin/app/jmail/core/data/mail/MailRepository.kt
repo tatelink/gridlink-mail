@@ -139,6 +139,12 @@ class MailRepository(
         return client.getEmail(ctx.session, ctx.accountId, emailId, ctx.auth)
     }
 
+    /** All emails in a conversation (lightweight, no body). */
+    suspend fun threadEmails(credentials: AccountCredentials, threadId: String): List<Email> {
+        val ctx = connect(credentials)
+        return client.getThreadEmails(ctx.session, ctx.accountId, threadId, ctx.auth)
+    }
+
     /** Save a plain-text draft in the Drafts mailbox. */
     suspend fun saveDraft(credentials: AccountCredentials, to: List<String>, subject: String, body: String) {
         val ctx = connect(credentials)

@@ -5,9 +5,11 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -49,10 +51,12 @@ fun MessageScreen(
     emailId: String,
     onBack: () -> Unit,
     onReply: (mode: String) -> Unit,
+    onOpenEmail: (String) -> Unit,
     viewModel: MessageViewModel = viewModel(),
 ) {
     LaunchedEffect(emailId) { viewModel.load(emailId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val thread by viewModel.thread.collectAsStateWithLifecycle()
     var showRemote by remember(emailId) { mutableStateOf(false) }
 
     Scaffold(
@@ -124,16 +128,30 @@ fun MessageScreen(
                     Text("Could not load message:\n${s.message}", color = MaterialTheme.colorScheme.error)
                     Button(onClick = { viewModel.load(emailId) }) { Text("Retry") }
                 }
-                is MessageState.Loaded -> MessageBody(s.email, blockRemote = !showRemote)
+                is MessageState.Loaded -> MessageBody(
+                    email = s.email,
+                    siblings = thread,
+                    blockRemote = !showRemote,
+                    onOpenEmail = onOpenEmail,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun MessageBody(email: Email, blockRemote: Boolean) {
+private fun MessageBody(
+    email: Email,
+    siblings: List<Email>,
+    blockRemote: Boolean,
+    onOpenEmail: (String) -> Unit,
+) {
     Column(Modifier.fillMaxSize()) {
         Header(email)
+        if (siblings.isNotEmpty()) {
+            HorizontalDivider()
+            ThreadSection(siblings, onOpenEmail)
+        }
         HorizontalDivider()
         val html = remember(email) { buildHtmlDocument(email) }
         EmailWebView(
@@ -141,6 +159,53 @@ private fun MessageBody(email: Email, blockRemote: Boolean) {
             blockRemote = blockRemote,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
+    }
+}
+
+@Composable
+private fun ThreadSection(siblings: List<Email>, onOpenEmail: (String) -> Unit) {
+    var expanded by remember(siblings) { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "${siblings.size} more in this conversation",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            Text(if (expanded) "▲" else "▼", color = MaterialTheme.colorScheme.primary)
+        }
+        if (expanded) {
+            siblings.forEach { sibling ->
+                HorizontalDivider()
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenEmail(sibling.id) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        text = sibling.from.firstOrNull()?.display() ?: "(unknown sender)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = sibling.subject?.takeIf { it.isNotBlank() } ?: "(no subject)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
     }
 }
 
