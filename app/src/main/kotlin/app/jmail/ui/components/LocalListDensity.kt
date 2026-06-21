@@ -2,6 +2,7 @@ package app.jmail.ui.components
 
 import androidx.compose.runtime.compositionLocalOf
 import app.jmail.core.data.settings.ListDensity
+import app.jmail.core.data.settings.PreviewLines
 
 /**
  * The message-list density chosen in Settings → Appearance, provided at the app
@@ -9,3 +10,6 @@ import app.jmail.core.data.settings.ListDensity
  * preference through every screen.
  */
 val LocalListDensity = compositionLocalOf { ListDensity.NORMAL }
+
+/** How many body-preview lines list rows show (Settings → Appearance). */
+val LocalPreviewLines = compositionLocalOf { PreviewLines.ONE }

@@ -50,6 +50,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import app.jmail.core.data.settings.ListDensity
+import app.jmail.core.data.settings.PreviewLines
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.data.settings.ThemeMode
 import app.jmail.ui.connect.ConnectScreen
@@ -167,6 +168,7 @@ private fun SettingsHub(
 private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val density by viewModel.listDensity.collectAsStateWithLifecycle()
+    val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
     DetailScaffold(title = "Appearance", onBack = onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
@@ -188,6 +190,13 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     optionLabel = ::densityLabel,
                     onSelect = viewModel::setListDensity,
                 )
+                SettingChoiceRow(
+                    title = "Preview",
+                    options = listOf(PreviewLines.NONE, PreviewLines.ONE, PreviewLines.THREE, PreviewLines.FIVE),
+                    selected = previewLines,
+                    optionLabel = ::previewLabel,
+                    onSelect = viewModel::setPreviewLines,
+                )
             }
         }
     }
@@ -203,6 +212,13 @@ private fun densityLabel(density: ListDensity): String = when (density) {
     ListDensity.COMPACT -> "Compact"
     ListDensity.NORMAL -> "Normal"
     ListDensity.SPACED -> "Spaced"
+}
+
+private fun previewLabel(preview: PreviewLines): String = when (preview) {
+    PreviewLines.NONE -> "Subject only"
+    PreviewLines.ONE -> "1 line"
+    PreviewLines.THREE -> "3 lines"
+    PreviewLines.FIVE -> "5 lines"
 }
 
 @Composable

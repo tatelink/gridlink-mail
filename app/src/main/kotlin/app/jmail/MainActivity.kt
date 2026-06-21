@@ -8,9 +8,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.fragment.app.FragmentActivity
 import app.jmail.core.data.settings.ListDensity
+import app.jmail.core.data.settings.PreviewLines
 import app.jmail.core.data.settings.ThemeMode
 import app.jmail.ui.JmailApp
 import app.jmail.ui.components.LocalListDensity
+import app.jmail.ui.components.LocalPreviewLines
 import app.jmail.ui.theme.JmailTheme
 
 class MainActivity : FragmentActivity() {
@@ -21,8 +23,12 @@ class MainActivity : FragmentActivity() {
         setContent {
             val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
             val density by settings.listDensity.collectAsState(initial = ListDensity.NORMAL)
+            val previewLines by settings.previewLines.collectAsState(initial = PreviewLines.ONE)
             JmailTheme(themeMode = themeMode) {
-                CompositionLocalProvider(LocalListDensity provides density) {
+                CompositionLocalProvider(
+                    LocalListDensity provides density,
+                    LocalPreviewLines provides previewLines,
+                ) {
                     JmailApp()
                 }
             }

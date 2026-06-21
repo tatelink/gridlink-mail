@@ -38,6 +38,7 @@ fun EmailListItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     accountLabel: String? = null,
+    onToggleFavourite: (() -> Unit)? = null,
 ) {
     val unread = !email.isSeen
     val senderName = email.from.firstOrNull()?.display() ?: "(unknown sender)"
@@ -47,19 +48,18 @@ fun EmailListItem(
         ListDensity.NORMAL -> 10.dp
         ListDensity.SPACED -> 16.dp
     }
-    val showPreview = density != ListDensity.COMPACT
-    val previewLines = if (density == ListDensity.SPACED) 2 else 1
+    val previewLines = LocalPreviewLines.current.lines
     Row(
         modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = rowPadding),
+            .padding(start = 16.dp, end = 4.dp, top = rowPadding, bottom = rowPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Monogram(seed = email.from.firstOrNull()?.email ?: senderName, label = senderName)
         Spacer(Modifier.width(12.dp))
-        Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = senderName,
@@ -70,10 +70,6 @@ fun EmailListItem(
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
-                if (email.isFlagged) {
-                    Text("★", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(6.dp))
-                }
                 Text(
                     text = formatReceived(email.receivedAt),
                     style = MaterialTheme.typography.labelMedium,
@@ -94,7 +90,7 @@ fun EmailListItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (showPreview) {
+            if (previewLines > 0) {
                 email.preview?.takeIf { it.isNotBlank() }?.let { preview ->
                     Text(
                         text = preview,
@@ -119,6 +115,18 @@ fun EmailListItem(
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
+        }
+        if (onToggleFavourite != null) {
+            Text(
+                text = if (email.isFlagged) "★" else "☆",
+                style = MaterialTheme.typography.titleLarge,
+                color = if (email.isFlagged) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable(onClick = onToggleFavourite)
+                    .padding(8.dp),
+            )
         }
     }
 }

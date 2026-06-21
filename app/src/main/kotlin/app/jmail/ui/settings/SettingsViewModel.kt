@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
 import app.jmail.core.data.settings.ListDensity
+import app.jmail.core.data.settings.PreviewLines
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.data.settings.ThemeMode
 import app.jmail.push.PushService
@@ -40,6 +41,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = ListDensity.NORMAL,
+    )
+
+    val previewLines = settings.previewLines.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = PreviewLines.ONE,
     )
 
     val swipeRight = settings.swipeRightAction.stateIn(
@@ -78,6 +85,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setListDensity(density: ListDensity) {
         viewModelScope.launch { settings.setListDensity(density) }
+    }
+
+    fun setPreviewLines(value: PreviewLines) {
+        viewModelScope.launch { settings.setPreviewLines(value) }
     }
 
     fun setSwipeRight(action: SwipeAction) {

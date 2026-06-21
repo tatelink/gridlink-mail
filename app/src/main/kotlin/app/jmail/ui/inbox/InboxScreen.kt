@@ -36,7 +36,6 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -109,7 +108,7 @@ fun InboxScreen(
     }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val fabExpanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
 
     ModalNavigationDrawer(
@@ -221,8 +220,26 @@ fun InboxScreen(
                         },
                     )
                 } else {
-                    LargeTopAppBar(
-                        title = { Text(ui.mailboxName) },
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text(
+                                    ui.mailboxName,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (!ui.unified && ui.accountName.isNotBlank()) {
+                                    Text(
+                                        ui.accountName,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        },
                         navigationIcon = {
                             IconButton(onClick = { scope.launch { drawerState.open() } }) {
                                 Icon(Icons.Filled.Menu, contentDescription = "Menu")
@@ -266,6 +283,7 @@ fun InboxScreen(
                                 leftAction = swipe.left,
                                 onSwipe = { action -> performSwipe(action, email, viewModel) },
                                 onClick = { onOpenEmail(email.id, email.accountId) },
+                                onToggleFavourite = { viewModel.toggleFlag(email) },
                                 modifier = Modifier.animateItem(),
                             )
                             HorizontalDivider()
@@ -296,6 +314,7 @@ private fun SwipeableEmailRow(
     leftAction: SwipeAction,
     onSwipe: (SwipeAction) -> Unit,
     onClick: () -> Unit,
+    onToggleFavourite: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
@@ -335,7 +354,12 @@ private fun SwipeableEmailRow(
             }
         },
     ) {
-        EmailListItem(email = email, onClick = onClick, accountLabel = accountLabel)
+        EmailListItem(
+            email = email,
+            onClick = onClick,
+            accountLabel = accountLabel,
+            onToggleFavourite = onToggleFavourite,
+        )
     }
 }
 

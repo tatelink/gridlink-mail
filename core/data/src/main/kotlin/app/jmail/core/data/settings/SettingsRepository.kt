@@ -15,6 +15,9 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 /** Vertical density of message-list rows. */
 enum class ListDensity { COMPACT, NORMAL, SPACED }
 
+/** How much of each message's body preview to show in the list. */
+enum class PreviewLines(val lines: Int) { NONE(0), ONE(1), THREE(3), FIVE(5) }
+
 /** An action bound to a swipe gesture on a message row. */
 enum class SwipeAction { NONE, TOGGLE_READ, DELETE, ARCHIVE, FLAG }
 
@@ -47,6 +50,15 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_LIST_DENSITY] = density.name }
     }
 
+    val previewLines: Flow<PreviewLines> = dataStore.data.map { prefs ->
+        prefs[KEY_PREVIEW_LINES]?.let { runCatching { PreviewLines.valueOf(it) }.getOrNull() }
+            ?: PreviewLines.ONE
+    }
+
+    suspend fun setPreviewLines(value: PreviewLines) {
+        dataStore.edit { it[KEY_PREVIEW_LINES] = value.name }
+    }
+
     val swipeRightAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_RIGHT, SwipeAction.TOGGLE_READ)
     val swipeLeftAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_LEFT, SwipeAction.DELETE)
 
@@ -66,6 +78,7 @@ class SettingsRepository(context: Context) {
     private companion object {
         val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
         val KEY_LIST_DENSITY = stringPreferencesKey("list_density")
+        val KEY_PREVIEW_LINES = stringPreferencesKey("preview_lines")
         val KEY_SWIPE_RIGHT = stringPreferencesKey("swipe_right")
         val KEY_SWIPE_LEFT = stringPreferencesKey("swipe_left")
     }

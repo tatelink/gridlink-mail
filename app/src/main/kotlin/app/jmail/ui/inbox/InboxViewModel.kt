@@ -129,11 +129,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     val state: StateFlow<MailUi> = combine(baseState, searchState) { base, search ->
-        val list = if (search.active && search.query.isNotBlank()) {
+        val filtered = if (search.active && search.query.isNotBlank()) {
             search.results ?: base.emails.filter { it.matches(search.query) }
         } else {
             base.emails
         }
+        // Favourited (flagged) messages pin to the top; stable sort keeps date order otherwise.
+        val list = filtered.sortedByDescending { it.isFlagged }
         MailUi(
             accountName = base.accountName,
             mailboxName = base.mailboxName,

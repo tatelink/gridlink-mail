@@ -30,7 +30,8 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - 💡 Multi-select and bulk actions
 - 💡 Snooze a message until later
 - 💡 Paginated "load more"
-- 💡 Pin/star to top; report spam / not-spam (move to Junk role)
+- ✅ Favourite (star) per row, tappable; favourites pin to the top
+- 💡 Report spam / not-spam (move to Junk role)
 
 ## Organisation & search
 
@@ -94,6 +95,8 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Settings hub (Appearance / Notifications / Privacy & Security), DataStore-backed
 - ✅ Theme toggle (auto / light / dark)
 - ✅ Message-list density (compact / normal / spaced)
+- ✅ Row preview length (subject only / 1 / 3 / 5 lines)
+- ✅ Compact inbox top bar showing folder + account
 - 💡 Home-screen widget(s) (unread count / inbox)
 - 💡 Accessibility pass (TalkBack, font scaling)
 
