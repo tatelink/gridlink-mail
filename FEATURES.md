@@ -36,7 +36,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 
 - ✅ Mailbox listing
 - ✅ ⭐ Server-side search — `Email/query` `text` filter + `Email/get`
-- 💡 Unified inbox across multiple accounts
+- ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account)
 - 💡 Richer search filters (from, subject, has-attachment, date) + `SearchSnippet` highlights
 - 💡 Folder management (create / rename / subscribe), per-folder settings
 - 💡 Quick filters: unread-only, starred-only, has-attachment
@@ -90,8 +90,9 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 
 - ✅ Material 3 / Material You dynamic colour, follows system theme
 - ✅ Contact avatars / sender initials (monograms)
-- ✅ Settings screen (push scope)
-- 💡 Theme toggle (auto / light / dark); message-list density options
+- ✅ Settings hub (Appearance / Notifications / Privacy & Security), DataStore-backed
+- ✅ Theme toggle (auto / light / dark)
+- 💡 Message-list density options
 - 💡 Home-screen widget(s) (unread count / inbox)
 - 💡 Accessibility pass (TalkBack, font scaling)
 

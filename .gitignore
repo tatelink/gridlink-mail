@@ -25,3 +25,6 @@ Thumbs.db
 # Self-hosted CI runner state + secrets
 ci/data/
 .env
+
+# Claude Code worktrees / local state
+.claude/
