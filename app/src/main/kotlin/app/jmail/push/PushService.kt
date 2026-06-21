@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import app.jmail.container
@@ -52,9 +53,11 @@ class PushService : Service() {
                 inboxId = meta.mailboxId
                 knownIds = application.container.mailRepository.cachedEmails(meta.mailboxId).map { it.id }.toSet()
                 connection = application.container.mailRepository.openInboxPush(credentials) {
+                    Log.i(TAG, "StateChange received -> refreshing inbox")
                     scope.launch { onInboxChanged(credentials) }
                 }
-            }
+                Log.i(TAG, "EventSource connected; baseline ${knownIds.size} emails in inbox ${meta.mailboxId}")
+            }.onFailure { Log.e(TAG, "Push connect failed", it) }
         }
     }
 
@@ -63,10 +66,11 @@ class PushService : Service() {
         runCatching {
             application.container.mailRepository.refresh(credentials, mailboxId)
             val emails = application.container.mailRepository.cachedEmails(mailboxId)
-            emails.filter { it.id !in knownIds && !it.isSeen }
-                .forEach { Notifications.notifyNewMail(this, it) }
+            val newMail = emails.filter { it.id !in knownIds && !it.isSeen }
+            Log.i(TAG, "inbox refreshed: ${emails.size} total, ${newMail.size} new unseen")
+            newMail.forEach { Notifications.notifyNewMail(this, it) }
             knownIds = emails.map { it.id }.toSet()
-        }
+        }.onFailure { Log.e(TAG, "onInboxChanged failed", it) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
@@ -80,6 +84,8 @@ class PushService : Service() {
     }
 
     companion object {
+        private const val TAG = "PushService"
+
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, PushService::class.java))
         }
