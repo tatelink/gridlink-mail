@@ -283,7 +283,12 @@ fun InboxScreen(
                                 leftAction = swipe.left,
                                 onSwipe = { action -> performSwipe(action, email, viewModel) },
                                 onClick = { onOpenEmail(email.id, email.accountId) },
-                                onToggleFavourite = { viewModel.toggleFlag(email) },
+                                onToggleFavourite = {
+                                    val favouriting = !email.isFlagged
+                                    viewModel.toggleFlag(email)
+                                    // Favourites pin to the top — scroll there so it's visibly landing, not "vanishing".
+                                    if (favouriting) scope.launch { listState.animateScrollToItem(0) }
+                                },
                                 modifier = Modifier.animateItem(),
                             )
                             HorizontalDivider()
