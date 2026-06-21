@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Delete
@@ -50,7 +49,6 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
@@ -88,11 +86,9 @@ fun InboxScreen(
     onOpenEmail: (emailId: String, accountId: String?) -> Unit,
     onCompose: () -> Unit,
     onOpenSettings: () -> Unit,
-    onAddAccount: () -> Unit,
     accounts: List<app.jmail.core.data.account.StoredAccount>,
     currentAccountId: String,
     onSwitchAccount: (String) -> Unit,
-    onSignOut: () -> Unit,
     viewModel: InboxViewModel = viewModel(),
 ) {
     val ui by viewModel.state.collectAsStateWithLifecycle()
@@ -139,16 +135,6 @@ fun InboxScreen(
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                 }
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                    label = { Text("Add account") },
-                    selected = false,
-                    onClick = {
-                        onAddAccount()
-                        scope.launch { drawerState.close() }
-                    },
-                    modifier = Modifier.padding(horizontal = 12.dp),
-                )
                 HorizontalDivider()
                 if (accounts.size > 1) {
                     val unifiedLabel = if (ui.unified && ui.unreadCount > 0) {

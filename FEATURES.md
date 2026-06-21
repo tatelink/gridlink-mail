@@ -25,7 +25,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Folder navigation drawer; view any mailbox *(M3)*
 - ✅ ⭐ Conversation threading — JMAP native `Thread` objects (collapsed list + thread view)
 - ✅ Pull-to-refresh
-- ✅ Swipe actions (swipe to delete / mark read)
+- ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive
 - ✅ Configurable swipe actions (left/right, in Settings → Reading)
 - 💡 Multi-select and bulk actions
 - 💡 Snooze a message until later
@@ -59,6 +59,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 
 - ✅ Encrypted account persistence (AndroidKeyStore)
 - ✅ Multiple accounts — add / switch / sign out, with migration
+- ✅ Account management panel — per-account editable server settings (URL, username, password); JMAP active, IMAP coming
 - 💡 Onboarding via `/.well-known/jmap` autodiscovery; OAuth2 / Bearer auth
 - 💡 Per-account colour coding
 - 💡 Settings export / import

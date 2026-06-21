@@ -72,11 +72,6 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
         accountStore.setCurrent(id)
         refresh()
     }
-
-    fun signOutCurrent() {
-        accountStore.currentId()?.let { accountStore.remove(it) }
-        refresh()
-    }
 }
 
 @Composable
@@ -97,8 +92,7 @@ fun JmailApp(viewModel: RootViewModel = viewModel()) {
                     accounts = viewModel.accounts(),
                     currentAccountId = s.accountId,
                     onSwitchAccount = viewModel::switchAccount,
-                    onAccountAdded = viewModel::refresh,
-                    onSignOut = viewModel::signOutCurrent,
+                    onAccountsChanged = viewModel::refresh,
                 )
             }
         }
@@ -123,8 +117,7 @@ private fun MainNavHost(
     accounts: List<StoredAccount>,
     currentAccountId: String,
     onSwitchAccount: (String) -> Unit,
-    onAccountAdded: () -> Unit,
-    onSignOut: () -> Unit,
+    onAccountsChanged: () -> Unit,
 ) {
     val nav = rememberNavController()
     NavHost(navController = nav, startDestination = "inbox") {
@@ -135,11 +128,9 @@ private fun MainNavHost(
                 },
                 onCompose = { nav.navigate("compose") },
                 onOpenSettings = { nav.navigate("settings") },
-                onAddAccount = { nav.navigate("addAccount") },
                 accounts = accounts,
                 currentAccountId = currentAccountId,
                 onSwitchAccount = onSwitchAccount,
-                onSignOut = onSignOut,
             )
         }
         composable(
@@ -176,11 +167,11 @@ private fun MainNavHost(
                 accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null },
             )
         }
-        composable("addAccount") {
-            ConnectScreen(onConnected = onAccountAdded)
-        }
         composable("settings") {
-            SettingsScreen(onBack = { nav.popBackStack() })
+            SettingsScreen(
+                onBack = { nav.popBackStack() },
+                onAccountsChanged = onAccountsChanged,
+            )
         }
     }
 }
