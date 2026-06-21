@@ -148,8 +148,33 @@ are documented here as structure; build the ✅ ones first.
 - **Reading:** configurable swipe actions 💡 · conversation threading toggle (threading ✅) · mark-as-read on open · remote images (see Privacy)
 - **Writing:** default signature 💡 · undo send Off/5/10/30s 💡 · read receipts Never/Ask/Always 💡 · quote-on-reply · "forgot attachment?" reminder 💡
 - **Privacy & Security:** remote image policy Never *(default)* / Ask / Always ✅ · per-sender allowlist 💡 · app lock ✅ (biometric + PIN/pattern/password fallback) · confirm external links 💡 · "Jmail collects no data" → [PRIVACY.md](PRIVACY.md)
-- **Storage & Sync:** sync / push on-off ✅ · download attachments on Wi-Fi only 💡 · cache size + Clear cache (Room cache ✅) · settings export / import 💡
+- **Storage & Sync:** sync / push on-off ✅ · sync window (count or age) 💡 · keep messages offline 💡 · storage used + Clear cache 💡 · download attachments on Wi-Fi only 💡 · settings export / import 💡
 - **About:** version · source (Codeberg) · GPLv3 licence · privacy policy ([PRIVACY.md](PRIVACY.md)) · OSS licences · report issue / security
+
+### Storage & Sync menu
+
+Reports **on-device** storage and controls retention. The strategy (bounded
+mirror + opt-in offline, protocol-agnostic for the planned IMAP support) lives in
+[ARCHITECTURE.md](ARCHITECTURE.md#storage--data-strategy). Status: ✅ shipped ·
+💡 future.
+
+**Global**
+- Storage used (DB + attachments), broken down per account 💡
+- Clear cache — purges Room rows + attachment files, keeps accounts 💡
+- Automatic attachment cleanup — size / age cap (LRU) 💡
+- Download attachments on Wi-Fi only 💡
+
+**Per-account** (in Accounts → detail)
+- Messages to sync — window by **count or age** (default 90 days) 💡
+- Keep messages offline — persist bodies (off by default) + its window 💡
+- Storage used by this account · Clear this account's cache 💡
+
+**IMAP-only** (shown only when the account is IMAP; future)
+- Folders to sync / push (IDLE), poll frequency, "delete from server" behaviour,
+  max message age
+
+Device usage is shown here; the server mailbox quota is a separate number
+(JMAP `Quota` ⭐, future).
 
 ### Storage note
 

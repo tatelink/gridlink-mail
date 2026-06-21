@@ -42,6 +42,52 @@ JMAP is defined by **RFC 8620** (core) and **RFC 8621** (mail). The client will:
 
 Reference implementations consulted: the `ltt.rs` / `jmap-mua` libraries and the RFCs.
 
+## Storage & data strategy
+
+Local storage is **per-account, protocol-agnostic, and a bounded mirror of the
+server with opt-in offline retention**. The cache layer must not bake in JMAP
+semantics: IMAP/SMTP support is planned, and IMAP changes the trade-offs (costly
+round-trips, no server-side threads/blobs/query, slow search), so it needs
+heavier body/attachment caching and makes the **sync window a first-class,
+user-facing setting** rather than a JMAP implementation detail.
+
+**What is stored, and where**
+
+| Data | Location | Notes |
+|---|---|---|
+| Message list (metadata) | Room `jmail.db` (`emails`, `mailboxes`) | id, sender, subject, 1-line preview, flags, date — small rows. |
+| Message bodies | Memory on open (today) | Opt-in on-disk persistence planned for offline + IMAP (see retention). |
+| Attachments | `cacheDir/attachments/` | Downloaded on demand; opened via `FileProvider`. |
+| Inline images (`cid:`) | Memory only | Rendered as data URIs, never persisted. |
+| Credentials | SharedPreferences, AndroidKeyStore-encrypted | In `AccountStore`. |
+| Settings | DataStore (`SettingsRepository`) | Reactive `Flow` per setting. |
+
+**Retention & eviction**
+
+- **Sync window, per account:** by **count** (50 / 200 / 500 / all) **or age**
+  (30 / 90 days / 1 year / all). Default **90 days**. The list is pruned to the
+  window (today `replaceMailbox` already deletes rows not in the latest snapshot).
+- **Bodies:** not persisted by default (sober, small). A per-account "keep
+  messages offline" option persists bodies with an LRU + age cap; this becomes
+  important for full offline and for IMAP.
+- **Attachments:** `cacheDir/attachments/` is currently **unbounded** — apply a
+  size + age cap with LRU eviction (e.g. 200 MB / 30 days). This is the one real
+  growth bug today.
+
+**Lifecycle**
+
+- On **sign-out / account removal**, purge that account's Room rows **and** its
+  attachment files. Today only credentials are removed, so cached mail and blobs
+  survive across accounts — a correctness and privacy gap to close.
+- The Room DB uses destructive migration: the cache is disposable and rebuilt
+  from the server, so a schema bump simply re-syncs.
+
+**Device vs server**
+
+On-device storage (DB + attachment dir, reportable per account) is distinct from
+the **server mailbox quota** (exposable later via the JMAP `Quota` extension).
+The storage UI reports device usage; server quota is a separate, optional number.
+
 ## Roadmap
 
 - **M0** — Toolchain, project scaffold, "Hello Jmail" running. *(done)*
