@@ -13,6 +13,7 @@ dependencies {
     // Exposed in public API (JmapSession.capabilities uses JsonObject), so `api`.
     api(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
+    implementation(libs.okhttp.sse)
 
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver)

@@ -13,6 +13,7 @@ import app.jmail.core.jmap.model.Mailbox
 import app.jmail.core.jmap.model.JmapSession
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.io.Closeable
 
 /** Metadata about the selected mailbox after a refresh. */
 data class MailboxMeta(
@@ -143,6 +144,21 @@ class MailRepository(
     suspend fun threadEmails(credentials: AccountCredentials, threadId: String): List<Email> {
         val ctx = connect(credentials)
         return client.getThreadEmails(ctx.session, ctx.accountId, threadId, ctx.auth)
+    }
+
+    /** One-shot read of cached emails for a mailbox. */
+    suspend fun cachedEmails(mailboxId: String): List<Email> =
+        emailDao.getByMailbox(mailboxId).map { it.toEmail() }
+
+    /** Open a JMAP push connection; [onInboxChanged] fires when this account's mail changes. */
+    suspend fun openInboxPush(credentials: AccountCredentials, onInboxChanged: () -> Unit): Closeable {
+        val ctx = connect(credentials)
+        return client.openEventSource(
+            session = ctx.session,
+            auth = ctx.auth,
+            onStateChange = { change -> if (change.emailChanged(ctx.accountId)) onInboxChanged() },
+            onClosed = {},
+        )
     }
 
     /** Save a plain-text draft in the Drafts mailbox. */

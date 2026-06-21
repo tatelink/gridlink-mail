@@ -12,6 +12,9 @@ interface EmailDao {
     @Query("SELECT * FROM emails WHERE mailboxId = :mailboxId ORDER BY sortKey DESC")
     fun observeByMailbox(mailboxId: String): Flow<List<EmailEntity>>
 
+    @Query("SELECT * FROM emails WHERE mailboxId = :mailboxId ORDER BY sortKey DESC")
+    suspend fun getByMailbox(mailboxId: String): List<EmailEntity>
+
     @Upsert
     suspend fun upsertAll(emails: List<EmailEntity>)
 

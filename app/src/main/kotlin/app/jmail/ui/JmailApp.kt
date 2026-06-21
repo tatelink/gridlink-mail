@@ -1,7 +1,15 @@
 package app.jmail.ui
 
+import android.Manifest
 import android.app.Application
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,6 +31,7 @@ import app.jmail.ui.connect.ConnectScreen
 import app.jmail.ui.inbox.InboxScreen
 import app.jmail.ui.message.MessageScreen
 import app.jmail.ui.search.SearchScreen
+import app.jmail.push.PushService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -44,10 +53,13 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refresh() {
-        _state.value = if (accountStore.hasAccount()) RootState.Authenticated else RootState.NeedAccount
+        val authenticated = accountStore.hasAccount()
+        _state.value = if (authenticated) RootState.Authenticated else RootState.NeedAccount
+        if (authenticated) PushService.start(getApplication())
     }
 
     fun signOut() {
+        PushService.stop(getApplication())
         accountStore.clear()
         _state.value = RootState.NeedAccount
     }
@@ -55,6 +67,7 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
 
 @Composable
 fun JmailApp(viewModel: RootViewModel = viewModel()) {
+    RequestNotificationPermission()
     val state by viewModel.state.collectAsStateWithLifecycle()
     when (state) {
         RootState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
@@ -62,6 +75,18 @@ fun JmailApp(viewModel: RootViewModel = viewModel()) {
         }
         RootState.NeedAccount -> ConnectScreen(onConnected = viewModel::refresh)
         RootState.Authenticated -> MainNavHost(onSignOut = viewModel::signOut)
+    }
+}
+
+@Composable
+private fun RequestNotificationPermission() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(Unit) {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!granted) launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 }
 

@@ -5,6 +5,12 @@ import app.jmail.core.jmap.model.EmailAddress
 import app.jmail.core.jmap.model.Identity
 import app.jmail.core.jmap.model.JmapSession
 import app.jmail.core.jmap.model.Mailbox
+import app.jmail.core.jmap.model.StateChange
+import okhttp3.Response
+import okhttp3.sse.EventSource
+import okhttp3.sse.EventSourceListener
+import okhttp3.sse.EventSources
+import java.io.Closeable
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
@@ -534,6 +540,44 @@ class JmapClient internal constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Open a long-lived JMAP push connection (EventSource/SSE, RFC 8620 §7.3),
+     * invoking [onStateChange] for each StateChange. Returns a Closeable to stop it.
+     */
+    fun openEventSource(
+        session: JmapSession,
+        auth: JmapAuth,
+        onStateChange: (StateChange) -> Unit,
+        onClosed: () -> Unit,
+    ): Closeable {
+        val template = session.eventSourceUrl
+            ?: throw JmapException("Server does not advertise an eventSourceUrl")
+        val url = template
+            .replace("{types}", "Email,Mailbox")
+            .replace("{closeafter}", "no")
+            .replace("{ping}", "300")
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", auth.authorizationHeader())
+            .header("Accept", "text/event-stream")
+            .build()
+        // SSE needs no read timeout; the server pings to keep the connection alive.
+        val sseClient = httpClient.newBuilder()
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .build()
+        val listener = object : EventSourceListener() {
+            override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
+                runCatching { json.decodeFromString<StateChange>(data) }.getOrNull()?.let(onStateChange)
+            }
+
+            override fun onClosed(eventSource: EventSource) = onClosed()
+
+            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) = onClosed()
+        }
+        val eventSource = EventSources.createFactory(sseClient).newEventSource(request, listener)
+        return Closeable { eventSource.cancel() }
     }
 
     /** Run an Email/set call with the given argument object, surfacing JMAP errors. */
