@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
@@ -66,8 +68,33 @@ fun MessageScreen(
                     }
                 },
                 actions = {
-                    if (state is MessageState.Loaded && !showRemote) {
+                    val loaded = state as? MessageState.Loaded
+                    if (loaded != null && !showRemote) {
                         TextButton(onClick = { showRemote = true }) { Text("Show images") }
+                    }
+                    if (loaded != null) {
+                        var menuOpen by remember { mutableStateOf(false) }
+                        IconButton(onClick = { menuOpen = true }) {
+                            Text("⋮", style = MaterialTheme.typography.titleLarge)
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (loaded.email.isFlagged) "Unflag" else "Flag") },
+                                onClick = { menuOpen = false; viewModel.toggleFlag() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Mark unread") },
+                                onClick = { menuOpen = false; viewModel.markUnread(onBack) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Archive") },
+                                onClick = { menuOpen = false; viewModel.archive(onBack) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete") },
+                                onClick = { menuOpen = false; viewModel.delete(onBack) },
+                            )
+                        }
                     }
                 },
             )

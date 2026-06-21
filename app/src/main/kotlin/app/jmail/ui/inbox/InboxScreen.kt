@@ -118,6 +118,13 @@ private fun EmailRow(email: Email, onClick: () -> Unit) {
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
+                if (email.isFlagged) {
+                    Text(
+                        text = "★ ",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Text(
                     text = formatReceived(email.receivedAt),
                     style = MaterialTheme.typography.labelSmall,

@@ -54,6 +54,9 @@ data class Email(
     /** Whether the message has been read ($seen keyword). */
     val isSeen: Boolean get() = keywords["\$seen"] == true
 
+    /** Whether the message is flagged/starred ($flagged keyword). */
+    val isFlagged: Boolean get() = keywords["\$flagged"] == true
+
     /** The HTML body content, if the message has one. */
     fun htmlContent(): String? =
         htmlBody.firstOrNull()?.partId?.let { bodyValues[it]?.value }

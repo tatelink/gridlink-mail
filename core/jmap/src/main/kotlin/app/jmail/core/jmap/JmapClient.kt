@@ -5,6 +5,7 @@ import app.jmail.core.jmap.model.JmapSession
 import app.jmail.core.jmap.model.Mailbox
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.putJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -207,13 +208,55 @@ class JmapClient internal constructor(
         }
     }
 
-    /** Set or clear the \$seen keyword on an email via Email/set (RFC 8621 §4.6). */
-    suspend fun setSeen(
+    /** Set or clear a keyword (e.g. "${'$'}seen", "${'$'}flagged") on an email. */
+    suspend fun setKeyword(
         session: JmapSession,
         accountId: String,
         emailId: String,
-        seen: Boolean,
+        keyword: String,
+        value: Boolean,
         auth: JmapAuth,
+    ) = emailSet(session, auth) {
+        put("accountId", accountId)
+        putJsonObject("update") {
+            putJsonObject(emailId) {
+                if (value) put("keywords/$keyword", true) else put("keywords/$keyword", JsonNull)
+            }
+        }
+    }
+
+    /** Convenience for the \$seen keyword. */
+    suspend fun setSeen(session: JmapSession, accountId: String, emailId: String, seen: Boolean, auth: JmapAuth) =
+        setKeyword(session, accountId, emailId, "\$seen", seen, auth)
+
+    /** Move an email so it belongs to exactly [targetMailboxId] (archive, trash, etc.). */
+    suspend fun move(
+        session: JmapSession,
+        accountId: String,
+        emailId: String,
+        targetMailboxId: String,
+        auth: JmapAuth,
+    ) = emailSet(session, auth) {
+        put("accountId", accountId)
+        putJsonObject("update") {
+            putJsonObject(emailId) {
+                putJsonObject("mailboxIds") { put(targetMailboxId, true) }
+            }
+        }
+    }
+
+    /** Permanently destroy an email (used when there is no Trash mailbox). */
+    suspend fun destroy(session: JmapSession, accountId: String, emailId: String, auth: JmapAuth) =
+        emailSet(session, auth) {
+            put("accountId", accountId)
+            putJsonArray("destroy") { add(emailId) }
+        }
+
+    /** Run an Email/set call with the given argument object, surfacing JMAP errors. */
+    private suspend fun emailSet(
+        session: JmapSession,
+        auth: JmapAuth,
+        args: JsonObjectBuilder.() -> Unit,
     ) = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
@@ -223,14 +266,7 @@ class JmapClient internal constructor(
             putJsonArray("methodCalls") {
                 addJsonArray {
                     add("Email/set")
-                    addJsonObject {
-                        put("accountId", accountId)
-                        putJsonObject("update") {
-                            putJsonObject(emailId) {
-                                if (seen) put("keywords/\$seen", true) else put("keywords/\$seen", JsonNull)
-                            }
-                        }
-                    }
+                    addJsonObject(args)
                     add("s0")
                 }
             }
@@ -245,7 +281,6 @@ class JmapClient internal constructor(
             if (!response.isSuccessful) {
                 throw JmapException("Email/set failed: HTTP ${response.code} ${response.message}")
             }
-            // Surface a JMAP-level error if the update was rejected.
             methodResponseArgs(response.body?.string().orEmpty(), "Email/set")
             Unit
         }

@@ -21,6 +21,12 @@ interface EmailDao {
     @Query("UPDATE emails SET seen = :seen WHERE id = :id")
     suspend fun setSeen(id: String, seen: Boolean)
 
+    @Query("UPDATE emails SET flagged = :flagged WHERE id = :id")
+    suspend fun setFlagged(id: String, flagged: Boolean)
+
+    @Query("DELETE FROM emails WHERE id = :id")
+    suspend fun deleteById(id: String)
+
     /** Replace the cached contents of a mailbox with a fresh snapshot. */
     @Transaction
     suspend fun replaceMailbox(mailboxId: String, emails: List<EmailEntity>) {

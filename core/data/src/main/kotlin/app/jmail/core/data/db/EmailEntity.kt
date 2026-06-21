@@ -20,6 +20,7 @@ data class EmailEntity(
     val fromName: String?,
     val fromEmail: String?,
     val seen: Boolean,
+    val flagged: Boolean,
     val hasAttachment: Boolean,
     /** Epoch millis derived from receivedAt, for ordering. */
     val sortKey: Long,

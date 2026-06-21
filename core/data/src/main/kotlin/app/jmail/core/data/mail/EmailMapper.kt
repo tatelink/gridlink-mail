@@ -19,6 +19,7 @@ internal fun Email.toEntity(accountId: String, mailboxId: String): EmailEntity {
         fromName = sender?.name,
         fromEmail = sender?.email,
         seen = isSeen,
+        flagged = isFlagged,
         hasAttachment = hasAttachment,
         sortKey = epochMillis(receivedAt),
     )
@@ -36,7 +37,10 @@ internal fun EmailEntity.toEmail(): Email = Email(
         emptyList()
     },
     hasAttachment = hasAttachment,
-    keywords = if (seen) mapOf("\$seen" to true) else emptyMap(),
+    keywords = buildMap {
+        if (seen) put("\$seen", true)
+        if (flagged) put("\$flagged", true)
+    },
 )
 
 private fun epochMillis(iso: String?): Long {

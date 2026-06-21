@@ -6,8 +6,10 @@ Jmail is an open-source email client built for **JMAP** — a new, faster
 internet standard for email that replaces the decades-old IMAP protocol. It is
 designed to be private by default, pleasant to use, and fully free software.
 
-> Status: early development. The app currently builds and runs a welcome
-> screen; connecting to a real mailbox is the next milestone.
+> Status: early development. The app connects to a JMAP server, lists your
+> mailboxes, and shows a real inbox that works offline; you can open and read
+> messages with remote content blocked by default. Writing and sending mail is
+> the next milestone.
 
 ## What is JMAP, and why does it matter to me?
 
