@@ -1,5 +1,12 @@
 package app.jmail.core.jmap.model
 
+/** A blob uploaded via the JMAP upload endpoint, ready to attach to an Email/set. */
+data class UploadedBlob(
+    val blobId: String,
+    val type: String,
+    val size: Long,
+)
+
 /** A page of a mailbox query plus the JMAP state strings needed for incremental sync. */
 data class EmailPage(
     val emails: List<Email>,

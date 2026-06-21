@@ -42,6 +42,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.jmail.core.jmap.model.Email
+import app.jmail.core.jmap.model.EmailBodyPart
 import app.jmail.ui.components.Monogram
 import java.io.ByteArrayInputStream
 import java.time.Instant
@@ -61,6 +62,7 @@ fun MessageScreen(
     LaunchedEffect(emailId) { viewModel.load(emailId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val thread by viewModel.thread.collectAsStateWithLifecycle()
+    val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     var showRemote by remember(emailId) { mutableStateOf(false) }
 
     Scaffold(
@@ -137,6 +139,8 @@ fun MessageScreen(
                     siblings = thread,
                     blockRemote = !showRemote,
                     onOpenEmail = onOpenEmail,
+                    attachmentStatus = attachmentStatus,
+                    onOpenAttachment = viewModel::openAttachment,
                 )
             }
         }
@@ -149,12 +153,19 @@ private fun MessageBody(
     siblings: List<Email>,
     blockRemote: Boolean,
     onOpenEmail: (String) -> Unit,
+    attachmentStatus: String?,
+    onOpenAttachment: (EmailBodyPart) -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
         Header(email)
         if (siblings.isNotEmpty()) {
             HorizontalDivider()
             ThreadSection(siblings, onOpenEmail)
+        }
+        val attachments = email.attachments.filter { it.blobId != null }
+        if (attachments.isNotEmpty()) {
+            HorizontalDivider()
+            AttachmentSection(attachments, attachmentStatus, onOpenAttachment)
         }
         HorizontalDivider()
         val html = remember(email) { buildHtmlDocument(email) }
@@ -211,6 +222,65 @@ private fun ThreadSection(siblings: List<Email>, onOpenEmail: (String) -> Unit) 
             }
         }
     }
+}
+
+@Composable
+private fun AttachmentSection(
+    attachments: List<EmailBodyPart>,
+    status: String?,
+    onOpen: (EmailBodyPart) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(
+            text = "Attachments (${attachments.size})",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        attachments.forEach { att ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpen(att) }
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("📎", modifier = Modifier.padding(end = 12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = att.name ?: "attachment",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val meta = listOfNotNull(formatSize(att.size).takeIf { it.isNotEmpty() }, att.type)
+                        .joinToString(" · ")
+                    if (meta.isNotEmpty()) {
+                        Text(
+                            text = meta,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+        if (status != null) {
+            Text(
+                text = status,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+private fun formatSize(bytes: Long): String = when {
+    bytes <= 0 -> ""
+    bytes < 1024 -> "$bytes B"
+    bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+    else -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
 }
 
 @Composable

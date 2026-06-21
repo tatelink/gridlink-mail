@@ -2,6 +2,7 @@ package app.jmail.core.jmap
 
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailAddress
+import app.jmail.core.jmap.model.EmailBodyPart
 import app.jmail.core.jmap.model.EmailChangesResult
 import app.jmail.core.jmap.model.EmailPage
 import app.jmail.core.jmap.model.EmailQueryChangesResult
@@ -9,6 +10,7 @@ import app.jmail.core.jmap.model.Identity
 import app.jmail.core.jmap.model.JmapSession
 import app.jmail.core.jmap.model.Mailbox
 import app.jmail.core.jmap.model.StateChange
+import app.jmail.core.jmap.model.UploadedBlob
 import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
@@ -32,9 +34,11 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -390,7 +394,7 @@ class JmapClient internal constructor(
                                 "id", "threadId", "subject", "preview", "receivedAt",
                                 "from", "to", "cc", "messageId", "references",
                                 "hasAttachment", "keywords",
-                                "htmlBody", "textBody", "bodyValues",
+                                "htmlBody", "textBody", "attachments", "bodyValues",
                             ).forEach { add(it) }
                         }
                         put("fetchHTMLBodyValues", true)
@@ -567,6 +571,7 @@ class JmapClient internal constructor(
         sentMailboxId: String,
         inReplyTo: List<String> = emptyList(),
         references: List<String> = emptyList(),
+        attachments: List<EmailBodyPart> = emptyList(),
     ) = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
@@ -589,6 +594,19 @@ class JmapClient internal constructor(
                                 }
                                 if (references.isNotEmpty()) {
                                     putJsonArray("references") { references.forEach { add(it) } }
+                                }
+                                if (attachments.isNotEmpty()) {
+                                    putJsonArray("attachments") {
+                                        attachments.forEach { att ->
+                                            addJsonObject {
+                                                put("blobId", att.blobId)
+                                                put("type", att.type ?: "application/octet-stream")
+                                                att.name?.let { put("name", it) }
+                                                put("disposition", "attachment")
+                                                if (att.size > 0) put("size", att.size)
+                                            }
+                                        }
+                                    }
                                 }
                                 putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
                                 putJsonObject("mailboxIds") { put(draftMailboxId, true) }
@@ -676,6 +694,67 @@ class JmapClient internal constructor(
             }
         }
     }
+
+    /** Download a blob (attachment) via the session downloadUrl template. */
+    suspend fun downloadBlob(
+        session: JmapSession,
+        accountId: String,
+        blobId: String,
+        type: String?,
+        name: String?,
+        auth: JmapAuth,
+    ): ByteArray = withContext(Dispatchers.IO) {
+        val template = session.downloadUrl ?: throw JmapException("Server has no downloadUrl")
+        val url = template
+            .replace("{accountId}", accountId)
+            .replace("{blobId}", blobId)
+            .replace("{type}", encodePathSegment(type ?: "application/octet-stream"))
+            .replace("{name}", encodePathSegment(name ?: "attachment"))
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", auth.authorizationHeader())
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw JmapException("Download failed: HTTP ${response.code} ${response.message}")
+            }
+            response.body?.bytes() ?: ByteArray(0)
+        }
+    }
+
+    /** Upload bytes as a blob via the session uploadUrl template; returns its blobId. */
+    suspend fun uploadBlob(
+        session: JmapSession,
+        accountId: String,
+        bytes: ByteArray,
+        type: String?,
+        auth: JmapAuth,
+    ): UploadedBlob = withContext(Dispatchers.IO) {
+        val template = session.uploadUrl ?: throw JmapException("Server has no uploadUrl")
+        val url = template.replace("{accountId}", accountId)
+        val mediaType = (type ?: "application/octet-stream").toMediaTypeOrNull()
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", auth.authorizationHeader())
+            .post(bytes.toRequestBody(mediaType))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw JmapException("Upload failed: HTTP ${response.code} ${response.message}")
+            }
+            val obj = json.parseToJsonElement(body).jsonObject
+            UploadedBlob(
+                blobId = obj["blobId"]?.jsonPrimitive?.contentOrNull
+                    ?: throw JmapException("Upload response had no blobId"),
+                type = obj["type"]?.jsonPrimitive?.contentOrNull ?: (type ?: "application/octet-stream"),
+                size = obj["size"]?.jsonPrimitive?.longOrNull ?: bytes.size.toLong(),
+            )
+        }
+    }
+
+    private fun encodePathSegment(value: String): String =
+        java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
     /**
      * Open a long-lived JMAP push connection (EventSource/SSE, RFC 8620 §7.3),

@@ -46,7 +46,8 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Compose and send (`EmailSubmission/set`)
 - ✅ Reply / reply-all / forward with quoting (threaded via `inReplyTo`/`references`)
 - ✅ Save drafts
-- 🔜 **Attachments: pick, inline images, save/share incoming** — *next*
+- ✅ Attachments: pick & send (blob upload), view/download/open incoming (blob download)
+- 💡 Inline images (cid:) rendered in the body
 - 💡 Rich-text editor plus plain-text mode
 - 💡 Outbox, and Undo send (hold-back window)
 - 💡 ⭐ Schedule send — JMAP `EmailSubmission` supports a future `sendAt`

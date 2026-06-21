@@ -1,15 +1,20 @@
 package app.jmail.ui.compose
 
 import android.app.Application
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
 import app.jmail.core.data.account.AccountCredentials
 import app.jmail.core.jmap.model.Email
+import app.jmail.core.jmap.model.EmailBodyPart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed interface ComposeState {
     data object Idle : ComposeState
@@ -31,10 +36,43 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private val _prefill = MutableStateFlow<DraftFields?>(null)
     val prefill: StateFlow<DraftFields?> = _prefill.asStateFlow()
 
+    private val _attachments = MutableStateFlow<List<EmailBodyPart>>(emptyList())
+    val attachments: StateFlow<List<EmailBodyPart>> = _attachments.asStateFlow()
+
+    private val _attachmentStatus = MutableStateFlow<String?>(null)
+    val attachmentStatus: StateFlow<String?> = _attachmentStatus.asStateFlow()
+
     private var prepared = false
     // Threading headers for a reply (empty for new/forward).
     private var inReplyTo: List<String> = emptyList()
     private var references: List<String> = emptyList()
+
+    /** Upload a picked document and add it to the outgoing attachments. */
+    fun attach(uri: Uri) {
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            _attachmentStatus.value = "Attaching…"
+            try {
+                val credentials = store.load() ?: error("No saved account.")
+                val resolver = app.contentResolver
+                val type = resolver.getType(uri)
+                val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                val bytes = withContext(Dispatchers.IO) {
+                    resolver.openInputStream(uri)?.use { it.readBytes() }
+                } ?: error("Couldn't read the selected file.")
+                val part = repo.uploadAttachment(credentials, bytes, type, name)
+                _attachments.value = _attachments.value + part
+                _attachmentStatus.value = null
+            } catch (t: Throwable) {
+                _attachmentStatus.value = "Attach failed: ${t.message ?: "error"}"
+            }
+        }
+    }
+
+    fun removeAttachment(part: EmailBodyPart) {
+        _attachments.value = _attachments.value.filterNot { it.blobId == part.blobId }
+    }
 
     /** Build initial fields when opening as a reply/reply-all/forward of [replyToId]. */
     fun prepare(replyToId: String?, mode: String?) {
@@ -58,7 +96,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     fun send(to: String, subject: String, body: String) =
         submit(to) { credentials, recipients ->
-            repo.send(credentials, recipients, subject, body, inReplyTo, references)
+            repo.send(credentials, recipients, subject, body, inReplyTo, references, _attachments.value)
         }
 
     fun saveDraft(to: String, subject: String, body: String) =

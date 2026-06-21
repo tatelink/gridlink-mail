@@ -21,6 +21,8 @@ data class EmailBodyPart(
     val type: String? = null,
     val charset: String? = null,
     val name: String? = null,
+    val disposition: String? = null,
+    val cid: String? = null,
 )
 
 /** The decoded content of a body part (RFC 8621 §4.1.4). */
@@ -51,6 +53,7 @@ data class Email(
     val keywords: Map<String, Boolean> = emptyMap(),
     val htmlBody: List<EmailBodyPart> = emptyList(),
     val textBody: List<EmailBodyPart> = emptyList(),
+    val attachments: List<EmailBodyPart> = emptyList(),
     val bodyValues: Map<String, EmailBodyValue> = emptyMap(),
 ) {
     /** Whether the message has been read ($seen keyword). */

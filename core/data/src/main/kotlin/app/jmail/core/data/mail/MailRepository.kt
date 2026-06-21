@@ -9,6 +9,7 @@ import app.jmail.core.jmap.JmapAuth
 import app.jmail.core.jmap.JmapClient
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailAddress
+import app.jmail.core.jmap.model.EmailBodyPart
 import app.jmail.core.jmap.model.Mailbox
 import app.jmail.core.jmap.model.JmapSession
 import kotlinx.coroutines.flow.Flow
@@ -271,6 +272,7 @@ class MailRepository(
         body: String,
         inReplyTo: List<String> = emptyList(),
         references: List<String> = emptyList(),
+        attachments: List<EmailBodyPart> = emptyList(),
     ) {
         val ctx = connect(credentials)
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
@@ -296,6 +298,36 @@ class MailRepository(
             sentMailboxId = sentId,
             inReplyTo = inReplyTo,
             references = references,
+            attachments = attachments,
+        )
+    }
+
+    /** Download an attachment's bytes for the current account. */
+    suspend fun downloadAttachment(
+        credentials: AccountCredentials,
+        blobId: String,
+        type: String?,
+        name: String?,
+    ): ByteArray {
+        val ctx = connect(credentials)
+        return client.downloadBlob(ctx.session, ctx.accountId, blobId, type, name, ctx.auth)
+    }
+
+    /** Upload bytes as an attachment blob; returns a body part ready to attach when sending. */
+    suspend fun uploadAttachment(
+        credentials: AccountCredentials,
+        bytes: ByteArray,
+        type: String?,
+        name: String?,
+    ): EmailBodyPart {
+        val ctx = connect(credentials)
+        val blob = client.uploadBlob(ctx.session, ctx.accountId, bytes, type, ctx.auth)
+        return EmailBodyPart(
+            blobId = blob.blobId,
+            type = blob.type,
+            size = blob.size,
+            name = name,
+            disposition = "attachment",
         )
     }
 
