@@ -1,9 +1,15 @@
 package app.jmail.ui.settings
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -11,22 +17,32 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -36,6 +52,7 @@ import androidx.navigation.compose.rememberNavController
 import app.jmail.core.data.settings.ListDensity
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.data.settings.ThemeMode
+import app.jmail.ui.connect.ConnectScreen
 
 /**
  * Settings hub. A single entry point with global categories (DESIGN.md →
@@ -44,16 +61,53 @@ import app.jmail.core.data.settings.ThemeMode
  * (a future "Accounts" category) is intentionally minimal for now.
  */
 @Composable
-fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel()) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onAccountsChanged: () -> Unit = {},
+    viewModel: SettingsViewModel = viewModel(),
+    accountsViewModel: AccountsViewModel = viewModel(),
+) {
     val nav = rememberNavController()
     NavHost(navController = nav, startDestination = "hub") {
         composable("hub") {
             SettingsHub(
                 onBack = onBack,
+                onOpenAccounts = { nav.navigate("accounts") },
                 onOpenAppearance = { nav.navigate("appearance") },
                 onOpenReading = { nav.navigate("reading") },
                 onOpenNotifications = { nav.navigate("notifications") },
                 onOpenPrivacy = { nav.navigate("privacy") },
+            )
+        }
+        composable("accounts") {
+            AccountsScreen(
+                viewModel = accountsViewModel,
+                onBack = { nav.popBackStack() },
+                onOpenAccount = { id -> nav.navigate("account/$id") },
+                onAddAccount = { nav.navigate("addAccount") },
+                onAccountsChanged = onAccountsChanged,
+            )
+        }
+        composable("addAccount") {
+            ConnectScreen(
+                onConnected = {
+                    accountsViewModel.refresh()
+                    onAccountsChanged()
+                    nav.popBackStack()
+                },
+            )
+        }
+        composable("account/{id}") { backStackEntry ->
+            val id = backStackEntry.arguments?.getString("id").orEmpty()
+            AccountDetailScreen(
+                accountId = id,
+                viewModel = accountsViewModel,
+                onBack = { nav.popBackStack() },
+                onSignedOut = {
+                    onAccountsChanged()
+                    nav.popBackStack()
+                },
+                onAccountsChanged = onAccountsChanged,
             )
         }
         composable("appearance") {
@@ -82,12 +136,14 @@ private data class HubCategory(
 @Composable
 private fun SettingsHub(
     onBack: () -> Unit,
+    onOpenAccounts: () -> Unit,
     onOpenAppearance: () -> Unit,
     onOpenReading: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenPrivacy: () -> Unit,
 ) {
     val categories = listOf(
+        HubCategory(Icons.Filled.Person, "Accounts", "Add, switch, server settings", onOpenAccounts),
         HubCategory(Icons.Filled.Star, "Appearance", "Theme, density", onOpenAppearance),
         HubCategory(Icons.AutoMirrored.Filled.List, "Reading", "Swipe actions", onOpenReading),
         HubCategory(Icons.Filled.Notifications, "Notifications", "Push scope, new mail", onOpenNotifications),
@@ -233,6 +289,177 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AccountsScreen(
+    viewModel: AccountsViewModel,
+    onBack: () -> Unit,
+    onOpenAccount: (String) -> Unit,
+    onAddAccount: () -> Unit,
+    onAccountsChanged: () -> Unit,
+) {
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val currentId by viewModel.currentId.collectAsStateWithLifecycle()
+    DetailScaffold(title = "Accounts", onBack = onBack) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            items(accounts, key = { it.id }) { account ->
+                AccountRow(
+                    seed = account.username,
+                    label = account.label(),
+                    email = account.username,
+                    isCurrent = account.id == currentId,
+                    onClick = {
+                        if (account.id != currentId) {
+                            viewModel.switchTo(account.id)
+                            onAccountsChanged()
+                        }
+                        onOpenAccount(account.id)
+                    },
+                )
+            }
+            item {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Button(onClick = onAddAccount, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Add account")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountDetailScreen(
+    accountId: String,
+    viewModel: AccountsViewModel,
+    onBack: () -> Unit,
+    onSignedOut: () -> Unit,
+    onAccountsChanged: () -> Unit,
+) {
+    val account = remember(accountId) { viewModel.account(accountId) }
+    if (account == null) {
+        // Account was removed (e.g. on sign-out) — nothing to show.
+        DetailScaffold(title = "Account", onBack = onBack) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding))
+        }
+        return
+    }
+
+    var accountName by remember(accountId) { mutableStateOf(account.accountName) }
+    var server by remember(accountId) { mutableStateOf(account.server) }
+    var username by remember(accountId) { mutableStateOf(account.username) }
+    var password by remember(accountId) { mutableStateOf("") }
+    var saved by remember(accountId) { mutableStateOf(false) }
+
+    val canSave = server.isNotBlank() && username.isNotBlank()
+
+    DetailScaffold(title = account.label(), onBack = onBack) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
+        ) {
+            SettingsSection("Account") {
+                SettingTextField(
+                    label = "Display name",
+                    value = accountName,
+                    onValueChange = { accountName = it; saved = false },
+                )
+            }
+            SettingsSection("Server settings") {
+                SettingTextField(
+                    label = "Server URL",
+                    value = server,
+                    onValueChange = { server = it; saved = false },
+                    keyboardType = KeyboardType.Uri,
+                )
+                SettingTextField(
+                    label = "Username",
+                    value = username,
+                    onValueChange = { username = it; saved = false },
+                    keyboardType = KeyboardType.Email,
+                )
+                SettingTextField(
+                    label = "Password (leave blank to keep current)",
+                    value = password,
+                    onValueChange = { password = it; saved = false },
+                    keyboardType = KeyboardType.Password,
+                    isPassword = true,
+                )
+            }
+            SettingsSection("Protocol") {
+                ProtocolRow(
+                    name = "JMAP",
+                    detail = "Active",
+                    selected = true,
+                    enabled = true,
+                )
+                ProtocolRow(
+                    name = "IMAP",
+                    detail = "Coming soon — host/port/security support is on the way.",
+                    selected = false,
+                    enabled = false,
+                )
+            }
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        viewModel.save(accountId, accountName, server, username, password)
+                        password = ""
+                        saved = true
+                        onAccountsChanged()
+                    },
+                    enabled = canSave,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (saved) "Saved" else "Save")
+                }
+                OutlinedButton(
+                    onClick = {
+                        viewModel.signOut(accountId)
+                        onSignedOut()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Sign out", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
+}
+
+/** A protocol option row: radio + name + note. The IMAP option is disabled for now. */
+@Composable
+private fun ProtocolRow(
+    name: String,
+    detail: String,
+    selected: Boolean,
+    enabled: Boolean,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null, enabled = enabled)
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
