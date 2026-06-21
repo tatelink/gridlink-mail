@@ -21,3 +21,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Self-hosted CI runner state
+ci/data/
