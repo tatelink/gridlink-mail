@@ -1,5 +1,7 @@
 # Jmail
 
+[![CI](https://codeberg.org/emon/jmail/actions/workflows/ci.yml/badge.svg?branch=main)](https://codeberg.org/emon/jmail/actions)
+
 **A private, modern email app for Android.**
 
 Jmail is an open-source email client built for **JMAP** — a new, faster
