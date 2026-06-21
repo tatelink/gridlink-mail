@@ -1,5 +1,7 @@
 package app.jmail.ui.inbox
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,12 +15,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -48,43 +49,40 @@ fun InboxScreen(
     onSignOut: () -> Unit,
     viewModel: InboxViewModel = viewModel(),
 ) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
-
-    val title = (state as? InboxState.Loaded)?.let { "${it.mailboxName} · ${it.unreadCount} unread" }
-        ?: "Inbox"
+    val ui by viewModel.state.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title) },
+                title = { Text("${ui.mailboxName} · ${ui.unreadCount} unread") },
                 actions = {
-                    TextButton(onClick = viewModel::load) { Text("Refresh") }
+                    TextButton(onClick = viewModel::refresh, enabled = !ui.refreshing) { Text("Refresh") }
                     TextButton(onClick = onSignOut) { Text("Sign out") }
                 },
             )
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            when (val s = state) {
-                is InboxState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                is InboxState.Error -> Column(
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text("Could not load mail:\n${s.message}", color = MaterialTheme.colorScheme.error)
-                    Button(onClick = viewModel::load) { Text("Retry") }
-                }
-                is InboxState.Loaded -> if (s.emails.isEmpty()) {
-                    Text("No messages", Modifier.align(Alignment.Center))
-                } else {
+            when {
+                ui.emails.isNotEmpty() -> Column(Modifier.fillMaxSize()) {
+                    if (ui.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
                     LazyColumn(Modifier.fillMaxSize()) {
-                        items(s.emails, key = { it.id }) { email ->
+                        items(ui.emails, key = { it.id }) { email ->
                             EmailRow(email, onClick = { onOpenEmail(email.id) })
                             HorizontalDivider()
                         }
                     }
                 }
+                ui.refreshing -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                ui.error != null -> Column(
+                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("Could not load mail:\n${ui.error}", color = MaterialTheme.colorScheme.error)
+                    Button(onClick = viewModel::refresh) { Text("Retry") }
+                }
+                else -> Text("No messages", Modifier.align(Alignment.Center))
             }
         }
     }

@@ -2,6 +2,7 @@ package app.jmail
 
 import android.app.Application
 import android.content.Context
+import app.jmail.core.data.DataFactory
 import app.jmail.core.data.account.AccountStore
 import app.jmail.core.data.mail.MailRepository
 import app.jmail.core.jmap.JmapClient
@@ -10,7 +11,7 @@ import app.jmail.core.jmap.JmapClient
 class AppContainer(context: Context) {
     val accountStore: AccountStore = AccountStore(context.applicationContext)
     private val jmapClient: JmapClient = JmapClient()
-    val mailRepository: MailRepository = MailRepository(jmapClient)
+    val mailRepository: MailRepository = DataFactory.mailRepository(context.applicationContext, jmapClient)
 }
 
 class JmailApplication : Application() {

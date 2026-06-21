@@ -30,11 +30,12 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         _state.value = ConnectState.Connecting
         viewModelScope.launch {
             try {
-                // Validate the credentials by actually loading the inbox once.
+                // Validate the credentials and prime the cache by loading the inbox.
                 val credentials = AccountCredentials(server.trim(), username.trim(), password)
-                container.mailRepository.loadInbox(credentials, limit = 1)
+                val meta = container.mailRepository.refreshInbox(credentials)
                 // Only persist once we know they work.
                 container.accountStore.save(server, username, password)
+                container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
                 _state.value = ConnectState.Connected
             } catch (t: Throwable) {
                 _state.value = ConnectState.Error(t.message ?: t.javaClass.simpleName)

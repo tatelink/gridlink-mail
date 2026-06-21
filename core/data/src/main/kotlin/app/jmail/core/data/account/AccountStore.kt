@@ -49,10 +49,29 @@ class AccountStore(context: Context) {
         prefs.edit().clear().apply()
     }
 
+    /** Cache inbox metadata so the inbox can be shown offline before a refresh. */
+    fun saveInboxMeta(mailboxId: String, mailboxName: String, accountName: String, unread: Int) {
+        prefs.edit()
+            .putString(KEY_INBOX_ID, mailboxId)
+            .putString(KEY_INBOX_NAME, mailboxName)
+            .putString(KEY_ACCOUNT_NAME, accountName)
+            .putInt(KEY_UNREAD, unread)
+            .apply()
+    }
+
+    fun inboxMailboxId(): String? = prefs.getString(KEY_INBOX_ID, null)
+    fun inboxMailboxName(): String = prefs.getString(KEY_INBOX_NAME, null) ?: "Inbox"
+    fun accountName(): String = prefs.getString(KEY_ACCOUNT_NAME, null) ?: ""
+    fun unreadCount(): Int = prefs.getInt(KEY_UNREAD, 0)
+
     private companion object {
         const val PREFS_NAME = "jmail_account"
         const val KEY_SERVER = "server"
         const val KEY_USERNAME = "username"
         const val KEY_PASSWORD = "password_enc"
+        const val KEY_INBOX_ID = "inbox_id"
+        const val KEY_INBOX_NAME = "inbox_name"
+        const val KEY_ACCOUNT_NAME = "account_name"
+        const val KEY_UNREAD = "unread"
     }
 }

@@ -5,47 +5,75 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
 import app.jmail.core.jmap.model.Email
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-sealed interface InboxState {
-    data object Loading : InboxState
-    data class Loaded(
-        val accountName: String,
-        val mailboxName: String,
-        val unreadCount: Int,
-        val emails: List<Email>,
-    ) : InboxState
-    data class Error(val message: String) : InboxState
-}
+data class InboxUi(
+    val accountName: String,
+    val mailboxName: String,
+    val unreadCount: Int,
+    val emails: List<Email>,
+    val refreshing: Boolean,
+    val error: String?,
+)
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class InboxViewModel(application: Application) : AndroidViewModel(application) {
-    private val container = application.container
+    private val store = application.container.accountStore
+    private val repo = application.container.mailRepository
 
-    private val _state = MutableStateFlow<InboxState>(InboxState.Loading)
-    val state = _state.asStateFlow()
+    private val inboxId = MutableStateFlow(store.inboxMailboxId())
+    private val meta = MutableStateFlow(
+        Meta(store.accountName(), store.inboxMailboxName(), store.unreadCount()),
+    )
+    private val status = MutableStateFlow(Status(refreshing = false, error = null))
 
-    init {
-        load()
+    private val emails = inboxId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList()) else repo.observeInbox(id)
     }
 
-    fun load() {
-        _state.value = InboxState.Loading
+    val state: StateFlow<InboxUi> = combine(emails, meta, status) { emails, meta, status ->
+        InboxUi(
+            accountName = meta.accountName,
+            mailboxName = meta.mailboxName,
+            unreadCount = meta.unread,
+            emails = emails,
+            refreshing = status.refreshing,
+            error = status.error,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = InboxUi(meta.value.accountName, meta.value.mailboxName, meta.value.unread, emptyList(), refreshing = true, error = null),
+    )
+
+    init {
+        refresh()
+    }
+
+    fun refresh() {
+        status.value = Status(refreshing = true, error = null)
         viewModelScope.launch {
             try {
-                val credentials = container.accountStore.load()
-                    ?: error("No saved account.")
-                val data = container.mailRepository.loadInbox(credentials)
-                _state.value = InboxState.Loaded(
-                    accountName = data.accountName,
-                    mailboxName = data.mailbox.name,
-                    unreadCount = data.mailbox.unreadEmails,
-                    emails = data.emails,
-                )
+                val credentials = store.load() ?: error("No saved account.")
+                val updated = repo.refreshInbox(credentials)
+                store.saveInboxMeta(updated.mailboxId, updated.mailboxName, updated.accountName, updated.unreadCount)
+                inboxId.value = updated.mailboxId
+                meta.value = Meta(updated.accountName, updated.mailboxName, updated.unreadCount)
+                status.value = Status(refreshing = false, error = null)
             } catch (t: Throwable) {
-                _state.value = InboxState.Error(t.message ?: t.javaClass.simpleName)
+                status.value = Status(refreshing = false, error = t.message ?: t.javaClass.simpleName)
             }
         }
     }
+
+    private data class Meta(val accountName: String, val mailboxName: String, val unread: Int)
+    private data class Status(val refreshing: Boolean, val error: String?)
 }
