@@ -2,12 +2,13 @@
 # Run this on an always-on server with Docker. See README.md in this folder.
 #
 #   1. Codeberg -> repo Settings -> Actions -> Runners -> "Create new runner",
-#      copy the registration token into .env (cp .env.example .env).
+#      copy the (single-use) registration token into .env (cp .env.example .env).
 #   2. docker compose up -d
 #
-# network_mode: bridge + config.yml's container.network: "bridge" mean NO new
-# Docker networks are created (neither for the runner nor per CI job), so this
-# works on hosts whose Docker address pool is already exhausted.
+# No new Docker networks are created (network_mode: bridge for the runner, and
+# the generated config.yml sets container.network: "bridge" for CI jobs), so this
+# works on hosts whose Docker address pool is exhausted. The runner config is
+# written inside the container — nothing to bind-mount.
 services:
   runner:
     image: code.forgejo.org/forgejo/runner:6.3.1
@@ -15,7 +16,6 @@ services:
     network_mode: bridge
     volumes:
       - ./data:/data
-      - ./config.yml:/data/config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock
     user: "0:0"
     entrypoint: /bin/sh
@@ -23,6 +23,23 @@ services:
       - -c
       - |
         cd /data
+        cat > /data/config.yml <<'CFG'
+        log:
+          level: info
+        runner:
+          capacity: 1
+          timeout: 1h
+          fetch_timeout: 5s
+          fetch_interval: 2s
+        cache:
+          enabled: true
+        container:
+          network: "bridge"
+          privileged: false
+          force_pull: false
+        host:
+          workdir_parent: workspace
+        CFG
         if [ ! -f .runner ]; then
           forgejo-runner register --no-interactive \
             --instance https://codeberg.org \

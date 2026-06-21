@@ -162,6 +162,70 @@ class JmapClient internal constructor(
         }
     }
 
+    /** Full-text search across the account (Email/query `text` filter + Email/get). */
+    suspend fun searchEmails(
+        session: JmapSession,
+        accountId: String,
+        query: String,
+        limit: Int,
+        auth: JmapAuth,
+    ): List<Email> = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/query")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("filter") { put("text", query) }
+                        putJsonArray("sort") {
+                            addJsonObject {
+                                put("property", "receivedAt")
+                                put("isAscending", false)
+                            }
+                        }
+                        put("limit", limit)
+                    }
+                    add("q0")
+                }
+                addJsonArray {
+                    add("Email/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("#ids") {
+                            put("resultOf", "q0")
+                            put("name", "Email/query")
+                            put("path", "/ids")
+                        }
+                        putJsonArray("properties") {
+                            listOf(
+                                "id", "threadId", "subject", "preview", "receivedAt",
+                                "from", "hasAttachment", "keywords",
+                            ).forEach { add(it) }
+                        }
+                    }
+                    add("g0")
+                }
+            }
+        }
+        val request = Request.Builder()
+            .url(session.apiUrl)
+            .header("Authorization", auth.authorizationHeader())
+            .header("Accept", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw JmapException("Search failed: HTTP ${response.code} ${response.message}")
+            }
+            decodeList(body, "Email/get", Email.serializer())
+        }
+    }
+
     /** Fetch a single email including recipients and decoded body values. */
     suspend fun getEmail(
         session: JmapSession,

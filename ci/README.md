@@ -35,15 +35,25 @@ and on pull requests.
 
 ## Troubleshooting
 
-**"all predefined address pools have been fully subnetted"** — Docker is out of
-network subnets (a busy host with many compose stacks). This setup already avoids
-creating new networks (`network_mode: bridge` + `config.yml`'s
-`container.network: "bridge"`). Also reclaim unused ones first:
+**"registration token not found"** — registration tokens are **single-use**. If a
+previous attempt already consumed it, get a fresh one (and delete any half-created
+runner) in Codeberg → Settings → Actions → Runners, then re-register cleanly:
 
 ```sh
-docker network prune -f
+docker compose down
+rm -rf ./data              # drop any partial .runner state
+# put the NEW token in .env, then:
 docker compose up -d
 ```
+
+**"all predefined address pools have been fully subnetted"** — Docker is out of
+network subnets (a busy host). This setup avoids creating networks
+(`network_mode: bridge` + the generated config's `container.network: "bridge"`).
+Reclaim unused ones too: `docker network prune -f`.
+
+> The runner config is generated **inside** the container — there is no
+> `config.yml` to bind-mount (an earlier version did, which could create a stray
+> `config.yml/` directory if the file was missing). `git pull` to get this fix.
 
 ## Notes
 

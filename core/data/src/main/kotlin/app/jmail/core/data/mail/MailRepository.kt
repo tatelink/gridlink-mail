@@ -127,6 +127,12 @@ class MailRepository(
         emailDao.deleteById(emailId)
     }
 
+    /** Full-text search across the account (results are transient, not cached). */
+    suspend fun search(credentials: AccountCredentials, query: String, limit: Int = 50): List<Email> {
+        val ctx = connect(credentials)
+        return client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth)
+    }
+
     /** Fetch an email (with body) without marking it read — used to build replies/forwards. */
     suspend fun fetchEmail(credentials: AccountCredentials, emailId: String): Email {
         val ctx = connect(credentials)

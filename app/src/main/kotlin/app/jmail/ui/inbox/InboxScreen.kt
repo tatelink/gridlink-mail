@@ -52,19 +52,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.jmail.core.jmap.model.Email
-import app.jmail.ui.components.Monogram
+import app.jmail.ui.components.EmailListItem
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.OffsetDateTime
-import java.time.ZoneId
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InboxScreen(
     onOpenEmail: (String) -> Unit,
     onCompose: () -> Unit,
+    onSearch: () -> Unit,
     onSignOut: () -> Unit,
     viewModel: InboxViewModel = viewModel(),
 ) {
@@ -115,6 +111,7 @@ fun InboxScreen(
                         }
                     },
                     actions = {
+                        TextButton(onClick = onSearch) { Text("Search") }
                         TextButton(onClick = onSignOut) { Text("Sign out") }
                     },
                     scrollBehavior = scrollBehavior,
@@ -205,83 +202,6 @@ private fun SwipeableEmailRow(
             }
         },
     ) {
-        EmailRow(email = email, onClick = onClick)
+        EmailListItem(email = email, onClick = onClick)
     }
-}
-
-@Composable
-private fun EmailRow(email: Email, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val unread = !email.isSeen
-    val senderName = email.from.firstOrNull()?.display() ?: "(unknown sender)"
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Monogram(seed = email.from.firstOrNull()?.email ?: senderName, label = senderName)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = senderName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = if (unread) FontWeight.Medium else FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(8.dp))
-                if (email.isFlagged) {
-                    Text("★", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(6.dp))
-                }
-                Text(
-                    text = formatReceived(email.receivedAt),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (unread) {
-                    Spacer(Modifier.width(8.dp))
-                    Box(
-                        Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                    )
-                }
-            }
-            Text(
-                text = email.subject?.takeIf { it.isNotBlank() } ?: "(no subject)",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            email.preview?.takeIf { it.isNotBlank() }?.let { preview ->
-                Text(
-                    text = preview,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
-}
-
-private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-private val dateFormatter = DateTimeFormatter.ofPattern("d MMM")
-
-private fun formatReceived(iso: String?): String {
-    if (iso.isNullOrBlank()) return ""
-    val instant = runCatching { Instant.parse(iso) }
-        .recoverCatching { OffsetDateTime.parse(iso).toInstant() }
-        .getOrNull() ?: return ""
-    val zoned = instant.atZone(ZoneId.systemDefault())
-    val today = ZonedDateTime.now().toLocalDate()
-    return zoned.format(if (zoned.toLocalDate() == today) timeFormatter else dateFormatter)
 }
