@@ -23,48 +23,51 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Offline reading (Room cache)
 - ✅ Mark read/unread, flag/star, archive, delete *(M3)*
 - ✅ Folder navigation drawer; view any mailbox *(M3)*
-- 💡 ⭐ Conversation threading — JMAP has native `Thread` objects
-- 💡 Configurable swipe actions (e.g. swipe to archive / delete)
+- ✅ ⭐ Conversation threading — JMAP native `Thread` objects (collapsed list + thread view)
+- ✅ Pull-to-refresh
+- ✅ Swipe actions (swipe to delete / mark read)
+- 💡 Configurable swipe actions
 - 💡 Multi-select and bulk actions
 - 💡 Snooze a message until later
-- 💡 Pull-to-refresh and paginated "load more"
+- 💡 Paginated "load more"
 - 💡 Pin/star to top; report spam / not-spam (move to Junk role)
 
 ## Organisation & search
 
 - ✅ Mailbox listing
+- ✅ ⭐ Server-side search — `Email/query` `text` filter + `Email/get`
 - 💡 Unified inbox across multiple accounts
-- 💡 ⭐ Server-side search — `Email/query` filters (from, subject, body,
-  has-attachment, date) plus `SearchSnippet` for highlighted results
+- 💡 Richer search filters (from, subject, has-attachment, date) + `SearchSnippet` highlights
 - 💡 Folder management (create / rename / subscribe), per-folder settings
 - 💡 Quick filters: unread-only, starred-only, has-attachment
 
-## Composing & sending *(M4)*
+## Composing & sending
 
-- 🔜 Compose and send (`EmailSubmission/set`)
+- ✅ Compose and send (`EmailSubmission/set`)
+- ✅ Reply / reply-all / forward with quoting (threaded via `inReplyTo`/`references`)
+- ✅ Save drafts
+- 🔜 **Attachments: pick, inline images, save/share incoming** — *next*
 - 💡 Rich-text editor plus plain-text mode
-- 💡 Drafts, Outbox, and Undo send (hold-back window)
+- 💡 Outbox, and Undo send (hold-back window)
 - 💡 ⭐ Schedule send — JMAP `EmailSubmission` supports a future `sendAt`
-- 💡 Reply / reply-all / forward with quoting
-- 💡 Attachments: pick, inline images, save/share incoming, "forgot
-  attachment?" reminder
+- 💡 "Forgot attachment?" reminder
 - 💡 ⭐ Multiple identities (JMAP `Identity` objects) with per-identity signatures
 - 💡 Read-receipt request and response
 
 ## Accounts & setup
 
-- ✅ Encrypted account persistence (single account)
-- 🔜 Multiple accounts *(M5)*
+- ✅ Encrypted account persistence (AndroidKeyStore)
+- ✅ Multiple accounts — add / switch / sign out, with migration
 - 💡 Onboarding via `/.well-known/jmap` autodiscovery; OAuth2 / Bearer auth
 - 💡 Per-account colour coding
 - 💡 Settings export / import
 
-## Sync, push & notifications *(M5)*
+## Sync, push & notifications
 
-- 🔜 Incremental sync (`/changes` + per-type `state`), WorkManager
-- 🔜 ⭐ Push via JMAP EventSource / WebSocket (no IMAP IDLE battery drain)
-- 💡 Rich notifications: per-account, bundled, with quick actions
-  (reply / archive / delete / mark-read)
+- ✅ Incremental sync (`Email/queryChanges` + `Email/changes` + per-type `state`)
+- ✅ ⭐ Push via JMAP EventSource (foreground service, no Google/FCM, no IMAP IDLE drain)
+- ✅ New-mail notifications (per current account, or all accounts via a setting)
+- 💡 Rich notifications: bundled, with quick actions (reply / archive / delete / mark-read)
 - 💡 Quiet hours / Do-Not-Disturb windows
 
 ## Privacy & security
@@ -83,8 +86,9 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 ## UX & accessibility
 
 - ✅ Material 3 / Material You dynamic colour, follows system theme
+- ✅ Contact avatars / sender initials (monograms)
+- ✅ Settings screen (push scope)
 - 💡 Theme toggle (auto / light / dark); message-list density options
-- 💡 Contact avatars / sender initials
 - 💡 Home-screen widget(s) (unread count / inbox)
 - 💡 Accessibility pass (TalkBack, font scaling)
 
