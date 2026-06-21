@@ -62,6 +62,35 @@ class AccountStore(context: Context) {
         return id
     }
 
+    /** Look up a single stored account by id. */
+    fun account(id: String): StoredAccount? = accounts().firstOrNull { it.id == id }
+
+    /**
+     * Update the editable server settings for an account, preserving its id and
+     * inbox metadata (inboxId/inboxName/unread). No-op if the id is unknown.
+     */
+    fun updateAccount(id: String, server: String, username: String, accountName: String) {
+        saveAccounts(
+            accounts().map {
+                if (it.id == id) {
+                    it.copy(
+                        server = server.trim(),
+                        username = username.trim(),
+                        accountName = accountName.trim(),
+                    )
+                } else {
+                    it
+                }
+            },
+        )
+    }
+
+    /** Re-encrypt and store a new password for the account. */
+    fun updatePassword(id: String, password: String) {
+        if (accounts().none { it.id == id }) return
+        writePassword(id, password)
+    }
+
     /** Remove an account; if it was current, fall back to another (or none). */
     fun remove(id: String) {
         prefs.edit().remove(passwordKey(id)).apply()
