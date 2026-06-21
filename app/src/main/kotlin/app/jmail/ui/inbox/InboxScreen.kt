@@ -16,11 +16,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Delete
@@ -103,9 +106,14 @@ fun InboxScreen(
 ) {
     val ui by viewModel.state.collectAsStateWithLifecycle()
     val swipe by viewModel.swipeConfig.collectAsStateWithLifecycle()
+    val selectionActive by viewModel.selectionActive.collectAsStateWithLifecycle()
+    val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
     val undo by viewModel.undo.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+
+    // Back exits multi-select mode first.
+    BackHandler(enabled = selectionActive) { viewModel.clearSelection() }
 
     // Show an Undo snackbar whenever a swipe deletes/archives a message.
     LaunchedEffect(undo) {
@@ -198,7 +206,27 @@ fun InboxScreen(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
-                if (ui.searching) {
+                if (selectionActive) {
+                    TopAppBar(
+                        navigationIcon = {
+                            IconButton(onClick = { viewModel.clearSelection() }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Cancel selection")
+                            }
+                        },
+                        title = { Text("${selectedIds.size} selected") },
+                        actions = {
+                            IconButton(onClick = { viewModel.markSelectedRead() }) {
+                                Icon(Icons.Filled.DoneAll, contentDescription = "Mark read")
+                            }
+                            IconButton(onClick = { viewModel.archiveSelected() }) {
+                                Icon(Icons.Filled.Archive, contentDescription = "Archive")
+                            }
+                            IconButton(onClick = { viewModel.deleteSelected() }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                            }
+                        },
+                    )
+                } else if (ui.searching) {
                     val focusRequester = remember { FocusRequester() }
                     LaunchedEffect(Unit) { focusRequester.requestFocus() }
                     TopAppBar(
@@ -288,6 +316,11 @@ fun InboxScreen(
                             }
                             DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
                                 DropdownMenuItem(
+                                    text = { Text("Select all") },
+                                    leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
+                                    onClick = { viewModel.selectAll(); overflowOpen = false },
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Mark all read") },
                                     leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
                                     onClick = { viewModel.markAllRead(); overflowOpen = false },
@@ -326,13 +359,19 @@ fun InboxScreen(
                                 rightAction = swipe.right,
                                 leftAction = swipe.left,
                                 onSwipe = { action -> performSwipe(action, email, viewModel) },
-                                onClick = { onOpenEmail(email.id, email.accountId) },
+                                onClick = {
+                                    if (selectionActive) viewModel.toggleSelect(email.id)
+                                    else onOpenEmail(email.id, email.accountId)
+                                },
+                                onLongClick = { viewModel.enterSelection(email.id) },
                                 onToggleFavourite = {
                                     val favouriting = !email.isFlagged
                                     viewModel.toggleFlag(email)
                                     // Favourites pin to the top — scroll there so it's visibly landing, not "vanishing".
                                     if (favouriting) scope.launch { listState.animateScrollToItem(0) }
                                 },
+                                selected = email.id in selectedIds,
+                                gesturesEnabled = !selectionActive,
                                 modifier = Modifier.animateItem(),
                             )
                             HorizontalDivider()
@@ -363,7 +402,10 @@ private fun SwipeableEmailRow(
     leftAction: SwipeAction,
     onSwipe: (SwipeAction) -> Unit,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     onToggleFavourite: () -> Unit,
+    selected: Boolean,
+    gesturesEnabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
@@ -384,6 +426,7 @@ private fun SwipeableEmailRow(
     SwipeToDismissBox(
         state = dismissState,
         modifier = modifier,
+        gesturesEnabled = gesturesEnabled,
         backgroundContent = {
             val toStart = dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
             val action = if (toStart) leftAction else rightAction
@@ -408,6 +451,8 @@ private fun SwipeableEmailRow(
             onClick = onClick,
             accountLabel = accountLabel,
             onToggleFavourite = onToggleFavourite,
+            selected = selected,
+            onLongClick = onLongClick,
         )
     }
 }

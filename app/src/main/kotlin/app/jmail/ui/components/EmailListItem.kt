@@ -1,7 +1,9 @@
 package app.jmail.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +34,7 @@ import java.time.format.DateTimeFormatter
  * One row in a message list: monogram, sender, subject, preview, time + state.
  * [accountLabel] shows the owning account as a chip — set only in the unified inbox.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun EmailListItem(
     email: Email,
@@ -39,6 +42,8 @@ fun EmailListItem(
     modifier: Modifier = Modifier,
     accountLabel: String? = null,
     onToggleFavourite: (() -> Unit)? = null,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val unread = !email.isSeen
     val senderName = email.from.firstOrNull()?.display() ?: "(unknown sender)"
@@ -52,8 +57,11 @@ fun EmailListItem(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
-            .clickable(onClick = onClick)
+            .background(
+                if (selected) MaterialTheme.colorScheme.secondaryContainer
+                else MaterialTheme.colorScheme.surface,
+            )
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(start = 16.dp, end = 4.dp, top = rowPadding, bottom = rowPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {

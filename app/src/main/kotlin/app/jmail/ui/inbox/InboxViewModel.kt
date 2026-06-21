@@ -120,6 +120,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Transient view filter: show only unread on the current view. */
     private val unreadOnly = MutableStateFlow(false)
 
+    /** Multi-select mode: which message ids are selected (empty + inactive = off). */
+    private val _selectedIds = MutableStateFlow<Set<String>>(emptySet())
+    val selectedIds: StateFlow<Set<String>> = _selectedIds.asStateFlow()
+    private val _selectionActive = MutableStateFlow(false)
+    val selectionActive: StateFlow<Boolean> = _selectionActive.asStateFlow()
+
     private val baseState = combine(emails, mailboxes, selection, meta, status) { emails, mailboxes, sel, meta, status ->
         Base(
             emails = emails,
@@ -304,6 +310,45 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    // ---- multi-select ----
+
+    fun enterSelection(emailId: String) {
+        _selectionActive.value = true
+        _selectedIds.value = setOf(emailId)
+    }
+
+    fun toggleSelect(emailId: String) {
+        _selectedIds.value = _selectedIds.value.toMutableSet().apply {
+            if (!add(emailId)) remove(emailId)
+        }
+    }
+
+    fun selectAll() {
+        _selectionActive.value = true
+        _selectedIds.value = state.value.emails.map { it.id }.toSet()
+    }
+
+    fun clearSelection() {
+        _selectionActive.value = false
+        _selectedIds.value = emptySet()
+    }
+
+    /** Apply a bulk action to the selected messages, then exit selection mode. */
+    private fun bulk(op: suspend (AccountCredentials, String) -> Unit) {
+        val selected = state.value.emails.filter { it.id in _selectedIds.value }
+        clearSelection()
+        viewModelScope.launch {
+            selected.forEach { email ->
+                val credentials = credentialsFor(email) ?: return@forEach
+                runCatching { op(credentials, email.id) }
+            }
+        }
+    }
+
+    fun markSelectedRead() = bulk { c, id -> repo.setRead(c, id, true) }
+    fun deleteSelected() = bulk { c, id -> repo.delete(c, id) }
+    fun archiveSelected() = bulk { c, id -> repo.archive(c, id) }
 
     // ---- inline search ----
 

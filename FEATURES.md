@@ -28,7 +28,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive
 - ✅ Configurable swipe actions (left/right, in Settings → Reading)
 - ✅ Sort (newest/oldest, subject, sender, unread-first) + Mark-all-read
-- 💡 Multi-select and bulk actions
+- ✅ Multi-select (long-press / select-all) with bulk mark-read, archive, delete
 - 💡 Snooze a message until later
 - 💡 Paginated "load more"
 - ✅ Favourite (star) per row, tappable; favourites pin to the top
