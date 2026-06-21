@@ -5,12 +5,14 @@ import android.content.Context
 import app.jmail.core.data.DataFactory
 import app.jmail.core.data.account.AccountStore
 import app.jmail.core.data.mail.MailRepository
+import app.jmail.core.data.settings.SettingsRepository
 import app.jmail.core.jmap.JmapClient
 import app.jmail.security.AppLock
 
 /** Simple manual DI container — holds app-wide singletons. */
 class AppContainer(context: Context) {
     val accountStore: AccountStore = AccountStore(context.applicationContext)
+    val settingsRepository: SettingsRepository = SettingsRepository(context.applicationContext)
     private val jmapClient: JmapClient = JmapClient()
     val mailRepository: MailRepository = DataFactory.mailRepository(context.applicationContext, jmapClient)
     val appLock: AppLock = AppLock(accountStore)
