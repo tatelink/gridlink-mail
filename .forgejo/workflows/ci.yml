@@ -40,7 +40,9 @@ jobs:
         run: |
           set -eux
           SDK="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SDK" --licenses
+          # `yes` gets SIGPIPE (141) when sdkmanager exits; under bash pipefail that
+          # would abort the step even though licenses are accepted, so swallow it.
+          yes | "$SDK" --licenses > /dev/null 2>&1 || true
           "$SDK" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Unit tests
