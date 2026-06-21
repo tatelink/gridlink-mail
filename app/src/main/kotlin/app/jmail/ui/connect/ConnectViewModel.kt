@@ -34,7 +34,7 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                 val credentials = AccountCredentials(server.trim(), username.trim(), password)
                 val meta = container.mailRepository.refresh(credentials)
                 // Only persist once we know they work.
-                container.accountStore.save(server, username, password)
+                container.accountStore.add(server, username, password, meta.accountName)
                 container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
                 _state.value = ConnectState.Connected
             } catch (t: Throwable) {

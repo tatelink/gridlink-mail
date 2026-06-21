@@ -34,6 +34,7 @@ class MailRepository(
     private val mailboxDao: MailboxDao,
 ) {
     private class Context(
+        val credentials: AccountCredentials,
         val session: JmapSession,
         val accountId: String,
         val auth: JmapAuth,
@@ -64,6 +65,7 @@ class MailRepository(
         val mailboxes = client.getMailboxes(session, accountId, auth)
         mailboxDao.replaceAll(mailboxes.map { it.toEntity() })
         context = Context(
+            credentials = credentials,
             session = session,
             accountId = accountId,
             auth = auth,
@@ -150,13 +152,43 @@ class MailRepository(
     suspend fun cachedEmails(mailboxId: String): List<Email> =
         emailDao.getByMailbox(mailboxId).map { it.toEmail() }
 
-    /** Open a JMAP push connection; [onInboxChanged] fires when this account's mail changes. */
-    suspend fun openInboxPush(credentials: AccountCredentials, onInboxChanged: () -> Unit): Closeable {
-        val ctx = connect(credentials)
+    private class Resolved(
+        val session: JmapSession,
+        val accountId: String,
+        val auth: JmapAuth,
+        val mailboxes: List<Mailbox>,
+    )
+
+    /** Fetch a fresh session + mailboxes for [credentials] without touching the cached context. */
+    private suspend fun resolve(credentials: AccountCredentials): Resolved {
+        val auth = BasicAuth(credentials.username, credentials.password)
+        val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
+        val accountId = session.mailAccountId() ?: error("This user has no JMAP mail account.")
+        val mailboxes = client.getMailboxes(session, accountId, auth)
+        return Resolved(session, accountId, auth, mailboxes)
+    }
+
+    /**
+     * Refresh a specific account's inbox into the cache and return (mailboxId, emails).
+     * Independent of the current-account context, so it is safe for background push.
+     */
+    suspend fun refreshAccountInbox(credentials: AccountCredentials, limit: Int = 50): Pair<String, List<Email>> {
+        val resolved = resolve(credentials)
+        val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
+            ?: resolved.mailboxes.firstOrNull()
+            ?: error("No mailboxes found.")
+        val emails = client.queryEmails(resolved.session, resolved.accountId, inbox.id, limit, resolved.auth)
+        emailDao.replaceMailbox(inbox.id, emails.map { it.toEntity(resolved.accountId, inbox.id) })
+        return inbox.id to emails
+    }
+
+    /** Open a push connection for a specific account; [onChanged] fires when its mail changes. */
+    suspend fun openAccountPush(credentials: AccountCredentials, onChanged: () -> Unit): Closeable {
+        val resolved = resolve(credentials)
         return client.openEventSource(
-            session = ctx.session,
-            auth = ctx.auth,
-            onStateChange = { change -> if (change.emailChanged(ctx.accountId)) onInboxChanged() },
+            session = resolved.session,
+            auth = resolved.auth,
+            onStateChange = { change -> if (change.emailChanged(resolved.accountId)) onChanged() },
             onClosed = {},
         )
     }
@@ -219,7 +251,7 @@ class MailRepository(
 
     /** Establish (or reuse) a session + mailbox-role map for the credentials. */
     private suspend fun connect(credentials: AccountCredentials): Context {
-        context?.let { return it }
+        context?.let { if (it.credentials == credentials) return it }
         val auth = BasicAuth(credentials.username, credentials.password)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
         val accountId = session.mailAccountId()
@@ -227,6 +259,6 @@ class MailRepository(
         val roles = client.getMailboxes(session, accountId, auth)
             .mapNotNull { mb -> mb.role?.let { it to mb.id } }
             .toMap()
-        return Context(session, accountId, auth, roles).also { context = it }
+        return Context(credentials, session, accountId, auth, roles).also { context = it }
     }
 }

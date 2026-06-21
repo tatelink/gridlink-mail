@@ -19,15 +19,15 @@ import kotlinx.coroutines.launch
 import java.io.Closeable
 
 /**
- * Foreground service holding a JMAP EventSource (SSE) connection so new mail
- * arrives instantly — no Google/FCM. On a StateChange it refreshes the inbox and
- * notifies for genuinely new, unseen messages.
+ * Foreground service holding JMAP EventSource (SSE) connections so new mail
+ * arrives instantly — no Google/FCM. Watches the current account, or all accounts
+ * when the user enables that preference. onStartCommand reconnects, so switching
+ * accounts (start() again) re-points the connections.
  */
 class PushService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var connection: Closeable? = null
-    private var knownIds: Set<String> = emptySet()
-    private var inboxId: String? = null
+    private val connections = mutableListOf<Closeable>()
+    private val baselines = mutableMapOf<String, Set<String>>()
 
     override fun onCreate() {
         super.onCreate()
@@ -38,47 +38,55 @@ class PushService : Service() {
             0
         }
         ServiceCompat.startForeground(this, Notifications.SERVICE_ID, Notifications.serviceNotification(this), type)
-        connect()
     }
 
-    private fun connect() {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        reconnect()
+        return START_STICKY
+    }
+
+    private fun reconnect() {
         scope.launch {
-            val credentials = application.container.accountStore.load()
-            if (credentials == null) {
+            connections.forEach { runCatching { it.close() } }
+            connections.clear()
+            baselines.clear()
+
+            val store = application.container.accountStore
+            val repo = application.container.mailRepository
+            val accounts = if (store.pushAllAccounts()) store.allCredentials() else listOfNotNull(store.load())
+            if (accounts.isEmpty()) {
                 stopSelf()
                 return@launch
             }
-            runCatching {
-                val meta = application.container.mailRepository.refresh(credentials)
-                inboxId = meta.mailboxId
-                knownIds = application.container.mailRepository.cachedEmails(meta.mailboxId).map { it.id }.toSet()
-                connection = application.container.mailRepository.openInboxPush(credentials) {
-                    Log.i(TAG, "StateChange received -> refreshing inbox")
-                    scope.launch { onInboxChanged(credentials) }
-                }
-                Log.i(TAG, "EventSource connected; baseline ${knownIds.size} emails in inbox ${meta.mailboxId}")
-            }.onFailure { Log.e(TAG, "Push connect failed", it) }
+            accounts.forEach { credentials ->
+                runCatching {
+                    val (_, emails) = repo.refreshAccountInbox(credentials)
+                    baselines[credentials.id] = emails.map { it.id }.toSet()
+                    connections += repo.openAccountPush(credentials) {
+                        scope.launch { onAccountChanged(credentials) }
+                    }
+                }.onFailure { Log.e(TAG, "Push watch failed for ${credentials.username}", it) }
+            }
+            Log.i(TAG, "Watching ${accounts.size} account(s) for new mail")
         }
     }
 
-    private suspend fun onInboxChanged(credentials: AccountCredentials) {
-        val mailboxId = inboxId ?: return
+    private suspend fun onAccountChanged(credentials: AccountCredentials) {
+        val repo = application.container.mailRepository
         runCatching {
-            application.container.mailRepository.refresh(credentials, mailboxId)
-            val emails = application.container.mailRepository.cachedEmails(mailboxId)
-            val newMail = emails.filter { it.id !in knownIds && !it.isSeen }
-            Log.i(TAG, "inbox refreshed: ${emails.size} total, ${newMail.size} new unseen")
+            val (_, emails) = repo.refreshAccountInbox(credentials)
+            val known = baselines[credentials.id].orEmpty()
+            val newMail = emails.filter { it.id !in known && !it.isSeen }
+            Log.i(TAG, "${credentials.username}: ${emails.size} total, ${newMail.size} new unseen")
             newMail.forEach { Notifications.notifyNewMail(this, it) }
-            knownIds = emails.map { it.id }.toSet()
-        }.onFailure { Log.e(TAG, "onInboxChanged failed", it) }
+            baselines[credentials.id] = emails.map { it.id }.toSet()
+        }.onFailure { Log.e(TAG, "onAccountChanged failed", it) }
     }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        connection?.close()
+        connections.forEach { runCatching { it.close() } }
         scope.cancel()
         super.onDestroy()
     }

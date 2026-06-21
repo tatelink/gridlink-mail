@@ -61,6 +61,11 @@ fun InboxScreen(
     onOpenEmail: (String) -> Unit,
     onCompose: () -> Unit,
     onSearch: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onAddAccount: () -> Unit,
+    accounts: List<app.jmail.core.data.account.StoredAccount>,
+    currentAccountId: String,
+    onSwitchAccount: (String) -> Unit,
     onSignOut: () -> Unit,
     viewModel: InboxViewModel = viewModel(),
 ) {
@@ -75,10 +80,32 @@ fun InboxScreen(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
+                val currentLabel = accounts.firstOrNull { it.id == currentAccountId }?.label()
+                    ?: ui.accountName.ifBlank { "Jmail" }
                 Text(
-                    text = ui.accountName.ifBlank { "Jmail" },
+                    text = currentLabel,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(16.dp),
+                )
+                accounts.filter { it.id != currentAccountId }.forEach { account ->
+                    NavigationDrawerItem(
+                        label = { Text("Switch to ${account.label()}") },
+                        selected = false,
+                        onClick = {
+                            onSwitchAccount(account.id)
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                }
+                NavigationDrawerItem(
+                    label = { Text("Add account") },
+                    selected = false,
+                    onClick = {
+                        onAddAccount()
+                        scope.launch { drawerState.close() }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp),
                 )
                 HorizontalDivider()
                 ui.mailboxes.forEach { mailbox ->
@@ -97,6 +124,16 @@ fun InboxScreen(
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                 }
+                HorizontalDivider()
+                NavigationDrawerItem(
+                    label = { Text("Settings") },
+                    selected = false,
+                    onClick = {
+                        onOpenSettings()
+                        scope.launch { drawerState.close() }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
             }
         },
     ) {
