@@ -45,6 +45,8 @@ data class Email(
     val from: List<EmailAddress> = emptyList(),
     val to: List<EmailAddress> = emptyList(),
     val cc: List<EmailAddress> = emptyList(),
+    val messageId: List<String> = emptyList(),
+    val references: List<String> = emptyList(),
     val hasAttachment: Boolean = false,
     val keywords: Map<String, Boolean> = emptyMap(),
     val htmlBody: List<EmailBodyPart> = emptyList(),

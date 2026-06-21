@@ -166,7 +166,14 @@ class MailRepository(
     }
 
     /** Compose and send a plain-text email from the account's first identity. */
-    suspend fun send(credentials: AccountCredentials, to: List<String>, subject: String, body: String) {
+    suspend fun send(
+        credentials: AccountCredentials,
+        to: List<String>,
+        subject: String,
+        body: String,
+        inReplyTo: List<String> = emptyList(),
+        references: List<String> = emptyList(),
+    ) {
         val ctx = connect(credentials)
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
         require(recipients.isNotEmpty()) { "Add at least one recipient." }
@@ -189,6 +196,8 @@ class MailRepository(
             textBody = body,
             draftMailboxId = draftsId,
             sentMailboxId = sentId,
+            inReplyTo = inReplyTo,
+            references = references,
         )
     }
 

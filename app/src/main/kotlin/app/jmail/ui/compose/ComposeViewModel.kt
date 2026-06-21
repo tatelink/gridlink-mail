@@ -32,6 +32,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     val prefill: StateFlow<DraftFields?> = _prefill.asStateFlow()
 
     private var prepared = false
+    // Threading headers for a reply (empty for new/forward).
+    private var inReplyTo: List<String> = emptyList()
+    private var references: List<String> = emptyList()
 
     /** Build initial fields when opening as a reply/reply-all/forward of [replyToId]. */
     fun prepare(replyToId: String?, mode: String?) {
@@ -43,6 +46,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 val credentials = store.load() ?: return@launch
                 val original = repo.fetchEmail(credentials, replyToId)
                 _prefill.value = buildPrefill(original, mode, credentials.username)
+                if (mode != "forward") {
+                    inReplyTo = original.messageId
+                    references = original.references + original.messageId
+                }
             } catch (_: Throwable) {
                 // Leave fields blank if the original can't be loaded.
             }
@@ -50,7 +57,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun send(to: String, subject: String, body: String) =
-        submit(to) { credentials, recipients -> repo.send(credentials, recipients, subject, body) }
+        submit(to) { credentials, recipients ->
+            repo.send(credentials, recipients, subject, body, inReplyTo, references)
+        }
 
     fun saveDraft(to: String, subject: String, body: String) =
         submit(to) { credentials, recipients -> repo.saveDraft(credentials, recipients, subject, body) }

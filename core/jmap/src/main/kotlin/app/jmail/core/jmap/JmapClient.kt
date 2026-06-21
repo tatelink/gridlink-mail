@@ -247,7 +247,8 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "cc", "hasAttachment", "keywords",
+                                "from", "to", "cc", "messageId", "references",
+                                "hasAttachment", "keywords",
                                 "htmlBody", "textBody", "bodyValues",
                             ).forEach { add(it) }
                         }
@@ -423,6 +424,8 @@ class JmapClient internal constructor(
         textBody: String,
         draftMailboxId: String,
         sentMailboxId: String,
+        inReplyTo: List<String> = emptyList(),
+        references: List<String> = emptyList(),
     ) = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
@@ -440,6 +443,12 @@ class JmapClient internal constructor(
                                 putJsonArray("from") { addJsonObject { addAddress(from) } }
                                 putJsonArray("to") { to.forEach { addJsonObject { addAddress(it) } } }
                                 put("subject", subject)
+                                if (inReplyTo.isNotEmpty()) {
+                                    putJsonArray("inReplyTo") { inReplyTo.forEach { add(it) } }
+                                }
+                                if (references.isNotEmpty()) {
+                                    putJsonArray("references") { references.forEach { add(it) } }
+                                }
                                 putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
                                 putJsonObject("mailboxIds") { put(draftMailboxId, true) }
                                 putJsonArray("textBody") {
