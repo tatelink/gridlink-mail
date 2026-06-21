@@ -109,8 +109,16 @@ fun InboxScreen(
     val selectionActive by viewModel.selectionActive.collectAsStateWithLifecycle()
     val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
     val undo by viewModel.undo.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+
+    // Surface transient action errors (e.g. "no Archive folder") in a snackbar.
+    LaunchedEffect(message) {
+        val m = message ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(m)
+        viewModel.clearMessage()
+    }
 
     // Back exits multi-select mode first.
     BackHandler(enabled = selectionActive) { viewModel.clearSelection() }
@@ -409,6 +417,8 @@ private fun SwipeableEmailRow(
     modifier: Modifier = Modifier,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
+        // Require a deliberate ~half-width swipe so an accidental drag while scrolling doesn't fire.
+        positionalThreshold = { distance -> distance * 0.5f },
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.StartToEnd -> {

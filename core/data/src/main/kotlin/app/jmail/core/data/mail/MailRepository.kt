@@ -249,6 +249,13 @@ class MailRepository(
     suspend fun cachedEmails(mailboxId: String): List<Email> =
         emailDao.getByMailbox(mailboxId).map { it.toEmail() }
 
+    /** Remove a message from the local cache only (optimistic UI removal). */
+    suspend fun evict(emailId: String) = emailDao.deleteById(emailId)
+
+    /** Whether [credentials]' account has an Archive folder (so an archive action can work). */
+    suspend fun hasArchiveFolder(credentials: AccountCredentials): Boolean =
+        connect(credentials).rolesToMailboxId.containsKey("archive")
+
     private class Resolved(
         val session: JmapSession,
         val accountId: String,

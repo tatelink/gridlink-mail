@@ -98,6 +98,14 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val _undo = MutableStateFlow<UndoAction?>(null)
     val undo: StateFlow<UndoAction?> = _undo.asStateFlow()
 
+    /** A transient message to surface in a snackbar (e.g. an action error). */
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    fun clearMessage() {
+        _message.value = null
+    }
+
     private val selection = MutableStateFlow<Sel>(Sel.Folder(store.inboxMailboxId()))
     private val unifiedInboxIds = MutableStateFlow(store.allInboxMailboxIds())
     private val meta = MutableStateFlow(
@@ -237,30 +245,32 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Swipe action: delete (move to Trash); the row leaves the cached list. */
-    fun delete(email: Email) {
-        viewModelScope.launch {
-            val credentials = credentialsFor(email) ?: return@launch
-            runCatching { repo.delete(credentials, email.id) }
-                .onSuccess { offerUndo(email, "Message deleted") }
-                .onFailure { status.value = Status(refreshing = false, error = it.message) }
-        }
-    }
+    /** Swipe action: delete (move to Trash). */
+    fun delete(email: Email) = swipeRemove(email, "Message deleted") { c, id -> repo.delete(c, id) }
 
-    /** Swipe action: archive; the row leaves the cached list. */
-    fun archive(email: Email) {
-        viewModelScope.launch {
-            val credentials = credentialsFor(email) ?: return@launch
-            runCatching { repo.archive(credentials, email.id) }
-                .onSuccess { offerUndo(email, "Message archived") }
-                .onFailure { status.value = Status(refreshing = false, error = it.message) }
-        }
-    }
+    /** Swipe action: archive. */
+    fun archive(email: Email) = swipeRemove(email, "Message archived") { c, id -> repo.archive(c, id) }
 
-    /** Offer to undo the action that just removed [email] from its mailbox. */
-    private fun offerUndo(email: Email, label: String) {
-        val mailboxId = email.mailboxId ?: return
-        _undo.value = UndoAction(email.id, email.accountId, mailboxId, label)
+    /**
+     * Remove [email] optimistically (so the row leaves instantly — never stuck mid-swipe), run
+     * the server [op], then either offer Undo on success or restore the row + report the error.
+     */
+    private fun swipeRemove(email: Email, label: String, op: suspend (AccountCredentials, String) -> Unit) {
+        val credentials = credentialsFor(email) ?: return
+        val mailboxId = email.mailboxId
+        viewModelScope.launch {
+            repo.evict(email.id)
+            runCatching { op(credentials, email.id) }
+                .onSuccess {
+                    if (mailboxId != null) {
+                        _undo.value = UndoAction(email.id, email.accountId, mailboxId, label)
+                    }
+                }
+                .onFailure {
+                    _message.value = it.message ?: "Couldn't complete the action."
+                    refresh() // the server op failed — bring the optimistically-removed row back
+                }
+        }
     }
 
     /** Move the last deleted/archived message back to its original mailbox. */
