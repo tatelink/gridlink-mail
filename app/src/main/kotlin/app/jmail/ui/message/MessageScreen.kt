@@ -10,9 +10,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -39,6 +42,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.jmail.core.jmap.model.Email
+import app.jmail.ui.components.Monogram
 import java.io.ByteArrayInputStream
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -211,6 +215,7 @@ private fun ThreadSection(siblings: List<Email>, onOpenEmail: (String) -> Unit) 
 
 @Composable
 private fun Header(email: Email) {
+    val sender = email.from.firstOrNull()
     Column(
         Modifier
             .fillMaxWidth()
@@ -220,22 +225,43 @@ private fun Header(email: Email) {
             text = email.subject?.takeIf { it.isNotBlank() } ?: "(no subject)",
             style = MaterialTheme.typography.titleLarge,
         )
-        Text(
-            text = "From: " + email.from.joinToString { it.display() }.ifBlank { "(unknown)" },
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Monogram(seed = sender?.email ?: "?", label = sender?.display() ?: "?")
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = sender?.display() ?: "(unknown sender)",
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (sender != null && !sender.name.isNullOrBlank() && sender.email.isNotBlank()) {
+                    Text(
+                        text = sender.email,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    text = formatFull(email.receivedAt),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         if (email.to.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = "To: " + email.to.joinToString { it.display() },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-        Text(
-            text = formatFull(email.receivedAt),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
