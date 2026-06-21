@@ -28,6 +28,9 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -134,9 +137,11 @@ fun InboxScreen(
                 when {
                     ui.emails.isNotEmpty() -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         items(ui.emails, key = { it.id }) { email ->
-                            EmailRow(
+                            SwipeableEmailRow(
                                 email = email,
                                 onClick = { onOpenEmail(email.id) },
+                                onToggleRead = { viewModel.toggleRead(email) },
+                                onDelete = { viewModel.delete(email.id) },
                                 modifier = Modifier.animateItem(),
                             )
                             HorizontalDivider()
@@ -158,6 +163,52 @@ fun InboxScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeableEmailRow(
+    email: Email,
+    onClick: () -> Unit,
+    onToggleRead: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> { onToggleRead(); false } // snap back
+                SwipeToDismissBoxValue.EndToStart -> { onDelete(); true } // dismiss
+                SwipeToDismissBoxValue.Settled -> false
+            }
+        },
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        modifier = modifier,
+        backgroundContent = {
+            val toStart = dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
+            val color = if (toStart) MaterialTheme.colorScheme.errorContainer
+            else MaterialTheme.colorScheme.secondaryContainer
+            val onColor = if (toStart) MaterialTheme.colorScheme.onErrorContainer
+            else MaterialTheme.colorScheme.onSecondaryContainer
+            val label = when (dismissState.dismissDirection) {
+                SwipeToDismissBoxValue.EndToStart -> "Delete"
+                SwipeToDismissBoxValue.StartToEnd -> if (email.isSeen) "Mark unread" else "Mark read"
+                else -> ""
+            }
+            Box(
+                Modifier.fillMaxSize().background(color).padding(horizontal = 24.dp),
+                contentAlignment = if (toStart) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                if (label.isNotEmpty()) {
+                    Text(label, color = onColor, style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        },
+    ) {
+        EmailRow(email = email, onClick = onClick)
+    }
+}
+
 @Composable
 private fun EmailRow(email: Email, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val unread = !email.isSeen
@@ -165,6 +216,7 @@ private fun EmailRow(email: Email, onClick: () -> Unit, modifier: Modifier = Mod
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

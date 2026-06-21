@@ -90,6 +90,23 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         refresh()
     }
 
+    /** Swipe action: toggle read/unread (cache update drives the list). */
+    fun toggleRead(email: Email) {
+        viewModelScope.launch {
+            val credentials = store.load() ?: return@launch
+            runCatching { repo.setRead(credentials, email.id, !email.isSeen) }
+        }
+    }
+
+    /** Swipe action: delete (move to Trash); the row leaves the cached list. */
+    fun delete(emailId: String) {
+        viewModelScope.launch {
+            val credentials = store.load() ?: return@launch
+            runCatching { repo.delete(credentials, emailId) }
+                .onFailure { status.value = Status(refreshing = false, error = it.message) }
+        }
+    }
+
     private data class Meta(val accountName: String, val mailboxName: String, val unread: Int)
     private data class Status(val refreshing: Boolean, val error: String?)
 }
