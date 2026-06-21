@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.jmail.core.data.settings.ListDensity
 import app.jmail.core.jmap.model.Email
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -40,12 +41,20 @@ fun EmailListItem(
 ) {
     val unread = !email.isSeen
     val senderName = email.from.firstOrNull()?.display() ?: "(unknown sender)"
+    val density = LocalListDensity.current
+    val rowPadding = when (density) {
+        ListDensity.COMPACT -> 6.dp
+        ListDensity.NORMAL -> 10.dp
+        ListDensity.SPACED -> 16.dp
+    }
+    val showPreview = density != ListDensity.COMPACT
+    val previewLines = if (density == ListDensity.SPACED) 2 else 1
     Row(
         modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = rowPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Monogram(seed = email.from.firstOrNull()?.email ?: senderName, label = senderName)
@@ -85,14 +94,16 @@ fun EmailListItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            email.preview?.takeIf { it.isNotBlank() }?.let { preview ->
-                Text(
-                    text = preview,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            if (showPreview) {
+                email.preview?.takeIf { it.isNotBlank() }?.let { preview ->
+                    Text(
+                        text = preview,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = previewLines,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             accountLabel?.takeIf { it.isNotBlank() }?.let { label ->
                 Spacer(Modifier.size(4.dp))

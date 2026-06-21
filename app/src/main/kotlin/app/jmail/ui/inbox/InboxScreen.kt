@@ -16,11 +16,26 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.MailOutline
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
@@ -33,11 +48,15 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -45,12 +64,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.jmap.model.Email
 import app.jmail.ui.components.EmailListItem
 import kotlinx.coroutines.launch
@@ -60,7 +84,6 @@ import kotlinx.coroutines.launch
 fun InboxScreen(
     onOpenEmail: (emailId: String, accountId: String?) -> Unit,
     onCompose: () -> Unit,
-    onSearch: () -> Unit,
     onOpenSettings: () -> Unit,
     onAddAccount: () -> Unit,
     accounts: List<app.jmail.core.data.account.StoredAccount>,
@@ -70,6 +93,7 @@ fun InboxScreen(
     viewModel: InboxViewModel = viewModel(),
 ) {
     val ui by viewModel.state.collectAsStateWithLifecycle()
+    val swipe by viewModel.swipeConfig.collectAsStateWithLifecycle()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -89,6 +113,7 @@ fun InboxScreen(
                 )
                 accounts.filter { it.id != currentAccountId }.forEach { account ->
                     NavigationDrawerItem(
+                        icon = { Icon(Icons.Filled.Person, contentDescription = null) },
                         label = { Text("Switch to ${account.label()}") },
                         selected = false,
                         onClick = {
@@ -99,6 +124,7 @@ fun InboxScreen(
                     )
                 }
                 NavigationDrawerItem(
+                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
                     label = { Text("Add account") },
                     selected = false,
                     onClick = {
@@ -115,6 +141,7 @@ fun InboxScreen(
                         "All inboxes"
                     }
                     NavigationDrawerItem(
+                        icon = { Icon(Icons.Filled.MailOutline, contentDescription = null) },
                         label = { Text(unifiedLabel) },
                         selected = ui.unified,
                         onClick = {
@@ -131,6 +158,7 @@ fun InboxScreen(
                         mailbox.name
                     }
                     NavigationDrawerItem(
+                        icon = { Icon(folderIcon(mailbox.role), contentDescription = null) },
                         label = { Text(label) },
                         selected = mailbox.id == ui.selectedMailboxId,
                         onClick = {
@@ -142,6 +170,7 @@ fun InboxScreen(
                 }
                 HorizontalDivider()
                 NavigationDrawerItem(
+                    icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
                     label = { Text("Settings") },
                     selected = false,
                     onClick = {
@@ -156,19 +185,55 @@ fun InboxScreen(
         Scaffold(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
             topBar = {
-                LargeTopAppBar(
-                    title = { Text(ui.mailboxName) },
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Text("≡", style = MaterialTheme.typography.titleLarge)
-                        }
-                    },
-                    actions = {
-                        TextButton(onClick = onSearch) { Text("Search") }
-                        TextButton(onClick = onSignOut) { Text("Sign out") }
-                    },
-                    scrollBehavior = scrollBehavior,
-                )
+                if (ui.searching) {
+                    val focusRequester = remember { FocusRequester() }
+                    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+                    TopAppBar(
+                        navigationIcon = {
+                            IconButton(onClick = { viewModel.setSearchActive(false) }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Close search")
+                            }
+                        },
+                        title = {
+                            TextField(
+                                value = ui.searchQuery,
+                                onValueChange = viewModel::setSearchQuery,
+                                placeholder = { Text("Search mail") },
+                                singleLine = true,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                ),
+                                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                            )
+                        },
+                        actions = {
+                            if (ui.searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Clear")
+                                }
+                            }
+                        },
+                    )
+                } else {
+                    LargeTopAppBar(
+                        title = { Text(ui.mailboxName) },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Filled.Menu, contentDescription = "Menu")
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { viewModel.setSearchActive(true) }) {
+                                Icon(Icons.Filled.Search, contentDescription = "Search")
+                            }
+                            TextButton(onClick = onSignOut) { Text("Sign out") }
+                        },
+                        scrollBehavior = scrollBehavior,
+                    )
+                }
             },
             floatingActionButton = {
                 ExtendedFloatingActionButton(
@@ -195,9 +260,10 @@ fun InboxScreen(
                             SwipeableEmailRow(
                                 email = email,
                                 accountLabel = accountLabel,
+                                rightAction = swipe.right,
+                                leftAction = swipe.left,
+                                onSwipe = { action -> performSwipe(action, email, viewModel) },
                                 onClick = { onOpenEmail(email.id, email.accountId) },
-                                onToggleRead = { viewModel.toggleRead(email) },
-                                onDelete = { viewModel.delete(email) },
                                 modifier = Modifier.animateItem(),
                             )
                             HorizontalDivider()
@@ -224,16 +290,23 @@ fun InboxScreen(
 private fun SwipeableEmailRow(
     email: Email,
     accountLabel: String?,
+    rightAction: SwipeAction,
+    leftAction: SwipeAction,
+    onSwipe: (SwipeAction) -> Unit,
     onClick: () -> Unit,
-    onToggleRead: () -> Unit,
-    onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> { onToggleRead(); false } // snap back
-                SwipeToDismissBoxValue.EndToStart -> { onDelete(); true } // dismiss
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    if (rightAction != SwipeAction.NONE) onSwipe(rightAction)
+                    dismissesRow(rightAction)
+                }
+                SwipeToDismissBoxValue.EndToStart -> {
+                    if (leftAction != SwipeAction.NONE) onSwipe(leftAction)
+                    dismissesRow(leftAction)
+                }
                 SwipeToDismissBoxValue.Settled -> false
             }
         },
@@ -243,19 +316,17 @@ private fun SwipeableEmailRow(
         modifier = modifier,
         backgroundContent = {
             val toStart = dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
-            val color = if (toStart) MaterialTheme.colorScheme.errorContainer
+            val action = if (toStart) leftAction else rightAction
+            val destructive = action == SwipeAction.DELETE
+            val color = if (destructive) MaterialTheme.colorScheme.errorContainer
             else MaterialTheme.colorScheme.secondaryContainer
-            val onColor = if (toStart) MaterialTheme.colorScheme.onErrorContainer
+            val onColor = if (destructive) MaterialTheme.colorScheme.onErrorContainer
             else MaterialTheme.colorScheme.onSecondaryContainer
-            val label = when (dismissState.dismissDirection) {
-                SwipeToDismissBoxValue.EndToStart -> "Delete"
-                SwipeToDismissBoxValue.StartToEnd -> if (email.isSeen) "Mark unread" else "Mark read"
-                else -> ""
-            }
             Box(
                 Modifier.fillMaxSize().background(color).padding(horizontal = 24.dp),
                 contentAlignment = if (toStart) Alignment.CenterEnd else Alignment.CenterStart,
             ) {
+                val label = swipeActionLabel(action, email)
                 if (label.isNotEmpty()) {
                     Text(label, color = onColor, style = MaterialTheme.typography.labelLarge)
                 }
@@ -264,4 +335,38 @@ private fun SwipeableEmailRow(
     ) {
         EmailListItem(email = email, onClick = onClick, accountLabel = accountLabel)
     }
+}
+
+/** Whether a swipe action removes the row from the list (vs. snapping back). */
+private fun dismissesRow(action: SwipeAction): Boolean =
+    action == SwipeAction.DELETE || action == SwipeAction.ARCHIVE
+
+/** The label shown on the swipe background for [action] on [email]. */
+private fun swipeActionLabel(action: SwipeAction, email: Email): String = when (action) {
+    SwipeAction.NONE -> ""
+    SwipeAction.TOGGLE_READ -> if (email.isSeen) "Mark unread" else "Mark read"
+    SwipeAction.DELETE -> "Delete"
+    SwipeAction.ARCHIVE -> "Archive"
+    SwipeAction.FLAG -> if (email.isFlagged) "Unflag" else "Flag"
+}
+
+/** Dispatch a configured swipe action to the view model for [email]. */
+private fun performSwipe(action: SwipeAction, email: Email, viewModel: InboxViewModel) {
+    when (action) {
+        SwipeAction.NONE -> Unit
+        SwipeAction.TOGGLE_READ -> viewModel.toggleRead(email)
+        SwipeAction.DELETE -> viewModel.delete(email)
+        SwipeAction.ARCHIVE -> viewModel.archive(email)
+        SwipeAction.FLAG -> viewModel.toggleFlag(email)
+    }
+}
+
+/** A leading icon for a folder, chosen by its JMAP role (falls back to a generic list icon). */
+private fun folderIcon(role: String?): ImageVector = when (role) {
+    "inbox" -> Icons.Filled.Email
+    "drafts" -> Icons.Filled.Create
+    "sent" -> Icons.AutoMirrored.Filled.Send
+    "trash" -> Icons.Filled.Delete
+    "junk" -> Icons.Filled.Warning
+    else -> Icons.AutoMirrored.Filled.List
 }

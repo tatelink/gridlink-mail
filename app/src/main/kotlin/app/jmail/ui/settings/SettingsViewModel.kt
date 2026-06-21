@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
+import app.jmail.core.data.settings.ListDensity
+import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.data.settings.ThemeMode
 import app.jmail.push.PushService
 import app.jmail.security.canAuthenticate
@@ -34,6 +36,24 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         initialValue = ThemeMode.SYSTEM,
     )
 
+    val listDensity = settings.listDensity.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ListDensity.NORMAL,
+    )
+
+    val swipeRight = settings.swipeRightAction.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = SwipeAction.TOGGLE_READ,
+    )
+
+    val swipeLeft = settings.swipeLeftAction.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = SwipeAction.DELETE,
+    )
+
     fun setPushAllAccounts(value: Boolean) {
         store.setPushAllAccounts(value)
         _pushAllAccounts.value = value
@@ -54,5 +74,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch { settings.setThemeMode(mode) }
+    }
+
+    fun setListDensity(density: ListDensity) {
+        viewModelScope.launch { settings.setListDensity(density) }
+    }
+
+    fun setSwipeRight(action: SwipeAction) {
+        viewModelScope.launch { settings.setSwipeRightAction(action) }
+    }
+
+    fun setSwipeLeft(action: SwipeAction) {
+        viewModelScope.launch { settings.setSwipeLeftAction(action) }
     }
 }

@@ -16,12 +16,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MailOutline
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -77,7 +83,7 @@ fun MessageScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Text("←", style = MaterialTheme.typography.titleLarge)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -86,9 +92,15 @@ fun MessageScreen(
                         TextButton(onClick = { showRemote = true }) { Text("Show images") }
                     }
                     if (loaded != null) {
+                        IconButton(onClick = { viewModel.markUnread(onBack) }) {
+                            Icon(Icons.Filled.MailOutline, contentDescription = "Mark unread")
+                        }
+                        IconButton(onClick = { viewModel.delete(onBack) }) {
+                            Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                        }
                         var menuOpen by remember { mutableStateOf(false) }
                         IconButton(onClick = { menuOpen = true }) {
-                            Text("⋮", style = MaterialTheme.typography.titleLarge)
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
@@ -108,16 +120,8 @@ fun MessageScreen(
                                 onClick = { menuOpen = false; viewModel.toggleFlag() },
                             )
                             DropdownMenuItem(
-                                text = { Text("Mark unread") },
-                                onClick = { menuOpen = false; viewModel.markUnread(onBack) },
-                            )
-                            DropdownMenuItem(
                                 text = { Text("Archive") },
                                 onClick = { menuOpen = false; viewModel.archive(onBack) },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Delete") },
-                                onClick = { menuOpen = false; viewModel.delete(onBack) },
                             )
                         }
                     }

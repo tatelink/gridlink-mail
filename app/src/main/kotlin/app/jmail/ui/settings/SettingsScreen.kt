@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Star
@@ -32,6 +33,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import app.jmail.core.data.settings.ListDensity
+import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.data.settings.ThemeMode
 
 /**
@@ -48,12 +51,16 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel(
             SettingsHub(
                 onBack = onBack,
                 onOpenAppearance = { nav.navigate("appearance") },
+                onOpenReading = { nav.navigate("reading") },
                 onOpenNotifications = { nav.navigate("notifications") },
                 onOpenPrivacy = { nav.navigate("privacy") },
             )
         }
         composable("appearance") {
             AppearanceScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
+        }
+        composable("reading") {
+            ReadingScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
         }
         composable("notifications") {
             NotificationsScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
@@ -76,11 +83,13 @@ private data class HubCategory(
 private fun SettingsHub(
     onBack: () -> Unit,
     onOpenAppearance: () -> Unit,
+    onOpenReading: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenPrivacy: () -> Unit,
 ) {
     val categories = listOf(
-        HubCategory(Icons.Filled.Star, "Appearance", "Theme, dynamic colour", onOpenAppearance),
+        HubCategory(Icons.Filled.Star, "Appearance", "Theme, density", onOpenAppearance),
+        HubCategory(Icons.AutoMirrored.Filled.List, "Reading", "Swipe actions", onOpenReading),
         HubCategory(Icons.Filled.Notifications, "Notifications", "Push scope, new mail", onOpenNotifications),
         HubCategory(Icons.Filled.Lock, "Privacy & Security", "App lock, remote images", onOpenPrivacy),
     )
@@ -101,6 +110,7 @@ private fun SettingsHub(
 @Composable
 private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val density by viewModel.listDensity.collectAsStateWithLifecycle()
     DetailScaffold(title = "Appearance", onBack = onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
@@ -114,6 +124,15 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     onSelect = viewModel::setThemeMode,
                 )
             }
+            SettingsSection("Message list") {
+                SettingChoiceRow(
+                    title = "Density",
+                    options = listOf(ListDensity.COMPACT, ListDensity.NORMAL, ListDensity.SPACED),
+                    selected = density,
+                    optionLabel = ::densityLabel,
+                    onSelect = viewModel::setListDensity,
+                )
+            }
         }
     }
 }
@@ -122,6 +141,51 @@ private fun themeLabel(mode: ThemeMode): String = when (mode) {
     ThemeMode.SYSTEM -> "Auto"
     ThemeMode.LIGHT -> "Light"
     ThemeMode.DARK -> "Dark"
+}
+
+private fun densityLabel(density: ListDensity): String = when (density) {
+    ListDensity.COMPACT -> "Compact"
+    ListDensity.NORMAL -> "Normal"
+    ListDensity.SPACED -> "Spaced"
+}
+
+@Composable
+private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val swipeRight by viewModel.swipeRight.collectAsStateWithLifecycle()
+    val swipeLeft by viewModel.swipeLeft.collectAsStateWithLifecycle()
+    val options = listOf(
+        SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
+    )
+    DetailScaffold(title = "Reading", onBack = onBack) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
+        ) {
+            SettingsSection("Swipe actions") {
+                SettingChoiceRow(
+                    title = "Swipe right",
+                    options = options,
+                    selected = swipeRight,
+                    optionLabel = ::swipeLabel,
+                    onSelect = viewModel::setSwipeRight,
+                )
+                SettingChoiceRow(
+                    title = "Swipe left",
+                    options = options,
+                    selected = swipeLeft,
+                    optionLabel = ::swipeLabel,
+                    onSelect = viewModel::setSwipeLeft,
+                )
+            }
+        }
+    }
+}
+
+private fun swipeLabel(action: SwipeAction): String = when (action) {
+    SwipeAction.NONE -> "Nothing"
+    SwipeAction.TOGGLE_READ -> "Mark read/unread"
+    SwipeAction.DELETE -> "Delete"
+    SwipeAction.ARCHIVE -> "Archive"
+    SwipeAction.FLAG -> "Flag/unflag"
 }
 
 @Composable

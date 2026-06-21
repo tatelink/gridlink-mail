@@ -26,7 +26,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ ⭐ Conversation threading — JMAP native `Thread` objects (collapsed list + thread view)
 - ✅ Pull-to-refresh
 - ✅ Swipe actions (swipe to delete / mark read)
-- 💡 Configurable swipe actions
+- ✅ Configurable swipe actions (left/right, in Settings → Reading)
 - 💡 Multi-select and bulk actions
 - 💡 Snooze a message until later
 - 💡 Paginated "load more"
@@ -35,7 +35,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 ## Organisation & search
 
 - ✅ Mailbox listing
-- ✅ ⭐ Server-side search — `Email/query` `text` filter + `Email/get`
+- ✅ ⭐ Server-side search — inline on the mailbox (search-as-you-type filters the list)
 - ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account)
 - 💡 Richer search filters (from, subject, has-attachment, date) + `SearchSnippet` highlights
 - 💡 Folder management (create / rename / subscribe), per-folder settings
@@ -92,7 +92,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Contact avatars / sender initials (monograms)
 - ✅ Settings hub (Appearance / Notifications / Privacy & Security), DataStore-backed
 - ✅ Theme toggle (auto / light / dark)
-- 💡 Message-list density options
+- ✅ Message-list density (compact / normal / spaced)
 - 💡 Home-screen widget(s) (unread count / inbox)
 - 💡 Accessibility pass (TalkBack, font scaling)
 
