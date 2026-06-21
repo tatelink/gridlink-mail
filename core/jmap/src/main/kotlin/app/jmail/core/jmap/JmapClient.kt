@@ -2,6 +2,9 @@ package app.jmail.core.jmap
 
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailAddress
+import app.jmail.core.jmap.model.EmailChangesResult
+import app.jmail.core.jmap.model.EmailPage
+import app.jmail.core.jmap.model.EmailQueryChangesResult
 import app.jmail.core.jmap.model.Identity
 import app.jmail.core.jmap.model.JmapSession
 import app.jmail.core.jmap.model.Mailbox
@@ -22,6 +25,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -103,13 +108,13 @@ class JmapClient internal constructor(
      * Fetch the most recent emails in a mailbox: a batched Email/query +
      * Email/get, where Email/get back-references the query result (RFC 8620 §3.7).
      */
-    suspend fun queryEmails(
+    suspend fun queryEmailsPage(
         session: JmapSession,
         accountId: String,
         mailboxId: String,
         limit: Int,
         auth: JmapAuth,
-    ): List<Email> = withContext(Dispatchers.IO) {
+    ): EmailPage = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
                 add(Jmap.CORE_CAPABILITY)
@@ -164,8 +169,138 @@ class JmapClient internal constructor(
             if (!response.isSuccessful) {
                 throw JmapException("Email/query failed: HTTP ${response.code} ${response.message}")
             }
-            decodeList(body, "Email/get", Email.serializer())
+            EmailPage(
+                emails = decodeList(body, "Email/get", Email.serializer()),
+                queryState = methodResponseArgs(body, "Email/query")["queryState"]?.jsonPrimitive?.contentOrNull,
+                emailState = methodResponseArgs(body, "Email/get")["state"]?.jsonPrimitive?.contentOrNull,
+            )
         }
+    }
+
+    suspend fun queryEmails(
+        session: JmapSession,
+        accountId: String,
+        mailboxId: String,
+        limit: Int,
+        auth: JmapAuth,
+    ): List<Email> = queryEmailsPage(session, accountId, mailboxId, limit, auth).emails
+
+    /** Email/queryChanges for the inbox-style (collapsed) query. */
+    suspend fun emailQueryChanges(
+        session: JmapSession,
+        accountId: String,
+        mailboxId: String,
+        sinceQueryState: String,
+        maxChanges: Int,
+        auth: JmapAuth,
+    ): EmailQueryChangesResult = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/queryChanges")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("filter") { put("inMailbox", mailboxId) }
+                        putJsonArray("sort") {
+                            addJsonObject {
+                                put("property", "receivedAt")
+                                put("isAscending", false)
+                            }
+                        }
+                        put("collapseThreads", true)
+                        put("sinceQueryState", sinceQueryState)
+                        put("maxChanges", maxChanges)
+                    }
+                    add("qc0")
+                }
+            }
+        }
+        val body = postJmap(session, auth, payload)
+        val args = methodResponseArgsOrNull(body, "Email/queryChanges")
+            ?: return@withContext EmailQueryChangesResult(null, emptyList(), emptyList(), calculated = false)
+        EmailQueryChangesResult(
+            newQueryState = args["newQueryState"]?.jsonPrimitive?.contentOrNull,
+            removed = args["removed"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
+            added = args["added"]?.jsonArray?.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.contentOrNull } ?: emptyList(),
+            calculated = true,
+        )
+    }
+
+    /** Email/changes for property-level deltas (created/updated/destroyed). */
+    suspend fun emailChanges(
+        session: JmapSession,
+        accountId: String,
+        sinceState: String,
+        maxChanges: Int,
+        auth: JmapAuth,
+    ): EmailChangesResult = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/changes")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        put("sinceState", sinceState)
+                        put("maxChanges", maxChanges)
+                    }
+                    add("c0")
+                }
+            }
+        }
+        val body = postJmap(session, auth, payload)
+        val args = methodResponseArgsOrNull(body, "Email/changes")
+            ?: return@withContext EmailChangesResult(null, emptyList(), emptyList(), emptyList(), hasMoreChanges = false, calculated = false)
+        fun ids(key: String) = args[key]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+        EmailChangesResult(
+            newState = args["newState"]?.jsonPrimitive?.contentOrNull,
+            created = ids("created"),
+            updated = ids("updated"),
+            destroyed = ids("destroyed"),
+            hasMoreChanges = args["hasMoreChanges"]?.jsonPrimitive?.booleanOrNull ?: false,
+            calculated = true,
+        )
+    }
+
+    /** Email/get a specific set of ids with list (no-body) properties. */
+    suspend fun getEmailsByIds(
+        session: JmapSession,
+        accountId: String,
+        ids: List<String>,
+        auth: JmapAuth,
+    ): List<Email> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("ids") { ids.forEach { add(it) } }
+                        putJsonArray("properties") {
+                            listOf(
+                                "id", "threadId", "subject", "preview",
+                                "receivedAt", "from", "hasAttachment", "keywords",
+                            ).forEach { add(it) }
+                        }
+                    }
+                    add("g0")
+                }
+            }
+        }
+        val body = postJmap(session, auth, payload)
+        decodeList(body, "Email/get", Email.serializer())
     }
 
     /** Full-text search across the account (Email/query `text` filter + Email/get). */
@@ -612,6 +747,34 @@ class JmapClient internal constructor(
             methodResponseArgs(response.body?.string().orEmpty(), "Email/set")
             Unit
         }
+    }
+
+    /** POST a JMAP request body and return the response text, throwing on HTTP failure. */
+    private fun postJmap(session: JmapSession, auth: JmapAuth, payload: JsonObject): String {
+        val request = Request.Builder()
+            .url(session.apiUrl)
+            .header("Authorization", auth.authorizationHeader())
+            .header("Accept", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw JmapException("JMAP request failed: HTTP ${response.code} ${response.message}")
+            }
+            return body
+        }
+    }
+
+    /** Like [methodResponseArgs] but returns null for an error/missing response instead of throwing. */
+    private fun methodResponseArgsOrNull(body: String, expectedMethod: String): JsonObject? {
+        val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull() ?: return null
+        val responses = root["methodResponses"]?.jsonArray ?: return null
+        for (entry in responses) {
+            val call = entry.jsonArray
+            if (call[0].jsonPrimitive.content == expectedMethod) return call[1].jsonObject
+        }
+        return null
     }
 
     /** Find the args of a named method response, throwing on a JMAP-level error. */

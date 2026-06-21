@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.Closeable
 
+/** Cap on changes to apply incrementally before falling back to a full query. */
+private const val MAX_CHANGES = 50
+
 /** Metadata about the selected mailbox after a refresh. */
 data class MailboxMeta(
     val accountName: String,
@@ -43,6 +46,55 @@ class MailRepository(
 
     @Volatile
     private var context: Context? = null
+
+    /** Per-mailbox JMAP state for incremental sync (in-memory; cold start does a full query). */
+    private data class SyncState(val queryState: String, val emailState: String)
+    private val syncStates = java.util.concurrent.ConcurrentHashMap<String, SyncState>()
+
+    /**
+     * Bring a mailbox's cache up to date. Uses Email/queryChanges (which respects
+     * thread collapsing) + Email/changes when we have prior state; otherwise, or
+     * when the server can't compute the delta, falls back to a full query.
+     */
+    private suspend fun syncMailbox(
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+        mailboxId: String,
+        limit: Int,
+    ) {
+        val stored = syncStates[mailboxId]
+        if (stored != null) {
+            val queryChanges = client.emailQueryChanges(session, accountId, mailboxId, stored.queryState, MAX_CHANGES, auth)
+            val changes = client.emailChanges(session, accountId, stored.emailState, MAX_CHANGES, auth)
+            val canApply = queryChanges.calculated && changes.calculated &&
+                !changes.hasMoreChanges && queryChanges.newQueryState != null && changes.newState != null
+            if (canApply) {
+                val toRemove = queryChanges.removed + changes.destroyed
+                if (toRemove.isNotEmpty()) emailDao.deleteByIds(toRemove)
+                val cachedIds = emailDao.getByMailbox(mailboxId).map { it.id }.toSet()
+                val toFetch = (queryChanges.added + changes.updated.filter { it in cachedIds }).distinct()
+                if (toFetch.isNotEmpty()) {
+                    val fetched = client.getEmailsByIds(session, accountId, toFetch, auth)
+                    emailDao.upsertAll(fetched.map { it.toEntity(accountId, mailboxId) })
+                }
+                syncStates[mailboxId] = SyncState(queryChanges.newQueryState!!, changes.newState!!)
+                android.util.Log.i("MailSync", "incremental $mailboxId: +${toFetch.size} -${toRemove.size}")
+                return
+            }
+        }
+        // Cold cache, or the server can't compute changes — full query.
+        val page = client.queryEmailsPage(session, accountId, mailboxId, limit, auth)
+        emailDao.replaceMailbox(mailboxId, page.emails.map { it.toEntity(accountId, mailboxId) })
+        android.util.Log.i("MailSync", "full query $mailboxId: ${page.emails.size} emails")
+        val queryState = page.queryState
+        val emailState = page.emailState
+        if (queryState != null && emailState != null) {
+            syncStates[mailboxId] = SyncState(queryState, emailState)
+        } else {
+            syncStates.remove(mailboxId)
+        }
+    }
 
     /** Cached mailboxes (folders), updated reactively. */
     fun observeMailboxes(): Flow<List<Mailbox>> =
@@ -77,8 +129,7 @@ class MailRepository(
             ?: mailboxes.firstOrNull()
             ?: error("No mailboxes found.")
 
-        val emails = client.queryEmails(session, accountId, target.id, limit, auth)
-        emailDao.replaceMailbox(target.id, emails.map { it.toEntity(accountId, target.id) })
+        syncMailbox(session, accountId, auth, target.id, limit)
 
         val accountName = session.accounts[accountId]?.name ?: credentials.username
         return MailboxMeta(accountName, target.id, target.name, target.unreadEmails)
@@ -177,9 +228,8 @@ class MailRepository(
         val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
             ?: resolved.mailboxes.firstOrNull()
             ?: error("No mailboxes found.")
-        val emails = client.queryEmails(resolved.session, resolved.accountId, inbox.id, limit, resolved.auth)
-        emailDao.replaceMailbox(inbox.id, emails.map { it.toEntity(resolved.accountId, inbox.id) })
-        return inbox.id to emails
+        syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit)
+        return inbox.id to emailDao.getByMailbox(inbox.id).map { it.toEmail() }
     }
 
     /** Open a push connection for a specific account; [onChanged] fires when its mail changes. */

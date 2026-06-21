@@ -30,6 +30,9 @@ interface EmailDao {
     @Query("DELETE FROM emails WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("DELETE FROM emails WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
+
     /** Replace the cached contents of a mailbox with a fresh snapshot. */
     @Transaction
     suspend fun replaceMailbox(mailboxId: String, emails: List<EmailEntity>) {
