@@ -33,6 +33,18 @@ and on pull requests.
 - The workflow installs JDK 17 + the Android SDK (API 36) with plain shell, so it
   doesn't depend on third-party actions being mirrored by Codeberg.
 
+## Troubleshooting
+
+**"all predefined address pools have been fully subnetted"** — Docker is out of
+network subnets (a busy host with many compose stacks). This setup already avoids
+creating new networks (`network_mode: bridge` + `config.yml`'s
+`container.network: "bridge"`). Also reclaim unused ones first:
+
+```sh
+docker network prune -f
+docker compose up -d
+```
+
 ## Notes
 
 - Resourcing: the build needs ~2 vCPU / 4 GB RAM and downloads the Android SDK

@@ -1,16 +1,21 @@
 # Self-hosted Forgejo Actions runner for Jmail CI.
 # Run this on an always-on server with Docker. See README.md in this folder.
 #
-#   1. Codeberg → repo Settings → Actions → Runners → "Create new runner",
-#      copy the registration token.
-#   2. RUNNER_TOKEN=<token> docker compose up -d
+#   1. Codeberg -> repo Settings -> Actions -> Runners -> "Create new runner",
+#      copy the registration token into .env (cp .env.example .env).
+#   2. docker compose up -d
 #
+# network_mode: bridge + config.yml's container.network: "bridge" mean NO new
+# Docker networks are created (neither for the runner nor per CI job), so this
+# works on hosts whose Docker address pool is already exhausted.
 services:
   runner:
     image: code.forgejo.org/forgejo/runner:6.3.1
     restart: always
+    network_mode: bridge
     volumes:
       - ./data:/data
+      - ./config.yml:/data/config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock
     user: "0:0"
     entrypoint: /bin/sh
@@ -25,6 +30,6 @@ services:
             --name "jmail-ci" \
             --labels "docker:docker://catthehacker/ubuntu:act-22.04"
         fi
-        exec forgejo-runner daemon
+        exec forgejo-runner daemon --config /data/config.yml
     environment:
       RUNNER_TOKEN: "${RUNNER_TOKEN:-}"

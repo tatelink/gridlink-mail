@@ -1,0 +1,24 @@
+# forgejo-runner config. The key setting here is container.network: "bridge",
+# which makes CI job containers reuse Docker's existing default bridge network
+# instead of creating a new network per run. That avoids
+# "all predefined address pools have been fully subnetted" on busy hosts.
+log:
+  level: info
+
+runner:
+  capacity: 1
+  timeout: 1h
+  fetch_timeout: 5s
+  fetch_interval: 2s
+
+cache:
+  enabled: true
+
+container:
+  # Reuse the default bridge; do NOT create a network per job.
+  network: "bridge"
+  privileged: false
+  force_pull: false
+
+host:
+  workdir_parent: workspace
