@@ -1,7 +1,11 @@
 package app.jmail.core.jmap
 
+import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.JmapSession
 import app.jmail.core.jmap.model.Mailbox
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.putJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
@@ -82,23 +86,101 @@ class JmapClient internal constructor(
                 if (!response.isSuccessful) {
                     throw JmapException("Mailbox/get failed: HTTP ${response.code} ${response.message}")
                 }
-                parseMailboxes(body)
+                decodeList(body, "Mailbox/get", Mailbox.serializer())
             }
         }
 
-    private fun parseMailboxes(body: String): List<Mailbox> {
+    /**
+     * Fetch the most recent emails in a mailbox: a batched Email/query +
+     * Email/get, where Email/get back-references the query result (RFC 8620 §3.7).
+     */
+    suspend fun queryEmails(
+        session: JmapSession,
+        accountId: String,
+        mailboxId: String,
+        limit: Int,
+        auth: JmapAuth,
+    ): List<Email> = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/query")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("filter") { put("inMailbox", mailboxId) }
+                        putJsonArray("sort") {
+                            addJsonObject {
+                                put("property", "receivedAt")
+                                put("isAscending", false)
+                            }
+                        }
+                        put("collapseThreads", false)
+                        put("position", 0)
+                        put("limit", limit)
+                    }
+                    add("q0")
+                }
+                addJsonArray {
+                    add("Email/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("#ids") {
+                            put("resultOf", "q0")
+                            put("name", "Email/query")
+                            put("path", "/ids")
+                        }
+                        putJsonArray("properties") {
+                            listOf(
+                                "id", "threadId", "subject", "preview",
+                                "receivedAt", "from", "hasAttachment", "keywords",
+                            ).forEach { add(it) }
+                        }
+                    }
+                    add("g0")
+                }
+            }
+        }
+        val request = Request.Builder()
+            .url(session.apiUrl)
+            .header("Authorization", auth.authorizationHeader())
+            .header("Accept", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw JmapException("Email/query failed: HTTP ${response.code} ${response.message}")
+            }
+            decodeList(body, "Email/get", Email.serializer())
+        }
+    }
+
+    /** Find the args of a named method response, throwing on a JMAP-level error. */
+    private fun methodResponseArgs(body: String, expectedMethod: String): JsonObject {
         val root = runCatching { json.parseToJsonElement(body).jsonObject }
             .getOrElse { throw JmapException("Could not parse JMAP response", it) }
-        val first = root["methodResponses"]?.jsonArray?.firstOrNull()?.jsonArray
+        val responses = root["methodResponses"]?.jsonArray
             ?: throw JmapException("Response missing methodResponses")
-        val methodName = first[0].jsonPrimitive.content
-        val args = first[1].jsonObject
-        if (methodName == "error") {
-            val type = args["type"]?.jsonPrimitive?.content ?: "unknown"
-            throw JmapException("JMAP method error: $type")
+        for (entry in responses) {
+            val call = entry.jsonArray
+            val name = call[0].jsonPrimitive.content
+            val args = call[1].jsonObject
+            if (name == "error") {
+                val type = args["type"]?.jsonPrimitive?.content ?: "unknown"
+                throw JmapException("JMAP method error: $type")
+            }
+            if (name == expectedMethod) return args
         }
-        val list = args["list"]?.jsonArray ?: return emptyList()
-        return list.map { json.decodeFromJsonElement(Mailbox.serializer(), it) }
+        throw JmapException("No $expectedMethod response found")
+    }
+
+    private fun <T> decodeList(body: String, method: String, serializer: KSerializer<T>): List<T> {
+        val list = methodResponseArgs(body, method)["list"]?.jsonArray ?: return emptyList()
+        return list.map { json.decodeFromJsonElement(serializer, it) }
     }
 
     companion object {

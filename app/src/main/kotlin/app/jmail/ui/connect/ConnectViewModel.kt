@@ -1,11 +1,10 @@
 package app.jmail.ui.connect
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import app.jmail.core.jmap.BasicAuth
-import app.jmail.core.jmap.Jmap
-import app.jmail.core.jmap.JmapClient
-import app.jmail.core.jmap.model.Mailbox
+import app.jmail.container
+import app.jmail.core.data.account.AccountCredentials
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,13 +14,13 @@ import kotlinx.coroutines.launch
 sealed interface ConnectState {
     data object Idle : ConnectState
     data object Connecting : ConnectState
-    data class Connected(val accountName: String, val mailboxes: List<Mailbox>) : ConnectState
+    data object Connected : ConnectState
     data class Error(val message: String) : ConnectState
 }
 
-class ConnectViewModel(
-    private val client: JmapClient = JmapClient(),
-) : ViewModel() {
+class ConnectViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val container = application.container
 
     private val _state = MutableStateFlow<ConnectState>(ConnectState.Idle)
     val state: StateFlow<ConnectState> = _state.asStateFlow()
@@ -31,21 +30,15 @@ class ConnectViewModel(
         _state.value = ConnectState.Connecting
         viewModelScope.launch {
             try {
-                val auth = BasicAuth(username.trim(), password)
-                val session = client.fetchSession(Jmap.sessionUrlFor(server), auth)
-                val accountId = session.mailAccountId()
-                    ?: error("This user has no JMAP mail account.")
-                val mailboxes = client.getMailboxes(session, accountId, auth)
-                    .sortedWith(compareBy({ it.sortOrder }, { it.name }))
-                val accountName = session.accounts[accountId]?.name ?: session.username
-                _state.value = ConnectState.Connected(accountName, mailboxes)
+                // Validate the credentials by actually loading the inbox once.
+                val credentials = AccountCredentials(server.trim(), username.trim(), password)
+                container.mailRepository.loadInbox(credentials, limit = 1)
+                // Only persist once we know they work.
+                container.accountStore.save(server, username, password)
+                _state.value = ConnectState.Connected
             } catch (t: Throwable) {
                 _state.value = ConnectState.Error(t.message ?: t.javaClass.simpleName)
             }
         }
-    }
-
-    fun reset() {
-        _state.value = ConnectState.Idle
     }
 }
