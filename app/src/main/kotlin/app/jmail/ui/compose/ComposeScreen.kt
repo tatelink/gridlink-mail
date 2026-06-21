@@ -32,26 +32,42 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ComposeScreen(
-    onSent: () -> Unit,
+    onDone: () -> Unit,
     onCancel: () -> Unit,
+    replyTo: String? = null,
+    mode: String? = null,
     viewModel: ComposeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val prefill by viewModel.prefill.collectAsStateWithLifecycle()
 
+    LaunchedEffect(Unit) { viewModel.prepare(replyTo, mode) }
     LaunchedEffect(state) {
-        if (state is ComposeState.Sent) onSent()
+        if (state is ComposeState.Done) onDone()
     }
 
     var to by rememberSaveable { mutableStateOf("") }
     var subject by rememberSaveable { mutableStateOf("") }
     var body by rememberSaveable { mutableStateOf("") }
+    var applied by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(prefill) {
+        prefill?.let {
+            if (!applied) {
+                to = it.to
+                subject = it.subject
+                body = it.body
+                applied = true
+            }
+        }
+    }
 
     val sending = state is ComposeState.Sending
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("New message") },
+                title = { Text(if (replyTo != null) "Reply" else "New message") },
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
                         Text("✕", style = MaterialTheme.typography.titleLarge)
@@ -59,10 +75,14 @@ fun ComposeScreen(
                 },
                 actions = {
                     TextButton(
+                        onClick = { viewModel.saveDraft(to, subject, body) },
+                        enabled = !sending,
+                    ) { Text("Save") }
+                    TextButton(
                         onClick = { viewModel.send(to, subject, body) },
                         enabled = !sending && to.isNotBlank(),
                     ) {
-                        Text(if (sending) "Sending…" else "Send")
+                        Text(if (sending) "…" else "Send")
                     }
                 },
             )

@@ -127,6 +127,32 @@ class MailRepository(
         emailDao.deleteById(emailId)
     }
 
+    /** Fetch an email (with body) without marking it read — used to build replies/forwards. */
+    suspend fun fetchEmail(credentials: AccountCredentials, emailId: String): Email {
+        val ctx = connect(credentials)
+        return client.getEmail(ctx.session, ctx.accountId, emailId, ctx.auth)
+    }
+
+    /** Save a plain-text draft in the Drafts mailbox. */
+    suspend fun saveDraft(credentials: AccountCredentials, to: List<String>, subject: String, body: String) {
+        val ctx = connect(credentials)
+        val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
+        val identity = client.getIdentities(ctx.session, ctx.accountId, ctx.auth).firstOrNull()
+            ?: error("This account has no sending identity.")
+        val draftsId = ctx.rolesToMailboxId["drafts"]
+            ?: error("This account has no Drafts folder.")
+        client.saveDraft(
+            session = ctx.session,
+            accountId = ctx.accountId,
+            auth = ctx.auth,
+            from = EmailAddress(name = identity.name, email = identity.email),
+            to = recipients,
+            subject = subject,
+            textBody = body,
+            draftMailboxId = draftsId,
+        )
+    }
+
     /** Compose and send a plain-text email from the account's first identity. */
     suspend fun send(credentials: AccountCredentials, to: List<String>, subject: String, body: String) {
         val ctx = connect(credentials)

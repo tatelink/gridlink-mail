@@ -48,6 +48,7 @@ import java.time.format.DateTimeFormatter
 fun MessageScreen(
     emailId: String,
     onBack: () -> Unit,
+    onReply: (mode: String) -> Unit,
     viewModel: MessageViewModel = viewModel(),
 ) {
     LaunchedEffect(emailId) { viewModel.load(emailId) }
@@ -78,6 +79,18 @@ fun MessageScreen(
                             Text("⋮", style = MaterialTheme.typography.titleLarge)
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Reply") },
+                                onClick = { menuOpen = false; onReply("reply") },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Reply all") },
+                                onClick = { menuOpen = false; onReply("replyAll") },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Forward") },
+                                onClick = { menuOpen = false; onReply("forward") },
+                            )
                             DropdownMenuItem(
                                 text = { Text(if (loaded.email.isFlagged) "Unflag" else "Flag") },
                                 onClick = { menuOpen = false; viewModel.toggleFlag() },

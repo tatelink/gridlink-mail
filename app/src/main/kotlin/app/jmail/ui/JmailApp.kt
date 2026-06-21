@@ -80,12 +80,24 @@ private fun MainNavHost(onSignOut: () -> Unit) {
             arguments = listOf(navArgument("emailId") { type = NavType.StringType }),
         ) { entry ->
             val emailId = Uri.decode(entry.arguments?.getString("emailId").orEmpty())
-            MessageScreen(emailId = emailId, onBack = { nav.popBackStack() })
+            MessageScreen(
+                emailId = emailId,
+                onBack = { nav.popBackStack() },
+                onReply = { mode -> nav.navigate("compose?replyTo=${Uri.encode(emailId)}&mode=$mode") },
+            )
         }
-        composable("compose") {
+        composable(
+            route = "compose?replyTo={replyTo}&mode={mode}",
+            arguments = listOf(
+                navArgument("replyTo") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("mode") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) { entry ->
             ComposeScreen(
-                onSent = { nav.popBackStack() },
+                onDone = { nav.popBackStack() },
                 onCancel = { nav.popBackStack() },
+                replyTo = entry.arguments?.getString("replyTo")?.let { Uri.decode(it) },
+                mode = entry.arguments?.getString("mode"),
             )
         }
     }

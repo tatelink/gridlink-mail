@@ -378,6 +378,35 @@ class JmapClient internal constructor(
         }
     }
 
+    /** Save a plain-text draft in the Drafts mailbox (no submission). */
+    suspend fun saveDraft(
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+        from: EmailAddress,
+        to: List<EmailAddress>,
+        subject: String,
+        textBody: String,
+        draftMailboxId: String,
+    ) = emailSet(session, auth) {
+        put("accountId", accountId)
+        putJsonObject("create") {
+            putJsonObject("draft") {
+                putJsonArray("from") { addJsonObject { addAddress(from) } }
+                putJsonArray("to") { to.forEach { addJsonObject { addAddress(it) } } }
+                put("subject", subject)
+                putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
+                putJsonObject("mailboxIds") { put(draftMailboxId, true) }
+                putJsonArray("textBody") {
+                    addJsonObject { put("partId", "body"); put("type", "text/plain") }
+                }
+                putJsonObject("bodyValues") {
+                    putJsonObject("body") { put("value", textBody) }
+                }
+            }
+        }
+    }
+
     /** Run an Email/set call with the given argument object, surfacing JMAP errors. */
     private suspend fun emailSet(
         session: JmapSession,
