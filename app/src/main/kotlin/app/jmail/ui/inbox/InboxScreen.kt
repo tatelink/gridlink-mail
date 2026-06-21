@@ -14,14 +14,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -29,21 +30,26 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.jmail.core.jmap.model.Email
+import app.jmail.ui.components.Monogram
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -62,6 +68,9 @@ fun InboxScreen(
     val ui by viewModel.state.collectAsStateWithLifecycle()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val fabExpanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -93,35 +102,44 @@ fun InboxScreen(
         },
     ) {
         Scaffold(
+            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
             topBar = {
-                TopAppBar(
-                    title = { Text("${ui.mailboxName} · ${ui.unreadCount} unread") },
+                LargeTopAppBar(
+                    title = { Text(ui.mailboxName) },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Text("≡", style = MaterialTheme.typography.titleLarge)
                         }
                     },
                     actions = {
-                        TextButton(onClick = viewModel::refresh, enabled = !ui.refreshing) { Text("Refresh") }
                         TextButton(onClick = onSignOut) { Text("Sign out") }
                     },
+                    scrollBehavior = scrollBehavior,
                 )
             },
             floatingActionButton = {
-                FloatingActionButton(onClick = onCompose) {
-                    Text("✎", style = MaterialTheme.typography.titleLarge)
-                }
+                ExtendedFloatingActionButton(
+                    text = { Text("Compose") },
+                    icon = { Text("✎") },
+                    expanded = fabExpanded,
+                    onClick = onCompose,
+                )
             },
         ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) {
+            PullToRefreshBox(
+                isRefreshing = ui.refreshing,
+                onRefresh = viewModel::refresh,
+                modifier = Modifier.fillMaxSize().padding(padding),
+            ) {
                 when {
-                    ui.emails.isNotEmpty() -> Column(Modifier.fillMaxSize()) {
-                        if (ui.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
-                        LazyColumn(Modifier.fillMaxSize()) {
-                            items(ui.emails, key = { it.id }) { email ->
-                                EmailRow(email, onClick = { onOpenEmail(email.id) })
-                                HorizontalDivider()
-                            }
+                    ui.emails.isNotEmpty() -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                        items(ui.emails, key = { it.id }) { email ->
+                            EmailRow(
+                                email = email,
+                                onClick = { onOpenEmail(email.id) },
+                                modifier = Modifier.animateItem(),
+                            )
+                            HorizontalDivider()
                         }
                     }
                     ui.refreshing -> CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -141,52 +159,52 @@ fun InboxScreen(
 }
 
 @Composable
-private fun EmailRow(email: Email, onClick: () -> Unit) {
+private fun EmailRow(email: Email, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val unread = !email.isSeen
+    val senderName = email.from.firstOrNull()?.display() ?: "(unknown sender)"
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(
-                    if (unread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                ),
-        )
+        Monogram(seed = email.from.firstOrNull()?.email ?: senderName, label = senderName)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = email.from.firstOrNull()?.display() ?: "(unknown sender)",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
+                    text = senderName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (unread) FontWeight.Medium else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
                 if (email.isFlagged) {
-                    Text(
-                        text = "★ ",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                    Text("★", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(6.dp))
                 }
                 Text(
                     text = formatReceived(email.receivedAt),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (unread) {
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
             }
             Text(
                 text = email.subject?.takeIf { it.isNotBlank() } ?: "(no subject)",
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
