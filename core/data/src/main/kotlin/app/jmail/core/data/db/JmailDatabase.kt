@@ -5,9 +5,10 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [EmailEntity::class], version = 2, exportSchema = false)
+@Database(entities = [EmailEntity::class, MailboxEntity::class], version = 3, exportSchema = false)
 abstract class JmailDatabase : RoomDatabase() {
     abstract fun emailDao(): EmailDao
+    abstract fun mailboxDao(): MailboxDao
 
     companion object {
         fun build(context: Context): JmailDatabase =

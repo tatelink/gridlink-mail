@@ -1,0 +1,26 @@
+package app.jmail.core.data.db
+
+import androidx.room.Dao
+import androidx.room.Query
+import androidx.room.Transaction
+import androidx.room.Upsert
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface MailboxDao {
+
+    @Query("SELECT * FROM mailboxes ORDER BY sortOrder, name")
+    fun observeAll(): Flow<List<MailboxEntity>>
+
+    @Upsert
+    suspend fun upsertAll(mailboxes: List<MailboxEntity>)
+
+    @Query("DELETE FROM mailboxes WHERE id NOT IN (:keepIds)")
+    suspend fun deleteNotIn(keepIds: List<String>)
+
+    @Transaction
+    suspend fun replaceAll(mailboxes: List<MailboxEntity>) {
+        upsertAll(mailboxes)
+        deleteNotIn(mailboxes.map { it.id })
+    }
+}

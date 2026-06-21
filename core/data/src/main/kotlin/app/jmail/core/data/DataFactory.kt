@@ -9,6 +9,6 @@ import app.jmail.core.jmap.JmapClient
 object DataFactory {
     fun mailRepository(context: Context, client: JmapClient): MailRepository {
         val database = JmailDatabase.build(context.applicationContext)
-        return MailRepository(client, database.emailDao())
+        return MailRepository(client, database.emailDao(), database.mailboxDao())
     }
 }

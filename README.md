@@ -49,7 +49,8 @@ built from source — see [CONTRIBUTING.md](CONTRIBUTING.md).
 ## For developers
 
 Architecture and build instructions live in
-[ARCHITECTURE.md](ARCHITECTURE.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+[ARCHITECTURE.md](ARCHITECTURE.md) and [CONTRIBUTING.md](CONTRIBUTING.md). The
+planned and shipped feature set is tracked in [FEATURES.md](FEATURES.md).
 
 ## License
 

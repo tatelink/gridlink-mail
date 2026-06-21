@@ -19,14 +19,21 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.DrawerValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.jmail.core.jmap.model.Email
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -50,39 +58,76 @@ fun InboxScreen(
     viewModel: InboxViewModel = viewModel(),
 ) {
     val ui by viewModel.state.collectAsStateWithLifecycle()
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("${ui.mailboxName} · ${ui.unreadCount} unread") },
-                actions = {
-                    TextButton(onClick = viewModel::refresh, enabled = !ui.refreshing) { Text("Refresh") }
-                    TextButton(onClick = onSignOut) { Text("Sign out") }
-                },
-            )
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Text(
+                    text = ui.accountName.ifBlank { "Jmail" },
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(16.dp),
+                )
+                HorizontalDivider()
+                ui.mailboxes.forEach { mailbox ->
+                    val label = if (mailbox.unreadEmails > 0) {
+                        "${mailbox.name}  (${mailbox.unreadEmails})"
+                    } else {
+                        mailbox.name
+                    }
+                    NavigationDrawerItem(
+                        label = { Text(label) },
+                        selected = mailbox.id == ui.selectedMailboxId,
+                        onClick = {
+                            viewModel.select(mailbox)
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                }
+            }
         },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            when {
-                ui.emails.isNotEmpty() -> Column(Modifier.fillMaxSize()) {
-                    if (ui.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    LazyColumn(Modifier.fillMaxSize()) {
-                        items(ui.emails, key = { it.id }) { email ->
-                            EmailRow(email, onClick = { onOpenEmail(email.id) })
-                            HorizontalDivider()
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("${ui.mailboxName} · ${ui.unreadCount} unread") },
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Text("≡", style = MaterialTheme.typography.titleLarge)
+                        }
+                    },
+                    actions = {
+                        TextButton(onClick = viewModel::refresh, enabled = !ui.refreshing) { Text("Refresh") }
+                        TextButton(onClick = onSignOut) { Text("Sign out") }
+                    },
+                )
+            },
+        ) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                when {
+                    ui.emails.isNotEmpty() -> Column(Modifier.fillMaxSize()) {
+                        if (ui.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        LazyColumn(Modifier.fillMaxSize()) {
+                            items(ui.emails, key = { it.id }) { email ->
+                                EmailRow(email, onClick = { onOpenEmail(email.id) })
+                                HorizontalDivider()
+                            }
                         }
                     }
+                    ui.refreshing -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    ui.error != null -> Column(
+                        modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text("Could not load mail:\n${ui.error}", color = MaterialTheme.colorScheme.error)
+                        Button(onClick = viewModel::refresh) { Text("Retry") }
+                    }
+                    else -> Text("No messages", Modifier.align(Alignment.Center))
                 }
-                ui.refreshing -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                ui.error != null -> Column(
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text("Could not load mail:\n${ui.error}", color = MaterialTheme.colorScheme.error)
-                    Button(onClick = viewModel::refresh) { Text("Retry") }
-                }
-                else -> Text("No messages", Modifier.align(Alignment.Center))
             }
         }
     }

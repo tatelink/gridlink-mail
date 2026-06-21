@@ -52,3 +52,21 @@ Reference implementations consulted: the `ltt.rs` / `jmap-mua` libraries and the
 - **M3** — Actions: read/unread, flag, archive, move, delete.
 - **M4** — Compose and send.
 - **M5** — Push, notifications, multi-account, incremental sync, CI, F-Droid.
+
+Beyond M5 the work shifts from "core mail client" to "modern, complete app".
+The milestones below are ordered by user value against effort; the JMAP-native
+items (⭐) are deliberately early because RFC 8620/8621 makes them cheap. The
+full catalogue of features and their status lives in [FEATURES.md](FEATURES.md).
+
+- **M6 — JMAP quick wins.** ⭐ Conversation threading (`Thread`), server-side
+  search (`Email/query` + `SearchSnippet`), multiple identities + per-identity
+  signatures (`Identity`), schedule send (`EmailSubmission` `sendAt`), vacation
+  responder (`VacationResponse`). Low effort, high polish — features that are
+  hard over IMAP but largely free here.
+- **M7 — Triage & organisation.** Unified inbox, configurable swipe actions,
+  multi-select / bulk actions, snooze, folder management, quick filters.
+- **M8 — Privacy & security.** App lock (biometric / PIN), per-sender image
+  allowlist, link/tracking-parameter hardening, OpenPGP via OpenKeychain.
+- **M9 — Polish & reach.** Theme toggle and list density, contact avatars,
+  home-screen widgets, accessibility pass (TalkBack, font scaling), quota
+  display, calendar/`.ics` preview.
