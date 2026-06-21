@@ -40,6 +40,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ ⭐ Server-side search — inline on the mailbox (search-as-you-type filters the list)
 - ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account)
 - 💡 Richer search filters (from, subject, has-attachment, date) + `SearchSnippet` highlights
+- ✅ Auto-create an Archive folder on first archive (when the account has none)
 - 💡 Folder management (create / rename / subscribe), per-folder settings
 - ✅ Quick filter: unread-only toggle on the current view
 - 💡 Quick filters: starred-only, has-attachment

@@ -513,6 +513,46 @@ class JmapClient internal constructor(
         }
     }
 
+    /** Create a mailbox (e.g. an Archive folder) and return its new id (RFC 8621 §2.5). */
+    suspend fun createMailbox(
+        session: JmapSession,
+        accountId: String,
+        name: String,
+        role: String?,
+        auth: JmapAuth,
+    ): String = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Mailbox/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("create") {
+                            putJsonObject("new") {
+                                put("name", name)
+                                if (role != null) put("role", role)
+                            }
+                        }
+                    }
+                    add("m0")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "Mailbox/set")
+        val created = args["created"]?.jsonObject?.get("new")?.jsonObject
+        if (created != null) {
+            return@withContext created["id"]?.jsonPrimitive?.content
+                ?: throw JmapException("Mailbox create returned no id")
+        }
+        val type = args["notCreated"]?.jsonObject?.get("new")?.jsonObject
+            ?.get("type")?.jsonPrimitive?.content
+        throw JmapException("Couldn't create the '$name' folder" + (type?.let { " ($it)" } ?: ""))
+    }
+
     /** Permanently destroy an email (used when there is no Trash mailbox). */
     suspend fun destroy(session: JmapSession, accountId: String, emailId: String, auth: JmapAuth) =
         emailSet(session, auth) {

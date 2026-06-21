@@ -195,13 +195,22 @@ class MailRepository(
         emailDao.setFlagged(emailId, flagged)
     }
 
-    /** Move to the Archive mailbox and drop from the local list. */
+    /** Move to the Archive mailbox (creating one if the account has none) and drop from the local list. */
     suspend fun archive(credentials: AccountCredentials, emailId: String) {
         val ctx = connect(credentials)
-        val target = ctx.rolesToMailboxId["archive"]
-            ?: error("This account has no Archive folder.")
+        val target = ctx.rolesToMailboxId["archive"] ?: createArchiveFolder(ctx)
         client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
         emailDao.deleteById(emailId)
+    }
+
+    /** Create an "Archive" folder on the server, cache it in the context, and refresh the folder list. */
+    private suspend fun createArchiveFolder(ctx: Context): String {
+        val id = client.createMailbox(ctx.session, ctx.accountId, "Archive", "archive", ctx.auth)
+        context = Context(ctx.credentials, ctx.session, ctx.accountId, ctx.auth, ctx.rolesToMailboxId + ("archive" to id))
+        runCatching {
+            mailboxDao.replaceAll(client.getMailboxes(ctx.session, ctx.accountId, ctx.auth).map { it.toEntity() })
+        }
+        return id
     }
 
     /**
