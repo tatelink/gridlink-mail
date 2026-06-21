@@ -69,4 +69,14 @@ data class Email(
     /** The plain-text body content, if present. */
     fun textContent(): String? =
         textBody.firstOrNull()?.partId?.let { bodyValues[it]?.value }
+
+    /** Image parts referenced inline by a Content-ID (`cid:`), rendered in the body. */
+    fun inlineImageParts(): List<EmailBodyPart> =
+        attachments.filter { it.blobId != null && !it.cid.isNullOrBlank() && it.type?.startsWith("image/") == true }
+
+    /** Attachments shown as downloadable files (everything that isn't an inline image). */
+    fun fileAttachmentParts(): List<EmailBodyPart> {
+        val inlineBlobs = inlineImageParts().mapNotNull { it.blobId }.toSet()
+        return attachments.filter { it.blobId != null && it.blobId !in inlineBlobs }
+    }
 }

@@ -63,6 +63,7 @@ fun MessageScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val thread by viewModel.thread.collectAsStateWithLifecycle()
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
+    val inlineImages by viewModel.inlineImages.collectAsStateWithLifecycle()
     var showRemote by remember(emailId) { mutableStateOf(false) }
 
     Scaffold(
@@ -141,6 +142,7 @@ fun MessageScreen(
                     onOpenEmail = onOpenEmail,
                     attachmentStatus = attachmentStatus,
                     onOpenAttachment = viewModel::openAttachment,
+                    inlineImages = inlineImages,
                 )
             }
         }
@@ -155,6 +157,7 @@ private fun MessageBody(
     onOpenEmail: (String) -> Unit,
     attachmentStatus: String?,
     onOpenAttachment: (EmailBodyPart) -> Unit,
+    inlineImages: Map<String, String>,
 ) {
     Column(Modifier.fillMaxSize()) {
         Header(email)
@@ -162,13 +165,13 @@ private fun MessageBody(
             HorizontalDivider()
             ThreadSection(siblings, onOpenEmail)
         }
-        val attachments = email.attachments.filter { it.blobId != null }
+        val attachments = email.fileAttachmentParts()
         if (attachments.isNotEmpty()) {
             HorizontalDivider()
             AttachmentSection(attachments, attachmentStatus, onOpenAttachment)
         }
         HorizontalDivider()
-        val html = remember(email) { buildHtmlDocument(email) }
+        val html = remember(email, inlineImages) { buildHtmlDocument(email, inlineImages) }
         EmailWebView(
             html = html,
             blockRemote = blockRemote,
@@ -387,10 +390,14 @@ private class BlockingWebViewClient : WebViewClient() {
     }
 }
 
-private fun buildHtmlDocument(email: Email): String {
-    val inner = email.htmlContent()
+private fun buildHtmlDocument(email: Email, inlineImages: Map<String, String> = emptyMap()): String {
+    var inner = email.htmlContent()
         ?: email.textContent()?.let { "<pre class=\"plain\">${escapeHtml(it)}</pre>" }
         ?: "<p>${escapeHtml(email.preview ?: "(no content)")}</p>"
+    // Embed inline images: replace cid: references with their data URIs.
+    inlineImages.forEach { (cid, dataUri) ->
+        inner = inner.replace("cid:$cid", dataUri).replace("cid:<$cid>", dataUri)
+    }
     return """
         <!DOCTYPE html><html><head>
         <meta name="viewport" content="width=device-width, initial-scale=1">

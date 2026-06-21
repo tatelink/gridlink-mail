@@ -37,6 +37,10 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val _attachmentStatus = MutableStateFlow<String?>(null)
     val attachmentStatus = _attachmentStatus.asStateFlow()
 
+    /** Inline images keyed by Content-ID, as `data:` URIs for the body to render. */
+    private val _inlineImages = MutableStateFlow<Map<String, String>>(emptyMap())
+    val inlineImages = _inlineImages.asStateFlow()
+
     private var loadedId: String? = null
 
     /** Loads the email once per id (idempotent across recompositions). */
@@ -45,11 +49,13 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         loadedId = emailId
         _state.value = MessageState.Loading
         _thread.value = emptyList()
+        _inlineImages.value = emptyMap()
         viewModelScope.launch {
             try {
                 val credentials = store.load() ?: error("No saved account.")
                 val email = repo.openEmail(credentials, emailId)
                 _state.value = MessageState.Loaded(email)
+                loadInlineImages(credentials, email)
                 email.threadId?.let { threadId ->
                     runCatching { repo.threadEmails(credentials, threadId) }
                         .onSuccess { siblings -> _thread.value = siblings.filter { it.id != email.id } }
@@ -57,6 +63,27 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             } catch (t: Throwable) {
                 _state.value = MessageState.Error(t.message ?: t.javaClass.simpleName)
             }
+        }
+    }
+
+    /** Download inline images and expose them as `data:` URIs keyed by Content-ID. */
+    private fun loadInlineImages(credentials: AccountCredentials, email: Email) {
+        val parts = email.inlineImageParts()
+        if (parts.isEmpty()) return
+        viewModelScope.launch {
+            val map = mutableMapOf<String, String>()
+            for (part in parts) {
+                val blobId = part.blobId ?: continue
+                val cid = part.cid?.trim()?.trim('<', '>')?.takeIf { it.isNotEmpty() } ?: continue
+                runCatching {
+                    val bytes = repo.downloadAttachment(credentials, blobId, part.type, part.name)
+                    val base64 = withContext(Dispatchers.IO) {
+                        android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    }
+                    map[cid] = "data:${part.type ?: "image/jpeg"};base64,$base64"
+                }
+            }
+            if (map.isNotEmpty()) _inlineImages.value = map.toMap()
         }
     }
 
