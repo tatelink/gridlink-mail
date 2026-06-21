@@ -25,11 +25,9 @@ This document describes how Jmail is built. It is aimed at developers.
 
 | Module        | Type             | Responsibility                                            |
 |---------------|------------------|-----------------------------------------------------------|
-| `:app`        | Android app      | Compose UI, navigation, ViewModels, DI wiring.            |
-| `:core:jmap`  | Kotlin JVM lib   | JMAP protocol client — session, batched method calls, typed RFC 8620/8621 models, blobs. Pure JVM so it is unit-testable without Android. |
-
-`:core:data` (Room cache, repositories, sync engine) will be added when
-persistence is introduced (milestone M2).
+| `:app`        | Android app      | Compose UI, navigation, ViewModels, manual DI container.  |
+| `:core:jmap`  | Kotlin JVM lib   | JMAP protocol client — session, batched method calls, typed RFC 8620/8621 models. Pure JVM so it is unit-testable without Android. |
+| `:core:data`  | Android library  | Repositories, Room offline cache (kept internal behind `DataFactory`), and the AndroidKeyStore-encrypted account store. |
 
 ## JMAP layer (`:core:jmap`)
 
@@ -46,9 +44,11 @@ Reference implementations consulted: the `ltt.rs` / `jmap-mua` libraries and the
 
 ## Roadmap
 
-- **M0** — Toolchain, project scaffold, "Hello Jmail" running on an emulator. *(current)*
-- **M1** — Connect to a JMAP server (Stalwart), list mailboxes.
-- **M2** — Read mail: inbox list + message view, offline cache.
+- **M0** — Toolchain, project scaffold, "Hello Jmail" running. *(done)*
+- **M1** — Connect to a JMAP server (Stalwart), list mailboxes. *(done)*
+- **M2** — Read mail: encrypted account persistence, inbox list, message view
+  (HTML in a WebView with remote content blocked by default), Room offline
+  cache. *(done)*
 - **M3** — Actions: read/unread, flag, archive, move, delete.
 - **M4** — Compose and send.
-- **M5** — Push, notifications, multi-account, encryption, CI, F-Droid.
+- **M5** — Push, notifications, multi-account, incremental sync, CI, F-Droid.
