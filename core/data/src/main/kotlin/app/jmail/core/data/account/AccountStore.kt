@@ -110,6 +110,11 @@ class AccountStore(context: Context) {
     fun pushAllAccounts(): Boolean = prefs.getBoolean(KEY_PUSH_ALL, false)
     fun setPushAllAccounts(value: Boolean) = prefs.edit().putBoolean(KEY_PUSH_ALL, value).apply()
 
+    // ---- app-lock preference ----
+
+    fun appLockEnabled(): Boolean = prefs.getBoolean(KEY_APP_LOCK, false)
+    fun setAppLockEnabled(value: Boolean) = prefs.edit().putBoolean(KEY_APP_LOCK, value).apply()
+
     // ---- internals ----
 
     private fun saveAccounts(list: List<StoredAccount>) {
@@ -168,6 +173,7 @@ class AccountStore(context: Context) {
         const val KEY_ACCOUNTS = "accounts"
         const val KEY_CURRENT = "current"
         const val KEY_PUSH_ALL = "push_all_accounts"
+        const val KEY_APP_LOCK = "app_lock_enabled"
 
         // Legacy single-account keys (migrated on first run).
         const val LEGACY_SERVER = "server"

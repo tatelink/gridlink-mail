@@ -29,6 +29,7 @@ import androidx.navigation.navArgument
 import app.jmail.container
 import app.jmail.core.data.account.StoredAccount
 import app.jmail.push.PushService
+import app.jmail.security.LockScreen
 import app.jmail.ui.compose.ComposeScreen
 import app.jmail.ui.connect.ConnectScreen
 import app.jmail.ui.inbox.InboxScreen
@@ -83,20 +84,26 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
 fun JmailApp(viewModel: RootViewModel = viewModel()) {
     RequestNotificationPermission()
     val state by viewModel.state.collectAsStateWithLifecycle()
-    when (val s = state) {
-        RootState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-            CircularProgressIndicator()
+    val appLock = (LocalContext.current.applicationContext as Application).container.appLock
+    val locked by appLock.locked.collectAsStateWithLifecycle()
+
+    Box(Modifier.fillMaxSize()) {
+        when (val s = state) {
+            RootState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            RootState.NeedAccount -> ConnectScreen(onConnected = viewModel::refresh)
+            is RootState.Authenticated -> key(s.accountId) {
+                MainNavHost(
+                    accounts = viewModel.accounts(),
+                    currentAccountId = s.accountId,
+                    onSwitchAccount = viewModel::switchAccount,
+                    onAccountAdded = viewModel::refresh,
+                    onSignOut = viewModel::signOutCurrent,
+                )
+            }
         }
-        RootState.NeedAccount -> ConnectScreen(onConnected = viewModel::refresh)
-        is RootState.Authenticated -> key(s.accountId) {
-            MainNavHost(
-                accounts = viewModel.accounts(),
-                currentAccountId = s.accountId,
-                onSwitchAccount = viewModel::switchAccount,
-                onAccountAdded = viewModel::refresh,
-                onSignOut = viewModel::signOutCurrent,
-            )
-        }
+        if (locked) LockScreen(onUnlocked = appLock::unlock)
     }
 }
 

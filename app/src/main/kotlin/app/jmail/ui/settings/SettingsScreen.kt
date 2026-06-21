@@ -26,6 +26,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel()) {
     val pushAll by viewModel.pushAllAccounts.collectAsStateWithLifecycle()
+    val appLock by viewModel.appLockEnabled.collectAsStateWithLifecycle()
+    val appLockUnavailable by viewModel.appLockUnavailable.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -47,6 +49,21 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel(
                 checked = pushAll,
                 onCheckedChange = viewModel::setPushAllAccounts,
             )
+            SettingSwitch(
+                title = "App lock",
+                subtitle = "Require your fingerprint, face, or screen PIN to open Jmail.",
+                checked = appLock,
+                onCheckedChange = viewModel::setAppLock,
+            )
+            if (appLockUnavailable) {
+                Text(
+                    "Set up a fingerprint, face unlock, or screen lock in your device " +
+                        "settings first.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
         }
     }
 }

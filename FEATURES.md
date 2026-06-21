@@ -76,8 +76,8 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 ## Privacy & security
 
 - ✅ Remote image / tracking-pixel blocking by default
+- ✅ App lock — biometric / face, with screen PIN/pattern/password fallback
 - 💡 Per-sender "always load images" allowlist
-- 💡 App lock (biometric / PIN)
 - 💡 Visible no-telemetry stance
 - 💡 Strip tracking parameters / confirm before opening external links
 
