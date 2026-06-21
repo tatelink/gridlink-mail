@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +44,7 @@ import java.time.format.DateTimeFormatter
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InboxScreen(
+    onOpenEmail: (String) -> Unit,
     onSignOut: () -> Unit,
     viewModel: InboxViewModel = viewModel(),
 ) {
@@ -78,7 +80,7 @@ fun InboxScreen(
                 } else {
                     LazyColumn(Modifier.fillMaxSize()) {
                         items(s.emails, key = { it.id }) { email ->
-                            EmailRow(email)
+                            EmailRow(email, onClick = { onOpenEmail(email.id) })
                             HorizontalDivider()
                         }
                     }
@@ -89,10 +91,13 @@ fun InboxScreen(
 }
 
 @Composable
-private fun EmailRow(email: Email) {
+private fun EmailRow(email: Email, onClick: () -> Unit) {
     val unread = !email.isSeen
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(

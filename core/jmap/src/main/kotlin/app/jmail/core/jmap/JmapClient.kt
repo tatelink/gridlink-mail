@@ -159,6 +159,98 @@ class JmapClient internal constructor(
         }
     }
 
+    /** Fetch a single email including recipients and decoded body values. */
+    suspend fun getEmail(
+        session: JmapSession,
+        accountId: String,
+        emailId: String,
+        auth: JmapAuth,
+    ): Email = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("ids") { add(emailId) }
+                        putJsonArray("properties") {
+                            listOf(
+                                "id", "threadId", "subject", "preview", "receivedAt",
+                                "from", "to", "cc", "hasAttachment", "keywords",
+                                "htmlBody", "textBody", "bodyValues",
+                            ).forEach { add(it) }
+                        }
+                        put("fetchHTMLBodyValues", true)
+                        put("fetchTextBodyValues", true)
+                    }
+                    add("g0")
+                }
+            }
+        }
+        val request = Request.Builder()
+            .url(session.apiUrl)
+            .header("Authorization", auth.authorizationHeader())
+            .header("Accept", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw JmapException("Email/get failed: HTTP ${response.code} ${response.message}")
+            }
+            decodeList(body, "Email/get", Email.serializer()).firstOrNull()
+                ?: throw JmapException("Email not found: $emailId")
+        }
+    }
+
+    /** Set or clear the \$seen keyword on an email via Email/set (RFC 8621 §4.6). */
+    suspend fun setSeen(
+        session: JmapSession,
+        accountId: String,
+        emailId: String,
+        seen: Boolean,
+        auth: JmapAuth,
+    ) = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("update") {
+                            putJsonObject(emailId) {
+                                if (seen) put("keywords/\$seen", true) else put("keywords/\$seen", JsonNull)
+                            }
+                        }
+                    }
+                    add("s0")
+                }
+            }
+        }
+        val request = Request.Builder()
+            .url(session.apiUrl)
+            .header("Authorization", auth.authorizationHeader())
+            .header("Accept", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw JmapException("Email/set failed: HTTP ${response.code} ${response.message}")
+            }
+            // Surface a JMAP-level error if the update was rejected.
+            methodResponseArgs(response.body?.string().orEmpty(), "Email/set")
+            Unit
+        }
+    }
+
     /** Find the args of a named method response, throwing on a JMAP-level error. */
     private fun methodResponseArgs(body: String, expectedMethod: String): JsonObject {
         val root = runCatching { json.parseToJsonElement(body).jsonObject }
@@ -189,6 +281,9 @@ class JmapClient internal constructor(
         internal val DefaultJson: Json = Json {
             ignoreUnknownKeys = true
             encodeDefaults = true
+            // JMAP fields like cc/to/replyTo are `Type[]|null`; coerce an explicit
+            // null to the property default (e.g. emptyList) instead of failing.
+            coerceInputValues = true
         }
 
         internal fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()

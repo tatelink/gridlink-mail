@@ -35,4 +35,18 @@ class MailRepository(private val client: JmapClient = JmapClient()) {
         val accountName = session.accounts[accountId]?.name ?: credentials.username
         return InboxData(accountName, inbox, emails)
     }
+
+    /** Fetch a single message (with body), marking it read on first open. */
+    suspend fun openEmail(credentials: AccountCredentials, emailId: String): Email {
+        val auth = BasicAuth(credentials.username, credentials.password)
+        val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
+        val accountId = session.mailAccountId()
+            ?: error("This user has no JMAP mail account.")
+
+        val email = client.getEmail(session, accountId, emailId, auth)
+        if (!email.isSeen) {
+            runCatching { client.setSeen(session, accountId, emailId, seen = true, auth) }
+        }
+        return email
+    }
 }

@@ -1,6 +1,7 @@
 package app.jmail.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -11,9 +12,15 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import app.jmail.container
 import app.jmail.ui.connect.ConnectScreen
 import app.jmail.ui.inbox.InboxScreen
+import app.jmail.ui.message.MessageScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -52,6 +59,26 @@ fun JmailApp(viewModel: RootViewModel = viewModel()) {
             CircularProgressIndicator()
         }
         RootState.NeedAccount -> ConnectScreen(onConnected = viewModel::refresh)
-        RootState.Authenticated -> InboxScreen(onSignOut = viewModel::signOut)
+        RootState.Authenticated -> MainNavHost(onSignOut = viewModel::signOut)
+    }
+}
+
+@Composable
+private fun MainNavHost(onSignOut: () -> Unit) {
+    val nav = rememberNavController()
+    NavHost(navController = nav, startDestination = "inbox") {
+        composable("inbox") {
+            InboxScreen(
+                onOpenEmail = { id -> nav.navigate("message/${Uri.encode(id)}") },
+                onSignOut = onSignOut,
+            )
+        }
+        composable(
+            route = "message/{emailId}",
+            arguments = listOf(navArgument("emailId") { type = NavType.StringType }),
+        ) { entry ->
+            val emailId = Uri.decode(entry.arguments?.getString("emailId").orEmpty())
+            MessageScreen(emailId = emailId, onBack = { nav.popBackStack() })
+        }
     }
 }

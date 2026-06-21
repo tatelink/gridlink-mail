@@ -62,6 +62,18 @@ class JmapClientTest {
         assertTrue(sent.contains("urn:ietf:params:jmap:mail"))
     }
 
+    @Test fun getEmail_coercesNullAddressFields() = runBlocking {
+        server.enqueue(MockResponse().setBody(EMAIL_GET_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+
+        val email = client.getEmail(session, "acc1", "e1", BasicAuth("u", "p"))
+
+        assertEquals("Hello", email.subject)
+        assertEquals(emptyList<Any>(), email.cc) // cc was JSON null
+        assertEquals("alice@example.com", email.from.first().email)
+        assertEquals("<p>Hi</p>", email.htmlContent())
+    }
+
     @Test fun getMailboxes_throwsOnJmapError() {
         server.enqueue(MockResponse().setBody(ERROR_JSON))
         val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
@@ -103,6 +115,31 @@ class JmapClientTest {
                     {"id":"mb2","name":"Sent","role":"sent","sortOrder":2,"totalEmails":5,"unreadEmails":0}
                   ]
                 }, "c0"]
+              ],
+              "sessionState": "abc"
+            }
+        """
+
+        const val EMAIL_GET_JSON = """
+            {
+              "methodResponses": [
+                ["Email/get", {
+                  "accountId": "acc1",
+                  "state": "e1",
+                  "notFound": [],
+                  "list": [
+                    {
+                      "id": "e1",
+                      "subject": "Hello",
+                      "from": [{"name":"Alice","email":"alice@example.com"}],
+                      "to": null,
+                      "cc": null,
+                      "keywords": {"${'$'}seen": true},
+                      "htmlBody": [{"partId":"1","type":"text/html"}],
+                      "bodyValues": {"1": {"value":"<p>Hi</p>","isTruncated":false}}
+                    }
+                  ]
+                }, "g0"]
               ],
               "sessionState": "abc"
             }
