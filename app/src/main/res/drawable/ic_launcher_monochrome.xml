@@ -3,18 +3,25 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Envelope body (white), centred within the adaptive-icon safe zone. -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M33,40 h42 a7,7 0 0 1 7,7 v20 a7,7 0 0 1 -7,7 h-42 a7,7 0 0 1 -7,-7 v-20 a7,7 0 0 1 7,-7 z" />
-    <!-- Envelope flap (teal), a clean downward chevron at the top of the body. -->
-    <path
-        android:fillColor="#0E6E66"
-        android:pathData="M26,46 L54,56 L82,46 Z" />
-    <!-- Bold J monogram (teal) on the lower body, clear of the flap. -->
+    <!-- Envelope body outline -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#0E6E66"
+        android:strokeColor="#000000"
+        android:strokeWidth="4"
+        android:strokeLineJoin="round"
+        android:pathData="M33,40 h42 a7,7 0 0 1 7,7 v20 a7,7 0 0 1 -7,7 h-42 a7,7 0 0 1 -7,-7 v-20 a7,7 0 0 1 7,-7 z" />
+    <!-- Flap chevron -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#000000"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M28,47 L54,56 L80,47" />
+    <!-- Bold J monogram -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#000000"
         android:strokeWidth="8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
