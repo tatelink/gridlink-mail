@@ -27,6 +27,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Pull-to-refresh
 - ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive
 - ✅ Configurable swipe actions (left/right, in Settings → Reading)
+- ✅ Sort (newest/oldest, subject, sender, unread-first) + Mark-all-read
 - 💡 Multi-select and bulk actions
 - 💡 Snooze a message until later
 - 💡 Paginated "load more"
@@ -40,7 +41,8 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account)
 - 💡 Richer search filters (from, subject, has-attachment, date) + `SearchSnippet` highlights
 - 💡 Folder management (create / rename / subscribe), per-folder settings
-- 💡 Quick filters: unread-only, starred-only, has-attachment
+- ✅ Quick filter: unread-only toggle on the current view
+- 💡 Quick filters: starred-only, has-attachment
 
 ## Composing & sending
 

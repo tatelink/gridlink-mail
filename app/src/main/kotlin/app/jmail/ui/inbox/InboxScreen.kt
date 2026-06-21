@@ -19,23 +19,31 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -59,8 +67,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,6 +84,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.jmap.model.Email
 import app.jmail.ui.components.EmailListItem
@@ -246,8 +257,41 @@ fun InboxScreen(
                             }
                         },
                         actions = {
+                            IconButton(onClick = { viewModel.toggleUnreadOnly() }) {
+                                Icon(
+                                    Icons.Filled.FilterList,
+                                    contentDescription = "Unread only",
+                                    tint = if (ui.unreadOnly) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                                )
+                            }
+                            var sortOpen by remember { mutableStateOf(false) }
+                            IconButton(onClick = { sortOpen = true }) {
+                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
+                            }
+                            DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
+                                SortOrder.entries.forEach { order ->
+                                    DropdownMenuItem(
+                                        text = { Text(sortLabel(order)) },
+                                        leadingIcon = {
+                                            if (order == ui.sortOrder) Icon(Icons.Filled.Check, contentDescription = null)
+                                        },
+                                        onClick = { viewModel.setSortOrder(order); sortOpen = false },
+                                    )
+                                }
+                            }
                             IconButton(onClick = { viewModel.setSearchActive(true) }) {
                                 Icon(Icons.Filled.Search, contentDescription = "Search")
+                            }
+                            var overflowOpen by remember { mutableStateOf(false) }
+                            IconButton(onClick = { overflowOpen = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                            }
+                            DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Mark all read") },
+                                    leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
+                                    onClick = { viewModel.markAllRead(); overflowOpen = false },
+                                )
                             }
                         },
                         scrollBehavior = scrollBehavior,
@@ -390,6 +434,15 @@ private fun performSwipe(action: SwipeAction, email: Email, viewModel: InboxView
         SwipeAction.ARCHIVE -> viewModel.archive(email)
         SwipeAction.FLAG -> viewModel.toggleFlag(email)
     }
+}
+
+/** Human label for a sort option in the sort menu. */
+private fun sortLabel(order: SortOrder): String = when (order) {
+    SortOrder.DATE_DESC -> "Newest first"
+    SortOrder.DATE_ASC -> "Oldest first"
+    SortOrder.SUBJECT -> "Subject"
+    SortOrder.SENDER -> "Sender"
+    SortOrder.UNREAD_FIRST -> "Unread first"
 }
 
 /** A leading icon for a folder, chosen by its JMAP role (falls back to a generic list icon). */

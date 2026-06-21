@@ -21,6 +21,9 @@ enum class PreviewLines(val lines: Int) { NONE(0), ONE(1), THREE(3), FIVE(5) }
 /** An action bound to a swipe gesture on a message row. */
 enum class SwipeAction { NONE, TOGGLE_READ, DELETE, ARCHIVE, FLAG }
 
+/** How the message list is ordered. */
+enum class SortOrder { DATE_DESC, DATE_ASC, SUBJECT, SENDER, UNREAD_FIRST }
+
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 /**
@@ -70,6 +73,14 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_SWIPE_LEFT] = action.name }
     }
 
+    val sortOrder: Flow<SortOrder> = dataStore.data.map { prefs ->
+        prefs[KEY_SORT_ORDER]?.let { runCatching { SortOrder.valueOf(it) }.getOrNull() } ?: SortOrder.DATE_DESC
+    }
+
+    suspend fun setSortOrder(order: SortOrder) {
+        dataStore.edit { it[KEY_SORT_ORDER] = order.name }
+    }
+
     private fun swipeFlow(key: Preferences.Key<String>, default: SwipeAction): Flow<SwipeAction> =
         dataStore.data.map { prefs ->
             prefs[key]?.let { runCatching { SwipeAction.valueOf(it) }.getOrNull() } ?: default
@@ -81,5 +92,6 @@ class SettingsRepository(context: Context) {
         val KEY_PREVIEW_LINES = stringPreferencesKey("preview_lines")
         val KEY_SWIPE_RIGHT = stringPreferencesKey("swipe_right")
         val KEY_SWIPE_LEFT = stringPreferencesKey("swipe_left")
+        val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
     }
 }

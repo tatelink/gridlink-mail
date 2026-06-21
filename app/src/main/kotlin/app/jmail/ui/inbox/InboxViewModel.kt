@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
 import app.jmail.core.data.account.AccountCredentials
+import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.Mailbox
@@ -36,6 +37,8 @@ data class MailUi(
     val searching: Boolean = false,
     val searchQuery: String = "",
     val searchLoading: Boolean = false,
+    val sortOrder: SortOrder = SortOrder.DATE_DESC,
+    val unreadOnly: Boolean = false,
 )
 
 /** Intermediate holder so the search state can be folded into [MailUi] without a 6-arg combine. */
@@ -114,6 +117,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val searchState = MutableStateFlow(SearchUi())
     private var searchJob: Job? = null
 
+    /** Transient view filter: show only unread on the current view. */
+    private val unreadOnly = MutableStateFlow(false)
+
     private val baseState = combine(emails, mailboxes, selection, meta, status) { emails, mailboxes, sel, meta, status ->
         Base(
             emails = emails,
@@ -128,14 +134,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    val state: StateFlow<MailUi> = combine(baseState, searchState) { base, search ->
-        val filtered = if (search.active && search.query.isNotBlank()) {
+    val state: StateFlow<MailUi> = combine(baseState, searchState, settings.sortOrder, unreadOnly) { base, search, sortOrder, unreadOnly ->
+        var list = if (search.active && search.query.isNotBlank()) {
             search.results ?: base.emails.filter { it.matches(search.query) }
         } else {
             base.emails
         }
-        // Favourited (flagged) messages pin to the top; stable sort keeps date order otherwise.
-        val list = filtered.sortedByDescending { it.isFlagged }
+        if (unreadOnly) list = list.filter { !it.isSeen }
+        list = sortEmails(list, sortOrder)
+        // Favourited (flagged) messages always pin to the top; stable sort keeps the chosen order otherwise.
+        list = list.sortedByDescending { it.isFlagged }
         MailUi(
             accountName = base.accountName,
             mailboxName = base.mailboxName,
@@ -149,6 +157,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             searching = search.active,
             searchQuery = search.query,
             searchLoading = search.loading,
+            sortOrder = sortOrder,
+            unreadOnly = unreadOnly,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -274,6 +284,27 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private fun credentialsFor(email: Email): AccountCredentials? =
         email.accountId?.let { store.credentials(it) } ?: store.load()
 
+    // ---- sort / filter / bulk ----
+
+    fun setSortOrder(order: SortOrder) {
+        viewModelScope.launch { settings.setSortOrder(order) }
+    }
+
+    fun toggleUnreadOnly() {
+        unreadOnly.value = !unreadOnly.value
+    }
+
+    /** Mark every message currently shown as read. */
+    fun markAllRead() {
+        val unread = state.value.emails.filter { !it.isSeen }
+        viewModelScope.launch {
+            unread.forEach { email ->
+                val credentials = credentialsFor(email) ?: return@forEach
+                runCatching { repo.setRead(credentials, email.id, true) }
+            }
+        }
+    }
+
     // ---- inline search ----
 
     fun setSearchActive(active: Boolean) {
@@ -306,6 +337,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         const val UNIFIED_LABEL = "All inboxes"
         const val SEARCH_DEBOUNCE_MS = 300L
     }
+}
+
+/** Order a list of emails by the chosen [SortOrder] (stable; the cache is already date-desc). */
+private fun sortEmails(list: List<Email>, order: SortOrder): List<Email> = when (order) {
+    SortOrder.DATE_DESC -> list.sortedByDescending { it.receivedAt ?: "" }
+    SortOrder.DATE_ASC -> list.sortedBy { it.receivedAt ?: "" }
+    SortOrder.SUBJECT -> list.sortedBy { (it.subject ?: "").lowercase().trim() }
+    SortOrder.SENDER -> list.sortedBy { (it.from.firstOrNull()?.display() ?: "").lowercase().trim() }
+    SortOrder.UNREAD_FIRST -> list.sortedByDescending { !it.isSeen }
 }
 
 /** Local match for instant filtering while the server search is in flight. */
