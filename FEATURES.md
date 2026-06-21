@@ -21,7 +21,8 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 
 - ✅ Inbox list and message view (HTML in a WebView, remote content blocked)
 - ✅ Offline reading (Room cache)
-- 🔜 Mark read/unread, flag/star, archive, move, delete *(M3)*
+- ✅ Mark read/unread, flag/star, archive, delete *(M3)*
+- ✅ Folder navigation drawer; view any mailbox *(M3)*
 - 💡 ⭐ Conversation threading — JMAP has native `Thread` objects
 - 💡 Configurable swipe actions (e.g. swipe to archive / delete)
 - 💡 Multi-select and bulk actions
