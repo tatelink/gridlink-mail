@@ -10,7 +10,8 @@ java {
 
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.kotlinx.serialization.json)
+    // Exposed in public API (JmapSession.capabilities uses JsonObject), so `api`.
+    api(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
 
     testImplementation(libs.junit)
