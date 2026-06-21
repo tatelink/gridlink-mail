@@ -3,7 +3,10 @@ package app.jmail
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.fragment.app.FragmentActivity
+import app.jmail.core.data.settings.ThemeMode
 import app.jmail.ui.JmailApp
 import app.jmail.ui.theme.JmailTheme
 
@@ -11,8 +14,10 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val settings = application.container.settingsRepository
         setContent {
-            JmailTheme {
+            val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
+            JmailTheme(themeMode = themeMode) {
                 JmailApp()
             }
         }
