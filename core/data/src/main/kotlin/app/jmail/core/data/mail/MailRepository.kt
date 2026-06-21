@@ -8,6 +8,7 @@ import app.jmail.core.jmap.Jmap
 import app.jmail.core.jmap.JmapAuth
 import app.jmail.core.jmap.JmapClient
 import app.jmail.core.jmap.model.Email
+import app.jmail.core.jmap.model.EmailAddress
 import app.jmail.core.jmap.model.Mailbox
 import app.jmail.core.jmap.model.JmapSession
 import kotlinx.coroutines.flow.Flow
@@ -124,6 +125,33 @@ class MailRepository(
             client.destroy(ctx.session, ctx.accountId, emailId, ctx.auth)
         }
         emailDao.deleteById(emailId)
+    }
+
+    /** Compose and send a plain-text email from the account's first identity. */
+    suspend fun send(credentials: AccountCredentials, to: List<String>, subject: String, body: String) {
+        val ctx = connect(credentials)
+        val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
+        require(recipients.isNotEmpty()) { "Add at least one recipient." }
+
+        val identity = client.getIdentities(ctx.session, ctx.accountId, ctx.auth).firstOrNull()
+            ?: error("This account has no sending identity.")
+        val draftsId = ctx.rolesToMailboxId["drafts"]
+            ?: ctx.rolesToMailboxId["sent"]
+            ?: error("This account has no Drafts or Sent folder.")
+        val sentId = ctx.rolesToMailboxId["sent"] ?: draftsId
+
+        client.sendEmail(
+            session = ctx.session,
+            accountId = ctx.accountId,
+            auth = ctx.auth,
+            identityId = identity.id,
+            from = EmailAddress(name = identity.name, email = identity.email),
+            to = recipients,
+            subject = subject,
+            textBody = body,
+            draftMailboxId = draftsId,
+            sentMailboxId = sentId,
+        )
     }
 
     /** Establish (or reuse) a session + mailbox-role map for the credentials. */

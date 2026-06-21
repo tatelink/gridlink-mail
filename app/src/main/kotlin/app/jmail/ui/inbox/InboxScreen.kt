@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -54,6 +55,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun InboxScreen(
     onOpenEmail: (String) -> Unit,
+    onCompose: () -> Unit,
     onSignOut: () -> Unit,
     viewModel: InboxViewModel = viewModel(),
 ) {
@@ -104,6 +106,11 @@ fun InboxScreen(
                         TextButton(onClick = onSignOut) { Text("Sign out") }
                     },
                 )
+            },
+            floatingActionButton = {
+                FloatingActionButton(onClick = onCompose) {
+                    Text("✎", style = MaterialTheme.typography.titleLarge)
+                }
             },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {

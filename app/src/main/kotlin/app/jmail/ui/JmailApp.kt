@@ -18,6 +18,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.jmail.container
+import app.jmail.ui.compose.ComposeScreen
 import app.jmail.ui.connect.ConnectScreen
 import app.jmail.ui.inbox.InboxScreen
 import app.jmail.ui.message.MessageScreen
@@ -70,6 +71,7 @@ private fun MainNavHost(onSignOut: () -> Unit) {
         composable("inbox") {
             InboxScreen(
                 onOpenEmail = { id -> nav.navigate("message/${Uri.encode(id)}") },
+                onCompose = { nav.navigate("compose") },
                 onSignOut = onSignOut,
             )
         }
@@ -79,6 +81,12 @@ private fun MainNavHost(onSignOut: () -> Unit) {
         ) { entry ->
             val emailId = Uri.decode(entry.arguments?.getString("emailId").orEmpty())
             MessageScreen(emailId = emailId, onBack = { nav.popBackStack() })
+        }
+        composable("compose") {
+            ComposeScreen(
+                onSent = { nav.popBackStack() },
+                onCancel = { nav.popBackStack() },
+            )
         }
     }
 }

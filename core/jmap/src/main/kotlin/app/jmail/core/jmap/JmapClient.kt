@@ -1,6 +1,8 @@
 package app.jmail.core.jmap
 
 import app.jmail.core.jmap.model.Email
+import app.jmail.core.jmap.model.EmailAddress
+import app.jmail.core.jmap.model.Identity
 import app.jmail.core.jmap.model.JmapSession
 import app.jmail.core.jmap.model.Mailbox
 import kotlinx.serialization.KSerializer
@@ -252,6 +254,130 @@ class JmapClient internal constructor(
             putJsonArray("destroy") { add(emailId) }
         }
 
+    /** Fetch the identities (from-addresses) the user may send as (RFC 8621 §6). */
+    suspend fun getIdentities(session: JmapSession, accountId: String, auth: JmapAuth): List<Identity> =
+        withContext(Dispatchers.IO) {
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.SUBMISSION_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Identity/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            put("ids", JsonNull)
+                        }
+                        add("i0")
+                    }
+                }
+            }
+            val request = Request.Builder()
+                .url(session.apiUrl)
+                .header("Authorization", auth.authorizationHeader())
+                .header("Accept", "application/json")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw JmapException("Identity/get failed: HTTP ${response.code} ${response.message}")
+                }
+                decodeList(body, "Identity/get", Identity.serializer())
+            }
+        }
+
+    /**
+     * Send a plain-text email: create a draft (Email/set) and submit it
+     * (EmailSubmission/set) in one request, moving it to Sent on success.
+     */
+    suspend fun sendEmail(
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+        identityId: String,
+        from: EmailAddress,
+        to: List<EmailAddress>,
+        subject: String,
+        textBody: String,
+        draftMailboxId: String,
+        sentMailboxId: String,
+    ) = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+                add(Jmap.SUBMISSION_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("create") {
+                            putJsonObject("draft") {
+                                putJsonArray("from") { addJsonObject { addAddress(from) } }
+                                putJsonArray("to") { to.forEach { addJsonObject { addAddress(it) } } }
+                                put("subject", subject)
+                                putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
+                                putJsonObject("mailboxIds") { put(draftMailboxId, true) }
+                                putJsonArray("textBody") {
+                                    addJsonObject { put("partId", "body"); put("type", "text/plain") }
+                                }
+                                putJsonObject("bodyValues") {
+                                    putJsonObject("body") { put("value", textBody) }
+                                }
+                            }
+                        }
+                    }
+                    add("e0")
+                }
+                addJsonArray {
+                    add("EmailSubmission/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("create") {
+                            putJsonObject("sub") {
+                                put("emailId", "#draft")
+                                put("identityId", identityId)
+                            }
+                        }
+                        putJsonObject("onSuccessUpdateEmail") {
+                            putJsonObject("#sub") {
+                                put("mailboxIds/$sentMailboxId", true)
+                                put("mailboxIds/$draftMailboxId", JsonNull)
+                                put("keywords/\$draft", JsonNull)
+                            }
+                        }
+                    }
+                    add("s0")
+                }
+            }
+        }
+        val request = Request.Builder()
+            .url(session.apiUrl)
+            .header("Authorization", auth.authorizationHeader())
+            .header("Accept", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw JmapException("Send failed: HTTP ${response.code} ${response.message}")
+            }
+            val emailArgs = methodResponseArgs(body, "Email/set")
+            (emailArgs["notCreated"] as? JsonObject)?.get("draft")?.let {
+                throw JmapException("Could not create the message: $it")
+            }
+            val subArgs = methodResponseArgs(body, "EmailSubmission/set")
+            (subArgs["notCreated"] as? JsonObject)?.get("sub")?.let {
+                throw JmapException("Could not send the message: $it")
+            }
+            Unit
+        }
+    }
+
     /** Run an Email/set call with the given argument object, surfacing JMAP errors. */
     private suspend fun emailSet(
         session: JmapSession,
@@ -326,4 +452,10 @@ class JmapClient internal constructor(
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
     }
+}
+
+/** Write a JMAP EmailAddress object ({name?, email}) into the current JSON object. */
+private fun JsonObjectBuilder.addAddress(address: EmailAddress) {
+    address.name?.let { put("name", it) }
+    put("email", address.email)
 }
