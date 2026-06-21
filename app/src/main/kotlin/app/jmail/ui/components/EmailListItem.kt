@@ -27,9 +27,17 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
-/** One row in a message list: monogram, sender, subject, preview, time + state. */
+/**
+ * One row in a message list: monogram, sender, subject, preview, time + state.
+ * [accountLabel] shows the owning account as a chip — set only in the unified inbox.
+ */
 @Composable
-fun EmailListItem(email: Email, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun EmailListItem(
+    email: Email,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    accountLabel: String? = null,
+) {
     val unread = !email.isSeen
     val senderName = email.from.firstOrNull()?.display() ?: "(unknown sender)"
     Row(
@@ -84,6 +92,20 @@ fun EmailListItem(email: Email, onClick: () -> Unit, modifier: Modifier = Modifi
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+            accountLabel?.takeIf { it.isNotBlank() }?.let { label ->
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .clip(MaterialTheme.shapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
         }

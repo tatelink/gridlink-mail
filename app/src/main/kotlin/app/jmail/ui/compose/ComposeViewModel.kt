@@ -46,6 +46,11 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     // Threading headers for a reply (empty for new/forward).
     private var inReplyTo: List<String> = emptyList()
     private var references: List<String> = emptyList()
+    /** Account to send from: the replied-to message's account (unified inbox), else current. */
+    private var accountId: String? = null
+
+    private fun credentials(): AccountCredentials? =
+        accountId?.let { store.credentials(it) } ?: store.load()
 
     /** Upload a picked document and add it to the outgoing attachments. */
     fun attach(uri: Uri) {
@@ -53,7 +58,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _attachmentStatus.value = "Attaching…"
             try {
-                val credentials = store.load() ?: error("No saved account.")
+                val credentials = credentials() ?: error("No saved account.")
                 val resolver = app.contentResolver
                 val type = resolver.getType(uri)
                 val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
@@ -75,13 +80,14 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /** Build initial fields when opening as a reply/reply-all/forward of [replyToId]. */
-    fun prepare(replyToId: String?, mode: String?) {
+    fun prepare(replyToId: String?, mode: String?, accountId: String? = null) {
         if (prepared) return
         prepared = true
+        this.accountId = accountId
         if (replyToId == null) return
         viewModelScope.launch {
             try {
-                val credentials = store.load() ?: return@launch
+                val credentials = credentials() ?: return@launch
                 val original = repo.fetchEmail(credentials, replyToId)
                 _prefill.value = buildPrefill(original, mode, credentials.username)
                 if (mode != "forward") {
@@ -110,7 +116,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         _state.value = ComposeState.Sending
         viewModelScope.launch {
             try {
-                val credentials = store.load() ?: error("No saved account.")
+                val credentials = credentials() ?: error("No saved account.")
                 val recipients = to.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
                 op(credentials, recipients)
                 _state.value = ComposeState.Done

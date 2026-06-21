@@ -27,6 +27,15 @@ data class MailboxMeta(
     val unreadCount: Int,
 )
 
+/** Result of refreshing one account's inbox during a unified-inbox fan-out. */
+data class AccountInboxMeta(
+    val accountId: String,
+    val accountName: String,
+    val mailboxId: String,
+    val mailboxName: String,
+    val unreadCount: Int,
+)
+
 /**
  * Offline-first mail access: the UI observes cached mailboxes/emails from Room,
  * while the network methods fetch over JMAP and update the cache. A session +
@@ -104,6 +113,31 @@ class MailRepository(
     /** Cached emails for a mailbox, newest first, updated reactively. */
     fun observeMailbox(mailboxId: String): Flow<List<Email>> =
         emailDao.observeByMailbox(mailboxId).map { rows -> rows.map { it.toEmail() } }
+
+    /** Cached emails merged across several inboxes (the unified inbox), newest first. */
+    fun observeUnifiedInbox(mailboxIds: List<String>): Flow<List<Email>> =
+        emailDao.observeByMailboxes(mailboxIds).map { rows -> rows.map { it.toEmail() } }
+
+    /**
+     * Refresh every account's inbox into the cache (each email tagged with its
+     * accountId). Per-account failures are skipped so one bad account doesn't sink
+     * the unified view. Returns metadata for the accounts that synced successfully.
+     */
+    suspend fun refreshAllInboxes(accounts: List<AccountCredentials>, limit: Int = 50): List<AccountInboxMeta> {
+        val results = mutableListOf<AccountInboxMeta>()
+        for (credentials in accounts) {
+            runCatching {
+                val resolved = resolve(credentials)
+                val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
+                    ?: resolved.mailboxes.firstOrNull()
+                    ?: return@runCatching
+                syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit)
+                val name = resolved.session.accounts[resolved.accountId]?.name ?: credentials.username
+                results += AccountInboxMeta(credentials.id, name, inbox.id, inbox.name, inbox.unreadEmails)
+            }
+        }
+        return results
+    }
 
     /**
      * Refresh the mailbox list and the emails of [mailboxId] (or the inbox when

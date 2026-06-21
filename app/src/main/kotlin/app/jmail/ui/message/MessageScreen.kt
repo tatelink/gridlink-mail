@@ -57,9 +57,10 @@ fun MessageScreen(
     onBack: () -> Unit,
     onReply: (mode: String) -> Unit,
     onOpenEmail: (String) -> Unit,
+    accountId: String? = null,
     viewModel: MessageViewModel = viewModel(),
 ) {
-    LaunchedEffect(emailId) { viewModel.load(emailId) }
+    LaunchedEffect(emailId, accountId) { viewModel.load(emailId, accountId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val thread by viewModel.thread.collectAsStateWithLifecycle()
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
@@ -133,7 +134,7 @@ fun MessageScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text("Could not load message:\n${s.message}", color = MaterialTheme.colorScheme.error)
-                    Button(onClick = { viewModel.load(emailId) }) { Text("Retry") }
+                    Button(onClick = { viewModel.load(emailId, accountId) }) { Text("Retry") }
                 }
                 is MessageState.Loaded -> MessageBody(
                     email = s.email,

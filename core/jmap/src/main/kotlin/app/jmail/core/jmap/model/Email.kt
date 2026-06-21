@@ -40,6 +40,13 @@ data class EmailBodyValue(
 @Serializable
 data class Email(
     val id: String,
+    /**
+     * Owning account, populated when the email comes from the local cache; null
+     * for messages parsed straight from a JMAP response (the account is implicit
+     * in the request). Lets the cross-account unified inbox route each row's
+     * actions back to the right account.
+     */
+    val accountId: String? = null,
     val threadId: String? = null,
     val subject: String? = null,
     val preview: String? = null,

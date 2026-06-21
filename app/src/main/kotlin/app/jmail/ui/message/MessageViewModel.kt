@@ -42,17 +42,24 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     val inlineImages = _inlineImages.asStateFlow()
 
     private var loadedId: String? = null
+    /** Owning account when opened from the unified inbox; null = current account. */
+    private var accountId: String? = null
+
+    /** Credentials for the message's own account (unified inbox), else the current one. */
+    private fun credentials(): AccountCredentials? =
+        accountId?.let { store.credentials(it) } ?: store.load()
 
     /** Loads the email once per id (idempotent across recompositions). */
-    fun load(emailId: String) {
+    fun load(emailId: String, accountId: String? = null) {
         if (loadedId == emailId && _state.value !is MessageState.Error) return
         loadedId = emailId
+        this.accountId = accountId
         _state.value = MessageState.Loading
         _thread.value = emptyList()
         _inlineImages.value = emptyMap()
         viewModelScope.launch {
             try {
-                val credentials = store.load() ?: error("No saved account.")
+                val credentials = credentials() ?: error("No saved account.")
                 val email = repo.openEmail(credentials, emailId)
                 _state.value = MessageState.Loaded(email)
                 loadInlineImages(credentials, email)
@@ -94,7 +101,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _attachmentStatus.value = "Opening ${part.name ?: "attachment"}…"
         viewModelScope.launch {
             try {
-                val credentials = store.load() ?: error("No saved account.")
+                val credentials = credentials() ?: error("No saved account.")
                 val bytes = repo.downloadAttachment(credentials, blobId, part.type, part.name)
                 val file = withContext(Dispatchers.IO) {
                     val dir = File(app.cacheDir, "attachments").apply { mkdirs() }
@@ -127,7 +134,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             ),
         )
         viewModelScope.launch {
-            val credentials = store.load() ?: return@launch
+            val credentials = credentials() ?: return@launch
             runCatching { repo.setFlagged(credentials, current.id, flagged) }
         }
     }
@@ -140,7 +147,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         val id = loadedId ?: return
         viewModelScope.launch {
             try {
-                val credentials = store.load() ?: error("No saved account.")
+                val credentials = credentials() ?: error("No saved account.")
                 op(credentials, id)
                 onDone()
             } catch (t: Throwable) {

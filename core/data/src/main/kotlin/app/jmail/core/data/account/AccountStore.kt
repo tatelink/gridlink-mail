@@ -105,6 +105,27 @@ class AccountStore(context: Context) {
     fun inboxMailboxName(): String = currentAccount()?.inboxName ?: "Inbox"
     fun unreadCount(): Int = currentAccount()?.unread ?: 0
 
+    // ---- unified inbox (all accounts) ----
+
+    /** Known inbox mailbox ids across every account (those synced at least once). */
+    fun allInboxMailboxIds(): List<String> = accounts().mapNotNull { it.inboxId }
+
+    /** Combined unread count across every account, for the unified-inbox header. */
+    fun totalUnreadCount(): Int = accounts().sumOf { it.unread }
+
+    /** Record a specific account's inbox id/name/unread (used by the unified refresh fan-out). */
+    fun saveInboxMetaFor(accountId: String, mailboxId: String, mailboxName: String, accountName: String, unread: Int) {
+        saveAccounts(
+            accounts().map {
+                if (it.id == accountId) {
+                    it.copy(accountName = accountName, inboxId = mailboxId, inboxName = mailboxName, unread = unread)
+                } else {
+                    it
+                }
+            },
+        )
+    }
+
     // ---- push preference ----
 
     fun pushAllAccounts(): Boolean = prefs.getBoolean(KEY_PUSH_ALL, false)

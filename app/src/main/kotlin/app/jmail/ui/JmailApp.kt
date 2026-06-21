@@ -131,7 +131,9 @@ private fun MainNavHost(
     NavHost(navController = nav, startDestination = "inbox") {
         composable("inbox") {
             InboxScreen(
-                onOpenEmail = { id -> nav.navigate("message/${Uri.encode(id)}") },
+                onOpenEmail = { id, accountId ->
+                    nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}")
+                },
                 onCompose = { nav.navigate("compose") },
                 onSearch = { nav.navigate("search") },
                 onOpenSettings = { nav.navigate("settings") },
@@ -149,22 +151,29 @@ private fun MainNavHost(
             )
         }
         composable(
-            route = "message/{emailId}",
-            arguments = listOf(navArgument("emailId") { type = NavType.StringType }),
+            route = "message/{emailId}?accountId={accountId}",
+            arguments = listOf(
+                navArgument("emailId") { type = NavType.StringType },
+                navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
         ) { entry ->
             val emailId = Uri.decode(entry.arguments?.getString("emailId").orEmpty())
+            val accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null }
+            val accountArg = accountId?.let { "&accountId=${Uri.encode(it)}" }.orEmpty()
             MessageScreen(
                 emailId = emailId,
+                accountId = accountId,
                 onBack = { nav.popBackStack() },
-                onReply = { mode -> nav.navigate("compose?replyTo=${Uri.encode(emailId)}&mode=$mode") },
-                onOpenEmail = { id -> nav.navigate("message/${Uri.encode(id)}") },
+                onReply = { mode -> nav.navigate("compose?replyTo=${Uri.encode(emailId)}&mode=$mode$accountArg") },
+                onOpenEmail = { id -> nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}") },
             )
         }
         composable(
-            route = "compose?replyTo={replyTo}&mode={mode}",
+            route = "compose?replyTo={replyTo}&mode={mode}&accountId={accountId}",
             arguments = listOf(
                 navArgument("replyTo") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("mode") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
             ComposeScreen(
@@ -172,6 +181,7 @@ private fun MainNavHost(
                 onCancel = { nav.popBackStack() },
                 replyTo = entry.arguments?.getString("replyTo")?.let { Uri.decode(it) },
                 mode = entry.arguments?.getString("mode"),
+                accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null },
             )
         }
         composable("addAccount") {

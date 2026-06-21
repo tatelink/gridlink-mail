@@ -15,6 +15,10 @@ interface EmailDao {
     @Query("SELECT * FROM emails WHERE mailboxId = :mailboxId ORDER BY sortKey DESC")
     suspend fun getByMailbox(mailboxId: String): List<EmailEntity>
 
+    /** Merged view across several mailboxes (the unified inbox), newest first. */
+    @Query("SELECT * FROM emails WHERE mailboxId IN (:mailboxIds) ORDER BY sortKey DESC")
+    fun observeByMailboxes(mailboxIds: List<String>): Flow<List<EmailEntity>>
+
     @Upsert
     suspend fun upsertAll(emails: List<EmailEntity>)
 

@@ -41,6 +41,7 @@ fun ComposeScreen(
     onCancel: () -> Unit,
     replyTo: String? = null,
     mode: String? = null,
+    accountId: String? = null,
     viewModel: ComposeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -51,7 +52,7 @@ fun ComposeScreen(
         uri?.let(viewModel::attach)
     }
 
-    LaunchedEffect(Unit) { viewModel.prepare(replyTo, mode) }
+    LaunchedEffect(Unit) { viewModel.prepare(replyTo, mode, accountId) }
     LaunchedEffect(state) {
         if (state is ComposeState.Done) onDone()
     }

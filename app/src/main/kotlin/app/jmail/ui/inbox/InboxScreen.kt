@@ -58,7 +58,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InboxScreen(
-    onOpenEmail: (String) -> Unit,
+    onOpenEmail: (emailId: String, accountId: String?) -> Unit,
     onCompose: () -> Unit,
     onSearch: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -108,6 +108,22 @@ fun InboxScreen(
                     modifier = Modifier.padding(horizontal = 12.dp),
                 )
                 HorizontalDivider()
+                if (accounts.size > 1) {
+                    val unifiedLabel = if (ui.unified && ui.unreadCount > 0) {
+                        "All inboxes  (${ui.unreadCount})"
+                    } else {
+                        "All inboxes"
+                    }
+                    NavigationDrawerItem(
+                        label = { Text(unifiedLabel) },
+                        selected = ui.unified,
+                        onClick = {
+                            viewModel.selectUnified()
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                }
                 ui.mailboxes.forEach { mailbox ->
                     val label = if (mailbox.unreadEmails > 0) {
                         "${mailbox.name}  (${mailbox.unreadEmails})"
@@ -171,11 +187,17 @@ fun InboxScreen(
                 when {
                     ui.emails.isNotEmpty() -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         items(ui.emails, key = { it.id }) { email ->
+                            val accountLabel = if (ui.unified) {
+                                accounts.firstOrNull { it.id == email.accountId }?.label()
+                            } else {
+                                null
+                            }
                             SwipeableEmailRow(
                                 email = email,
-                                onClick = { onOpenEmail(email.id) },
+                                accountLabel = accountLabel,
+                                onClick = { onOpenEmail(email.id, email.accountId) },
                                 onToggleRead = { viewModel.toggleRead(email) },
-                                onDelete = { viewModel.delete(email.id) },
+                                onDelete = { viewModel.delete(email) },
                                 modifier = Modifier.animateItem(),
                             )
                             HorizontalDivider()
@@ -201,6 +223,7 @@ fun InboxScreen(
 @Composable
 private fun SwipeableEmailRow(
     email: Email,
+    accountLabel: String?,
     onClick: () -> Unit,
     onToggleRead: () -> Unit,
     onDelete: () -> Unit,
@@ -239,6 +262,6 @@ private fun SwipeableEmailRow(
             }
         },
     ) {
-        EmailListItem(email = email, onClick = onClick)
+        EmailListItem(email = email, onClick = onClick, accountLabel = accountLabel)
     }
 }
