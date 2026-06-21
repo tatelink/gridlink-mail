@@ -147,7 +147,7 @@ are documented here as structure; build the ✅ ones first.
 - **Notifications:** push for all accounts ✅ · new-mail master + system-channels link · quiet hours 💡
 - **Reading:** configurable swipe actions 💡 · conversation threading toggle (threading ✅) · mark-as-read on open · remote images (see Privacy)
 - **Writing:** default signature 💡 · undo send Off/5/10/30s 💡 · read receipts Never/Ask/Always 💡 · quote-on-reply · "forgot attachment?" reminder 💡
-- **Privacy & Security:** remote image policy Never *(default)* / Ask / Always ✅ · per-sender allowlist 💡 · app lock Off/Biometric/PIN 💡 + timeout · confirm external links 💡 · "Jmail collects no data" → [PRIVACY.md](PRIVACY.md)
+- **Privacy & Security:** remote image policy Never *(default)* / Ask / Always ✅ · per-sender allowlist 💡 · app lock ✅ (biometric + PIN/pattern/password fallback) · confirm external links 💡 · "Jmail collects no data" → [PRIVACY.md](PRIVACY.md)
 - **Storage & Sync:** sync / push on-off ✅ · download attachments on Wi-Fi only 💡 · cache size + Clear cache (Room cache ✅) · settings export / import 💡
 - **About:** version · source (Codeberg) · GPLv3 licence · privacy policy ([PRIVACY.md](PRIVACY.md)) · OSS licences · report issue / security
 
