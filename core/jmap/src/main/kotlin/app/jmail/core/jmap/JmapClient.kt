@@ -771,15 +771,16 @@ class JmapClient internal constructor(
         val url = template
             .replace("{types}", "Email,Mailbox")
             .replace("{closeafter}", "no")
-            .replace("{ping}", "300")
+            .replace("{ping}", PING_SECONDS.toString())
         val request = Request.Builder()
             .url(url)
             .header("Authorization", auth.authorizationHeader())
             .header("Accept", "text/event-stream")
             .build()
-        // SSE needs no read timeout; the server pings to keep the connection alive.
+        // The server pings every PING_SECONDS; a read timeout a bit longer than that
+        // turns a silently-dropped connection into onFailure so the caller can reconnect.
         val sseClient = httpClient.newBuilder()
-            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .readTimeout(PING_SECONDS + 30L, TimeUnit.SECONDS)
             .build()
         val listener = object : EventSourceListener() {
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
@@ -881,6 +882,9 @@ class JmapClient internal constructor(
     }
 
     companion object {
+        /** How often the server should ping the EventSource connection, in seconds. */
+        private const val PING_SECONDS = 90L
+
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         internal val DefaultJson: Json = Json {

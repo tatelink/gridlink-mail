@@ -11,23 +11,30 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import app.jmail.container
 import app.jmail.core.data.account.AccountCredentials
+import app.jmail.core.jmap.model.Email
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.Closeable
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Foreground service holding JMAP EventSource (SSE) connections so new mail
  * arrives instantly — no Google/FCM. Watches the current account, or all accounts
- * when the user enables that preference. onStartCommand reconnects, so switching
- * accounts (start() again) re-points the connections.
+ * when enabled. Reconnects when a connection drops and notifies for mail that
+ * arrived during the gap. A `generation` counter retires stale connections when
+ * the service is (re)started, e.g. on account switch.
  */
 class PushService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val connections = mutableListOf<Closeable>()
-    private val baselines = mutableMapOf<String, Set<String>>()
+    private val connections = ConcurrentHashMap<String, Closeable>()
+    private val baselines = ConcurrentHashMap<String, Set<String>>()
+
+    @Volatile
+    private var generation = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -41,33 +48,55 @@ class PushService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        reconnect()
+        val gen = ++generation
+        scope.launch { reconnectAll(gen) }
         return START_STICKY
     }
 
-    private fun reconnect() {
-        scope.launch {
-            connections.forEach { runCatching { it.close() } }
-            connections.clear()
-            baselines.clear()
+    private suspend fun reconnectAll(gen: Int) {
+        connections.values.forEach { runCatching { it.close() } }
+        connections.clear()
+        val store = application.container.accountStore
+        val accounts = if (store.pushAllAccounts()) store.allCredentials() else listOfNotNull(store.load())
+        if (accounts.isEmpty()) {
+            stopSelf()
+            return
+        }
+        accounts.forEach { watch(it, gen, resetBaseline = true) }
+        Log.i(TAG, "Watching ${accounts.size} account(s) for new mail")
+    }
 
-            val store = application.container.accountStore
-            val repo = application.container.mailRepository
-            val accounts = if (store.pushAllAccounts()) store.allCredentials() else listOfNotNull(store.load())
-            if (accounts.isEmpty()) {
-                stopSelf()
-                return@launch
+    /** (Re)establish the push connection for one account. */
+    private suspend fun watch(credentials: AccountCredentials, gen: Int, resetBaseline: Boolean) {
+        if (gen != generation) return
+        val repo = application.container.mailRepository
+        runCatching {
+            val (_, emails) = repo.refreshAccountInbox(credentials)
+            if (resetBaseline || baselines[credentials.id] == null) {
+                baselines[credentials.id] = emails.map { it.id }.toSet()
+            } else {
+                // Reconnected after a drop — notify for anything that arrived meanwhile.
+                notifyNew(credentials, emails)
             }
-            accounts.forEach { credentials ->
-                runCatching {
-                    val (_, emails) = repo.refreshAccountInbox(credentials)
-                    baselines[credentials.id] = emails.map { it.id }.toSet()
-                    connections += repo.openAccountPush(credentials) {
-                        scope.launch { onAccountChanged(credentials) }
-                    }
-                }.onFailure { Log.e(TAG, "Push watch failed for ${credentials.username}", it) }
+            connections[credentials.id] = repo.openAccountPush(
+                credentials,
+                onChanged = { if (gen == generation) scope.launch { onAccountChanged(credentials) } },
+                onClosed = { if (gen == generation) scheduleReconnect(credentials, gen) },
+            )
+        }.onFailure {
+            Log.e(TAG, "Push watch failed for ${credentials.username}", it)
+            scheduleReconnect(credentials, gen)
+        }
+    }
+
+    private fun scheduleReconnect(credentials: AccountCredentials, gen: Int) {
+        scope.launch {
+            delay(RECONNECT_DELAY_MS)
+            if (gen == generation) {
+                Log.i(TAG, "Reconnecting push for ${credentials.username}")
+                runCatching { connections.remove(credentials.id)?.close() }
+                watch(credentials, gen, resetBaseline = false)
             }
-            Log.i(TAG, "Watching ${accounts.size} account(s) for new mail")
         }
     }
 
@@ -75,24 +104,30 @@ class PushService : Service() {
         val repo = application.container.mailRepository
         runCatching {
             val (_, emails) = repo.refreshAccountInbox(credentials)
-            val known = baselines[credentials.id].orEmpty()
-            val newMail = emails.filter { it.id !in known && !it.isSeen }
-            Log.i(TAG, "${credentials.username}: ${emails.size} total, ${newMail.size} new unseen")
-            newMail.forEach { Notifications.notifyNewMail(this, it) }
-            baselines[credentials.id] = emails.map { it.id }.toSet()
+            notifyNew(credentials, emails)
         }.onFailure { Log.e(TAG, "onAccountChanged failed", it) }
+    }
+
+    /** Post notifications for inbox messages not seen before, then advance the baseline. */
+    private fun notifyNew(credentials: AccountCredentials, emails: List<Email>) {
+        val known = baselines[credentials.id].orEmpty()
+        val newMail = emails.filter { it.id !in known && !it.isSeen }
+        Log.i(TAG, "${credentials.username}: ${emails.size} total, ${newMail.size} new unseen")
+        newMail.forEach { Notifications.notifyNewMail(this, it, credentials.id) }
+        baselines[credentials.id] = emails.map { it.id }.toSet()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        connections.forEach { runCatching { it.close() } }
+        connections.values.forEach { runCatching { it.close() } }
         scope.cancel()
         super.onDestroy()
     }
 
     companion object {
         private const val TAG = "PushService"
+        private const val RECONNECT_DELAY_MS = 5_000L
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, PushService::class.java))

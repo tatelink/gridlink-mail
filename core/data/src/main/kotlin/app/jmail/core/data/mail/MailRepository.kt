@@ -233,14 +233,21 @@ class MailRepository(
         return inbox.id to emailDao.getByMailbox(inbox.id).map { it.toEmail() }
     }
 
-    /** Open a push connection for a specific account; [onChanged] fires when its mail changes. */
-    suspend fun openAccountPush(credentials: AccountCredentials, onChanged: () -> Unit): Closeable {
+    /**
+     * Open a push connection for a specific account; [onChanged] fires when its mail
+     * changes, and [onClosed] when the connection drops (so the caller can reconnect).
+     */
+    suspend fun openAccountPush(
+        credentials: AccountCredentials,
+        onChanged: () -> Unit,
+        onClosed: () -> Unit = {},
+    ): Closeable {
         val resolved = resolve(credentials)
         return client.openEventSource(
             session = resolved.session,
             auth = resolved.auth,
             onStateChange = { change -> if (change.emailChanged(resolved.accountId)) onChanged() },
-            onClosed = {},
+            onClosed = onClosed,
         )
     }
 

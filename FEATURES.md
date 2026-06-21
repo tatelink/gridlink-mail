@@ -68,7 +68,9 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Incremental sync (`Email/queryChanges` + `Email/changes` + per-type `state`)
 - ✅ ⭐ Push via JMAP EventSource (foreground service, no Google/FCM, no IMAP IDLE drain)
 - ✅ New-mail notifications (per current account, or all accounts via a setting)
-- 💡 Rich notifications: bundled, with quick actions (reply / archive / delete / mark-read)
+- ✅ Notification quick actions: reply (inline), mark read, delete
+- ✅ Push reconnects automatically when the connection drops (catches missed mail)
+- 💡 Bundled/grouped notifications per account
 - 💡 Quiet hours / Do-Not-Disturb windows
 
 ## Privacy & security
