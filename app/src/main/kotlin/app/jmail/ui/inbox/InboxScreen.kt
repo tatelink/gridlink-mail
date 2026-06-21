@@ -43,6 +43,9 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -94,7 +97,20 @@ fun InboxScreen(
 ) {
     val ui by viewModel.state.collectAsStateWithLifecycle()
     val swipe by viewModel.swipeConfig.collectAsStateWithLifecycle()
+    val undo by viewModel.undo.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+
+    // Show an Undo snackbar whenever a swipe deletes/archives a message.
+    LaunchedEffect(undo) {
+        val action = undo ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = action.label,
+            actionLabel = "Undo",
+            withDismissAction = true,
+        )
+        if (result == SnackbarResult.ActionPerformed) viewModel.undo() else viewModel.clearUndo()
+    }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -184,6 +200,7 @@ fun InboxScreen(
     ) {
         Scaffold(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 if (ui.searching) {
                     val focusRequester = remember { FocusRequester() }
@@ -229,7 +246,6 @@ fun InboxScreen(
                             IconButton(onClick = { viewModel.setSearchActive(true) }) {
                                 Icon(Icons.Filled.Search, contentDescription = "Search")
                             }
-                            TextButton(onClick = onSignOut) { Text("Sign out") }
                         },
                         scrollBehavior = scrollBehavior,
                     )

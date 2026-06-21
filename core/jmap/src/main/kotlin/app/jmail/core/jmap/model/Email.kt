@@ -47,6 +47,8 @@ data class Email(
      * actions back to the right account.
      */
     val accountId: String? = null,
+    /** Source mailbox, populated from the local cache; lets a swipe action be undone (moved back). */
+    val mailboxId: String? = null,
     val threadId: String? = null,
     val subject: String? = null,
     val preview: String? = null,

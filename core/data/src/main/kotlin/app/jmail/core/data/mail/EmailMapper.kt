@@ -28,6 +28,7 @@ internal fun Email.toEntity(accountId: String, mailboxId: String): EmailEntity {
 internal fun EmailEntity.toEmail(): Email = Email(
     id = id,
     accountId = accountId,
+    mailboxId = mailboxId,
     threadId = threadId,
     subject = subject,
     preview = preview,

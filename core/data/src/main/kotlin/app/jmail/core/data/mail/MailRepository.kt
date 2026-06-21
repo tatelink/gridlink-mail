@@ -204,6 +204,17 @@ class MailRepository(
         emailDao.deleteById(emailId)
     }
 
+    /**
+     * Undo a delete/archive: move the message back to [mailboxId] on the server and
+     * re-cache it there so it reappears in the list.
+     */
+    suspend fun restore(credentials: AccountCredentials, emailId: String, mailboxId: String) {
+        val ctx = connect(credentials)
+        client.move(ctx.session, ctx.accountId, emailId, mailboxId, ctx.auth)
+        val fetched = client.getEmailsByIds(ctx.session, ctx.accountId, listOf(emailId), ctx.auth)
+        if (fetched.isNotEmpty()) emailDao.upsertAll(fetched.map { it.toEntity(ctx.accountId, mailboxId) })
+    }
+
     /** Move to Trash (or destroy if there is none) and drop from the local list. */
     suspend fun delete(credentials: AccountCredentials, emailId: String) {
         val ctx = connect(credentials)

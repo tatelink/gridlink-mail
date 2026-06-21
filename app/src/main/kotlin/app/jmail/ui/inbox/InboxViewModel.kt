@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -60,6 +61,14 @@ private data class SearchUi(
 /** The actions bound to the two swipe directions (from Settings → Reading). */
 data class SwipeConfig(val right: SwipeAction, val left: SwipeAction)
 
+/** A reversible swipe action, surfaced as an "Undo" snackbar. */
+data class UndoAction(
+    val emailId: String,
+    val accountId: String?,
+    val mailboxId: String,
+    val label: String,
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
@@ -81,6 +90,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         data class Folder(val id: String?) : Sel
         data object Unified : Sel
     }
+
+    /** A just-performed swipe action that can be undone (move the message back). */
+    private val _undo = MutableStateFlow<UndoAction?>(null)
+    val undo: StateFlow<UndoAction?> = _undo.asStateFlow()
 
     private val selection = MutableStateFlow<Sel>(Sel.Folder(store.inboxMailboxId()))
     private val unifiedInboxIds = MutableStateFlow(store.allInboxMailboxIds())
@@ -211,6 +224,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val credentials = credentialsFor(email) ?: return@launch
             runCatching { repo.delete(credentials, email.id) }
+                .onSuccess { offerUndo(email, "Message deleted") }
                 .onFailure { status.value = Status(refreshing = false, error = it.message) }
         }
     }
@@ -220,8 +234,30 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val credentials = credentialsFor(email) ?: return@launch
             runCatching { repo.archive(credentials, email.id) }
+                .onSuccess { offerUndo(email, "Message archived") }
                 .onFailure { status.value = Status(refreshing = false, error = it.message) }
         }
+    }
+
+    /** Offer to undo the action that just removed [email] from its mailbox. */
+    private fun offerUndo(email: Email, label: String) {
+        val mailboxId = email.mailboxId ?: return
+        _undo.value = UndoAction(email.id, email.accountId, mailboxId, label)
+    }
+
+    /** Move the last deleted/archived message back to its original mailbox. */
+    fun undo() {
+        val action = _undo.value ?: return
+        _undo.value = null
+        viewModelScope.launch {
+            val credentials = action.accountId?.let { store.credentials(it) } ?: store.load() ?: return@launch
+            runCatching { repo.restore(credentials, action.emailId, action.mailboxId) }
+                .onFailure { status.value = Status(refreshing = false, error = it.message) }
+        }
+    }
+
+    fun clearUndo() {
+        _undo.value = null
     }
 
     /** Swipe action: toggle flag/star. */
