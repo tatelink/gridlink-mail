@@ -180,11 +180,12 @@ private fun MessageBody(
         }
         HorizontalDivider()
         val scheme = MaterialTheme.colorScheme
+        val dark = scheme.surface.luminance() < 0.5f
         val emailTheme = EmailTheme(
             background = scheme.surface.toCssHex(),
             text = scheme.onSurface.toCssHex(),
             link = scheme.primary.toCssHex(),
-            dark = scheme.surface.luminance() < 0.5f,
+            dark = dark,
         )
         val html = remember(email, inlineImages, emailTheme) { buildHtmlDocument(email, inlineImages, emailTheme) }
         EmailWebView(
@@ -373,8 +374,7 @@ private fun EmailWebView(html: String, blockRemote: Boolean, backgroundColor: In
             }
         },
         update = { webView ->
-            // Match the WebView's own background to the theme so transparent emails
-            // don't flash white in dark mode.
+            // Match the WebView's own background to the theme so it doesn't flash white.
             webView.setBackgroundColor(backgroundColor)
             webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
         },
@@ -425,36 +425,41 @@ private fun buildHtmlDocument(
     inlineImages.forEach { (cid, dataUri) ->
         inner = inner.replace("cid:$cid", dataUri).replace("cid:<$cid>", dataUri)
     }
-
-    // For plain/simple content, set the app's dark surface + text directly (crisp,
-    // true theme colours). For rich HTML — whose own tables/divs carry explicit white
-    // backgrounds we can't reach — apply a smart invert in dark mode: it darkens any
-    // markup, while hue-rotate keeps colours sane and images are re-inverted to normal.
-    val style = if (theme.dark && htmlContent != null) {
-        """
-          html { filter: invert(1) hue-rotate(180deg); background-color: #ffffff; }
-          img, picture, video, iframe, [style*="background-image"] {
-            filter: invert(1) hue-rotate(180deg);
-          }
-          body { margin: 16px; font-family: sans-serif; line-height: 1.45;
-                 word-wrap: break-word; overflow-wrap: break-word; }
-          img { max-width: 100%; height: auto; }
-        """
-    } else {
-        """
-          :root { color-scheme: ${if (theme.dark) "dark light" else "light dark"}; }
-          html, body { background-color: ${theme.background}; }
-          body { margin: 16px; font-family: sans-serif; line-height: 1.45; color: ${theme.text};
-                 word-wrap: break-word; overflow-wrap: break-word; }
-          img { max-width: 100%; height: auto; }
-          a { color: ${theme.link}; }
-          pre.plain { white-space: pre-wrap; word-wrap: break-word; font-family: sans-serif; }
-        """
+    val richHtml = htmlContent != null
+    if (theme.dark && richHtml) {
+        // Rich HTML carries its own (usually white) backgrounds we can't restyle reliably.
+        // Wrap it and invert: a deterministic dark render that works for any markup. hue-rotate
+        // keeps colours roughly intact; media is re-inverted so photos/logos look normal.
+        return """
+            <!DOCTYPE html><html><head>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+              html, body { background-color: ${theme.background}; margin: 0; }
+              #jmail-content { filter: invert(1) hue-rotate(180deg); padding: 16px;
+                               font-family: sans-serif; line-height: 1.45;
+                               word-wrap: break-word; overflow-wrap: break-word; }
+              #jmail-content img, #jmail-content picture, #jmail-content video,
+              #jmail-content iframe { filter: invert(1) hue-rotate(180deg); }
+              img { max-width: 100%; height: auto; }
+            </style></head><body><div id="jmail-content">$inner</div></body></html>
+        """.trimIndent()
     }
+    // Plain/simple text (or light mode): paint with the resolved theme colours directly.
+    val bg = if (theme.dark) theme.background else "#ffffff"
+    val fg = if (theme.dark) theme.text else "#111111"
+    val link = if (theme.dark) theme.link else "#0b5fff"
     return """
         <!DOCTYPE html><html><head>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>$style</style></head><body>$inner</body></html>
+        <meta name="color-scheme" content="${if (theme.dark) "dark" else "light"}">
+        <style>
+          html, body { background-color: $bg; }
+          body { margin: 16px; font-family: sans-serif; line-height: 1.45; color: $fg;
+                 word-wrap: break-word; overflow-wrap: break-word; }
+          img { max-width: 100%; height: auto; }
+          a { color: $link; }
+          pre.plain { white-space: pre-wrap; word-wrap: break-word; font-family: sans-serif; }
+        </style></head><body>$inner</body></html>
     """.trimIndent()
 }
 
