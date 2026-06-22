@@ -103,37 +103,57 @@ fun MessageScreen(
                             Icon(Icons.Filled.Delete, contentDescription = "Delete")
                         }
                         var menuOpen by remember { mutableStateOf(false) }
+                        var snoozeSubmenu by remember { mutableStateOf(false) }
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(Icons.Filled.MoreVert, contentDescription = "More")
                         }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Reply") },
-                                onClick = { menuOpen = false; onReply("reply") },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Reply all") },
-                                onClick = { menuOpen = false; onReply("replyAll") },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Forward") },
-                                onClick = { menuOpen = false; onReply("forward") },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(if (loaded.email.isFlagged) "Unflag" else "Flag") },
-                                onClick = { menuOpen = false; viewModel.toggleFlag() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Archive") },
-                                onClick = { menuOpen = false; viewModel.archive(onBack) },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(if (inJunk) "Not spam" else "Report spam") },
-                                onClick = {
-                                    menuOpen = false
-                                    if (inJunk) viewModel.notSpam(onBack) else viewModel.reportSpam(onBack)
-                                },
-                            )
+                        DropdownMenu(
+                            expanded = menuOpen,
+                            onDismissRequest = { menuOpen = false; snoozeSubmenu = false },
+                        ) {
+                            if (snoozeSubmenu) {
+                                snoozePresets().forEach { (label, until) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            menuOpen = false; snoozeSubmenu = false
+                                            viewModel.snooze(until, onBack)
+                                        },
+                                    )
+                                }
+                            } else {
+                                DropdownMenuItem(
+                                    text = { Text("Reply") },
+                                    onClick = { menuOpen = false; onReply("reply") },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Reply all") },
+                                    onClick = { menuOpen = false; onReply("replyAll") },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Forward") },
+                                    onClick = { menuOpen = false; onReply("forward") },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (loaded.email.isFlagged) "Unflag" else "Flag") },
+                                    onClick = { menuOpen = false; viewModel.toggleFlag() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Archive") },
+                                    onClick = { menuOpen = false; viewModel.archive(onBack) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (inJunk) "Not spam" else "Report spam") },
+                                    onClick = {
+                                        menuOpen = false
+                                        if (inJunk) viewModel.notSpam(onBack) else viewModel.reportSpam(onBack)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Snooze…") },
+                                    onClick = { snoozeSubmenu = true },
+                                )
+                            }
                         }
                     }
                 },
@@ -487,4 +507,20 @@ private fun formatFull(iso: String?): String {
         .recoverCatching { OffsetDateTime.parse(iso).toInstant() }
         .getOrNull() ?: return ""
     return instant.atZone(ZoneId.systemDefault()).format(fullFormatter)
+}
+
+/** Snooze presets → (label, epoch-millis), computed in the device's time zone. */
+private fun snoozePresets(): List<Pair<String, Long>> {
+    val zone = java.time.ZoneId.systemDefault()
+    val now = java.time.ZonedDateTime.now(zone)
+    fun at(day: java.time.ZonedDateTime, hour: Int) =
+        day.withHour(hour).withMinute(0).withSecond(0).withNano(0)
+    val thisEvening = at(now, 18).let { if (it.isAfter(now)) it else at(now.plusDays(1), 18) }
+    val nextWeek = at(now.with(java.time.DayOfWeek.MONDAY).plusWeeks(1), 8)
+    return listOf(
+        "In 1 hour" to now.plusHours(1),
+        "This evening, 6 PM" to thisEvening,
+        "Tomorrow, 8 AM" to at(now.plusDays(1), 8),
+        "Next week (Mon, 8 AM)" to nextWeek,
+    ).map { (label, time) -> label to time.toInstant().toEpochMilli() }
 }

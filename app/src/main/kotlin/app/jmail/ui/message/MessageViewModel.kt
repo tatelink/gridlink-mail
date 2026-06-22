@@ -6,6 +6,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
+import app.jmail.snooze.Snoozes
 import app.jmail.core.data.account.AccountCredentials
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailBodyPart
@@ -146,6 +147,19 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     fun delete(onDone: () -> Unit) = act(onDone) { c, id -> repo.delete(c, id) }
     fun reportSpam(onDone: () -> Unit) = act(onDone) { c, id -> repo.reportSpam(c, id) }
     fun notSpam(onDone: () -> Unit) = act(onDone) { c, id -> repo.notSpam(c, id) }
+
+    /** Snooze the open message until [until]: hide it now, re-surface (and notify) at that time. */
+    fun snooze(until: Long, onDone: () -> Unit) {
+        val email = (_state.value as? MessageState.Loaded)?.email ?: return
+        viewModelScope.launch {
+            val credentials = credentials() ?: return@launch
+            runCatching {
+                repo.snooze(email.id, credentials.id, until)
+                Snoozes.enqueue(getApplication(), email.id, credentials.id, until)
+            }
+            onDone()
+        }
+    }
 
     private fun act(onDone: () -> Unit, op: suspend (AccountCredentials, String) -> Unit) {
         val id = loadedId ?: return

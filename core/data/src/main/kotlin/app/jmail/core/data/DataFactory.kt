@@ -23,7 +23,8 @@ object DataFactory {
         val imapService = ImapMailService(ImapClient(), SmtpClient())
         return DataLayer(
             mailRepository = MailRepository(
-                client, database.emailDao(), database.mailboxDao(), imapService, database.scheduledSendDao(),
+                client, database.emailDao(), database.mailboxDao(), imapService,
+                database.scheduledSendDao(), database.snoozedDao(),
             ),
             storageRepository = StorageRepository(appContext, database.emailDao(), database.mailboxDao()),
         )

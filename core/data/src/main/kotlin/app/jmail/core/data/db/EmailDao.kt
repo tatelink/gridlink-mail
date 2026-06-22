@@ -21,7 +21,7 @@ interface EmailDao {
      * MailRepository.pagingQuery) and run via [RawQuery]; [observedEntities] keeps
      * the pager reactive to cache changes.
      */
-    @RawQuery(observedEntities = [EmailEntity::class])
+    @RawQuery(observedEntities = [EmailEntity::class, SnoozedEntity::class])
     fun pagingSource(query: SupportSQLiteQuery): PagingSource<Int, EmailEntity>
 
     @Query("SELECT * FROM emails WHERE mailboxId = :mailboxId ORDER BY sortKey DESC")

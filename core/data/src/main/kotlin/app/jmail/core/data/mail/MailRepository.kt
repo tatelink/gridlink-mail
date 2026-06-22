@@ -14,6 +14,8 @@ import app.jmail.core.data.account.MailProtocol
 import app.jmail.core.data.db.EmailDao
 import app.jmail.core.data.db.ScheduledSendDao
 import app.jmail.core.data.db.ScheduledSendEntity
+import app.jmail.core.data.db.SnoozedDao
+import app.jmail.core.data.db.SnoozedEntity
 import app.jmail.core.data.db.EmailEntity
 import app.jmail.core.data.db.MailboxDao
 import app.jmail.core.data.settings.SortOrder
@@ -58,7 +60,10 @@ private fun pagingQuery(mailboxIds: List<String>, sort: SortOrder, unreadOnly: B
         SortOrder.SENDER -> "LOWER(TRIM(COALESCE(fromName, fromEmail))) ASC"
         SortOrder.UNREAD_FIRST -> "seen ASC, sortKey DESC"
     }
-    val sql = "SELECT * FROM emails WHERE mailboxId IN ($placeholders)$seenFilter ORDER BY $orderBy"
+    // Hide messages snoozed into the future (re-appear once their time passes).
+    val notSnoozed = " AND id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
+        "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
+    val sql = "SELECT * FROM emails WHERE mailboxId IN ($placeholders)$seenFilter$notSnoozed ORDER BY $orderBy"
     return SimpleSQLiteQuery(sql, mailboxIds.toTypedArray())
 }
 
@@ -90,6 +95,7 @@ class MailRepository(
     private val mailboxDao: MailboxDao,
     private val imap: ImapMailService,
     private val scheduledSendDao: ScheduledSendDao,
+    private val snoozedDao: SnoozedDao,
 ) {
     private class Context(
         val credentials: AccountCredentials,
@@ -494,6 +500,18 @@ class MailRepository(
         val inbox = mailboxDao.idForRole("inbox") ?: error("This account has no Inbox.")
         moveToMailbox(credentials, emailId, inbox)
     }
+
+    // ---- snooze ----
+
+    /** Snooze a message until [until] (hidden from lists; re-appears at that time). */
+    suspend fun snooze(emailId: String, accountId: String, until: Long) =
+        snoozedDao.upsert(SnoozedEntity(emailId, accountId, until))
+
+    /** Un-snooze a message now (re-appears in its list). */
+    suspend fun unsnooze(emailId: String) = snoozedDao.delete(emailId)
+
+    /** A single cached email by id (e.g. to notify when a snooze fires). */
+    suspend fun cachedEmail(emailId: String): Email? = cachedEmailsByIds(setOf(emailId)).firstOrNull()
 
     // ---- folder management ----
 

@@ -1,0 +1,23 @@
+Jmail is a private, modern email client for Android, built for JMAP — the
+faster successor to IMAP — with full support for classic IMAP/SMTP too. You
+pick the protocol when you add an account, so Jmail works with JMAP servers
+like Stalwart as well as any standard mail provider.
+
+It is private by default, pleasant to use, and fully free software (GPLv3).
+No tracking, no ads, no analytics, and no Google services required.
+
+Features:
+
+* Built for JMAP — faster sync, less battery and data — plus full IMAP/SMTP
+* Multiple accounts (JMAP and/or IMAP/SMTP) with a unified inbox
+* Push notifications for new mail without Google services (JMAP push, IMAP IDLE)
+* Read, organise, and search your mail — works offline with a local cache
+* Conversation threading, configurable swipe actions, folders, flags, archive
+* Write, reply, forward, and send — with attachments, drafts, and signatures
+* Undo send (a brief hold-back window) and schedule send for later
+* Folder management and report-spam
+* Privacy by default: remote images and tracking pixels blocked
+* Biometric app lock
+* Material 3 interface that follows your system light/dark theme
+
+Jmail is open source. The code can be read, audited, and improved by anyone.

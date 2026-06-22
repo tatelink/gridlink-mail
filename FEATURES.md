@@ -30,7 +30,7 @@ The categories further down list the full feature set; this is the order of work
 - 💡 Rich-text editor (plus plain-text mode)
 - ✅ Undo send (hold-back window); 💡 full Outbox + retry
 - ✅ Schedule send (quick presets; persisted + fired by WorkManager, survives app close)
-- 💡 Snooze a message until later
+- ✅ Snooze a message until later
 
 **Tier 3 — privacy & JMAP-native power**
 - 💡 OpenPGP (via OpenKeychain)
@@ -75,7 +75,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Multi-select (long-press / select-all): bulk read/unread toggle (keeps the
   selection), archive (Unarchive → Inbox from the Archive folder), move-to-folder, delete
 - ✅ Opening a folder starts at the top of its list
-- 💡 Snooze a message until later
+- ✅ Snooze a message until later
 - ✅ Paged list (Jetpack Paging 3 + Room) — large folders load in pages while scrolling, constant memory; scroll-position indicator on the right
 - ✅ Scroll to load more — a Paging `RemoteMediator` fetches older mail from the server when you scroll past the cached window (JMAP anchor-based / IMAP UID paging), with a loading/retry footer
 - ✅ Favourite (star) per row, tappable; favourites pin to the top
