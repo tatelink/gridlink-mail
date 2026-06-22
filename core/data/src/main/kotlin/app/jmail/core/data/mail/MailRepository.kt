@@ -21,6 +21,7 @@ import app.jmail.core.jmap.JmapAuth
 import app.jmail.core.jmap.JmapClient
 import app.jmail.core.imap.MimeBody
 import app.jmail.core.imap.MimeParser
+import app.jmail.core.imap.OutgoingMessage
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailAddress
 import app.jmail.core.jmap.model.EmailBodyPart
@@ -578,7 +579,32 @@ class MailRepository(
     }
 
     /** Save a plain-text draft in the Drafts mailbox. */
+    /** Build an SMTP OutgoingMessage from compose fields (IMAP accounts). */
+    private fun outgoing(
+        credentials: AccountCredentials,
+        recipients: List<String>,
+        subject: String,
+        body: String,
+        inReplyTo: List<String> = emptyList(),
+        references: List<String> = emptyList(),
+    ): OutgoingMessage = OutgoingMessage(
+        from = credentials.username,
+        to = recipients,
+        subject = subject,
+        body = body,
+        inReplyTo = inReplyTo.firstOrNull(),
+        references = references.joinToString(" ").ifBlank { null },
+        messageId = "${java.util.UUID.randomUUID()}@${credentials.username.substringAfter('@', "localhost")}",
+        dateMillis = System.currentTimeMillis(),
+    )
+
     suspend fun saveDraft(credentials: AccountCredentials, to: List<String>, subject: String, body: String) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
+            val drafts = mailboxDao.idForRole("drafts") ?: error("This account has no Drafts folder.")
+            imap.appendDraft(credentials, drafts, outgoing(credentials, recipients, subject, body))
+            return
+        }
         val ctx = connect(credentials)
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
         val identity = client.getIdentities(ctx.session, ctx.accountId, ctx.auth).firstOrNull()
@@ -607,6 +633,12 @@ class MailRepository(
         references: List<String> = emptyList(),
         attachments: List<EmailBodyPart> = emptyList(),
     ) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
+            require(recipients.isNotEmpty()) { "Add at least one recipient." }
+            imap.send(credentials, outgoing(credentials, recipients, subject, body, inReplyTo, references), mailboxDao.idForRole("sent"))
+            return
+        }
         val ctx = connect(credentials)
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
         require(recipients.isNotEmpty()) { "Add at least one recipient." }

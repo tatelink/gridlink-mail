@@ -6,6 +6,7 @@ import app.jmail.core.data.mail.ImapMailService
 import app.jmail.core.data.mail.MailRepository
 import app.jmail.core.data.storage.StorageRepository
 import app.jmail.core.imap.ImapClient
+import app.jmail.core.imap.SmtpClient
 import app.jmail.core.jmap.JmapClient
 
 /** Builds data-layer components, keeping Room (the database) internal to this module. */
@@ -19,7 +20,7 @@ object DataFactory {
     fun create(context: Context, client: JmapClient): DataLayer {
         val appContext = context.applicationContext
         val database = JmailDatabase.build(appContext)
-        val imapService = ImapMailService(ImapClient())
+        val imapService = ImapMailService(ImapClient(), SmtpClient())
         return DataLayer(
             mailRepository = MailRepository(client, database.emailDao(), database.mailboxDao(), imapService),
             storageRepository = StorageRepository(appContext, database.emailDao(), database.mailboxDao()),

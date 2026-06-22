@@ -194,6 +194,28 @@ class ImapSession(private var socket: Socket) : Closeable {
         runCatching { command("UID EXPUNGE $uid") }.onFailure { command("EXPUNGE") }
     }
 
+    /** APPEND a raw message into [mailbox] (e.g. a sent copy into Sent), with [flags]. */
+    fun append(mailbox: String, message: String, flags: String) {
+        val bytes = message.toByteArray(Charsets.UTF_8)
+        val tag = "a${++tagN}"
+        val flagPart = if (flags.isNotBlank()) "($flags) " else ""
+        output.write("$tag APPEND ${quote(mailbox)} $flagPart{${bytes.size}}\r\n".toByteArray(Charsets.UTF_8))
+        output.flush()
+        val cont = input.readResponse()
+        if (cont.getOrNull(0) != "+") throw ImapException("APPEND not accepted: $cont")
+        output.write(bytes)
+        output.write("\r\n".toByteArray(Charsets.UTF_8))
+        output.flush()
+        while (true) {
+            val resp = input.readResponse()
+            if (resp.getOrNull(0) == tag) {
+                val status = resp.getOrNull(1) as? String ?: "BAD"
+                if (status != "OK") throw ImapException("APPEND failed: ${resp.drop(1).joinToString(" ")}")
+                return
+            }
+        }
+    }
+
     override fun close() {
         runCatching { command("LOGOUT") }
         runCatching { socket.close() }

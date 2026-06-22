@@ -106,7 +106,25 @@ class SmtpClient {
         Unit
     }
 
-    private fun buildMime(m: OutgoingMessage): String {
+    private fun buildMime(m: OutgoingMessage): String = OutgoingMime.build(m)
+
+    private fun addressOnly(address: String): String {
+        val lt = address.indexOf('<')
+        return if (lt >= 0) address.substring(lt + 1).substringBefore('>').trim() else address.trim()
+    }
+
+    private fun localHost(): String = "[127.0.0.1]"
+
+    private fun base64(s: String): String = Base64.getEncoder().encodeToString(s.toByteArray(Charsets.UTF_8))
+
+    private companion object {
+        val tlsFactory: SSLSocketFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
+    }
+}
+
+/** Builds the RFC 5322 message for both SMTP submission and IMAP APPEND. */
+object OutgoingMime {
+    fun build(m: OutgoingMessage): String {
         val date = ZonedDateTime.ofInstant(
             java.time.Instant.ofEpochMilli(m.dateMillis),
             java.time.ZoneOffset.UTC,
@@ -135,17 +153,4 @@ class SmtpClient {
         } else {
             "=?utf-8?B?${Base64.getEncoder().encodeToString(value.toByteArray(Charsets.UTF_8))}?="
         }
-
-    private fun addressOnly(address: String): String {
-        val lt = address.indexOf('<')
-        return if (lt >= 0) address.substring(lt + 1).substringBefore('>').trim() else address.trim()
-    }
-
-    private fun localHost(): String = "[127.0.0.1]"
-
-    private fun base64(s: String): String = Base64.getEncoder().encodeToString(s.toByteArray(Charsets.UTF_8))
-
-    private companion object {
-        val tlsFactory: SSLSocketFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
-    }
 }

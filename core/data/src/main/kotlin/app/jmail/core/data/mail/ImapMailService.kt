@@ -9,6 +9,9 @@ import app.jmail.core.imap.ImapClient
 import app.jmail.core.imap.ImapMessage
 import app.jmail.core.imap.MailSecurity
 import app.jmail.core.imap.MailServerConfig
+import app.jmail.core.imap.OutgoingMessage
+import app.jmail.core.imap.OutgoingMime
+import app.jmail.core.imap.SmtpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -28,7 +31,31 @@ data class ImapFolderLoad(
  * folders/messages onto the same Room entities so the cache, paging, and UI are
  * protocol-agnostic. Each call opens a short-lived session (IMAP is stateful).
  */
-class ImapMailService(private val imapClient: ImapClient) {
+class ImapMailService(
+    private val imapClient: ImapClient,
+    private val smtpClient: SmtpClient,
+) {
+
+    /** Send via SMTP, then APPEND a \Seen copy into the Sent folder (if known). */
+    suspend fun send(credentials: AccountCredentials, message: OutgoingMessage, sentMailbox: String?) =
+        withContext(Dispatchers.IO) {
+            val smtp = credentials.smtp ?: error("Account has no SMTP server configured.")
+            smtpClient.send(
+                MailServerConfig(smtp.host, smtp.port, smtp.security.toMailSecurity(), credentials.username, credentials.password),
+                message,
+            )
+            if (sentMailbox != null) {
+                runCatching {
+                    session(credentials).use { it.append(sentMailbox, OutgoingMime.build(message), "\\Seen") }
+                }
+            }
+        }
+
+    /** APPEND a draft (\Draft flag) into the Drafts folder. */
+    suspend fun appendDraft(credentials: AccountCredentials, draftsMailbox: String, message: OutgoingMessage) =
+        withContext(Dispatchers.IO) {
+            session(credentials).use { it.append(draftsMailbox, OutgoingMime.build(message), "\\Draft") }
+        }
 
     /** Connect, list folders, and fetch the newest [limit] of the target folder. */
     suspend fun loadFolder(
