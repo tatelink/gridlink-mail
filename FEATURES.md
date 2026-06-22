@@ -70,7 +70,8 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - 💡 Outbox, and Undo send (hold-back window)
 - 💡 ⭐ Schedule send — JMAP `EmailSubmission` supports a future `sendAt`
 - 💡 "Forgot attachment?" reminder
-- 💡 ⭐ Multiple identities (JMAP `Identity` objects) with per-identity signatures
+- ✅ Per-account signature (plain text or HTML, with HTML-file import), appended on send
+- 💡 ⭐ Multiple identities (JMAP `Identity` objects), with per-identity signatures
 - 💡 Read-receipt request and response
 
 ## Accounts & setup
