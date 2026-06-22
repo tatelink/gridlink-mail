@@ -26,12 +26,13 @@ build — several things that are hard over IMAP are nearly free in JMAP.
   APPEND-to-Sent, and server-side search. Add via Add account → "IMAP / SMTP"
   (host/port/security for both). The data layer routes per-account by protocol,
   so the cache, paging, and entire UI are protocol-agnostic.
-  - 💡 IMAP gaps: IDLE push, inline `cid:` images, CONDSTORE incremental sync,
-    and reusing the connection across page fetches (each load reconnects today).
+  - ✅ One pooled connection per account, reused across calls (no reconnect per page).
+  - 💡 IMAP gaps: IDLE push, inline `cid:` images, CONDSTORE incremental sync.
 
 ## Reading & triage
 
-- ✅ Inbox list and message view (HTML in a WebView, remote content blocked)
+- ✅ Inbox list and message view (HTML in a WebView, remote content blocked;
+  dark mode: theme colours for plain text, CSS invert for rich HTML)
 - ✅ Offline reading (Room cache)
 - ✅ Mark read/unread, flag/star, archive, delete *(M3; JMAP + IMAP)*
 - ✅ Unread shown by bold text (not a status dot)
@@ -41,7 +42,9 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive
 - ✅ Configurable swipe actions (left/right, in Settings → Reading)
 - ✅ Sort (newest/oldest, subject, sender, unread-first) + Mark-all-read
-- ✅ Multi-select (long-press / select-all) with bulk mark-read, archive, delete
+- ✅ Multi-select (long-press / select-all): bulk read/unread toggle (keeps the
+  selection), archive (Unarchive → Inbox from the Archive folder), move-to-folder, delete
+- ✅ Opening a folder starts at the top of its list
 - 💡 Snooze a message until later
 - ✅ Paged list (Jetpack Paging 3 + Room) — large folders load in pages while scrolling, constant memory; scroll-position indicator on the right
 - ✅ Scroll to load more — a Paging `RemoteMediator` fetches older mail from the server when you scroll past the cached window (JMAP anchor-based / IMAP UID paging), with a loading/retry footer
