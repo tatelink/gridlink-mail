@@ -90,6 +90,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.FocusRequester
@@ -109,6 +111,7 @@ import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.Mailbox
+import app.jmail.R
 import app.jmail.ui.components.EmailListItem
 import app.jmail.ui.components.Monogram
 import app.jmail.ui.components.verticalScrollbar
@@ -143,6 +146,10 @@ fun InboxScreen(
     val outboxFailure by viewModel.outboxFailure.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    // Hoisted strings for snackbars shown from non-composable LaunchedEffect coroutines.
+    val undoLabel = stringResource(R.string.inbox_undo)
+    val messageSentLabel = stringResource(R.string.inbox_message_sent)
+    val context = LocalContext.current
 
     // Surface transient action errors (e.g. "no Archive folder") in a snackbar.
     LaunchedEffect(message) {
@@ -159,7 +166,7 @@ fun InboxScreen(
         val targets = ui.mailboxes.filter { it.id != ui.selectedMailboxId }
         AlertDialog(
             onDismissRequest = { showMoveSheet = false },
-            title = { Text("Move to folder") },
+            title = { Text(stringResource(R.string.inbox_move_to_folder)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     targets.forEach { folder ->
@@ -178,7 +185,7 @@ fun InboxScreen(
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { showMoveSheet = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { showMoveSheet = false }) { Text(stringResource(R.string.inbox_cancel)) } },
         )
     }
 
@@ -187,12 +194,12 @@ fun InboxScreen(
         var name by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showCreateFolder = false },
-            title = { Text("New folder") },
+            title = { Text(stringResource(R.string.inbox_new_folder)) },
             text = {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Folder name") },
+                    label = { Text(stringResource(R.string.inbox_folder_name)) },
                     singleLine = true,
                 )
             },
@@ -200,9 +207,9 @@ fun InboxScreen(
                 TextButton(
                     onClick = { viewModel.createFolder(name); showCreateFolder = false },
                     enabled = name.isNotBlank(),
-                ) { Text("Create") }
+                ) { Text(stringResource(R.string.inbox_create)) }
             },
-            dismissButton = { TextButton(onClick = { showCreateFolder = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { showCreateFolder = false }) { Text(stringResource(R.string.inbox_cancel)) } },
         )
     }
 
@@ -211,12 +218,12 @@ fun InboxScreen(
         var name by remember(folder.id) { mutableStateOf(folder.name) }
         AlertDialog(
             onDismissRequest = { folderToRename = null },
-            title = { Text("Rename folder") },
+            title = { Text(stringResource(R.string.inbox_rename_folder)) },
             text = {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Folder name") },
+                    label = { Text(stringResource(R.string.inbox_folder_name)) },
                     singleLine = true,
                 )
             },
@@ -224,9 +231,9 @@ fun InboxScreen(
                 TextButton(
                     onClick = { viewModel.renameFolder(folder.id, name); folderToRename = null },
                     enabled = name.isNotBlank(),
-                ) { Text("Rename") }
+                ) { Text(stringResource(R.string.inbox_rename)) }
             },
-            dismissButton = { TextButton(onClick = { folderToRename = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { folderToRename = null }) { Text(stringResource(R.string.inbox_cancel)) } },
         )
     }
 
@@ -234,14 +241,14 @@ fun InboxScreen(
     folderToDelete?.let { folder ->
         AlertDialog(
             onDismissRequest = { folderToDelete = null },
-            title = { Text("Delete folder?") },
-            text = { Text("\"${folder.name}\" and its messages will be removed.") },
+            title = { Text(stringResource(R.string.inbox_delete_folder_title)) },
+            text = { Text(stringResource(R.string.inbox_delete_folder_body, folder.name)) },
             confirmButton = {
                 TextButton(onClick = { viewModel.deleteFolder(folder.id); folderToDelete = null }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.inbox_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
-            dismissButton = { TextButton(onClick = { folderToDelete = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { folderToDelete = null }) { Text(stringResource(R.string.inbox_cancel)) } },
         )
     }
 
@@ -250,7 +257,7 @@ fun InboxScreen(
         val action = undo ?: return@LaunchedEffect
         val result = snackbarHostState.showSnackbar(
             message = action.label,
-            actionLabel = "Undo",
+            actionLabel = undoLabel,
             withDismissAction = true,
         )
         if (result == SnackbarResult.ActionPerformed) viewModel.undo() else viewModel.clearUndo()
@@ -261,15 +268,15 @@ fun InboxScreen(
     LaunchedEffect(outboxPending) {
         outboxPending ?: return@LaunchedEffect
         val result = snackbarHostState.showSnackbar(
-            message = "Message sent",
-            actionLabel = "Undo",
+            message = messageSentLabel,
+            actionLabel = undoLabel,
             duration = SnackbarDuration.Indefinite,
         )
         if (result == SnackbarResult.ActionPerformed) viewModel.undoSend()
     }
     LaunchedEffect(outboxFailure) {
         val msg = outboxFailure ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar("Couldn't send: $msg")
+        snackbarHostState.showSnackbar(context.getString(R.string.inbox_send_failed, msg))
         viewModel.consumeSendFailure()
     }
     val scope = rememberCoroutineScope()
@@ -286,7 +293,7 @@ fun InboxScreen(
         drawerContent = {
             ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
                 val currentLabel = accounts.firstOrNull { it.id == currentAccountId }?.label()
-                    ?: ui.accountName.ifBlank { "Jmail" }
+                    ?: ui.accountName.ifBlank { stringResource(R.string.inbox_app_name) }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -305,7 +312,7 @@ fun InboxScreen(
                     NavigationDrawerItem(
                         icon = { Icon(Icons.Filled.Person, contentDescription = null) },
                         label = {
-                            Text("Switch to ${account.label()}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(stringResource(R.string.inbox_switch_to_account, account.label()), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         },
                         selected = false,
                         onClick = {
@@ -318,9 +325,9 @@ fun InboxScreen(
                 HorizontalDivider()
                 if (accounts.size > 1) {
                     val unifiedLabel = if (ui.unified && ui.unreadCount > 0) {
-                        "All inboxes  (${ui.unreadCount})"
+                        stringResource(R.string.inbox_all_inboxes_unread, ui.unreadCount)
                     } else {
-                        "All inboxes"
+                        stringResource(R.string.inbox_all_inboxes)
                     }
                     NavigationDrawerItem(
                         icon = { Icon(Icons.Filled.MailOutline, contentDescription = null) },
@@ -335,7 +342,7 @@ fun InboxScreen(
                 }
                 ui.mailboxes.forEach { mailbox ->
                     val label = if (mailbox.unreadEmails > 0) {
-                        "${mailbox.name}  (${mailbox.unreadEmails})"
+                        stringResource(R.string.inbox_folder_unread, mailbox.name, mailbox.unreadEmails)
                     } else {
                         mailbox.name
                     }
@@ -348,15 +355,15 @@ fun InboxScreen(
                                 Box {
                                     var folderMenu by remember { mutableStateOf(false) }
                                     IconButton(onClick = { folderMenu = true }) {
-                                        Icon(Icons.Filled.MoreVert, contentDescription = "Folder options")
+                                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_folder_options))
                                     }
                                     DropdownMenu(folderMenu, onDismissRequest = { folderMenu = false }) {
                                         DropdownMenuItem(
-                                            text = { Text("Rename") },
+                                            text = { Text(stringResource(R.string.inbox_rename)) },
                                             onClick = { folderMenu = false; folderToRename = mailbox },
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Delete") },
+                                            text = { Text(stringResource(R.string.inbox_delete)) },
                                             onClick = { folderMenu = false; folderToDelete = mailbox },
                                         )
                                     }
@@ -375,7 +382,7 @@ fun InboxScreen(
                 }
                 NavigationDrawerItem(
                     icon = { Icon(Icons.Filled.CreateNewFolder, contentDescription = null) },
-                    label = { Text("New folder") },
+                    label = { Text(stringResource(R.string.inbox_new_folder)) },
                     selected = false,
                     onClick = { showCreateFolder = true },
                     modifier = Modifier.padding(horizontal = 12.dp),
@@ -383,7 +390,7 @@ fun InboxScreen(
                 HorizontalDivider()
                 NavigationDrawerItem(
                     icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                    label = { Text("Settings") },
+                    label = { Text(stringResource(R.string.inbox_settings)) },
                     selected = false,
                     onClick = {
                         onOpenSettings()
@@ -402,16 +409,16 @@ fun InboxScreen(
                     TopAppBar(
                         navigationIcon = {
                             IconButton(onClick = { viewModel.clearSelection() }) {
-                                Icon(Icons.Filled.Close, contentDescription = "Cancel selection")
+                                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.inbox_cancel_selection))
                             }
                         },
-                        title = { Text("${selectedIds.size} selected") },
+                        title = { Text(stringResource(R.string.inbox_selected_count, selectedIds.size)) },
                         actions = {
                             // Toggle read/unread, keeping the selection (only the state changes).
                             IconButton(onClick = { viewModel.toggleSelectedRead() }) {
                                 Icon(
                                     if (selectionAllRead) Icons.Filled.MarkEmailUnread else Icons.Filled.DoneAll,
-                                    contentDescription = if (selectionAllRead) "Mark unread" else "Mark read",
+                                    contentDescription = stringResource(if (selectionAllRead) R.string.inbox_mark_unread else R.string.inbox_mark_read),
                                 )
                             }
                             val currentRole = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
@@ -421,18 +428,18 @@ fun InboxScreen(
                                     onClick = { inboxId?.let { viewModel.moveSelectedTo(it) } },
                                     enabled = inboxId != null,
                                 ) {
-                                    Icon(Icons.Filled.Unarchive, contentDescription = "Unarchive")
+                                    Icon(Icons.Filled.Unarchive, contentDescription = stringResource(R.string.inbox_unarchive))
                                 }
                             } else {
                                 IconButton(onClick = { viewModel.archiveSelected() }) {
-                                    Icon(Icons.Filled.Archive, contentDescription = "Archive")
+                                    Icon(Icons.Filled.Archive, contentDescription = stringResource(R.string.inbox_archive))
                                 }
                             }
                             IconButton(onClick = { showMoveSheet = true }) {
-                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move to folder")
+                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = stringResource(R.string.inbox_move_to_folder))
                             }
                             IconButton(onClick = { viewModel.deleteSelected() }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.inbox_delete))
                             }
                         },
                     )
@@ -442,14 +449,14 @@ fun InboxScreen(
                     TopAppBar(
                         navigationIcon = {
                             IconButton(onClick = { viewModel.setSearchActive(false) }) {
-                                Icon(Icons.Filled.Close, contentDescription = "Close search")
+                                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.inbox_close_search))
                             }
                         },
                         title = {
                             TextField(
                                 value = ui.searchQuery,
                                 onValueChange = viewModel::setSearchQuery,
-                                placeholder = { Text("Search mail") },
+                                placeholder = { Text(stringResource(R.string.inbox_search_mail)) },
                                 singleLine = true,
                                 colors = TextFieldDefaults.colors(
                                     focusedContainerColor = Color.Transparent,
@@ -463,7 +470,7 @@ fun InboxScreen(
                         actions = {
                             if (ui.searchQuery.isNotEmpty()) {
                                 IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                                    Icon(Icons.Filled.Close, contentDescription = "Clear")
+                                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.inbox_clear))
                                 }
                             }
                         },
@@ -491,25 +498,25 @@ fun InboxScreen(
                         },
                         navigationIcon = {
                             IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                Icon(Icons.Filled.Menu, contentDescription = "Menu")
+                                Icon(Icons.Filled.Menu, contentDescription = stringResource(R.string.inbox_menu))
                             }
                         },
                         actions = {
                             IconButton(onClick = { viewModel.toggleUnreadOnly() }) {
                                 Icon(
                                     Icons.Filled.FilterList,
-                                    contentDescription = "Unread only",
+                                    contentDescription = stringResource(R.string.inbox_unread_only),
                                     tint = if (ui.unreadOnly) MaterialTheme.colorScheme.primary else LocalContentColor.current,
                                 )
                             }
                             var sortOpen by remember { mutableStateOf(false) }
                             IconButton(onClick = { sortOpen = true }) {
-                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
+                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.inbox_sort))
                             }
                             DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
                                 SortOrder.entries.forEach { order ->
                                     DropdownMenuItem(
-                                        text = { Text(sortLabel(order)) },
+                                        text = { Text(stringResource(sortLabel(order))) },
                                         leadingIcon = {
                                             if (order == ui.sortOrder) Icon(Icons.Filled.Check, contentDescription = null)
                                         },
@@ -518,20 +525,20 @@ fun InboxScreen(
                                 }
                             }
                             IconButton(onClick = { viewModel.setSearchActive(true) }) {
-                                Icon(Icons.Filled.Search, contentDescription = "Search")
+                                Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.inbox_search))
                             }
                             var overflowOpen by remember { mutableStateOf(false) }
                             IconButton(onClick = { overflowOpen = true }) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
                             }
                             DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
                                 DropdownMenuItem(
-                                    text = { Text("Select all") },
+                                    text = { Text(stringResource(R.string.inbox_select_all)) },
                                     leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
                                     onClick = { viewModel.selectAll(); overflowOpen = false },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Mark all read") },
+                                    text = { Text(stringResource(R.string.inbox_mark_all_read)) },
                                     leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
                                     onClick = { viewModel.markAllRead(); overflowOpen = false },
                                 )
@@ -543,7 +550,7 @@ fun InboxScreen(
             },
             floatingActionButton = {
                 ExtendedFloatingActionButton(
-                    text = { Text("Compose") },
+                    text = { Text(stringResource(R.string.inbox_compose)) },
                     icon = { Icon(Icons.Filled.Create, contentDescription = null) },
                     expanded = fabExpanded,
                     onClick = onCompose,
@@ -599,7 +606,7 @@ fun InboxScreen(
                                 }
                             }
                         ui.searchLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                        else -> Text("No results", Modifier.align(Alignment.Center))
+                        else -> Text(stringResource(R.string.inbox_no_results), Modifier.align(Alignment.Center))
                     }
                     pagedEmails.itemCount > 0 ->
                         LazyColumn(
@@ -639,11 +646,11 @@ fun InboxScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text(
-                                            "Couldn't load more",
+                                            stringResource(R.string.inbox_load_more_failed),
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                         Spacer(Modifier.width(12.dp))
-                                        Button(onClick = { pagedEmails.retry() }) { Text("Retry") }
+                                        Button(onClick = { pagedEmails.retry() }) { Text(stringResource(R.string.inbox_retry)) }
                                     }
                                 }
                                 else -> Unit
@@ -655,10 +662,10 @@ fun InboxScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text("Could not load mail:\n${ui.error}", color = MaterialTheme.colorScheme.error)
-                        Button(onClick = viewModel::refresh) { Text("Retry") }
+                        Text(stringResource(R.string.inbox_load_failed, ui.error ?: ""), color = MaterialTheme.colorScheme.error)
+                        Button(onClick = viewModel::refresh) { Text(stringResource(R.string.inbox_retry)) }
                     }
-                    else -> Text("No messages", Modifier.align(Alignment.Center))
+                    else -> Text(stringResource(R.string.inbox_no_messages), Modifier.align(Alignment.Center))
                 }
             }
         }
@@ -764,9 +771,9 @@ private fun SwipeableEmailRow(
                 Modifier.matchParentSize().background(color).padding(horizontal = 24.dp),
                 contentAlignment = if (draggingRight) Alignment.CenterStart else Alignment.CenterEnd,
             ) {
-                val label = swipeActionLabel(action, email)
-                if (label.isNotEmpty()) {
-                    Text(label, color = onColor, style = MaterialTheme.typography.labelLarge)
+                val labelRes = swipeActionLabel(action, email)
+                if (labelRes != 0) {
+                    Text(stringResource(labelRes), color = onColor, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
@@ -798,13 +805,13 @@ private const val SWIPE_COMMIT_FRACTION = 0.4f
 private fun dismissesRow(action: SwipeAction): Boolean =
     action == SwipeAction.DELETE || action == SwipeAction.ARCHIVE
 
-/** The label shown on the swipe background for [action] on [email]. */
-private fun swipeActionLabel(action: SwipeAction, email: Email): String = when (action) {
-    SwipeAction.NONE -> ""
-    SwipeAction.TOGGLE_READ -> if (email.isSeen) "Mark unread" else "Mark read"
-    SwipeAction.DELETE -> "Delete"
-    SwipeAction.ARCHIVE -> "Archive"
-    SwipeAction.FLAG -> if (email.isFlagged) "Unflag" else "Flag"
+/** The string resource shown on the swipe background for [action] on [email] (0 = none). */
+private fun swipeActionLabel(action: SwipeAction, email: Email): Int = when (action) {
+    SwipeAction.NONE -> 0
+    SwipeAction.TOGGLE_READ -> if (email.isSeen) R.string.inbox_mark_unread else R.string.inbox_mark_read
+    SwipeAction.DELETE -> R.string.inbox_delete
+    SwipeAction.ARCHIVE -> R.string.inbox_archive
+    SwipeAction.FLAG -> if (email.isFlagged) R.string.inbox_unflag else R.string.inbox_flag
 }
 
 /** Dispatch a configured swipe action to the view model for [email]. */
@@ -818,13 +825,13 @@ private fun performSwipe(action: SwipeAction, email: Email, viewModel: InboxView
     }
 }
 
-/** Human label for a sort option in the sort menu. */
-private fun sortLabel(order: SortOrder): String = when (order) {
-    SortOrder.DATE_DESC -> "Newest first"
-    SortOrder.DATE_ASC -> "Oldest first"
-    SortOrder.SUBJECT -> "Subject"
-    SortOrder.SENDER -> "Sender"
-    SortOrder.UNREAD_FIRST -> "Unread first"
+/** String resource for a sort option label in the sort menu. */
+private fun sortLabel(order: SortOrder): Int = when (order) {
+    SortOrder.DATE_DESC -> R.string.inbox_sort_newest_first
+    SortOrder.DATE_ASC -> R.string.inbox_sort_oldest_first
+    SortOrder.SUBJECT -> R.string.inbox_sort_subject
+    SortOrder.SENDER -> R.string.inbox_sort_sender
+    SortOrder.UNREAD_FIRST -> R.string.inbox_sort_unread_first
 }
 
 /** A leading icon for a folder, chosen by its JMAP role (falls back to a generic list icon). */

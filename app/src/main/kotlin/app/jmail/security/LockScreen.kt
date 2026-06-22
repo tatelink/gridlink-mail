@@ -28,10 +28,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import app.jmail.R
 
 /** The combined authenticators we prompt with: biometric, falling back to PIN/pattern/password. */
 private const val AUTHENTICATORS = BIOMETRIC_STRONG or DEVICE_CREDENTIAL
@@ -90,16 +92,16 @@ fun LockScreen(onUnlocked: () -> Unit) {
         ) {
             Text("🔒", style = MaterialTheme.typography.displayMedium)
             Spacer(Modifier.height(16.dp))
-            Text("Jmail is locked", style = MaterialTheme.typography.headlineSmall)
+            Text(stringResource(R.string.lock_title), style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(8.dp))
             Text(
-                "Unlock to read your mail.",
+                stringResource(R.string.lock_subtitle),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(24.dp))
-            Button(onClick = { authenticate() }) { Text("Unlock") }
+            Button(onClick = { authenticate() }) { Text(stringResource(R.string.lock_unlock)) }
         }
     }
 }
@@ -121,8 +123,8 @@ private fun promptUnlock(activity: FragmentActivity, onResult: (Boolean) -> Unit
     )
 
     val builder = BiometricPrompt.PromptInfo.Builder()
-        .setTitle("Unlock Jmail")
-        .setSubtitle("Verify it's you")
+        .setTitle(activity.getString(R.string.lock_prompt_title))
+        .setSubtitle(activity.getString(R.string.lock_prompt_subtitle))
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         builder.setAllowedAuthenticators(AUTHENTICATORS)
     } else {

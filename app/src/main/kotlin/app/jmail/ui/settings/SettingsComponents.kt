@@ -30,11 +30,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import app.jmail.R
 import app.jmail.ui.components.Monogram
 
 /**
@@ -197,7 +199,7 @@ fun AccountRow(
             Spacer(Modifier.width(16.dp))
             Icon(
                 Icons.Filled.Check,
-                contentDescription = "Current account",
+                contentDescription = stringResource(R.string.settings_current_account),
                 tint = MaterialTheme.colorScheme.primary,
             )
         }
@@ -262,7 +264,7 @@ fun <T> SettingChoiceDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_cancel)) }
         },
     )
 }

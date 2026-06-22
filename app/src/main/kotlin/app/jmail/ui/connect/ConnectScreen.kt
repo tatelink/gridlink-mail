@@ -28,12 +28,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.jmail.R
 import app.jmail.core.data.account.ConnectionSecurity
 import app.jmail.core.data.account.MailProtocol
 
@@ -68,7 +70,7 @@ fun ConnectScreen(
             smtpHost.isNotBlank() && smtpPort.toIntOrNull() != null
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Add account") }) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.connect_add_account)) }) }) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -77,17 +79,17 @@ fun ConnectScreen(
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Protocol", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.connect_protocol), style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = protocol == MailProtocol.JMAP,
                     onClick = { protocol = MailProtocol.JMAP },
-                    label = { Text("JMAP") },
+                    label = { Text(stringResource(R.string.connect_jmap)) },
                 )
                 FilterChip(
                     selected = protocol == MailProtocol.IMAP,
                     onClick = { protocol = MailProtocol.IMAP },
-                    label = { Text("IMAP / SMTP") },
+                    label = { Text(stringResource(R.string.connect_imap_smtp)) },
                 )
             }
 
@@ -95,19 +97,19 @@ fun ConnectScreen(
                 OutlinedTextField(
                     value = server,
                     onValueChange = { server = it },
-                    label = { Text("JMAP server") },
+                    label = { Text(stringResource(R.string.connect_jmap_server)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
             } else {
-                Text("Incoming (IMAP)", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.connect_incoming_imap), style = MaterialTheme.typography.labelLarge)
                 HostPortRow(
                     host = imapHost, onHost = { imapHost = it },
                     port = imapPort, onPort = { imapPort = it },
                 )
                 SecurityChips(imapSecurity) { imapSecurity = it }
 
-                Text("Outgoing (SMTP)", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.connect_outgoing_smtp), style = MaterialTheme.typography.labelLarge)
                 HostPortRow(
                     host = smtpHost, onHost = { smtpHost = it },
                     port = smtpPort, onPort = { smtpPort = it },
@@ -118,14 +120,14 @@ fun ConnectScreen(
             OutlinedTextField(
                 value = accountName,
                 onValueChange = { accountName = it },
-                label = { Text("Account name (optional)") },
+                label = { Text(stringResource(R.string.connect_account_name_optional)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
                 value = username,
                 onValueChange = { username = it },
-                label = { Text("Email / username") },
+                label = { Text(stringResource(R.string.connect_email_username)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 modifier = Modifier.fillMaxWidth(),
@@ -133,7 +135,7 @@ fun ConnectScreen(
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Password") },
+                label = { Text(stringResource(R.string.connect_password)) },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
@@ -157,14 +159,20 @@ fun ConnectScreen(
                 enabled = state !is ConnectState.Connecting && ready,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (state is ConnectState.Connecting) "Connecting…" else "Connect")
+                Text(
+                    if (state is ConnectState.Connecting) {
+                        stringResource(R.string.connect_connecting)
+                    } else {
+                        stringResource(R.string.connect_connect)
+                    },
+                )
             }
 
             Spacer(Modifier.height(4.dp))
             when (val s = state) {
                 is ConnectState.Connecting -> CircularProgressIndicator()
                 is ConnectState.Error -> Text(
-                    text = "Could not connect: ${s.message}",
+                    text = stringResource(R.string.connect_error, s.message),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -180,14 +188,14 @@ private fun HostPortRow(host: String, onHost: (String) -> Unit, port: String, on
         OutlinedTextField(
             value = host,
             onValueChange = onHost,
-            label = { Text("Server") },
+            label = { Text(stringResource(R.string.connect_server)) },
             singleLine = true,
             modifier = Modifier.weight(1f),
         )
         OutlinedTextField(
             value = port,
             onValueChange = { onPort(it.filter(Char::isDigit)) },
-            label = { Text("Port") },
+            label = { Text(stringResource(R.string.connect_port)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.width(110.dp),
@@ -198,7 +206,7 @@ private fun HostPortRow(host: String, onHost: (String) -> Unit, port: String, on
 @Composable
 private fun SecurityChips(selected: ConnectionSecurity, onSelect: (ConnectionSecurity) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected == ConnectionSecurity.TLS, { onSelect(ConnectionSecurity.TLS) }, { Text("SSL/TLS") })
-        FilterChip(selected == ConnectionSecurity.STARTTLS, { onSelect(ConnectionSecurity.STARTTLS) }, { Text("STARTTLS") })
+        FilterChip(selected == ConnectionSecurity.TLS, { onSelect(ConnectionSecurity.TLS) }, { Text(stringResource(R.string.connect_security_ssl_tls)) })
+        FilterChip(selected == ConnectionSecurity.STARTTLS, { onSelect(ConnectionSecurity.STARTTLS) }, { Text(stringResource(R.string.connect_security_starttls)) })
     }
 }

@@ -54,8 +54,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import android.content.Context
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -69,6 +71,7 @@ import app.jmail.core.data.settings.ListDensity
 import app.jmail.core.data.settings.PreviewLines
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.data.settings.ThemeMode
+import app.jmail.R
 import app.jmail.ui.connect.ConnectScreen
 
 /**
@@ -165,14 +168,44 @@ private fun SettingsHub(
     onOpenStorage: () -> Unit,
 ) {
     val categories = listOf(
-        HubCategory(Icons.Filled.Person, "Accounts", "Add, switch, server settings", onOpenAccounts),
-        HubCategory(Icons.Filled.Star, "Appearance", "Theme, density", onOpenAppearance),
-        HubCategory(Icons.AutoMirrored.Filled.List, "Reading", "Swipe actions", onOpenReading),
-        HubCategory(Icons.Filled.Notifications, "Notifications", "Push scope, new mail", onOpenNotifications),
-        HubCategory(Icons.Filled.Lock, "Privacy & Security", "App lock, remote images", onOpenPrivacy),
-        HubCategory(Icons.Filled.Storage, "Storage", "Cache usage, clear cache", onOpenStorage),
+        HubCategory(
+            Icons.Filled.Person,
+            stringResource(R.string.settings_accounts_title),
+            stringResource(R.string.settings_accounts_summary),
+            onOpenAccounts,
+        ),
+        HubCategory(
+            Icons.Filled.Star,
+            stringResource(R.string.settings_appearance_title),
+            stringResource(R.string.settings_appearance_summary),
+            onOpenAppearance,
+        ),
+        HubCategory(
+            Icons.AutoMirrored.Filled.List,
+            stringResource(R.string.settings_reading_title),
+            stringResource(R.string.settings_reading_summary),
+            onOpenReading,
+        ),
+        HubCategory(
+            Icons.Filled.Notifications,
+            stringResource(R.string.settings_notifications_title),
+            stringResource(R.string.settings_notifications_summary),
+            onOpenNotifications,
+        ),
+        HubCategory(
+            Icons.Filled.Lock,
+            stringResource(R.string.settings_privacy_title),
+            stringResource(R.string.settings_privacy_summary),
+            onOpenPrivacy,
+        ),
+        HubCategory(
+            Icons.Filled.Storage,
+            stringResource(R.string.settings_storage_title),
+            stringResource(R.string.settings_storage_summary),
+            onOpenStorage,
+        ),
     )
-    DetailScaffold(title = "Settings", onBack = onBack) { padding ->
+    DetailScaffold(title = stringResource(R.string.settings_hub_title), onBack = onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             items(categories) { category ->
                 SettingsCategoryRow(
@@ -191,32 +224,33 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val density by viewModel.listDensity.collectAsStateWithLifecycle()
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
-    DetailScaffold(title = "Appearance", onBack = onBack) { padding ->
+    val context = LocalContext.current
+    DetailScaffold(title = stringResource(R.string.settings_appearance_screen_title), onBack = onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
-            SettingsSection("Theme") {
+            SettingsSection(stringResource(R.string.settings_theme_section)) {
                 SettingChoiceRow(
-                    title = "Theme",
+                    title = stringResource(R.string.settings_theme_title),
                     options = listOf(ThemeMode.SYSTEM, ThemeMode.LIGHT, ThemeMode.DARK),
                     selected = themeMode,
-                    optionLabel = ::themeLabel,
+                    optionLabel = { themeLabel(context, it) },
                     onSelect = viewModel::setThemeMode,
                 )
             }
-            SettingsSection("Message list") {
+            SettingsSection(stringResource(R.string.settings_message_list_section)) {
                 SettingChoiceRow(
-                    title = "Density",
+                    title = stringResource(R.string.settings_density_title),
                     options = listOf(ListDensity.COMPACT, ListDensity.NORMAL, ListDensity.SPACED),
                     selected = density,
-                    optionLabel = ::densityLabel,
+                    optionLabel = { densityLabel(context, it) },
                     onSelect = viewModel::setListDensity,
                 )
                 SettingChoiceRow(
-                    title = "Preview",
+                    title = stringResource(R.string.settings_preview_title),
                     options = listOf(PreviewLines.NONE, PreviewLines.ONE, PreviewLines.THREE, PreviewLines.FIVE),
                     selected = previewLines,
-                    optionLabel = ::previewLabel,
+                    optionLabel = { previewLabel(context, it) },
                     onSelect = viewModel::setPreviewLines,
                 )
             }
@@ -224,23 +258,23 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     }
 }
 
-private fun themeLabel(mode: ThemeMode): String = when (mode) {
-    ThemeMode.SYSTEM -> "Auto"
-    ThemeMode.LIGHT -> "Light"
-    ThemeMode.DARK -> "Dark"
+private fun themeLabel(context: Context, mode: ThemeMode): String = when (mode) {
+    ThemeMode.SYSTEM -> context.getString(R.string.settings_theme_auto)
+    ThemeMode.LIGHT -> context.getString(R.string.settings_theme_light)
+    ThemeMode.DARK -> context.getString(R.string.settings_theme_dark)
 }
 
-private fun densityLabel(density: ListDensity): String = when (density) {
-    ListDensity.COMPACT -> "Compact"
-    ListDensity.NORMAL -> "Normal"
-    ListDensity.SPACED -> "Spaced"
+private fun densityLabel(context: Context, density: ListDensity): String = when (density) {
+    ListDensity.COMPACT -> context.getString(R.string.settings_density_compact)
+    ListDensity.NORMAL -> context.getString(R.string.settings_density_normal)
+    ListDensity.SPACED -> context.getString(R.string.settings_density_spaced)
 }
 
-private fun previewLabel(preview: PreviewLines): String = when (preview) {
-    PreviewLines.NONE -> "Subject only"
-    PreviewLines.ONE -> "1 line"
-    PreviewLines.THREE -> "3 lines"
-    PreviewLines.FIVE -> "5 lines"
+private fun previewLabel(context: Context, preview: PreviewLines): String = when (preview) {
+    PreviewLines.NONE -> context.getString(R.string.settings_preview_subject_only)
+    PreviewLines.ONE -> context.getString(R.string.settings_preview_one_line)
+    PreviewLines.THREE -> context.getString(R.string.settings_preview_three_lines)
+    PreviewLines.FIVE -> context.getString(R.string.settings_preview_five_lines)
 }
 
 @Composable
@@ -250,23 +284,24 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val options = listOf(
         SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
     )
-    DetailScaffold(title = "Reading", onBack = onBack) { padding ->
+    val context = LocalContext.current
+    DetailScaffold(title = stringResource(R.string.settings_reading_screen_title), onBack = onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
-            SettingsSection("Swipe actions") {
+            SettingsSection(stringResource(R.string.settings_swipe_actions_section)) {
                 SettingChoiceRow(
-                    title = "Swipe right",
+                    title = stringResource(R.string.settings_swipe_right_title),
                     options = options,
                     selected = swipeRight,
-                    optionLabel = ::swipeLabel,
+                    optionLabel = { swipeLabel(context, it) },
                     onSelect = viewModel::setSwipeRight,
                 )
                 SettingChoiceRow(
-                    title = "Swipe left",
+                    title = stringResource(R.string.settings_swipe_left_title),
                     options = options,
                     selected = swipeLeft,
-                    optionLabel = ::swipeLabel,
+                    optionLabel = { swipeLabel(context, it) },
                     onSelect = viewModel::setSwipeLeft,
                 )
             }
@@ -274,26 +309,25 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     }
 }
 
-private fun swipeLabel(action: SwipeAction): String = when (action) {
-    SwipeAction.NONE -> "Nothing"
-    SwipeAction.TOGGLE_READ -> "Mark read/unread"
-    SwipeAction.DELETE -> "Delete"
-    SwipeAction.ARCHIVE -> "Archive"
-    SwipeAction.FLAG -> "Flag/unflag"
+private fun swipeLabel(context: Context, action: SwipeAction): String = when (action) {
+    SwipeAction.NONE -> context.getString(R.string.settings_swipe_nothing)
+    SwipeAction.TOGGLE_READ -> context.getString(R.string.settings_swipe_toggle_read)
+    SwipeAction.DELETE -> context.getString(R.string.settings_swipe_delete)
+    SwipeAction.ARCHIVE -> context.getString(R.string.settings_swipe_archive)
+    SwipeAction.FLAG -> context.getString(R.string.settings_swipe_flag)
 }
 
 @Composable
 private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val pushAll by viewModel.pushAllAccounts.collectAsStateWithLifecycle()
-    DetailScaffold(title = "Notifications", onBack = onBack) { padding ->
+    DetailScaffold(title = stringResource(R.string.settings_notifications_screen_title), onBack = onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
-            SettingsSection("New mail") {
+            SettingsSection(stringResource(R.string.settings_new_mail_section)) {
                 SettingSwitch(
-                    title = "Push for all accounts",
-                    subtitle = "Watch every account for new mail, not just the current one. " +
-                        "Uses more battery and connections.",
+                    title = stringResource(R.string.settings_push_all_title),
+                    subtitle = stringResource(R.string.settings_push_all_subtitle),
                     checked = pushAll,
                     onCheckedChange = viewModel::setPushAllAccounts,
                 )
@@ -311,33 +345,30 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
     val contactsPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> viewModel.setContactSuggestions(granted) }
-    DetailScaffold(title = "Privacy & Security", onBack = onBack) { padding ->
+    DetailScaffold(title = stringResource(R.string.settings_privacy_screen_title), onBack = onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
-            SettingsSection("Security") {
+            SettingsSection(stringResource(R.string.settings_security_section)) {
                 SettingSwitch(
-                    title = "App lock",
-                    subtitle = "Require your fingerprint, face, or screen PIN to open Jmail.",
+                    title = stringResource(R.string.settings_app_lock_title),
+                    subtitle = stringResource(R.string.settings_app_lock_subtitle),
                     checked = appLock,
                     onCheckedChange = viewModel::setAppLock,
                 )
                 if (appLockUnavailable) {
                     Text(
-                        "Set up a fingerprint, face unlock, or screen lock in your device " +
-                            "settings first.",
+                        stringResource(R.string.settings_app_lock_unavailable),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                 }
             }
-            SettingsSection("Recipient suggestions") {
+            SettingsSection(stringResource(R.string.settings_recipient_suggestions_section)) {
                 SettingSwitch(
-                    title = "Suggest from contacts",
-                    subtitle = "Autocomplete recipients from this device's contacts while you type. " +
-                        "Jmail reads them on-device only, never uploads them. When off, it still " +
-                        "suggests people you've recently emailed.",
+                    title = stringResource(R.string.settings_suggest_contacts_title),
+                    subtitle = stringResource(R.string.settings_suggest_contacts_subtitle),
                     checked = contactSuggestions,
                     onCheckedChange = { wantOn ->
                         when {
@@ -360,27 +391,25 @@ private fun StorageScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val clearing by viewModel.clearing.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf(false) }
-    DetailScaffold(title = "Storage", onBack = onBack) { padding ->
+    DetailScaffold(title = stringResource(R.string.settings_storage_screen_title), onBack = onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
-            SettingsSection("On-device usage") {
-                StorageStatRow("Total", formatBytes(state.totalBytes))
-                StorageStatRow("Messages database", formatBytes(state.databaseBytes))
-                StorageStatRow("Attachments", formatBytes(state.attachmentBytes))
+            SettingsSection(stringResource(R.string.settings_on_device_usage_section)) {
+                StorageStatRow(stringResource(R.string.settings_storage_total), formatBytes(state.totalBytes))
+                StorageStatRow(stringResource(R.string.settings_storage_messages_db), formatBytes(state.databaseBytes))
+                StorageStatRow(stringResource(R.string.settings_storage_attachments), formatBytes(state.attachmentBytes))
             }
             if (state.perAccount.isNotEmpty()) {
-                SettingsSection("Cached messages per account") {
+                SettingsSection(stringResource(R.string.settings_cached_per_account_section)) {
                     state.perAccount.forEach { account ->
                         StorageStatRow(account.label, "${account.messageCount}")
                     }
                 }
             }
-            SettingsSection("Maintenance") {
+            SettingsSection(stringResource(R.string.settings_maintenance_section)) {
                 Text(
-                    "Clearing the cache removes downloaded messages and attachments from " +
-                        "this device. Your accounts stay signed in, and mail re-downloads when " +
-                        "you open it.",
+                    stringResource(R.string.settings_clear_cache_help),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -390,7 +419,13 @@ private fun StorageScreen(
                     enabled = !clearing,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    Text(if (clearing) "Clearing…" else "Clear cache")
+                    Text(
+                        if (clearing) {
+                            stringResource(R.string.settings_clearing)
+                        } else {
+                            stringResource(R.string.settings_clear_cache)
+                        },
+                    )
                 }
             }
         }
@@ -398,12 +433,9 @@ private fun StorageScreen(
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },
-            title = { Text("Clear cache?") },
+            title = { Text(stringResource(R.string.settings_clear_cache_dialog_title)) },
             text = {
-                Text(
-                    "Removes cached messages and attachments from this device. " +
-                        "Accounts stay signed in.",
-                )
+                Text(stringResource(R.string.settings_clear_cache_dialog_body))
             },
             confirmButton = {
                 TextButton(
@@ -411,10 +443,10 @@ private fun StorageScreen(
                         confirm = false
                         viewModel.clearCache()
                     },
-                ) { Text("Clear") }
+                ) { Text(stringResource(R.string.settings_clear)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirm = false }) { Text("Cancel") }
+                TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.settings_cancel)) }
             },
         )
     }
@@ -436,14 +468,14 @@ private fun StorageStatRow(label: String, value: String) {
     }
 }
 
-private fun syncWindowLabel(window: SyncWindow): String = when (window) {
-    SyncWindow.DAYS_30 -> "Last 30 days"
-    SyncWindow.DAYS_90 -> "Last 90 days"
-    SyncWindow.YEAR_1 -> "Last year"
-    SyncWindow.COUNT_50 -> "50 messages"
-    SyncWindow.COUNT_200 -> "200 messages"
-    SyncWindow.COUNT_500 -> "500 messages"
-    SyncWindow.ALL -> "Everything"
+private fun syncWindowLabel(context: Context, window: SyncWindow): String = when (window) {
+    SyncWindow.DAYS_30 -> context.getString(R.string.settings_sync_last_30_days)
+    SyncWindow.DAYS_90 -> context.getString(R.string.settings_sync_last_90_days)
+    SyncWindow.YEAR_1 -> context.getString(R.string.settings_sync_last_year)
+    SyncWindow.COUNT_50 -> context.getString(R.string.settings_sync_50_messages)
+    SyncWindow.COUNT_200 -> context.getString(R.string.settings_sync_200_messages)
+    SyncWindow.COUNT_500 -> context.getString(R.string.settings_sync_500_messages)
+    SyncWindow.ALL -> context.getString(R.string.settings_sync_everything)
 }
 
 /** Human-readable byte size (B / KB / MB / GB). */
@@ -466,7 +498,7 @@ private fun AccountsScreen(
 ) {
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val currentId by viewModel.currentId.collectAsStateWithLifecycle()
-    DetailScaffold(title = "Accounts", onBack = onBack) { padding ->
+    DetailScaffold(title = stringResource(R.string.settings_accounts_screen_title), onBack = onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             items(accounts, key = { it.id }) { account ->
                 AccountRow(
@@ -488,7 +520,7 @@ private fun AccountsScreen(
                     Button(onClick = onAddAccount, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Filled.Add, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Add account")
+                        Text(stringResource(R.string.settings_add_account))
                     }
                 }
             }
@@ -507,7 +539,7 @@ private fun AccountDetailScreen(
     val account = remember(accountId) { viewModel.account(accountId) }
     if (account == null) {
         // Account was removed (e.g. on sign-out) — nothing to show.
-        DetailScaffold(title = "Account", onBack = onBack) { padding ->
+        DetailScaffold(title = stringResource(R.string.settings_account_screen_title), onBack = onBack) { padding ->
             Box(Modifier.fillMaxSize().padding(padding))
         }
         return
@@ -528,6 +560,7 @@ private fun AccountDetailScreen(
     var smtpPort by remember(accountId) { mutableStateOf(account.smtpPort.toString()) }
     var smtpSecurity by remember(accountId) { mutableStateOf(account.smtpSecurity) }
     val cacheCount by viewModel.cacheCount.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     LaunchedEffect(accountId) { viewModel.loadCacheCount(accountId) }
 
     val canSave = username.isNotBlank() && if (isImap) {
@@ -541,91 +574,93 @@ private fun AccountDetailScreen(
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
-            SettingsSection("Account") {
+            SettingsSection(stringResource(R.string.settings_account_section)) {
                 SettingTextField(
-                    label = "Display name",
+                    label = stringResource(R.string.settings_display_name_label),
                     value = accountName,
                     onValueChange = { accountName = it; saved = false },
                 )
             }
-            SettingsSection("Server settings") {
+            SettingsSection(stringResource(R.string.settings_server_settings_section)) {
                 if (isImap) {
                     SettingTextField(
-                        label = "IMAP server",
+                        label = stringResource(R.string.settings_imap_server_label),
                         value = imapHost,
                         onValueChange = { imapHost = it; saved = false },
                         keyboardType = KeyboardType.Uri,
                     )
                     SettingTextField(
-                        label = "IMAP port",
+                        label = stringResource(R.string.settings_imap_port_label),
                         value = imapPort,
                         onValueChange = { imapPort = it.filter(Char::isDigit); saved = false },
                         keyboardType = KeyboardType.Number,
                     )
                     SettingChoiceRow(
-                        title = "IMAP security",
+                        title = stringResource(R.string.settings_imap_security_title),
                         options = listOf(ConnectionSecurity.TLS, ConnectionSecurity.STARTTLS, ConnectionSecurity.NONE),
                         selected = imapSecurity,
-                        optionLabel = ::securityLabel,
+                        optionLabel = { securityLabel(context, it) },
                         onSelect = { imapSecurity = it; saved = false },
                     )
                     SettingTextField(
-                        label = "SMTP server",
+                        label = stringResource(R.string.settings_smtp_server_label),
                         value = smtpHost,
                         onValueChange = { smtpHost = it; saved = false },
                         keyboardType = KeyboardType.Uri,
                     )
                     SettingTextField(
-                        label = "SMTP port",
+                        label = stringResource(R.string.settings_smtp_port_label),
                         value = smtpPort,
                         onValueChange = { smtpPort = it.filter(Char::isDigit); saved = false },
                         keyboardType = KeyboardType.Number,
                     )
                     SettingChoiceRow(
-                        title = "SMTP security",
+                        title = stringResource(R.string.settings_smtp_security_title),
                         options = listOf(ConnectionSecurity.TLS, ConnectionSecurity.STARTTLS, ConnectionSecurity.NONE),
                         selected = smtpSecurity,
-                        optionLabel = ::securityLabel,
+                        optionLabel = { securityLabel(context, it) },
                         onSelect = { smtpSecurity = it; saved = false },
                     )
                 } else {
                     SettingTextField(
-                        label = "Server URL",
+                        label = stringResource(R.string.settings_server_url_label),
                         value = server,
                         onValueChange = { server = it; saved = false },
                         keyboardType = KeyboardType.Uri,
                     )
                 }
                 SettingTextField(
-                    label = "Username",
+                    label = stringResource(R.string.settings_username_label),
                     value = username,
                     onValueChange = { username = it; saved = false },
                     keyboardType = KeyboardType.Email,
                 )
                 SettingTextField(
-                    label = "Password (leave blank to keep current)",
+                    label = stringResource(R.string.settings_password_label),
                     value = password,
                     onValueChange = { password = it; saved = false },
                     keyboardType = KeyboardType.Password,
                     isPassword = true,
                 )
             }
-            SettingsSection("Protocol") {
+            SettingsSection(stringResource(R.string.settings_protocol_section)) {
                 Text(
-                    text = if (isImap) "IMAP / SMTP" else "JMAP",
+                    text = if (isImap) {
+                        stringResource(R.string.settings_protocol_imap_smtp)
+                    } else {
+                        stringResource(R.string.settings_protocol_jmap)
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
-            SettingsSection("Identities") {
+            SettingsSection(stringResource(R.string.settings_identities_section)) {
                 Text(
-                    "Each identity is a \"from\" name + address with its own signature. " +
-                        "Pick one when composing.",
+                    stringResource(R.string.settings_identities_help),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
-                val context = LocalContext.current
                 var importTarget by remember(accountId) { mutableIntStateOf(-1) }
                 val importLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.GetContent(),
@@ -648,14 +683,14 @@ private fun AccountDetailScreen(
                         OutlinedTextField(
                             value = identity.name,
                             onValueChange = { v -> update { it.copy(name = v) } },
-                            label = { Text("Display name") },
+                            label = { Text(stringResource(R.string.settings_display_name_label)) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
                         OutlinedTextField(
                             value = identity.email,
                             onValueChange = { v -> update { it.copy(email = v) } },
-                            label = { Text("Email address") },
+                            label = { Text(stringResource(R.string.settings_email_address_label)) },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -663,13 +698,13 @@ private fun AccountDetailScreen(
                         OutlinedTextField(
                             value = identity.signature,
                             onValueChange = { v -> update { it.copy(signature = v) } },
-                            label = { Text("Signature (plain text or HTML)") },
+                            label = { Text(stringResource(R.string.settings_signature_label)) },
                             minLines = 2,
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedButton(onClick = { importTarget = index; importLauncher.launch("text/html") }) {
-                                Text("Import HTML")
+                                Text(stringResource(R.string.settings_import_html))
                             }
                             if (identities.size > 1) {
                                 Spacer(Modifier.width(8.dp))
@@ -677,7 +712,7 @@ private fun AccountDetailScreen(
                                     identities = identities.filterIndexed { i, _ -> i != index }
                                     saved = false
                                 }) {
-                                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                                    Text(stringResource(R.string.settings_remove), color = MaterialTheme.colorScheme.error)
                                 }
                             }
                         }
@@ -693,18 +728,18 @@ private fun AccountDetailScreen(
                     },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 ) {
-                    Text("Add identity")
+                    Text(stringResource(R.string.settings_add_identity))
                 }
             }
-            SettingsSection("Sync") {
+            SettingsSection(stringResource(R.string.settings_sync_section)) {
                 SettingChoiceRow(
-                    title = "Messages to sync",
+                    title = stringResource(R.string.settings_messages_to_sync_title),
                     options = listOf(
                         SyncWindow.DAYS_30, SyncWindow.DAYS_90, SyncWindow.YEAR_1,
                         SyncWindow.COUNT_50, SyncWindow.COUNT_200, SyncWindow.COUNT_500, SyncWindow.ALL,
                     ),
                     selected = syncWindow,
-                    optionLabel = ::syncWindowLabel,
+                    optionLabel = { syncWindowLabel(context, it) },
                     onSelect = {
                         syncWindow = it
                         viewModel.setSyncWindow(accountId, it)
@@ -712,13 +747,13 @@ private fun AccountDetailScreen(
                     },
                 )
             }
-            SettingsSection("Storage") {
-                StorageStatRow("Cached messages", "$cacheCount")
+            SettingsSection(stringResource(R.string.settings_storage_section)) {
+                StorageStatRow(stringResource(R.string.settings_cached_messages), "$cacheCount")
                 OutlinedButton(
                     onClick = { viewModel.clearAccountCache(accountId) },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    Text("Clear this account's cache")
+                    Text(stringResource(R.string.settings_clear_account_cache))
                 }
             }
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -749,7 +784,13 @@ private fun AccountDetailScreen(
                     enabled = canSave,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (saved) "Saved" else "Save")
+                    Text(
+                        if (saved) {
+                            stringResource(R.string.settings_saved)
+                        } else {
+                            stringResource(R.string.settings_save)
+                        },
+                    )
                 }
                 OutlinedButton(
                     onClick = {
@@ -758,17 +799,17 @@ private fun AccountDetailScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Sign out", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.settings_sign_out), color = MaterialTheme.colorScheme.error)
                 }
             }
         }
     }
 }
 
-private fun securityLabel(security: ConnectionSecurity): String = when (security) {
-    ConnectionSecurity.TLS -> "SSL/TLS"
-    ConnectionSecurity.STARTTLS -> "STARTTLS"
-    ConnectionSecurity.NONE -> "None"
+private fun securityLabel(context: Context, security: ConnectionSecurity): String = when (security) {
+    ConnectionSecurity.TLS -> context.getString(R.string.settings_security_tls)
+    ConnectionSecurity.STARTTLS -> context.getString(R.string.settings_security_starttls)
+    ConnectionSecurity.NONE -> context.getString(R.string.settings_security_none)
 }
 
 /**
@@ -790,7 +831,7 @@ private fun DetailScaffold(
                 title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.settings_back))
                     }
                 },
                 scrollBehavior = scrollBehavior,

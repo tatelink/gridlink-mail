@@ -25,10 +25,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.jmail.R
 import app.jmail.ui.components.EmailListItem
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,7 +46,7 @@ fun SearchScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Search") },
+                title = { Text(stringResource(R.string.search_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Text("←", style = MaterialTheme.typography.titleLarge)
@@ -57,7 +59,7 @@ fun SearchScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("Search mail") },
+                label = { Text(stringResource(R.string.search_field_label)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { viewModel.search(query) }),
@@ -66,19 +68,19 @@ fun SearchScreen(
             Box(Modifier.fillMaxSize()) {
                 when (val s = state) {
                     is SearchState.Idle -> Text(
-                        "Search across all your mail.",
+                        stringResource(R.string.search_idle_hint),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.align(Alignment.Center),
                     )
                     is SearchState.Searching -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                     is SearchState.Error -> Text(
-                        "Search failed: ${s.message}",
+                        stringResource(R.string.search_failed, s.message),
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     )
                     is SearchState.Results -> if (s.emails.isEmpty()) {
                         Text(
-                            "No results for \"${s.query}\".",
+                            stringResource(R.string.search_no_results, s.query),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.align(Alignment.Center),
                         )

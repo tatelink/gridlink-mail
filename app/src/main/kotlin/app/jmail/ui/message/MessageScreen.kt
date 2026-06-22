@@ -46,11 +46,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.jmail.R
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailBodyPart
 import app.jmail.ui.components.Monogram
@@ -84,36 +87,55 @@ fun MessageScreen(
                 title = {
                     val subject = (state as? MessageState.Loaded)?.email?.subject
                         ?.takeIf { it.isNotBlank() }
-                    Text(subject ?: "Message", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        subject ?: stringResource(R.string.message_title_fallback),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.message_back),
+                        )
                     }
                 },
                 actions = {
                     val loaded = state as? MessageState.Loaded
                     if (loaded != null && !showRemote) {
-                        TextButton(onClick = { showRemote = true }) { Text("Show images") }
+                        TextButton(onClick = { showRemote = true }) {
+                            Text(stringResource(R.string.message_show_images))
+                        }
                     }
                     if (loaded != null) {
                         IconButton(onClick = { viewModel.markUnread(onBack) }) {
-                            Icon(Icons.Filled.MailOutline, contentDescription = "Mark unread")
+                            Icon(
+                                Icons.Filled.MailOutline,
+                                contentDescription = stringResource(R.string.message_mark_unread),
+                            )
                         }
                         IconButton(onClick = { viewModel.delete(onBack) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = stringResource(R.string.message_delete),
+                            )
                         }
                         var menuOpen by remember { mutableStateOf(false) }
                         var snoozeSubmenu by remember { mutableStateOf(false) }
                         IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                            Icon(
+                                Icons.Filled.MoreVert,
+                                contentDescription = stringResource(R.string.message_more),
+                            )
                         }
                         DropdownMenu(
                             expanded = menuOpen,
                             onDismissRequest = { menuOpen = false; snoozeSubmenu = false },
                         ) {
                             if (snoozeSubmenu) {
-                                snoozePresets().forEach { (label, until) ->
+                                val context = LocalContext.current
+                                snoozePresets(context).forEach { (label, until) ->
                                     DropdownMenuItem(
                                         text = { Text(label) },
                                         onClick = {
@@ -124,34 +146,48 @@ fun MessageScreen(
                                 }
                             } else {
                                 DropdownMenuItem(
-                                    text = { Text("Reply") },
+                                    text = { Text(stringResource(R.string.message_reply)) },
                                     onClick = { menuOpen = false; onReply("reply") },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Reply all") },
+                                    text = { Text(stringResource(R.string.message_reply_all)) },
                                     onClick = { menuOpen = false; onReply("replyAll") },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Forward") },
+                                    text = { Text(stringResource(R.string.message_forward)) },
                                     onClick = { menuOpen = false; onReply("forward") },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text(if (loaded.email.isFlagged) "Unflag" else "Flag") },
+                                    text = {
+                                        Text(
+                                            stringResource(
+                                                if (loaded.email.isFlagged) R.string.message_unflag
+                                                else R.string.message_flag,
+                                            ),
+                                        )
+                                    },
                                     onClick = { menuOpen = false; viewModel.toggleFlag() },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Archive") },
+                                    text = { Text(stringResource(R.string.message_archive)) },
                                     onClick = { menuOpen = false; viewModel.archive(onBack) },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text(if (inJunk) "Not spam" else "Report spam") },
+                                    text = {
+                                        Text(
+                                            stringResource(
+                                                if (inJunk) R.string.message_not_spam
+                                                else R.string.message_report_spam,
+                                            ),
+                                        )
+                                    },
                                     onClick = {
                                         menuOpen = false
                                         if (inJunk) viewModel.notSpam(onBack) else viewModel.reportSpam(onBack)
                                     },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Snooze…") },
+                                    text = { Text(stringResource(R.string.message_snooze)) },
                                     onClick = { snoozeSubmenu = true },
                                 )
                             }
@@ -169,8 +205,13 @@ fun MessageScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("Could not load message:\n${s.message}", color = MaterialTheme.colorScheme.error)
-                    Button(onClick = { viewModel.load(emailId, accountId) }) { Text("Retry") }
+                    Text(
+                        stringResource(R.string.message_load_error, s.message),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Button(onClick = { viewModel.load(emailId, accountId) }) {
+                        Text(stringResource(R.string.message_retry))
+                    }
                 }
                 is MessageState.Loaded -> MessageBody(
                     email = s.email,
@@ -238,7 +279,7 @@ private fun ThreadSection(siblings: List<Email>, onOpenEmail: (String) -> Unit) 
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "${siblings.size} more in this conversation",
+                text = stringResource(R.string.message_thread_more, siblings.size),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f),
@@ -255,13 +296,15 @@ private fun ThreadSection(siblings: List<Email>, onOpenEmail: (String) -> Unit) 
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text(
-                        text = sibling.from.firstOrNull()?.display() ?: "(unknown sender)",
+                        text = sibling.from.firstOrNull()?.display()
+                            ?: stringResource(R.string.message_unknown_sender),
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = sibling.subject?.takeIf { it.isNotBlank() } ?: "(no subject)",
+                        text = sibling.subject?.takeIf { it.isNotBlank() }
+                            ?: stringResource(R.string.message_no_subject),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -281,7 +324,7 @@ private fun AttachmentSection(
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(
-            text = "Attachments (${attachments.size})",
+            text = stringResource(R.string.message_attachments, attachments.size),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -296,7 +339,7 @@ private fun AttachmentSection(
                 Text("📎", modifier = Modifier.padding(end = 12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = att.name ?: "attachment",
+                        text = att.name ?: stringResource(R.string.message_attachment_fallback),
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -341,7 +384,8 @@ private fun Header(email: Email) {
             .padding(16.dp),
     ) {
         Text(
-            text = email.subject?.takeIf { it.isNotBlank() } ?: "(no subject)",
+            text = email.subject?.takeIf { it.isNotBlank() }
+                ?: stringResource(R.string.message_no_subject),
             style = MaterialTheme.typography.titleLarge,
         )
         Spacer(Modifier.height(12.dp))
@@ -350,7 +394,7 @@ private fun Header(email: Email) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = sender?.display() ?: "(unknown sender)",
+                    text = sender?.display() ?: stringResource(R.string.message_unknown_sender),
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -374,7 +418,10 @@ private fun Header(email: Email) {
         if (email.to.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "To: " + email.to.joinToString { it.display() },
+                text = stringResource(
+                    R.string.message_to,
+                    email.to.joinToString { it.display() },
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
@@ -511,7 +558,7 @@ private fun formatFull(iso: String?): String {
 }
 
 /** Snooze presets → (label, epoch-millis), computed in the device's time zone. */
-private fun snoozePresets(): List<Pair<String, Long>> {
+private fun snoozePresets(context: android.content.Context): List<Pair<String, Long>> {
     val zone = java.time.ZoneId.systemDefault()
     val now = java.time.ZonedDateTime.now(zone)
     fun at(day: java.time.ZonedDateTime, hour: Int) =
@@ -519,9 +566,9 @@ private fun snoozePresets(): List<Pair<String, Long>> {
     val thisEvening = at(now, 18).let { if (it.isAfter(now)) it else at(now.plusDays(1), 18) }
     val nextWeek = at(now.with(java.time.DayOfWeek.MONDAY).plusWeeks(1), 8)
     return listOf(
-        "In 1 hour" to now.plusHours(1),
-        "This evening, 6 PM" to thisEvening,
-        "Tomorrow, 8 AM" to at(now.plusDays(1), 8),
-        "Next week (Mon, 8 AM)" to nextWeek,
+        context.getString(R.string.snooze_in_1_hour) to now.plusHours(1),
+        context.getString(R.string.snooze_this_evening) to thisEvening,
+        context.getString(R.string.snooze_tomorrow) to at(now.plusDays(1), 8),
+        context.getString(R.string.snooze_next_week) to nextWeek,
     ).map { (label, time) -> label to time.toInstant().toEpochMilli() }
 }

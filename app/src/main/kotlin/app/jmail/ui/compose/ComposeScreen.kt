@@ -51,11 +51,13 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.jmail.R
 import app.jmail.core.data.db.ContactRow
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -113,21 +115,23 @@ fun ComposeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (replyTo != null) "Reply" else "New message") },
+                title = {
+                    Text(stringResource(if (replyTo != null) R.string.compose_title_reply else R.string.compose_title_new))
+                },
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
-                        Icon(Icons.Filled.Close, contentDescription = "Discard")
+                        Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.compose_discard))
                     }
                 },
                 actions = {
                     IconButton(onClick = { picker.launch("*/*") }, enabled = !sending) {
-                        Icon(Icons.Filled.AttachFile, contentDescription = "Attach file")
+                        Icon(Icons.Filled.AttachFile, contentDescription = stringResource(R.string.compose_attach))
                     }
                     IconButton(
                         onClick = { viewModel.saveDraft(to, cc, bcc, subject, body) },
                         enabled = !sending,
                     ) {
-                        Icon(Icons.Filled.Save, contentDescription = "Save draft")
+                        Icon(Icons.Filled.Save, contentDescription = stringResource(R.string.compose_save_draft))
                     }
                     Box {
                         var scheduleMenu by remember { mutableStateOf(false) }
@@ -135,16 +139,20 @@ fun ComposeScreen(
                             onClick = { scheduleMenu = true },
                             enabled = !sending && to.isNotBlank(),
                         ) {
-                            Icon(Icons.Filled.Schedule, contentDescription = "Schedule send")
+                            Icon(Icons.Filled.Schedule, contentDescription = stringResource(R.string.compose_schedule_send))
                         }
                         DropdownMenu(expanded = scheduleMenu, onDismissRequest = { scheduleMenu = false }) {
-                            schedulePresets().forEach { (label, millis) ->
+                            schedulePresets(context).forEach { (label, millis) ->
                                 DropdownMenuItem(
                                     text = { Text(label) },
                                     onClick = {
                                         scheduleMenu = false
                                         viewModel.scheduleSend(to, cc, bcc, subject, body, millis)
-                                        Toast.makeText(context, "Scheduled — $label", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.compose_scheduled_toast, label),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
                                     },
                                 )
                             }
@@ -154,7 +162,7 @@ fun ComposeScreen(
                         onClick = { viewModel.send(to, cc, bcc, subject, body) },
                         enabled = !sending && to.isNotBlank(),
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.compose_send))
                     }
                 },
             )
@@ -178,7 +186,7 @@ fun ComposeScreen(
                             .padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        FieldLabel("From")
+                        FieldLabel(stringResource(R.string.compose_from))
                         Text(
                             text = selectedFrom?.identity?.display() ?: "—",
                             style = MaterialTheme.typography.bodyLarge,
@@ -186,7 +194,7 @@ fun ComposeScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        Icon(Icons.Filled.ExpandMore, contentDescription = "Choose sender")
+                        Icon(Icons.Filled.ExpandMore, contentDescription = stringResource(R.string.compose_choose_sender))
                     }
                     DropdownMenu(expanded = fromMenu, onDismissRequest = { fromMenu = false }) {
                         fromOptions.forEach { option ->
@@ -201,7 +209,7 @@ fun ComposeScreen(
             }
 
             RecipientField(
-                label = "To",
+                label = stringResource(R.string.compose_to),
                 value = to,
                 onValueChange = { to = it },
                 suggestions = suggestions,
@@ -212,22 +220,24 @@ fun ComposeScreen(
                     IconButton(onClick = { expanded = !expanded }) {
                         Icon(
                             if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                            contentDescription = if (expanded) "Hide Cc/Bcc" else "Show Cc/Bcc",
+                            contentDescription = stringResource(
+                                if (expanded) R.string.compose_hide_cc_bcc else R.string.compose_show_cc_bcc,
+                            ),
                         )
                     }
                 },
             )
             if (expanded) {
                 RecipientField(
-                    "Cc", cc, { cc = it }, suggestions, viewModel::suggest,
+                    stringResource(R.string.compose_cc), cc, { cc = it }, suggestions, viewModel::suggest,
                     { cc = applyPick(cc, it.email); viewModel.clearSuggestions() },
                 )
                 RecipientField(
-                    "Bcc", bcc, { bcc = it }, suggestions, viewModel::suggest,
+                    stringResource(R.string.compose_bcc), bcc, { bcc = it }, suggestions, viewModel::suggest,
                     { bcc = applyPick(bcc, it.email); viewModel.clearSuggestions() },
                 )
             }
-            ComposeField("Subject", subject, { subject = it })
+            ComposeField(stringResource(R.string.compose_subject), subject, { subject = it })
 
             attachments.forEach { att ->
                 Row(
@@ -236,13 +246,15 @@ fun ComposeScreen(
                 ) {
                     Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                     Text(
-                        text = att.name ?: "attachment",
+                        text = att.name ?: stringResource(R.string.compose_attachment_fallback),
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { viewModel.removeAttachment(att) }) { Text("Remove") }
+                    TextButton(onClick = { viewModel.removeAttachment(att) }) {
+                        Text(stringResource(R.string.compose_remove))
+                    }
                 }
             }
             attachmentStatus?.let {
@@ -262,7 +274,7 @@ fun ComposeScreen(
                 decorationBox = { inner ->
                     if (body.isEmpty()) {
                         Text(
-                            "Compose email",
+                            stringResource(R.string.compose_body_placeholder),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -274,7 +286,7 @@ fun ComposeScreen(
             if (sending) CircularProgressIndicator()
             (state as? ComposeState.Error)?.let {
                 Text(
-                    text = "Could not send: ${it.message}",
+                    text = stringResource(R.string.compose_could_not_send, it.message),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -392,16 +404,16 @@ private fun FieldDivider() {
 }
 
 /** Quick "send later" presets → (label, epoch-millis), computed in the device's time zone. */
-private fun schedulePresets(): List<Pair<String, Long>> {
+private fun schedulePresets(context: android.content.Context): List<Pair<String, Long>> {
     val zone = java.time.ZoneId.systemDefault()
     val now = java.time.ZonedDateTime.now(zone)
     fun at(day: java.time.ZonedDateTime, hour: Int) =
         day.withHour(hour).withMinute(0).withSecond(0).withNano(0)
     val thisEvening = at(now, 18).let { if (it.isAfter(now)) it else at(now.plusDays(1), 18) }
     return listOf(
-        "In 1 hour" to now.plusHours(1),
-        "This evening, 6 PM" to thisEvening,
-        "Tomorrow, 8 AM" to at(now.plusDays(1), 8),
-        "Tomorrow, 6 PM" to at(now.plusDays(1), 18),
+        context.getString(R.string.schedule_in_1_hour) to now.plusHours(1),
+        context.getString(R.string.schedule_this_evening) to thisEvening,
+        context.getString(R.string.schedule_tomorrow_morning) to at(now.plusDays(1), 8),
+        context.getString(R.string.schedule_tomorrow_evening) to at(now.plusDays(1), 18),
     ).map { (label, time) -> label to time.toInstant().toEpochMilli() }
 }
