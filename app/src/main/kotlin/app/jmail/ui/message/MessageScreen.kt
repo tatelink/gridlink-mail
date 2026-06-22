@@ -1,5 +1,6 @@
 package app.jmail.ui.message
 
+import app.jmail.appLocale
 import android.content.Intent
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -499,7 +500,7 @@ private fun escapeHtml(text: String): String = text
     .replace("<", "&lt;")
     .replace(">", "&gt;")
 
-private val fullFormatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm")
+private val fullFormatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", appLocale)
 
 private fun formatFull(iso: String?): String {
     if (iso.isNullOrBlank()) return ""

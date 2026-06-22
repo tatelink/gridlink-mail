@@ -1,5 +1,6 @@
 package app.jmail.ui.components
 
+import app.jmail.appLocale
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -137,8 +138,8 @@ fun EmailListItem(
     }
 }
 
-private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-private val dateFormatter = DateTimeFormatter.ofPattern("d MMM")
+private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm", appLocale)
+private val dateFormatter = DateTimeFormatter.ofPattern("d MMM", appLocale)
 
 private fun formatReceived(iso: String?): String {
     if (iso.isNullOrBlank()) return ""
