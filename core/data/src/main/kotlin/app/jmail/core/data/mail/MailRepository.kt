@@ -146,7 +146,14 @@ class MailRepository(
      * Refresh the mailbox list and the emails of [mailboxId] (or the inbox when
      * null), updating the cache and the in-memory session context.
      */
-    suspend fun refresh(credentials: AccountCredentials, mailboxId: String? = null, limit: Int = 50): MailboxMeta {
+    suspend fun refresh(
+        credentials: AccountCredentials,
+        mailboxId: String? = null,
+        limit: Int = 50,
+        // Prune cached messages older than this epoch-millis cutoff (the age-based
+        // sync window); null keeps everything within [limit].
+        pruneBeforeMillis: Long? = null,
+    ): MailboxMeta {
         val auth = BasicAuth(credentials.username, credentials.password)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
         val accountId = session.mailAccountId()
@@ -168,6 +175,7 @@ class MailRepository(
             ?: error("No mailboxes found.")
 
         syncMailbox(session, accountId, auth, target.id, limit, credentials.id)
+        if (pruneBeforeMillis != null) emailDao.deleteOlderThan(target.id, pruneBeforeMillis)
 
         val accountName = session.accounts[accountId]?.name ?: credentials.username
         return MailboxMeta(accountName, target.id, target.name, target.unreadEmails)

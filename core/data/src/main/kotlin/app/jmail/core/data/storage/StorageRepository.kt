@@ -47,6 +47,11 @@ class StorageRepository(
         clearAttachments()
     }
 
+    /** Cached-message count for one account. */
+    suspend fun accountMessageCount(accountId: String): Int = withContext(Dispatchers.IO) {
+        emailDao.countForAccount(accountId)
+    }
+
     /** Purge one account's cached messages. */
     suspend fun clearAccountCache(accountId: String) = withContext(Dispatchers.IO) {
         emailDao.deleteForAccount(accountId)

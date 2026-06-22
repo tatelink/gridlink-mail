@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +53,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import app.jmail.core.data.account.SyncWindow
 import app.jmail.core.data.settings.ListDensity
 import app.jmail.core.data.settings.PreviewLines
 import app.jmail.core.data.settings.SwipeAction
@@ -402,6 +404,16 @@ private fun StorageStatRow(label: String, value: String) {
     }
 }
 
+private fun syncWindowLabel(window: SyncWindow): String = when (window) {
+    SyncWindow.DAYS_30 -> "Last 30 days"
+    SyncWindow.DAYS_90 -> "Last 90 days"
+    SyncWindow.YEAR_1 -> "Last year"
+    SyncWindow.COUNT_50 -> "50 messages"
+    SyncWindow.COUNT_200 -> "200 messages"
+    SyncWindow.COUNT_500 -> "500 messages"
+    SyncWindow.ALL -> "Everything"
+}
+
 /** Human-readable byte size (B / KB / MB / GB). */
 private fun formatBytes(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
@@ -474,6 +486,9 @@ private fun AccountDetailScreen(
     var username by remember(accountId) { mutableStateOf(account.username) }
     var password by remember(accountId) { mutableStateOf("") }
     var saved by remember(accountId) { mutableStateOf(false) }
+    var syncWindow by remember(accountId) { mutableStateOf(account.syncWindow) }
+    val cacheCount by viewModel.cacheCount.collectAsStateWithLifecycle()
+    LaunchedEffect(accountId) { viewModel.loadCacheCount(accountId) }
 
     val canSave = server.isNotBlank() && username.isNotBlank()
 
@@ -522,6 +537,31 @@ private fun AccountDetailScreen(
                     selected = false,
                     enabled = false,
                 )
+            }
+            SettingsSection("Sync") {
+                SettingChoiceRow(
+                    title = "Messages to sync",
+                    options = listOf(
+                        SyncWindow.DAYS_30, SyncWindow.DAYS_90, SyncWindow.YEAR_1,
+                        SyncWindow.COUNT_50, SyncWindow.COUNT_200, SyncWindow.COUNT_500, SyncWindow.ALL,
+                    ),
+                    selected = syncWindow,
+                    optionLabel = ::syncWindowLabel,
+                    onSelect = {
+                        syncWindow = it
+                        viewModel.setSyncWindow(accountId, it)
+                        onAccountsChanged()
+                    },
+                )
+            }
+            SettingsSection("Storage") {
+                StorageStatRow("Cached messages", "$cacheCount")
+                OutlinedButton(
+                    onClick = { viewModel.clearAccountCache(accountId) },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text("Clear this account's cache")
+                }
             }
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(

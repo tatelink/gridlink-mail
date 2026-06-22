@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
 import app.jmail.core.data.account.StoredAccount
+import app.jmail.core.data.account.SyncWindow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -21,6 +22,10 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     private val _currentId = MutableStateFlow(store.currentId())
     val currentId = _currentId.asStateFlow()
 
+    /** Cached-message count for the account detail screen currently open. */
+    private val _cacheCount = MutableStateFlow(0)
+    val cacheCount = _cacheCount.asStateFlow()
+
     /** Re-read the store after any change so the UI reflects the latest state. */
     fun refresh() {
         _accounts.value = store.accounts()
@@ -28,6 +33,27 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun account(id: String): StoredAccount? = store.account(id)
+
+    fun syncWindow(id: String): SyncWindow = store.syncWindow(id)
+
+    fun setSyncWindow(id: String, window: SyncWindow) {
+        store.setSyncWindow(id, window)
+        refresh()
+    }
+
+    /** Load this account's cached-message count into [cacheCount]. */
+    fun loadCacheCount(id: String) {
+        viewModelScope.launch { _cacheCount.value = storage.accountMessageCount(id) }
+    }
+
+    /** Clear just this account's cached mail, then refresh the displayed count. */
+    fun clearAccountCache(id: String) {
+        viewModelScope.launch {
+            storage.clearAccountCache(id)
+            mail.resetSyncState()
+            _cacheCount.value = storage.accountMessageCount(id)
+        }
+    }
 
     fun switchTo(id: String) {
         store.setCurrent(id)

@@ -205,7 +205,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun refreshFolder(mailboxId: String?) {
         val credentials = store.load() ?: error("No saved account.")
-        val updated = repo.refresh(credentials, mailboxId)
+        val window = store.syncWindow(credentials.id)
+        val pruneBefore = window.maxAgeDays?.let {
+            System.currentTimeMillis() - it.toLong() * MILLIS_PER_DAY
+        }
+        val updated = repo.refresh(credentials, mailboxId, window.limit, pruneBefore)
         if (updated.mailboxId == store.inboxMailboxId() || mailboxId == null) {
             // Keep the cached inbox metadata fresh for offline display.
             store.saveInboxMeta(updated.mailboxId, updated.mailboxName, updated.accountName, updated.unreadCount)
@@ -391,6 +395,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         const val UNIFIED_LABEL = "All inboxes"
         const val SEARCH_DEBOUNCE_MS = 300L
+        const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
     }
 }
 

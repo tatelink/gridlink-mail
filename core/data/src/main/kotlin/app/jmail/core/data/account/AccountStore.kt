@@ -91,6 +91,14 @@ class AccountStore(context: Context) {
         writePassword(id, password)
     }
 
+    /** The per-account sync window (defaults to 90 days for unknown ids). */
+    fun syncWindow(id: String): SyncWindow = account(id)?.syncWindow ?: SyncWindow.DAYS_90
+
+    /** Persist a new sync window for the account. No-op if the id is unknown. */
+    fun setSyncWindow(id: String, window: SyncWindow) {
+        saveAccounts(accounts().map { if (it.id == id) it.copy(syncWindow = window) else it })
+    }
+
     /** Remove an account; if it was current, fall back to another (or none). */
     fun remove(id: String) {
         prefs.edit().remove(passwordKey(id)).apply()

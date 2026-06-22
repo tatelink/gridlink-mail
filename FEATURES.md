@@ -98,6 +98,8 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Settings hub (Appearance / Notifications / Privacy & Security / Storage), DataStore-backed
 - ✅ Storage screen — on-device cache usage (DB + attachments, per-account breakdown) + Clear cache
 - ✅ Attachment cache cap (LRU by size/age); sign-out purges that account's cached mail + attachments
+- ✅ Per-account sync window — messages to sync by age (30/90 days, 1 year) or count (50/200/500/all), default 90 days
+- ✅ Per-account "Clear this account's cache" + cached-message count (Settings → Accounts → detail)
 - ✅ Theme toggle (auto / light / dark)
 - ✅ Message-list density (compact / normal / spaced)
 - ✅ Row preview length (subject only / 1 / 3 / 5 lines)

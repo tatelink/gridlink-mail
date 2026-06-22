@@ -41,11 +41,18 @@ interface EmailDao {
     @Query("SELECT accountId, COUNT(*) AS messageCount FROM emails GROUP BY accountId")
     suspend fun countsByAccount(): List<AccountMessageCount>
 
+    @Query("SELECT COUNT(*) FROM emails WHERE accountId = :accountId")
+    suspend fun countForAccount(accountId: String): Int
+
     @Query("DELETE FROM emails")
     suspend fun deleteAll()
 
     @Query("DELETE FROM emails WHERE accountId = :accountId")
     suspend fun deleteForAccount(accountId: String)
+
+    /** Prune messages older than [cutoff] (epoch millis) from a mailbox; keeps undated rows. */
+    @Query("DELETE FROM emails WHERE mailboxId = :mailboxId AND sortKey > 0 AND sortKey < :cutoff")
+    suspend fun deleteOlderThan(mailboxId: String, cutoff: Long)
 
     /** Replace the cached contents of a mailbox with a fresh snapshot. */
     @Transaction

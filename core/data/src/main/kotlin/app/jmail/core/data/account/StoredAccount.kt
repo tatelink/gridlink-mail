@@ -12,6 +12,7 @@ data class StoredAccount(
     val inboxId: String? = null,
     val inboxName: String = "Inbox",
     val unread: Int = 0,
+    val syncWindow: SyncWindow = SyncWindow.DAYS_90,
 ) {
     /** Best label for the account in UI. */
     fun label(): String = accountName.ifBlank { username }
