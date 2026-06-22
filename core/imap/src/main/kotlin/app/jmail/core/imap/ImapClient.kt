@@ -17,7 +17,11 @@ class ImapException(message: String) : Exception(message)
 
 /** Opens authenticated IMAP sessions. The session object carries the live connection. */
 class ImapClient {
-    suspend fun connect(config: MailServerConfig): ImapSession = withContext(Dispatchers.IO) {
+    suspend fun connect(config: MailServerConfig): ImapSession =
+        withContext(Dispatchers.IO) { openSession(config) }
+
+    /** Blocking connect + login. Use when already on a dedicated IO thread (e.g. IDLE). */
+    fun openSession(config: MailServerConfig): ImapSession {
         val plain = Socket(config.host, config.port)
         val socket = when (config.security) {
             MailSecurity.TLS -> tlsFactory.createSocket(plain, config.host, config.port, true) as SSLSocket
@@ -30,7 +34,7 @@ class ImapClient {
             session.upgradeTls(config.host, config.port)
         }
         session.login(config.username, config.password)
-        session
+        return session
     }
 
     private companion object {
@@ -85,6 +89,56 @@ class ImapSession(private var socket: Socket) : Closeable {
                 else -> untagged.add(resp) // "*" untagged or "+" continuation
             }
         }
+    }
+
+    /**
+     * Run one IMAP IDLE cycle on the selected mailbox: wait up to [timeoutMs] for the
+     * server to report a change. Returns true if new mail arrived (an untagged EXISTS or
+     * RECENT), false on the keep-alive timeout. Always ends IDLE (DONE) and consumes the
+     * tagged result before returning, so the caller can immediately IDLE again.
+     */
+    fun idle(timeoutMs: Int): Boolean {
+        val tag = "a${++tagN}"
+        output.write("$tag IDLE\r\n".toByteArray(Charsets.UTF_8))
+        output.flush()
+        val previousTimeout = socket.soTimeout
+        socket.soTimeout = timeoutMs
+        var changed = false
+        try {
+            while (true) {
+                val resp = try {
+                    input.readResponse()
+                } catch (_: java.net.SocketTimeoutException) {
+                    break // keep-alive window elapsed — refresh IDLE
+                }
+                if (resp.isEmpty()) {
+                    if (socket.isClosed) throw ImapException("Connection closed during IDLE")
+                    continue
+                }
+                // Untagged "* <n> EXISTS" / "* <n> RECENT" announce new mail.
+                val kind = resp.getOrNull(2)
+                if (kind == "EXISTS" || kind == "RECENT") {
+                    changed = true
+                    break
+                }
+                // "+ idling" continuation and other status updates: keep waiting.
+            }
+        } finally {
+            socket.soTimeout = previousTimeout
+            // End IDLE and drain to its tagged completion so the stream is clean.
+            runCatching {
+                output.write("DONE\r\n".toByteArray(Charsets.UTF_8))
+                output.flush()
+                while (true) {
+                    val resp = input.readResponse()
+                    if (resp.isEmpty()) {
+                        if (socket.isClosed) break else continue
+                    }
+                    if (resp[0] == tag) break
+                }
+            }
+        }
+        return changed
     }
 
     /** Create a mailbox (folder). Succeeds quietly if it already exists. */

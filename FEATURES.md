@@ -17,6 +17,35 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 
 ---
 
+## Roadmap — what's next (prioritized)
+
+The categories further down list the full feature set; this is the order of work.
+
+**Tier 1 — close functional holes** *(in progress)*
+- ✅ IMAP push (IDLE) — IMAP accounts now get new-mail notifications like JMAP
+- 💡 Folder management (create / rename / delete)
+- 💡 Report spam / not-spam (move to/from Junk)
+
+**Tier 2 — modern compose & send**
+- 💡 Rich-text editor (plus plain-text mode)
+- 💡 Outbox + Undo send (hold-back window)
+- 💡 ⭐ Schedule send (JMAP `EmailSubmission` `sendAt`)
+- 💡 Snooze a message until later
+
+**Tier 3 — privacy & JMAP-native power**
+- 💡 OpenPGP (via OpenKeychain)
+- 💡 ⭐ Vacation responder (JMAP `VacationResponse`)
+- 💡 Tracking-param stripping / link confirmation; per-sender image allowlist
+- 💡 Server-side Sieve filters/rules; server `Quota` display
+
+**Tier 4 — polish**
+- 💡 Richer search filters (from/subject/has-attachment/date) + `SearchSnippet` highlights
+- 💡 Per-account colour; home-screen widget(s); accessibility pass (TalkBack, font scaling)
+- 💡 Bundled/grouped notifications + quiet hours
+- 💡 `/.well-known/jmap` autodiscovery + OAuth2; settings export/import
+
+---
+
 ## Protocols
 
 - ✅ **JMAP** (RFC 8620/8621) — the primary, modern backend.
@@ -27,7 +56,8 @@ build — several things that are hard over IMAP are nearly free in JMAP.
   (host/port/security for both). The data layer routes per-account by protocol,
   so the cache, paging, and entire UI are protocol-agnostic.
   - ✅ One pooled connection per account, reused across calls (no reconnect per page).
-  - 💡 IMAP gaps: IDLE push, inline `cid:` images, CONDSTORE incremental sync.
+  - ✅ IDLE push (new-mail notifications) via a dedicated IDLE connection.
+  - 💡 IMAP gaps: inline `cid:` images, CONDSTORE incremental sync.
 
 ## Reading & triage
 
@@ -92,7 +122,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 ## Sync, push & notifications
 
 - ✅ ⭐ Incremental sync (`Email/queryChanges` + `Email/changes` + per-type `state`) — JMAP; IMAP does a bounded full re-query
-- ✅ ⭐ Push via JMAP EventSource (foreground service, no Google/FCM) — JMAP only; IMAP IDLE push is a 💡 gap
+- ✅ ⭐ Push (foreground service, no Google/FCM): JMAP EventSource, or IMAP IDLE (a dedicated connection per account, refreshed within the ~29-min limit)
 - ✅ New-mail notifications (per current account, or all accounts via a setting)
 - ✅ Notification quick actions: reply (inline), mark read, delete
 - ✅ Push reconnects automatically when the connection drops (catches missed mail)

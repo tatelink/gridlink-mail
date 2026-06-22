@@ -6,6 +6,7 @@ import app.jmail.core.data.account.MailEndpoint
 import app.jmail.core.data.db.EmailEntity
 import app.jmail.core.data.db.MailboxEntity
 import app.jmail.core.imap.ImapClient
+import app.jmail.core.imap.ImapIdleConnection
 import app.jmail.core.imap.ImapMessage
 import app.jmail.core.imap.ImapSession
 import app.jmail.core.imap.MailSecurity
@@ -82,6 +83,15 @@ class ImapMailService(
                 if (++attempt >= 2) throw t
             }
         }
+    }
+
+    /**
+     * Open a dedicated IDLE connection on the account's INBOX for push. Separate from the
+     * pooled connection (IDLE blocks); returns a Closeable the caller closes to stop.
+     */
+    fun openIdle(credentials: AccountCredentials, onChanged: () -> Unit, onClosed: () -> Unit): java.io.Closeable {
+        val endpoint = credentials.imap ?: error("Account has no IMAP server configured.")
+        return ImapIdleConnection(imapClient, config(endpoint, credentials), "INBOX", onChanged, onClosed)
     }
 
     /** Close and forget an account's pooled connection (e.g. on sign-out). */
