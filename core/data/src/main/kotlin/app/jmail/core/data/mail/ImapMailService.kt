@@ -9,6 +9,7 @@ import app.jmail.core.imap.ImapClient
 import app.jmail.core.imap.ImapMessage
 import app.jmail.core.imap.MailSecurity
 import app.jmail.core.imap.MailServerConfig
+import app.jmail.core.imap.MimeParser
 import app.jmail.core.imap.OutgoingMessage
 import app.jmail.core.imap.OutgoingMime
 import app.jmail.core.imap.SmtpClient
@@ -152,6 +153,20 @@ class ImapMailService(
                     .sortedByDescending { it.sortKey }
             }
         }
+
+    /** Fetch and decode an attachment (one MIME [section]) to raw bytes. */
+    suspend fun fetchAttachment(
+        credentials: AccountCredentials,
+        mailboxId: String,
+        uid: Long,
+        section: String,
+        encoding: String?,
+    ): ByteArray = withContext(Dispatchers.IO) {
+        session(credentials).use { session ->
+            session.select(mailboxId)
+            MimeParser.decodeBytes(session.fetchSection(uid, section), encoding)
+        }
+    }
 
     /** Fetch one message by UID into a cache entity (used to restore after an undo). */
     suspend fun fetchByUid(credentials: AccountCredentials, mailboxId: String, uid: Long): EmailEntity? =

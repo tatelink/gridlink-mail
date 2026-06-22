@@ -21,6 +21,7 @@ import app.jmail.core.jmap.JmapAuth
 import app.jmail.core.jmap.JmapClient
 import app.jmail.core.imap.MimeBody
 import app.jmail.core.imap.MimeParser
+import app.jmail.core.imap.OutgoingAttachment
 import app.jmail.core.imap.OutgoingMessage
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailAddress
@@ -385,18 +386,30 @@ class MailRepository(
 
     /** Attach a parsed [MimeBody] to a cached [Email] so the message view can render it. */
     private fun Email.withBody(body: MimeBody): Email {
+        val attachments = body.attachments.map {
+            EmailBodyPart(
+                partId = it.section,
+                name = it.name,
+                type = it.type,
+                size = it.size.toLong(),
+                disposition = "attachment",
+                encoding = it.encoding,
+            )
+        }
         val html = body.html
         val text = body.text
         return when {
             !html.isNullOrBlank() -> copy(
                 htmlBody = listOf(EmailBodyPart(partId = "html")),
                 bodyValues = mapOf("html" to EmailBodyValue(value = html)),
+                attachments = attachments,
             )
             !text.isNullOrBlank() -> copy(
                 textBody = listOf(EmailBodyPart(partId = "text")),
                 bodyValues = mapOf("text" to EmailBodyValue(value = text)),
+                attachments = attachments,
             )
-            else -> this
+            else -> copy(attachments = attachments)
         }
     }
 
@@ -648,7 +661,16 @@ class MailRepository(
         if (credentials.protocol == MailProtocol.IMAP) {
             val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
             require(recipients.isNotEmpty()) { "Add at least one recipient." }
-            imap.send(credentials, outgoing(credentials, recipients, subject, body, inReplyTo, references), mailboxDao.idForRole("sent"))
+            // IMAP attachments are staged as temp files (partId = path) by compose.
+            val outAttachments = attachments.mapNotNull { part ->
+                val path = part.partId ?: return@mapNotNull null
+                val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull() ?: return@mapNotNull null
+                OutgoingAttachment(part.name ?: "attachment", part.type ?: "application/octet-stream", bytes)
+            }
+            val message = outgoing(credentials, recipients, subject, body, inReplyTo, references)
+                .copy(attachments = outAttachments)
+            imap.send(credentials, message, mailboxDao.idForRole("sent"))
+            attachments.forEach { it.partId?.let { p -> runCatching { java.io.File(p).delete() } } }
             return
         }
         val ctx = connect(credentials)
@@ -682,12 +704,17 @@ class MailRepository(
     /** Download an attachment's bytes for the current account. */
     suspend fun downloadAttachment(
         credentials: AccountCredentials,
-        blobId: String,
-        type: String?,
-        name: String?,
+        part: EmailBodyPart,
+        emailId: String,
     ): ByteArray {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val (mb, uid) = imapTarget(emailId) ?: error("Couldn't locate the message.")
+            val section = part.partId ?: error("Attachment has no section.")
+            return imap.fetchAttachment(credentials, mb, uid, section, part.encoding)
+        }
         val ctx = connect(credentials)
-        return client.downloadBlob(ctx.session, ctx.accountId, blobId, type, name, ctx.auth)
+        val blobId = part.blobId ?: error("Attachment has no blob.")
+        return client.downloadBlob(ctx.session, ctx.accountId, blobId, part.type, part.name, ctx.auth)
     }
 
     /** Upload bytes as an attachment blob; returns a body part ready to attach when sending. */

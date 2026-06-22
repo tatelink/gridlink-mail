@@ -14,6 +14,13 @@ import javax.net.ssl.SSLSocketFactory
 
 class SmtpException(message: String) : Exception(message)
 
+/** A file attachment to include in an outgoing message. */
+data class OutgoingAttachment(
+    val name: String,
+    val type: String,
+    val bytes: ByteArray,
+)
+
 /** A message to submit over SMTP. Addresses are bare "name <addr>" or "addr" strings. */
 data class OutgoingMessage(
     val from: String,
@@ -27,6 +34,7 @@ data class OutgoingMessage(
     val messageId: String,
     /** Epoch millis for the Date header. */
     val dateMillis: Long,
+    val attachments: List<OutgoingAttachment> = emptyList(),
 )
 
 /** Minimal SMTP submission client (EHLO, optional STARTTLS, AUTH, MAIL/RCPT/DATA). */
@@ -139,12 +147,34 @@ object OutgoingMime {
             m.inReplyTo?.let { append("In-Reply-To: <${it.trim('<', '>')}>\r\n") }
             m.references?.let { append("References: $it\r\n") }
             append("MIME-Version: 1.0\r\n")
-            append("Content-Type: text/plain; charset=utf-8\r\n")
-            append("Content-Transfer-Encoding: base64\r\n")
-            append("\r\n")
-            append(Base64.getMimeEncoder().encodeToString(m.body.toByteArray(Charsets.UTF_8)).replace("\n", "\r\n"))
+            if (m.attachments.isEmpty()) {
+                append("Content-Type: text/plain; charset=utf-8\r\n")
+                append("Content-Transfer-Encoding: base64\r\n")
+                append("\r\n")
+                append(base64(m.body.toByteArray(Charsets.UTF_8)))
+            } else {
+                val boundary = "----jmail_${m.messageId.filter { it.isLetterOrDigit() }.take(24)}"
+                append("Content-Type: multipart/mixed; boundary=\"$boundary\"\r\n\r\n")
+                append("--$boundary\r\n")
+                append("Content-Type: text/plain; charset=utf-8\r\n")
+                append("Content-Transfer-Encoding: base64\r\n\r\n")
+                append(base64(m.body.toByteArray(Charsets.UTF_8)))
+                append("\r\n")
+                for (att in m.attachments) {
+                    append("--$boundary\r\n")
+                    append("Content-Type: ${att.type}; name=\"${att.name}\"\r\n")
+                    append("Content-Transfer-Encoding: base64\r\n")
+                    append("Content-Disposition: attachment; filename=\"${att.name}\"\r\n\r\n")
+                    append(base64(att.bytes))
+                    append("\r\n")
+                }
+                append("--$boundary--\r\n")
+            }
         }
     }
+
+    private fun base64(bytes: ByteArray): String =
+        Base64.getMimeEncoder().encodeToString(bytes).replace("\n", "\r\n")
 
     /** RFC 2047-encode a header value if it contains non-ASCII. */
     private fun encodeHeader(value: String): String =

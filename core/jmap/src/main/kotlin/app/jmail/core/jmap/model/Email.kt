@@ -23,6 +23,8 @@ data class EmailBodyPart(
     val name: String? = null,
     val disposition: String? = null,
     val cid: String? = null,
+    /** IMAP transfer-encoding (base64 / quoted-printable) for decoding a fetched part; null for JMAP. */
+    val encoding: String? = null,
 )
 
 /** The decoded content of a body part (RFC 8621 §4.1.4). */
@@ -86,6 +88,9 @@ data class Email(
     /** Attachments shown as downloadable files (everything that isn't an inline image). */
     fun fileAttachmentParts(): List<EmailBodyPart> {
         val inlineBlobs = inlineImageParts().mapNotNull { it.blobId }.toSet()
-        return attachments.filter { it.blobId != null && it.blobId !in inlineBlobs }
+        return attachments.filter { part ->
+            // JMAP parts carry a blobId; IMAP parts a partId (the MIME section).
+            (part.blobId != null && part.blobId !in inlineBlobs) || (part.blobId == null && part.partId != null)
+        }
     }
 }

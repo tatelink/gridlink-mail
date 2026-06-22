@@ -2,40 +2,79 @@ package app.jmail.core.imap
 
 import java.util.Base64
 
-/** The displayable body of a message: HTML and/or plain text. */
-data class MimeBody(val html: String?, val text: String?)
+/** A file attachment found while parsing a MIME message. */
+data class MimeAttachment(
+    /** IMAP body section path (e.g. "2" or "2.1") for a later BODY[section] fetch. */
+    val section: String,
+    val name: String,
+    val type: String,
+    val size: Int,
+    /** Content-Transfer-Encoding (base64 / quoted-printable / 7bit…). */
+    val encoding: String,
+)
+
+/** The displayable body of a message plus any file attachments. */
+data class MimeBody(
+    val html: String?,
+    val text: String?,
+    val attachments: List<MimeAttachment> = emptyList(),
+)
 
 /**
- * Minimal MIME parser: from a raw RFC 822 message it extracts the best body
- * (preferring text/html, falling back to text/plain), decoding the transfer
- * encoding (base64 / quoted-printable) and charset. Attachments are skipped.
+ * Minimal MIME parser: extracts the best body (text/html → text/plain, decoding
+ * transfer-encoding + charset) and lists file attachments with their IMAP body
+ * section so they can be fetched on demand.
  */
 object MimeParser {
-    fun parseBody(raw: String): MimeBody = parsePart(raw)
+    fun parseBody(raw: String): MimeBody {
+        val attachments = mutableListOf<MimeAttachment>()
+        val (html, text) = walk(raw, prefix = "", attachments = attachments)
+        return MimeBody(html, text, attachments)
+    }
 
-    private fun parsePart(part: String): MimeBody {
+    /** Returns (html, text) for [part]; appends any attachments found beneath it. */
+    private fun walk(part: String, prefix: String, attachments: MutableList<MimeAttachment>): Pair<String?, String?> {
         val (headerText, body) = splitHeaders(part)
         val headers = parseHeaders(headerText)
         val contentType = headers["content-type"] ?: "text/plain"
         val mime = contentType.substringBefore(';').trim().lowercase()
         val cte = headers["content-transfer-encoding"]?.substringBefore(';')?.trim()?.lowercase() ?: "7bit"
+        val disposition = headers["content-disposition"] ?: ""
+        val filename = paramOf(disposition, "filename") ?: paramOf(contentType, "name")
 
-        return when {
-            mime.startsWith("multipart/") -> {
-                val boundary = paramOf(contentType, "boundary") ?: return MimeBody(null, null)
-                var html: String? = null
-                var text: String? = null
-                for (sub in splitMultipart(body, boundary)) {
-                    val parsed = parsePart(sub)
-                    if (html == null) html = parsed.html
-                    if (text == null) text = parsed.text
-                }
-                MimeBody(html, text)
+        if (mime.startsWith("multipart/")) {
+            val boundary = paramOf(contentType, "boundary") ?: return null to null
+            var html: String? = null
+            var text: String? = null
+            splitMultipart(body, boundary).forEachIndexed { index, sub ->
+                val childPrefix = if (prefix.isEmpty()) "${index + 1}" else "$prefix.${index + 1}"
+                val (h, t) = walk(sub, childPrefix, attachments)
+                if (html == null) html = h
+                if (text == null) text = t
             }
-            mime == "text/html" -> MimeBody(decode(body, cte, charsetOf(contentType)), null)
-            mime == "text/plain" -> MimeBody(null, decode(body, cte, charsetOf(contentType)))
-            else -> MimeBody(null, null)
+            return html to text
         }
+
+        val section = prefix.ifEmpty { "1" }
+        val isAttachment = !filename.isNullOrBlank() || disposition.lowercase().contains("attachment")
+        return when {
+            isAttachment -> {
+                attachments.add(MimeAttachment(section, filename ?: "attachment", mime, body.length, cte))
+                null to null
+            }
+            mime == "text/html" -> decode(body, cte, charsetOf(contentType)) to null
+            mime == "text/plain" -> null to decode(body, cte, charsetOf(contentType))
+            else -> null to null
+        }
+    }
+
+    /** Decode a fetched part body (BODY[section]) to raw bytes using its transfer-encoding. */
+    fun decodeBytes(content: String, encoding: String?): ByteArray = when (encoding?.lowercase()) {
+        "base64" -> runCatching {
+            Base64.getMimeDecoder().decode(content.filter { it != '\r' && it != '\n' })
+        }.getOrDefault(content.toByteArray(Charsets.ISO_8859_1))
+        "quoted-printable" -> decodeQuotedPrintable(content, Charsets.ISO_8859_1).toByteArray(Charsets.ISO_8859_1)
+        else -> content.toByteArray(Charsets.ISO_8859_1)
     }
 
     private fun splitHeaders(part: String): Pair<String, String> {
@@ -76,10 +115,8 @@ object MimeParser {
     private fun splitMultipart(body: String, boundary: String): List<String> {
         val delimiter = "--$boundary"
         val parts = mutableListOf<String>()
-        val segments = body.split(delimiter)
-        for (seg in segments) {
+        for (seg in body.split(delimiter)) {
             val trimmed = seg.trimStart('\r', '\n')
-            // Skip the preamble (before first boundary) and the closing "--".
             if (trimmed.isEmpty() || trimmed.startsWith("--")) continue
             parts.add(trimmed)
         }
@@ -101,14 +138,12 @@ object MimeParser {
             val c = input[i]
             when {
                 c == '=' && i + 1 < input.length && (input[i + 1] == '\r' || input[i + 1] == '\n') -> {
-                    // soft line break
                     i++
                     if (i < input.length && input[i] == '\r') i++
                     if (i < input.length && input[i] == '\n') i++
                 }
                 c == '=' && i + 2 < input.length -> {
-                    val hex = input.substring(i + 1, i + 3)
-                    val byte = hex.toIntOrNull(16)
+                    val byte = input.substring(i + 1, i + 3).toIntOrNull(16)
                     if (byte != null) {
                         out.add(byte.toByte()); i += 3
                     } else {

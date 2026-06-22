@@ -79,11 +79,11 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         if (parts.isEmpty()) return
         viewModelScope.launch {
             val map = mutableMapOf<String, String>()
+            val emailId = loadedId ?: return@launch
             for (part in parts) {
-                val blobId = part.blobId ?: continue
                 val cid = part.cid?.trim()?.trim('<', '>')?.takeIf { it.isNotEmpty() } ?: continue
                 runCatching {
-                    val bytes = repo.downloadAttachment(credentials, blobId, part.type, part.name)
+                    val bytes = repo.downloadAttachment(credentials, part, emailId)
                     val base64 = withContext(Dispatchers.IO) {
                         android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
                     }
@@ -96,13 +96,13 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
 
     /** Download an attachment to the cache and hand it to a viewer app. */
     fun openAttachment(part: EmailBodyPart) {
-        val blobId = part.blobId ?: return
+        val emailId = loadedId ?: return
         val app = getApplication<Application>()
         _attachmentStatus.value = "Opening ${part.name ?: "attachment"}…"
         viewModelScope.launch {
             try {
                 val credentials = credentials() ?: error("No saved account.")
-                val bytes = repo.downloadAttachment(credentials, blobId, part.type, part.name)
+                val bytes = repo.downloadAttachment(credentials, part, emailId)
                 val file = storage.cacheAttachment(part.name, bytes)
                 val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
                 val view = Intent(Intent.ACTION_VIEW)

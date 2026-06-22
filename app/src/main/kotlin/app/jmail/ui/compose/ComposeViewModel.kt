@@ -7,9 +7,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
 import app.jmail.core.data.account.AccountCredentials
+import app.jmail.core.data.account.MailProtocol
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailBodyPart
 import kotlinx.coroutines.Dispatchers
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -66,7 +68,25 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 val bytes = withContext(Dispatchers.IO) {
                     resolver.openInputStream(uri)?.use { it.readBytes() }
                 } ?: error("Couldn't read the selected file.")
-                val part = repo.uploadAttachment(credentials, bytes, type, name)
+                val part = if (credentials.protocol == MailProtocol.IMAP) {
+                    // No blob store for IMAP — stage the bytes as a temp file the
+                    // SMTP send reads to build the multipart MIME.
+                    val safe = (name ?: "attachment").replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    val file = withContext(Dispatchers.IO) {
+                        File(app.cacheDir, "outgoing").apply { mkdirs() }
+                            .let { File(it, "${System.nanoTime()}-$safe") }
+                            .apply { writeBytes(bytes) }
+                    }
+                    EmailBodyPart(
+                        partId = file.absolutePath,
+                        type = type,
+                        size = bytes.size.toLong(),
+                        name = name,
+                        disposition = "attachment",
+                    )
+                } else {
+                    repo.uploadAttachment(credentials, bytes, type, name)
+                }
                 _attachments.value = _attachments.value + part
                 _attachmentStatus.value = null
             } catch (t: Throwable) {
@@ -76,7 +96,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun removeAttachment(part: EmailBodyPart) {
-        _attachments.value = _attachments.value.filterNot { it.blobId == part.blobId }
+        _attachments.value = _attachments.value.filterNot { it == part }
     }
 
     /** Build initial fields when opening as a reply/reply-all/forward of [replyToId]. */

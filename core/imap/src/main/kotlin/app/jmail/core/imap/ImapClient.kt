@@ -188,6 +188,16 @@ class ImapSession(private var socket: Socket) : Closeable {
         return result.untagged.mapNotNull { parseFetch(it) }
     }
 
+    /** Raw content of one MIME section (e.g. an attachment), still transfer-encoded. */
+    fun fetchSection(uid: Long, section: String): String {
+        val result = command("UID FETCH $uid (BODY.PEEK[$section])")
+        val fetch = result.untagged.firstOrNull { it.getOrNull(2) == "FETCH" } ?: return ""
+        @Suppress("UNCHECKED_CAST")
+        val items = fetch.getOrNull(3) as? List<Any?> ?: return ""
+        val idx = items.indexOfFirst { it is String && it.startsWith("BODY", true) }
+        return (items.getOrNull(idx + 1) as? String).orEmpty()
+    }
+
     /** Raw RFC822 source of a message, for parsing the body/attachments. */
     fun fetchSource(uid: Long): String {
         val result = command("UID FETCH $uid (BODY.PEEK[])")
