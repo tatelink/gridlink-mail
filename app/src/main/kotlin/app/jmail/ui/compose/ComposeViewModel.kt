@@ -6,7 +6,9 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
+import app.jmail.contacts.AndroidContacts
 import app.jmail.core.data.account.AccountCredentials
+import app.jmail.core.data.db.ContactRow
 import app.jmail.core.data.account.MailProtocol
 import app.jmail.core.data.account.StoredIdentity
 import app.jmail.core.data.db.ScheduledSendEntity
@@ -16,8 +18,10 @@ import app.jmail.core.jmap.model.EmailBodyPart
 import kotlinx.coroutines.Dispatchers
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -62,6 +66,32 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun selectedIdentity(): StoredIdentity? = _selectedFrom.value?.identity
+
+    private val settings = application.container.settingsRepository
+    private val contactsEnabled =
+        settings.contactSuggestions.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Recipient autocomplete suggestions for the field currently being typed. */
+    private val _suggestions = MutableStateFlow<List<ContactRow>>(emptyList())
+    val suggestions: StateFlow<List<ContactRow>> = _suggestions.asStateFlow()
+
+    /** Suggest recipients for the last token in [fieldValue] (after the final comma/semicolon). */
+    fun suggest(fieldValue: String) {
+        val token = fieldValue.substringAfterLast(',').substringAfterLast(';').trim()
+        if (token.length < 2) {
+            _suggestions.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            val recent = repo.suggestContacts(token, 6)
+            val device = if (contactsEnabled.value) AndroidContacts.query(getApplication(), token, 6) else emptyList()
+            _suggestions.value = (recent + device).distinctBy { it.email.lowercase() }.take(6)
+        }
+    }
+
+    fun clearSuggestions() {
+        _suggestions.value = emptyList()
+    }
 
     private var prepared = false
     // Threading headers for a reply (empty for new/forward).

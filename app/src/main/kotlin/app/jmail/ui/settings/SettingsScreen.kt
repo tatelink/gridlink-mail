@@ -1,5 +1,7 @@
 package app.jmail.ui.settings
 
+import app.jmail.contacts.AndroidContacts
+import android.Manifest
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -304,6 +306,11 @@ private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit
 private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val appLock by viewModel.appLockEnabled.collectAsStateWithLifecycle()
     val appLockUnavailable by viewModel.appLockUnavailable.collectAsStateWithLifecycle()
+    val contactSuggestions by viewModel.contactSuggestions.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val contactsPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> viewModel.setContactSuggestions(granted) }
     DetailScaffold(title = "Privacy & Security", onBack = onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
@@ -324,6 +331,22 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                 }
+            }
+            SettingsSection("Recipient suggestions") {
+                SettingSwitch(
+                    title = "Suggest from contacts",
+                    subtitle = "Autocomplete recipients from this device's contacts while you type. " +
+                        "Jmail reads them on-device only, never uploads them. When off, it still " +
+                        "suggests people you've recently emailed.",
+                    checked = contactSuggestions,
+                    onCheckedChange = { wantOn ->
+                        when {
+                            !wantOn -> viewModel.setContactSuggestions(false)
+                            AndroidContacts.hasPermission(context) -> viewModel.setContactSuggestions(true)
+                            else -> contactsPermission.launch(Manifest.permission.READ_CONTACTS)
+                        }
+                    },
+                )
             }
         }
     }

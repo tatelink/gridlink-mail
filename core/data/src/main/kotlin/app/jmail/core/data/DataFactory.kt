@@ -24,7 +24,7 @@ object DataFactory {
         return DataLayer(
             mailRepository = MailRepository(
                 client, database.emailDao(), database.mailboxDao(), imapService,
-                database.scheduledSendDao(), database.snoozedDao(),
+                database.scheduledSendDao(), database.snoozedDao(), database.recentContactDao(),
             ),
             storageRepository = StorageRepository(appContext, database.emailDao(), database.mailboxDao()),
         )

@@ -48,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.jmail.core.data.db.ContactRow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +74,7 @@ fun ComposeScreen(
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     val fromOptions by viewModel.fromOptions.collectAsStateWithLifecycle()
     val selectedFrom by viewModel.selectedFrom.collectAsStateWithLifecycle()
+    val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let(viewModel::attach)
@@ -197,11 +200,13 @@ fun ComposeScreen(
                 FieldDivider()
             }
 
-            ComposeField(
+            RecipientField(
                 label = "To",
                 value = to,
                 onValueChange = { to = it },
-                keyboardType = KeyboardType.Email,
+                suggestions = suggestions,
+                onSuggest = viewModel::suggest,
+                onPick = { to = applyPick(to, it.email); viewModel.clearSuggestions() },
                 focusRequester = toFocus,
                 trailing = {
                     IconButton(onClick = { expanded = !expanded }) {
@@ -213,8 +218,14 @@ fun ComposeScreen(
                 },
             )
             if (expanded) {
-                ComposeField("Cc", cc, { cc = it }, keyboardType = KeyboardType.Email)
-                ComposeField("Bcc", bcc, { bcc = it }, keyboardType = KeyboardType.Email)
+                RecipientField(
+                    "Cc", cc, { cc = it }, suggestions, viewModel::suggest,
+                    { cc = applyPick(cc, it.email); viewModel.clearSuggestions() },
+                )
+                RecipientField(
+                    "Bcc", bcc, { bcc = it }, suggestions, viewModel::suggest,
+                    { bcc = applyPick(bcc, it.email); viewModel.clearSuggestions() },
+                )
             }
             ComposeField("Subject", subject, { subject = it })
 
@@ -301,6 +312,68 @@ private fun ComposeField(
         }
         FieldDivider()
     }
+}
+
+/** A recipient line field with an inline autocomplete list shown while it's focused. */
+@Composable
+private fun RecipientField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    suggestions: List<ContactRow>,
+    onSuggest: (String) -> Unit,
+    onPick: (ContactRow) -> Unit,
+    focusRequester: FocusRequester? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FieldLabel(label)
+            BasicTextField(
+                value = value,
+                onValueChange = { onValueChange(it); onSuggest(it) },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 14.dp)
+                    .onFocusChanged { focused = it.isFocused }
+                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+            )
+            trailing?.invoke()
+        }
+        FieldDivider()
+        if (focused && suggestions.isNotEmpty()) {
+            suggestions.forEach { contact ->
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onPick(contact) }
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                ) {
+                    Text(contact.name ?: contact.email, style = MaterialTheme.typography.bodyMedium)
+                    if (contact.name != null) {
+                        Text(
+                            contact.email,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            FieldDivider()
+        }
+    }
+}
+
+/** Replace the token being typed (after the last comma/semicolon) with [email]. */
+private fun applyPick(current: String, email: String): String {
+    val cut = current.lastIndexOfAny(charArrayOf(',', ';'))
+    val prefix = if (cut >= 0) current.substring(0, cut + 1).trimEnd() + " " else ""
+    return "$prefix$email, "
 }
 
 @Composable

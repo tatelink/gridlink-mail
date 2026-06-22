@@ -24,6 +24,15 @@ interface EmailDao {
     @RawQuery(observedEntities = [EmailEntity::class, SnoozedEntity::class])
     fun pagingSource(query: SupportSQLiteQuery): PagingSource<Int, EmailEntity>
 
+    /** Distinct recent senders matching [q] (for recipient autocomplete). */
+    @Query(
+        "SELECT fromEmail AS email, fromName AS name FROM emails " +
+            "WHERE fromEmail IS NOT NULL AND fromEmail != '' " +
+            "AND (fromEmail LIKE '%' || :q || '%' OR fromName LIKE '%' || :q || '%') " +
+            "GROUP BY LOWER(fromEmail) ORDER BY MAX(sortKey) DESC LIMIT :limit",
+    )
+    suspend fun suggestSenders(q: String, limit: Int): List<ContactRow>
+
     @Query("SELECT * FROM emails WHERE mailboxId = :mailboxId ORDER BY sortKey DESC")
     suspend fun getByMailbox(mailboxId: String): List<EmailEntity>
 

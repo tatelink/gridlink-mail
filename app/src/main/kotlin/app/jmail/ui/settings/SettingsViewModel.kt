@@ -61,6 +61,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         initialValue = SwipeAction.DELETE,
     )
 
+    val contactSuggestions = settings.contactSuggestions.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
+    fun setContactSuggestions(value: Boolean) {
+        viewModelScope.launch { settings.setContactSuggestions(value) }
+    }
+
     fun setPushAllAccounts(value: Boolean) {
         store.setPushAllAccounts(value)
         _pushAllAccounts.value = value

@@ -16,6 +16,9 @@ import app.jmail.core.data.db.ScheduledSendDao
 import app.jmail.core.data.db.ScheduledSendEntity
 import app.jmail.core.data.db.SnoozedDao
 import app.jmail.core.data.db.SnoozedEntity
+import app.jmail.core.data.db.ContactRow
+import app.jmail.core.data.db.RecentContactDao
+import app.jmail.core.data.db.RecentContactEntity
 import app.jmail.core.data.db.EmailEntity
 import app.jmail.core.data.db.MailboxDao
 import app.jmail.core.data.settings.SortOrder
@@ -96,6 +99,7 @@ class MailRepository(
     private val imap: ImapMailService,
     private val scheduledSendDao: ScheduledSendDao,
     private val snoozedDao: SnoozedDao,
+    private val recentContactDao: RecentContactDao,
 ) {
     private class Context(
         val credentials: AccountCredentials,
@@ -501,6 +505,33 @@ class MailRepository(
         moveToMailbox(credentials, emailId, inbox)
     }
 
+    // ---- recipient suggestions ----
+
+    /** Record people we send to, so they surface in recipient autocomplete next time. */
+    suspend fun rememberRecipients(addresses: List<String>) {
+        val now = System.currentTimeMillis()
+        addresses.map { it.trim() }.filter { it.contains('@') }.distinctBy { it.lowercase() }.forEach { addr ->
+            val (name, email) = parseAddress(addr)
+            recentContactDao.upsert(RecentContactEntity(email = email.lowercase(), name = name, lastSeen = now))
+        }
+    }
+
+    /** Deduped recipient suggestions for [query]: people we've sent to, plus cached senders. */
+    suspend fun suggestContacts(query: String, limit: Int = 6): List<ContactRow> {
+        val q = query.trim()
+        if (q.isEmpty()) return emptyList()
+        return (recentContactDao.search(q, limit) + emailDao.suggestSenders(q, limit))
+            .filter { it.email.contains('@') }
+            .distinctBy { it.email.lowercase() }
+            .take(limit)
+    }
+
+    private fun parseAddress(s: String): Pair<String?, String> {
+        val m = Regex("^(.*?)<([^>]+)>").find(s.trim())
+        return if (m != null) m.groupValues[1].trim().ifBlank { null } to m.groupValues[2].trim()
+        else null to s.trim()
+    }
+
     // ---- snooze ----
 
     /** Snooze a message until [until] (hidden from lists; re-appears at that time). */
@@ -805,6 +836,9 @@ class MailRepository(
     ) {
         val ccTrimmed = cc.map { it.trim() }.filter { it.isNotEmpty() }
         val bccTrimmed = bcc.map { it.trim() }.filter { it.isNotEmpty() }
+        runCatching {
+            rememberRecipients(to.map { it.trim() }.filter { it.isNotEmpty() } + ccTrimmed + bccTrimmed)
+        }
         if (credentials.protocol == MailProtocol.IMAP) {
             val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
             require(recipients.isNotEmpty()) { "Add at least one recipient." }

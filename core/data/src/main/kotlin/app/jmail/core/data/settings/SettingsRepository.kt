@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -81,6 +82,13 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_SORT_ORDER] = order.name }
     }
 
+    /** Whether recipient autocomplete may read the device's contacts (off by default). */
+    val contactSuggestions: Flow<Boolean> = dataStore.data.map { it[KEY_CONTACT_SUGGESTIONS] ?: false }
+
+    suspend fun setContactSuggestions(enabled: Boolean) {
+        dataStore.edit { it[KEY_CONTACT_SUGGESTIONS] = enabled }
+    }
+
     private fun swipeFlow(key: Preferences.Key<String>, default: SwipeAction): Flow<SwipeAction> =
         dataStore.data.map { prefs ->
             prefs[key]?.let { runCatching { SwipeAction.valueOf(it) }.getOrNull() } ?: default
@@ -93,5 +101,6 @@ class SettingsRepository(context: Context) {
         val KEY_SWIPE_RIGHT = stringPreferencesKey("swipe_right")
         val KEY_SWIPE_LEFT = stringPreferencesKey("swipe_left")
         val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
+        val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
     }
 }
