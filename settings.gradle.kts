@@ -24,4 +24,5 @@ rootProject.name = "Jmail"
 
 include(":app")
 include(":core:jmap")
+include(":core:imap")
 include(":core:data")
