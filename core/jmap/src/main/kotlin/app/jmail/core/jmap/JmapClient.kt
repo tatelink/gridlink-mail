@@ -621,6 +621,7 @@ class JmapClient internal constructor(
         to: List<EmailAddress>,
         subject: String,
         textBody: String,
+        htmlBody: String? = null,
         draftMailboxId: String,
         sentMailboxId: String,
         inReplyTo: List<String> = emptyList(),
@@ -665,10 +666,16 @@ class JmapClient internal constructor(
                                 putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
                                 putJsonObject("mailboxIds") { put(draftMailboxId, true) }
                                 putJsonArray("textBody") {
-                                    addJsonObject { put("partId", "body"); put("type", "text/plain") }
+                                    addJsonObject { put("partId", "textbody"); put("type", "text/plain") }
+                                }
+                                if (htmlBody != null) {
+                                    putJsonArray("htmlBody") {
+                                        addJsonObject { put("partId", "htmlbody"); put("type", "text/html") }
+                                    }
                                 }
                                 putJsonObject("bodyValues") {
-                                    putJsonObject("body") { put("value", textBody) }
+                                    putJsonObject("textbody") { put("value", textBody) }
+                                    if (htmlBody != null) putJsonObject("htmlbody") { put("value", htmlBody) }
                                 }
                             }
                         }

@@ -615,11 +615,13 @@ class MailRepository(
         body: String,
         inReplyTo: List<String> = emptyList(),
         references: List<String> = emptyList(),
+        html: String? = null,
     ): OutgoingMessage = OutgoingMessage(
         from = credentials.username,
         to = recipients,
         subject = subject,
         body = body,
+        html = html,
         inReplyTo = inReplyTo.firstOrNull(),
         references = references.joinToString(" ").ifBlank { null },
         messageId = "${java.util.UUID.randomUUID()}@${credentials.username.substringAfter('@', "localhost")}",
@@ -651,7 +653,7 @@ class MailRepository(
         )
     }
 
-    /** Compose and send a plain-text email from the account's first identity. */
+    /** Compose and send an email (text, plus an optional HTML body) from the account's identity. */
     suspend fun send(
         credentials: AccountCredentials,
         to: List<String>,
@@ -660,6 +662,7 @@ class MailRepository(
         inReplyTo: List<String> = emptyList(),
         references: List<String> = emptyList(),
         attachments: List<EmailBodyPart> = emptyList(),
+        htmlBody: String? = null,
     ) {
         if (credentials.protocol == MailProtocol.IMAP) {
             val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
@@ -670,7 +673,7 @@ class MailRepository(
                 val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull() ?: return@mapNotNull null
                 OutgoingAttachment(part.name ?: "attachment", part.type ?: "application/octet-stream", bytes)
             }
-            val message = outgoing(credentials, recipients, subject, body, inReplyTo, references)
+            val message = outgoing(credentials, recipients, subject, body, inReplyTo, references, htmlBody)
                 .copy(attachments = outAttachments)
             imap.send(credentials, message, mailboxDao.idForRole("sent"))
             attachments.forEach { it.partId?.let { p -> runCatching { java.io.File(p).delete() } } }
@@ -696,6 +699,7 @@ class MailRepository(
             to = recipients,
             subject = subject,
             textBody = body,
+            htmlBody = htmlBody,
             draftMailboxId = draftsId,
             sentMailboxId = sentId,
             inReplyTo = inReplyTo,

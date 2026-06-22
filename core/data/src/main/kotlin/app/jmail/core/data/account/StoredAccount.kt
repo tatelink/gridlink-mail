@@ -13,6 +13,8 @@ data class StoredAccount(
     val inboxName: String = "Inbox",
     val unread: Int = 0,
     val syncWindow: SyncWindow = SyncWindow.DAYS_90,
+    /** Optional signature appended when composing from this account. */
+    val signature: String = "",
     val protocol: MailProtocol = MailProtocol.JMAP,
     // IMAP/SMTP connection details (used only when protocol == IMAP).
     val imapHost: String = "",

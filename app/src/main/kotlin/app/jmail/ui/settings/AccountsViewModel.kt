@@ -68,6 +68,7 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         server: String,
         username: String,
         password: String,
+        signature: String? = null,
         imapHost: String? = null,
         imapPort: Int? = null,
         imapSecurity: ConnectionSecurity? = null,
@@ -76,7 +77,7 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         smtpSecurity: ConnectionSecurity? = null,
     ) {
         store.updateAccount(
-            id, server = server, username = username, accountName = accountName,
+            id, server = server, username = username, accountName = accountName, signature = signature,
             imapHost = imapHost, imapPort = imapPort, imapSecurity = imapSecurity,
             smtpHost = smtpHost, smtpPort = smtpPort, smtpSecurity = smtpSecurity,
         )

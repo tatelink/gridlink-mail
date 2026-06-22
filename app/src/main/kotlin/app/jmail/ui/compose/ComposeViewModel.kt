@@ -122,8 +122,30 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     fun send(to: String, subject: String, body: String) =
         submit(to) { credentials, recipients ->
-            repo.send(credentials, recipients, subject, body, inReplyTo, references, _attachments.value)
+            val signature = store.signature(credentials.id)
+            val (textBody, htmlBody) = bodiesWithSignature(body, signature)
+            repo.send(credentials, recipients, subject, textBody, inReplyTo, references, _attachments.value, htmlBody)
         }
+
+    /**
+     * Append the account signature. With no signature the message stays plain text;
+     * with one (which may be HTML), an HTML body is produced (and a plain-text
+     * fallback), separated by the standard "-- " delimiter.
+     */
+    private fun bodiesWithSignature(userBody: String, signature: String): Pair<String, String?> {
+        if (signature.isBlank()) return userBody to null
+        val textSig = if (looksLikeHtml(signature)) stripTags(signature) else signature.trim()
+        val htmlSig = if (looksLikeHtml(signature)) signature.trim() else htmlify(signature.trim())
+        val textBody = "$userBody\n\n-- \n$textSig"
+        val htmlBody = "${htmlify(userBody)}<br><br>-- <br>$htmlSig"
+        return textBody to htmlBody
+    }
+
+    private fun looksLikeHtml(s: String): Boolean = Regex("<[a-zA-Z/!]").containsMatchIn(s)
+    private fun stripTags(s: String): String =
+        s.replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n").replace(Regex("<[^>]+>"), "").trim()
+    private fun htmlify(s: String): String =
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
     fun saveDraft(to: String, subject: String, body: String) =
         submit(to) { credentials, recipients -> repo.saveDraft(credentials, recipients, subject, body) }

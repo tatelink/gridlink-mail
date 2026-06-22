@@ -108,6 +108,7 @@ class AccountStore(context: Context) {
         server: String,
         username: String,
         accountName: String,
+        signature: String? = null,
         imapHost: String? = null,
         imapPort: Int? = null,
         imapSecurity: ConnectionSecurity? = null,
@@ -122,6 +123,7 @@ class AccountStore(context: Context) {
                         server = server.trim(),
                         username = username.trim(),
                         accountName = accountName.trim(),
+                        signature = signature ?: it.signature,
                         imapHost = imapHost?.trim() ?: it.imapHost,
                         imapPort = imapPort ?: it.imapPort,
                         imapSecurity = imapSecurity ?: it.imapSecurity,
@@ -141,6 +143,10 @@ class AccountStore(context: Context) {
         if (accounts().none { it.id == id }) return
         writePassword(id, password)
     }
+
+    /** Optional signature for an account (null id = current account); blank if none. */
+    fun signature(accountId: String?): String =
+        (accountId?.let { account(it) } ?: currentAccount())?.signature.orEmpty()
 
     /** The per-account sync window (defaults to 90 days for unknown ids). */
     fun syncWindow(id: String): SyncWindow = account(id)?.syncWindow ?: SyncWindow.DAYS_90

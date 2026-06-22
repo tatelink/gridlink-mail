@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
@@ -31,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.input.KeyboardType
@@ -488,6 +492,7 @@ private fun AccountDetailScreen(
     var username by remember(accountId) { mutableStateOf(account.username) }
     var password by remember(accountId) { mutableStateOf("") }
     var saved by remember(accountId) { mutableStateOf(false) }
+    var signature by remember(accountId) { mutableStateOf(account.signature) }
     var syncWindow by remember(accountId) { mutableStateOf(account.syncWindow) }
     var imapHost by remember(accountId) { mutableStateOf(account.imapHost) }
     var imapPort by remember(accountId) { mutableStateOf(account.imapPort.toString()) }
@@ -585,6 +590,33 @@ private fun AccountDetailScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
+            SettingsSection("Signature") {
+                OutlinedTextField(
+                    value = signature,
+                    onValueChange = { signature = it; saved = false },
+                    label = { Text("Appended when composing (plain text or HTML)") },
+                    minLines = 3,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                val context = LocalContext.current
+                val importLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.GetContent(),
+                ) { uri ->
+                    if (uri != null) {
+                        runCatching {
+                            context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+                        }.getOrNull()?.let { signature = it; saved = false }
+                    }
+                }
+                OutlinedButton(
+                    onClick = { importLauncher.launch("text/html") },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Text("Import HTML file")
+                }
+            }
             SettingsSection("Sync") {
                 SettingChoiceRow(
                     title = "Messages to sync",
@@ -615,12 +647,12 @@ private fun AccountDetailScreen(
                     onClick = {
                         if (isImap) {
                             viewModel.save(
-                                accountId, accountName, server, username, password,
+                                accountId, accountName, server, username, password, signature = signature,
                                 imapHost = imapHost, imapPort = imapPort.toIntOrNull(), imapSecurity = imapSecurity,
                                 smtpHost = smtpHost, smtpPort = smtpPort.toIntOrNull(), smtpSecurity = smtpSecurity,
                             )
                         } else {
-                            viewModel.save(accountId, accountName, server, username, password)
+                            viewModel.save(accountId, accountName, server, username, password, signature = signature)
                         }
                         password = ""
                         saved = true
