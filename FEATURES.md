@@ -31,6 +31,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Multi-select (long-press / select-all) with bulk mark-read, archive, delete
 - 💡 Snooze a message until later
 - ✅ Paged list (Jetpack Paging 3 + Room) — large folders load in pages while scrolling, constant memory; scroll-position indicator on the right
+- ✅ ⭐ Scroll to load more — a Paging `RemoteMediator` fetches older mail from the server (Email/query at offset) when you scroll past the cached window
 - ✅ Favourite (star) per row, tappable; favourites pin to the top
 - 💡 Report spam / not-spam (move to Junk role)
 

@@ -1,12 +1,17 @@
 package app.jmail.core.data.mail
 
+import androidx.paging.ExperimentalPagingApi
+import androidx.paging.LoadType
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
+import androidx.paging.PagingState
+import androidx.paging.RemoteMediator
 import androidx.paging.map
 import androidx.sqlite.db.SimpleSQLiteQuery
 import app.jmail.core.data.account.AccountCredentials
 import app.jmail.core.data.db.EmailDao
+import app.jmail.core.data.db.EmailEntity
 import app.jmail.core.data.db.MailboxDao
 import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.jmap.BasicAuth
@@ -160,18 +165,71 @@ class MailRepository(
     fun pagedMailbox(mailboxIds: List<String>, sort: SortOrder, unreadOnly: Boolean): Flow<PagingData<Email>> {
         if (mailboxIds.isEmpty()) return flowOf(PagingData.empty())
         return Pager(
-            config = PagingConfig(
-                pageSize = PAGE_SIZE,
-                // Load enough up front to fill the screen and a buffer, and start
-                // fetching the next page well before the edge so fast scrolling
-                // doesn't outrun paging (the "saccadé" stutter).
-                initialLoadSize = PAGE_SIZE * 3,
-                prefetchDistance = PAGE_SIZE,
-                enablePlaceholders = false,
-            ),
+            config = pagingConfig(),
             pagingSourceFactory = { emailDao.pagingSource(pagingQuery(mailboxIds, sort, unreadOnly)) },
         ).flow.map { data -> data.map { it.toEmail() } }
     }
+
+    /**
+     * Paged view of a single folder, backed by a [RemoteMediator]: when the user
+     * scrolls past the cached rows, the next older page is fetched from the JMAP
+     * server (Email/query at the current offset) and inserted, so a large folder
+     * keeps loading older mail on scroll instead of stopping at the sync window.
+     */
+    @OptIn(ExperimentalPagingApi::class)
+    fun pagedFolder(
+        credentials: AccountCredentials,
+        mailboxId: String,
+        sort: SortOrder,
+        unreadOnly: Boolean,
+    ): Flow<PagingData<Email>> {
+        val mediator = object : RemoteMediator<Int, EmailEntity>() {
+            // The cache is populated by refresh()/sync; only extend it on scroll.
+            override suspend fun initialize() = InitializeAction.SKIP_INITIAL_REFRESH
+
+            override suspend fun load(
+                loadType: LoadType,
+                state: PagingState<Int, EmailEntity>,
+            ): MediatorResult {
+                if (loadType != LoadType.APPEND) {
+                    return MediatorResult.Success(endOfPaginationReached = loadType == LoadType.PREPEND)
+                }
+                return try {
+                    // Offset = how many we've already cached for this folder. Stable as
+                    // long as we fetch in the same (receivedAt desc) order we cache in.
+                    val offset = emailDao.countForMailbox(mailboxId)
+                    val ctx = connect(credentials)
+                    val page = client.queryEmailsPage(
+                        ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
+                        position = offset, calculateTotal = true,
+                    )
+                    if (page.emails.isNotEmpty()) {
+                        emailDao.upsertAll(page.emails.map { it.toEntity(credentials.id, mailboxId) })
+                    }
+                    val total = page.total
+                    val reachedEnd = page.emails.isEmpty() ||
+                        (total != null && offset + page.emails.size >= total)
+                    MediatorResult.Success(endOfPaginationReached = reachedEnd)
+                } catch (t: Throwable) {
+                    MediatorResult.Error(t)
+                }
+            }
+        }
+        return Pager(
+            config = pagingConfig(),
+            remoteMediator = mediator,
+            pagingSourceFactory = { emailDao.pagingSource(pagingQuery(listOf(mailboxId), sort, unreadOnly)) },
+        ).flow.map { data -> data.map { it.toEmail() } }
+    }
+
+    private fun pagingConfig() = PagingConfig(
+        pageSize = PAGE_SIZE,
+        // Load enough up front to fill the screen and a buffer, and start fetching
+        // the next page well before the edge so fast scrolling doesn't outrun paging.
+        initialLoadSize = PAGE_SIZE * 3,
+        prefetchDistance = PAGE_SIZE,
+        enablePlaceholders = false,
+    )
 
     /** All cached ids for the given mailboxes (drives "select all"). */
     suspend fun cachedIds(mailboxIds: List<String>): List<String> =

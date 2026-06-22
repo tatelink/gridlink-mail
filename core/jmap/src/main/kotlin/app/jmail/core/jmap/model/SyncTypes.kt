@@ -12,6 +12,8 @@ data class EmailPage(
     val emails: List<Email>,
     val queryState: String?,
     val emailState: String?,
+    /** Total messages matching the query (when the server calculated it), for paging end-detection. */
+    val total: Int? = null,
 )
 
 /**

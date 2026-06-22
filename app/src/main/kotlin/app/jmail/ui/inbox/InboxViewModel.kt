@@ -98,6 +98,14 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         data object Unified : Sel
     }
 
+    /** Inputs that, together, determine the current paged source. */
+    private data class PageKey(
+        val sel: Sel,
+        val unifiedIds: List<String>,
+        val sort: SortOrder,
+        val unreadOnly: Boolean,
+    )
+
     /** A just-performed swipe action that can be undone (move the message back). */
     private val _undo = MutableStateFlow<UndoAction?>(null)
     val undo: StateFlow<UndoAction?> = _undo.asStateFlow()
@@ -130,20 +138,27 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectionActive = MutableStateFlow(false)
     val selectionActive: StateFlow<Boolean> = _selectionActive.asStateFlow()
 
-    /** Mailbox ids feeding the current view: one folder, or all inboxes when unified. */
-    private val mailboxIds: Flow<List<String>> = selection.flatMapLatest { sel ->
-        when (sel) {
-            is Sel.Folder -> flowOf(listOfNotNull(sel.id))
-            Sel.Unified -> unifiedInboxIds
-        }
-    }
-
-    /** The browse list, paged from Room — only a few pages are held in memory. */
+    /**
+     * The browse list, paged from Room. A single folder uses the RemoteMediator-backed
+     * pager (scrolling past the cache fetches older mail from the server); the unified
+     * inbox just pages the cached rows across accounts.
+     */
     val pagedEmails: Flow<PagingData<Email>> =
-        combine(mailboxIds, settings.sortOrder, unreadOnly) { ids, sort, unread ->
-            Triple(ids, sort, unread)
-        }.flatMapLatest { (ids, sort, unread) ->
-            repo.pagedMailbox(ids, sort, unread)
+        combine(selection, unifiedInboxIds, settings.sortOrder, unreadOnly) { sel, uids, sort, unread ->
+            PageKey(sel, uids, sort, unread)
+        }.flatMapLatest { key ->
+            when (val sel = key.sel) {
+                is Sel.Folder -> {
+                    val id = sel.id
+                    val credentials = store.load()
+                    if (id == null || credentials == null) {
+                        flowOf(PagingData.empty())
+                    } else {
+                        repo.pagedFolder(credentials, id, key.sort, key.unreadOnly)
+                    }
+                }
+                Sel.Unified -> repo.pagedMailbox(key.unifiedIds, key.sort, key.unreadOnly)
+            }
         }.cachedIn(viewModelScope)
 
     private val baseState = combine(mailboxes, selection, meta, status) { mailboxes, sel, meta, status ->

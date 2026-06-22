@@ -29,6 +29,7 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -118,6 +119,8 @@ class JmapClient internal constructor(
         mailboxId: String,
         limit: Int,
         auth: JmapAuth,
+        position: Int = 0,
+        calculateTotal: Boolean = false,
     ): EmailPage = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
@@ -137,8 +140,9 @@ class JmapClient internal constructor(
                             }
                         }
                         put("collapseThreads", true)
-                        put("position", 0)
+                        put("position", position)
                         put("limit", limit)
+                        if (calculateTotal) put("calculateTotal", true)
                     }
                     add("q0")
                 }
@@ -177,6 +181,7 @@ class JmapClient internal constructor(
                 emails = decodeList(body, "Email/get", Email.serializer()),
                 queryState = methodResponseArgs(body, "Email/query")["queryState"]?.jsonPrimitive?.contentOrNull,
                 emailState = methodResponseArgs(body, "Email/get")["state"]?.jsonPrimitive?.contentOrNull,
+                total = methodResponseArgs(body, "Email/query")["total"]?.jsonPrimitive?.intOrNull,
             )
         }
     }
