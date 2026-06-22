@@ -63,10 +63,34 @@ class AccountStore(context: Context) {
     }
 
     /** Add an account (encrypting its password) and make it current. Returns its id. */
-    fun add(server: String, username: String, password: String, accountName: String = ""): String {
+    fun add(
+        server: String,
+        username: String,
+        password: String,
+        accountName: String = "",
+        protocol: MailProtocol = MailProtocol.JMAP,
+        imapHost: String = "",
+        imapPort: Int = 993,
+        imapSecurity: ConnectionSecurity = ConnectionSecurity.TLS,
+        smtpHost: String = "",
+        smtpPort: Int = 465,
+        smtpSecurity: ConnectionSecurity = ConnectionSecurity.TLS,
+    ): String {
         val id = UUID.randomUUID().toString()
         writePassword(id, password)
-        val account = StoredAccount(id = id, server = server.trim(), username = username.trim(), accountName = accountName)
+        val account = StoredAccount(
+            id = id,
+            server = server.trim(),
+            username = username.trim(),
+            accountName = accountName,
+            protocol = protocol,
+            imapHost = imapHost.trim(),
+            imapPort = imapPort,
+            imapSecurity = imapSecurity,
+            smtpHost = smtpHost.trim(),
+            smtpPort = smtpPort,
+            smtpSecurity = smtpSecurity,
+        )
         saveAccounts(accounts() + account)
         prefs.edit().putString(KEY_CURRENT, id).apply()
         return id

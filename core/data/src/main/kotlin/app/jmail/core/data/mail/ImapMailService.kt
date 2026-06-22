@@ -9,6 +9,8 @@ import app.jmail.core.imap.ImapClient
 import app.jmail.core.imap.ImapMessage
 import app.jmail.core.imap.MailSecurity
 import app.jmail.core.imap.MailServerConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.Instant
 
 /** A folder's mailboxes + a fetched page, ready for the cache. */
@@ -33,7 +35,7 @@ class ImapMailService(private val imapClient: ImapClient) {
         credentials: AccountCredentials,
         requestedMailboxId: String?,
         limit: Int,
-    ): ImapFolderLoad {
+    ): ImapFolderLoad = withContext(Dispatchers.IO) {
         val imap = credentials.imap ?: error("Account has no IMAP server configured.")
         imapClient.connect(config(imap, credentials)).use { session ->
             val folders = session.listFolders()
@@ -57,7 +59,7 @@ class ImapMailService(private val imapClient: ImapClient) {
             val messages = session.fetchPage(status.exists, offset = 0, limit = limit)
                 .map { it.toEntity(credentials.id, target.path) }
 
-            return ImapFolderLoad(
+            ImapFolderLoad(
                 mailboxes = mailboxes,
                 targetMailboxId = target.path,
                 targetName = target.name,
@@ -74,24 +76,25 @@ class ImapMailService(private val imapClient: ImapClient) {
         mailboxId: String,
         offset: Int,
         limit: Int,
-    ): Pair<List<EmailEntity>, Int> {
+    ): Pair<List<EmailEntity>, Int> = withContext(Dispatchers.IO) {
         val imap = credentials.imap ?: error("Account has no IMAP server configured.")
         imapClient.connect(config(imap, credentials)).use { session ->
             val status = session.select(mailboxId)
             val messages = session.fetchPage(status.exists, offset, limit)
                 .map { it.toEntity(credentials.id, mailboxId) }
-            return messages to status.exists
+            messages to status.exists
         }
     }
 
     /** Raw RFC822 source of a message (caller parses out the body/attachments). */
-    suspend fun fetchSource(credentials: AccountCredentials, mailboxId: String, uid: Long): String {
-        val imap = credentials.imap ?: error("Account has no IMAP server configured.")
-        imapClient.connect(config(imap, credentials)).use { session ->
-            session.select(mailboxId)
-            return session.fetchSource(uid)
+    suspend fun fetchSource(credentials: AccountCredentials, mailboxId: String, uid: Long): String =
+        withContext(Dispatchers.IO) {
+            val imap = credentials.imap ?: error("Account has no IMAP server configured.")
+            imapClient.connect(config(imap, credentials)).use { session ->
+                session.select(mailboxId)
+                session.fetchSource(uid)
+            }
         }
-    }
 
     private fun ImapMessage.toEntity(accountId: String, mailboxId: String): EmailEntity = EmailEntity(
         id = emailId(accountId, mailboxId, uid),
