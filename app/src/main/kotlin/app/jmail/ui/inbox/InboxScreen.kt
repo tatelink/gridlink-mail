@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -86,13 +85,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -103,7 +102,6 @@ import app.jmail.ui.components.EmailListItem
 import app.jmail.ui.components.Monogram
 import app.jmail.ui.components.verticalScrollbar
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
@@ -156,7 +154,7 @@ fun InboxScreen(
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            ModalDrawerSheet {
+            ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
                 val currentLabel = accounts.firstOrNull { it.id == currentAccountId }?.label()
                     ?: ui.accountName.ifBlank { "Jmail" }
                 Row(
@@ -168,12 +166,17 @@ fun InboxScreen(
                     Text(
                         text = currentLabel,
                         style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
                 }
                 accounts.filter { it.id != currentAccountId }.forEach { account ->
                     NavigationDrawerItem(
                         icon = { Icon(Icons.Filled.Person, contentDescription = null) },
-                        label = { Text("Switch to ${account.label()}") },
+                        label = {
+                            Text("Switch to ${account.label()}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        },
                         selected = false,
                         onClick = {
                             onSwitchAccount(account.id)
@@ -585,7 +588,12 @@ private fun SwipeableEmailRow(
                 }
             }
         }
-        Box(modifier = Modifier.offset { IntOffset(offsetX.value.roundToInt(), 0) }) {
+        Box(
+            // graphicsLayer (draw phase) instead of offset (layout phase): the swipe
+            // translation is GPU-cheap and the row is cached as a layer, which keeps
+            // scrolling smoother. offsetX is read here, not in composition.
+            modifier = Modifier.graphicsLayer { translationX = offsetX.value },
+        ) {
             EmailListItem(
                 email = email,
                 onClick = onClick,
