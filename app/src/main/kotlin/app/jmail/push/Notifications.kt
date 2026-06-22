@@ -21,14 +21,18 @@ object Notifications {
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_MAIL, "New mail", NotificationManager.IMPORTANCE_HIGH),
+            NotificationChannel(
+                CHANNEL_MAIL,
+                context.getString(R.string.notif_channel_mail),
+                NotificationManager.IMPORTANCE_HIGH,
+            ),
         )
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_SERVICE,
-                "Mail sync",
+                context.getString(R.string.notif_channel_sync),
                 NotificationManager.IMPORTANCE_LOW,
-            ).apply { description = "Keeps a live connection to your mail server for instant mail." },
+            ).apply { description = context.getString(R.string.notif_channel_sync_desc) },
         )
     }
 
@@ -36,15 +40,15 @@ object Notifications {
     fun serviceNotification(context: Context): Notification =
         NotificationCompat.Builder(context, CHANNEL_SERVICE)
             .setSmallIcon(R.drawable.ic_stat_mail)
-            .setContentTitle("Watching for new mail")
+            .setContentTitle(context.getString(R.string.notif_watching))
             .setOngoing(true)
             .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
     fun notifyNewMail(context: Context, email: Email, accountId: String) {
-        val sender = email.from.firstOrNull()?.display() ?: "New message"
-        val subject = email.subject?.takeIf { it.isNotBlank() } ?: "(no subject)"
+        val sender = email.from.firstOrNull()?.display() ?: context.getString(R.string.notif_new_message)
+        val subject = email.subject?.takeIf { it.isNotBlank() } ?: context.getString(R.string.message_no_subject)
         val notifId = email.id.hashCode()
         val intent = Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -63,8 +67,8 @@ object Notifications {
             .setContentIntent(pending)
             .setCategory(NotificationCompat.CATEGORY_EMAIL)
             .addAction(replyAction(context, email.id, accountId, notifId))
-            .addAction(simpleAction(context, "Mark read", NotificationActionReceiver.ACTION_MARK_READ, email.id, accountId, notifId))
-            .addAction(simpleAction(context, "Delete", NotificationActionReceiver.ACTION_DELETE, email.id, accountId, notifId))
+            .addAction(simpleAction(context, context.getString(R.string.notif_mark_read), NotificationActionReceiver.ACTION_MARK_READ, email.id, accountId, notifId))
+            .addAction(simpleAction(context, context.getString(R.string.notif_delete), NotificationActionReceiver.ACTION_DELETE, email.id, accountId, notifId))
             .build()
         context.getSystemService(NotificationManager::class.java).notify(notifId, notification)
     }
@@ -102,9 +106,9 @@ object Notifications {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
         )
         val remoteInput = RemoteInput.Builder(NotificationActionReceiver.KEY_REPLY)
-            .setLabel("Reply…")
+            .setLabel(context.getString(R.string.notif_reply_hint))
             .build()
-        return NotificationCompat.Action.Builder(0, "Reply", pending)
+        return NotificationCompat.Action.Builder(0, context.getString(R.string.notif_reply), pending)
             .addRemoteInput(remoteInput)
             .setAllowGeneratedReplies(true)
             .build()

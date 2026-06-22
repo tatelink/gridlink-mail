@@ -2,6 +2,7 @@ package app.jmail.ui.settings
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import app.jmail.R
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,7 +44,7 @@ class StorageViewModel(application: Application) : AndroidViewModel(application)
                 .map { row ->
                     val account = accounts.firstOrNull { it.id == row.accountId }
                     val label = account?.let { it.accountName.ifBlank { it.username } }
-                        ?: "Removed account"
+                        ?: getApplication<Application>().getString(R.string.status_removed_account)
                     AccountStorageUi(label, row.messageCount)
                 }
                 .sortedByDescending { it.messageCount }

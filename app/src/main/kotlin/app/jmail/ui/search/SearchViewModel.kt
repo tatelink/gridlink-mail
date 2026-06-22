@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
+import app.jmail.R
 import app.jmail.core.jmap.model.Email
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,7 +33,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         _state.value = SearchState.Searching
         viewModelScope.launch {
             try {
-                val credentials = store.load() ?: error("No saved account.")
+                val credentials = store.load() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
                 _state.value = SearchState.Results(q, repo.search(credentials, q))
             } catch (t: Throwable) {
                 _state.value = SearchState.Error(t.message ?: t.javaClass.simpleName)

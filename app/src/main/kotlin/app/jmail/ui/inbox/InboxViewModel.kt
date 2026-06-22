@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import app.jmail.container
+import app.jmail.R
 import app.jmail.core.data.account.AccountCredentials
 import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.data.settings.SwipeAction
@@ -242,7 +243,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun refreshFolder(mailboxId: String?) {
-        val credentials = store.load() ?: error("No saved account.")
+        val credentials = store.load() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
         val window = store.syncWindow(credentials.id)
         val pruneBefore = window.maxAgeDays?.let {
             System.currentTimeMillis() - it.toLong() * MILLIS_PER_DAY
@@ -288,10 +289,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Swipe action: delete (move to Trash). */
-    fun delete(email: Email) = swipeRemove(email, "Message deleted") { c, id -> repo.delete(c, id) }
+    fun delete(email: Email) = swipeRemove(email, getApplication<Application>().getString(R.string.status_message_deleted)) { c, id -> repo.delete(c, id) }
 
     /** Swipe action: archive. */
-    fun archive(email: Email) = swipeRemove(email, "Message archived") { c, id -> repo.archive(c, id) }
+    fun archive(email: Email) = swipeRemove(email, getApplication<Application>().getString(R.string.status_message_archived)) { c, id -> repo.archive(c, id) }
 
     /**
      * Remove [email] optimistically (so the row leaves instantly — never stuck mid-swipe), run
@@ -309,7 +310,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 .onFailure {
-                    _message.value = it.message ?: "Couldn't complete the action."
+                    _message.value = it.message ?: getApplication<Application>().getString(R.string.status_action_failed)
                     refresh() // the server op failed — bring the optimistically-removed row back
                 }
         }
@@ -422,7 +423,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val credentials = store.load() ?: return@launch
             runCatching { op(credentials) }
-                .onFailure { _message.value = it.message ?: "Folder operation failed" }
+                .onFailure { _message.value = it.message ?: getApplication<Application>().getString(R.string.status_folder_op_failed) }
         }
     }
 

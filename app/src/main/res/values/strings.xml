@@ -250,4 +250,30 @@
     <string name="lock_unlock">Unlock</string>
     <string name="lock_prompt_title">Unlock Jmail</string>
     <string name="lock_prompt_subtitle">Verify it\'s you</string>
+
+    <!-- ViewModel status / errors -->
+    <string name="status_no_saved_account">No saved account.</string>
+    <string name="status_add_recipient">Add at least one recipient.</string>
+    <string name="status_message_deleted">Message deleted</string>
+    <string name="status_message_archived">Message archived</string>
+    <string name="status_message_sent">Message sent</string>
+    <string name="status_folder_op_failed">Folder operation failed</string>
+    <string name="status_attach_failed">Attach failed: %1$s</string>
+    <string name="status_open_attachment">Open attachment</string>
+    <string name="status_removed_account">Removed account</string>
+    <string name="status_attaching">Attaching…</string>
+    <string name="status_read_file_failed">Couldn\'t read the selected file.</string>
+    <string name="status_open_attachment_failed">Couldn\'t open attachment: %1$s</string>
+    <string name="status_action_failed">Couldn\'t complete the action.</string>
+
+    <!-- Notifications -->
+    <string name="notif_channel_mail">New mail</string>
+    <string name="notif_channel_sync">Mail sync</string>
+    <string name="notif_channel_sync_desc">Keeps a live connection to your mail server for instant mail.</string>
+    <string name="notif_watching">Watching for new mail</string>
+    <string name="notif_new_message">New message</string>
+    <string name="notif_mark_read">Mark read</string>
+    <string name="notif_delete">Delete</string>
+    <string name="notif_reply">Reply</string>
+    <string name="notif_reply_hint">Reply…</string>
 </resources>

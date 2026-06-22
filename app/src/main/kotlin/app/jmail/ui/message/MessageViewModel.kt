@@ -6,6 +6,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
+import app.jmail.R
 import app.jmail.snooze.Snoozes
 import app.jmail.core.data.account.AccountCredentials
 import app.jmail.core.jmap.model.Email
@@ -65,7 +66,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _inJunk.value = false
         viewModelScope.launch {
             try {
-                val credentials = credentials() ?: error("No saved account.")
+                val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
                 val email = repo.openEmail(credentials, emailId)
                 _state.value = MessageState.Loaded(email)
                 _inJunk.value = repo.mailboxRole(email.mailboxId) == "junk"
@@ -108,7 +109,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _attachmentStatus.value = "Opening ${part.name ?: "attachment"}…"
         viewModelScope.launch {
             try {
-                val credentials = credentials() ?: error("No saved account.")
+                val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
                 val bytes = repo.downloadAttachment(credentials, part, emailId)
                 val file = storage.cacheAttachment(part.name, bytes)
                 val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
@@ -116,11 +117,12 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                     .setDataAndType(uri, part.type ?: "*/*")
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 app.startActivity(
-                    Intent.createChooser(view, "Open attachment").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    Intent.createChooser(view, app.getString(R.string.status_open_attachment)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
                 _attachmentStatus.value = null
             } catch (t: Throwable) {
-                _attachmentStatus.value = "Couldn't open attachment: ${t.message ?: "error"}"
+                _attachmentStatus.value =
+                    app.getString(R.string.status_open_attachment_failed, t.message ?: "error")
             }
         }
     }
@@ -165,7 +167,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         val id = loadedId ?: return
         viewModelScope.launch {
             try {
-                val credentials = credentials() ?: error("No saved account.")
+                val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
                 op(credentials, id)
                 onDone()
             } catch (t: Throwable) {

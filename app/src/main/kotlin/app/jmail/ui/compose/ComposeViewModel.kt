@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
+import app.jmail.R
 import app.jmail.contacts.AndroidContacts
 import app.jmail.core.data.account.AccountCredentials
 import app.jmail.core.data.db.ContactRow
@@ -110,16 +111,16 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     fun attach(uri: Uri) {
         val app = getApplication<Application>()
         viewModelScope.launch {
-            _attachmentStatus.value = "Attaching…"
+            _attachmentStatus.value = getApplication<Application>().getString(R.string.status_attaching)
             try {
-                val credentials = credentials() ?: error("No saved account.")
+                val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
                 val resolver = app.contentResolver
                 val type = resolver.getType(uri)
                 val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                     ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
                 val bytes = withContext(Dispatchers.IO) {
                     resolver.openInputStream(uri)?.use { it.readBytes() }
-                } ?: error("Couldn't read the selected file.")
+                } ?: error(getApplication<Application>().getString(R.string.status_read_file_failed))
                 val part = if (credentials.protocol == MailProtocol.IMAP) {
                     // No blob store for IMAP — stage the bytes as a temp file the
                     // SMTP send reads to build the multipart MIME.
@@ -142,7 +143,8 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 _attachments.value = _attachments.value + part
                 _attachmentStatus.value = null
             } catch (t: Throwable) {
-                _attachmentStatus.value = "Attach failed: ${t.message ?: "error"}"
+                _attachmentStatus.value =
+                    getApplication<Application>().getString(R.string.status_attach_failed, t.message ?: "error")
             }
         }
     }
@@ -188,9 +190,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         _state.value = ComposeState.Sending
         viewModelScope.launch {
             try {
-                val credentials = credentials() ?: error("No saved account.")
+                val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
                 val recipients = parseAddrs(to)
-                require(recipients.isNotEmpty()) { "Add at least one recipient." }
+                require(recipients.isNotEmpty()) { getApplication<Application>().getString(R.string.status_add_recipient) }
                 val ccList = parseAddrs(cc)
                 val bccList = parseAddrs(bcc)
                 val identity = selectedIdentity()
@@ -198,7 +200,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 val attachments = _attachments.value
                 val replyTo = inReplyTo
                 val refs = references
-                outbox.enqueue(label = "Message sent") {
+                outbox.enqueue(label = getApplication<Application>().getString(R.string.status_message_sent)) {
                     repo.send(
                         credentials, recipients, subject, textBody, replyTo, refs,
                         attachments, htmlBody, identity?.name, identity?.email, ccList, bccList,
@@ -220,9 +222,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         _state.value = ComposeState.Sending
         viewModelScope.launch {
             try {
-                val credentials = credentials() ?: error("No saved account.")
+                val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
                 val recipients = parseAddrs(to)
-                require(recipients.isNotEmpty()) { "Add at least one recipient." }
+                require(recipients.isNotEmpty()) { getApplication<Application>().getString(R.string.status_add_recipient) }
                 val identity = selectedIdentity()
                 val (textBody, htmlBody) = bodiesWithSignature(body, identity?.signature.orEmpty())
                 val id = repo.insertScheduledSend(
@@ -282,7 +284,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         _state.value = ComposeState.Sending
         viewModelScope.launch {
             try {
-                val credentials = credentials() ?: error("No saved account.")
+                val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
                 val recipients = to.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
                 op(credentials, recipients)
                 _state.value = ComposeState.Done
