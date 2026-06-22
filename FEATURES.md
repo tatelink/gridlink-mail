@@ -17,11 +17,24 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 
 ---
 
+## Protocols
+
+- ✅ **JMAP** (RFC 8620/8621) — the primary, modern backend.
+- ✅ **IMAP + SMTP** — a hand-rolled client (no JavaMail), at parity with JMAP:
+  folder list, paged read with server-side load-more, MIME body + attachments,
+  flag / archive / delete with undo, SMTP send (incl. multipart attachments) with
+  APPEND-to-Sent, and server-side search. Add via Add account → "IMAP / SMTP"
+  (host/port/security for both). The data layer routes per-account by protocol,
+  so the cache, paging, and entire UI are protocol-agnostic.
+  - 💡 IMAP gaps: IDLE push, inline `cid:` images, CONDSTORE incremental sync,
+    and reusing the connection across page fetches (each load reconnects today).
+
 ## Reading & triage
 
 - ✅ Inbox list and message view (HTML in a WebView, remote content blocked)
 - ✅ Offline reading (Room cache)
-- ✅ Mark read/unread, flag/star, archive, delete *(M3)*
+- ✅ Mark read/unread, flag/star, archive, delete *(M3; JMAP + IMAP)*
+- ✅ Unread shown by bold text (not a status dot)
 - ✅ Folder navigation drawer; view any mailbox *(M3)*
 - ✅ ⭐ Conversation threading — JMAP native `Thread` objects (collapsed list + thread view)
 - ✅ Pull-to-refresh
@@ -31,15 +44,15 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Multi-select (long-press / select-all) with bulk mark-read, archive, delete
 - 💡 Snooze a message until later
 - ✅ Paged list (Jetpack Paging 3 + Room) — large folders load in pages while scrolling, constant memory; scroll-position indicator on the right
-- ✅ ⭐ Scroll to load more — a Paging `RemoteMediator` fetches older mail from the server (Email/query at offset) when you scroll past the cached window
+- ✅ Scroll to load more — a Paging `RemoteMediator` fetches older mail from the server when you scroll past the cached window (JMAP anchor-based / IMAP UID paging), with a loading/retry footer
 - ✅ Favourite (star) per row, tappable; favourites pin to the top
 - 💡 Report spam / not-spam (move to Junk role)
 
 ## Organisation & search
 
 - ✅ Mailbox listing
-- ✅ ⭐ Server-side search — inline on the mailbox (search-as-you-type filters the list)
-- ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account)
+- ✅ Server-side search — inline on the mailbox (search-as-you-type; JMAP query / IMAP SEARCH, with instant local-cache results)
+- ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account; JMAP + IMAP)
 - 💡 Richer search filters (from, subject, has-attachment, date) + `SearchSnippet` highlights
 - ✅ Auto-create an Archive folder on first archive (when the account has none)
 - 💡 Folder management (create / rename / subscribe), per-folder settings
@@ -48,10 +61,10 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 
 ## Composing & sending
 
-- ✅ Compose and send (`EmailSubmission/set`)
+- ✅ Compose and send (JMAP `EmailSubmission/set`, or SMTP submit + APPEND-to-Sent for IMAP)
 - ✅ Reply / reply-all / forward with quoting (threaded via `inReplyTo`/`references`)
-- ✅ Save drafts
-- ✅ Attachments: pick & send (blob upload), view/download/open incoming (blob download)
+- ✅ Save drafts (JMAP, or IMAP APPEND to Drafts)
+- ✅ Attachments: pick & send, view/download/open incoming (JMAP blobs / IMAP multipart MIME + BODY-section fetch)
 - ✅ Inline images (`cid:`) rendered in the body (downloaded as data URIs)
 - 💡 Rich-text editor plus plain-text mode
 - 💡 Outbox, and Undo send (hold-back window)
@@ -64,15 +77,17 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 
 - ✅ Encrypted account persistence (AndroidKeyStore)
 - ✅ Multiple accounts — add / switch / sign out, with migration
-- ✅ Account management panel — per-account editable server settings (URL, username, password); JMAP active, IMAP coming
+- ✅ JMAP **and** IMAP/SMTP account setup (protocol picker; host/port/security)
+- ✅ Account management panel — per-account editable server settings (protocol-aware: JMAP URL, or IMAP/SMTP host/port/security; username, password)
+- ✅ Optional account display name (falls back to the address when unset)
 - 💡 Onboarding via `/.well-known/jmap` autodiscovery; OAuth2 / Bearer auth
 - 💡 Per-account colour coding
 - 💡 Settings export / import
 
 ## Sync, push & notifications
 
-- ✅ Incremental sync (`Email/queryChanges` + `Email/changes` + per-type `state`)
-- ✅ ⭐ Push via JMAP EventSource (foreground service, no Google/FCM, no IMAP IDLE drain)
+- ✅ ⭐ Incremental sync (`Email/queryChanges` + `Email/changes` + per-type `state`) — JMAP; IMAP does a bounded full re-query
+- ✅ ⭐ Push via JMAP EventSource (foreground service, no Google/FCM) — JMAP only; IMAP IDLE push is a 💡 gap
 - ✅ New-mail notifications (per current account, or all accounts via a setting)
 - ✅ Notification quick actions: reply (inline), mark read, delete
 - ✅ Push reconnects automatically when the connection drops (catches missed mail)
