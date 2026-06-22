@@ -188,6 +188,10 @@ fun InboxScreen(
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val fabExpanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
 
+    // Opening a different folder should always start at the top of that folder's list,
+    // not wherever the previous folder was scrolled (e.g. so a just-archived mail is visible).
+    LaunchedEffect(ui.selectedMailboxId, ui.unified) { listState.scrollToItem(0) }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -488,9 +492,13 @@ fun InboxScreen(
                                 count = pagedEmails.itemCount,
                                 key = pagedEmails.itemKey { it.id },
                             ) { index ->
-                                // No animateItem() here: animating 50-row page inserts
-                                // is what made fast scrolling stutter.
-                                pagedEmails[index]?.let { email -> emailRow(email, Modifier) }
+                                // animateItem keeps each row identified across Paging snapshot
+                                // swaps so a read/unread toggle re-binds in place instead of
+                                // blinking. Placement-only (no fade) so loading a new page of
+                                // rows doesn't stutter the scroll.
+                                pagedEmails[index]?.let { email ->
+                                    emailRow(email, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null))
+                                }
                             }
                             // Footer: server fetch-on-scroll (RemoteMediator) progress/errors.
                             when (pagedEmails.loadState.append) {
