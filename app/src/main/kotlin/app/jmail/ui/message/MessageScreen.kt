@@ -42,6 +42,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -176,10 +179,18 @@ private fun MessageBody(
             AttachmentSection(attachments, attachmentStatus, onOpenAttachment)
         }
         HorizontalDivider()
-        val html = remember(email, inlineImages) { buildHtmlDocument(email, inlineImages) }
+        val scheme = MaterialTheme.colorScheme
+        val emailTheme = EmailTheme(
+            background = scheme.surface.toCssHex(),
+            text = scheme.onSurface.toCssHex(),
+            link = scheme.primary.toCssHex(),
+            dark = scheme.surface.luminance() < 0.5f,
+        )
+        val html = remember(email, inlineImages, emailTheme) { buildHtmlDocument(email, inlineImages, emailTheme) }
         EmailWebView(
             html = html,
             blockRemote = blockRemote,
+            backgroundColor = scheme.surface.toArgb(),
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
     }
@@ -344,7 +355,7 @@ private fun Header(email: Email) {
 }
 
 @Composable
-private fun EmailWebView(html: String, blockRemote: Boolean, modifier: Modifier) {
+private fun EmailWebView(html: String, blockRemote: Boolean, backgroundColor: Int, modifier: Modifier) {
     val client = remember { BlockingWebViewClient() }
     client.blockRemote = blockRemote
     AndroidView(
@@ -362,10 +373,16 @@ private fun EmailWebView(html: String, blockRemote: Boolean, modifier: Modifier)
             }
         },
         update = { webView ->
+            // Match the WebView's own background to the theme so transparent emails
+            // don't flash white in dark mode.
+            webView.setBackgroundColor(backgroundColor)
             webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
         },
     )
 }
+
+/** A Compose [Color] as a CSS hex string (#RRGGBB). */
+private fun Color.toCssHex(): String = "#%06X".format(0xFFFFFF and toArgb())
 
 /** Blocks remote (http/https) resource loads while [blockRemote]; opens links externally. */
 private class BlockingWebViewClient : WebViewClient() {
@@ -395,26 +412,54 @@ private class BlockingWebViewClient : WebViewClient() {
     }
 }
 
-private fun buildHtmlDocument(email: Email, inlineImages: Map<String, String> = emptyMap()): String {
-    var inner = email.htmlContent()
+private fun buildHtmlDocument(
+    email: Email,
+    inlineImages: Map<String, String> = emptyMap(),
+    theme: EmailTheme = EmailTheme("#ffffff", "#111111", "#0b5fff", false),
+): String {
+    val htmlContent = email.htmlContent()
+    var inner = htmlContent
         ?: email.textContent()?.let { "<pre class=\"plain\">${escapeHtml(it)}</pre>" }
         ?: "<p>${escapeHtml(email.preview ?: "(no content)")}</p>"
     // Embed inline images: replace cid: references with their data URIs.
     inlineImages.forEach { (cid, dataUri) ->
         inner = inner.replace("cid:$cid", dataUri).replace("cid:<$cid>", dataUri)
     }
+
+    // For plain/simple content, set the app's dark surface + text directly (crisp,
+    // true theme colours). For rich HTML — whose own tables/divs carry explicit white
+    // backgrounds we can't reach — apply a smart invert in dark mode: it darkens any
+    // markup, while hue-rotate keeps colours sane and images are re-inverted to normal.
+    val style = if (theme.dark && htmlContent != null) {
+        """
+          html { filter: invert(1) hue-rotate(180deg); background-color: #ffffff; }
+          img, picture, video, iframe, [style*="background-image"] {
+            filter: invert(1) hue-rotate(180deg);
+          }
+          body { margin: 16px; font-family: sans-serif; line-height: 1.45;
+                 word-wrap: break-word; overflow-wrap: break-word; }
+          img { max-width: 100%; height: auto; }
+        """
+    } else {
+        """
+          :root { color-scheme: ${if (theme.dark) "dark light" else "light dark"}; }
+          html, body { background-color: ${theme.background}; }
+          body { margin: 16px; font-family: sans-serif; line-height: 1.45; color: ${theme.text};
+                 word-wrap: break-word; overflow-wrap: break-word; }
+          img { max-width: 100%; height: auto; }
+          a { color: ${theme.link}; }
+          pre.plain { white-space: pre-wrap; word-wrap: break-word; font-family: sans-serif; }
+        """
+    }
     return """
         <!DOCTYPE html><html><head>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-          body { margin: 16px; font-family: sans-serif; line-height: 1.45; color: #111;
-                 word-wrap: break-word; overflow-wrap: break-word; }
-          img { max-width: 100%; height: auto; }
-          a { color: #0b5fff; }
-          pre.plain { white-space: pre-wrap; word-wrap: break-word; font-family: sans-serif; }
-        </style></head><body>$inner</body></html>
+        <style>$style</style></head><body>$inner</body></html>
     """.trimIndent()
 }
+
+/** Resolved theme colours (CSS hex) handed to the email WebView so it matches the app. */
+private data class EmailTheme(val background: String, val text: String, val link: String, val dark: Boolean)
 
 private fun escapeHtml(text: String): String = text
     .replace("&", "&amp;")
