@@ -89,6 +89,9 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         store.remove(id)
         refresh()
         mail.resetSyncState()
-        viewModelScope.launch { storage.purgeAccount(id) }
+        viewModelScope.launch {
+            mail.disconnectImap(id)
+            storage.purgeAccount(id)
+        }
     }
 }

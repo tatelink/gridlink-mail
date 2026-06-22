@@ -552,6 +552,9 @@ class MailRepository(
         context = null
     }
 
+    /** Close any pooled IMAP connection for an account (e.g. on sign-out). */
+    suspend fun disconnectImap(accountId: String) = imap.disconnect(accountId)
+
     /** Whether [credentials]' account has an Archive folder (so an archive action can work). */
     suspend fun hasArchiveFolder(credentials: AccountCredentials): Boolean =
         connect(credentials).rolesToMailboxId.containsKey("archive")

@@ -7,6 +7,7 @@ import app.jmail.core.data.db.EmailEntity
 import app.jmail.core.data.db.MailboxEntity
 import app.jmail.core.imap.ImapClient
 import app.jmail.core.imap.ImapMessage
+import app.jmail.core.imap.ImapSession
 import app.jmail.core.imap.MailSecurity
 import app.jmail.core.imap.MailServerConfig
 import app.jmail.core.imap.MimeParser
@@ -14,8 +15,11 @@ import app.jmail.core.imap.OutgoingMessage
 import app.jmail.core.imap.OutgoingMime
 import app.jmail.core.imap.SmtpClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 /** A folder's mailboxes + a fetched page, ready for the cache. */
 data class ImapFolderLoad(
@@ -28,74 +32,118 @@ data class ImapFolderLoad(
 )
 
 /**
- * IMAP read path, parallel to the JMAP path in [MailRepository]. Maps IMAP
+ * IMAP read+write path, parallel to the JMAP path in [MailRepository]. Maps IMAP
  * folders/messages onto the same Room entities so the cache, paging, and UI are
- * protocol-agnostic. Each call opens a short-lived session (IMAP is stateful).
+ * protocol-agnostic. One connection is pooled per account and reused across calls
+ * (IMAP is stateful, so access is serialised); a dropped connection reconnects.
  */
 class ImapMailService(
     private val imapClient: ImapClient,
     private val smtpClient: SmtpClient,
 ) {
+    /** A pooled, reusable connection for one account. */
+    private class Pooled {
+        val mutex = Mutex()
+        var session: ImapSession? = null
+        var config: MailServerConfig? = null
+    }
 
-    /** Send via SMTP, then APPEND a \Seen copy into the Sent folder (if known). */
-    suspend fun send(credentials: AccountCredentials, message: OutgoingMessage, sentMailbox: String?) =
+    private val pool = ConcurrentHashMap<String, Pooled>()
+
+    /**
+     * Run [block] on the account's pooled IMAP session, opening or reconnecting as
+     * needed. Serialised per account (one command at a time); on a connection error
+     * the session is dropped and the block retried once with a fresh connection.
+     */
+    private suspend fun <T> withSession(credentials: AccountCredentials, block: (ImapSession) -> T): T =
         withContext(Dispatchers.IO) {
-            val smtp = credentials.smtp ?: error("Account has no SMTP server configured.")
-            smtpClient.send(
-                MailServerConfig(smtp.host, smtp.port, smtp.security.toMailSecurity(), credentials.username, credentials.password),
-                message,
-            )
-            if (sentMailbox != null) {
-                runCatching {
-                    session(credentials).use { it.append(sentMailbox, OutgoingMime.build(message), "\\Seen") }
+            val config = config(credentials.imap ?: error("Account has no IMAP server configured."), credentials)
+            val pooled = pool.getOrPut(credentials.id) { Pooled() }
+            pooled.mutex.withLock {
+                // Reconnect if the account's server settings changed.
+                if (pooled.config != null && pooled.config != config) {
+                    pooled.session?.let { runCatching { it.close() } }
+                    pooled.session = null
                 }
+                pooled.config = config
+                runWithRetry(pooled, config, block)
             }
         }
 
+    private suspend fun <T> runWithRetry(pooled: Pooled, config: MailServerConfig, block: (ImapSession) -> T): T {
+        var attempt = 0
+        while (true) {
+            val session = pooled.session ?: imapClient.connect(config).also { pooled.session = it }
+            try {
+                return block(session)
+            } catch (t: Throwable) {
+                runCatching { session.close() }
+                pooled.session = null
+                if (++attempt >= 2) throw t
+            }
+        }
+    }
+
+    /** Close and forget an account's pooled connection (e.g. on sign-out). */
+    suspend fun disconnect(accountId: String) {
+        val pooled = pool.remove(accountId) ?: return
+        pooled.mutex.withLock {
+            pooled.session?.let { runCatching { it.close() } }
+            pooled.session = null
+        }
+    }
+
+    /** Send via SMTP, then APPEND a \Seen copy into the Sent folder (if known). */
+    suspend fun send(credentials: AccountCredentials, message: OutgoingMessage, sentMailbox: String?) {
+        val smtp = credentials.smtp ?: error("Account has no SMTP server configured.")
+        smtpClient.send(
+            MailServerConfig(smtp.host, smtp.port, smtp.security.toMailSecurity(), credentials.username, credentials.password),
+            message,
+        )
+        if (sentMailbox != null) {
+            runCatching { withSession(credentials) { it.append(sentMailbox, OutgoingMime.build(message), "\\Seen") } }
+        }
+    }
+
     /** APPEND a draft (\Draft flag) into the Drafts folder. */
     suspend fun appendDraft(credentials: AccountCredentials, draftsMailbox: String, message: OutgoingMessage) =
-        withContext(Dispatchers.IO) {
-            session(credentials).use { it.append(draftsMailbox, OutgoingMime.build(message), "\\Draft") }
-        }
+        withSession(credentials) { it.append(draftsMailbox, OutgoingMime.build(message), "\\Draft") }
 
     /** Connect, list folders, and fetch the newest [limit] of the target folder. */
     suspend fun loadFolder(
         credentials: AccountCredentials,
         requestedMailboxId: String?,
         limit: Int,
-    ): ImapFolderLoad = withContext(Dispatchers.IO) {
-        val imap = credentials.imap ?: error("Account has no IMAP server configured.")
-        imapClient.connect(config(imap, credentials)).use { session ->
-            val folders = session.listFolders()
-            val mailboxes = folders.mapIndexed { index, folder ->
-                MailboxEntity(
-                    id = folder.path,
-                    name = folder.name,
-                    role = folder.role,
-                    sortOrder = rolePriority(folder.role) * 1000 + index,
-                    totalEmails = 0,
-                    unreadEmails = 0,
-                )
-            }
-            val target = folders.firstOrNull { it.path == requestedMailboxId }
-                ?: folders.firstOrNull { it.role == "inbox" }
-                ?: folders.firstOrNull { it.path.equals("INBOX", ignoreCase = true) }
-                ?: folders.first()
-
-            val status = session.select(target.path)
-            val unread = session.unseenCount()
-            val messages = session.fetchPage(status.exists, offset = 0, limit = limit)
-                .map { it.toEntity(credentials.id, target.path) }
-
-            ImapFolderLoad(
-                mailboxes = mailboxes,
-                targetMailboxId = target.path,
-                targetName = target.name,
-                unread = unread,
-                accountName = credentials.username,
-                messages = messages,
+    ): ImapFolderLoad = withSession(credentials) { session ->
+        val folders = session.listFolders()
+        val mailboxes = folders.mapIndexed { index, folder ->
+            MailboxEntity(
+                id = folder.path,
+                name = folder.name,
+                role = folder.role,
+                sortOrder = rolePriority(folder.role) * 1000 + index,
+                totalEmails = 0,
+                unreadEmails = 0,
             )
         }
+        val target = folders.firstOrNull { it.path == requestedMailboxId }
+            ?: folders.firstOrNull { it.role == "inbox" }
+            ?: folders.firstOrNull { it.path.equals("INBOX", ignoreCase = true) }
+            ?: folders.first()
+
+        val status = session.select(target.path)
+        val unread = session.unseenCount()
+        val messages = session.fetchPage(status.exists, offset = 0, limit = limit)
+            .map { it.toEntity(credentials.id, target.path) }
+
+        ImapFolderLoad(
+            mailboxes = mailboxes,
+            targetMailboxId = target.path,
+            targetName = target.name,
+            unread = unread,
+            accountName = credentials.username,
+            messages = messages,
+        )
     }
 
     /** Fetch the page of messages just older than the [offset] newest, for paging. */
@@ -104,14 +152,11 @@ class ImapMailService(
         mailboxId: String,
         offset: Int,
         limit: Int,
-    ): Pair<List<EmailEntity>, Int> = withContext(Dispatchers.IO) {
-        val imap = credentials.imap ?: error("Account has no IMAP server configured.")
-        imapClient.connect(config(imap, credentials)).use { session ->
-            val status = session.select(mailboxId)
-            val messages = session.fetchPage(status.exists, offset, limit)
-                .map { it.toEntity(credentials.id, mailboxId) }
-            messages to status.exists
-        }
+    ): Pair<List<EmailEntity>, Int> = withSession(credentials) { session ->
+        val status = session.select(mailboxId)
+        val messages = session.fetchPage(status.exists, offset, limit)
+            .map { it.toEntity(credentials.id, mailboxId) }
+        messages to status.exists
     }
 
     /** Mark a message seen on the server (UID STORE +FLAGS \Seen). */
@@ -120,38 +165,28 @@ class ImapMailService(
 
     /** Set or clear an IMAP flag (e.g. \Seen, \Flagged) on a message. */
     suspend fun setFlag(credentials: AccountCredentials, mailboxId: String, uid: Long, flag: String, set: Boolean) =
-        withContext(Dispatchers.IO) {
-            session(credentials).use { it.select(mailboxId); it.setFlag(uid, flag, set) }
-        }
+        withSession(credentials) { it.select(mailboxId); it.setFlag(uid, flag, set) }
 
     /** Move a message to [destMailbox]; returns its new UID there (for undo), or null. */
     suspend fun move(credentials: AccountCredentials, sourceMailbox: String, uid: Long, destMailbox: String): Long? =
-        withContext(Dispatchers.IO) {
-            session(credentials).use { it.select(sourceMailbox); it.move(uid, destMailbox) }
-        }
+        withSession(credentials) { it.select(sourceMailbox); it.move(uid, destMailbox) }
 
     /** Permanently delete a message (\Deleted + EXPUNGE) when there's no Trash. */
     suspend fun deleteMessage(credentials: AccountCredentials, mailboxId: String, uid: Long) =
-        withContext(Dispatchers.IO) {
-            session(credentials).use { it.select(mailboxId); it.delete(uid) }
-        }
+        withSession(credentials) { it.select(mailboxId); it.delete(uid) }
 
     /** Create a folder if it doesn't exist (e.g. an Archive on first archive). */
     suspend fun createFolder(credentials: AccountCredentials, path: String) =
-        withContext(Dispatchers.IO) {
-            session(credentials).use { it.createFolder(path) }
-        }
+        withSession(credentials) { it.createFolder(path) }
 
     /** Server-side text search in [mailboxId], newest first (entities not cached by caller). */
     suspend fun search(credentials: AccountCredentials, mailboxId: String, query: String, limit: Int): List<EmailEntity> =
-        withContext(Dispatchers.IO) {
-            session(credentials).use { session ->
-                session.select(mailboxId)
-                val uids = session.searchText(query).sortedDescending().take(limit)
-                session.fetchUids(uids)
-                    .map { it.toEntity(credentials.id, mailboxId) }
-                    .sortedByDescending { it.sortKey }
-            }
+        withSession(credentials) { session ->
+            session.select(mailboxId)
+            val uids = session.searchText(query).sortedDescending().take(limit)
+            session.fetchUids(uids)
+                .map { it.toEntity(credentials.id, mailboxId) }
+                .sortedByDescending { it.sortKey }
         }
 
     /** Fetch and decode an attachment (one MIME [section]) to raw bytes. */
@@ -161,33 +196,23 @@ class ImapMailService(
         uid: Long,
         section: String,
         encoding: String?,
-    ): ByteArray = withContext(Dispatchers.IO) {
-        session(credentials).use { session ->
-            session.select(mailboxId)
-            MimeParser.decodeBytes(session.fetchSection(uid, section), encoding)
-        }
+    ): ByteArray = withSession(credentials) { session ->
+        session.select(mailboxId)
+        MimeParser.decodeBytes(session.fetchSection(uid, section), encoding)
     }
 
     /** Fetch one message by UID into a cache entity (used to restore after an undo). */
     suspend fun fetchByUid(credentials: AccountCredentials, mailboxId: String, uid: Long): EmailEntity? =
-        withContext(Dispatchers.IO) {
-            session(credentials).use { session ->
-                session.select(mailboxId)
-                session.fetchByUid(uid)?.toEntity(credentials.id, mailboxId)
-            }
+        withSession(credentials) { session ->
+            session.select(mailboxId)
+            session.fetchByUid(uid)?.toEntity(credentials.id, mailboxId)
         }
-
-    private suspend fun session(credentials: AccountCredentials) =
-        imapClient.connect(config(credentials.imap ?: error("Account has no IMAP server configured."), credentials))
 
     /** Raw RFC822 source of a message (caller parses out the body/attachments). */
     suspend fun fetchSource(credentials: AccountCredentials, mailboxId: String, uid: Long): String =
-        withContext(Dispatchers.IO) {
-            val imap = credentials.imap ?: error("Account has no IMAP server configured.")
-            imapClient.connect(config(imap, credentials)).use { session ->
-                session.select(mailboxId)
-                session.fetchSource(uid)
-            }
+        withSession(credentials) { session ->
+            session.select(mailboxId)
+            session.fetchSource(uid)
         }
 
     private fun ImapMessage.toEntity(accountId: String, mailboxId: String): EmailEntity = EmailEntity(
