@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 sealed interface MessageState {
     data object Loading : MessageState
@@ -25,6 +24,7 @@ sealed interface MessageState {
 class MessageViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
+    private val storage = application.container.storageRepository
 
     private val _state = MutableStateFlow<MessageState>(MessageState.Loading)
     val state = _state.asStateFlow()
@@ -103,11 +103,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             try {
                 val credentials = credentials() ?: error("No saved account.")
                 val bytes = repo.downloadAttachment(credentials, blobId, part.type, part.name)
-                val file = withContext(Dispatchers.IO) {
-                    val dir = File(app.cacheDir, "attachments").apply { mkdirs() }
-                    val safeName = (part.name ?: "attachment").replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    File(dir, safeName).apply { writeBytes(bytes) }
-                }
+                val file = storage.cacheAttachment(part.name, bytes)
                 val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
                 val view = Intent(Intent.ACTION_VIEW)
                     .setDataAndType(uri, part.type ?: "*/*")

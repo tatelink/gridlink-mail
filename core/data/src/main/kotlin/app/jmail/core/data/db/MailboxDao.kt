@@ -18,6 +18,9 @@ interface MailboxDao {
     @Query("DELETE FROM mailboxes WHERE id NOT IN (:keepIds)")
     suspend fun deleteNotIn(keepIds: List<String>)
 
+    @Query("DELETE FROM mailboxes")
+    suspend fun deleteAll()
+
     @Transaction
     suspend fun replaceAll(mailboxes: List<MailboxEntity>) {
         upsertAll(mailboxes)

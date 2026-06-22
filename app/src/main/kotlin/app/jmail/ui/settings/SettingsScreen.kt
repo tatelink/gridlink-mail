@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -32,6 +34,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -78,6 +81,7 @@ fun SettingsScreen(
                 onOpenReading = { nav.navigate("reading") },
                 onOpenNotifications = { nav.navigate("notifications") },
                 onOpenPrivacy = { nav.navigate("privacy") },
+                onOpenStorage = { nav.navigate("storage") },
             )
         }
         composable("accounts") {
@@ -123,6 +127,9 @@ fun SettingsScreen(
         composable("privacy") {
             PrivacySecurityScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
         }
+        composable("storage") {
+            StorageScreen(onBack = { nav.popBackStack() })
+        }
     }
 }
 
@@ -142,6 +149,7 @@ private fun SettingsHub(
     onOpenReading: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenPrivacy: () -> Unit,
+    onOpenStorage: () -> Unit,
 ) {
     val categories = listOf(
         HubCategory(Icons.Filled.Person, "Accounts", "Add, switch, server settings", onOpenAccounts),
@@ -149,6 +157,7 @@ private fun SettingsHub(
         HubCategory(Icons.AutoMirrored.Filled.List, "Reading", "Swipe actions", onOpenReading),
         HubCategory(Icons.Filled.Notifications, "Notifications", "Push scope, new mail", onOpenNotifications),
         HubCategory(Icons.Filled.Lock, "Privacy & Security", "App lock, remote images", onOpenPrivacy),
+        HubCategory(Icons.Filled.Storage, "Storage", "Cache usage, clear cache", onOpenStorage),
     )
     DetailScaffold(title = "Settings", onBack = onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
@@ -307,6 +316,100 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
             }
         }
     }
+}
+
+@Composable
+private fun StorageScreen(
+    onBack: () -> Unit,
+    viewModel: StorageViewModel = viewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val clearing by viewModel.clearing.collectAsStateWithLifecycle()
+    var confirm by remember { mutableStateOf(false) }
+    DetailScaffold(title = "Storage", onBack = onBack) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
+        ) {
+            SettingsSection("On-device usage") {
+                StorageStatRow("Total", formatBytes(state.totalBytes))
+                StorageStatRow("Messages database", formatBytes(state.databaseBytes))
+                StorageStatRow("Attachments", formatBytes(state.attachmentBytes))
+            }
+            if (state.perAccount.isNotEmpty()) {
+                SettingsSection("Cached messages per account") {
+                    state.perAccount.forEach { account ->
+                        StorageStatRow(account.label, "${account.messageCount}")
+                    }
+                }
+            }
+            SettingsSection("Maintenance") {
+                Text(
+                    "Clearing the cache removes downloaded messages and attachments from " +
+                        "this device. Your accounts stay signed in, and mail re-downloads when " +
+                        "you open it.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                Button(
+                    onClick = { confirm = true },
+                    enabled = !clearing,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(if (clearing) "Clearing…" else "Clear cache")
+                }
+            }
+        }
+    }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Clear cache?") },
+            text = {
+                Text(
+                    "Removes cached messages and attachments from this device. " +
+                        "Accounts stay signed in.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirm = false
+                        viewModel.clearCache()
+                    },
+                ) { Text("Clear") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirm = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun StorageStatRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(16.dp))
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Human-readable byte size (B / KB / MB / GB). */
+private fun formatBytes(bytes: Long): String {
+    if (bytes < 1024) return "$bytes B"
+    val kb = bytes / 1024.0
+    if (kb < 1024) return "%.0f KB".format(kb)
+    val mb = kb / 1024.0
+    if (mb < 1024) return "%.1f MB".format(mb)
+    return "%.2f GB".format(mb / 1024.0)
 }
 
 @Composable

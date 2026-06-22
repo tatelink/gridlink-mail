@@ -37,6 +37,16 @@ interface EmailDao {
     @Query("DELETE FROM emails WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>)
 
+    /** Cached-message count per account, for the storage usage breakdown. */
+    @Query("SELECT accountId, COUNT(*) AS messageCount FROM emails GROUP BY accountId")
+    suspend fun countsByAccount(): List<AccountMessageCount>
+
+    @Query("DELETE FROM emails")
+    suspend fun deleteAll()
+
+    @Query("DELETE FROM emails WHERE accountId = :accountId")
+    suspend fun deleteForAccount(accountId: String)
+
     /** Replace the cached contents of a mailbox with a fresh snapshot. */
     @Transaction
     suspend fun replaceMailbox(mailboxId: String, emails: List<EmailEntity>) {
@@ -44,3 +54,9 @@ interface EmailDao {
         deleteNotIn(mailboxId, emails.map { it.id })
     }
 }
+
+/** Projection for [EmailDao.countsByAccount]. */
+data class AccountMessageCount(
+    val accountId: String,
+    val messageCount: Int,
+)

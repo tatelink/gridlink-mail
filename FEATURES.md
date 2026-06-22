@@ -95,7 +95,9 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 
 - ✅ Material 3 / Material You dynamic colour, follows system theme
 - ✅ Contact avatars / sender initials (monograms)
-- ✅ Settings hub (Appearance / Notifications / Privacy & Security), DataStore-backed
+- ✅ Settings hub (Appearance / Notifications / Privacy & Security / Storage), DataStore-backed
+- ✅ Storage screen — on-device cache usage (DB + attachments, per-account breakdown) + Clear cache
+- ✅ Attachment cache cap (LRU by size/age); sign-out purges that account's cached mail + attachments
 - ✅ Theme toggle (auto / light / dark)
 - ✅ Message-list density (compact / normal / spaced)
 - ✅ Row preview length (subject only / 1 / 3 / 5 lines)
@@ -106,6 +108,6 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 ## "Complete app" extras
 
 - 💡 ⭐ Vacation responder / auto-reply — JMAP `VacationResponse` (RFC 8621)
-- 💡 ⭐ Quota / storage usage display (JMAP Quota extension)
+- ✅ On-device storage usage + Clear cache (Settings → Storage); 💡 server mailbox quota via JMAP `Quota` extension
 - 💡 Server-side filters/rules where the server supports `SieveScript`
 - 💡 Calendar / `.ics` invite preview (later)

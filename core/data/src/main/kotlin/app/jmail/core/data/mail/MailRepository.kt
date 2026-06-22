@@ -72,6 +72,9 @@ class MailRepository(
         auth: JmapAuth,
         mailboxId: String,
         limit: Int,
+        // Local StoredAccount id used to tag cached rows (distinct from the JMAP
+        // [accountId] used for API calls), so per-account routing and storage work.
+        localAccountId: String,
     ) {
         val stored = syncStates[mailboxId]
         if (stored != null) {
@@ -86,7 +89,7 @@ class MailRepository(
                 val toFetch = (queryChanges.added + changes.updated.filter { it in cachedIds }).distinct()
                 if (toFetch.isNotEmpty()) {
                     val fetched = client.getEmailsByIds(session, accountId, toFetch, auth)
-                    emailDao.upsertAll(fetched.map { it.toEntity(accountId, mailboxId) })
+                    emailDao.upsertAll(fetched.map { it.toEntity(localAccountId, mailboxId) })
                 }
                 syncStates[mailboxId] = SyncState(queryChanges.newQueryState!!, changes.newState!!)
                 android.util.Log.i("MailSync", "incremental $mailboxId: +${toFetch.size} -${toRemove.size}")
@@ -95,7 +98,7 @@ class MailRepository(
         }
         // Cold cache, or the server can't compute changes — full query.
         val page = client.queryEmailsPage(session, accountId, mailboxId, limit, auth)
-        emailDao.replaceMailbox(mailboxId, page.emails.map { it.toEntity(accountId, mailboxId) })
+        emailDao.replaceMailbox(mailboxId, page.emails.map { it.toEntity(localAccountId, mailboxId) })
         android.util.Log.i("MailSync", "full query $mailboxId: ${page.emails.size} emails")
         val queryState = page.queryState
         val emailState = page.emailState
@@ -131,7 +134,7 @@ class MailRepository(
                 val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
                     ?: resolved.mailboxes.firstOrNull()
                     ?: return@runCatching
-                syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit)
+                syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit, credentials.id)
                 val name = resolved.session.accounts[resolved.accountId]?.name ?: credentials.username
                 results += AccountInboxMeta(credentials.id, name, inbox.id, inbox.name, inbox.unreadEmails)
             }
@@ -164,7 +167,7 @@ class MailRepository(
             ?: mailboxes.firstOrNull()
             ?: error("No mailboxes found.")
 
-        syncMailbox(session, accountId, auth, target.id, limit)
+        syncMailbox(session, accountId, auth, target.id, limit, credentials.id)
 
         val accountName = session.accounts[accountId]?.name ?: credentials.username
         return MailboxMeta(accountName, target.id, target.name, target.unreadEmails)
@@ -221,7 +224,7 @@ class MailRepository(
         val ctx = connect(credentials)
         client.move(ctx.session, ctx.accountId, emailId, mailboxId, ctx.auth)
         val fetched = client.getEmailsByIds(ctx.session, ctx.accountId, listOf(emailId), ctx.auth)
-        if (fetched.isNotEmpty()) emailDao.upsertAll(fetched.map { it.toEntity(ctx.accountId, mailboxId) })
+        if (fetched.isNotEmpty()) emailDao.upsertAll(fetched.map { it.toEntity(ctx.credentials.id, mailboxId) })
     }
 
     /** Move to Trash (or destroy if there is none) and drop from the local list. */
@@ -261,6 +264,16 @@ class MailRepository(
     /** Remove a message from the local cache only (optimistic UI removal). */
     suspend fun evict(emailId: String) = emailDao.deleteById(emailId)
 
+    /**
+     * Drop in-memory sync bookkeeping so the next refresh does a full re-query.
+     * Call after the on-disk cache is cleared, otherwise incremental sync would
+     * compare against stale state and re-fetch nothing, leaving the cache empty.
+     */
+    fun resetSyncState() {
+        syncStates.clear()
+        context = null
+    }
+
     /** Whether [credentials]' account has an Archive folder (so an archive action can work). */
     suspend fun hasArchiveFolder(credentials: AccountCredentials): Boolean =
         connect(credentials).rolesToMailboxId.containsKey("archive")
@@ -290,7 +303,7 @@ class MailRepository(
         val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
             ?: resolved.mailboxes.firstOrNull()
             ?: error("No mailboxes found.")
-        syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit)
+        syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit, credentials.id)
         return inbox.id to emailDao.getByMailbox(inbox.id).map { it.toEmail() }
     }
 
