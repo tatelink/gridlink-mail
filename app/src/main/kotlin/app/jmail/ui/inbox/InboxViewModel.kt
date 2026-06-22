@@ -11,6 +11,7 @@ import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.Mailbox
+import app.jmail.send.SendOutbox
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -81,6 +82,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
     private val settings = application.container.settingsRepository
+    private val outbox = application.container.sendOutbox
+
+    /** Undo-send: a message held in the outbox, and a send that failed after the window. */
+    val outboxPending: StateFlow<SendOutbox.Pending?> = outbox.pending
+    val outboxFailure: StateFlow<String?> = outbox.failure
+    fun undoSend() = outbox.undo()
+    fun consumeSendFailure() = outbox.consumeFailure()
 
     /** Configured swipe-right / swipe-left actions, observed for the list rows. */
     val swipeConfig: StateFlow<SwipeConfig> =

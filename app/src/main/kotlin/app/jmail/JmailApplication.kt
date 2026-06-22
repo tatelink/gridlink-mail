@@ -9,6 +9,10 @@ import app.jmail.core.data.settings.SettingsRepository
 import app.jmail.core.data.storage.StorageRepository
 import app.jmail.core.jmap.JmapClient
 import app.jmail.security.AppLock
+import app.jmail.send.SendOutbox
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /** Simple manual DI container — holds app-wide singletons. */
 class AppContainer(context: Context) {
@@ -19,6 +23,10 @@ class AppContainer(context: Context) {
     val mailRepository: MailRepository = dataLayer.mailRepository
     val storageRepository: StorageRepository = dataLayer.storageRepository
     val appLock: AppLock = AppLock(accountStore)
+
+    /** App-lifetime scope for work that must outlive a screen (e.g. Undo-send hold-back). */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val sendOutbox: SendOutbox = SendOutbox(appScope)
 }
 
 class JmailApplication : Application() {

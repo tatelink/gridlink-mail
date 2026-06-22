@@ -32,6 +32,7 @@ data class DraftFields(val to: String, val subject: String, val body: String)
 class ComposeViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
+    private val outbox = application.container.sendOutbox
 
     private val _state = MutableStateFlow<ComposeState>(ComposeState.Idle)
     val state: StateFlow<ComposeState> = _state.asStateFlow()
@@ -139,15 +140,36 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun send(to: String, subject: String, body: String) =
-        submit(to) { credentials, recipients ->
-            val identity = selectedIdentity()
-            val (textBody, htmlBody) = bodiesWithSignature(body, identity?.signature.orEmpty())
-            repo.send(
-                credentials, recipients, subject, textBody, inReplyTo, references,
-                _attachments.value, htmlBody, identity?.name, identity?.email,
-            )
+    /**
+     * Queue the message with a hold-back window (Undo-send): validate + capture now,
+     * close the screen, and let the app-scoped [outbox] actually send a few seconds
+     * later unless the user undoes it.
+     */
+    fun send(to: String, subject: String, body: String) {
+        if (_state.value is ComposeState.Sending) return
+        _state.value = ComposeState.Sending
+        viewModelScope.launch {
+            try {
+                val credentials = credentials() ?: error("No saved account.")
+                val recipients = to.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+                require(recipients.isNotEmpty()) { "Add at least one recipient." }
+                val identity = selectedIdentity()
+                val (textBody, htmlBody) = bodiesWithSignature(body, identity?.signature.orEmpty())
+                val attachments = _attachments.value
+                val replyTo = inReplyTo
+                val refs = references
+                outbox.enqueue(label = "Message sent") {
+                    repo.send(
+                        credentials, recipients, subject, textBody, replyTo, refs,
+                        attachments, htmlBody, identity?.name, identity?.email,
+                    )
+                }
+                _state.value = ComposeState.Done
+            } catch (t: Throwable) {
+                _state.value = ComposeState.Error(t.message ?: t.javaClass.simpleName)
+            }
         }
+    }
 
     /**
      * Append the account signature. With no signature the message stays plain text;

@@ -28,7 +28,7 @@ The categories further down list the full feature set; this is the order of work
 
 **Tier 2 — modern compose & send**
 - 💡 Rich-text editor (plus plain-text mode)
-- 💡 Outbox + Undo send (hold-back window)
+- ✅ Undo send (hold-back window); 💡 full Outbox + retry
 - 💡 ⭐ Schedule send (JMAP `EmailSubmission` `sendAt`)
 - 💡 Snooze a message until later
 
@@ -100,7 +100,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Attachments: pick & send, view/download/open incoming (JMAP blobs / IMAP multipart MIME + BODY-section fetch)
 - ✅ Inline images (`cid:`) rendered in the body (downloaded as data URIs)
 - 💡 Rich-text editor plus plain-text mode
-- 💡 Outbox, and Undo send (hold-back window)
+- ✅ Undo send (hold-back window) — held in an app-scoped outbox; 💡 full Outbox/retry
 - 💡 ⭐ Schedule send — JMAP `EmailSubmission` supports a future `sendAt`
 - 💡 "Forgot attachment?" reminder
 - ✅ Multiple sending identities per account (name + address), **each with its own

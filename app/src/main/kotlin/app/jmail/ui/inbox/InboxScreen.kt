@@ -64,6 +64,7 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -132,6 +133,8 @@ fun InboxScreen(
     var showMoveSheet by remember { mutableStateOf(false) }
     val undo by viewModel.undo.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
+    val outboxFailure by viewModel.outboxFailure.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
 
@@ -182,6 +185,23 @@ fun InboxScreen(
             withDismissAction = true,
         )
         if (result == SnackbarResult.ActionPerformed) viewModel.undo() else viewModel.clearUndo()
+    }
+
+    // Undo-send: while a message is held in the outbox, offer an Undo. The snackbar is
+    // dismissed automatically when the hold-back elapses (pending clears → effect restarts).
+    LaunchedEffect(outboxPending) {
+        outboxPending ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = "Message sent",
+            actionLabel = "Undo",
+            duration = SnackbarDuration.Indefinite,
+        )
+        if (result == SnackbarResult.ActionPerformed) viewModel.undoSend()
+    }
+    LaunchedEffect(outboxFailure) {
+        val msg = outboxFailure ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar("Couldn't send: $msg")
+        viewModel.consumeSendFailure()
     }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
