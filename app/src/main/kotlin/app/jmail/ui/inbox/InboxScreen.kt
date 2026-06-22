@@ -101,6 +101,7 @@ import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.jmap.model.Email
 import app.jmail.ui.components.EmailListItem
 import app.jmail.ui.components.Monogram
+import app.jmail.ui.components.verticalScrollbar
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.coroutineScope
@@ -420,14 +421,18 @@ fun InboxScreen(
                         else -> Text("No results", Modifier.align(Alignment.Center))
                     }
                     pagedEmails.itemCount > 0 ->
-                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize()
+                                .verticalScrollbar(listState, pagedEmails.itemCount),
+                        ) {
                             items(
                                 count = pagedEmails.itemCount,
                                 key = pagedEmails.itemKey { it.id },
                             ) { index ->
-                                pagedEmails[index]?.let { email ->
-                                    emailRow(email, Modifier.animateItem())
-                                }
+                                // No animateItem() here: animating 50-row page inserts
+                                // is what made fast scrolling stutter.
+                                pagedEmails[index]?.let { email -> emailRow(email, Modifier) }
                             }
                         }
                     ui.refreshing || refreshLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))

@@ -160,7 +160,15 @@ class MailRepository(
     fun pagedMailbox(mailboxIds: List<String>, sort: SortOrder, unreadOnly: Boolean): Flow<PagingData<Email>> {
         if (mailboxIds.isEmpty()) return flowOf(PagingData.empty())
         return Pager(
-            config = PagingConfig(pageSize = PAGE_SIZE, initialLoadSize = PAGE_SIZE, enablePlaceholders = false),
+            config = PagingConfig(
+                pageSize = PAGE_SIZE,
+                // Load enough up front to fill the screen and a buffer, and start
+                // fetching the next page well before the edge so fast scrolling
+                // doesn't outrun paging (the "saccadé" stutter).
+                initialLoadSize = PAGE_SIZE * 3,
+                prefetchDistance = PAGE_SIZE,
+                enablePlaceholders = false,
+            ),
             pagingSourceFactory = { emailDao.pagingSource(pagingQuery(mailboxIds, sort, unreadOnly)) },
         ).flow.map { data -> data.map { it.toEmail() } }
     }
