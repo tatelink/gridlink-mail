@@ -103,7 +103,18 @@ class AccountStore(context: Context) {
      * Update the editable server settings for an account, preserving its id and
      * inbox metadata (inboxId/inboxName/unread). No-op if the id is unknown.
      */
-    fun updateAccount(id: String, server: String, username: String, accountName: String) {
+    fun updateAccount(
+        id: String,
+        server: String,
+        username: String,
+        accountName: String,
+        imapHost: String? = null,
+        imapPort: Int? = null,
+        imapSecurity: ConnectionSecurity? = null,
+        smtpHost: String? = null,
+        smtpPort: Int? = null,
+        smtpSecurity: ConnectionSecurity? = null,
+    ) {
         saveAccounts(
             accounts().map {
                 if (it.id == id) {
@@ -111,6 +122,12 @@ class AccountStore(context: Context) {
                         server = server.trim(),
                         username = username.trim(),
                         accountName = accountName.trim(),
+                        imapHost = imapHost?.trim() ?: it.imapHost,
+                        imapPort = imapPort ?: it.imapPort,
+                        imapSecurity = imapSecurity ?: it.imapSecurity,
+                        smtpHost = smtpHost?.trim() ?: it.smtpHost,
+                        smtpPort = smtpPort ?: it.smtpPort,
+                        smtpSecurity = smtpSecurity ?: it.smtpSecurity,
                     )
                 } else {
                     it

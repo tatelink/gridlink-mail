@@ -174,6 +174,20 @@ class ImapSession(private var socket: Socket) : Closeable {
         return line.drop(2).count { it is String }
     }
 
+    /** UIDs of messages in the selected mailbox matching a free-text query. */
+    fun searchText(query: String): List<Long> {
+        val result = command("UID SEARCH TEXT ${quote(query)}")
+        val line = result.untagged.firstOrNull { it.getOrNull(1) == "SEARCH" } ?: return emptyList()
+        return line.drop(2).mapNotNull { (it as? String)?.toLongOrNull() }
+    }
+
+    /** Fetch several messages by UID (envelope + flags). */
+    fun fetchUids(uids: List<Long>): List<ImapMessage> {
+        if (uids.isEmpty()) return emptyList()
+        val result = command("UID FETCH ${uids.joinToString(",")} (UID FLAGS INTERNALDATE ENVELOPE BODYSTRUCTURE)")
+        return result.untagged.mapNotNull { parseFetch(it) }
+    }
+
     /** Raw RFC822 source of a message, for parsing the body/attachments. */
     fun fetchSource(uid: Long): String {
         val result = command("UID FETCH $uid (BODY.PEEK[])")

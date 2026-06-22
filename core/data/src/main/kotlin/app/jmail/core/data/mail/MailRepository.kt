@@ -279,6 +279,14 @@ class MailRepository(
         val results = mutableListOf<AccountInboxMeta>()
         for (credentials in accounts) {
             runCatching {
+                if (credentials.protocol == MailProtocol.IMAP) {
+                    val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = limit)
+                    emailDao.replaceMailbox(load.targetMailboxId, load.messages)
+                    results += AccountInboxMeta(
+                        credentials.id, load.accountName, load.targetMailboxId, load.targetName, load.unread,
+                    )
+                    return@runCatching
+                }
                 val resolved = resolve(credentials)
                 val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
                     ?: resolved.mailboxes.firstOrNull()
@@ -494,6 +502,10 @@ class MailRepository(
 
     /** Full-text search across the account (results are transient, not cached). */
     suspend fun search(credentials: AccountCredentials, query: String, limit: Int = 50): List<Email> {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val inbox = mailboxDao.idForRole("inbox") ?: return emptyList()
+            return imap.search(credentials, inbox, query, limit).map { it.toEmail() }
+        }
         val ctx = connect(credentials)
         return client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth)
     }

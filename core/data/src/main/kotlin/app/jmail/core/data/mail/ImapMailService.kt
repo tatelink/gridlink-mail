@@ -141,6 +141,18 @@ class ImapMailService(
             session(credentials).use { it.createFolder(path) }
         }
 
+    /** Server-side text search in [mailboxId], newest first (entities not cached by caller). */
+    suspend fun search(credentials: AccountCredentials, mailboxId: String, query: String, limit: Int): List<EmailEntity> =
+        withContext(Dispatchers.IO) {
+            session(credentials).use { session ->
+                session.select(mailboxId)
+                val uids = session.searchText(query).sortedDescending().take(limit)
+                session.fetchUids(uids)
+                    .map { it.toEntity(credentials.id, mailboxId) }
+                    .sortedByDescending { it.sortKey }
+            }
+        }
+
     /** Fetch one message by UID into a cache entity (used to restore after an undo). */
     suspend fun fetchByUid(credentials: AccountCredentials, mailboxId: String, uid: Long): EmailEntity? =
         withContext(Dispatchers.IO) {

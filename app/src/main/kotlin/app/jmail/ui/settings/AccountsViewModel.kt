@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
+import app.jmail.core.data.account.ConnectionSecurity
 import app.jmail.core.data.account.StoredAccount
 import app.jmail.core.data.account.SyncWindow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,8 +62,24 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     }
 
     /** Persist edits. A blank [password] keeps the existing one. */
-    fun save(id: String, accountName: String, server: String, username: String, password: String) {
-        store.updateAccount(id, server = server, username = username, accountName = accountName)
+    fun save(
+        id: String,
+        accountName: String,
+        server: String,
+        username: String,
+        password: String,
+        imapHost: String? = null,
+        imapPort: Int? = null,
+        imapSecurity: ConnectionSecurity? = null,
+        smtpHost: String? = null,
+        smtpPort: Int? = null,
+        smtpSecurity: ConnectionSecurity? = null,
+    ) {
+        store.updateAccount(
+            id, server = server, username = username, accountName = accountName,
+            imapHost = imapHost, imapPort = imapPort, imapSecurity = imapSecurity,
+            smtpHost = smtpHost, smtpPort = smtpPort, smtpSecurity = smtpSecurity,
+        )
         if (password.isNotBlank()) store.updatePassword(id, password)
         refresh()
     }

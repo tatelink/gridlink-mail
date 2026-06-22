@@ -31,7 +31,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,6 +52,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import app.jmail.core.data.account.ConnectionSecurity
+import app.jmail.core.data.account.MailProtocol
 import app.jmail.core.data.account.SyncWindow
 import app.jmail.core.data.settings.ListDensity
 import app.jmail.core.data.settings.PreviewLines
@@ -481,16 +482,28 @@ private fun AccountDetailScreen(
         return
     }
 
+    val isImap = account.protocol == MailProtocol.IMAP
     var accountName by remember(accountId) { mutableStateOf(account.accountName) }
     var server by remember(accountId) { mutableStateOf(account.server) }
     var username by remember(accountId) { mutableStateOf(account.username) }
     var password by remember(accountId) { mutableStateOf("") }
     var saved by remember(accountId) { mutableStateOf(false) }
     var syncWindow by remember(accountId) { mutableStateOf(account.syncWindow) }
+    var imapHost by remember(accountId) { mutableStateOf(account.imapHost) }
+    var imapPort by remember(accountId) { mutableStateOf(account.imapPort.toString()) }
+    var imapSecurity by remember(accountId) { mutableStateOf(account.imapSecurity) }
+    var smtpHost by remember(accountId) { mutableStateOf(account.smtpHost) }
+    var smtpPort by remember(accountId) { mutableStateOf(account.smtpPort.toString()) }
+    var smtpSecurity by remember(accountId) { mutableStateOf(account.smtpSecurity) }
     val cacheCount by viewModel.cacheCount.collectAsStateWithLifecycle()
     LaunchedEffect(accountId) { viewModel.loadCacheCount(accountId) }
 
-    val canSave = server.isNotBlank() && username.isNotBlank()
+    val canSave = username.isNotBlank() && if (isImap) {
+        imapHost.isNotBlank() && imapPort.toIntOrNull() != null &&
+            smtpHost.isNotBlank() && smtpPort.toIntOrNull() != null
+    } else {
+        server.isNotBlank()
+    }
 
     DetailScaffold(title = account.label(), onBack = onBack) { padding ->
         Column(
@@ -504,12 +517,53 @@ private fun AccountDetailScreen(
                 )
             }
             SettingsSection("Server settings") {
-                SettingTextField(
-                    label = "Server URL",
-                    value = server,
-                    onValueChange = { server = it; saved = false },
-                    keyboardType = KeyboardType.Uri,
-                )
+                if (isImap) {
+                    SettingTextField(
+                        label = "IMAP server",
+                        value = imapHost,
+                        onValueChange = { imapHost = it; saved = false },
+                        keyboardType = KeyboardType.Uri,
+                    )
+                    SettingTextField(
+                        label = "IMAP port",
+                        value = imapPort,
+                        onValueChange = { imapPort = it.filter(Char::isDigit); saved = false },
+                        keyboardType = KeyboardType.Number,
+                    )
+                    SettingChoiceRow(
+                        title = "IMAP security",
+                        options = listOf(ConnectionSecurity.TLS, ConnectionSecurity.STARTTLS, ConnectionSecurity.NONE),
+                        selected = imapSecurity,
+                        optionLabel = ::securityLabel,
+                        onSelect = { imapSecurity = it; saved = false },
+                    )
+                    SettingTextField(
+                        label = "SMTP server",
+                        value = smtpHost,
+                        onValueChange = { smtpHost = it; saved = false },
+                        keyboardType = KeyboardType.Uri,
+                    )
+                    SettingTextField(
+                        label = "SMTP port",
+                        value = smtpPort,
+                        onValueChange = { smtpPort = it.filter(Char::isDigit); saved = false },
+                        keyboardType = KeyboardType.Number,
+                    )
+                    SettingChoiceRow(
+                        title = "SMTP security",
+                        options = listOf(ConnectionSecurity.TLS, ConnectionSecurity.STARTTLS, ConnectionSecurity.NONE),
+                        selected = smtpSecurity,
+                        optionLabel = ::securityLabel,
+                        onSelect = { smtpSecurity = it; saved = false },
+                    )
+                } else {
+                    SettingTextField(
+                        label = "Server URL",
+                        value = server,
+                        onValueChange = { server = it; saved = false },
+                        keyboardType = KeyboardType.Uri,
+                    )
+                }
                 SettingTextField(
                     label = "Username",
                     value = username,
@@ -525,17 +579,10 @@ private fun AccountDetailScreen(
                 )
             }
             SettingsSection("Protocol") {
-                ProtocolRow(
-                    name = "JMAP",
-                    detail = "Active",
-                    selected = true,
-                    enabled = true,
-                )
-                ProtocolRow(
-                    name = "IMAP",
-                    detail = "Coming soon — host/port/security support is on the way.",
-                    selected = false,
-                    enabled = false,
+                Text(
+                    text = if (isImap) "IMAP / SMTP" else "JMAP",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
             SettingsSection("Sync") {
@@ -566,7 +613,15 @@ private fun AccountDetailScreen(
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
-                        viewModel.save(accountId, accountName, server, username, password)
+                        if (isImap) {
+                            viewModel.save(
+                                accountId, accountName, server, username, password,
+                                imapHost = imapHost, imapPort = imapPort.toIntOrNull(), imapSecurity = imapSecurity,
+                                smtpHost = smtpHost, smtpPort = smtpPort.toIntOrNull(), smtpSecurity = smtpSecurity,
+                            )
+                        } else {
+                            viewModel.save(accountId, accountName, server, username, password)
+                        }
                         password = ""
                         saved = true
                         onAccountsChanged()
@@ -590,37 +645,10 @@ private fun AccountDetailScreen(
     }
 }
 
-/** A protocol option row: radio + name + note. The IMAP option is disabled for now. */
-@Composable
-private fun ProtocolRow(
-    name: String,
-    detail: String,
-    selected: Boolean,
-    enabled: Boolean,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = null, enabled = enabled)
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                name,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (enabled) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-            Text(
-                detail,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+private fun securityLabel(security: ConnectionSecurity): String = when (security) {
+    ConnectionSecurity.TLS -> "SSL/TLS"
+    ConnectionSecurity.STARTTLS -> "STARTTLS"
+    ConnectionSecurity.NONE -> "None"
 }
 
 /**
