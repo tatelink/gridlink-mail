@@ -3,27 +3,36 @@ package app.jmail.ui.compose
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -37,11 +46,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -59,21 +70,22 @@ fun ComposeScreen(
     val prefill by viewModel.prefill.collectAsStateWithLifecycle()
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
-    val identities by viewModel.identities.collectAsStateWithLifecycle()
-    val selectedIdentityId by viewModel.selectedIdentityId.collectAsStateWithLifecycle()
+    val fromOptions by viewModel.fromOptions.collectAsStateWithLifecycle()
+    val selectedFrom by viewModel.selectedFrom.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let(viewModel::attach)
     }
 
     LaunchedEffect(Unit) { viewModel.prepare(replyTo, mode, accountId) }
-    LaunchedEffect(state) {
-        if (state is ComposeState.Done) onDone()
-    }
+    LaunchedEffect(state) { if (state is ComposeState.Done) onDone() }
 
     var to by rememberSaveable { mutableStateOf("") }
+    var cc by rememberSaveable { mutableStateOf("") }
+    var bcc by rememberSaveable { mutableStateOf("") }
     var subject by rememberSaveable { mutableStateOf("") }
     var body by rememberSaveable { mutableStateOf("") }
+    var expanded by rememberSaveable { mutableStateOf(false) }
     var applied by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(prefill) {
@@ -87,6 +99,12 @@ fun ComposeScreen(
         }
     }
 
+    // Land in the recipient field with the keyboard up, unless this is a reply (To is prefilled).
+    val toFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        if (replyTo == null) runCatching { toFocus.requestFocus() }
+    }
+
     val sending = state is ComposeState.Sending
 
     Scaffold(
@@ -95,18 +113,19 @@ fun ComposeScreen(
                 title = { Text(if (replyTo != null) "Reply" else "New message") },
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
-                        Text("✕", style = MaterialTheme.typography.titleLarge)
+                        Icon(Icons.Filled.Close, contentDescription = "Discard")
                     }
                 },
                 actions = {
-                    TextButton(
-                        onClick = { picker.launch("*/*") },
+                    IconButton(onClick = { picker.launch("*/*") }, enabled = !sending) {
+                        Icon(Icons.Filled.AttachFile, contentDescription = "Attach file")
+                    }
+                    IconButton(
+                        onClick = { viewModel.saveDraft(to, cc, bcc, subject, body) },
                         enabled = !sending,
-                    ) { Text("Attach") }
-                    TextButton(
-                        onClick = { viewModel.saveDraft(to, subject, body) },
-                        enabled = !sending,
-                    ) { Text("Save") }
+                    ) {
+                        Icon(Icons.Filled.Save, contentDescription = "Save draft")
+                    }
                     Box {
                         var scheduleMenu by remember { mutableStateOf(false) }
                         IconButton(
@@ -121,18 +140,18 @@ fun ComposeScreen(
                                     text = { Text(label) },
                                     onClick = {
                                         scheduleMenu = false
-                                        viewModel.scheduleSend(to, subject, body, millis)
+                                        viewModel.scheduleSend(to, cc, bcc, subject, body, millis)
                                         Toast.makeText(context, "Scheduled — $label", Toast.LENGTH_SHORT).show()
                                     },
                                 )
                             }
                         }
                     }
-                    TextButton(
-                        onClick = { viewModel.send(to, subject, body) },
+                    IconButton(
+                        onClick = { viewModel.send(to, cc, bcc, subject, body) },
                         enabled = !sending && to.isNotBlank(),
                     ) {
-                        Text(if (sending) "…" else "Send")
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
                     }
                 },
             )
@@ -144,69 +163,67 @@ fun ComposeScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // "From" identity picker — shown only when there's more than one to choose.
-            if (identities.size > 1) {
-                val selected = identities.firstOrNull { it.id == selectedIdentityId } ?: identities.first()
-                var expanded by remember { mutableStateOf(false) }
+            // From — switch sending account / identity (only when there's a choice).
+            if (fromOptions.size > 1) {
+                var fromMenu by remember { mutableStateOf(false) }
                 Box {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { expanded = true }
-                            .padding(vertical = 8.dp),
+                            .clickable { fromMenu = true }
+                            .padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "From",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                selected.display(),
-                                style = MaterialTheme.typography.bodyLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose identity")
+                        FieldLabel("From")
+                        Text(
+                            text = selectedFrom?.identity?.display() ?: "—",
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(Icons.Filled.ExpandMore, contentDescription = "Choose sender")
                     }
-                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        identities.forEach { identity ->
+                    DropdownMenu(expanded = fromMenu, onDismissRequest = { fromMenu = false }) {
+                        fromOptions.forEach { option ->
                             DropdownMenuItem(
-                                text = { Text(identity.display()) },
-                                onClick = {
-                                    viewModel.selectIdentity(identity.id)
-                                    expanded = false
-                                },
+                                text = { Text(option.identity.display()) },
+                                onClick = { viewModel.selectFrom(option); fromMenu = false },
                             )
                         }
                     }
                 }
+                FieldDivider()
             }
-            OutlinedTextField(
+
+            ComposeField(
+                label = "To",
                 value = to,
                 onValueChange = { to = it },
-                label = { Text("To (comma-separated)") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                modifier = Modifier.fillMaxWidth(),
+                keyboardType = KeyboardType.Email,
+                focusRequester = toFocus,
+                trailing = {
+                    IconButton(onClick = { expanded = !expanded }) {
+                        Icon(
+                            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = if (expanded) "Hide Cc/Bcc" else "Show Cc/Bcc",
+                        )
+                    }
+                },
             )
-            OutlinedTextField(
-                value = subject,
-                onValueChange = { subject = it },
-                label = { Text("Subject") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            if (expanded) {
+                ComposeField("Cc", cc, { cc = it }, keyboardType = KeyboardType.Email)
+                ComposeField("Bcc", bcc, { bcc = it }, keyboardType = KeyboardType.Email)
+            }
+            ComposeField("Subject", subject, { subject = it })
+
             attachments.forEach { att ->
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("📎", modifier = Modifier.padding(end = 8.dp))
+                    Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                     Text(
                         text = att.name ?: "attachment",
                         style = MaterialTheme.typography.bodyMedium,
@@ -220,15 +237,29 @@ fun ComposeScreen(
             attachmentStatus?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
             }
-            OutlinedTextField(
+
+            // Body — no frame, fills the rest of the width and grows with content.
+            BasicTextField(
                 value = body,
                 onValueChange = { body = it },
-                label = { Text("Message") },
+                textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                minLines = 8,
+                    .heightIn(min = 220.dp)
+                    .padding(top = 12.dp, bottom = 16.dp),
+                decorationBox = { inner ->
+                    if (body.isEmpty()) {
+                        Text(
+                            "Compose email",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    inner()
+                },
             )
+
             if (sending) CircularProgressIndicator()
             (state as? ComposeState.Error)?.let {
                 Text(
@@ -239,6 +270,52 @@ fun ComposeScreen(
             }
         }
     }
+}
+
+/** A frameless, full-width input with a fixed leading label and an underline. */
+@Composable
+private fun ComposeField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    focusRequester: FocusRequester? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FieldLabel(label)
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 14.dp)
+                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+            )
+            trailing?.invoke()
+        }
+        FieldDivider()
+    }
+}
+
+@Composable
+private fun FieldLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.width(64.dp),
+    )
+}
+
+@Composable
+private fun FieldDivider() {
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 /** Quick "send later" presets → (label, epoch-millis), computed in the device's time zone. */

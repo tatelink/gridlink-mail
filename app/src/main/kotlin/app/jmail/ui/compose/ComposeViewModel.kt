@@ -31,6 +31,9 @@ sealed interface ComposeState {
 /** Initial field values, e.g. for a reply or forward. */
 data class DraftFields(val to: String, val subject: String, val body: String)
 
+/** A "From" choice: one identity belonging to a specific account. */
+data class FromOption(val accountId: String, val identity: StoredIdentity)
+
 class ComposeViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
@@ -48,20 +51,17 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private val _attachmentStatus = MutableStateFlow<String?>(null)
     val attachmentStatus: StateFlow<String?> = _attachmentStatus.asStateFlow()
 
-    /** Sending identities to choose "From" from, and the selected one. */
-    private val _identities = MutableStateFlow<List<StoredIdentity>>(emptyList())
-    val identities: StateFlow<List<StoredIdentity>> = _identities.asStateFlow()
-    private val _selectedIdentityId = MutableStateFlow<String?>(null)
-    val selectedIdentityId: StateFlow<String?> = _selectedIdentityId.asStateFlow()
+    /** Every identity across all accounts, and the chosen one (which sets the sending account). */
+    private val _fromOptions = MutableStateFlow<List<FromOption>>(emptyList())
+    val fromOptions: StateFlow<List<FromOption>> = _fromOptions.asStateFlow()
+    private val _selectedFrom = MutableStateFlow<FromOption?>(null)
+    val selectedFrom: StateFlow<FromOption?> = _selectedFrom.asStateFlow()
 
-    fun selectIdentity(id: String) {
-        _selectedIdentityId.value = id
+    fun selectFrom(option: FromOption) {
+        _selectedFrom.value = option
     }
 
-    private fun selectedIdentity(): StoredIdentity? {
-        val list = _identities.value
-        return list.firstOrNull { it.id == _selectedIdentityId.value } ?: list.firstOrNull()
-    }
+    private fun selectedIdentity(): StoredIdentity? = _selectedFrom.value?.identity
 
     private var prepared = false
     // Threading headers for a reply (empty for new/forward).
@@ -71,7 +71,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private var accountId: String? = null
 
     private fun credentials(): AccountCredentials? =
-        accountId?.let { store.credentials(it) } ?: store.load()
+        (_selectedFrom.value?.accountId ?: accountId)?.let { store.credentials(it) } ?: store.load()
+
+    private fun parseAddrs(s: String): List<String> =
+        s.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
 
     /** Upload a picked document and add it to the outgoing attachments. */
     fun attach(uri: Uri) {
@@ -123,9 +126,12 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         if (prepared) return
         prepared = true
         this.accountId = accountId
-        val identityList = store.identities(accountId)
-        _identities.value = identityList
-        _selectedIdentityId.value = identityList.firstOrNull()?.id
+        val options = store.accounts().flatMap { acc ->
+            store.identities(acc.id).map { FromOption(acc.id, it) }
+        }
+        _fromOptions.value = options
+        val preferred = accountId ?: store.load()?.id
+        _selectedFrom.value = options.firstOrNull { it.accountId == preferred } ?: options.firstOrNull()
         if (replyToId == null) return
         viewModelScope.launch {
             try {
@@ -147,14 +153,16 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      * close the screen, and let the app-scoped [outbox] actually send a few seconds
      * later unless the user undoes it.
      */
-    fun send(to: String, subject: String, body: String) {
+    fun send(to: String, cc: String, bcc: String, subject: String, body: String) {
         if (_state.value is ComposeState.Sending) return
         _state.value = ComposeState.Sending
         viewModelScope.launch {
             try {
                 val credentials = credentials() ?: error("No saved account.")
-                val recipients = to.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+                val recipients = parseAddrs(to)
                 require(recipients.isNotEmpty()) { "Add at least one recipient." }
+                val ccList = parseAddrs(cc)
+                val bccList = parseAddrs(bcc)
                 val identity = selectedIdentity()
                 val (textBody, htmlBody) = bodiesWithSignature(body, identity?.signature.orEmpty())
                 val attachments = _attachments.value
@@ -163,7 +171,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 outbox.enqueue(label = "Message sent") {
                     repo.send(
                         credentials, recipients, subject, textBody, replyTo, refs,
-                        attachments, htmlBody, identity?.name, identity?.email,
+                        attachments, htmlBody, identity?.name, identity?.email, ccList, bccList,
                     )
                 }
                 _state.value = ComposeState.Done
@@ -177,13 +185,13 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      * Schedule the message to be sent at [sendAtMillis]. Persisted to Room and fired by
      * WorkManager (survives the app closing). Attachments are not carried in v1.
      */
-    fun scheduleSend(to: String, subject: String, body: String, sendAtMillis: Long) {
+    fun scheduleSend(to: String, cc: String, bcc: String, subject: String, body: String, sendAtMillis: Long) {
         if (_state.value is ComposeState.Sending) return
         _state.value = ComposeState.Sending
         viewModelScope.launch {
             try {
                 val credentials = credentials() ?: error("No saved account.")
-                val recipients = to.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+                val recipients = parseAddrs(to)
                 require(recipients.isNotEmpty()) { "Add at least one recipient." }
                 val identity = selectedIdentity()
                 val (textBody, htmlBody) = bodiesWithSignature(body, identity?.signature.orEmpty())
@@ -191,6 +199,8 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     ScheduledSendEntity(
                         accountId = credentials.id,
                         recipients = recipients.joinToString(","),
+                        cc = parseAddrs(cc).joinToString(",").ifBlank { null },
+                        bcc = parseAddrs(bcc).joinToString(",").ifBlank { null },
                         subject = subject,
                         textBody = textBody,
                         htmlBody = htmlBody,
@@ -229,8 +239,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private fun htmlify(s: String): String =
         s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
-    fun saveDraft(to: String, subject: String, body: String) =
-        submit(to) { credentials, recipients -> repo.saveDraft(credentials, recipients, subject, body) }
+    fun saveDraft(to: String, cc: String, bcc: String, subject: String, body: String) =
+        submit(to) { credentials, recipients ->
+            repo.saveDraft(credentials, recipients, subject, body, parseAddrs(cc), parseAddrs(bcc))
+        }
 
     private inline fun submit(
         to: String,

@@ -669,6 +669,8 @@ class JmapClient internal constructor(
         identityId: String,
         from: EmailAddress,
         to: List<EmailAddress>,
+        cc: List<EmailAddress> = emptyList(),
+        bcc: List<EmailAddress> = emptyList(),
         subject: String,
         textBody: String,
         htmlBody: String? = null,
@@ -693,6 +695,12 @@ class JmapClient internal constructor(
                             putJsonObject("draft") {
                                 putJsonArray("from") { addJsonObject { addAddress(from) } }
                                 putJsonArray("to") { to.forEach { addJsonObject { addAddress(it) } } }
+                                if (cc.isNotEmpty()) {
+                                    putJsonArray("cc") { cc.forEach { addJsonObject { addAddress(it) } } }
+                                }
+                                if (bcc.isNotEmpty()) {
+                                    putJsonArray("bcc") { bcc.forEach { addJsonObject { addAddress(it) } } }
+                                }
                                 put("subject", subject)
                                 if (inReplyTo.isNotEmpty()) {
                                     putJsonArray("inReplyTo") { inReplyTo.forEach { add(it) } }
@@ -784,6 +792,8 @@ class JmapClient internal constructor(
         auth: JmapAuth,
         from: EmailAddress,
         to: List<EmailAddress>,
+        cc: List<EmailAddress> = emptyList(),
+        bcc: List<EmailAddress> = emptyList(),
         subject: String,
         textBody: String,
         draftMailboxId: String,
@@ -793,6 +803,8 @@ class JmapClient internal constructor(
             putJsonObject("draft") {
                 putJsonArray("from") { addJsonObject { addAddress(from) } }
                 putJsonArray("to") { to.forEach { addJsonObject { addAddress(it) } } }
+                if (cc.isNotEmpty()) putJsonArray("cc") { cc.forEach { addJsonObject { addAddress(it) } } }
+                if (bcc.isNotEmpty()) putJsonArray("bcc") { bcc.forEach { addJsonObject { addAddress(it) } } }
                 put("subject", subject)
                 putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
                 putJsonObject("mailboxIds") { put(draftMailboxId, true) }

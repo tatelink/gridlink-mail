@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [EmailEntity::class, MailboxEntity::class, ScheduledSendEntity::class, SnoozedEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class JmailDatabase : RoomDatabase() {

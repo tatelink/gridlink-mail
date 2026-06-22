@@ -727,9 +727,13 @@ class MailRepository(
         html: String? = null,
         fromName: String? = null,
         fromEmail: String? = null,
+        cc: List<String> = emptyList(),
+        bcc: List<String> = emptyList(),
     ): OutgoingMessage = OutgoingMessage(
         from = formatFrom(fromName, fromEmail) ?: credentials.username,
         to = recipients,
+        cc = cc,
+        bcc = bcc,
         subject = subject,
         body = body,
         html = html,
@@ -745,11 +749,23 @@ class MailRepository(
         else -> "$name <$email>"
     }
 
-    suspend fun saveDraft(credentials: AccountCredentials, to: List<String>, subject: String, body: String) {
+    suspend fun saveDraft(
+        credentials: AccountCredentials,
+        to: List<String>,
+        subject: String,
+        body: String,
+        cc: List<String> = emptyList(),
+        bcc: List<String> = emptyList(),
+    ) {
+        val ccTrimmed = cc.map { it.trim() }.filter { it.isNotEmpty() }
+        val bccTrimmed = bcc.map { it.trim() }.filter { it.isNotEmpty() }
         if (credentials.protocol == MailProtocol.IMAP) {
             val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
             val drafts = mailboxDao.idForRole("drafts") ?: error("This account has no Drafts folder.")
-            imap.appendDraft(credentials, drafts, outgoing(credentials, recipients, subject, body))
+            imap.appendDraft(
+                credentials, drafts,
+                outgoing(credentials, recipients, subject, body, cc = ccTrimmed, bcc = bccTrimmed),
+            )
             return
         }
         val ctx = connect(credentials)
@@ -764,6 +780,8 @@ class MailRepository(
             auth = ctx.auth,
             from = EmailAddress(name = identity.name, email = identity.email),
             to = recipients,
+            cc = ccTrimmed.map { EmailAddress(email = it) },
+            bcc = bccTrimmed.map { EmailAddress(email = it) },
             subject = subject,
             textBody = body,
             draftMailboxId = draftsId,
@@ -782,7 +800,11 @@ class MailRepository(
         htmlBody: String? = null,
         fromName: String? = null,
         fromEmail: String? = null,
+        cc: List<String> = emptyList(),
+        bcc: List<String> = emptyList(),
     ) {
+        val ccTrimmed = cc.map { it.trim() }.filter { it.isNotEmpty() }
+        val bccTrimmed = bcc.map { it.trim() }.filter { it.isNotEmpty() }
         if (credentials.protocol == MailProtocol.IMAP) {
             val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
             require(recipients.isNotEmpty()) { "Add at least one recipient." }
@@ -792,8 +814,10 @@ class MailRepository(
                 val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull() ?: return@mapNotNull null
                 OutgoingAttachment(part.name ?: "attachment", part.type ?: "application/octet-stream", bytes)
             }
-            val message = outgoing(credentials, recipients, subject, body, inReplyTo, references, htmlBody, fromName, fromEmail)
-                .copy(attachments = outAttachments)
+            val message = outgoing(
+                credentials, recipients, subject, body, inReplyTo, references, htmlBody,
+                fromName, fromEmail, ccTrimmed, bccTrimmed,
+            ).copy(attachments = outAttachments)
             imap.send(credentials, message, mailboxDao.idForRole("sent"))
             attachments.forEach { it.partId?.let { p -> runCatching { java.io.File(p).delete() } } }
             return
@@ -801,6 +825,8 @@ class MailRepository(
         val ctx = connect(credentials)
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
         require(recipients.isNotEmpty()) { "Add at least one recipient." }
+        val ccAddrs = ccTrimmed.map { EmailAddress(email = it) }
+        val bccAddrs = bccTrimmed.map { EmailAddress(email = it) }
 
         val serverIdentities = client.getIdentities(ctx.session, ctx.accountId, ctx.auth)
         // Use the server identity matching the chosen address (so submission is authorised);
@@ -822,6 +848,8 @@ class MailRepository(
             identityId = identity.id,
             from = from,
             to = recipients,
+            cc = ccAddrs,
+            bcc = bccAddrs,
             subject = subject,
             textBody = body,
             htmlBody = htmlBody,

@@ -9,6 +9,8 @@ data class ScheduledSendEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val accountId: String,
     val recipients: String, // comma-separated
+    val cc: String? = null, // comma-separated
+    val bcc: String? = null, // comma-separated
     val subject: String,
     val textBody: String,
     val htmlBody: String?,

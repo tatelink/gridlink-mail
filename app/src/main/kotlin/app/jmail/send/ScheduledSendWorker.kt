@@ -32,6 +32,8 @@ class ScheduledSendWorker(context: Context, params: WorkerParameters) : Coroutin
                 htmlBody = row.htmlBody,
                 fromName = row.fromName,
                 fromEmail = row.fromEmail,
+                cc = row.cc?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList(),
+                bcc = row.bcc?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList(),
             )
             repo.deleteScheduledSend(id)
             Result.success()

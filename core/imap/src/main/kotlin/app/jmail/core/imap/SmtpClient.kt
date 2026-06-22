@@ -26,6 +26,8 @@ data class OutgoingMessage(
     val from: String,
     val to: List<String>,
     val cc: List<String> = emptyList(),
+    /** Blind-copy recipients: in the SMTP envelope (RCPT TO) but never in the headers. */
+    val bcc: List<String> = emptyList(),
     val subject: String,
     val body: String,
     /** Optional HTML body; when set the message is sent as text/html. */
@@ -94,7 +96,7 @@ class SmtpClient {
         // Envelope
         write("MAIL FROM:<${addressOnly(message.from)}>")
         expect("250", "MAIL FROM")
-        (message.to + message.cc).forEach { recipient ->
+        (message.to + message.cc + message.bcc).forEach { recipient ->
             write("RCPT TO:<${addressOnly(recipient)}>")
             expect("250", "RCPT TO")
         }
