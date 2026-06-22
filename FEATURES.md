@@ -30,7 +30,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 - ✅ Sort (newest/oldest, subject, sender, unread-first) + Mark-all-read
 - ✅ Multi-select (long-press / select-all) with bulk mark-read, archive, delete
 - 💡 Snooze a message until later
-- 💡 Paginated "load more"
+- ✅ Paged list (Jetpack Paging 3 + Room) — large folders load in pages while scrolling, constant memory
 - ✅ Favourite (star) per row, tappable; favourites pin to the top
 - 💡 Report spam / not-spam (move to Junk role)
 

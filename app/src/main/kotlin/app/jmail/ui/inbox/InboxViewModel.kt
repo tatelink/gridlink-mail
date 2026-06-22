@@ -3,6 +3,8 @@ package app.jmail.ui.inbox
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import app.jmail.container
 import app.jmail.core.data.account.AccountCredentials
 import app.jmail.core.data.settings.SortOrder
@@ -12,6 +14,7 @@ import app.jmail.core.jmap.model.Mailbox
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -29,7 +32,9 @@ data class MailUi(
     val selectedMailboxId: String?,
     /** True when showing the cross-account unified inbox (no single folder selected). */
     val unified: Boolean,
-    val emails: List<Email>,
+    /** The normal browse list is paged separately ([InboxViewModel.pagedEmails]); this
+     *  holds the (bounded) results shown while inline search is active. */
+    val searchResults: List<Email> = emptyList(),
     val mailboxes: List<Mailbox>,
     val refreshing: Boolean,
     val error: String?,
@@ -43,7 +48,6 @@ data class MailUi(
 
 /** Intermediate holder so the search state can be folded into [MailUi] without a 6-arg combine. */
 private data class Base(
-    val emails: List<Email>,
     val mailboxes: List<Mailbox>,
     val selectedMailboxId: String?,
     val unified: Boolean,
@@ -113,14 +117,6 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     )
     private val status = MutableStateFlow(Status(refreshing = false, error = null))
 
-    private val emails = selection.flatMapLatest { sel ->
-        when (sel) {
-            is Sel.Folder -> sel.id?.let { repo.observeMailbox(it) } ?: flowOf(emptyList())
-            Sel.Unified -> unifiedInboxIds.flatMapLatest { ids ->
-                if (ids.isEmpty()) flowOf(emptyList()) else repo.observeUnifiedInbox(ids)
-            }
-        }
-    }
     private val mailboxes = repo.observeMailboxes()
     private val searchState = MutableStateFlow(SearchUi())
     private var searchJob: Job? = null
@@ -134,9 +130,24 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectionActive = MutableStateFlow(false)
     val selectionActive: StateFlow<Boolean> = _selectionActive.asStateFlow()
 
-    private val baseState = combine(emails, mailboxes, selection, meta, status) { emails, mailboxes, sel, meta, status ->
+    /** Mailbox ids feeding the current view: one folder, or all inboxes when unified. */
+    private val mailboxIds: Flow<List<String>> = selection.flatMapLatest { sel ->
+        when (sel) {
+            is Sel.Folder -> flowOf(listOfNotNull(sel.id))
+            Sel.Unified -> unifiedInboxIds
+        }
+    }
+
+    /** The browse list, paged from Room — only a few pages are held in memory. */
+    val pagedEmails: Flow<PagingData<Email>> =
+        combine(mailboxIds, settings.sortOrder, unreadOnly) { ids, sort, unread ->
+            Triple(ids, sort, unread)
+        }.flatMapLatest { (ids, sort, unread) ->
+            repo.pagedMailbox(ids, sort, unread)
+        }.cachedIn(viewModelScope)
+
+    private val baseState = combine(mailboxes, selection, meta, status) { mailboxes, sel, meta, status ->
         Base(
-            emails = emails,
             mailboxes = mailboxes,
             selectedMailboxId = (sel as? Sel.Folder)?.id,
             unified = sel is Sel.Unified,
@@ -149,22 +160,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     val state: StateFlow<MailUi> = combine(baseState, searchState, settings.sortOrder, unreadOnly) { base, search, sortOrder, unreadOnly ->
-        var list = if (search.active && search.query.isNotBlank()) {
-            search.results ?: base.emails.filter { it.matches(search.query) }
-        } else {
-            base.emails
-        }
-        if (unreadOnly) list = list.filter { !it.isSeen }
-        list = sortEmails(list, sortOrder)
-        // Favourited (flagged) messages always pin to the top; stable sort keeps the chosen order otherwise.
-        list = list.sortedByDescending { it.isFlagged }
         MailUi(
             accountName = base.accountName,
             mailboxName = base.mailboxName,
             unreadCount = base.unread,
             selectedMailboxId = base.selectedMailboxId,
             unified = base.unified,
-            emails = list,
+            searchResults = search.results.orEmpty(),
             mailboxes = base.mailboxes,
             refreshing = base.refreshing,
             error = base.error,
@@ -178,9 +180,14 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = MailUi(
-            meta.value.accountName, meta.value.mailboxName, meta.value.unread,
-            (selection.value as? Sel.Folder)?.id, selection.value is Sel.Unified,
-            emptyList(), emptyList(), refreshing = true, error = null,
+            accountName = meta.value.accountName,
+            mailboxName = meta.value.mailboxName,
+            unreadCount = meta.value.unread,
+            selectedMailboxId = (selection.value as? Sel.Folder)?.id,
+            unified = selection.value is Sel.Unified,
+            mailboxes = emptyList(),
+            refreshing = true,
+            error = null,
         ),
     )
 
@@ -304,6 +311,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private fun credentialsFor(email: Email): AccountCredentials? =
         email.accountId?.let { store.credentials(it) } ?: store.load()
 
+    /** Mailbox ids backing the current view (one folder, or all inboxes when unified). */
+    private fun currentMailboxIds(): List<String> = when (val sel = selection.value) {
+        is Sel.Folder -> listOfNotNull(sel.id)
+        Sel.Unified -> unifiedInboxIds.value
+    }
+
     // ---- sort / filter / bulk ----
 
     fun setSortOrder(order: SortOrder) {
@@ -314,10 +327,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         unreadOnly.value = !unreadOnly.value
     }
 
-    /** Mark every message currently shown as read. */
+    /** Mark every message in the current view as read. */
     fun markAllRead() {
-        val unread = state.value.emails.filter { !it.isSeen }
         viewModelScope.launch {
+            val unread = repo.cachedEmailsForMailboxes(currentMailboxIds()).filter { !it.isSeen }
             unread.forEach { email ->
                 val credentials = credentialsFor(email) ?: return@forEach
                 runCatching { repo.setRead(credentials, email.id, true) }
@@ -340,7 +353,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectAll() {
         _selectionActive.value = true
-        _selectedIds.value = state.value.emails.map { it.id }.toSet()
+        viewModelScope.launch {
+            _selectedIds.value = repo.cachedIds(currentMailboxIds()).toSet()
+        }
     }
 
     fun clearSelection() {
@@ -350,10 +365,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Apply a bulk action to the selected messages, then exit selection mode. */
     private fun bulk(op: suspend (AccountCredentials, String) -> Unit) {
-        val selected = state.value.emails.filter { it.id in _selectedIds.value }
+        val ids = _selectedIds.value
         clearSelection()
         viewModelScope.launch {
-            selected.forEach { email ->
+            repo.cachedEmailsByIds(ids).forEach { email ->
                 val credentials = credentialsFor(email) ?: return@forEach
                 runCatching { op(credentials, email.id) }
             }
@@ -379,12 +394,20 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
         searchState.value = searchState.value.copy(query = query, loading = true)
         searchJob = viewModelScope.launch {
+            // Instant feedback from the local cache while the server search runs.
+            val local = runCatching { repo.searchCache(currentMailboxIds(), query) }.getOrNull()
+            if (searchState.value.query == query && local != null) {
+                searchState.value = searchState.value.copy(results = local)
+            }
             delay(SEARCH_DEBOUNCE_MS)
             val credentials = store.load()
             val results = credentials?.let { runCatching { repo.search(it, query) }.getOrNull() }
             // Ignore if the query changed while we were searching.
             if (searchState.value.query == query) {
-                searchState.value = searchState.value.copy(results = results, loading = false)
+                searchState.value = searchState.value.copy(
+                    results = results ?: searchState.value.results,
+                    loading = false,
+                )
             }
         }
     }
@@ -399,22 +422,3 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
-/** Order a list of emails by the chosen [SortOrder] (stable; the cache is already date-desc). */
-private fun sortEmails(list: List<Email>, order: SortOrder): List<Email> = when (order) {
-    SortOrder.DATE_DESC -> list.sortedByDescending { it.receivedAt ?: "" }
-    SortOrder.DATE_ASC -> list.sortedBy { it.receivedAt ?: "" }
-    SortOrder.SUBJECT -> list.sortedBy { (it.subject ?: "").lowercase().trim() }
-    SortOrder.SENDER -> list.sortedBy { (it.from.firstOrNull()?.display() ?: "").lowercase().trim() }
-    SortOrder.UNREAD_FIRST -> list.sortedByDescending { !it.isSeen }
-}
-
-/** Local match for instant filtering while the server search is in flight. */
-private fun Email.matches(query: String): Boolean {
-    val q = query.trim()
-    if (q.isEmpty()) return true
-    val sender = from.firstOrNull()
-    return subject?.contains(q, ignoreCase = true) == true ||
-        preview?.contains(q, ignoreCase = true) == true ||
-        sender?.name?.contains(q, ignoreCase = true) == true ||
-        sender?.email?.contains(q, ignoreCase = true) == true
-}

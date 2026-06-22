@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import androidx.compose.foundation.shape.CircleShape
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
@@ -115,6 +118,7 @@ fun InboxScreen(
     viewModel: InboxViewModel = viewModel(),
 ) {
     val ui by viewModel.state.collectAsStateWithLifecycle()
+    val pagedEmails = viewModel.pagedEmails.collectAsLazyPagingItems()
     val swipe by viewModel.swipeConfig.collectAsStateWithLifecycle()
     val selectionActive by viewModel.selectionActive.collectAsStateWithLifecycle()
     val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
@@ -364,44 +368,69 @@ fun InboxScreen(
                 )
             },
         ) { padding ->
+            // One row renderer, shared by the search list and the paged browse list.
+            // Takes the row modifier so the caller can pass `animateItem()` from its
+            // own LazyItemScope.
+            val emailRow: @Composable (Email, Modifier) -> Unit = { email, rowModifier ->
+                val accountLabel = if (ui.unified) {
+                    accounts.firstOrNull { it.id == email.accountId }?.label()
+                } else {
+                    null
+                }
+                SwipeableEmailRow(
+                    email = email,
+                    accountLabel = accountLabel,
+                    rightAction = swipe.right,
+                    leftAction = swipe.left,
+                    onSwipe = { action -> performSwipe(action, email, viewModel) },
+                    onClick = {
+                        if (selectionActive) viewModel.toggleSelect(email.id)
+                        else onOpenEmail(email.id, email.accountId)
+                    },
+                    onLongClick = { viewModel.enterSelection(email.id) },
+                    onToggleFavourite = {
+                        val favouriting = !email.isFlagged
+                        viewModel.toggleFlag(email)
+                        // Favourites pin to the top — scroll there so it's visibly landing.
+                        if (favouriting) scope.launch { listState.animateScrollToItem(0) }
+                    },
+                    selected = email.id in selectedIds,
+                    gesturesEnabled = !selectionActive,
+                    modifier = rowModifier,
+                )
+                HorizontalDivider()
+            }
+
             PullToRefreshBox(
                 isRefreshing = ui.refreshing,
                 onRefresh = viewModel::refresh,
                 modifier = Modifier.fillMaxSize().padding(padding),
             ) {
+                val searchActive = ui.searching && ui.searchQuery.isNotBlank()
+                val refreshLoading = pagedEmails.loadState.refresh is LoadState.Loading
                 when {
-                    ui.emails.isNotEmpty() -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                        items(ui.emails, key = { it.id }) { email ->
-                            val accountLabel = if (ui.unified) {
-                                accounts.firstOrNull { it.id == email.accountId }?.label()
-                            } else {
-                                null
+                    searchActive -> when {
+                        ui.searchResults.isNotEmpty() ->
+                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                                items(ui.searchResults, key = { it.id }) { email ->
+                                    emailRow(email, Modifier.animateItem())
+                                }
                             }
-                            SwipeableEmailRow(
-                                email = email,
-                                accountLabel = accountLabel,
-                                rightAction = swipe.right,
-                                leftAction = swipe.left,
-                                onSwipe = { action -> performSwipe(action, email, viewModel) },
-                                onClick = {
-                                    if (selectionActive) viewModel.toggleSelect(email.id)
-                                    else onOpenEmail(email.id, email.accountId)
-                                },
-                                onLongClick = { viewModel.enterSelection(email.id) },
-                                onToggleFavourite = {
-                                    val favouriting = !email.isFlagged
-                                    viewModel.toggleFlag(email)
-                                    // Favourites pin to the top — scroll there so it's visibly landing, not "vanishing".
-                                    if (favouriting) scope.launch { listState.animateScrollToItem(0) }
-                                },
-                                selected = email.id in selectedIds,
-                                gesturesEnabled = !selectionActive,
-                                modifier = Modifier.animateItem(),
-                            )
-                            HorizontalDivider()
-                        }
+                        ui.searchLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                        else -> Text("No results", Modifier.align(Alignment.Center))
                     }
-                    ui.refreshing -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    pagedEmails.itemCount > 0 ->
+                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                            items(
+                                count = pagedEmails.itemCount,
+                                key = pagedEmails.itemKey { it.id },
+                            ) { index ->
+                                pagedEmails[index]?.let { email ->
+                                    emailRow(email, Modifier.animateItem())
+                                }
+                            }
+                        }
+                    ui.refreshing || refreshLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                     ui.error != null -> Column(
                         modifier = Modifier.align(Alignment.Center).padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,

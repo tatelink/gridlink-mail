@@ -1,8 +1,14 @@
 package app.jmail.core.data.mail
 
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
+import androidx.sqlite.db.SimpleSQLiteQuery
 import app.jmail.core.data.account.AccountCredentials
 import app.jmail.core.data.db.EmailDao
 import app.jmail.core.data.db.MailboxDao
+import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.jmap.BasicAuth
 import app.jmail.core.jmap.Jmap
 import app.jmail.core.jmap.JmapAuth
@@ -13,11 +19,35 @@ import app.jmail.core.jmap.model.EmailBodyPart
 import app.jmail.core.jmap.model.Mailbox
 import app.jmail.core.jmap.model.JmapSession
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import java.io.Closeable
 
 /** Cap on changes to apply incrementally before falling back to a full query. */
 private const val MAX_CHANGES = 50
+
+/** Page size for the cached email list (rows loaded per scroll step). */
+private const val PAGE_SIZE = 50
+
+/**
+ * Build the dynamic ORDER BY / WHERE for the paged list. Favourites (flagged)
+ * always pin to the top, then the chosen [sort]; [unreadOnly] adds a seen filter.
+ * Mailbox ids are bound as parameters; the sort expression is a fixed whitelist
+ * (never user input), so it is safe to inline.
+ */
+private fun pagingQuery(mailboxIds: List<String>, sort: SortOrder, unreadOnly: Boolean): SimpleSQLiteQuery {
+    val placeholders = mailboxIds.joinToString(",") { "?" }
+    val seenFilter = if (unreadOnly) " AND seen = 0" else ""
+    val orderBy = "flagged DESC, " + when (sort) {
+        SortOrder.DATE_DESC -> "sortKey DESC"
+        SortOrder.DATE_ASC -> "sortKey ASC"
+        SortOrder.SUBJECT -> "LOWER(TRIM(subject)) ASC"
+        SortOrder.SENDER -> "LOWER(TRIM(COALESCE(fromName, fromEmail))) ASC"
+        SortOrder.UNREAD_FIRST -> "seen ASC, sortKey DESC"
+    }
+    val sql = "SELECT * FROM emails WHERE mailboxId IN ($placeholders)$seenFilter ORDER BY $orderBy"
+    return SimpleSQLiteQuery(sql, mailboxIds.toTypedArray())
+}
 
 /** Metadata about the selected mailbox after a refresh. */
 data class MailboxMeta(
@@ -120,6 +150,39 @@ class MailRepository(
     /** Cached emails merged across several inboxes (the unified inbox), newest first. */
     fun observeUnifiedInbox(mailboxIds: List<String>): Flow<List<Email>> =
         emailDao.observeByMailboxes(mailboxIds).map { rows -> rows.map { it.toEmail() } }
+
+    /**
+     * Paged list of cached emails for [mailboxIds] (one folder, or several for the
+     * unified inbox), sorted server-side-style in SQL: favourites pinned, then the
+     * chosen [sort]; [unreadOnly] filters to unseen. Only a few pages are held in
+     * memory at once, so very large folders no longer load (or freeze) all at once.
+     */
+    fun pagedMailbox(mailboxIds: List<String>, sort: SortOrder, unreadOnly: Boolean): Flow<PagingData<Email>> {
+        if (mailboxIds.isEmpty()) return flowOf(PagingData.empty())
+        return Pager(
+            config = PagingConfig(pageSize = PAGE_SIZE, initialLoadSize = PAGE_SIZE, enablePlaceholders = false),
+            pagingSourceFactory = { emailDao.pagingSource(pagingQuery(mailboxIds, sort, unreadOnly)) },
+        ).flow.map { data -> data.map { it.toEmail() } }
+    }
+
+    /** All cached ids for the given mailboxes (drives "select all"). */
+    suspend fun cachedIds(mailboxIds: List<String>): List<String> =
+        if (mailboxIds.isEmpty()) emptyList() else emailDao.idsForMailboxes(mailboxIds)
+
+    /** All cached emails for the given mailboxes (drives "mark all read"). */
+    suspend fun cachedEmailsForMailboxes(mailboxIds: List<String>): List<Email> =
+        if (mailboxIds.isEmpty()) emptyList() else emailDao.emailsForMailboxes(mailboxIds).map { it.toEmail() }
+
+    /** Cached emails by id (drives bulk actions on a selection). */
+    suspend fun cachedEmailsByIds(ids: Collection<String>): List<Email> =
+        if (ids.isEmpty()) emptyList() else emailDao.emailsByIds(ids.toList()).map { it.toEmail() }
+
+    /** Instant local search over the cache (used before the server search returns). */
+    suspend fun searchCache(mailboxIds: List<String>, query: String): List<Email> {
+        if (mailboxIds.isEmpty() || query.isBlank()) return emptyList()
+        val like = "%${query.trim()}%"
+        return emailDao.searchCache(mailboxIds, like).map { it.toEmail() }
+    }
 
     /**
      * Refresh every account's inbox into the cache (each email tagged with its
