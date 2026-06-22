@@ -72,7 +72,8 @@ fun EmailListItem(
                 Text(
                     text = senderName,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = if (unread) FontWeight.Medium else FontWeight.Normal,
+                    // Unread is shown by weight (bold) rather than a status dot.
+                    fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -81,19 +82,14 @@ fun EmailListItem(
                 Text(
                     text = formatReceived(email.receivedAt),
                     style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (unread) {
-                    Spacer(Modifier.width(8.dp))
-                    Box(
-                        Modifier.size(8.dp).clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                    )
-                }
             }
             Text(
                 text = email.subject?.takeIf { it.isNotBlank() } ?: "(no subject)",
                 style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
