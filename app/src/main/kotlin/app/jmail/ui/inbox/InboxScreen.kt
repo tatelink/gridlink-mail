@@ -434,6 +434,35 @@ fun InboxScreen(
                                 // is what made fast scrolling stutter.
                                 pagedEmails[index]?.let { email -> emailRow(email, Modifier) }
                             }
+                            // Footer: server fetch-on-scroll (RemoteMediator) progress/errors.
+                            when (pagedEmails.loadState.append) {
+                                is LoadState.Loading -> item(key = "append-loading") {
+                                    Box(
+                                        Modifier.fillMaxWidth().padding(16.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        CircularProgressIndicator(
+                                            Modifier.size(28.dp),
+                                            strokeWidth = 2.dp,
+                                        )
+                                    }
+                                }
+                                is LoadState.Error -> item(key = "append-error") {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(16.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            "Couldn't load more",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Spacer(Modifier.width(12.dp))
+                                        Button(onClick = { pagedEmails.retry() }) { Text("Retry") }
+                                    }
+                                }
+                                else -> Unit
+                            }
                         }
                     ui.refreshing || refreshLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                     ui.error != null -> Column(
