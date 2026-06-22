@@ -1,7 +1,10 @@
 package app.jmail.ui.inbox
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -55,9 +59,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -70,6 +71,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -82,8 +84,12 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -92,6 +98,9 @@ import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.jmap.model.Email
 import app.jmail.ui.components.EmailListItem
 import app.jmail.ui.components.Monogram
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -423,56 +432,114 @@ private fun SwipeableEmailRow(
     gesturesEnabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        // Require a deliberate ~half-width swipe so an accidental drag while scrolling doesn't fire.
-        positionalThreshold = { distance -> distance * 0.5f },
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    if (rightAction != SwipeAction.NONE) onSwipe(rightAction)
-                    dismissesRow(rightAction)
+    val offsetX = remember { Animatable(0f) }
+    var rowWidth by remember { mutableIntStateOf(0) }
+
+    Box(
+        modifier = modifier
+            .onSizeChanged { rowWidth = it.width }
+            .pointerInput(gesturesEnabled, rightAction, leftAction) {
+                if (!gesturesEnabled) return@pointerInput
+                val slop = viewConfiguration.touchSlop
+                val minOffset = if (leftAction == SwipeAction.NONE) 0f else -rowWidth.toFloat()
+                val maxOffset = if (rightAction == SwipeAction.NONE) 0f else rowWidth.toFloat()
+                coroutineScope {
+                    while (true) {
+                        val pointerId = awaitPointerEventScope {
+                            awaitFirstDown(requireUnconsumed = false).id
+                        }
+                        // Direction-lock: only treat this as a swipe once it is clearly
+                        // more horizontal than vertical, otherwise leave the gesture to
+                        // the list's vertical scroll. This stops accidental swipes when
+                        // the finger drifts sideways during a scroll.
+                        val horizontal = awaitPointerEventScope {
+                            var dx = 0f
+                            var dy = 0f
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == pointerId }
+                                if (change == null || !change.pressed) return@awaitPointerEventScope false
+                                dx += change.positionChange().x
+                                dy += change.positionChange().y
+                                if (abs(dy) > slop && abs(dy) >= abs(dx)) {
+                                    return@awaitPointerEventScope false
+                                }
+                                if (abs(dx) > slop * SWIPE_SLOP_FACTOR && abs(dx) > abs(dy)) {
+                                    change.consume()
+                                    return@awaitPointerEventScope true
+                                }
+                            }
+                            @Suppress("UNREACHABLE_CODE") false
+                        }
+                        if (!horizontal) continue
+
+                        offsetX.stop()
+                        awaitPointerEventScope {
+                            horizontalDrag(pointerId) { change ->
+                                val target = (offsetX.value + change.positionChange().x)
+                                    .coerceIn(minOffset, maxOffset)
+                                launch { offsetX.snapTo(target) }
+                                change.consume()
+                            }
+                        }
+
+                        val width = rowWidth.toFloat().coerceAtLeast(1f)
+                        val fraction = offsetX.value / width
+                        when {
+                            fraction >= SWIPE_COMMIT_FRACTION && rightAction != SwipeAction.NONE -> {
+                                onSwipe(rightAction)
+                                launch {
+                                    offsetX.animateTo(if (dismissesRow(rightAction)) width else 0f)
+                                }
+                            }
+                            -fraction >= SWIPE_COMMIT_FRACTION && leftAction != SwipeAction.NONE -> {
+                                onSwipe(leftAction)
+                                launch {
+                                    offsetX.animateTo(if (dismissesRow(leftAction)) -width else 0f)
+                                }
+                            }
+                            else -> launch { offsetX.animateTo(0f) }
+                        }
+                    }
                 }
-                SwipeToDismissBoxValue.EndToStart -> {
-                    if (leftAction != SwipeAction.NONE) onSwipe(leftAction)
-                    dismissesRow(leftAction)
-                }
-                SwipeToDismissBoxValue.Settled -> false
-            }
-        },
-    )
-    SwipeToDismissBox(
-        state = dismissState,
-        modifier = modifier,
-        gesturesEnabled = gesturesEnabled,
-        backgroundContent = {
-            val toStart = dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
-            val action = if (toStart) leftAction else rightAction
+            },
+    ) {
+        val draggingRight = offsetX.value > 0f
+        val action = if (draggingRight) rightAction else leftAction
+        if (offsetX.value != 0f && action != SwipeAction.NONE) {
             val destructive = action == SwipeAction.DELETE
             val color = if (destructive) MaterialTheme.colorScheme.errorContainer
             else MaterialTheme.colorScheme.secondaryContainer
             val onColor = if (destructive) MaterialTheme.colorScheme.onErrorContainer
             else MaterialTheme.colorScheme.onSecondaryContainer
             Box(
-                Modifier.fillMaxSize().background(color).padding(horizontal = 24.dp),
-                contentAlignment = if (toStart) Alignment.CenterEnd else Alignment.CenterStart,
+                Modifier.matchParentSize().background(color).padding(horizontal = 24.dp),
+                contentAlignment = if (draggingRight) Alignment.CenterStart else Alignment.CenterEnd,
             ) {
                 val label = swipeActionLabel(action, email)
                 if (label.isNotEmpty()) {
                     Text(label, color = onColor, style = MaterialTheme.typography.labelLarge)
                 }
             }
-        },
-    ) {
-        EmailListItem(
-            email = email,
-            onClick = onClick,
-            accountLabel = accountLabel,
-            onToggleFavourite = onToggleFavourite,
-            selected = selected,
-            onLongClick = onLongClick,
-        )
+        }
+        Box(modifier = Modifier.offset { IntOffset(offsetX.value.roundToInt(), 0) }) {
+            EmailListItem(
+                email = email,
+                onClick = onClick,
+                accountLabel = accountLabel,
+                onToggleFavourite = onToggleFavourite,
+                selected = selected,
+                onLongClick = onLongClick,
+            )
+        }
     }
 }
+
+/** Horizontal travel must exceed touch-slop × this before a swipe locks in. */
+private const val SWIPE_SLOP_FACTOR = 1.5f
+
+/** Fraction of the row width a swipe must reach to commit its action. */
+private const val SWIPE_COMMIT_FRACTION = 0.4f
 
 /** Whether a swipe action removes the row from the list (vs. snapping back). */
 private fun dismissesRow(action: SwipeAction): Boolean =
