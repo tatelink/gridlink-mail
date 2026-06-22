@@ -148,6 +148,15 @@ class AccountStore(context: Context) {
     fun signature(accountId: String?): String =
         (accountId?.let { account(it) } ?: currentAccount())?.signature.orEmpty()
 
+    /** Sending identities for an account (null id = current); never empty (has a default). */
+    fun identities(accountId: String?): List<StoredIdentity> =
+        (accountId?.let { account(it) } ?: currentAccount())?.resolvedIdentities() ?: emptyList()
+
+    /** Persist the identity list for an account. */
+    fun setIdentities(accountId: String, identities: List<StoredIdentity>) {
+        saveAccounts(accounts().map { if (it.id == accountId) it.copy(identities = identities) else it })
+    }
+
     /** The per-account sync window (defaults to 90 days for unknown ids). */
     fun syncWindow(id: String): SyncWindow = account(id)?.syncWindow ?: SyncWindow.DAYS_90
 

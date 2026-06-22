@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
@@ -41,6 +43,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,6 +61,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import app.jmail.core.data.account.ConnectionSecurity
 import app.jmail.core.data.account.MailProtocol
+import app.jmail.core.data.account.StoredIdentity
 import app.jmail.core.data.account.SyncWindow
 import app.jmail.core.data.settings.ListDensity
 import app.jmail.core.data.settings.PreviewLines
@@ -492,7 +496,7 @@ private fun AccountDetailScreen(
     var username by remember(accountId) { mutableStateOf(account.username) }
     var password by remember(accountId) { mutableStateOf("") }
     var saved by remember(accountId) { mutableStateOf(false) }
-    var signature by remember(accountId) { mutableStateOf(account.signature) }
+    var identities by remember(accountId) { mutableStateOf(account.resolvedIdentities()) }
     var syncWindow by remember(accountId) { mutableStateOf(account.syncWindow) }
     var imapHost by remember(accountId) { mutableStateOf(account.imapHost) }
     var imapPort by remember(accountId) { mutableStateOf(account.imapPort.toString()) }
@@ -590,31 +594,83 @@ private fun AccountDetailScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
-            SettingsSection("Signature") {
-                OutlinedTextField(
-                    value = signature,
-                    onValueChange = { signature = it; saved = false },
-                    label = { Text("Appended when composing (plain text or HTML)") },
-                    minLines = 3,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+            SettingsSection("Identities") {
+                Text(
+                    "Each identity is a \"from\" name + address with its own signature. " +
+                        "Pick one when composing.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 val context = LocalContext.current
+                var importTarget by remember(accountId) { mutableIntStateOf(-1) }
                 val importLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.GetContent(),
                 ) { uri ->
-                    if (uri != null) {
+                    if (uri != null && importTarget in identities.indices) {
                         runCatching {
                             context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
-                        }.getOrNull()?.let { signature = it; saved = false }
+                        }.getOrNull()?.let { html ->
+                            identities = identities.mapIndexed { i, id -> if (i == importTarget) id.copy(signature = html) else id }
+                            saved = false
+                        }
+                    }
+                }
+                identities.forEachIndexed { index, identity ->
+                    fun update(transform: (StoredIdentity) -> StoredIdentity) {
+                        identities = identities.mapIndexed { i, id -> if (i == index) transform(id) else id }
+                        saved = false
+                    }
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        OutlinedTextField(
+                            value = identity.name,
+                            onValueChange = { v -> update { it.copy(name = v) } },
+                            label = { Text("Display name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = identity.email,
+                            onValueChange = { v -> update { it.copy(email = v) } },
+                            label = { Text("Email address") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        )
+                        OutlinedTextField(
+                            value = identity.signature,
+                            onValueChange = { v -> update { it.copy(signature = v) } },
+                            label = { Text("Signature (plain text or HTML)") },
+                            minLines = 2,
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedButton(onClick = { importTarget = index; importLauncher.launch("text/html") }) {
+                                Text("Import HTML")
+                            }
+                            if (identities.size > 1) {
+                                Spacer(Modifier.width(8.dp))
+                                TextButton(onClick = {
+                                    identities = identities.filterIndexed { i, _ -> i != index }
+                                    saved = false
+                                }) {
+                                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                        HorizontalDivider(Modifier.padding(top = 8.dp))
                     }
                 }
                 OutlinedButton(
-                    onClick = { importLauncher.launch("text/html") },
+                    onClick = {
+                        identities = identities + StoredIdentity(
+                            id = java.util.UUID.randomUUID().toString(), name = "", email = "", signature = "",
+                        )
+                        saved = false
+                    },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 ) {
-                    Text("Import HTML file")
+                    Text("Add identity")
                 }
             }
             SettingsSection("Sync") {
@@ -645,14 +701,23 @@ private fun AccountDetailScreen(
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
+                        // Keep blank identities out, and mirror the first signature to the
+                        // legacy account-level field for any back-compat readers.
+                        val cleanIdentities = identities.filter { it.email.isNotBlank() }
                         if (isImap) {
                             viewModel.save(
-                                accountId, accountName, server, username, password, signature = signature,
+                                accountId, accountName, server, username, password,
+                                signature = cleanIdentities.firstOrNull()?.signature ?: "",
+                                identities = cleanIdentities,
                                 imapHost = imapHost, imapPort = imapPort.toIntOrNull(), imapSecurity = imapSecurity,
                                 smtpHost = smtpHost, smtpPort = smtpPort.toIntOrNull(), smtpSecurity = smtpSecurity,
                             )
                         } else {
-                            viewModel.save(accountId, accountName, server, username, password, signature = signature)
+                            viewModel.save(
+                                accountId, accountName, server, username, password,
+                                signature = cleanIdentities.firstOrNull()?.signature ?: "",
+                                identities = cleanIdentities,
+                            )
                         }
                         password = ""
                         saved = true

@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import app.jmail.container
 import app.jmail.core.data.account.AccountCredentials
 import app.jmail.core.data.account.MailProtocol
+import app.jmail.core.data.account.StoredIdentity
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailBodyPart
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,21 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     private val _attachmentStatus = MutableStateFlow<String?>(null)
     val attachmentStatus: StateFlow<String?> = _attachmentStatus.asStateFlow()
+
+    /** Sending identities to choose "From" from, and the selected one. */
+    private val _identities = MutableStateFlow<List<StoredIdentity>>(emptyList())
+    val identities: StateFlow<List<StoredIdentity>> = _identities.asStateFlow()
+    private val _selectedIdentityId = MutableStateFlow<String?>(null)
+    val selectedIdentityId: StateFlow<String?> = _selectedIdentityId.asStateFlow()
+
+    fun selectIdentity(id: String) {
+        _selectedIdentityId.value = id
+    }
+
+    private fun selectedIdentity(): StoredIdentity? {
+        val list = _identities.value
+        return list.firstOrNull { it.id == _selectedIdentityId.value } ?: list.firstOrNull()
+    }
 
     private var prepared = false
     // Threading headers for a reply (empty for new/forward).
@@ -104,6 +120,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         if (prepared) return
         prepared = true
         this.accountId = accountId
+        val identityList = store.identities(accountId)
+        _identities.value = identityList
+        _selectedIdentityId.value = identityList.firstOrNull()?.id
         if (replyToId == null) return
         viewModelScope.launch {
             try {
@@ -122,9 +141,12 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     fun send(to: String, subject: String, body: String) =
         submit(to) { credentials, recipients ->
-            val signature = store.signature(credentials.id)
-            val (textBody, htmlBody) = bodiesWithSignature(body, signature)
-            repo.send(credentials, recipients, subject, textBody, inReplyTo, references, _attachments.value, htmlBody)
+            val identity = selectedIdentity()
+            val (textBody, htmlBody) = bodiesWithSignature(body, identity?.signature.orEmpty())
+            repo.send(
+                credentials, recipients, subject, textBody, inReplyTo, references,
+                _attachments.value, htmlBody, identity?.name, identity?.email,
+            )
         }
 
     /**

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.jmail.container
 import app.jmail.core.data.account.ConnectionSecurity
 import app.jmail.core.data.account.StoredAccount
+import app.jmail.core.data.account.StoredIdentity
 import app.jmail.core.data.account.SyncWindow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,6 +70,7 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         username: String,
         password: String,
         signature: String? = null,
+        identities: List<StoredIdentity>? = null,
         imapHost: String? = null,
         imapPort: Int? = null,
         imapSecurity: ConnectionSecurity? = null,
@@ -81,6 +83,7 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
             imapHost = imapHost, imapPort = imapPort, imapSecurity = imapSecurity,
             smtpHost = smtpHost, smtpPort = smtpPort, smtpSecurity = smtpSecurity,
         )
+        if (identities != null) store.setIdentities(id, identities)
         if (password.isNotBlank()) store.updatePassword(id, password)
         refresh()
     }

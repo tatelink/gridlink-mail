@@ -13,8 +13,10 @@ data class StoredAccount(
     val inboxName: String = "Inbox",
     val unread: Int = 0,
     val syncWindow: SyncWindow = SyncWindow.DAYS_90,
-    /** Optional signature appended when composing from this account. */
+    /** Legacy account-level signature; seeds the default identity when none are set. */
     val signature: String = "",
+    /** Sending identities; empty means use a default derived from the account. */
+    val identities: List<StoredIdentity> = emptyList(),
     val protocol: MailProtocol = MailProtocol.JMAP,
     // IMAP/SMTP connection details (used only when protocol == IMAP).
     val imapHost: String = "",
@@ -26,4 +28,12 @@ data class StoredAccount(
 ) {
     /** Best label for the account in UI. */
     fun label(): String = accountName.ifBlank { username }
+
+    /**
+     * Identities to send as. Falls back to a single default derived from the
+     * account (its name/address and legacy signature) when none are configured.
+     */
+    fun resolvedIdentities(): List<StoredIdentity> = identities.ifEmpty {
+        listOf(StoredIdentity(id = "default", name = accountName, email = username, signature = signature))
+    }
 }

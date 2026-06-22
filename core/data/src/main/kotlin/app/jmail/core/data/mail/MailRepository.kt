@@ -616,8 +616,10 @@ class MailRepository(
         inReplyTo: List<String> = emptyList(),
         references: List<String> = emptyList(),
         html: String? = null,
+        fromName: String? = null,
+        fromEmail: String? = null,
     ): OutgoingMessage = OutgoingMessage(
-        from = credentials.username,
+        from = formatFrom(fromName, fromEmail) ?: credentials.username,
         to = recipients,
         subject = subject,
         body = body,
@@ -627,6 +629,12 @@ class MailRepository(
         messageId = "${java.util.UUID.randomUUID()}@${credentials.username.substringAfter('@', "localhost")}",
         dateMillis = System.currentTimeMillis(),
     )
+
+    private fun formatFrom(name: String?, email: String?): String? = when {
+        email.isNullOrBlank() -> null
+        name.isNullOrBlank() -> email
+        else -> "$name <$email>"
+    }
 
     suspend fun saveDraft(credentials: AccountCredentials, to: List<String>, subject: String, body: String) {
         if (credentials.protocol == MailProtocol.IMAP) {
@@ -663,6 +671,8 @@ class MailRepository(
         references: List<String> = emptyList(),
         attachments: List<EmailBodyPart> = emptyList(),
         htmlBody: String? = null,
+        fromName: String? = null,
+        fromEmail: String? = null,
     ) {
         if (credentials.protocol == MailProtocol.IMAP) {
             val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
@@ -673,7 +683,7 @@ class MailRepository(
                 val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull() ?: return@mapNotNull null
                 OutgoingAttachment(part.name ?: "attachment", part.type ?: "application/octet-stream", bytes)
             }
-            val message = outgoing(credentials, recipients, subject, body, inReplyTo, references, htmlBody)
+            val message = outgoing(credentials, recipients, subject, body, inReplyTo, references, htmlBody, fromName, fromEmail)
                 .copy(attachments = outAttachments)
             imap.send(credentials, message, mailboxDao.idForRole("sent"))
             attachments.forEach { it.partId?.let { p -> runCatching { java.io.File(p).delete() } } }
@@ -683,8 +693,14 @@ class MailRepository(
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
         require(recipients.isNotEmpty()) { "Add at least one recipient." }
 
-        val identity = client.getIdentities(ctx.session, ctx.accountId, ctx.auth).firstOrNull()
+        val serverIdentities = client.getIdentities(ctx.session, ctx.accountId, ctx.auth)
+        // Use the server identity matching the chosen address (so submission is authorised);
+        // fall back to the first. The displayed From still reflects the chosen identity.
+        val identity = fromEmail?.let { email -> serverIdentities.firstOrNull { it.email.equals(email, true) } }
+            ?: serverIdentities.firstOrNull()
             ?: error("This account has no sending identity.")
+        val from = if (!fromEmail.isNullOrBlank()) EmailAddress(name = fromName, email = fromEmail)
+        else EmailAddress(name = identity.name, email = identity.email)
         val draftsId = ctx.rolesToMailboxId["drafts"]
             ?: ctx.rolesToMailboxId["sent"]
             ?: error("This account has no Drafts or Sent folder.")
@@ -695,7 +711,7 @@ class MailRepository(
             accountId = ctx.accountId,
             auth = ctx.auth,
             identityId = identity.id,
-            from = EmailAddress(name = identity.name, email = identity.email),
+            from = from,
             to = recipients,
             subject = subject,
             textBody = body,
