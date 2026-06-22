@@ -21,12 +21,12 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 
 The categories further down list the full feature set; this is the order of work.
 
-**Tier 1 — close functional holes** *(in progress)*
+**Tier 1 — close functional holes** *(done)*
 - ✅ IMAP push (IDLE) — IMAP accounts now get new-mail notifications like JMAP
 - ✅ Folder management (create / rename / delete)
 - ✅ Report spam / not-spam (move to/from Junk)
 
-**Tier 2 — modern compose & send**
+**Tier 2 — modern compose & send** *(in progress)*
 - 💡 Rich-text editor (plus plain-text mode)
 - ✅ Undo send (hold-back window); 💡 full Outbox + retry
 - ✅ Schedule send (quick presets; persisted + fired by WorkManager, survives app close)
