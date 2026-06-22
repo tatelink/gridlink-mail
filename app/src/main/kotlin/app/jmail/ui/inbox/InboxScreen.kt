@@ -91,6 +91,7 @@ import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.jmap.model.Email
 import app.jmail.ui.components.EmailListItem
+import app.jmail.ui.components.Monogram
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -144,11 +145,17 @@ fun InboxScreen(
             ModalDrawerSheet {
                 val currentLabel = accounts.firstOrNull { it.id == currentAccountId }?.label()
                     ?: ui.accountName.ifBlank { "Jmail" }
-                Text(
-                    text = currentLabel,
-                    style = MaterialTheme.typography.titleMedium,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.padding(16.dp),
-                )
+                ) {
+                    Monogram(seed = currentLabel, label = currentLabel)
+                    Text(
+                        text = currentLabel,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
                 accounts.filter { it.id != currentAccountId }.forEach { account ->
                     NavigationDrawerItem(
                         icon = { Icon(Icons.Filled.Person, contentDescription = null) },
