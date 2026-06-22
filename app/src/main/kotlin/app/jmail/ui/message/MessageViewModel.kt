@@ -41,6 +41,10 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val _inlineImages = MutableStateFlow<Map<String, String>>(emptyMap())
     val inlineImages = _inlineImages.asStateFlow()
 
+    /** Whether the opened message is in the Junk folder (drives Report spam ↔ Not spam). */
+    private val _inJunk = MutableStateFlow(false)
+    val inJunk = _inJunk.asStateFlow()
+
     private var loadedId: String? = null
     /** Owning account when opened from the unified inbox; null = current account. */
     private var accountId: String? = null
@@ -57,11 +61,13 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _state.value = MessageState.Loading
         _thread.value = emptyList()
         _inlineImages.value = emptyMap()
+        _inJunk.value = false
         viewModelScope.launch {
             try {
                 val credentials = credentials() ?: error("No saved account.")
                 val email = repo.openEmail(credentials, emailId)
                 _state.value = MessageState.Loaded(email)
+                _inJunk.value = repo.mailboxRole(email.mailboxId) == "junk"
                 loadInlineImages(credentials, email)
                 email.threadId?.let { threadId ->
                     runCatching { repo.threadEmails(credentials, threadId) }
@@ -138,6 +144,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     fun markUnread(onDone: () -> Unit) = act(onDone) { c, id -> repo.setRead(c, id, false) }
     fun archive(onDone: () -> Unit) = act(onDone) { c, id -> repo.archive(c, id) }
     fun delete(onDone: () -> Unit) = act(onDone) { c, id -> repo.delete(c, id) }
+    fun reportSpam(onDone: () -> Unit) = act(onDone) { c, id -> repo.reportSpam(c, id) }
+    fun notSpam(onDone: () -> Unit) = act(onDone) { c, id -> repo.notSpam(c, id) }
 
     private fun act(onDone: () -> Unit, op: suspend (AccountCredentials, String) -> Unit) {
         val id = loadedId ?: return

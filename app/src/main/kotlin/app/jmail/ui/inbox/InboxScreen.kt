@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Email
@@ -63,6 +64,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -106,6 +108,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.jmap.model.Email
+import app.jmail.core.jmap.model.Mailbox
 import app.jmail.ui.components.EmailListItem
 import app.jmail.ui.components.Monogram
 import app.jmail.ui.components.verticalScrollbar
@@ -131,6 +134,9 @@ fun InboxScreen(
     val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
     val selectionAllRead by viewModel.selectionAllRead.collectAsStateWithLifecycle()
     var showMoveSheet by remember { mutableStateOf(false) }
+    var showCreateFolder by remember { mutableStateOf(false) }
+    var folderToRename by remember { mutableStateOf<Mailbox?>(null) }
+    var folderToDelete by remember { mutableStateOf<Mailbox?>(null) }
     val undo by viewModel.undo.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
@@ -173,6 +179,69 @@ fun InboxScreen(
             },
             confirmButton = {},
             dismissButton = { TextButton(onClick = { showMoveSheet = false }) { Text("Cancel") } },
+        )
+    }
+
+    // Create folder.
+    if (showCreateFolder) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showCreateFolder = false },
+            title = { Text("New folder") },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Folder name") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.createFolder(name); showCreateFolder = false },
+                    enabled = name.isNotBlank(),
+                ) { Text("Create") }
+            },
+            dismissButton = { TextButton(onClick = { showCreateFolder = false }) { Text("Cancel") } },
+        )
+    }
+
+    // Rename folder.
+    folderToRename?.let { folder ->
+        var name by remember(folder.id) { mutableStateOf(folder.name) }
+        AlertDialog(
+            onDismissRequest = { folderToRename = null },
+            title = { Text("Rename folder") },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Folder name") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.renameFolder(folder.id, name); folderToRename = null },
+                    enabled = name.isNotBlank(),
+                ) { Text("Rename") }
+            },
+            dismissButton = { TextButton(onClick = { folderToRename = null }) { Text("Cancel") } },
+        )
+    }
+
+    // Delete folder.
+    folderToDelete?.let { folder ->
+        AlertDialog(
+            onDismissRequest = { folderToDelete = null },
+            title = { Text("Delete folder?") },
+            text = { Text("\"${folder.name}\" and its messages will be removed.") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.deleteFolder(folder.id); folderToDelete = null }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { folderToDelete = null }) { Text("Cancel") } },
         )
     }
 
@@ -273,6 +342,29 @@ fun InboxScreen(
                     NavigationDrawerItem(
                         icon = { Icon(folderIcon(mailbox.role), contentDescription = null) },
                         label = { Text(label) },
+                        // Only user-created folders (no special-use role) can be renamed/deleted.
+                        badge = if (mailbox.role == null) {
+                            {
+                                Box {
+                                    var folderMenu by remember { mutableStateOf(false) }
+                                    IconButton(onClick = { folderMenu = true }) {
+                                        Icon(Icons.Filled.MoreVert, contentDescription = "Folder options")
+                                    }
+                                    DropdownMenu(folderMenu, onDismissRequest = { folderMenu = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text("Rename") },
+                                            onClick = { folderMenu = false; folderToRename = mailbox },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Delete") },
+                                            onClick = { folderMenu = false; folderToDelete = mailbox },
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            null
+                        },
                         selected = mailbox.id == ui.selectedMailboxId,
                         onClick = {
                             viewModel.select(mailbox)
@@ -281,6 +373,13 @@ fun InboxScreen(
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                 }
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Filled.CreateNewFolder, contentDescription = null) },
+                    label = { Text("New folder") },
+                    selected = false,
+                    onClick = { showCreateFolder = true },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
                 HorizontalDivider()
                 NavigationDrawerItem(
                     icon = { Icon(Icons.Filled.Settings, contentDescription = null) },

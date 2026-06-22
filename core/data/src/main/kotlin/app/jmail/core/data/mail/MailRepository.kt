@@ -480,6 +480,71 @@ class MailRepository(
         emailDao.deleteById(emailId)
     }
 
+    /** The cached role of a mailbox (e.g. "junk", "inbox"), or null. */
+    suspend fun mailboxRole(mailboxId: String?): String? = mailboxId?.let { mailboxDao.roleForId(it) }
+
+    /** Move a message to the Junk folder (Report spam). */
+    suspend fun reportSpam(credentials: AccountCredentials, emailId: String) {
+        val junk = mailboxDao.idForRole("junk") ?: error("This account has no Junk folder.")
+        moveToMailbox(credentials, emailId, junk)
+    }
+
+    /** Move a message out of Junk back to the Inbox (Not spam). */
+    suspend fun notSpam(credentials: AccountCredentials, emailId: String) {
+        val inbox = mailboxDao.idForRole("inbox") ?: error("This account has no Inbox.")
+        moveToMailbox(credentials, emailId, inbox)
+    }
+
+    // ---- folder management ----
+
+    /** Create a new folder, then refresh the cached folder list. */
+    suspend fun createFolder(credentials: AccountCredentials, name: String) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            imap.createFolder(credentials, name.trim())
+        } else {
+            val ctx = connect(credentials)
+            client.createMailbox(ctx.session, ctx.accountId, name.trim(), role = null, ctx.auth)
+        }
+        refreshMailboxes(credentials)
+    }
+
+    /** Rename a folder (keeping its place in the hierarchy for IMAP), then refresh. */
+    suspend fun renameFolder(credentials: AccountCredentials, mailboxId: String, newName: String) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val delim = if (mailboxId.contains('/')) "/" else if (mailboxId.contains('.')) "." else "/"
+            val parent = mailboxId.substringBeforeLast(delim, "")
+            val newPath = if (parent.isEmpty()) newName.trim() else "$parent$delim${newName.trim()}"
+            imap.renameFolder(credentials, mailboxId, newPath)
+        } else {
+            val ctx = connect(credentials)
+            client.renameMailbox(ctx.session, ctx.accountId, mailboxId, newName.trim(), ctx.auth)
+        }
+        refreshMailboxes(credentials)
+    }
+
+    /** Delete a folder (and its cached messages), then refresh. */
+    suspend fun deleteFolder(credentials: AccountCredentials, mailboxId: String) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            imap.deleteFolder(credentials, mailboxId)
+        } else {
+            val ctx = connect(credentials)
+            client.deleteMailbox(ctx.session, ctx.accountId, mailboxId, ctx.auth)
+        }
+        emailDao.replaceMailbox(mailboxId, emptyList())
+        refreshMailboxes(credentials)
+    }
+
+    /** Re-fetch the folder list into the cache (after a create/rename/delete). */
+    private suspend fun refreshMailboxes(credentials: AccountCredentials) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = 1)
+            mailboxDao.replaceAll(load.mailboxes)
+            return
+        }
+        val ctx = connect(credentials)
+        mailboxDao.replaceAll(client.getMailboxes(ctx.session, ctx.accountId, ctx.auth).map { it.toEntity() })
+    }
+
     /** Create an "Archive" folder on the server, cache it in the context, and refresh the folder list. */
     private suspend fun createArchiveFolder(ctx: Context): String {
         val id = client.createMailbox(ctx.session, ctx.accountId, "Archive", "archive", ctx.auth)

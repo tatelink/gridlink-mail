@@ -567,6 +567,56 @@ class JmapClient internal constructor(
         throw JmapException("Couldn't create the '$name' folder" + (type?.let { " ($it)" } ?: ""))
     }
 
+    /** Rename a mailbox (Mailbox/set update of `name`). */
+    suspend fun renameMailbox(
+        session: JmapSession,
+        accountId: String,
+        mailboxId: String,
+        name: String,
+        auth: JmapAuth,
+    ) = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") { add(Jmap.CORE_CAPABILITY); add(Jmap.MAIL_CAPABILITY) }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Mailbox/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("update") { putJsonObject(mailboxId) { put("name", name) } }
+                    }
+                    add("m0")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "Mailbox/set")
+        if (args["updated"]?.jsonObject?.containsKey(mailboxId) != true) {
+            throw JmapException("Couldn't rename the folder")
+        }
+    }
+
+    /** Delete a mailbox (Mailbox/set destroy). */
+    suspend fun deleteMailbox(session: JmapSession, accountId: String, mailboxId: String, auth: JmapAuth) =
+        withContext(Dispatchers.IO) {
+            val payload = buildJsonObject {
+                putJsonArray("using") { add(Jmap.CORE_CAPABILITY); add(Jmap.MAIL_CAPABILITY) }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Mailbox/set")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("destroy") { add(mailboxId) }
+                            // Allow removing a folder that still has messages in it.
+                            put("onDestroyRemoveEmails", true)
+                        }
+                        add("m0")
+                    }
+                }
+            }
+            val args = methodResponseArgs(postJmap(session, auth, payload), "Mailbox/set")
+            val destroyed = args["destroyed"]?.jsonArray?.any { it.jsonPrimitive.content == mailboxId } == true
+            if (!destroyed) throw JmapException("Couldn't delete the folder")
+        }
+
     /** Permanently destroy an email (used when there is no Trash mailbox). */
     suspend fun destroy(session: JmapSession, accountId: String, emailId: String, auth: JmapAuth) =
         emailSet(session, auth) {

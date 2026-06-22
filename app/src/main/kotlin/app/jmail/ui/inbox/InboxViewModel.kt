@@ -412,6 +412,20 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Move the selection to [targetMailboxId] (used for unarchive → Inbox and move-to-folder). */
     fun moveSelectedTo(targetMailboxId: String) = bulk { c, id -> repo.moveToMailbox(c, id, targetMailboxId) }
 
+    // ---- folder management ----
+
+    fun createFolder(name: String) = folderOp { c -> repo.createFolder(c, name) }
+    fun renameFolder(mailboxId: String, newName: String) = folderOp { c -> repo.renameFolder(c, mailboxId, newName) }
+    fun deleteFolder(mailboxId: String) = folderOp { c -> repo.deleteFolder(c, mailboxId) }
+
+    private fun folderOp(op: suspend (AccountCredentials) -> Unit) {
+        viewModelScope.launch {
+            val credentials = store.load() ?: return@launch
+            runCatching { op(credentials) }
+                .onFailure { _message.value = it.message ?: "Folder operation failed" }
+        }
+    }
+
     /**
      * Toggle read/unread for the selection — marks read if any are unread, else marks unread —
      * and keeps the selection (only the read state changes, the list view stays put).

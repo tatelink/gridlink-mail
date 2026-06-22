@@ -146,6 +146,16 @@ class ImapSession(private var socket: Socket) : Closeable {
         runCatching { command("CREATE ${quote(path)}") }
     }
 
+    /** Rename a mailbox from [oldPath] to [newPath]. */
+    fun renameFolder(oldPath: String, newPath: String) {
+        command("RENAME ${quote(oldPath)} ${quote(newPath)}")
+    }
+
+    /** Delete a mailbox. */
+    fun deleteFolder(path: String) {
+        command("DELETE ${quote(path)}")
+    }
+
     /** Move a message to another mailbox; returns its new UID in the destination if reported. */
     fun move(uid: Long, destination: String): Long? {
         val result = runCatching { command("UID MOVE $uid ${quote(destination)}") }.getOrElse {

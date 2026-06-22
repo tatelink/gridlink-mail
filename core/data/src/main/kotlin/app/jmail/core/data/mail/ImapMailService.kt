@@ -189,6 +189,14 @@ class ImapMailService(
     suspend fun createFolder(credentials: AccountCredentials, path: String) =
         withSession(credentials) { it.createFolder(path) }
 
+    /** Rename a folder (IMAP RENAME). */
+    suspend fun renameFolder(credentials: AccountCredentials, oldPath: String, newPath: String) =
+        withSession(credentials) { it.renameFolder(oldPath, newPath) }
+
+    /** Delete a folder (IMAP DELETE). */
+    suspend fun deleteFolder(credentials: AccountCredentials, path: String) =
+        withSession(credentials) { it.deleteFolder(path) }
+
     /** Server-side text search in [mailboxId], newest first (entities not cached by caller). */
     suspend fun search(credentials: AccountCredentials, mailboxId: String, query: String, limit: Int): List<EmailEntity> =
         withSession(credentials) { session ->

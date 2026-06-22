@@ -23,8 +23,8 @@ The categories further down list the full feature set; this is the order of work
 
 **Tier 1 — close functional holes** *(in progress)*
 - ✅ IMAP push (IDLE) — IMAP accounts now get new-mail notifications like JMAP
-- 💡 Folder management (create / rename / delete)
-- 💡 Report spam / not-spam (move to/from Junk)
+- ✅ Folder management (create / rename / delete)
+- ✅ Report spam / not-spam (move to/from Junk)
 
 **Tier 2 — modern compose & send**
 - 💡 Rich-text editor (plus plain-text mode)
@@ -79,7 +79,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Paged list (Jetpack Paging 3 + Room) — large folders load in pages while scrolling, constant memory; scroll-position indicator on the right
 - ✅ Scroll to load more — a Paging `RemoteMediator` fetches older mail from the server when you scroll past the cached window (JMAP anchor-based / IMAP UID paging), with a loading/retry footer
 - ✅ Favourite (star) per row, tappable; favourites pin to the top
-- 💡 Report spam / not-spam (move to Junk role)
+- ✅ Report spam / not-spam — message overflow, context-aware (Report spam ↔ Not spam)
 
 ## Organisation & search
 
@@ -88,7 +88,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account; JMAP + IMAP)
 - 💡 Richer search filters (from, subject, has-attachment, date) + `SearchSnippet` highlights
 - ✅ Auto-create an Archive folder on first archive (when the account has none)
-- 💡 Folder management (create / rename / subscribe), per-folder settings
+- ✅ Folder management — create / rename / delete custom folders from the drawer; 💡 subscribe + per-folder settings
 - ✅ Quick filter: unread-only toggle on the current view
 - 💡 Quick filters: starred-only, has-attachment
 

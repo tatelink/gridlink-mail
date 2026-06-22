@@ -25,6 +25,10 @@ interface MailboxDao {
     @Query("SELECT id FROM mailboxes WHERE role = :role LIMIT 1")
     suspend fun idForRole(role: String): String?
 
+    /** The role of a mailbox by id (e.g. to tell if a message is in Junk). */
+    @Query("SELECT role FROM mailboxes WHERE id = :id LIMIT 1")
+    suspend fun roleForId(id: String): String?
+
     @Transaction
     suspend fun replaceAll(mailboxes: List<MailboxEntity>) {
         upsertAll(mailboxes)

@@ -74,6 +74,7 @@ fun MessageScreen(
     val thread by viewModel.thread.collectAsStateWithLifecycle()
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     val inlineImages by viewModel.inlineImages.collectAsStateWithLifecycle()
+    val inJunk by viewModel.inJunk.collectAsStateWithLifecycle()
     var showRemote by remember(emailId) { mutableStateOf(false) }
 
     Scaffold(
@@ -125,6 +126,13 @@ fun MessageScreen(
                             DropdownMenuItem(
                                 text = { Text("Archive") },
                                 onClick = { menuOpen = false; viewModel.archive(onBack) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (inJunk) "Not spam" else "Report spam") },
+                                onClick = {
+                                    menuOpen = false
+                                    if (inJunk) viewModel.notSpam(onBack) else viewModel.reportSpam(onBack)
+                                },
                             )
                         }
                     }
