@@ -26,8 +26,11 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Folder management (create / rename / delete)
 - ✅ Report spam / not-spam (move to/from Junk)
 
-**Tier 2 — modern compose & send** *(in progress)*
-- 💡 Rich-text editor (plus plain-text mode)
+**Tier 2 — modern compose & send** *(done)*
+- ✅ Compose overhaul: cross-account From picker, frameless full-width line fields,
+  icon actions, auto-focused To, expandable Cc/Bcc (rich-text editor dropped —
+  low value on mobile)
+- ✅ Recipient autocomplete: recent/cached contacts + opt-in device contacts
 - ✅ Undo send (hold-back window); 💡 full Outbox + retry
 - ✅ Schedule send (quick presets; persisted + fired by WorkManager, survives app close)
 - ✅ Snooze a message until later
