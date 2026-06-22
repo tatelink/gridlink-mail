@@ -86,6 +86,16 @@ class ImapMailService(private val imapClient: ImapClient) {
         }
     }
 
+    /** Mark a message seen on the server (UID STORE +FLAGS \Seen). */
+    suspend fun markSeen(credentials: AccountCredentials, mailboxId: String, uid: Long) =
+        withContext(Dispatchers.IO) {
+            val imap = credentials.imap ?: error("Account has no IMAP server configured.")
+            imapClient.connect(config(imap, credentials)).use { session ->
+                session.select(mailboxId)
+                session.setFlag(uid, "\\Seen", true)
+            }
+        }
+
     /** Raw RFC822 source of a message (caller parses out the body/attachments). */
     suspend fun fetchSource(credentials: AccountCredentials, mailboxId: String, uid: Long): String =
         withContext(Dispatchers.IO) {

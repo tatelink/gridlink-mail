@@ -121,7 +121,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val selection = MutableStateFlow<Sel>(Sel.Folder(store.inboxMailboxId()))
     private val unifiedInboxIds = MutableStateFlow(store.allInboxMailboxIds())
     private val meta = MutableStateFlow(
-        Meta(store.accountName(), store.inboxMailboxName(), store.unreadCount()),
+        Meta(store.accountLabel(), store.inboxMailboxName(), store.unreadCount()),
     )
     private val status = MutableStateFlow(Status(refreshing = false, error = null))
 
@@ -259,7 +259,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun select(mailbox: Mailbox) {
         if (selection.value == Sel.Folder(mailbox.id)) return
         selection.value = Sel.Folder(mailbox.id)
-        meta.value = Meta(store.accountName(), mailbox.name, mailbox.unreadEmails)
+        meta.value = Meta(store.accountLabel(), mailbox.name, mailbox.unreadEmails)
         refresh()
     }
 

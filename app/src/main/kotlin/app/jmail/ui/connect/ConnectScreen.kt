@@ -51,6 +51,7 @@ fun ConnectScreen(
 
     var protocol by rememberSaveable { mutableStateOf(MailProtocol.JMAP) }
     var server by rememberSaveable { mutableStateOf("mail.pinty.fr") }
+    var accountName by rememberSaveable { mutableStateOf("") }
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
 
@@ -115,6 +116,13 @@ fun ConnectScreen(
             }
 
             OutlinedTextField(
+                value = accountName,
+                onValueChange = { accountName = it },
+                label = { Text("Account name (optional)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
                 value = username,
                 onValueChange = { username = it },
                 label = { Text("Email / username") },
@@ -137,10 +145,10 @@ fun ConnectScreen(
             Button(
                 onClick = {
                     if (protocol == MailProtocol.JMAP) {
-                        viewModel.connect(server, username, password)
+                        viewModel.connect(server, username, password, accountName)
                     } else {
                         viewModel.connectImap(
-                            username, password,
+                            username, password, accountName,
                             imapHost, imapPort.toInt(), imapSecurity,
                             smtpHost, smtpPort.toInt(), smtpSecurity,
                         )

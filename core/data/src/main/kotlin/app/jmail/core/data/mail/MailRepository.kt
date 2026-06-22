@@ -19,9 +19,12 @@ import app.jmail.core.jmap.BasicAuth
 import app.jmail.core.jmap.Jmap
 import app.jmail.core.jmap.JmapAuth
 import app.jmail.core.jmap.JmapClient
+import app.jmail.core.imap.MimeBody
+import app.jmail.core.imap.MimeParser
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailAddress
 import app.jmail.core.jmap.model.EmailBodyPart
+import app.jmail.core.jmap.model.EmailBodyValue
 import app.jmail.core.jmap.model.Mailbox
 import app.jmail.core.jmap.model.JmapSession
 import kotlinx.coroutines.flow.Flow
@@ -339,6 +342,7 @@ class MailRepository(
 
     /** Fetch a single message (with body), marking it read locally and on the server. */
     suspend fun openEmail(credentials: AccountCredentials, emailId: String): Email {
+        if (credentials.protocol == MailProtocol.IMAP) return openEmailImap(credentials, emailId)
         val ctx = connect(credentials)
         val email = client.getEmail(ctx.session, ctx.accountId, emailId, ctx.auth)
         if (!email.isSeen) {
@@ -348,6 +352,39 @@ class MailRepository(
             }
         }
         return email
+    }
+
+    /** IMAP message open: fetch the raw source, parse the body, mark seen. */
+    private suspend fun openEmailImap(credentials: AccountCredentials, emailId: String): Email {
+        val cached = emailDao.emailsByIds(listOf(emailId)).firstOrNull()?.toEmail()
+            ?: error("Message is not in the cache.")
+        val mailboxId = cached.mailboxId ?: error("Unknown mailbox for message.")
+        val uid = ImapMailService.uidOf(emailId) ?: error("Not an IMAP message.")
+        val body = MimeParser.parseBody(imap.fetchSource(credentials, mailboxId, uid))
+        if (!cached.isSeen) {
+            runCatching {
+                imap.markSeen(credentials, mailboxId, uid)
+                emailDao.setSeen(emailId, true)
+            }
+        }
+        return cached.withBody(body)
+    }
+
+    /** Attach a parsed [MimeBody] to a cached [Email] so the message view can render it. */
+    private fun Email.withBody(body: MimeBody): Email {
+        val html = body.html
+        val text = body.text
+        return when {
+            !html.isNullOrBlank() -> copy(
+                htmlBody = listOf(EmailBodyPart(partId = "html")),
+                bodyValues = mapOf("html" to EmailBodyValue(value = html)),
+            )
+            !text.isNullOrBlank() -> copy(
+                textBody = listOf(EmailBodyPart(partId = "text")),
+                bodyValues = mapOf("text" to EmailBodyValue(value = text)),
+            )
+            else -> this
+        }
     }
 
     suspend fun setRead(credentials: AccountCredentials, emailId: String, seen: Boolean) {

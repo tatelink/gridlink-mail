@@ -28,7 +28,7 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     private val _state = MutableStateFlow<ConnectState>(ConnectState.Idle)
     val state: StateFlow<ConnectState> = _state.asStateFlow()
 
-    fun connect(server: String, username: String, password: String) {
+    fun connect(server: String, username: String, password: String, accountName: String) {
         if (_state.value is ConnectState.Connecting) return
         _state.value = ConnectState.Connecting
         viewModelScope.launch {
@@ -36,8 +36,8 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                 // Validate the credentials and prime the cache by loading the inbox.
                 val credentials = AccountCredentials(server.trim(), username.trim(), password)
                 val meta = container.mailRepository.refresh(credentials)
-                // Only persist once we know they work.
-                container.accountStore.add(server, username, password, meta.accountName)
+                // Only persist once we know they work. A blank name falls back to the address.
+                container.accountStore.add(server, username, password, accountName.trim())
                 container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
                 _state.value = ConnectState.Connected
             } catch (t: Throwable) {
@@ -49,6 +49,7 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     fun connectImap(
         username: String,
         password: String,
+        accountName: String,
         imapHost: String,
         imapPort: Int,
         imapSecurity: ConnectionSecurity,
@@ -74,7 +75,7 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                     server = "",
                     username = username,
                     password = password,
-                    accountName = meta.accountName,
+                    accountName = accountName.trim(),
                     protocol = MailProtocol.IMAP,
                     imapHost = imapHost,
                     imapPort = imapPort,

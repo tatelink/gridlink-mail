@@ -174,12 +174,15 @@ class AccountStore(context: Context) {
 
     fun allCredentials(): List<AccountCredentials> = accounts().mapNotNull { credentials(it.id) }
 
-    fun saveInboxMeta(mailboxId: String, mailboxName: String, accountName: String, unread: Int) {
+    // [accountName] is the server-derived name; it is intentionally NOT written back
+    // here so a user-chosen display name (set at add time / in account settings) is
+    // never clobbered by a sync. A blank name falls back to the address via label().
+    fun saveInboxMeta(mailboxId: String, mailboxName: String, @Suppress("UNUSED_PARAMETER") accountName: String, unread: Int) {
         val id = currentId() ?: return
         saveAccounts(
             accounts().map {
                 if (it.id == id) {
-                    it.copy(accountName = accountName, inboxId = mailboxId, inboxName = mailboxName, unread = unread)
+                    it.copy(inboxId = mailboxId, inboxName = mailboxName, unread = unread)
                 } else {
                     it
                 }
@@ -188,6 +191,9 @@ class AccountStore(context: Context) {
     }
 
     fun accountName(): String = currentAccount()?.accountName.orEmpty()
+
+    /** Display label for the current account: its name, or the address if unnamed. */
+    fun accountLabel(): String = currentAccount()?.label().orEmpty()
     fun inboxMailboxId(): String? = currentAccount()?.inboxId
     fun inboxMailboxName(): String = currentAccount()?.inboxName ?: "Inbox"
     fun unreadCount(): Int = currentAccount()?.unread ?: 0
@@ -201,11 +207,11 @@ class AccountStore(context: Context) {
     fun totalUnreadCount(): Int = accounts().sumOf { it.unread }
 
     /** Record a specific account's inbox id/name/unread (used by the unified refresh fan-out). */
-    fun saveInboxMetaFor(accountId: String, mailboxId: String, mailboxName: String, accountName: String, unread: Int) {
+    fun saveInboxMetaFor(accountId: String, mailboxId: String, mailboxName: String, @Suppress("UNUSED_PARAMETER") accountName: String, unread: Int) {
         saveAccounts(
             accounts().map {
                 if (it.id == accountId) {
-                    it.copy(accountName = accountName, inboxId = mailboxId, inboxName = mailboxName, unread = unread)
+                    it.copy(inboxId = mailboxId, inboxName = mailboxName, unread = unread)
                 } else {
                     it
                 }
