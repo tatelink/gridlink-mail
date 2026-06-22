@@ -5,24 +5,25 @@
 **A private, modern email app for Android.**
 
 Jmail is an open-source email client built for **JMAP** — a new, faster
-internet standard for email that replaces the decades-old IMAP protocol. It is
-designed to be private by default, pleasant to use, and fully free software.
+internet standard for email — with full support for classic **IMAP/SMTP** too.
+It is designed to be private by default, pleasant to use, and fully free
+software.
 
-> Status: early development. The app connects to a JMAP server, lists your
-> mailboxes, and shows a real inbox that works offline; you can open and read
-> messages with remote content blocked by default. Writing and sending mail is
-> the next milestone.
+> Status: pre-release. Jmail is a working email client — read, organise,
+> search, write, and send mail (with attachments) over JMAP or IMAP/SMTP,
+> across multiple accounts, fully offline-capable, with push notifications and
+> remote content blocked by default. There is no public build yet — see
+> [Installing](#installing).
 
-## What is JMAP, and why does it matter to me?
+## About JMAP
 
 Most email apps talk to your mail server using an old protocol called IMAP.
 JMAP is its modern successor: it syncs faster, uses less battery and data, and
-was designed for today's phones. Servers like
-[Stalwart](https://stalw.art/) speak JMAP. Jmail is built to make the most of
-it.
+was designed for today's phones. Servers like [Stalwart](https://stalw.art/)
+speak JMAP, and Jmail is built to make the most of it.
 
-If your provider doesn't offer JMAP yet, that's fine — support for classic
-IMAP/SMTP mail is planned for later.
+Jmail also speaks classic **IMAP and SMTP**, so it works with any standard mail
+provider — you pick the protocol when you add an account.
 
 ## What Jmail stands for
 
@@ -33,14 +34,20 @@ IMAP/SMTP mail is planned for later.
 - **Modern and simple.** A clean, fast interface that follows your phone's
   system theme.
 
-## Planned features
+## Features
 
-- Read, organise, and search your mail
-- Write and send messages
-- Multiple accounts
-- Push notifications for new mail
-- Encrypted email (OpenPGP)
-- Offline access
+- Read, organise, and search your mail — works offline (local cache)
+- Write, reply, forward, and send — with attachments and drafts
+- Multiple accounts (JMAP and/or IMAP/SMTP), with a unified inbox
+- Push notifications for new mail (JMAP), no Google services required
+- Configurable swipe actions, folders, flags, archive/delete with undo
+- Large folders stay smooth — pages load as you scroll, including older mail
+  fetched from the server
+- Privacy by default: remote images and tracking pixels blocked, app lock, no
+  telemetry
+
+Planned: encrypted email (OpenPGP), multiple identities and signatures, message
+snooze, richer search filters, and more — tracked in [FEATURES.md](FEATURES.md).
 
 ## Installing
 
