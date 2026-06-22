@@ -22,7 +22,9 @@ object DataFactory {
         val database = JmailDatabase.build(appContext)
         val imapService = ImapMailService(ImapClient(), SmtpClient())
         return DataLayer(
-            mailRepository = MailRepository(client, database.emailDao(), database.mailboxDao(), imapService),
+            mailRepository = MailRepository(
+                client, database.emailDao(), database.mailboxDao(), imapService, database.scheduledSendDao(),
+            ),
             storageRepository = StorageRepository(appContext, database.emailDao(), database.mailboxDao()),
         )
     }

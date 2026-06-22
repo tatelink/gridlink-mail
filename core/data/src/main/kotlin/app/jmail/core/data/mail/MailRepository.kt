@@ -12,6 +12,8 @@ import androidx.sqlite.db.SimpleSQLiteQuery
 import app.jmail.core.data.account.AccountCredentials
 import app.jmail.core.data.account.MailProtocol
 import app.jmail.core.data.db.EmailDao
+import app.jmail.core.data.db.ScheduledSendDao
+import app.jmail.core.data.db.ScheduledSendEntity
 import app.jmail.core.data.db.EmailEntity
 import app.jmail.core.data.db.MailboxDao
 import app.jmail.core.data.settings.SortOrder
@@ -87,6 +89,7 @@ class MailRepository(
     private val emailDao: EmailDao,
     private val mailboxDao: MailboxDao,
     private val imap: ImapMailService,
+    private val scheduledSendDao: ScheduledSendDao,
 ) {
     private class Context(
         val credentials: AccountCredentials,
@@ -746,6 +749,18 @@ class MailRepository(
             attachments = attachments,
         )
     }
+
+    // ---- scheduled send ----
+
+    /** Persist a message to send later; returns its row id (used to schedule the worker). */
+    suspend fun insertScheduledSend(entity: ScheduledSendEntity): Long = scheduledSendDao.insert(entity)
+
+    suspend fun scheduledSend(id: Long): ScheduledSendEntity? = scheduledSendDao.byId(id)
+
+    suspend fun deleteScheduledSend(id: Long) = scheduledSendDao.delete(id)
+
+    /** All scheduled sends (e.g. to re-arm workers on boot). */
+    suspend fun scheduledSends(): List<ScheduledSendEntity> = scheduledSendDao.all()
 
     /** Download an attachment's bytes for the current account. */
     suspend fun downloadAttachment(

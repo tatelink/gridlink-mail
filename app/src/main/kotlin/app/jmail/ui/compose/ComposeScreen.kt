@@ -1,5 +1,6 @@
 package app.jmail.ui.compose
 
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +17,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -35,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,6 +61,7 @@ fun ComposeScreen(
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     val identities by viewModel.identities.collectAsStateWithLifecycle()
     val selectedIdentityId by viewModel.selectedIdentityId.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let(viewModel::attach)
     }
@@ -103,6 +107,27 @@ fun ComposeScreen(
                         onClick = { viewModel.saveDraft(to, subject, body) },
                         enabled = !sending,
                     ) { Text("Save") }
+                    Box {
+                        var scheduleMenu by remember { mutableStateOf(false) }
+                        IconButton(
+                            onClick = { scheduleMenu = true },
+                            enabled = !sending && to.isNotBlank(),
+                        ) {
+                            Icon(Icons.Filled.Schedule, contentDescription = "Schedule send")
+                        }
+                        DropdownMenu(expanded = scheduleMenu, onDismissRequest = { scheduleMenu = false }) {
+                            schedulePresets().forEach { (label, millis) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        scheduleMenu = false
+                                        viewModel.scheduleSend(to, subject, body, millis)
+                                        Toast.makeText(context, "Scheduled — $label", Toast.LENGTH_SHORT).show()
+                                    },
+                                )
+                            }
+                        }
+                    }
                     TextButton(
                         onClick = { viewModel.send(to, subject, body) },
                         enabled = !sending && to.isNotBlank(),
@@ -214,4 +239,19 @@ fun ComposeScreen(
             }
         }
     }
+}
+
+/** Quick "send later" presets → (label, epoch-millis), computed in the device's time zone. */
+private fun schedulePresets(): List<Pair<String, Long>> {
+    val zone = java.time.ZoneId.systemDefault()
+    val now = java.time.ZonedDateTime.now(zone)
+    fun at(day: java.time.ZonedDateTime, hour: Int) =
+        day.withHour(hour).withMinute(0).withSecond(0).withNano(0)
+    val thisEvening = at(now, 18).let { if (it.isAfter(now)) it else at(now.plusDays(1), 18) }
+    return listOf(
+        "In 1 hour" to now.plusHours(1),
+        "This evening, 6 PM" to thisEvening,
+        "Tomorrow, 8 AM" to at(now.plusDays(1), 8),
+        "Tomorrow, 6 PM" to at(now.plusDays(1), 18),
+    ).map { (label, time) -> label to time.toInstant().toEpochMilli() }
 }

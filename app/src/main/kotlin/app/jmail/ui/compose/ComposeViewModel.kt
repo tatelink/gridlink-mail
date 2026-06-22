@@ -9,6 +9,8 @@ import app.jmail.container
 import app.jmail.core.data.account.AccountCredentials
 import app.jmail.core.data.account.MailProtocol
 import app.jmail.core.data.account.StoredIdentity
+import app.jmail.core.data.db.ScheduledSendEntity
+import app.jmail.send.ScheduledSends
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailBodyPart
 import kotlinx.coroutines.Dispatchers
@@ -164,6 +166,42 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                         attachments, htmlBody, identity?.name, identity?.email,
                     )
                 }
+                _state.value = ComposeState.Done
+            } catch (t: Throwable) {
+                _state.value = ComposeState.Error(t.message ?: t.javaClass.simpleName)
+            }
+        }
+    }
+
+    /**
+     * Schedule the message to be sent at [sendAtMillis]. Persisted to Room and fired by
+     * WorkManager (survives the app closing). Attachments are not carried in v1.
+     */
+    fun scheduleSend(to: String, subject: String, body: String, sendAtMillis: Long) {
+        if (_state.value is ComposeState.Sending) return
+        _state.value = ComposeState.Sending
+        viewModelScope.launch {
+            try {
+                val credentials = credentials() ?: error("No saved account.")
+                val recipients = to.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+                require(recipients.isNotEmpty()) { "Add at least one recipient." }
+                val identity = selectedIdentity()
+                val (textBody, htmlBody) = bodiesWithSignature(body, identity?.signature.orEmpty())
+                val id = repo.insertScheduledSend(
+                    ScheduledSendEntity(
+                        accountId = credentials.id,
+                        recipients = recipients.joinToString(","),
+                        subject = subject,
+                        textBody = textBody,
+                        htmlBody = htmlBody,
+                        fromName = identity?.name,
+                        fromEmail = identity?.email,
+                        inReplyTo = inReplyTo.joinToString(" ").ifBlank { null },
+                        references = references.joinToString(" ").ifBlank { null },
+                        sendAtMillis = sendAtMillis,
+                    ),
+                )
+                ScheduledSends.enqueue(getApplication(), id, sendAtMillis)
                 _state.value = ComposeState.Done
             } catch (t: Throwable) {
                 _state.value = ComposeState.Error(t.message ?: t.javaClass.simpleName)

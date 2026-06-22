@@ -29,7 +29,7 @@ The categories further down list the full feature set; this is the order of work
 **Tier 2 — modern compose & send**
 - 💡 Rich-text editor (plus plain-text mode)
 - ✅ Undo send (hold-back window); 💡 full Outbox + retry
-- 💡 ⭐ Schedule send (JMAP `EmailSubmission` `sendAt`)
+- ✅ Schedule send (quick presets; persisted + fired by WorkManager, survives app close)
 - 💡 Snooze a message until later
 
 **Tier 3 — privacy & JMAP-native power**
@@ -101,7 +101,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Inline images (`cid:`) rendered in the body (downloaded as data URIs)
 - 💡 Rich-text editor plus plain-text mode
 - ✅ Undo send (hold-back window) — held in an app-scoped outbox; 💡 full Outbox/retry
-- 💡 ⭐ Schedule send — JMAP `EmailSubmission` supports a future `sendAt`
+- ✅ Schedule send — quick presets; persisted in Room, fired by WorkManager (survives app close); v1 carries no attachments
 - 💡 "Forgot attachment?" reminder
 - ✅ Multiple sending identities per account (name + address), **each with its own
   signature** (plain text or HTML, with HTML-file import); a "From" picker in compose
