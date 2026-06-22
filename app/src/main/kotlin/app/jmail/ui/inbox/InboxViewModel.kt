@@ -138,6 +138,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectionActive = MutableStateFlow(false)
     val selectionActive: StateFlow<Boolean> = _selectionActive.asStateFlow()
 
+    /** True when every selected message is already read — drives the read/unread toggle's icon. */
+    private val _selectionAllRead = MutableStateFlow(false)
+    val selectionAllRead: StateFlow<Boolean> = _selectionAllRead.asStateFlow()
+
     /**
      * The browse list, paged from Room. A single folder uses the RemoteMediator-backed
      * pager (scrolling past the cache fetches older mail from the server); the unified
@@ -208,6 +212,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         refresh()
+        // Recompute the read/unread toggle state whenever the selection set changes.
+        viewModelScope.launch {
+            _selectedIds.collect { refreshSelectionReadState(it) }
+        }
     }
 
     fun refresh() {
@@ -378,10 +386,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _selectedIds.value = emptySet()
     }
 
-    /** Apply a bulk action to the selected messages, then exit selection mode. */
-    private fun bulk(op: suspend (AccountCredentials, String) -> Unit) {
+    /** Apply a bulk action to the selected messages; exits selection mode unless [clearAfter] is false. */
+    private fun bulk(clearAfter: Boolean = true, op: suspend (AccountCredentials, String) -> Unit) {
         val ids = _selectedIds.value
-        clearSelection()
+        if (clearAfter) clearSelection()
         viewModelScope.launch {
             repo.cachedEmailsByIds(ids).forEach { email ->
                 val credentials = credentialsFor(email) ?: return@forEach
@@ -390,9 +398,34 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun markSelectedRead() = bulk { c, id -> repo.setRead(c, id, true) }
     fun deleteSelected() = bulk { c, id -> repo.delete(c, id) }
     fun archiveSelected() = bulk { c, id -> repo.archive(c, id) }
+
+    /** Move the selection to [targetMailboxId] (used for unarchive → Inbox and move-to-folder). */
+    fun moveSelectedTo(targetMailboxId: String) = bulk { c, id -> repo.moveToMailbox(c, id, targetMailboxId) }
+
+    /**
+     * Toggle read/unread for the selection — marks read if any are unread, else marks unread —
+     * and keeps the selection (only the read state changes, the list view stays put).
+     */
+    fun toggleSelectedRead() {
+        val ids = _selectedIds.value
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val emails = repo.cachedEmailsByIds(ids)
+            val targetSeen = !emails.all { it.isSeen }
+            emails.forEach { email ->
+                val credentials = credentialsFor(email) ?: return@forEach
+                runCatching { repo.setRead(credentials, email.id, targetSeen) }
+            }
+            // Reflect the new state immediately so the toggle icon flips without re-selecting.
+            _selectionAllRead.value = targetSeen
+        }
+    }
+
+    private suspend fun refreshSelectionReadState(ids: Set<String>) {
+        _selectionAllRead.value = ids.isNotEmpty() && repo.cachedEmailsByIds(ids).all { it.isSeen }
+    }
 
     // ---- inline search ----
 

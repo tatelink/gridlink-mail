@@ -462,6 +462,21 @@ class MailRepository(
         emailDao.deleteById(emailId)
     }
 
+    /** Move a message to an arbitrary mailbox (e.g. unarchive → Inbox, or move-to-folder). */
+    suspend fun moveToMailbox(credentials: AccountCredentials, emailId: String, targetMailboxId: String) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            imapTarget(emailId)?.let { (mb, uid) ->
+                if (mb == targetMailboxId) return@let
+                imap.move(credentials, mb, uid, targetMailboxId)?.let { lastImapMove[emailId] = ImapLoc(targetMailboxId, it) }
+            }
+            emailDao.deleteById(emailId)
+            return
+        }
+        val ctx = connect(credentials)
+        client.move(ctx.session, ctx.accountId, emailId, targetMailboxId, ctx.auth)
+        emailDao.deleteById(emailId)
+    }
+
     /** Create an "Archive" folder on the server, cache it in the context, and refresh the folder list. */
     private suspend fun createArchiveFolder(ctx: Context): String {
         val id = client.createMailbox(ctx.session, ctx.accountId, "Archive", "archive", ctx.auth)

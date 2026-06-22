@@ -3,6 +3,8 @@ package app.jmail.ui.inbox
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +26,7 @@ import androidx.paging.compose.itemKey
 import androidx.compose.foundation.shape.CircleShape
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -37,12 +40,15 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.MailOutline
+import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -62,6 +68,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
@@ -121,6 +128,8 @@ fun InboxScreen(
     val swipe by viewModel.swipeConfig.collectAsStateWithLifecycle()
     val selectionActive by viewModel.selectionActive.collectAsStateWithLifecycle()
     val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
+    val selectionAllRead by viewModel.selectionAllRead.collectAsStateWithLifecycle()
+    var showMoveSheet by remember { mutableStateOf(false) }
     val undo by viewModel.undo.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -135,6 +144,34 @@ fun InboxScreen(
 
     // Back exits multi-select mode first.
     BackHandler(enabled = selectionActive) { viewModel.clearSelection() }
+
+    // Move-to-folder picker for the current selection.
+    if (showMoveSheet) {
+        val targets = ui.mailboxes.filter { it.id != ui.selectedMailboxId }
+        AlertDialog(
+            onDismissRequest = { showMoveSheet = false },
+            title = { Text("Move to folder") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    targets.forEach { folder ->
+                        Text(
+                            text = folder.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.moveSelectedTo(folder.id)
+                                    showMoveSheet = false
+                                }
+                                .padding(vertical = 12.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showMoveSheet = false }) { Text("Cancel") } },
+        )
+    }
 
     // Show an Undo snackbar whenever a swipe deletes/archives a message.
     LaunchedEffect(undo) {
@@ -247,11 +284,29 @@ fun InboxScreen(
                         },
                         title = { Text("${selectedIds.size} selected") },
                         actions = {
-                            IconButton(onClick = { viewModel.markSelectedRead() }) {
-                                Icon(Icons.Filled.DoneAll, contentDescription = "Mark read")
+                            // Toggle read/unread, keeping the selection (only the state changes).
+                            IconButton(onClick = { viewModel.toggleSelectedRead() }) {
+                                Icon(
+                                    if (selectionAllRead) Icons.Filled.MarkEmailUnread else Icons.Filled.DoneAll,
+                                    contentDescription = if (selectionAllRead) "Mark unread" else "Mark read",
+                                )
                             }
-                            IconButton(onClick = { viewModel.archiveSelected() }) {
-                                Icon(Icons.Filled.Archive, contentDescription = "Archive")
+                            val currentRole = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
+                            if (currentRole == "archive") {
+                                val inboxId = ui.mailboxes.firstOrNull { it.role == "inbox" }?.id
+                                IconButton(
+                                    onClick = { inboxId?.let { viewModel.moveSelectedTo(it) } },
+                                    enabled = inboxId != null,
+                                ) {
+                                    Icon(Icons.Filled.Unarchive, contentDescription = "Unarchive")
+                                }
+                            } else {
+                                IconButton(onClick = { viewModel.archiveSelected() }) {
+                                    Icon(Icons.Filled.Archive, contentDescription = "Archive")
+                                }
+                            }
+                            IconButton(onClick = { showMoveSheet = true }) {
+                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move to folder")
                             }
                             IconButton(onClick = { viewModel.deleteSelected() }) {
                                 Icon(Icons.Filled.Delete, contentDescription = "Delete")
