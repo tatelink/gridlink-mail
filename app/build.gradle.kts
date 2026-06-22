@@ -17,9 +17,25 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Sign release with the local debug keystore (when present) so a release build
+    // installs over the debug one for real-world performance testing. A proper
+    // release keystore replaces this before publishing.
+    val debugKeystore = file(System.getProperty("user.home") + "/.android/debug.keystore")
+    signingConfigs {
+        if (debugKeystore.exists()) {
+            create("debugSigned") {
+                storeFile = debugKeystore
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (debugKeystore.exists()) signingConfig = signingConfigs.getByName("debugSigned")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

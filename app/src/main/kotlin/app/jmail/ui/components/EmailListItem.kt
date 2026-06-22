@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +55,7 @@ fun EmailListItem(
         ListDensity.SPACED -> 16.dp
     }
     val previewLines = LocalPreviewLines.current.lines
+    val receivedLabel = remember(email.receivedAt) { formatReceived(email.receivedAt) }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -80,7 +82,7 @@ fun EmailListItem(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = formatReceived(email.receivedAt),
+                    text = receivedLabel,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
