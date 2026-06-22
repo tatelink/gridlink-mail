@@ -21,6 +21,10 @@ interface MailboxDao {
     @Query("DELETE FROM mailboxes")
     suspend fun deleteAll()
 
+    /** The id (IMAP path) of the first mailbox with the given role, if any. */
+    @Query("SELECT id FROM mailboxes WHERE role = :role LIMIT 1")
+    suspend fun idForRole(role: String): String?
+
     @Transaction
     suspend fun replaceAll(mailboxes: List<MailboxEntity>) {
         upsertAll(mailboxes)

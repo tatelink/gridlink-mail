@@ -76,17 +76,52 @@ class ImapSession(private var socket: Socket) : Closeable {
                 if (socket.isClosed) throw ImapException("Connection closed")
                 continue
             }
-            when (val first = resp[0]) {
+            when (resp[0]) {
                 tag -> {
                     val status = resp.getOrNull(1) as? String ?: "BAD"
                     if (status != "OK") throw ImapException("$line failed: ${resp.drop(1).joinToString(" ")}")
-                    return ImapResult(status, untagged)
+                    return ImapResult(status, untagged, resp)
                 }
-                "*" -> untagged.add(resp)
-                "+" -> untagged.add(resp) // continuation (not used by these commands)
-                else -> untagged.add(resp)
+                else -> untagged.add(resp) // "*" untagged or "+" continuation
             }
         }
+    }
+
+    /** Create a mailbox (folder). Succeeds quietly if it already exists. */
+    fun createFolder(path: String) {
+        runCatching { command("CREATE ${quote(path)}") }
+    }
+
+    /** Move a message to another mailbox; returns its new UID in the destination if reported. */
+    fun move(uid: Long, destination: String): Long? {
+        val result = runCatching { command("UID MOVE $uid ${quote(destination)}") }.getOrElse {
+            command("UID COPY $uid ${quote(destination)}").also {
+                command("UID STORE $uid +FLAGS (\\Deleted)")
+                runCatching { command("UID EXPUNGE $uid") }
+            }
+        }
+        return parseCopyUid(result)
+    }
+
+    /** Fetch a single message by UID (envelope + flags), or null if not found. */
+    fun fetchByUid(uid: Long): ImapMessage? {
+        val result = command("UID FETCH $uid (UID FLAGS INTERNALDATE ENVELOPE BODYSTRUCTURE)")
+        return result.untagged.firstNotNullOfOrNull { parseFetch(it) }
+    }
+
+    private fun parseCopyUid(result: ImapResult): Long? {
+        val text = (result.untagged + listOf(result.tagged)).joinToString(" ") { resp ->
+            resp.joinToString(" ") { flatten(it) }
+        }
+        // [COPYUID <uidvalidity> <sourceUid> <destUid>]
+        val m = Regex("COPYUID\\s+\\d+\\s+[\\d,:]+\\s+(\\d+)").find(text) ?: return null
+        return m.groupValues[1].toLongOrNull()
+    }
+
+    private fun flatten(v: Any?): String = when (v) {
+        is List<*> -> v.joinToString(" ") { flatten(it) }
+        null -> "NIL"
+        else -> v.toString()
     }
 
     /** LIST every mailbox, inferring a role from special-use attributes or the name. */
@@ -152,15 +187,6 @@ class ImapSession(private var socket: Socket) : Closeable {
     fun setFlag(uid: Long, flag: String, set: Boolean) {
         val op = if (set) "+FLAGS" else "-FLAGS"
         command("UID STORE $uid $op ($flag)")
-    }
-
-    /** Move a message to another mailbox (UID MOVE; falls back to COPY + delete + EXPUNGE). */
-    fun move(uid: Long, destination: String) {
-        runCatching { command("UID MOVE $uid ${quote(destination)}") }.onFailure {
-            command("UID COPY $uid ${quote(destination)}")
-            command("UID STORE $uid +FLAGS (\\Deleted)")
-            command("UID EXPUNGE $uid")
-        }
     }
 
     fun delete(uid: Long) {
@@ -311,4 +337,8 @@ class ImapSession(private var socket: Socket) : Closeable {
 }
 
 /** Untagged responses collected for one tagged command. */
-internal class ImapResult(val status: String, val untagged: List<List<Any?>>)
+internal class ImapResult(
+    val status: String,
+    val untagged: List<List<Any?>>,
+    val tagged: List<Any?> = emptyList(),
+)

@@ -88,13 +88,43 @@ class ImapMailService(private val imapClient: ImapClient) {
 
     /** Mark a message seen on the server (UID STORE +FLAGS \Seen). */
     suspend fun markSeen(credentials: AccountCredentials, mailboxId: String, uid: Long) =
+        setFlag(credentials, mailboxId, uid, "\\Seen", true)
+
+    /** Set or clear an IMAP flag (e.g. \Seen, \Flagged) on a message. */
+    suspend fun setFlag(credentials: AccountCredentials, mailboxId: String, uid: Long, flag: String, set: Boolean) =
         withContext(Dispatchers.IO) {
-            val imap = credentials.imap ?: error("Account has no IMAP server configured.")
-            imapClient.connect(config(imap, credentials)).use { session ->
+            session(credentials).use { it.select(mailboxId); it.setFlag(uid, flag, set) }
+        }
+
+    /** Move a message to [destMailbox]; returns its new UID there (for undo), or null. */
+    suspend fun move(credentials: AccountCredentials, sourceMailbox: String, uid: Long, destMailbox: String): Long? =
+        withContext(Dispatchers.IO) {
+            session(credentials).use { it.select(sourceMailbox); it.move(uid, destMailbox) }
+        }
+
+    /** Permanently delete a message (\Deleted + EXPUNGE) when there's no Trash. */
+    suspend fun deleteMessage(credentials: AccountCredentials, mailboxId: String, uid: Long) =
+        withContext(Dispatchers.IO) {
+            session(credentials).use { it.select(mailboxId); it.delete(uid) }
+        }
+
+    /** Create a folder if it doesn't exist (e.g. an Archive on first archive). */
+    suspend fun createFolder(credentials: AccountCredentials, path: String) =
+        withContext(Dispatchers.IO) {
+            session(credentials).use { it.createFolder(path) }
+        }
+
+    /** Fetch one message by UID into a cache entity (used to restore after an undo). */
+    suspend fun fetchByUid(credentials: AccountCredentials, mailboxId: String, uid: Long): EmailEntity? =
+        withContext(Dispatchers.IO) {
+            session(credentials).use { session ->
                 session.select(mailboxId)
-                session.setFlag(uid, "\\Seen", true)
+                session.fetchByUid(uid)?.toEntity(credentials.id, mailboxId)
             }
         }
+
+    private suspend fun session(credentials: AccountCredentials) =
+        imapClient.connect(config(credentials.imap ?: error("Account has no IMAP server configured."), credentials))
 
     /** Raw RFC822 source of a message (caller parses out the body/attachments). */
     suspend fun fetchSource(credentials: AccountCredentials, mailboxId: String, uid: Long): String =
@@ -153,5 +183,12 @@ class ImapMailService(private val imapClient: ImapClient) {
         /** The IMAP UID encoded in a cache id, or null if not an IMAP id. */
         fun uidOf(emailId: String): Long? =
             if (emailId.startsWith("imap:")) emailId.substringAfterLast(':').toLongOrNull() else null
+
+        /** The mailbox path encoded in a cache id (handles ':' in the path), or null. */
+        fun mailboxOf(emailId: String): String? {
+            if (!emailId.startsWith("imap:")) return null
+            val parts = emailId.split(':')
+            return if (parts.size >= 4) parts.subList(2, parts.size - 1).joinToString(":") else null
+        }
     }
 }

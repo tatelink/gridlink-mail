@@ -97,6 +97,10 @@ class MailRepository(
     @Volatile
     private var context: Context? = null
 
+    /** Where an IMAP message was moved (for undo): emailId → (destination folder, new UID). */
+    private class ImapLoc(val mailboxId: String, val uid: Long)
+    private val lastImapMove = java.util.concurrent.ConcurrentHashMap<String, ImapLoc>()
+
     /** Per-mailbox JMAP state for incremental sync (in-memory; cold start does a full query). */
     private data class SyncState(val queryState: String, val emailState: String)
     private val syncStates = java.util.concurrent.ConcurrentHashMap<String, SyncState>()
@@ -388,19 +392,48 @@ class MailRepository(
     }
 
     suspend fun setRead(credentials: AccountCredentials, emailId: String, seen: Boolean) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            imapTarget(emailId)?.let { (mb, uid) -> imap.setFlag(credentials, mb, uid, "\\Seen", seen) }
+            emailDao.setSeen(emailId, seen)
+            return
+        }
         val ctx = connect(credentials)
         client.setSeen(ctx.session, ctx.accountId, emailId, seen, ctx.auth)
         emailDao.setSeen(emailId, seen)
     }
 
     suspend fun setFlagged(credentials: AccountCredentials, emailId: String, flagged: Boolean) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            imapTarget(emailId)?.let { (mb, uid) -> imap.setFlag(credentials, mb, uid, "\\Flagged", flagged) }
+            emailDao.setFlagged(emailId, flagged)
+            return
+        }
         val ctx = connect(credentials)
         client.setKeyword(ctx.session, ctx.accountId, emailId, "\$flagged", flagged, ctx.auth)
         emailDao.setFlagged(emailId, flagged)
     }
 
+    /** Source (mailbox path, UID) for an IMAP message id, or null if not parseable. */
+    private fun imapTarget(emailId: String): Pair<String, Long>? {
+        val mb = ImapMailService.mailboxOf(emailId) ?: return null
+        val uid = ImapMailService.uidOf(emailId) ?: return null
+        return mb to uid
+    }
+
     /** Move to the Archive mailbox (creating one if the account has none) and drop from the local list. */
     suspend fun archive(credentials: AccountCredentials, emailId: String) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            imapTarget(emailId)?.let { (mb, uid) ->
+                var dest = mailboxDao.idForRole("archive")
+                if (dest == null) {
+                    imap.createFolder(credentials, "Archive")
+                    dest = "Archive"
+                }
+                imap.move(credentials, mb, uid, dest)?.let { lastImapMove[emailId] = ImapLoc(dest, it) }
+            }
+            emailDao.deleteById(emailId)
+            return
+        }
         val ctx = connect(credentials)
         val target = ctx.rolesToMailboxId["archive"] ?: createArchiveFolder(ctx)
         client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
@@ -422,6 +455,12 @@ class MailRepository(
      * re-cache it there so it reappears in the list.
      */
     suspend fun restore(credentials: AccountCredentials, emailId: String, mailboxId: String) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val loc = lastImapMove.remove(emailId) ?: return
+            val newUid = imap.move(credentials, loc.mailboxId, loc.uid, mailboxId) ?: return
+            imap.fetchByUid(credentials, mailboxId, newUid)?.let { emailDao.upsertAll(listOf(it)) }
+            return
+        }
         val ctx = connect(credentials)
         client.move(ctx.session, ctx.accountId, emailId, mailboxId, ctx.auth)
         val fetched = client.getEmailsByIds(ctx.session, ctx.accountId, listOf(emailId), ctx.auth)
@@ -430,6 +469,18 @@ class MailRepository(
 
     /** Move to Trash (or destroy if there is none) and drop from the local list. */
     suspend fun delete(credentials: AccountCredentials, emailId: String) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            imapTarget(emailId)?.let { (mb, uid) ->
+                val trash = mailboxDao.idForRole("trash")
+                if (trash != null) {
+                    imap.move(credentials, mb, uid, trash)?.let { lastImapMove[emailId] = ImapLoc(trash, it) }
+                } else {
+                    imap.deleteMessage(credentials, mb, uid) // permanent; no undo
+                }
+            }
+            emailDao.deleteById(emailId)
+            return
+        }
         val ctx = connect(credentials)
         val trash = ctx.rolesToMailboxId["trash"]
         if (trash != null) {
