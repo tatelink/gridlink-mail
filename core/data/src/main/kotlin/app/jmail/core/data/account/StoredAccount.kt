@@ -13,6 +13,14 @@ data class StoredAccount(
     val inboxName: String = "Inbox",
     val unread: Int = 0,
     val syncWindow: SyncWindow = SyncWindow.DAYS_90,
+    val protocol: MailProtocol = MailProtocol.JMAP,
+    // IMAP/SMTP connection details (used only when protocol == IMAP).
+    val imapHost: String = "",
+    val imapPort: Int = 993,
+    val imapSecurity: ConnectionSecurity = ConnectionSecurity.TLS,
+    val smtpHost: String = "",
+    val smtpPort: Int = 587,
+    val smtpSecurity: ConnectionSecurity = ConnectionSecurity.STARTTLS,
 ) {
     /** Best label for the account in UI. */
     fun label(): String = accountName.ifBlank { username }

@@ -10,6 +10,7 @@ import androidx.paging.RemoteMediator
 import androidx.paging.map
 import androidx.sqlite.db.SimpleSQLiteQuery
 import app.jmail.core.data.account.AccountCredentials
+import app.jmail.core.data.account.MailProtocol
 import app.jmail.core.data.db.EmailDao
 import app.jmail.core.data.db.EmailEntity
 import app.jmail.core.data.db.MailboxDao
@@ -80,6 +81,7 @@ class MailRepository(
     private val client: JmapClient,
     private val emailDao: EmailDao,
     private val mailboxDao: MailboxDao,
+    private val imap: ImapMailService,
 ) {
     private class Context(
         val credentials: AccountCredentials,
@@ -195,23 +197,30 @@ class MailRepository(
                     return MediatorResult.Success(endOfPaginationReached = loadType == LoadType.PREPEND)
                 }
                 return try {
-                    val ctx = connect(credentials)
-                    // Anchor on the oldest message we've cached and fetch the page right
-                    // after it. Unlike an absolute offset, the anchor doesn't shift when
-                    // new mail arrives at the top, so no page is skipped or duplicated.
-                    val anchorId = emailDao.oldestEmailId(mailboxId)
-                    val page = client.queryEmailsPage(
-                        ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
-                        calculateTotal = true,
-                        anchorId = anchorId,
-                        anchorOffset = if (anchorId != null) 1 else 0,
-                    )
-                    if (page.emails.isNotEmpty()) {
-                        emailDao.upsertAll(page.emails.map { it.toEntity(credentials.id, mailboxId) })
+                    val (added, total) = if (credentials.protocol == MailProtocol.IMAP) {
+                        val offset = emailDao.countForMailbox(mailboxId)
+                        val (entities, exists) = imap.fetchOlderPage(credentials, mailboxId, offset, PAGE_SIZE)
+                        if (entities.isNotEmpty()) emailDao.upsertAll(entities)
+                        entities.size to exists
+                    } else {
+                        val ctx = connect(credentials)
+                        // Anchor on the oldest cached message and fetch the page right after
+                        // it: unlike an absolute offset, the anchor doesn't shift when new
+                        // mail arrives at the top, so no page is skipped or duplicated.
+                        val anchorId = emailDao.oldestEmailId(mailboxId)
+                        val page = client.queryEmailsPage(
+                            ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
+                            calculateTotal = true,
+                            anchorId = anchorId,
+                            anchorOffset = if (anchorId != null) 1 else 0,
+                        )
+                        if (page.emails.isNotEmpty()) {
+                            emailDao.upsertAll(page.emails.map { it.toEntity(credentials.id, mailboxId) })
+                        }
+                        page.emails.size to page.total
                     }
-                    val total = page.total
                     val cached = emailDao.countForMailbox(mailboxId)
-                    val reachedEnd = page.emails.isEmpty() || (total != null && cached >= total)
+                    val reachedEnd = added == 0 || (total != null && cached >= total)
                     MediatorResult.Success(endOfPaginationReached = reachedEnd)
                 } catch (t: Throwable) {
                     MediatorResult.Error(t)
@@ -286,6 +295,7 @@ class MailRepository(
         // sync window); null keeps everything within [limit].
         pruneBeforeMillis: Long? = null,
     ): MailboxMeta {
+        if (credentials.protocol == MailProtocol.IMAP) return refreshImap(credentials, mailboxId, limit, pruneBeforeMillis)
         val auth = BasicAuth(credentials.username, credentials.password)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
         val accountId = session.mailAccountId()
@@ -311,6 +321,20 @@ class MailRepository(
 
         val accountName = session.accounts[accountId]?.name ?: credentials.username
         return MailboxMeta(accountName, target.id, target.name, target.unreadEmails)
+    }
+
+    /** IMAP refresh: list folders + fetch the target folder's newest page into the cache. */
+    private suspend fun refreshImap(
+        credentials: AccountCredentials,
+        mailboxId: String?,
+        limit: Int,
+        pruneBeforeMillis: Long?,
+    ): MailboxMeta {
+        val load = imap.loadFolder(credentials, mailboxId, limit)
+        mailboxDao.replaceAll(load.mailboxes)
+        emailDao.replaceMailbox(load.targetMailboxId, load.messages)
+        if (pruneBeforeMillis != null) emailDao.deleteOlderThan(load.targetMailboxId, pruneBeforeMillis)
+        return MailboxMeta(load.accountName, load.targetMailboxId, load.targetName, load.unread)
     }
 
     /** Fetch a single message (with body), marking it read locally and on the server. */

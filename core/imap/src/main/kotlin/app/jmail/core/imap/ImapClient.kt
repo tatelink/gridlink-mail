@@ -132,6 +132,13 @@ class ImapSession(private var socket: Socket) : Closeable {
         return result.untagged.mapNotNull { parseFetch(it) }.sortedByDescending { it.uid }
     }
 
+    /** Number of unseen messages in the selected mailbox. */
+    fun unseenCount(): Int {
+        val result = command("SEARCH UNSEEN")
+        val line = result.untagged.firstOrNull { it.getOrNull(1) == "SEARCH" } ?: return 0
+        return line.drop(2).count { it is String }
+    }
+
     /** Raw RFC822 source of a message, for parsing the body/attachments. */
     fun fetchSource(uid: Long): String {
         val result = command("UID FETCH $uid (BODY.PEEK[])")

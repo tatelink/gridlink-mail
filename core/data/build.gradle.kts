@@ -25,6 +25,7 @@ android {
 
 dependencies {
     api(project(":core:jmap"))
+    api(project(":core:imap"))
     implementation(libs.kotlinx.coroutines.core)
 
     implementation(libs.androidx.room.runtime)

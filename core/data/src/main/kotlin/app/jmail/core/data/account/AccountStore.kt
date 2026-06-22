@@ -8,12 +8,22 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.UUID
 
+/** One end of an IMAP/SMTP connection. */
+data class MailEndpoint(
+    val host: String,
+    val port: Int,
+    val security: ConnectionSecurity,
+)
+
 /** A configured account plus its (decrypted) password, used to build auth. */
 data class AccountCredentials(
     val server: String,
     val username: String,
     val password: String,
     val id: String = "",
+    val protocol: MailProtocol = MailProtocol.JMAP,
+    val imap: MailEndpoint? = null,
+    val smtp: MailEndpoint? = null,
 )
 
 /**
@@ -119,7 +129,23 @@ class AccountStore(context: Context) {
     fun credentials(id: String): AccountCredentials? {
         val account = accounts().firstOrNull { it.id == id } ?: return null
         val password = readPassword(id) ?: return null
-        return AccountCredentials(account.server, account.username, password, id)
+        return AccountCredentials(
+            server = account.server,
+            username = account.username,
+            password = password,
+            id = id,
+            protocol = account.protocol,
+            imap = if (account.protocol == MailProtocol.IMAP) {
+                MailEndpoint(account.imapHost, account.imapPort, account.imapSecurity)
+            } else {
+                null
+            },
+            smtp = if (account.protocol == MailProtocol.IMAP) {
+                MailEndpoint(account.smtpHost, account.smtpPort, account.smtpSecurity)
+            } else {
+                null
+            },
+        )
     }
 
     fun allCredentials(): List<AccountCredentials> = accounts().mapNotNull { credentials(it.id) }
