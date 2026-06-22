@@ -195,20 +195,23 @@ class MailRepository(
                     return MediatorResult.Success(endOfPaginationReached = loadType == LoadType.PREPEND)
                 }
                 return try {
-                    // Offset = how many we've already cached for this folder. Stable as
-                    // long as we fetch in the same (receivedAt desc) order we cache in.
-                    val offset = emailDao.countForMailbox(mailboxId)
                     val ctx = connect(credentials)
+                    // Anchor on the oldest message we've cached and fetch the page right
+                    // after it. Unlike an absolute offset, the anchor doesn't shift when
+                    // new mail arrives at the top, so no page is skipped or duplicated.
+                    val anchorId = emailDao.oldestEmailId(mailboxId)
                     val page = client.queryEmailsPage(
                         ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
-                        position = offset, calculateTotal = true,
+                        calculateTotal = true,
+                        anchorId = anchorId,
+                        anchorOffset = if (anchorId != null) 1 else 0,
                     )
                     if (page.emails.isNotEmpty()) {
                         emailDao.upsertAll(page.emails.map { it.toEntity(credentials.id, mailboxId) })
                     }
                     val total = page.total
-                    val reachedEnd = page.emails.isEmpty() ||
-                        (total != null && offset + page.emails.size >= total)
+                    val cached = emailDao.countForMailbox(mailboxId)
+                    val reachedEnd = page.emails.isEmpty() || (total != null && cached >= total)
                     MediatorResult.Success(endOfPaginationReached = reachedEnd)
                 } catch (t: Throwable) {
                     MediatorResult.Error(t)

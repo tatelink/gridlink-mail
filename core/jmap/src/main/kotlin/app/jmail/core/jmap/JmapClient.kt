@@ -121,6 +121,10 @@ class JmapClient internal constructor(
         auth: JmapAuth,
         position: Int = 0,
         calculateTotal: Boolean = false,
+        // Stable paging: anchor on a known email id and start [anchorOffset] after
+        // it, instead of an absolute [position] that shifts when new mail arrives.
+        anchorId: String? = null,
+        anchorOffset: Int = 0,
     ): EmailPage = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
@@ -140,7 +144,12 @@ class JmapClient internal constructor(
                             }
                         }
                         put("collapseThreads", true)
-                        put("position", position)
+                        if (anchorId != null) {
+                            put("anchor", anchorId)
+                            put("anchorOffset", anchorOffset)
+                        } else {
+                            put("position", position)
+                        }
                         put("limit", limit)
                         if (calculateTotal) put("calculateTotal", true)
                     }

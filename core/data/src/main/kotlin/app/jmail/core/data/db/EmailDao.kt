@@ -49,9 +49,13 @@ interface EmailDao {
     @Query("DELETE FROM emails WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>)
 
-    /** Cached message count for one mailbox (the server-paging offset). */
+    /** Cached message count for one mailbox (end-of-pagination check). */
     @Query("SELECT COUNT(*) FROM emails WHERE mailboxId = :mailboxId")
     suspend fun countForMailbox(mailboxId: String): Int
+
+    /** Oldest cached email id in a mailbox (the anchor for fetching the next older page). */
+    @Query("SELECT id FROM emails WHERE mailboxId = :mailboxId ORDER BY sortKey ASC LIMIT 1")
+    suspend fun oldestEmailId(mailboxId: String): String?
 
     /** All cached ids across the given mailboxes (for "select all"). */
     @Query("SELECT id FROM emails WHERE mailboxId IN (:mailboxIds)")
