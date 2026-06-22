@@ -366,7 +366,7 @@ fun InboxScreen(
             floatingActionButton = {
                 ExtendedFloatingActionButton(
                     text = { Text("Compose") },
-                    icon = { Text("✎") },
+                    icon = { Icon(Icons.Filled.Create, contentDescription = null) },
                     expanded = fabExpanded,
                     onClick = onCompose,
                 )
