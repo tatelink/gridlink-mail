@@ -13,7 +13,9 @@ import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailBodyPart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -27,6 +29,14 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
     private val storage = application.container.storageRepository
+    private val settings = application.container.settingsRepository
+
+    /** Whether tapped links should have tracking params stripped before opening. */
+    val stripTracking = settings.stripTrackingParams.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = true,
+    )
 
     private val _state = MutableStateFlow<MessageState>(MessageState.Loading)
     val state = _state.asStateFlow()

@@ -203,6 +203,9 @@
     <string name="settings_app_lock_title">App-Sperre</string>
     <string name="settings_app_lock_subtitle">Fingerabdruck, Gesicht oder Bildschirm-PIN erforderlich, um Jmail zu öffnen.</string>
     <string name="settings_app_lock_unavailable">Richte zuerst einen Fingerabdruck, die Gesichtsentsperrung oder eine Bildschirmsperre in den Geräteeinstellungen ein.</string>
+    <string name="settings_links_section">Links</string>
+    <string name="settings_strip_tracking_title">Tracking-Parameter entfernen</string>
+    <string name="settings_strip_tracking_subtitle">Tracker (utm_*, fbclid, gclid…) aus Links entfernen, bevor sie geöffnet werden, damit Absender nicht erkennen können, wann du klickst.</string>
     <string name="settings_recipient_suggestions_section">Empfängervorschläge</string>
     <string name="settings_suggest_contacts_title">Aus Kontakten vorschlagen</string>
     <string name="settings_suggest_contacts_subtitle">Empfänger während der Eingabe aus den Kontakten dieses Geräts vervollständigen. Jmail liest sie nur auf dem Gerät und lädt sie nie hoch. Wenn deaktiviert, werden trotzdem Personen vorgeschlagen, denen du kürzlich geschrieben hast.</string>

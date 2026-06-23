@@ -203,6 +203,9 @@
     <string name="settings_app_lock_title">App-vergrendeling</string>
     <string name="settings_app_lock_subtitle">Vereis je vingerafdruk, gezicht of schermpincode om Jmail te openen.</string>
     <string name="settings_app_lock_unavailable">Stel eerst een vingerafdruk, gezichtsontgrendeling of schermvergrendeling in bij je apparaatinstellingen.</string>
+    <string name="settings_links_section">Links</string>
+    <string name="settings_strip_tracking_title">Trackingparameters verwijderen</string>
+    <string name="settings_strip_tracking_subtitle">Verwijder trackers (utm_*, fbclid, gclid…) uit links voordat je ze opent, zodat afzenders niet kunnen zien wanneer je klikt.</string>
     <string name="settings_recipient_suggestions_section">Ontvangersuggesties</string>
     <string name="settings_suggest_contacts_title">Suggesties uit contacten</string>
     <string name="settings_suggest_contacts_subtitle">Vul ontvangers aan uit de contacten van dit apparaat terwijl je typt. Jmail leest ze alleen op het apparaat en uploadt ze nooit. Uitgeschakeld stelt het nog steeds mensen voor die je onlangs hebt gemaild.</string>

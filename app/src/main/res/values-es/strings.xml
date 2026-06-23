@@ -203,6 +203,9 @@
     <string name="settings_app_lock_title">Bloqueo de la app</string>
     <string name="settings_app_lock_subtitle">Exigir tu huella, rostro o PIN de pantalla para abrir Jmail.</string>
     <string name="settings_app_lock_unavailable">Primero configura una huella, el desbloqueo facial o un bloqueo de pantalla en los ajustes de tu dispositivo.</string>
+    <string name="settings_links_section">Enlaces</string>
+    <string name="settings_strip_tracking_title">Eliminar parámetros de seguimiento</string>
+    <string name="settings_strip_tracking_subtitle">Elimina los rastreadores (utm_*, fbclid, gclid…) de los enlaces antes de abrirlos, para que los remitentes no puedan saber cuándo haces clic.</string>
     <string name="settings_recipient_suggestions_section">Sugerencias de destinatarios</string>
     <string name="settings_suggest_contacts_title">Sugerir desde los contactos</string>
     <string name="settings_suggest_contacts_subtitle">Autocompletar destinatarios desde los contactos de este dispositivo mientras escribes. Jmail los lee solo en el dispositivo y nunca los sube. Si está desactivado, sigue sugiriendo personas a las que has escrito recientemente.</string>

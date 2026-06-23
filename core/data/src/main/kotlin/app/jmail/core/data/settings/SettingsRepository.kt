@@ -89,6 +89,13 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_CONTACT_SUGGESTIONS] = enabled }
     }
 
+    /** Whether to remove tracking query params (utm_*, fbclid, …) from tapped links (on by default). */
+    val stripTrackingParams: Flow<Boolean> = dataStore.data.map { it[KEY_STRIP_TRACKING] ?: true }
+
+    suspend fun setStripTrackingParams(enabled: Boolean) {
+        dataStore.edit { it[KEY_STRIP_TRACKING] = enabled }
+    }
+
     private fun swipeFlow(key: Preferences.Key<String>, default: SwipeAction): Flow<SwipeAction> =
         dataStore.data.map { prefs ->
             prefs[key]?.let { runCatching { SwipeAction.valueOf(it) }.getOrNull() } ?: default
@@ -102,5 +109,6 @@ class SettingsRepository(context: Context) {
         val KEY_SWIPE_LEFT = stringPreferencesKey("swipe_left")
         val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
         val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
+        val KEY_STRIP_TRACKING = booleanPreferencesKey("strip_tracking_params")
     }
 }

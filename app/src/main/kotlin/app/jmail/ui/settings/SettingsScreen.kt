@@ -391,6 +391,7 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
     val appLock by viewModel.appLockEnabled.collectAsStateWithLifecycle()
     val appLockUnavailable by viewModel.appLockUnavailable.collectAsStateWithLifecycle()
     val contactSuggestions by viewModel.contactSuggestions.collectAsStateWithLifecycle()
+    val stripTracking by viewModel.stripTrackingParams.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val contactsPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -414,6 +415,14 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                 }
+            }
+            SettingsSection(stringResource(R.string.settings_links_section)) {
+                SettingSwitch(
+                    title = stringResource(R.string.settings_strip_tracking_title),
+                    subtitle = stringResource(R.string.settings_strip_tracking_subtitle),
+                    checked = stripTracking,
+                    onCheckedChange = viewModel::setStripTrackingParams,
+                )
             }
             SettingsSection(stringResource(R.string.settings_recipient_suggestions_section)) {
                 SettingSwitch(

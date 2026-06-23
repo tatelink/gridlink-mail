@@ -203,6 +203,9 @@
     <string name="settings_app_lock_title">Verrouillage de l\'app</string>
     <string name="settings_app_lock_subtitle">Exiger votre empreinte, votre visage ou le code de l\'écran pour ouvrir Jmail.</string>
     <string name="settings_app_lock_unavailable">Configurez d\'abord une empreinte, le déverrouillage par le visage ou un verrouillage d\'écran dans les réglages de votre appareil.</string>
+    <string name="settings_links_section">Liens</string>
+    <string name="settings_strip_tracking_title">Supprimer les paramètres de suivi</string>
+    <string name="settings_strip_tracking_subtitle">Supprimez les traceurs (utm_*, fbclid, gclid…) des liens avant de les ouvrir, afin que les expéditeurs ne puissent pas savoir quand vous cliquez.</string>
     <string name="settings_recipient_suggestions_section">Suggestions de destinataires</string>
     <string name="settings_suggest_contacts_title">Suggérer depuis les contacts</string>
     <string name="settings_suggest_contacts_subtitle">Compléter les destinataires depuis les contacts de cet appareil pendant la saisie. Jmail les lit uniquement sur l\'appareil et ne les envoie jamais. Désactivé, il suggère quand même les personnes que vous avez contactées récemment.</string>

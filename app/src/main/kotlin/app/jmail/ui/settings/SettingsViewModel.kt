@@ -71,6 +71,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setContactSuggestions(value) }
     }
 
+    val stripTrackingParams = settings.stripTrackingParams.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = true,
+    )
+
+    fun setStripTrackingParams(value: Boolean) {
+        viewModelScope.launch { settings.setStripTrackingParams(value) }
+    }
+
     fun setPushAllAccounts(value: Boolean) {
         store.setPushAllAccounts(value)
         _pushAllAccounts.value = value

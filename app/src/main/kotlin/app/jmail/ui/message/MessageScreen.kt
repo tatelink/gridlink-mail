@@ -2,6 +2,7 @@ package app.jmail.ui.message
 
 import app.jmail.appLocale
 import android.content.Intent
+import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -57,6 +58,7 @@ import app.jmail.R
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailBodyPart
 import app.jmail.ui.components.Monogram
+import app.jmail.util.LinkCleaner
 import java.io.ByteArrayInputStream
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -79,6 +81,7 @@ fun MessageScreen(
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     val inlineImages by viewModel.inlineImages.collectAsStateWithLifecycle()
     val inJunk by viewModel.inJunk.collectAsStateWithLifecycle()
+    val stripTracking by viewModel.stripTracking.collectAsStateWithLifecycle()
     var showRemote by remember(emailId) { mutableStateOf(false) }
 
     Scaffold(
@@ -217,6 +220,7 @@ fun MessageScreen(
                     email = s.email,
                     siblings = thread,
                     blockRemote = !showRemote,
+                    stripTracking = stripTracking,
                     onOpenEmail = onOpenEmail,
                     attachmentStatus = attachmentStatus,
                     onOpenAttachment = viewModel::openAttachment,
@@ -232,6 +236,7 @@ private fun MessageBody(
     email: Email,
     siblings: List<Email>,
     blockRemote: Boolean,
+    stripTracking: Boolean,
     onOpenEmail: (String) -> Unit,
     attachmentStatus: String?,
     onOpenAttachment: (EmailBodyPart) -> Unit,
@@ -261,6 +266,7 @@ private fun MessageBody(
         EmailWebView(
             html = html,
             blockRemote = blockRemote,
+            stripTracking = stripTracking,
             backgroundColor = scheme.surface.toArgb(),
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
@@ -432,9 +438,16 @@ private fun Header(email: Email) {
 }
 
 @Composable
-private fun EmailWebView(html: String, blockRemote: Boolean, backgroundColor: Int, modifier: Modifier) {
+private fun EmailWebView(
+    html: String,
+    blockRemote: Boolean,
+    stripTracking: Boolean,
+    backgroundColor: Int,
+    modifier: Modifier,
+) {
     val client = remember { BlockingWebViewClient() }
     client.blockRemote = blockRemote
+    client.stripTracking = stripTracking
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -463,6 +476,7 @@ private fun Color.toCssHex(): String = "#%06X".format(0xFFFFFF and toArgb())
 /** Blocks remote (http/https) resource loads while [blockRemote]; opens links externally. */
 private class BlockingWebViewClient : WebViewClient() {
     var blockRemote: Boolean = true
+    var stripTracking: Boolean = true
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
         if (blockRemote && request != null) {
@@ -477,9 +491,11 @@ private class BlockingWebViewClient : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         val url = request?.url ?: return false
         val context = view?.context ?: return false
+        // Strip tracking params (utm_*, fbclid, …) so the sender can't tell the link was clicked.
+        val target = if (stripTracking) Uri.parse(LinkCleaner.strip(url.toString())) else url
         return try {
             context.startActivity(
-                Intent(Intent.ACTION_VIEW, url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                Intent(Intent.ACTION_VIEW, target).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
             true
         } catch (e: Exception) {

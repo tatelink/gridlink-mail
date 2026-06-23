@@ -38,7 +38,7 @@ The categories further down list the full feature set; this is the order of work
 **Tier 3 — privacy & JMAP-native power**
 - 💡 OpenPGP (via OpenKeychain)
 - ✅ ⭐ Vacation responder (JMAP `VacationResponse`)
-- 💡 Tracking-param stripping / link confirmation; per-sender image allowlist
+- ✅ Tracking-param stripping (utm_*, fbclid, gclid… removed from tapped links); 💡 link confirmation; 💡 per-sender image allowlist
 - 💡 Server-side Sieve filters/rules; server `Quota` display
 
 **Tier 4 — polish**
@@ -138,7 +138,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ App lock — biometric / face, with screen PIN/pattern/password fallback
 - 💡 Per-sender "always load images" allowlist
 - 💡 Visible no-telemetry stance
-- 💡 Strip tracking parameters / confirm before opening external links
+- ✅ Strip tracking parameters from tapped links (Settings → Privacy, on by default); 💡 confirm before opening external links
 
 ## Encryption
 

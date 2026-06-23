@@ -203,6 +203,9 @@
     <string name="settings_app_lock_title">Блокировка приложения</string>
     <string name="settings_app_lock_subtitle">Требовать отпечаток пальца, лицо или PIN-код экрана для открытия Jmail.</string>
     <string name="settings_app_lock_unavailable">Сначала настройте отпечаток пальца, разблокировку по лицу или блокировку экрана в настройках устройства.</string>
+    <string name="settings_links_section">Ссылки</string>
+    <string name="settings_strip_tracking_title">Удалять параметры отслеживания</string>
+    <string name="settings_strip_tracking_subtitle">Удалять трекеры (utm_*, fbclid, gclid…) из ссылок перед их открытием, чтобы отправители не могли узнать, когда вы переходите по ссылке.</string>
     <string name="settings_recipient_suggestions_section">Подсказки получателей</string>
     <string name="settings_suggest_contacts_title">Подсказывать из контактов</string>
     <string name="settings_suggest_contacts_subtitle">Автодополнять получателей из контактов этого устройства при вводе. Jmail читает их только на устройстве и никогда не отправляет. Если выключено, всё равно подсказывает тех, кому вы недавно писали.</string>

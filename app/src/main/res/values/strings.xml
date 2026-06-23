@@ -206,6 +206,9 @@
     <string name="settings_app_lock_title">App lock</string>
     <string name="settings_app_lock_subtitle">Require your fingerprint, face, or screen PIN to open Jmail.</string>
     <string name="settings_app_lock_unavailable">Set up a fingerprint, face unlock, or screen lock in your device settings first.</string>
+    <string name="settings_links_section">Links</string>
+    <string name="settings_strip_tracking_title">Strip tracking parameters</string>
+    <string name="settings_strip_tracking_subtitle">Remove trackers (utm_*, fbclid, gclid…) from links before opening them, so senders can\'t tell when you click.</string>
     <string name="settings_recipient_suggestions_section">Recipient suggestions</string>
     <string name="settings_suggest_contacts_title">Suggest from contacts</string>
     <string name="settings_suggest_contacts_subtitle">Autocomplete recipients from this device\'s contacts while you type. Jmail reads them on-device only, never uploads them. When off, it still suggests people you\'ve recently emailed.</string>
