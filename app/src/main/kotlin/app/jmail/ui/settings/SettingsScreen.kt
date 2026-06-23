@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BeachAccess
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
@@ -111,6 +112,7 @@ fun SettingsScreen(
                 onOpenReading = { nav.navigate("reading") },
                 onOpenNotifications = { nav.navigate("notifications") },
                 onOpenVacation = { nav.navigate("vacation") },
+                onOpenFilters = { nav.navigate("filters") },
                 onOpenPrivacy = { nav.navigate("privacy") },
                 onOpenStorage = { nav.navigate("storage") },
             )
@@ -158,6 +160,9 @@ fun SettingsScreen(
         composable("vacation") {
             VacationScreen(onBack = { nav.popBackStack() })
         }
+        composable("filters") {
+            FiltersScreen(onBack = { nav.popBackStack() })
+        }
         composable("privacy") {
             PrivacySecurityScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
         }
@@ -183,6 +188,7 @@ private fun SettingsHub(
     onOpenReading: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenVacation: () -> Unit,
+    onOpenFilters: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenStorage: () -> Unit,
 ) {
@@ -216,6 +222,12 @@ private fun SettingsHub(
             stringResource(R.string.settings_vacation_title),
             stringResource(R.string.settings_vacation_summary),
             onOpenVacation,
+        ),
+        HubCategory(
+            Icons.Filled.FilterAlt,
+            stringResource(R.string.settings_filters_title),
+            stringResource(R.string.settings_filters_summary),
+            onOpenFilters,
         ),
         HubCategory(
             Icons.Filled.Lock,
@@ -1133,7 +1145,7 @@ private fun formatVacationDate(millis: Long): String =
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DetailScaffold(
+internal fun DetailScaffold(
     title: String,
     onBack: () -> Unit,
     content: @Composable (PaddingValues) -> Unit,

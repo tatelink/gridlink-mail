@@ -11,6 +11,8 @@ import androidx.paging.map
 import androidx.sqlite.db.SimpleSQLiteQuery
 import app.jmail.core.data.account.AccountCredentials
 import app.jmail.core.data.account.MailProtocol
+import app.jmail.core.data.filter.FilterRule
+import app.jmail.core.data.filter.SieveCodec
 import app.jmail.core.data.db.EmailDao
 import app.jmail.core.data.db.ScheduledSendDao
 import app.jmail.core.data.db.ScheduledSendEntity
@@ -88,6 +90,17 @@ data class AccountInboxMeta(
     val mailboxName: String,
     val unreadCount: Int,
 )
+
+/** Outcome of loading an account's server-side filter rules. */
+sealed interface FilterRulesState {
+    /** No Sieve support (IMAP account, or capability absent). */
+    data object Unsupported : FilterRulesState
+    data class Loaded(
+        val rules: List<FilterRule>,
+        /** True if another script (not Jmail's) is the active one — saving will take over. */
+        val foreignActiveScript: Boolean = false,
+    ) : FilterRulesState
+}
 
 /** Outcome of loading an account's server-side vacation responder. */
 sealed interface VacationState {
@@ -980,6 +993,51 @@ class MailRepository(
             val ctx = connect(credentials)
             client.getQuotas(ctx.session, ctx.accountId, ctx.auth)
         }.getOrDefault(emptyList())
+    }
+
+    /**
+     * Load the account's Jmail-managed filter rules (server-side Sieve).
+     * [FilterRulesState.Unsupported] for IMAP accounts and JMAP servers without
+     * the sieve capability.
+     */
+    suspend fun loadFilterRules(credentials: AccountCredentials): FilterRulesState {
+        if (credentials.protocol == MailProtocol.IMAP) return FilterRulesState.Unsupported
+        val ctx = connect(credentials)
+        if (!ctx.session.capabilities.containsKey(app.jmail.core.jmap.Jmap.SIEVE_CAPABILITY)) {
+            return FilterRulesState.Unsupported
+        }
+        val scripts = client.getSieveScripts(ctx.session, ctx.accountId, ctx.auth)
+        val managed = scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }
+        val rules = if (managed != null) {
+            val bytes = client.downloadBlob(
+                ctx.session, ctx.accountId, managed.blobId, "application/sieve", "jmail.siv", ctx.auth,
+            )
+            SieveCodec.parseRules(bytes.toString(Charsets.UTF_8))
+        } else {
+            emptyList()
+        }
+        val foreign = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }
+        return FilterRulesState.Loaded(rules, foreign)
+    }
+
+    /**
+     * Compile [rules] to Sieve, validate them server-side, then save and activate
+     * the Jmail-managed script. Throws if the server rejects the script.
+     */
+    suspend fun saveFilterRules(credentials: AccountCredentials, rules: List<FilterRule>) {
+        val ctx = connect(credentials)
+        val script = SieveCodec.generate(rules)
+        val blob = client.uploadBlob(
+            ctx.session, ctx.accountId, script.toByteArray(Charsets.UTF_8), "application/sieve", ctx.auth,
+        )
+        client.validateSieve(ctx.session, ctx.accountId, blob.blobId, ctx.auth)?.let {
+            throw IllegalStateException("The server rejected the filters: $it")
+        }
+        val existing = client.getSieveScripts(ctx.session, ctx.accountId, ctx.auth)
+            .firstOrNull { it.name == SieveCodec.SCRIPT_NAME }
+        client.saveSieveScript(
+            ctx.session, ctx.accountId, SieveCodec.SCRIPT_NAME, blob.blobId, existing?.id, ctx.auth,
+        )
     }
 
     /** Establish (or reuse) a session + mailbox-role map for the credentials. */

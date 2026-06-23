@@ -39,7 +39,7 @@ The categories further down list the full feature set; this is the order of work
 - 💡 OpenPGP (via OpenKeychain)
 - ✅ ⭐ Vacation responder (JMAP `VacationResponse`)
 - ✅ Tracking-param stripping (utm_*, fbclid, gclid… removed from tapped links); ✅ per-sender image allowlist; ✅ link confirmation
-- 💡 Server-side Sieve filters/rules; ✅ server `Quota` display
+- ✅ Server-side Sieve filters/rules (form-based rule builder); ✅ server `Quota` display
 
 **Tier 4 — polish**
 - 💡 Richer search filters (from/subject/has-attachment/date) + `SearchSnippet` highlights
@@ -165,5 +165,5 @@ The categories further down list the full feature set; this is the order of work
 
 - ✅ ⭐ Vacation responder / auto-reply — JMAP `VacationResponse` (RFC 8621); per-account, server-side, Settings → Vacation responder (enable + subject + message + optional date range), IMAP/no-capability gated
 - ✅ On-device storage usage + Clear cache (Settings → Storage); ✅ server mailbox quota via JMAP `Quota` (RFC 9425) shown in Settings → Storage when supported
-- 💡 Server-side filters/rules where the server supports `SieveScript`
+- ✅ Server-side filters/rules where the server supports `SieveScript` (RFC 9661) — form-based rule builder (condition → move/mark-read/flag), compiled to Sieve and round-tripped via a JSON metadata comment
 - 💡 Calendar / `.ics` invite preview (later)

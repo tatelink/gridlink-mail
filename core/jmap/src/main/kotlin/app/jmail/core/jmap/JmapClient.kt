@@ -11,6 +11,7 @@ import app.jmail.core.jmap.model.JmapSession
 import app.jmail.core.jmap.model.Mailbox
 import app.jmail.core.jmap.model.StateChange
 import app.jmail.core.jmap.model.Quota
+import app.jmail.core.jmap.model.SieveScript
 import app.jmail.core.jmap.model.UploadedBlob
 import app.jmail.core.jmap.model.VacationResponse
 import okhttp3.Response
@@ -758,6 +759,116 @@ class JmapClient internal constructor(
             }
             decodeList(postJmap(session, auth, payload), "Quota/get", Quota.serializer())
         }
+
+    /**
+     * Fetch the account's Sieve scripts (RFC 9661), or an empty list if the
+     * server doesn't advertise the sieve capability.
+     */
+    suspend fun getSieveScripts(session: JmapSession, accountId: String, auth: JmapAuth): List<SieveScript> =
+        withContext(Dispatchers.IO) {
+            if (!session.capabilities.containsKey(Jmap.SIEVE_CAPABILITY)) return@withContext emptyList()
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.SIEVE_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("SieveScript/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            put("ids", JsonNull)
+                        }
+                        add("s0")
+                    }
+                }
+            }
+            decodeList(postJmap(session, auth, payload), "SieveScript/get", SieveScript.serializer())
+        }
+
+    /** Ask the server to validate an uploaded Sieve blob; returns null if valid, else the error text. */
+    suspend fun validateSieve(session: JmapSession, accountId: String, blobId: String, auth: JmapAuth): String? =
+        withContext(Dispatchers.IO) {
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.SIEVE_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("SieveScript/validate")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            put("blobId", blobId)
+                        }
+                        add("s0")
+                    }
+                }
+            }
+            val args = methodResponseArgs(postJmap(session, auth, payload), "SieveScript/validate")
+            when (val err = args["error"]) {
+                null, JsonNull -> null
+                else -> err.jsonObject["description"]?.jsonPrimitive?.contentOrNull
+                    ?: err.jsonObject["type"]?.jsonPrimitive?.contentOrNull
+                    ?: err.toString()
+            }
+        }
+
+    /**
+     * Create or update the named Sieve script from an already-uploaded blob and
+     * make it the active script. Pass [existingId] to update in place, or null to
+     * create. Throws [JmapException] if the server rejects the write.
+     */
+    suspend fun saveSieveScript(
+        session: JmapSession,
+        accountId: String,
+        name: String,
+        blobId: String,
+        existingId: String?,
+        auth: JmapAuth,
+    ) = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.SIEVE_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("SieveScript/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        if (existingId != null) {
+                            putJsonObject("update") {
+                                putJsonObject(existingId) { put("blobId", blobId) }
+                            }
+                            put("onSuccessActivateScript", existingId)
+                        } else {
+                            putJsonObject("create") {
+                                putJsonObject("new") {
+                                    put("name", name)
+                                    put("blobId", blobId)
+                                }
+                            }
+                            put("onSuccessActivateScript", "#new")
+                        }
+                    }
+                    add("s0")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "SieveScript/set")
+        if (existingId != null) {
+            if (args["updated"]?.jsonObject?.containsKey(existingId) != true) {
+                val type = args["notUpdated"]?.jsonObject?.get(existingId)?.jsonObject
+                    ?.get("description")?.jsonPrimitive?.content
+                throw JmapException("Couldn't save filters" + (type?.let { " ($it)" } ?: ""))
+            }
+        } else if (args["created"]?.jsonObject?.get("new") == null) {
+            val type = args["notCreated"]?.jsonObject?.get("new")?.jsonObject
+                ?.get("description")?.jsonPrimitive?.content
+            throw JmapException("Couldn't save filters" + (type?.let { " ($it)" } ?: ""))
+        }
+    }
 
     /**
      * Send a plain-text email: create a draft (Email/set) and submit it
