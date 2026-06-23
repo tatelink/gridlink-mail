@@ -64,7 +64,9 @@ fun SearchScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var text by rememberSaveable { mutableStateOf("") }
-    var showAdvanced by rememberSaveable { mutableStateOf(false) }
+    // This screen is only reached via the "advanced filters" action, so show the
+    // filters straight away (plain text search already lives in the inbox loupe).
+    var showAdvanced by rememberSaveable { mutableStateOf(true) }
     var from by rememberSaveable { mutableStateOf("") }
     var subject by rememberSaveable { mutableStateOf("") }
     var hasAttachment by rememberSaveable { mutableStateOf(false) }
