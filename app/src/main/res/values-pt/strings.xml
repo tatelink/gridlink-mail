@@ -224,6 +224,10 @@
     <string name="settings_storage_messages_db">Banco de dados das mensagens</string>
     <string name="settings_storage_attachments">Anexos</string>
     <string name="settings_cached_per_account_section">Mensagens em cache por conta</string>
+    <string name="settings_mailbox_quota_section">Cota da caixa de correio (servidor)</string>
+    <string name="settings_quota_storage">Armazenamento</string>
+    <string name="settings_quota_messages">Mensagens</string>
+    <string name="settings_quota_used_of">%1$s de %2$s</string>
     <string name="settings_maintenance_section">Manutenção</string>
     <string name="settings_clear_cache_help">Limpar o cache remove as mensagens e os anexos baixados deste aparelho. Suas contas permanecem conectadas e os e-mails são baixados novamente ao abrir.</string>
     <string name="settings_clearing">Limpando…</string>

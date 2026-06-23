@@ -227,6 +227,10 @@
     <string name="settings_storage_messages_db">Messages database</string>
     <string name="settings_storage_attachments">Attachments</string>
     <string name="settings_cached_per_account_section">Cached messages per account</string>
+    <string name="settings_mailbox_quota_section">Mailbox quota (server)</string>
+    <string name="settings_quota_storage">Storage</string>
+    <string name="settings_quota_messages">Messages</string>
+    <string name="settings_quota_used_of">%1$s of %2$s</string>
     <string name="settings_maintenance_section">Maintenance</string>
     <string name="settings_clear_cache_help">Clearing the cache removes downloaded messages and attachments from this device. Your accounts stay signed in, and mail re-downloads when you open it.</string>
     <string name="settings_clearing">Clearing…</string>

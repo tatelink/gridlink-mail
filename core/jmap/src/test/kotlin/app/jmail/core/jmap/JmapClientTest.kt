@@ -1,6 +1,7 @@
 package app.jmail.core.jmap
 
 import app.jmail.core.jmap.model.JmapSession
+import app.jmail.core.jmap.model.Quota
 import app.jmail.core.jmap.model.VacationResponse
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
@@ -145,6 +146,33 @@ class JmapClientTest {
         capabilities = mapOf(Jmap.VACATION_CAPABILITY to buildJsonObject {}),
     )
 
+    @Test fun getQuotas_parsesList() = runBlocking {
+        server.enqueue(MockResponse().setBody(QUOTA_GET_JSON))
+        val session = JmapSession(
+            apiUrl = server.url("/jmap/api/").toString(),
+            capabilities = mapOf(Jmap.QUOTA_CAPABILITY to buildJsonObject {}),
+        )
+        val quotas = client.getQuotas(session, "acc1", BasicAuth("u", "p"))
+
+        assertEquals(2, quotas.size)
+        assertEquals("octets", quotas[0].resourceType)
+        assertEquals(1048576L, quotas[0].used)
+        assertEquals(10485760L, quotas[0].limit)
+        assertEquals("count", quotas[1].resourceType)
+
+        val sent = server.takeRequest().body.readUtf8()
+        assertTrue(sent.contains("Quota/get"))
+        assertTrue(sent.contains("urn:ietf:params:jmap:quota"))
+    }
+
+    @Test fun getQuotas_emptyAndNoCallWhenCapabilityAbsent() = runBlocking {
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        val quotas = client.getQuotas(session, "acc1", BasicAuth("u", "p"))
+
+        assertTrue(quotas.isEmpty())
+        assertEquals(0, server.requestCount) // capability gate skips the network
+    }
+
     private companion object {
         const val SESSION_JSON = """
             {
@@ -243,6 +271,23 @@ class JmapClientTest {
             {
               "methodResponses": [
                 ["VacationResponse/set", {"accountId":"acc1","notUpdated":{"singleton":{"type":"forbidden"}}}, "v0"]
+              ],
+              "sessionState": "abc"
+            }
+        """
+
+        const val QUOTA_GET_JSON = """
+            {
+              "methodResponses": [
+                ["Quota/get", {
+                  "accountId": "acc1",
+                  "state": "q1",
+                  "notFound": [],
+                  "list": [
+                    {"id":"q-storage","resourceType":"octets","used":1048576,"limit":10485760,"scope":"account","name":"Storage","types":["Mail"]},
+                    {"id":"q-count","resourceType":"count","used":42,"limit":1000,"scope":"account","name":"Messages","types":["Mail"]}
+                  ]
+                }, "q0"]
               ],
               "sessionState": "abc"
             }

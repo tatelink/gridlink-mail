@@ -224,6 +224,10 @@
     <string name="settings_storage_messages_db">Nachrichtendatenbank</string>
     <string name="settings_storage_attachments">Anhänge</string>
     <string name="settings_cached_per_account_section">Zwischengespeicherte Nachrichten pro Konto</string>
+    <string name="settings_mailbox_quota_section">Postfachkontingent (Server)</string>
+    <string name="settings_quota_storage">Speicher</string>
+    <string name="settings_quota_messages">Nachrichten</string>
+    <string name="settings_quota_used_of">%1$s von %2$s</string>
     <string name="settings_maintenance_section">Wartung</string>
     <string name="settings_clear_cache_help">Beim Leeren des Caches werden heruntergeladene Nachrichten und Anhänge von diesem Gerät entfernt. Deine Konten bleiben angemeldet und E-Mails werden beim Öffnen erneut heruntergeladen.</string>
     <string name="settings_clearing">Wird geleert…</string>

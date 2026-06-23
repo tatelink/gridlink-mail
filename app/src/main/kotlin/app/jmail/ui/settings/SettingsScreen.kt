@@ -43,6 +43,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -494,6 +495,11 @@ private fun StorageScreen(
                     }
                 }
             }
+            if (state.quotas.isNotEmpty()) {
+                SettingsSection(stringResource(R.string.settings_mailbox_quota_section)) {
+                    state.quotas.forEach { QuotaRow(it) }
+                }
+            }
             SettingsSection(stringResource(R.string.settings_maintenance_section)) {
                 Text(
                     stringResource(R.string.settings_clear_cache_help),
@@ -536,6 +542,38 @@ private fun StorageScreen(
                 TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.settings_cancel)) }
             },
         )
+    }
+}
+
+@Composable
+private fun QuotaRow(quota: QuotaUi) {
+    val isStorage = quota.resourceType == "octets"
+    val label = stringResource(
+        if (isStorage) R.string.settings_quota_storage else R.string.settings_quota_messages,
+    )
+    fun fmt(value: Long) = if (isStorage) formatBytes(value) else value.toString()
+    val limit = quota.limit?.takeIf { it > 0 }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(16.dp))
+            Text(
+                if (limit != null) {
+                    stringResource(R.string.settings_quota_used_of, fmt(quota.used), fmt(limit))
+                } else {
+                    fmt(quota.used)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (limit != null) {
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { (quota.used.toFloat() / limit).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

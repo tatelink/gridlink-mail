@@ -8,6 +8,7 @@ object Jmap {
     const val MAIL_CAPABILITY = "urn:ietf:params:jmap:mail"
     const val SUBMISSION_CAPABILITY = "urn:ietf:params:jmap:submission"
     const val VACATION_CAPABILITY = "urn:ietf:params:jmap:vacationresponse"
+    const val QUOTA_CAPABILITY = "urn:ietf:params:jmap:quota"
 
     /** Well-known path for JMAP autodiscovery (RFC 8620 §2.2). */
     const val WELL_KNOWN_PATH = "/.well-known/jmap"

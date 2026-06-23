@@ -224,6 +224,10 @@
     <string name="settings_storage_messages_db">Berichtendatabase</string>
     <string name="settings_storage_attachments">Bijlagen</string>
     <string name="settings_cached_per_account_section">Berichten in cache per account</string>
+    <string name="settings_mailbox_quota_section">Postbusquota (server)</string>
+    <string name="settings_quota_storage">Opslag</string>
+    <string name="settings_quota_messages">Berichten</string>
+    <string name="settings_quota_used_of">%1$s van %2$s</string>
     <string name="settings_maintenance_section">Onderhoud</string>
     <string name="settings_clear_cache_help">Bij het wissen van de cache worden gedownloade berichten en bijlagen van dit apparaat verwijderd. Je accounts blijven aangemeld en e-mail wordt opnieuw gedownload als je deze opent.</string>
     <string name="settings_clearing">Wissen…</string>

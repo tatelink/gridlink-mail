@@ -16,9 +16,13 @@ data class StorageUiState(
     val attachmentBytes: Long = 0L,
     val totalBytes: Long = 0L,
     val perAccount: List<AccountStorageUi> = emptyList(),
+    val quotas: List<QuotaUi> = emptyList(),
 )
 
 data class AccountStorageUi(val label: String, val messageCount: Int)
+
+/** One server-side resource quota for display: bytes ("octets") or message count. */
+data class QuotaUi(val resourceType: String, val used: Long, val limit: Long?)
 
 /** Backs the Storage & Sync settings screen: reports device usage and clears the cache. */
 class StorageViewModel(application: Application) : AndroidViewModel(application) {
@@ -54,7 +58,15 @@ class StorageViewModel(application: Application) : AndroidViewModel(application)
                 attachmentBytes = usage.attachmentBytes,
                 totalBytes = usage.totalBytes,
                 perAccount = perAccount,
+                quotas = _state.value.quotas,
             )
+            // Server-side quota is a network call; fetch it after the (instant)
+            // on-device figures so the screen never blocks on it.
+            val quotas = runCatching { store.load()?.let { mail.loadQuotas(it) }.orEmpty() }
+                .getOrDefault(emptyList())
+                .filter { it.scope == "account" && (it.resourceType == "octets" || it.resourceType == "count") }
+                .map { QuotaUi(it.resourceType, it.used, it.limit) }
+            _state.value = _state.value.copy(quotas = quotas)
         }
     }
 

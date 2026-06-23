@@ -224,6 +224,10 @@
     <string name="settings_storage_messages_db">Base de datos de mensajes</string>
     <string name="settings_storage_attachments">Adjuntos</string>
     <string name="settings_cached_per_account_section">Mensajes en caché por cuenta</string>
+    <string name="settings_mailbox_quota_section">Cuota del buzón (servidor)</string>
+    <string name="settings_quota_storage">Almacenamiento</string>
+    <string name="settings_quota_messages">Mensajes</string>
+    <string name="settings_quota_used_of">%1$s de %2$s</string>
     <string name="settings_maintenance_section">Mantenimiento</string>
     <string name="settings_clear_cache_help">Vaciar la caché elimina de este dispositivo los mensajes y adjuntos descargados. Tus cuentas siguen conectadas y el correo se vuelve a descargar al abrirlo.</string>
     <string name="settings_clearing">Vaciando…</string>

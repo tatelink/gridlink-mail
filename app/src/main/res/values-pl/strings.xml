@@ -224,6 +224,10 @@
     <string name="settings_storage_messages_db">Baza danych wiadomości</string>
     <string name="settings_storage_attachments">Załączniki</string>
     <string name="settings_cached_per_account_section">Wiadomości w pamięci podręcznej według konta</string>
+    <string name="settings_mailbox_quota_section">Limit skrzynki (serwer)</string>
+    <string name="settings_quota_storage">Pojemność</string>
+    <string name="settings_quota_messages">Wiadomości</string>
+    <string name="settings_quota_used_of">%1$s z %2$s</string>
     <string name="settings_maintenance_section">Konserwacja</string>
     <string name="settings_clear_cache_help">Wyczyszczenie pamięci podręcznej usuwa pobrane wiadomości i załączniki z tego urządzenia. Twoje konta pozostają zalogowane, a wiadomości pobierają się ponownie po otwarciu.</string>
     <string name="settings_clearing">Czyszczenie…</string>

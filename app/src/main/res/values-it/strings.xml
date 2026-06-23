@@ -224,6 +224,10 @@
     <string name="settings_storage_messages_db">Database dei messaggi</string>
     <string name="settings_storage_attachments">Allegati</string>
     <string name="settings_cached_per_account_section">Messaggi in cache per account</string>
+    <string name="settings_mailbox_quota_section">Quota casella (server)</string>
+    <string name="settings_quota_storage">Spazio di archiviazione</string>
+    <string name="settings_quota_messages">Messaggi</string>
+    <string name="settings_quota_used_of">%1$s di %2$s</string>
     <string name="settings_maintenance_section">Manutenzione</string>
     <string name="settings_clear_cache_help">Svuotare la cache rimuove da questo dispositivo i messaggi e gli allegati scaricati. I tuoi account restano connessi e la posta viene riscaricata all\'apertura.</string>
     <string name="settings_clearing">Svuotamento…</string>

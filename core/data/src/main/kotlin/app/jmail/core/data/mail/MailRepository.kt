@@ -36,6 +36,7 @@ import app.jmail.core.jmap.model.EmailBodyPart
 import app.jmail.core.jmap.model.EmailBodyValue
 import app.jmail.core.jmap.model.Mailbox
 import app.jmail.core.jmap.model.JmapSession
+import app.jmail.core.jmap.model.Quota
 import app.jmail.core.jmap.model.VacationResponse
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -966,6 +967,19 @@ class MailRepository(
     suspend fun saveVacation(credentials: AccountCredentials, vacation: VacationResponse): VacationResponse {
         val ctx = connect(credentials)
         return client.setVacationResponse(ctx.session, ctx.accountId, ctx.auth, vacation)
+    }
+
+    /**
+     * Server-side resource quotas for the account (RFC 9425). Empty for IMAP
+     * accounts and JMAP servers without the quota capability, or on any error
+     * (the quota display is informational and must never break the screen).
+     */
+    suspend fun loadQuotas(credentials: AccountCredentials): List<Quota> {
+        if (credentials.protocol == MailProtocol.IMAP) return emptyList()
+        return runCatching {
+            val ctx = connect(credentials)
+            client.getQuotas(ctx.session, ctx.accountId, ctx.auth)
+        }.getOrDefault(emptyList())
     }
 
     /** Establish (or reuse) a session + mailbox-role map for the credentials. */

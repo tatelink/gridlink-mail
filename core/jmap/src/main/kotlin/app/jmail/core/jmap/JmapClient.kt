@@ -10,6 +10,7 @@ import app.jmail.core.jmap.model.Identity
 import app.jmail.core.jmap.model.JmapSession
 import app.jmail.core.jmap.model.Mailbox
 import app.jmail.core.jmap.model.StateChange
+import app.jmail.core.jmap.model.Quota
 import app.jmail.core.jmap.model.UploadedBlob
 import app.jmail.core.jmap.model.VacationResponse
 import okhttp3.Response
@@ -731,6 +732,32 @@ class JmapClient internal constructor(
         }
         vacation.copy(id = "singleton")
     }
+
+    /**
+     * Fetch the account's Quota objects (RFC 9425), or an empty list if the
+     * server doesn't advertise the quota capability.
+     */
+    suspend fun getQuotas(session: JmapSession, accountId: String, auth: JmapAuth): List<Quota> =
+        withContext(Dispatchers.IO) {
+            if (!session.capabilities.containsKey(Jmap.QUOTA_CAPABILITY)) return@withContext emptyList()
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.QUOTA_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Quota/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            put("ids", JsonNull) // null = all quotas for the account
+                        }
+                        add("q0")
+                    }
+                }
+            }
+            decodeList(postJmap(session, auth, payload), "Quota/get", Quota.serializer())
+        }
 
     /**
      * Send a plain-text email: create a draft (Email/set) and submit it

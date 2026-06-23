@@ -224,6 +224,10 @@
     <string name="settings_storage_messages_db">База данных писем</string>
     <string name="settings_storage_attachments">Вложения</string>
     <string name="settings_cached_per_account_section">Письма в кеше по аккаунтам</string>
+    <string name="settings_mailbox_quota_section">Квота почтового ящика (сервер)</string>
+    <string name="settings_quota_storage">Хранилище</string>
+    <string name="settings_quota_messages">Письма</string>
+    <string name="settings_quota_used_of">%1$s из %2$s</string>
     <string name="settings_maintenance_section">Обслуживание</string>
     <string name="settings_clear_cache_help">Очистка кеша удаляет загруженные письма и вложения с этого устройства. Аккаунты остаются в системе, а письма загружаются заново при открытии.</string>
     <string name="settings_clearing">Очистка…</string>
