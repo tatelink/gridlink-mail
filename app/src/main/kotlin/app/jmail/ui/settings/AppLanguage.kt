@@ -16,6 +16,13 @@ enum class AppLanguage(val tag: String) {
     SYSTEM(""),
     ENGLISH("en"),
     FRENCH("fr"),
+    SPANISH("es"),
+    GERMAN("de"),
+    ITALIAN("it"),
+    PORTUGUESE("pt"),
+    DUTCH("nl"),
+    RUSSIAN("ru"),
+    POLISH("pl"),
 }
 
 /** The language currently in effect, read back from AppCompat. */

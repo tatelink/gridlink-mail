@@ -233,7 +233,7 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             SettingsSection(stringResource(R.string.settings_language_section)) {
                 SettingChoiceRow(
                     title = stringResource(R.string.settings_language_title),
-                    options = listOf(AppLanguage.SYSTEM, AppLanguage.ENGLISH, AppLanguage.FRENCH),
+                    options = AppLanguage.entries,
                     selected = language,
                     optionLabel = { languageLabel(context, it) },
                     onSelect = {
@@ -275,6 +275,13 @@ private fun languageLabel(context: Context, language: AppLanguage): String = whe
     AppLanguage.SYSTEM -> context.getString(R.string.settings_language_system)
     AppLanguage.ENGLISH -> context.getString(R.string.settings_language_english)
     AppLanguage.FRENCH -> context.getString(R.string.settings_language_french)
+    AppLanguage.SPANISH -> context.getString(R.string.settings_language_spanish)
+    AppLanguage.GERMAN -> context.getString(R.string.settings_language_german)
+    AppLanguage.ITALIAN -> context.getString(R.string.settings_language_italian)
+    AppLanguage.PORTUGUESE -> context.getString(R.string.settings_language_portuguese)
+    AppLanguage.DUTCH -> context.getString(R.string.settings_language_dutch)
+    AppLanguage.RUSSIAN -> context.getString(R.string.settings_language_russian)
+    AppLanguage.POLISH -> context.getString(R.string.settings_language_polish)
 }
 
 private fun themeLabel(context: Context, mode: ThemeMode): String = when (mode) {

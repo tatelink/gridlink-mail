@@ -131,6 +131,13 @@
     <string name="settings_language_system">Par défaut du système</string>
     <string name="settings_language_english">English</string>
     <string name="settings_language_french">Français</string>
+    <string name="settings_language_spanish">Español</string>
+    <string name="settings_language_german">Deutsch</string>
+    <string name="settings_language_italian">Italiano</string>
+    <string name="settings_language_portuguese">Português</string>
+    <string name="settings_language_dutch">Nederlands</string>
+    <string name="settings_language_russian">Русский</string>
+    <string name="settings_language_polish">Polski</string>
     <string name="settings_theme_section">Thème</string>
     <string name="settings_theme_title">Thème</string>
     <string name="settings_message_list_section">Liste des messages</string>
