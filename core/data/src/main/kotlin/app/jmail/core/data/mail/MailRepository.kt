@@ -36,6 +36,7 @@ import app.jmail.core.jmap.model.EmailBodyPart
 import app.jmail.core.jmap.model.EmailBodyValue
 import app.jmail.core.jmap.model.Mailbox
 import app.jmail.core.jmap.model.JmapSession
+import app.jmail.core.jmap.model.VacationResponse
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -86,6 +87,13 @@ data class AccountInboxMeta(
     val mailboxName: String,
     val unreadCount: Int,
 )
+
+/** Outcome of loading an account's server-side vacation responder. */
+sealed interface VacationState {
+    /** The account's server has no vacation-responder support (IMAP, or capability absent). */
+    data object Unsupported : VacationState
+    data class Loaded(val response: VacationResponse) : VacationState
+}
 
 /**
  * Offline-first mail access: the UI observes cached mailboxes/emails from Room,
@@ -939,6 +947,25 @@ class MailRepository(
             name = name,
             disposition = "attachment",
         )
+    }
+
+    /**
+     * Load the account's server-side vacation responder. [VacationState.Unsupported]
+     * is returned for IMAP accounts (which use Sieve instead) and for JMAP servers
+     * that don't advertise the vacationresponse capability.
+     */
+    suspend fun loadVacation(credentials: AccountCredentials): VacationState {
+        if (credentials.protocol == MailProtocol.IMAP) return VacationState.Unsupported
+        val ctx = connect(credentials)
+        val response = client.getVacationResponse(ctx.session, ctx.accountId, ctx.auth)
+            ?: return VacationState.Unsupported
+        return VacationState.Loaded(response)
+    }
+
+    /** Persist the account's vacation responder server-side. */
+    suspend fun saveVacation(credentials: AccountCredentials, vacation: VacationResponse): VacationResponse {
+        val ctx = connect(credentials)
+        return client.setVacationResponse(ctx.session, ctx.accountId, ctx.auth, vacation)
     }
 
     /** Establish (or reuse) a session + mailbox-role map for the credentials. */

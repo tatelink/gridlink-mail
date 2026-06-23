@@ -37,7 +37,7 @@ The categories further down list the full feature set; this is the order of work
 
 **Tier 3 — privacy & JMAP-native power**
 - 💡 OpenPGP (via OpenKeychain)
-- 💡 ⭐ Vacation responder (JMAP `VacationResponse`)
+- ✅ ⭐ Vacation responder (JMAP `VacationResponse`)
 - 💡 Tracking-param stripping / link confirmation; per-sender image allowlist
 - 💡 Server-side Sieve filters/rules; server `Quota` display
 
@@ -163,7 +163,7 @@ The categories further down list the full feature set; this is the order of work
 
 ## "Complete app" extras
 
-- 💡 ⭐ Vacation responder / auto-reply — JMAP `VacationResponse` (RFC 8621)
+- ✅ ⭐ Vacation responder / auto-reply — JMAP `VacationResponse` (RFC 8621); per-account, server-side, Settings → Vacation responder (enable + subject + message + optional date range), IMAP/no-capability gated
 - ✅ On-device storage usage + Clear cache (Settings → Storage); 💡 server mailbox quota via JMAP `Quota` extension
 - 💡 Server-side filters/rules where the server supports `SieveScript`
 - 💡 Calendar / `.ics` invite preview (later)

@@ -2,8 +2,10 @@ package app.jmail.ui.settings
 
 import app.jmail.contacts.AndroidContacts
 import android.Manifest
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BeachAccess
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
@@ -30,6 +35,9 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -42,6 +50,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,6 +82,10 @@ import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.data.settings.ThemeMode
 import app.jmail.R
 import app.jmail.ui.connect.ConnectScreen
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 /**
  * Settings hub. A single entry point with global categories (DESIGN.md →
@@ -96,6 +109,7 @@ fun SettingsScreen(
                 onOpenAppearance = { nav.navigate("appearance") },
                 onOpenReading = { nav.navigate("reading") },
                 onOpenNotifications = { nav.navigate("notifications") },
+                onOpenVacation = { nav.navigate("vacation") },
                 onOpenPrivacy = { nav.navigate("privacy") },
                 onOpenStorage = { nav.navigate("storage") },
             )
@@ -140,6 +154,9 @@ fun SettingsScreen(
         composable("notifications") {
             NotificationsScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
         }
+        composable("vacation") {
+            VacationScreen(onBack = { nav.popBackStack() })
+        }
         composable("privacy") {
             PrivacySecurityScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
         }
@@ -164,6 +181,7 @@ private fun SettingsHub(
     onOpenAppearance: () -> Unit,
     onOpenReading: () -> Unit,
     onOpenNotifications: () -> Unit,
+    onOpenVacation: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenStorage: () -> Unit,
 ) {
@@ -191,6 +209,12 @@ private fun SettingsHub(
             stringResource(R.string.settings_notifications_title),
             stringResource(R.string.settings_notifications_summary),
             onOpenNotifications,
+        ),
+        HubCategory(
+            Icons.Filled.BeachAccess,
+            stringResource(R.string.settings_vacation_title),
+            stringResource(R.string.settings_vacation_summary),
+            onOpenVacation,
         ),
         HubCategory(
             Icons.Filled.Lock,
@@ -837,6 +861,196 @@ private fun securityLabel(context: Context, security: ConnectionSecurity): Strin
     ConnectionSecurity.STARTTLS -> context.getString(R.string.settings_security_starttls)
     ConnectionSecurity.NONE -> context.getString(R.string.settings_security_none)
 }
+
+/**
+ * Vacation responder: a server-side auto-reply (JMAP VacationResponse) for the
+ * current account. Reads/writes hit the network, so the screen has explicit
+ * loading / saving / error states and an explicit Save button (unlike the
+ * instant-apply local settings).
+ */
+@Composable
+private fun VacationScreen(
+    onBack: () -> Unit,
+    viewModel: VacationViewModel = viewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    DetailScaffold(title = stringResource(R.string.settings_vacation_screen_title), onBack = onBack) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            when {
+                state.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                state.noAccount -> VacationNote(stringResource(R.string.settings_vacation_no_account))
+                !state.supported -> VacationNote(stringResource(R.string.settings_vacation_unsupported))
+                state.errorKind == VacationError.LOAD -> VacationNote(
+                    stringResource(R.string.settings_vacation_load_error, state.errorDetail),
+                    onRetry = viewModel::load,
+                )
+                else -> VacationForm(state, viewModel)
+            }
+        }
+    }
+}
+
+/** Centred message for the empty / unsupported / load-error states, with optional retry. */
+@Composable
+private fun BoxScope.VacationNote(text: String, onRetry: (() -> Unit)? = null) {
+    Column(
+        modifier = Modifier.align(Alignment.Center).padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (onRetry != null) {
+            OutlinedButton(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
+                Text(stringResource(R.string.settings_vacation_retry))
+            }
+        }
+    }
+}
+
+@Composable
+private fun VacationForm(state: VacationUiState, viewModel: VacationViewModel) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        if (state.accountLabel.isNotBlank()) {
+            Text(
+                stringResource(R.string.settings_vacation_account, state.accountLabel),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        SettingsSection(stringResource(R.string.settings_vacation_section)) {
+            SettingSwitch(
+                title = stringResource(R.string.settings_vacation_enabled_title),
+                subtitle = stringResource(R.string.settings_vacation_enabled_subtitle),
+                checked = state.enabled,
+                onCheckedChange = viewModel::setEnabled,
+            )
+            SettingTextField(
+                label = stringResource(R.string.settings_vacation_subject_label),
+                value = state.subject,
+                onValueChange = viewModel::setSubject,
+            )
+            OutlinedTextField(
+                value = state.message,
+                onValueChange = viewModel::setMessage,
+                label = { Text(stringResource(R.string.settings_vacation_message_label)) },
+                minLines = 4,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+        SettingsSection(stringResource(R.string.settings_vacation_period_section)) {
+            VacationDateRow(
+                label = stringResource(R.string.settings_vacation_from_label),
+                millis = state.fromDate,
+                onPick = viewModel::setFromDate,
+            )
+            VacationDateRow(
+                label = stringResource(R.string.settings_vacation_to_label),
+                millis = state.toDate,
+                onPick = viewModel::setToDate,
+            )
+        }
+        if (state.errorKind == VacationError.INVALID_DATES) {
+            Text(
+                stringResource(R.string.settings_vacation_invalid_dates),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+        if (state.errorKind == VacationError.SAVE) {
+            Text(
+                stringResource(R.string.settings_vacation_save_error, state.errorDetail),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+        Button(
+            onClick = viewModel::save,
+            enabled = !state.saving,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+        ) {
+            if (state.saving) {
+                CircularProgressIndicator(
+                    modifier = Modifier.width(20.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
+            } else {
+                Text(stringResource(R.string.settings_vacation_save))
+            }
+        }
+        if (state.savedTick > 0) {
+            Text(
+                stringResource(R.string.settings_vacation_saved),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp).align(Alignment.CenterHorizontally),
+            )
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** A tappable row that shows the chosen day (or "Not set") and opens a date picker. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VacationDateRow(label: String, millis: Long?, onPick: (Long?) -> Unit) {
+    var showPicker by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { showPicker = true }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                millis?.let(::formatVacationDate) ?: stringResource(R.string.settings_vacation_date_unset),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (millis != null) {
+            IconButton(onClick = { onPick(null) }) {
+                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.settings_vacation_clear_date))
+            }
+        }
+    }
+    if (showPicker) {
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = millis)
+        DatePickerDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    onPick(pickerState.selectedDateMillis)
+                    showPicker = false
+                }) { Text(stringResource(R.string.settings_ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) {
+                    Text(stringResource(R.string.settings_cancel))
+                }
+            },
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+}
+
+/** Format a UTC-midnight epoch-millis as a localized date (follows the app language). */
+private fun formatVacationDate(millis: Long): String =
+    Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+        .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
 
 /**
  * Shared scaffold for the hub and detail screens: a [LargeTopAppBar] that collapses

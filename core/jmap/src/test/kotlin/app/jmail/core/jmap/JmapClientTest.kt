@@ -1,11 +1,14 @@
 package app.jmail.core.jmap
 
 import app.jmail.core.jmap.model.JmapSession
+import app.jmail.core.jmap.model.VacationResponse
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.buildJsonObject
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -85,6 +88,63 @@ class JmapClientTest {
         }
     }
 
+    @Test fun getVacationResponse_parsesSingleton() = runBlocking {
+        server.enqueue(MockResponse().setBody(VACATION_GET_JSON))
+        val vr = client.getVacationResponse(vacationSession(), "acc1", BasicAuth("u", "p"))
+
+        assertEquals("singleton", vr?.id)
+        assertEquals(true, vr?.isEnabled)
+        assertEquals("Away", vr?.subject)
+        assertEquals("Back Monday", vr?.textBody)
+
+        val sent = server.takeRequest().body.readUtf8()
+        assertTrue(sent.contains("VacationResponse/get"))
+        assertTrue(sent.contains("urn:ietf:params:jmap:vacationresponse"))
+    }
+
+    @Test fun getVacationResponse_nullAndNoCallWhenCapabilityAbsent() = runBlocking {
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        val vr = client.getVacationResponse(session, "acc1", BasicAuth("u", "p"))
+
+        assertNull(vr)
+        assertEquals(0, server.requestCount) // capability gate skips the network entirely
+    }
+
+    @Test fun setVacationResponse_sendsFieldsAndSucceeds() = runBlocking {
+        server.enqueue(MockResponse().setBody(VACATION_SET_JSON))
+        val vacation = VacationResponse(
+            isEnabled = true,
+            subject = "Away",
+            textBody = "Back Monday",
+            fromDate = "2026-06-23T00:00:00Z",
+            toDate = "2026-06-30T23:59:59Z",
+        )
+        val result = client.setVacationResponse(vacationSession(), "acc1", BasicAuth("u", "p"), vacation)
+
+        assertEquals("singleton", result.id)
+        val sent = server.takeRequest().body.readUtf8()
+        assertTrue(sent.contains("VacationResponse/set"))
+        assertTrue(sent.contains("\"isEnabled\":true"))
+        assertTrue(sent.contains("2026-06-23T00:00:00Z"))
+    }
+
+    @Test fun setVacationResponse_throwsOnNotUpdated() {
+        server.enqueue(MockResponse().setBody(VACATION_NOTUPDATED_JSON))
+        try {
+            runBlocking {
+                client.setVacationResponse(vacationSession(), "acc1", BasicAuth("u", "p"), VacationResponse())
+            }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertTrue(e.message!!.contains("forbidden"))
+        }
+    }
+
+    private fun vacationSession() = JmapSession(
+        apiUrl = server.url("/jmap/api/").toString(),
+        capabilities = mapOf(Jmap.VACATION_CAPABILITY to buildJsonObject {}),
+    )
+
     private companion object {
         const val SESSION_JSON = """
             {
@@ -149,6 +209,40 @@ class JmapClientTest {
             {
               "methodResponses": [
                 ["error", {"type":"accountNotFound"}, "c0"]
+              ],
+              "sessionState": "abc"
+            }
+        """
+
+        const val VACATION_GET_JSON = """
+            {
+              "methodResponses": [
+                ["VacationResponse/get", {
+                  "accountId": "acc1",
+                  "state": "v1",
+                  "notFound": [],
+                  "list": [
+                    {"id":"singleton","isEnabled":true,"subject":"Away","textBody":"Back Monday","fromDate":null,"toDate":null}
+                  ]
+                }, "v0"]
+              ],
+              "sessionState": "abc"
+            }
+        """
+
+        const val VACATION_SET_JSON = """
+            {
+              "methodResponses": [
+                ["VacationResponse/set", {"accountId":"acc1","newState":"v2","updated":{"singleton":null}}, "v0"]
+              ],
+              "sessionState": "abc"
+            }
+        """
+
+        const val VACATION_NOTUPDATED_JSON = """
+            {
+              "methodResponses": [
+                ["VacationResponse/set", {"accountId":"acc1","notUpdated":{"singleton":{"type":"forbidden"}}}, "v0"]
               ],
               "sessionState": "abc"
             }
