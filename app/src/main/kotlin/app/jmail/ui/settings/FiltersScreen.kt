@@ -1,8 +1,8 @@
 package app.jmail.ui.settings
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -10,14 +10,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -56,6 +54,20 @@ fun FiltersScreen(
     viewModel: FiltersViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var editing by remember { mutableStateOf<Int?>(null) }
+
+    val editIndex = editing
+    if (editIndex != null && editIndex < state.rules.size) {
+        // Full-screen editor (a dialog is too cramped for this many fields).
+        RuleEditScreen(
+            initial = state.rules[editIndex],
+            folders = state.folders,
+            onCommit = { viewModel.updateRule(editIndex, it); editing = null },
+            onDelete = { viewModel.removeRule(editIndex); editing = null },
+        )
+        return
+    }
+
     DetailScaffold(title = stringResource(R.string.settings_filters_screen_title), onBack = onBack) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
@@ -66,7 +78,12 @@ fun FiltersScreen(
                     stringResource(R.string.settings_vacation_load_error, state.errorDetail),
                     onRetry = viewModel::load,
                 )
-                else -> FiltersContent(state, viewModel)
+                else -> FiltersList(
+                    state = state,
+                    viewModel = viewModel,
+                    onEdit = { editing = it },
+                    onAdd = { viewModel.addRule(); editing = state.rules.size },
+                )
             }
         }
     }
@@ -88,9 +105,12 @@ private fun BoxScope.FiltersNote(text: String, onRetry: (() -> Unit)? = null) {
 }
 
 @Composable
-private fun FiltersContent(state: FiltersUiState, viewModel: FiltersViewModel) {
-    var editing by remember { mutableStateOf<Int?>(null) } // index being edited, or null
-
+private fun FiltersList(
+    state: FiltersUiState,
+    viewModel: FiltersViewModel,
+    onEdit: (Int) -> Unit,
+    onAdd: () -> Unit,
+) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         if (state.accountLabel.isNotBlank()) {
             Text(
@@ -121,16 +141,13 @@ private fun FiltersContent(state: FiltersUiState, viewModel: FiltersViewModel) {
                 RuleRow(
                     rule = rule,
                     onToggle = { viewModel.setRuleEnabled(index, it) },
-                    onEdit = { editing = index },
+                    onEdit = { onEdit(index) },
                 )
             }
             HorizontalDivider()
         }
 
-        OutlinedButton(
-            onClick = { viewModel.addRule(); editing = state.rules.size },
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
+        OutlinedButton(onClick = onAdd, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Icon(Icons.Filled.Add, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.settings_filters_add))
@@ -169,17 +186,6 @@ private fun FiltersContent(state: FiltersUiState, viewModel: FiltersViewModel) {
         }
         Spacer(Modifier.padding(bottom = 24.dp))
     }
-
-    val index = editing
-    if (index != null && index < state.rules.size) {
-        RuleEditDialog(
-            initial = state.rules[index],
-            folders = state.folders,
-            onSave = { viewModel.updateRule(index, it); editing = null },
-            onDelete = { viewModel.removeRule(index); editing = null },
-            onDismiss = { editing = null },
-        )
-    }
 }
 
 /** One rule in the list: summary + enable switch; tap to edit. */
@@ -206,90 +212,80 @@ private fun RuleRow(rule: FilterRule, onToggle: (Boolean) -> Unit, onEdit: () ->
     }
 }
 
+/** Full-screen rule editor. Back commits the edited rule to the in-memory list. */
 @Composable
-private fun RuleEditDialog(
+private fun RuleEditScreen(
     initial: FilterRule,
     folders: List<String>,
-    onSave: (FilterRule) -> Unit,
+    onCommit: (FilterRule) -> Unit,
     onDelete: () -> Unit,
-    onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     var rule by remember { mutableStateOf(initial) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.settings_filters_edit_title)) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()).heightIn(max = 460.dp)) {
-                OutlinedTextField(
-                    value = rule.name,
-                    onValueChange = { rule = rule.copy(name = it) },
-                    label = { Text(stringResource(R.string.settings_filter_name)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+    BackHandler { onCommit(rule) }
+    DetailScaffold(
+        title = stringResource(R.string.settings_filters_edit_title),
+        onBack = { onCommit(rule) },
+    ) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
+        ) {
+            OutlinedTextField(
+                value = rule.name,
+                onValueChange = { rule = rule.copy(name = it) },
+                label = { Text(stringResource(R.string.settings_filter_name)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            SettingsSection(stringResource(R.string.settings_filter_if)) {
+                SettingChoiceRow(
+                    title = stringResource(R.string.settings_filter_field),
+                    options = RuleField.entries,
+                    selected = rule.field,
+                    optionLabel = { fieldLabel(context, it) },
+                    onSelect = { rule = rule.copy(field = it) },
                 )
-                SettingsSection(stringResource(R.string.settings_filter_if)) {
-                    SettingChoiceRow(
-                        title = stringResource(R.string.settings_filter_field),
-                        options = RuleField.entries,
-                        selected = rule.field,
-                        optionLabel = { fieldLabel(context, it) },
-                        onSelect = { rule = rule.copy(field = it) },
-                    )
-                    SettingChoiceRow(
-                        title = stringResource(R.string.settings_filter_match),
-                        options = RuleMatch.entries,
-                        selected = rule.match,
-                        optionLabel = { matchLabel(context, it) },
-                        onSelect = { rule = rule.copy(match = it) },
-                    )
-                    OutlinedTextField(
-                        value = rule.value,
-                        onValueChange = { rule = rule.copy(value = it) },
-                        label = { Text(stringResource(R.string.settings_filter_value)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    )
-                }
-                SettingsSection(stringResource(R.string.settings_filter_then)) {
-                    val noMove = stringResource(R.string.settings_filter_move_none)
-                    SettingChoiceRow(
-                        title = stringResource(R.string.settings_filter_move_to),
-                        options = listOf<String?>(null) + folders,
-                        selected = rule.moveTo,
-                        optionLabel = { it ?: noMove },
-                        onSelect = { rule = rule.copy(moveTo = it) },
-                    )
-                    ActionSwitch(
-                        label = stringResource(R.string.settings_filter_mark_read),
-                        checked = rule.markRead,
-                        onChange = { rule = rule.copy(markRead = it) },
-                    )
-                    ActionSwitch(
-                        label = stringResource(R.string.settings_filter_flag),
-                        checked = rule.flag,
-                        onChange = { rule = rule.copy(flag = it) },
-                    )
-                }
-                TextButton(
-                    onClick = onDelete,
-                    modifier = Modifier.padding(top = 8.dp),
-                ) {
-                    Text(
-                        stringResource(R.string.settings_filter_delete),
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
+                SettingChoiceRow(
+                    title = stringResource(R.string.settings_filter_match),
+                    options = RuleMatch.entries,
+                    selected = rule.match,
+                    optionLabel = { matchLabel(context, it) },
+                    onSelect = { rule = rule.copy(match = it) },
+                )
+                OutlinedTextField(
+                    value = rule.value,
+                    onValueChange = { rule = rule.copy(value = it) },
+                    label = { Text(stringResource(R.string.settings_filter_value)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
             }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(rule) }) { Text(stringResource(R.string.settings_ok)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_cancel)) }
-        },
-    )
+            SettingsSection(stringResource(R.string.settings_filter_then)) {
+                val noMove = stringResource(R.string.settings_filter_move_none)
+                SettingChoiceRow(
+                    title = stringResource(R.string.settings_filter_move_to),
+                    options = listOf<String?>(null) + folders,
+                    selected = rule.moveTo,
+                    optionLabel = { it ?: noMove },
+                    onSelect = { rule = rule.copy(moveTo = it) },
+                )
+                ActionSwitch(
+                    label = stringResource(R.string.settings_filter_mark_read),
+                    checked = rule.markRead,
+                    onChange = { rule = rule.copy(markRead = it) },
+                )
+                ActionSwitch(
+                    label = stringResource(R.string.settings_filter_flag),
+                    checked = rule.flag,
+                    onChange = { rule = rule.copy(flag = it) },
+                )
+            }
+            TextButton(onClick = onDelete, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text(stringResource(R.string.settings_filter_delete), color = MaterialTheme.colorScheme.error)
+            }
+            Spacer(Modifier.padding(bottom = 24.dp))
+        }
+    }
 }
 
 @Composable
