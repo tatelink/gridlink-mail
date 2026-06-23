@@ -12,6 +12,7 @@ import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.Mailbox
+import app.jmail.core.jmap.model.SearchQuery
 import app.jmail.send.SendOutbox
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -472,7 +473,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             }
             delay(SEARCH_DEBOUNCE_MS)
             val credentials = store.load()
-            val results = credentials?.let { runCatching { repo.search(it, query) }.getOrNull() }
+            val results = credentials?.let { runCatching { repo.search(it, SearchQuery(text = query)) }.getOrNull() }
             // Ignore if the query changed while we were searching.
             if (searchState.value.query == query) {
                 searchState.value = searchState.value.copy(

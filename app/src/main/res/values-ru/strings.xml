@@ -331,6 +331,15 @@
     <string name="search_idle_hint">Поиск по всей вашей почте.</string>
     <string name="search_failed">Ошибка поиска: %1$s</string>
     <string name="search_no_results">Ничего не найдено по запросу «%1$s».</string>
+    <string name="search_no_results_generic">Нет подходящих писем.</string>
+    <string name="search_advanced_toggle">Расширенные фильтры</string>
+    <string name="search_from">Отправитель</string>
+    <string name="search_subject">Тема</string>
+    <string name="search_has_attachment">С вложением</string>
+    <string name="search_after">После</string>
+    <string name="search_before">До</string>
+    <string name="search_date_any">Любая</string>
+    <string name="search_button">Найти</string>
 
     <!-- App lock -->
     <string name="lock_title">Jmail заблокирован</string>

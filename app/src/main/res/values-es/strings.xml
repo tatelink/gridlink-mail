@@ -331,6 +331,15 @@
     <string name="search_idle_hint">Busca en todo tu correo.</string>
     <string name="search_failed">La búsqueda falló: %1$s</string>
     <string name="search_no_results">Sin resultados para \"%1$s\".</string>
+    <string name="search_no_results_generic">No hay mensajes que coincidan.</string>
+    <string name="search_advanced_toggle">Filtros avanzados</string>
+    <string name="search_from">De</string>
+    <string name="search_subject">Asunto</string>
+    <string name="search_has_attachment">Con archivo adjunto</string>
+    <string name="search_after">Después de</string>
+    <string name="search_before">Antes de</string>
+    <string name="search_date_any">Cualquiera</string>
+    <string name="search_button">Buscar</string>
 
     <!-- App lock -->
     <string name="lock_title">Jmail está bloqueado</string>

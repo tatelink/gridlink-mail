@@ -331,6 +331,15 @@
     <string name="search_idle_hint">Doorzoek al je e-mail.</string>
     <string name="search_failed">Zoeken mislukt: %1$s</string>
     <string name="search_no_results">Geen resultaten voor \"%1$s\".</string>
+    <string name="search_no_results_generic">Geen overeenkomende berichten.</string>
+    <string name="search_advanced_toggle">Geavanceerde filters</string>
+    <string name="search_from">Van</string>
+    <string name="search_subject">Onderwerp</string>
+    <string name="search_has_attachment">Heeft bijlage</string>
+    <string name="search_after">Na</string>
+    <string name="search_before">Voor</string>
+    <string name="search_date_any">Alle</string>
+    <string name="search_button">Zoeken</string>
 
     <!-- App lock -->
     <string name="lock_title">Jmail is vergrendeld</string>

@@ -331,6 +331,15 @@
     <string name="search_idle_hint">Recherchez dans tous vos messages.</string>
     <string name="search_failed">Échec de la recherche : %1$s</string>
     <string name="search_no_results">Aucun résultat pour « %1$s ».</string>
+    <string name="search_no_results_generic">Aucun message correspondant.</string>
+    <string name="search_advanced_toggle">Filtres avancés</string>
+    <string name="search_from">Expéditeur</string>
+    <string name="search_subject">Objet</string>
+    <string name="search_has_attachment">Avec pièce jointe</string>
+    <string name="search_after">Après le</string>
+    <string name="search_before">Avant le</string>
+    <string name="search_date_any">Indifférent</string>
+    <string name="search_button">Rechercher</string>
 
     <!-- App lock -->
     <string name="lock_title">Jmail est verrouillé</string>

@@ -334,6 +334,15 @@
     <string name="search_idle_hint">Search across all your mail.</string>
     <string name="search_failed">Search failed: %1$s</string>
     <string name="search_no_results">No results for \"%1$s\".</string>
+    <string name="search_no_results_generic">No matching messages.</string>
+    <string name="search_advanced_toggle">Advanced filters</string>
+    <string name="search_from">From</string>
+    <string name="search_subject">Subject</string>
+    <string name="search_has_attachment">Has attachment</string>
+    <string name="search_after">After</string>
+    <string name="search_before">Before</string>
+    <string name="search_date_any">Any</string>
+    <string name="search_button">Search</string>
 
     <!-- App lock -->
     <string name="lock_title">Jmail is locked</string>

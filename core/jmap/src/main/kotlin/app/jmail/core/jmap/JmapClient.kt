@@ -11,6 +11,7 @@ import app.jmail.core.jmap.model.JmapSession
 import app.jmail.core.jmap.model.Mailbox
 import app.jmail.core.jmap.model.StateChange
 import app.jmail.core.jmap.model.Quota
+import app.jmail.core.jmap.model.SearchQuery
 import app.jmail.core.jmap.model.SieveScript
 import app.jmail.core.jmap.model.UploadedBlob
 import app.jmail.core.jmap.model.VacationResponse
@@ -328,10 +329,19 @@ class JmapClient internal constructor(
     suspend fun searchEmails(
         session: JmapSession,
         accountId: String,
-        query: String,
+        query: SearchQuery,
         limit: Int,
         auth: JmapAuth,
     ): List<Email> = withContext(Dispatchers.IO) {
+        // One JMAP filter-condition per non-empty field, AND-combined.
+        val conditions = mutableListOf<JsonObjectBuilder.() -> Unit>()
+        if (query.text.isNotBlank()) conditions.add { put("text", query.text.trim()) }
+        if (query.from.isNotBlank()) conditions.add { put("from", query.from.trim()) }
+        if (query.subject.isNotBlank()) conditions.add { put("subject", query.subject.trim()) }
+        if (query.hasAttachment) conditions.add { put("hasAttachment", true) }
+        query.afterMillis?.let { ms -> conditions.add { put("after", utcDate(ms)) } }
+        query.beforeMillis?.let { ms -> conditions.add { put("before", utcDate(ms)) } }
+
         val payload = buildJsonObject {
             putJsonArray("using") {
                 add(Jmap.CORE_CAPABILITY)
@@ -342,7 +352,16 @@ class JmapClient internal constructor(
                     add("Email/query")
                     addJsonObject {
                         put("accountId", accountId)
-                        putJsonObject("filter") { put("text", query) }
+                        putJsonObject("filter") {
+                            if (conditions.size == 1) {
+                                conditions[0]()
+                            } else {
+                                put("operator", "AND")
+                                putJsonArray("conditions") {
+                                    conditions.forEach { cond -> addJsonObject(cond) }
+                                }
+                            }
+                        }
                         putJsonArray("sort") {
                             addJsonObject {
                                 put("property", "receivedAt")
@@ -1090,6 +1109,9 @@ class JmapClient internal constructor(
 
     private fun encodePathSegment(value: String): String =
         java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+
+    /** Epoch-millis as a JMAP UTCDate (e.g. "2026-06-23T00:00:00Z"). */
+    private fun utcDate(millis: Long): String = java.time.Instant.ofEpochMilli(millis).toString()
 
     /**
      * Open a long-lived JMAP push connection (EventSource/SSE, RFC 8620 §7.3),

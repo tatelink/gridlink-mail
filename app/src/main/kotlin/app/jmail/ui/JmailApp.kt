@@ -34,6 +34,7 @@ import app.jmail.ui.compose.ComposeScreen
 import app.jmail.ui.connect.ConnectScreen
 import app.jmail.ui.inbox.InboxScreen
 import app.jmail.ui.message.MessageScreen
+import app.jmail.ui.search.SearchScreen
 import app.jmail.ui.settings.SettingsScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -128,6 +129,7 @@ private fun MainNavHost(
                 },
                 onCompose = { nav.navigate("compose") },
                 onOpenSettings = { nav.navigate("settings") },
+                onOpenSearch = { nav.navigate("search") },
                 accounts = accounts,
                 currentAccountId = currentAccountId,
                 onSwitchAccount = onSwitchAccount,
@@ -165,6 +167,12 @@ private fun MainNavHost(
                 replyTo = entry.arguments?.getString("replyTo")?.let { Uri.decode(it) },
                 mode = entry.arguments?.getString("mode"),
                 accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null },
+            )
+        }
+        composable("search") {
+            SearchScreen(
+                onBack = { nav.popBackStack() },
+                onOpenEmail = { id -> nav.navigate("message/${Uri.encode(id)}?accountId=") },
             )
         }
         composable("settings") {

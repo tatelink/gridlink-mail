@@ -42,7 +42,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Server-side Sieve filters/rules (form-based rule builder); ✅ server `Quota` display
 
 **Tier 4 — polish**
-- 💡 Richer search filters (from/subject/has-attachment/date) + `SearchSnippet` highlights
+- ✅ Richer search filters (from/subject/has-attachment/date, AND-combined); 💡 `SearchSnippet` highlights
 - 💡 Per-account colour; home-screen widget(s); accessibility pass (TalkBack, font scaling)
 - 💡 Bundled/grouped notifications + quiet hours
 - 💡 `/.well-known/jmap` autodiscovery + OAuth2; settings export/import
@@ -89,7 +89,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Mailbox listing
 - ✅ Server-side search — inline on the mailbox (search-as-you-type; JMAP query / IMAP SEARCH, with instant local-cache results)
 - ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account; JMAP + IMAP)
-- 💡 Richer search filters (from, subject, has-attachment, date) + `SearchSnippet` highlights
+- ✅ Richer search filters (from, subject, has-attachment, date) — advanced panel in Search, JMAP Email/query AND filter; 💡 `SearchSnippet` highlights
 - ✅ Auto-create an Archive folder on first archive (when the account has none)
 - ✅ Folder management — create / rename / delete custom folders from the drawer; 💡 subscribe + per-folder settings
 - ✅ Quick filter: unread-only toggle on the current view

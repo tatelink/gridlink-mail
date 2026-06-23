@@ -39,6 +39,7 @@ import app.jmail.core.jmap.model.EmailBodyValue
 import app.jmail.core.jmap.model.Mailbox
 import app.jmail.core.jmap.model.JmapSession
 import app.jmail.core.jmap.model.Quota
+import app.jmail.core.jmap.model.SearchQuery
 import app.jmail.core.jmap.model.VacationResponse
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -667,11 +668,16 @@ class MailRepository(
         emailDao.deleteById(emailId)
     }
 
-    /** Full-text search across the account (results are transient, not cached). */
-    suspend fun search(credentials: AccountCredentials, query: String, limit: Int = 50): List<Email> {
+    /**
+     * Structured search across the account (results are transient, not cached).
+     * IMAP accounts use the free-text term only; the advanced filters (from,
+     * subject, attachment, date range) are JMAP-only for now.
+     */
+    suspend fun search(credentials: AccountCredentials, query: SearchQuery, limit: Int = 50): List<Email> {
+        if (query.isEmpty()) return emptyList()
         if (credentials.protocol == MailProtocol.IMAP) {
             val inbox = mailboxDao.idForRole("inbox") ?: return emptyList()
-            return imap.search(credentials, inbox, query, limit).map { it.toEmail() }
+            return imap.search(credentials, inbox, query.text, limit).map { it.toEmail() }
         }
         val ctx = connect(credentials)
         return client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth)

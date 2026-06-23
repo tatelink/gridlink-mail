@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Warning
@@ -125,6 +126,7 @@ fun InboxScreen(
     onOpenEmail: (emailId: String, accountId: String?) -> Unit,
     onCompose: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenSearch: () -> Unit,
     accounts: List<app.jmail.core.data.account.StoredAccount>,
     currentAccountId: String,
     onSwitchAccount: (String) -> Unit,
@@ -473,6 +475,9 @@ fun InboxScreen(
                                 IconButton(onClick = { viewModel.setSearchQuery("") }) {
                                     Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.inbox_clear))
                                 }
+                            }
+                            IconButton(onClick = onOpenSearch) {
+                                Icon(Icons.Filled.Tune, contentDescription = stringResource(R.string.search_advanced_toggle))
                             }
                         },
                     )
