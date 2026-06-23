@@ -115,6 +115,7 @@ import app.jmail.core.jmap.model.Mailbox
 import app.jmail.R
 import app.jmail.ui.components.EmailListItem
 import app.jmail.ui.components.Monogram
+import app.jmail.ui.components.accountColorOf
 import app.jmail.ui.components.verticalScrollbar
 import kotlin.math.abs
 import kotlinx.coroutines.coroutineScope
@@ -294,14 +295,15 @@ fun InboxScreen(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
-                val currentLabel = accounts.firstOrNull { it.id == currentAccountId }?.label()
+                val currentAccount = accounts.firstOrNull { it.id == currentAccountId }
+                val currentLabel = currentAccount?.label()
                     ?: ui.accountName.ifBlank { stringResource(R.string.inbox_app_name) }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.padding(16.dp),
                 ) {
-                    Monogram(seed = currentLabel, label = currentLabel)
+                    Monogram(seed = currentLabel, label = currentLabel, color = accountColorOf(currentAccount?.color))
                     Text(
                         text = currentLabel,
                         style = MaterialTheme.typography.titleMedium,
@@ -571,14 +573,11 @@ fun InboxScreen(
             // Takes the row modifier so the caller can pass `animateItem()` from its
             // own LazyItemScope.
             val emailRow: @Composable (Email, Modifier) -> Unit = { email, rowModifier ->
-                val accountLabel = if (ui.unified) {
-                    accounts.firstOrNull { it.id == email.accountId }?.label()
-                } else {
-                    null
-                }
+                val ownerAccount = if (ui.unified) accounts.firstOrNull { it.id == email.accountId } else null
                 SwipeableEmailRow(
                     email = email,
-                    accountLabel = accountLabel,
+                    accountLabel = ownerAccount?.label(),
+                    accountColor = accountColorOf(ownerAccount?.color),
                     rightAction = swipe.right,
                     leftAction = swipe.left,
                     onSwipe = { action -> performSwipe(action, email, viewModel) },
@@ -687,6 +686,7 @@ fun InboxScreen(
 private fun SwipeableEmailRow(
     email: Email,
     accountLabel: String?,
+    accountColor: Color?,
     rightAction: SwipeAction,
     leftAction: SwipeAction,
     onSwipe: (SwipeAction) -> Unit,
@@ -797,6 +797,7 @@ private fun SwipeableEmailRow(
                 email = email,
                 onClick = onClick,
                 accountLabel = accountLabel,
+                accountColor = accountColor,
                 onToggleFavourite = onToggleFavourite,
                 selected = selected,
                 onLongClick = onLongClick,

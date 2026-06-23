@@ -267,6 +267,8 @@
     <string name="settings_account_screen_title">Аккаунт</string>
     <string name="settings_account_section">Аккаунт</string>
     <string name="settings_display_name_label">Отображаемое имя</string>
+    <string name="settings_account_colour_section">Цвет</string>
+    <string name="settings_account_colour_auto">Авто</string>
     <string name="settings_server_settings_section">Настройки сервера</string>
     <string name="settings_imap_server_label">Сервер IMAP</string>
     <string name="settings_imap_port_label">Порт IMAP</string>

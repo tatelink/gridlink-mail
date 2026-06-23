@@ -270,6 +270,8 @@
     <string name="settings_account_screen_title">Account</string>
     <string name="settings_account_section">Account</string>
     <string name="settings_display_name_label">Display name</string>
+    <string name="settings_account_colour_section">Colour</string>
+    <string name="settings_account_colour_auto">Auto</string>
     <string name="settings_server_settings_section">Server settings</string>
     <string name="settings_imap_server_label">IMAP server</string>
     <string name="settings_imap_port_label">IMAP port</string>

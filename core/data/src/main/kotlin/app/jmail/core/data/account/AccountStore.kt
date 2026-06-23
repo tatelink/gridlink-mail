@@ -165,6 +165,11 @@ class AccountStore(context: Context) {
         saveAccounts(accounts().map { if (it.id == id) it.copy(syncWindow = window) else it })
     }
 
+    /** Persist the account's accent colour (ARGB), or null for auto. No-op if the id is unknown. */
+    fun setColor(id: String, color: Int?) {
+        saveAccounts(accounts().map { if (it.id == id) it.copy(color = color) else it })
+    }
+
     /** Remove an account; if it was current, fall back to another (or none). */
     fun remove(id: String) {
         prefs.edit().remove(passwordKey(id)).apply()

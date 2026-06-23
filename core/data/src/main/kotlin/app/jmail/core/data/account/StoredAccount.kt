@@ -13,6 +13,8 @@ data class StoredAccount(
     val inboxName: String = "Inbox",
     val unread: Int = 0,
     val syncWindow: SyncWindow = SyncWindow.DAYS_90,
+    /** User-chosen accent colour (ARGB); null = auto (derived from the address). */
+    val color: Int? = null,
     /** Legacy account-level signature; seeds the default identity when none are set. */
     val signature: String = "",
     /** Sending identities; empty means use a default derived from the account. */

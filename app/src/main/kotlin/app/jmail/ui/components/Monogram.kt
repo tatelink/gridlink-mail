@@ -19,13 +19,13 @@ import androidx.compose.ui.unit.dp
  * Privacy-first: never loads a remote photo, no network leak (DESIGN.md).
  */
 @Composable
-fun Monogram(seed: String, label: String, modifier: Modifier = Modifier) {
-    val color = remember(seed) { monogramColor(seed) }
+fun Monogram(seed: String, label: String, modifier: Modifier = Modifier, color: Color? = null) {
+    val background = color ?: remember(seed) { monogramColor(seed) }
     Box(
         modifier = modifier
             .size(40.dp)
             .clip(CircleShape)
-            .background(color),
+            .background(background),
         contentAlignment = Alignment.Center,
     ) {
         Text(

@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,6 +44,7 @@ fun EmailListItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     accountLabel: String? = null,
+    accountColor: Color? = null,
     onToggleFavourite: (() -> Unit)? = null,
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
@@ -110,15 +112,20 @@ fun EmailListItem(
             }
             accountLabel?.takeIf { it.isNotBlank() }?.let { label ->
                 Spacer(Modifier.size(4.dp))
+                // Tint the account chip with the account's accent colour when set.
+                val chipColor = accountColor ?: MaterialTheme.colorScheme.primary
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = chipColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .clip(MaterialTheme.shapes.small)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .background(
+                            if (accountColor != null) accountColor.copy(alpha = 0.16f)
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                        )
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }

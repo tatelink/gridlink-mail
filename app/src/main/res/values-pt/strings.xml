@@ -267,6 +267,8 @@
     <string name="settings_account_screen_title">Conta</string>
     <string name="settings_account_section">Conta</string>
     <string name="settings_display_name_label">Nome de exibição</string>
+    <string name="settings_account_colour_section">Cor</string>
+    <string name="settings_account_colour_auto">Auto</string>
     <string name="settings_server_settings_section">Configurações do servidor</string>
     <string name="settings_imap_server_label">Servidor IMAP</string>
     <string name="settings_imap_port_label">Porta IMAP</string>

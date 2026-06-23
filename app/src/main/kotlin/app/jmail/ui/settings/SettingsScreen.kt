@@ -2,7 +2,18 @@ package app.jmail.ui.settings
 
 import app.jmail.contacts.AndroidContacts
 import android.Manifest
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.foundation.layout.size
+import app.jmail.ui.components.AccountPalette
+import app.jmail.ui.components.accountColorOf
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -589,6 +600,33 @@ private fun QuotaRow(quota: QuotaUi) {
     }
 }
 
+/** A circular colour choice for the per-account accent picker; "Auto" when [color] is null. */
+@Composable
+private fun ColourSwatch(color: Color?, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(color ?: MaterialTheme.colorScheme.surfaceVariant)
+            .border(
+                width = if (selected) 3.dp else 1.dp,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            color == null -> Text(
+                stringResource(R.string.settings_account_colour_auto),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            selected -> Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White)
+        }
+    }
+}
+
 @Composable
 private fun StorageStatRow(label: String, value: String) {
     Row(
@@ -643,6 +681,7 @@ private fun AccountsScreen(
                     label = account.label(),
                     email = account.username,
                     isCurrent = account.id == currentId,
+                    color = accountColorOf(account.color),
                     onClick = {
                         if (account.id != currentId) {
                             viewModel.switchTo(account.id)
@@ -690,6 +729,7 @@ private fun AccountDetailScreen(
     var saved by remember(accountId) { mutableStateOf(false) }
     var identities by remember(accountId) { mutableStateOf(account.resolvedIdentities()) }
     var syncWindow by remember(accountId) { mutableStateOf(account.syncWindow) }
+    var colorArgb by remember(accountId) { mutableStateOf(account.color) }
     var imapHost by remember(accountId) { mutableStateOf(account.imapHost) }
     var imapPort by remember(accountId) { mutableStateOf(account.imapPort.toString()) }
     var imapSecurity by remember(accountId) { mutableStateOf(account.imapSecurity) }
@@ -717,6 +757,25 @@ private fun AccountDetailScreen(
                     value = accountName,
                     onValueChange = { accountName = it; saved = false },
                 )
+            }
+            SettingsSection(stringResource(R.string.settings_account_colour_section)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ColourSwatch(color = null, selected = colorArgb == null) {
+                        colorArgb = null; viewModel.setColor(accountId, null); onAccountsChanged()
+                    }
+                    AccountPalette.colors.forEach { swatch ->
+                        val argb = swatch.toArgb()
+                        ColourSwatch(color = swatch, selected = colorArgb == argb) {
+                            colorArgb = argb; viewModel.setColor(accountId, argb); onAccountsChanged()
+                        }
+                    }
+                }
             }
             SettingsSection(stringResource(R.string.settings_server_settings_section)) {
                 if (isImap) {

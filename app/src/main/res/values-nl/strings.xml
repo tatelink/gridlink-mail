@@ -267,6 +267,8 @@
     <string name="settings_account_screen_title">Account</string>
     <string name="settings_account_section">Account</string>
     <string name="settings_display_name_label">Weergavenaam</string>
+    <string name="settings_account_colour_section">Kleur</string>
+    <string name="settings_account_colour_auto">Auto</string>
     <string name="settings_server_settings_section">Serverinstellingen</string>
     <string name="settings_imap_server_label">IMAP-server</string>
     <string name="settings_imap_port_label">IMAP-poort</string>

@@ -43,6 +43,12 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         refresh()
     }
 
+    /** Set the account's accent colour (ARGB), or null for auto. */
+    fun setColor(id: String, color: Int?) {
+        store.setColor(id, color)
+        refresh()
+    }
+
     /** Load this account's cached-message count into [cacheCount]. */
     fun loadCacheCount(id: String) {
         viewModelScope.launch { _cacheCount.value = storage.accountMessageCount(id) }

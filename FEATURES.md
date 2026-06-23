@@ -43,7 +43,7 @@ The categories further down list the full feature set; this is the order of work
 
 **Tier 4 — polish**
 - ✅ Richer search filters (from/subject/has-attachment/date, AND-combined); 💡 `SearchSnippet` highlights
-- 💡 Per-account colour; home-screen widget(s); accessibility pass (TalkBack, font scaling)
+- ✅ Per-account colour (avatar + unified-inbox chip); 💡 home-screen widget(s); accessibility pass (TalkBack, font scaling)
 - 💡 Bundled/grouped notifications + quiet hours
 - 💡 `/.well-known/jmap` autodiscovery + OAuth2; settings export/import
 
@@ -119,7 +119,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Account management panel — per-account editable server settings (protocol-aware: JMAP URL, or IMAP/SMTP host/port/security; username, password)
 - ✅ Optional account display name (falls back to the address when unset)
 - 💡 Onboarding via `/.well-known/jmap` autodiscovery; OAuth2 / Bearer auth
-- 💡 Per-account colour coding
+- ✅ Per-account colour coding (picker in account settings; tints the account avatar + the unified-inbox account chip)
 - 💡 Settings export / import
 
 ## Sync, push & notifications

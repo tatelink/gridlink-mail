@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -177,6 +178,7 @@ fun AccountRow(
     email: String,
     isCurrent: Boolean,
     onClick: () -> Unit,
+    color: Color? = null,
 ) {
     Row(
         modifier = Modifier
@@ -185,7 +187,7 @@ fun AccountRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Monogram(seed = seed, label = label)
+        Monogram(seed = seed, label = label, color = color)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.titleMedium)
