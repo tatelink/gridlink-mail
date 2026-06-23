@@ -77,6 +77,15 @@
     <string name="inbox_sort_unread_first">Non lus d\'abord</string>
     <string name="inbox_unflag">Ne plus suivre</string>
     <string name="inbox_flag">Suivre</string>
+    <string name="folder_inbox">Boîte de réception</string>
+    <string name="folder_archive">Archives</string>
+    <string name="folder_drafts">Brouillons</string>
+    <string name="folder_sent">Envoyés</string>
+    <string name="folder_junk">Spam</string>
+    <string name="folder_trash">Corbeille</string>
+    <string name="folder_all">Tous les messages</string>
+    <string name="folder_flagged">Suivis</string>
+    <string name="folder_important">Important</string>
 
     <!-- Message -->
     <string name="message_title_fallback">Message</string>

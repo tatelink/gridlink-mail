@@ -77,6 +77,15 @@
     <string name="inbox_sort_unread_first">No leídos primero</string>
     <string name="inbox_unflag">Quitar destacado</string>
     <string name="inbox_flag">Destacar</string>
+    <string name="folder_inbox">Bandeja de entrada</string>
+    <string name="folder_archive">Archivo</string>
+    <string name="folder_drafts">Borradores</string>
+    <string name="folder_sent">Enviados</string>
+    <string name="folder_junk">Spam</string>
+    <string name="folder_trash">Papelera</string>
+    <string name="folder_all">Todos los mensajes</string>
+    <string name="folder_flagged">Destacados</string>
+    <string name="folder_important">Importante</string>
 
     <!-- Message -->
     <string name="message_title_fallback">Mensaje</string>

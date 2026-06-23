@@ -77,6 +77,15 @@
     <string name="inbox_sort_unread_first">Prima i non letti</string>
     <string name="inbox_unflag">Rimuovi contrassegno</string>
     <string name="inbox_flag">Contrassegna</string>
+    <string name="folder_inbox">Posta in arrivo</string>
+    <string name="folder_archive">Archivio</string>
+    <string name="folder_drafts">Bozze</string>
+    <string name="folder_sent">Inviati</string>
+    <string name="folder_junk">Spam</string>
+    <string name="folder_trash">Cestino</string>
+    <string name="folder_all">Tutti i messaggi</string>
+    <string name="folder_flagged">Speciali</string>
+    <string name="folder_important">Importanti</string>
 
     <!-- Message -->
     <string name="message_title_fallback">Messaggio</string>

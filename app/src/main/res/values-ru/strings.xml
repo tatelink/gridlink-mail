@@ -77,6 +77,15 @@
     <string name="inbox_sort_unread_first">Сначала непрочитанные</string>
     <string name="inbox_unflag">Снять пометку</string>
     <string name="inbox_flag">Пометить</string>
+    <string name="folder_inbox">Входящие</string>
+    <string name="folder_archive">Архив</string>
+    <string name="folder_drafts">Черновики</string>
+    <string name="folder_sent">Отправленные</string>
+    <string name="folder_junk">Спам</string>
+    <string name="folder_trash">Корзина</string>
+    <string name="folder_all">Вся почта</string>
+    <string name="folder_flagged">Помеченные</string>
+    <string name="folder_important">Важное</string>
 
     <!-- Message -->
     <string name="message_title_fallback">Письмо</string>

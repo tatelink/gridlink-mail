@@ -171,7 +171,7 @@ fun InboxScreen(
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     targets.forEach { folder ->
                         Text(
-                            text = folder.name,
+                            text = mailboxDisplayName(folder.role, folder.name),
                             style = MaterialTheme.typography.bodyLarge,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -341,10 +341,11 @@ fun InboxScreen(
                     )
                 }
                 ui.mailboxes.forEach { mailbox ->
+                    val displayName = mailboxDisplayName(mailbox.role, mailbox.name)
                     val label = if (mailbox.unreadEmails > 0) {
-                        stringResource(R.string.inbox_folder_unread, mailbox.name, mailbox.unreadEmails)
+                        stringResource(R.string.inbox_folder_unread, displayName, mailbox.unreadEmails)
                     } else {
-                        mailbox.name
+                        displayName
                     }
                     NavigationDrawerItem(
                         icon = { Icon(folderIcon(mailbox.role), contentDescription = null) },
@@ -479,8 +480,12 @@ fun InboxScreen(
                     TopAppBar(
                         title = {
                             Column {
+                                // Localize the title for standard folders; the unified view
+                                // (no selected id) keeps its already-resolved label.
+                                val selectedRole = ui.mailboxes
+                                    .firstOrNull { it.id == ui.selectedMailboxId }?.role
                                 Text(
-                                    ui.mailboxName,
+                                    mailboxDisplayName(selectedRole, ui.mailboxName),
                                     style = MaterialTheme.typography.titleLarge,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -842,4 +847,25 @@ private fun folderIcon(role: String?): ImageVector = when (role) {
     "trash" -> Icons.Filled.Delete
     "junk" -> Icons.Filled.Warning
     else -> Icons.AutoMirrored.Filled.List
+}
+
+/**
+ * The name to show for a folder. Standard folders — those the server tags with an
+ * RFC 8621 / IMAP special-use [role] — get a localized canonical label, so
+ * server-specific spellings like "Sent Items", "Junk Mail" or "Deleted Items"
+ * read consistently in the app's language. Folders the user created on their own
+ * server (role == null, or an unrecognised role) keep their raw [name] untouched.
+ */
+@Composable
+fun mailboxDisplayName(role: String?, name: String): String = when (role) {
+    "inbox" -> stringResource(R.string.folder_inbox)
+    "archive" -> stringResource(R.string.folder_archive)
+    "drafts" -> stringResource(R.string.folder_drafts)
+    "sent" -> stringResource(R.string.folder_sent)
+    "junk" -> stringResource(R.string.folder_junk)
+    "trash" -> stringResource(R.string.folder_trash)
+    "all" -> stringResource(R.string.folder_all)
+    "flagged" -> stringResource(R.string.folder_flagged)
+    "important" -> stringResource(R.string.folder_important)
+    else -> name
 }

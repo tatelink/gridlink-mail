@@ -77,6 +77,15 @@
     <string name="inbox_sort_unread_first">Ungelesene zuerst</string>
     <string name="inbox_unflag">Markierung entfernen</string>
     <string name="inbox_flag">Markieren</string>
+    <string name="folder_inbox">Posteingang</string>
+    <string name="folder_archive">Archiv</string>
+    <string name="folder_drafts">Entwürfe</string>
+    <string name="folder_sent">Gesendet</string>
+    <string name="folder_junk">Spam</string>
+    <string name="folder_trash">Papierkorb</string>
+    <string name="folder_all">Alle Nachrichten</string>
+    <string name="folder_flagged">Markiert</string>
+    <string name="folder_important">Wichtig</string>
 
     <!-- Message -->
     <string name="message_title_fallback">Nachricht</string>

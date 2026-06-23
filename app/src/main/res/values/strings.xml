@@ -78,6 +78,18 @@
     <string name="inbox_unflag">Unflag</string>
     <string name="inbox_flag">Flag</string>
 
+    <!-- Standard (special-use) folder names — shown for server folders that carry a
+         role; user-created folders keep their own name. -->
+    <string name="folder_inbox">Inbox</string>
+    <string name="folder_archive">Archive</string>
+    <string name="folder_drafts">Drafts</string>
+    <string name="folder_sent">Sent</string>
+    <string name="folder_junk">Spam</string>
+    <string name="folder_trash">Trash</string>
+    <string name="folder_all">All mail</string>
+    <string name="folder_flagged">Flagged</string>
+    <string name="folder_important">Important</string>
+
     <!-- Message -->
     <string name="message_title_fallback">Message</string>
     <string name="message_back">Back</string>

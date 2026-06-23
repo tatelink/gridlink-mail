@@ -77,6 +77,15 @@
     <string name="inbox_sort_unread_first">Ongelezen eerst</string>
     <string name="inbox_unflag">Markering verwijderen</string>
     <string name="inbox_flag">Markeren</string>
+    <string name="folder_inbox">Postvak IN</string>
+    <string name="folder_archive">Archief</string>
+    <string name="folder_drafts">Concepten</string>
+    <string name="folder_sent">Verzonden</string>
+    <string name="folder_junk">Spam</string>
+    <string name="folder_trash">Prullenbak</string>
+    <string name="folder_all">Alle berichten</string>
+    <string name="folder_flagged">Met ster</string>
+    <string name="folder_important">Belangrijk</string>
 
     <!-- Message -->
     <string name="message_title_fallback">Bericht</string>
