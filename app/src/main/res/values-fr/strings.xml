@@ -126,6 +126,11 @@
     <string name="settings_storage_title">Stockage</string>
     <string name="settings_storage_summary">Utilisation du cache, vider le cache</string>
     <string name="settings_appearance_screen_title">Apparence</string>
+    <string name="settings_language_section">Langue</string>
+    <string name="settings_language_title">Langue de l\'application</string>
+    <string name="settings_language_system">Par défaut du système</string>
+    <string name="settings_language_english">English</string>
+    <string name="settings_language_french">Français</string>
     <string name="settings_theme_section">Thème</string>
     <string name="settings_theme_title">Thème</string>
     <string name="settings_message_list_section">Liste des messages</string>

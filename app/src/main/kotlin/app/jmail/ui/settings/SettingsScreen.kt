@@ -225,10 +225,23 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val density by viewModel.listDensity.collectAsStateWithLifecycle()
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var language by remember { mutableStateOf(currentAppLanguage()) }
     DetailScaffold(title = stringResource(R.string.settings_appearance_screen_title), onBack = onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
+            SettingsSection(stringResource(R.string.settings_language_section)) {
+                SettingChoiceRow(
+                    title = stringResource(R.string.settings_language_title),
+                    options = listOf(AppLanguage.SYSTEM, AppLanguage.ENGLISH, AppLanguage.FRENCH),
+                    selected = language,
+                    optionLabel = { languageLabel(context, it) },
+                    onSelect = {
+                        language = it
+                        applyAppLanguage(it)
+                    },
+                )
+            }
             SettingsSection(stringResource(R.string.settings_theme_section)) {
                 SettingChoiceRow(
                     title = stringResource(R.string.settings_theme_title),
@@ -256,6 +269,12 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             }
         }
     }
+}
+
+private fun languageLabel(context: Context, language: AppLanguage): String = when (language) {
+    AppLanguage.SYSTEM -> context.getString(R.string.settings_language_system)
+    AppLanguage.ENGLISH -> context.getString(R.string.settings_language_english)
+    AppLanguage.FRENCH -> context.getString(R.string.settings_language_french)
 }
 
 private fun themeLabel(context: Context, mode: ThemeMode): String = when (mode) {

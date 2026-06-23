@@ -12,8 +12,8 @@ android {
         applicationId = "app.jmail"
         minSdk = 26
         targetSdk = 36
-        versionCode = 69
-        versionName = "0.61.0"
+        versionCode = 70
+        versionName = "0.62.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -67,6 +67,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.fragment.ktx)

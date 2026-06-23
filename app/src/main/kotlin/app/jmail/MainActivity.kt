@@ -6,7 +6,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.fragment.app.FragmentActivity
+import androidx.appcompat.app.AppCompatActivity
 import app.jmail.core.data.settings.ListDensity
 import app.jmail.core.data.settings.PreviewLines
 import app.jmail.core.data.settings.ThemeMode
@@ -15,7 +15,7 @@ import app.jmail.ui.components.LocalListDensity
 import app.jmail.ui.components.LocalPreviewLines
 import app.jmail.ui.theme.JmailTheme
 
-class MainActivity : FragmentActivity() {
+class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

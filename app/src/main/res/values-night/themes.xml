@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.Jmail" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Jmail" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
     </style>
 </resources>
