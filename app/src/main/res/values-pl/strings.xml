@@ -91,6 +91,8 @@
     <string name="message_title_fallback">Wiadomość</string>
     <string name="message_back">Wstecz</string>
     <string name="message_show_images">Pokaż obrazy</string>
+    <string name="message_images_always_sender">Zawsze pokazuj obrazy od tego nadawcy</string>
+    <string name="message_images_stop_sender">Nie pokazuj automatycznie obrazów od tego nadawcy</string>
     <string name="message_mark_unread">Oznacz jako nieprzeczytane</string>
     <string name="message_delete">Usuń</string>
     <string name="message_more">Więcej</string>
@@ -204,6 +206,9 @@
     <string name="settings_app_lock_subtitle">Wymagaj odcisku palca, twarzy lub kodu PIN ekranu, aby otworzyć Jmail.</string>
     <string name="settings_app_lock_unavailable">Najpierw skonfiguruj odcisk palca, rozpoznawanie twarzy lub blokadę ekranu w ustawieniach urządzenia.</string>
     <string name="settings_links_section">Linki</string>
+    <string name="settings_image_allowlist_section">Obrazy zdalne</string>
+    <string name="settings_image_allowlist_count">Nadawcy z zawsze pokazywanymi obrazami: %1$d</string>
+    <string name="settings_image_allowlist_clear">Wyczyść</string>
     <string name="settings_strip_tracking_title">Usuwaj parametry śledzące</string>
     <string name="settings_strip_tracking_subtitle">Usuwaj elementy śledzące (utm_*, fbclid, gclid…) z linków przed ich otwarciem, aby nadawcy nie wiedzieli, kiedy w nie klikasz.</string>
     <string name="settings_recipient_suggestions_section">Sugestie odbiorców</string>

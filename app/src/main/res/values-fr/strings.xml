@@ -91,6 +91,8 @@
     <string name="message_title_fallback">Message</string>
     <string name="message_back">Retour</string>
     <string name="message_show_images">Afficher les images</string>
+    <string name="message_images_always_sender">Toujours afficher les images de cet expéditeur</string>
+    <string name="message_images_stop_sender">Ne plus afficher automatiquement les images de cet expéditeur</string>
     <string name="message_mark_unread">Marquer comme non lu</string>
     <string name="message_delete">Supprimer</string>
     <string name="message_more">Plus</string>
@@ -204,6 +206,9 @@
     <string name="settings_app_lock_subtitle">Exiger votre empreinte, votre visage ou le code de l\'écran pour ouvrir Jmail.</string>
     <string name="settings_app_lock_unavailable">Configurez d\'abord une empreinte, le déverrouillage par le visage ou un verrouillage d\'écran dans les réglages de votre appareil.</string>
     <string name="settings_links_section">Liens</string>
+    <string name="settings_image_allowlist_section">Images distantes</string>
+    <string name="settings_image_allowlist_count">Expéditeurs configurés pour toujours afficher les images : %1$d</string>
+    <string name="settings_image_allowlist_clear">Effacer</string>
     <string name="settings_strip_tracking_title">Supprimer les paramètres de suivi</string>
     <string name="settings_strip_tracking_subtitle">Supprimez les traceurs (utm_*, fbclid, gclid…) des liens avant de les ouvrir, afin que les expéditeurs ne puissent pas savoir quand vous cliquez.</string>
     <string name="settings_recipient_suggestions_section">Suggestions de destinataires</string>

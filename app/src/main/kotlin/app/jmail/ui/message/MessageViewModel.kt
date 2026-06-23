@@ -38,6 +38,18 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         initialValue = true,
     )
 
+    /** Sender addresses whose remote images load automatically. */
+    val imageAllowlist = settings.imageAllowlist.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptySet(),
+    )
+
+    /** Add/remove a sender from the always-show-images allowlist. */
+    fun setImagesAlwaysAllowed(sender: String, allowed: Boolean) {
+        viewModelScope.launch { settings.setImageAllowed(sender, allowed) }
+    }
+
     private val _state = MutableStateFlow<MessageState>(MessageState.Loading)
     val state = _state.asStateFlow()
 

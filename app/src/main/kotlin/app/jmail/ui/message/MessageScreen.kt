@@ -82,7 +82,12 @@ fun MessageScreen(
     val inlineImages by viewModel.inlineImages.collectAsStateWithLifecycle()
     val inJunk by viewModel.inJunk.collectAsStateWithLifecycle()
     val stripTracking by viewModel.stripTracking.collectAsStateWithLifecycle()
-    var showRemote by remember(emailId) { mutableStateOf(false) }
+    val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
+    // Per-message manual override; the sender allowlist auto-shows without it.
+    var manualShow by remember(emailId) { mutableStateOf(false) }
+    val senderEmail = (state as? MessageState.Loaded)?.email?.from?.firstOrNull()?.email
+    val senderAllowed = senderEmail?.lowercase()?.let { it in imageAllowlist } == true
+    val showRemote = manualShow || senderAllowed
 
     Scaffold(
         topBar = {
@@ -107,7 +112,7 @@ fun MessageScreen(
                 actions = {
                     val loaded = state as? MessageState.Loaded
                     if (loaded != null && !showRemote) {
-                        TextButton(onClick = { showRemote = true }) {
+                        TextButton(onClick = { manualShow = true }) {
                             Text(stringResource(R.string.message_show_images))
                         }
                     }
@@ -193,6 +198,22 @@ fun MessageScreen(
                                     text = { Text(stringResource(R.string.message_snooze)) },
                                     onClick = { snoozeSubmenu = true },
                                 )
+                                if (senderEmail != null) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                stringResource(
+                                                    if (senderAllowed) R.string.message_images_stop_sender
+                                                    else R.string.message_images_always_sender,
+                                                ),
+                                            )
+                                        },
+                                        onClick = {
+                                            menuOpen = false
+                                            viewModel.setImagesAlwaysAllowed(senderEmail, !senderAllowed)
+                                        },
+                                    )
+                                }
                             }
                         }
                     }

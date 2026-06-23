@@ -94,6 +94,8 @@
     <string name="message_title_fallback">Message</string>
     <string name="message_back">Back</string>
     <string name="message_show_images">Show images</string>
+    <string name="message_images_always_sender">Always show images from this sender</string>
+    <string name="message_images_stop_sender">Don\'t auto-show images from this sender</string>
     <string name="message_mark_unread">Mark unread</string>
     <string name="message_delete">Delete</string>
     <string name="message_more">More</string>
@@ -206,6 +208,9 @@
     <string name="settings_app_lock_title">App lock</string>
     <string name="settings_app_lock_subtitle">Require your fingerprint, face, or screen PIN to open Jmail.</string>
     <string name="settings_app_lock_unavailable">Set up a fingerprint, face unlock, or screen lock in your device settings first.</string>
+    <string name="settings_image_allowlist_section">Remote images</string>
+    <string name="settings_image_allowlist_count">Senders set to always show images: %1$d</string>
+    <string name="settings_image_allowlist_clear">Clear</string>
     <string name="settings_links_section">Links</string>
     <string name="settings_strip_tracking_title">Strip tracking parameters</string>
     <string name="settings_strip_tracking_subtitle">Remove trackers (utm_*, fbclid, gclid…) from links before opening them, so senders can\'t tell when you click.</string>

@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -96,6 +97,22 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_STRIP_TRACKING] = enabled }
     }
 
+    /** Sender addresses (lower-cased) whose remote images load automatically. */
+    val imageAllowlist: Flow<Set<String>> = dataStore.data.map { it[KEY_IMAGE_ALLOWLIST] ?: emptySet() }
+
+    suspend fun setImageAllowed(sender: String, allowed: Boolean) {
+        val key = sender.trim().lowercase()
+        if (key.isEmpty()) return
+        dataStore.edit { prefs ->
+            val current = prefs[KEY_IMAGE_ALLOWLIST] ?: emptySet()
+            prefs[KEY_IMAGE_ALLOWLIST] = if (allowed) current + key else current - key
+        }
+    }
+
+    suspend fun clearImageAllowlist() {
+        dataStore.edit { it.remove(KEY_IMAGE_ALLOWLIST) }
+    }
+
     private fun swipeFlow(key: Preferences.Key<String>, default: SwipeAction): Flow<SwipeAction> =
         dataStore.data.map { prefs ->
             prefs[key]?.let { runCatching { SwipeAction.valueOf(it) }.getOrNull() } ?: default
@@ -110,5 +127,6 @@ class SettingsRepository(context: Context) {
         val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
         val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         val KEY_STRIP_TRACKING = booleanPreferencesKey("strip_tracking_params")
+        val KEY_IMAGE_ALLOWLIST = stringSetPreferencesKey("image_allowlist")
     }
 }

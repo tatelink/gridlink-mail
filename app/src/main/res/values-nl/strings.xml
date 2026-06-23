@@ -91,6 +91,8 @@
     <string name="message_title_fallback">Bericht</string>
     <string name="message_back">Terug</string>
     <string name="message_show_images">Afbeeldingen tonen</string>
+    <string name="message_images_always_sender">Afbeeldingen van deze afzender altijd tonen</string>
+    <string name="message_images_stop_sender">Afbeeldingen van deze afzender niet automatisch tonen</string>
     <string name="message_mark_unread">Als ongelezen markeren</string>
     <string name="message_delete">Verwijderen</string>
     <string name="message_more">Meer</string>
@@ -204,6 +206,9 @@
     <string name="settings_app_lock_subtitle">Vereis je vingerafdruk, gezicht of schermpincode om Jmail te openen.</string>
     <string name="settings_app_lock_unavailable">Stel eerst een vingerafdruk, gezichtsontgrendeling of schermvergrendeling in bij je apparaatinstellingen.</string>
     <string name="settings_links_section">Links</string>
+    <string name="settings_image_allowlist_section">Externe afbeeldingen</string>
+    <string name="settings_image_allowlist_count">Afzenders waarvan afbeeldingen altijd worden getoond: %1$d</string>
+    <string name="settings_image_allowlist_clear">Wissen</string>
     <string name="settings_strip_tracking_title">Trackingparameters verwijderen</string>
     <string name="settings_strip_tracking_subtitle">Verwijder trackers (utm_*, fbclid, gclid…) uit links voordat je ze opent, zodat afzenders niet kunnen zien wanneer je klikt.</string>
     <string name="settings_recipient_suggestions_section">Ontvangersuggesties</string>

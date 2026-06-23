@@ -91,6 +91,8 @@
     <string name="message_title_fallback">Messaggio</string>
     <string name="message_back">Indietro</string>
     <string name="message_show_images">Mostra immagini</string>
+    <string name="message_images_always_sender">Mostra sempre le immagini di questo mittente</string>
+    <string name="message_images_stop_sender">Non mostrare automaticamente le immagini di questo mittente</string>
     <string name="message_mark_unread">Segna come da leggere</string>
     <string name="message_delete">Elimina</string>
     <string name="message_more">Altro</string>
@@ -204,6 +206,9 @@
     <string name="settings_app_lock_subtitle">Richiedi la tua impronta, il volto o il PIN dello schermo per aprire Jmail.</string>
     <string name="settings_app_lock_unavailable">Configura prima un\'impronta, lo sblocco con il volto o un blocco schermo nelle impostazioni del dispositivo.</string>
     <string name="settings_links_section">Collegamenti</string>
+    <string name="settings_image_allowlist_section">Immagini remote</string>
+    <string name="settings_image_allowlist_count">Mittenti impostati per mostrare sempre le immagini: %1$d</string>
+    <string name="settings_image_allowlist_clear">Cancella</string>
     <string name="settings_strip_tracking_title">Rimuovi parametri di tracciamento</string>
     <string name="settings_strip_tracking_subtitle">Rimuove i tracker (utm_*, fbclid, gclid…) dai collegamenti prima di aprirli, così i mittenti non possono sapere quando fai clic.</string>
     <string name="settings_recipient_suggestions_section">Suggerimenti destinatari</string>

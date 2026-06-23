@@ -91,6 +91,8 @@
     <string name="message_title_fallback">Mensagem</string>
     <string name="message_back">Voltar</string>
     <string name="message_show_images">Mostrar imagens</string>
+    <string name="message_images_always_sender">Sempre mostrar imagens deste remetente</string>
+    <string name="message_images_stop_sender">Não mostrar imagens deste remetente automaticamente</string>
     <string name="message_mark_unread">Marcar como não lida</string>
     <string name="message_delete">Excluir</string>
     <string name="message_more">Mais</string>
@@ -204,6 +206,9 @@
     <string name="settings_app_lock_subtitle">Exigir sua impressão digital, rosto ou PIN da tela para abrir o Jmail.</string>
     <string name="settings_app_lock_unavailable">Configure primeiro uma impressão digital, desbloqueio facial ou bloqueio de tela nas configurações do seu aparelho.</string>
     <string name="settings_links_section">Links</string>
+    <string name="settings_image_allowlist_section">Imagens remotas</string>
+    <string name="settings_image_allowlist_count">Remetentes definidos para sempre mostrar imagens: %1$d</string>
+    <string name="settings_image_allowlist_clear">Limpar</string>
     <string name="settings_strip_tracking_title">Remover parâmetros de rastreamento</string>
     <string name="settings_strip_tracking_subtitle">Remove rastreadores (utm_*, fbclid, gclid…) dos links antes de abri-los, para que os remetentes não saibam quando você clica.</string>
     <string name="settings_recipient_suggestions_section">Sugestões de destinatários</string>

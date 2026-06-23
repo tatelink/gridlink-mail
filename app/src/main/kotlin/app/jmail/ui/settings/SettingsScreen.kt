@@ -392,6 +392,7 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
     val appLockUnavailable by viewModel.appLockUnavailable.collectAsStateWithLifecycle()
     val contactSuggestions by viewModel.contactSuggestions.collectAsStateWithLifecycle()
     val stripTracking by viewModel.stripTrackingParams.collectAsStateWithLifecycle()
+    val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val contactsPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -423,6 +424,26 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                     checked = stripTracking,
                     onCheckedChange = viewModel::setStripTrackingParams,
                 )
+            }
+            if (imageAllowlist.isNotEmpty()) {
+                SettingsSection(stringResource(R.string.settings_image_allowlist_section)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            stringResource(R.string.settings_image_allowlist_count, imageAllowlist.size),
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        TextButton(onClick = viewModel::clearImageAllowlist) {
+                            Text(stringResource(R.string.settings_image_allowlist_clear))
+                        }
+                    }
+                }
             }
             SettingsSection(stringResource(R.string.settings_recipient_suggestions_section)) {
                 SettingSwitch(

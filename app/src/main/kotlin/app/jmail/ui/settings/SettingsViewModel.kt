@@ -81,6 +81,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setStripTrackingParams(value) }
     }
 
+    val imageAllowlist = settings.imageAllowlist.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptySet(),
+    )
+
+    fun clearImageAllowlist() {
+        viewModelScope.launch { settings.clearImageAllowlist() }
+    }
+
     fun setPushAllAccounts(value: Boolean) {
         store.setPushAllAccounts(value)
         _pushAllAccounts.value = value

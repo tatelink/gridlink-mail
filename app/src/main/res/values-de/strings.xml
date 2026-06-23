@@ -91,6 +91,8 @@
     <string name="message_title_fallback">Nachricht</string>
     <string name="message_back">Zurück</string>
     <string name="message_show_images">Bilder anzeigen</string>
+    <string name="message_images_always_sender">Bilder von diesem Absender immer anzeigen</string>
+    <string name="message_images_stop_sender">Bilder von diesem Absender nicht mehr automatisch anzeigen</string>
     <string name="message_mark_unread">Als ungelesen markieren</string>
     <string name="message_delete">Löschen</string>
     <string name="message_more">Mehr</string>
@@ -204,6 +206,9 @@
     <string name="settings_app_lock_subtitle">Fingerabdruck, Gesicht oder Bildschirm-PIN erforderlich, um Jmail zu öffnen.</string>
     <string name="settings_app_lock_unavailable">Richte zuerst einen Fingerabdruck, die Gesichtsentsperrung oder eine Bildschirmsperre in den Geräteeinstellungen ein.</string>
     <string name="settings_links_section">Links</string>
+    <string name="settings_image_allowlist_section">Externe Bilder</string>
+    <string name="settings_image_allowlist_count">Absender, deren Bilder immer angezeigt werden: %1$d</string>
+    <string name="settings_image_allowlist_clear">Leeren</string>
     <string name="settings_strip_tracking_title">Tracking-Parameter entfernen</string>
     <string name="settings_strip_tracking_subtitle">Tracker (utm_*, fbclid, gclid…) aus Links entfernen, bevor sie geöffnet werden, damit Absender nicht erkennen können, wann du klickst.</string>
     <string name="settings_recipient_suggestions_section">Empfängervorschläge</string>
