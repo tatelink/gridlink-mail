@@ -93,6 +93,8 @@
     <string name="message_show_images">Pokaż obrazy</string>
     <string name="message_images_always_sender">Zawsze pokazuj obrazy od tego nadawcy</string>
     <string name="message_images_stop_sender">Nie pokazuj automatycznie obrazów od tego nadawcy</string>
+    <string name="message_open_link_title">Otworzyć ten link?</string>
+    <string name="message_open_link_open">Otwórz</string>
     <string name="message_mark_unread">Oznacz jako nieprzeczytane</string>
     <string name="message_delete">Usuń</string>
     <string name="message_more">Więcej</string>
@@ -211,6 +213,8 @@
     <string name="settings_image_allowlist_clear">Wyczyść</string>
     <string name="settings_strip_tracking_title">Usuwaj parametry śledzące</string>
     <string name="settings_strip_tracking_subtitle">Usuwaj elementy śledzące (utm_*, fbclid, gclid…) z linków przed ich otwarciem, aby nadawcy nie wiedzieli, kiedy w nie klikasz.</string>
+    <string name="settings_confirm_links_title">Potwierdzaj przed otwarciem linków</string>
+    <string name="settings_confirm_links_subtitle">Pokaż adres docelowy i zapytaj przed otwarciem linku z wiadomości.</string>
     <string name="settings_recipient_suggestions_section">Sugestie odbiorców</string>
     <string name="settings_suggest_contacts_title">Sugeruj z kontaktów</string>
     <string name="settings_suggest_contacts_subtitle">Automatycznie uzupełniaj odbiorców z kontaktów tego urządzenia podczas pisania. Jmail odczytuje je tylko na urządzeniu i nigdy ich nie przesyła. Po wyłączeniu nadal sugeruje osoby, do których ostatnio pisałeś.</string>

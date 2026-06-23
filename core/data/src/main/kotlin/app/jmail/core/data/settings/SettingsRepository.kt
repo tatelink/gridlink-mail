@@ -97,6 +97,13 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_STRIP_TRACKING] = enabled }
     }
 
+    /** Whether to show the destination and ask before opening a tapped link (off by default). */
+    val confirmLinks: Flow<Boolean> = dataStore.data.map { it[KEY_CONFIRM_LINKS] ?: false }
+
+    suspend fun setConfirmLinks(enabled: Boolean) {
+        dataStore.edit { it[KEY_CONFIRM_LINKS] = enabled }
+    }
+
     /** Sender addresses (lower-cased) whose remote images load automatically. */
     val imageAllowlist: Flow<Set<String>> = dataStore.data.map { it[KEY_IMAGE_ALLOWLIST] ?: emptySet() }
 
@@ -127,6 +134,7 @@ class SettingsRepository(context: Context) {
         val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
         val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         val KEY_STRIP_TRACKING = booleanPreferencesKey("strip_tracking_params")
+        val KEY_CONFIRM_LINKS = booleanPreferencesKey("confirm_links")
         val KEY_IMAGE_ALLOWLIST = stringSetPreferencesKey("image_allowlist")
     }
 }

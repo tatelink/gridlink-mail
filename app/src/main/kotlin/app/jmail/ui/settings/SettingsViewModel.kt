@@ -81,6 +81,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setStripTrackingParams(value) }
     }
 
+    val confirmLinks = settings.confirmLinks.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
+    fun setConfirmLinks(value: Boolean) {
+        viewModelScope.launch { settings.setConfirmLinks(value) }
+    }
+
     val imageAllowlist = settings.imageAllowlist.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

@@ -93,6 +93,8 @@
     <string name="message_show_images">Mostrar imágenes</string>
     <string name="message_images_always_sender">Mostrar siempre las imágenes de este remitente</string>
     <string name="message_images_stop_sender">No mostrar automáticamente las imágenes de este remitente</string>
+    <string name="message_open_link_title">¿Abrir este enlace?</string>
+    <string name="message_open_link_open">Abrir</string>
     <string name="message_mark_unread">Marcar como no leído</string>
     <string name="message_delete">Eliminar</string>
     <string name="message_more">Más</string>
@@ -211,6 +213,8 @@
     <string name="settings_image_allowlist_clear">Borrar</string>
     <string name="settings_strip_tracking_title">Eliminar parámetros de seguimiento</string>
     <string name="settings_strip_tracking_subtitle">Elimina los rastreadores (utm_*, fbclid, gclid…) de los enlaces antes de abrirlos, para que los remitentes no puedan saber cuándo haces clic.</string>
+    <string name="settings_confirm_links_title">Confirmar antes de abrir enlaces</string>
+    <string name="settings_confirm_links_subtitle">Muestra el destino y pide confirmación antes de abrir un enlace de un mensaje.</string>
     <string name="settings_recipient_suggestions_section">Sugerencias de destinatarios</string>
     <string name="settings_suggest_contacts_title">Sugerir desde los contactos</string>
     <string name="settings_suggest_contacts_subtitle">Autocompletar destinatarios desde los contactos de este dispositivo mientras escribes. Jmail los lee solo en el dispositivo y nunca los sube. Si está desactivado, sigue sugiriendo personas a las que has escrito recientemente.</string>

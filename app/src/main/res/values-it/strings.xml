@@ -93,6 +93,8 @@
     <string name="message_show_images">Mostra immagini</string>
     <string name="message_images_always_sender">Mostra sempre le immagini di questo mittente</string>
     <string name="message_images_stop_sender">Non mostrare automaticamente le immagini di questo mittente</string>
+    <string name="message_open_link_title">Aprire questo collegamento?</string>
+    <string name="message_open_link_open">Apri</string>
     <string name="message_mark_unread">Segna come da leggere</string>
     <string name="message_delete">Elimina</string>
     <string name="message_more">Altro</string>
@@ -211,6 +213,8 @@
     <string name="settings_image_allowlist_clear">Cancella</string>
     <string name="settings_strip_tracking_title">Rimuovi parametri di tracciamento</string>
     <string name="settings_strip_tracking_subtitle">Rimuove i tracker (utm_*, fbclid, gclid…) dai collegamenti prima di aprirli, così i mittenti non possono sapere quando fai clic.</string>
+    <string name="settings_confirm_links_title">Conferma prima di aprire i collegamenti</string>
+    <string name="settings_confirm_links_subtitle">Mostra la destinazione e chiedi conferma prima di aprire un collegamento da un messaggio.</string>
     <string name="settings_recipient_suggestions_section">Suggerimenti destinatari</string>
     <string name="settings_suggest_contacts_title">Suggerisci dai contatti</string>
     <string name="settings_suggest_contacts_subtitle">Completa automaticamente i destinatari dai contatti di questo dispositivo mentre digiti. Jmail li legge solo sul dispositivo e non li carica mai. Se disattivato, suggerisce comunque le persone a cui hai scritto di recente.</string>

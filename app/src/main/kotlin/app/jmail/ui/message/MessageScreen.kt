@@ -1,6 +1,7 @@
 package app.jmail.ui.message
 
 import app.jmail.appLocale
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.webkit.WebResourceRequest
@@ -34,6 +35,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -82,6 +84,7 @@ fun MessageScreen(
     val inlineImages by viewModel.inlineImages.collectAsStateWithLifecycle()
     val inJunk by viewModel.inJunk.collectAsStateWithLifecycle()
     val stripTracking by viewModel.stripTracking.collectAsStateWithLifecycle()
+    val confirmLinks by viewModel.confirmLinks.collectAsStateWithLifecycle()
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
     // Per-message manual override; the sender allowlist auto-shows without it.
     var manualShow by remember(emailId) { mutableStateOf(false) }
@@ -242,6 +245,7 @@ fun MessageScreen(
                     siblings = thread,
                     blockRemote = !showRemote,
                     stripTracking = stripTracking,
+                    confirmLinks = confirmLinks,
                     onOpenEmail = onOpenEmail,
                     attachmentStatus = attachmentStatus,
                     onOpenAttachment = viewModel::openAttachment,
@@ -258,6 +262,7 @@ private fun MessageBody(
     siblings: List<Email>,
     blockRemote: Boolean,
     stripTracking: Boolean,
+    confirmLinks: Boolean,
     onOpenEmail: (String) -> Unit,
     attachmentStatus: String?,
     onOpenAttachment: (EmailBodyPart) -> Unit,
@@ -288,6 +293,7 @@ private fun MessageBody(
             html = html,
             blockRemote = blockRemote,
             stripTracking = stripTracking,
+            confirmLinks = confirmLinks,
             backgroundColor = scheme.surface.toArgb(),
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
@@ -463,12 +469,17 @@ private fun EmailWebView(
     html: String,
     blockRemote: Boolean,
     stripTracking: Boolean,
+    confirmLinks: Boolean,
     backgroundColor: Int,
     modifier: Modifier,
 ) {
+    val context = LocalContext.current
+    // When confirmation is on, a tapped link is held here until the user approves it.
+    var pendingLink by remember { mutableStateOf<Uri?>(null) }
     val client = remember { BlockingWebViewClient() }
     client.blockRemote = blockRemote
     client.stripTracking = stripTracking
+    client.onOpenUrl = { uri -> if (confirmLinks) pendingLink = uri else openExternally(context, uri) }
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -489,6 +500,33 @@ private fun EmailWebView(
             webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
         },
     )
+
+    pendingLink?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { pendingLink = null },
+            title = { Text(stringResource(R.string.message_open_link_title)) },
+            text = { Text(uri.toString()) },
+            confirmButton = {
+                TextButton(onClick = { openExternally(context, uri); pendingLink = null }) {
+                    Text(stringResource(R.string.message_open_link_open))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingLink = null }) {
+                    Text(stringResource(R.string.settings_cancel))
+                }
+            },
+        )
+    }
+}
+
+/** Open a URL in the system's default handler (browser/chooser); no-op if none can. */
+private fun openExternally(context: Context, uri: Uri) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (e: Exception) {
+        // No app can handle the URL — silently ignore rather than crash.
+    }
 }
 
 /** A Compose [Color] as a CSS hex string (#RRGGBB). */
@@ -498,6 +536,9 @@ private fun Color.toCssHex(): String = "#%06X".format(0xFFFFFF and toArgb())
 private class BlockingWebViewClient : WebViewClient() {
     var blockRemote: Boolean = true
     var stripTracking: Boolean = true
+
+    /** Reports the final (possibly cleaned) URL to open; the composable decides how. */
+    var onOpenUrl: (Uri) -> Unit = {}
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
         if (blockRemote && request != null) {
@@ -511,17 +552,10 @@ private class BlockingWebViewClient : WebViewClient() {
 
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         val url = request?.url ?: return false
-        val context = view?.context ?: return false
         // Strip tracking params (utm_*, fbclid, …) so the sender can't tell the link was clicked.
         val target = if (stripTracking) Uri.parse(LinkCleaner.strip(url.toString())) else url
-        return try {
-            context.startActivity(
-                Intent(Intent.ACTION_VIEW, target).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-            true
-        } catch (e: Exception) {
-            false
-        }
+        onOpenUrl(target)
+        return true
     }
 }
 

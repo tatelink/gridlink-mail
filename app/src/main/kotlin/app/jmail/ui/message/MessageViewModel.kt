@@ -38,6 +38,13 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         initialValue = true,
     )
 
+    /** Whether to show the destination and ask before opening a tapped link. */
+    val confirmLinks = settings.confirmLinks.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
     /** Sender addresses whose remote images load automatically. */
     val imageAllowlist = settings.imageAllowlist.stateIn(
         scope = viewModelScope,

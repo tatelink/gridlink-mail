@@ -93,6 +93,8 @@
     <string name="message_show_images">Показать изображения</string>
     <string name="message_images_always_sender">Всегда показывать изображения от этого отправителя</string>
     <string name="message_images_stop_sender">Не показывать изображения от этого отправителя автоматически</string>
+    <string name="message_open_link_title">Открыть эту ссылку?</string>
+    <string name="message_open_link_open">Открыть</string>
     <string name="message_mark_unread">Отметить непрочитанным</string>
     <string name="message_delete">Удалить</string>
     <string name="message_more">Ещё</string>
@@ -211,6 +213,8 @@
     <string name="settings_image_allowlist_clear">Очистить</string>
     <string name="settings_strip_tracking_title">Удалять параметры отслеживания</string>
     <string name="settings_strip_tracking_subtitle">Удалять трекеры (utm_*, fbclid, gclid…) из ссылок перед их открытием, чтобы отправители не могли узнать, когда вы переходите по ссылке.</string>
+    <string name="settings_confirm_links_title">Подтверждать перед открытием ссылок</string>
+    <string name="settings_confirm_links_subtitle">Показывать адрес назначения и запрашивать подтверждение перед открытием ссылки из письма.</string>
     <string name="settings_recipient_suggestions_section">Подсказки получателей</string>
     <string name="settings_suggest_contacts_title">Подсказывать из контактов</string>
     <string name="settings_suggest_contacts_subtitle">Автодополнять получателей из контактов этого устройства при вводе. Jmail читает их только на устройстве и никогда не отправляет. Если выключено, всё равно подсказывает тех, кому вы недавно писали.</string>

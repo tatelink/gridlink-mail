@@ -93,6 +93,8 @@
     <string name="message_show_images">Bilder anzeigen</string>
     <string name="message_images_always_sender">Bilder von diesem Absender immer anzeigen</string>
     <string name="message_images_stop_sender">Bilder von diesem Absender nicht mehr automatisch anzeigen</string>
+    <string name="message_open_link_title">Diesen Link öffnen?</string>
+    <string name="message_open_link_open">Öffnen</string>
     <string name="message_mark_unread">Als ungelesen markieren</string>
     <string name="message_delete">Löschen</string>
     <string name="message_more">Mehr</string>
@@ -211,6 +213,8 @@
     <string name="settings_image_allowlist_clear">Leeren</string>
     <string name="settings_strip_tracking_title">Tracking-Parameter entfernen</string>
     <string name="settings_strip_tracking_subtitle">Tracker (utm_*, fbclid, gclid…) aus Links entfernen, bevor sie geöffnet werden, damit Absender nicht erkennen können, wann du klickst.</string>
+    <string name="settings_confirm_links_title">Vor dem Öffnen von Links bestätigen</string>
+    <string name="settings_confirm_links_subtitle">Das Ziel anzeigen und nachfragen, bevor ein Link aus einer Nachricht geöffnet wird.</string>
     <string name="settings_recipient_suggestions_section">Empfängervorschläge</string>
     <string name="settings_suggest_contacts_title">Aus Kontakten vorschlagen</string>
     <string name="settings_suggest_contacts_subtitle">Empfänger während der Eingabe aus den Kontakten dieses Geräts vervollständigen. Jmail liest sie nur auf dem Gerät und lädt sie nie hoch. Wenn deaktiviert, werden trotzdem Personen vorgeschlagen, denen du kürzlich geschrieben hast.</string>

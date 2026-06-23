@@ -93,6 +93,8 @@
     <string name="message_show_images">Afbeeldingen tonen</string>
     <string name="message_images_always_sender">Afbeeldingen van deze afzender altijd tonen</string>
     <string name="message_images_stop_sender">Afbeeldingen van deze afzender niet automatisch tonen</string>
+    <string name="message_open_link_title">Deze link openen?</string>
+    <string name="message_open_link_open">Openen</string>
     <string name="message_mark_unread">Als ongelezen markeren</string>
     <string name="message_delete">Verwijderen</string>
     <string name="message_more">Meer</string>
@@ -211,6 +213,8 @@
     <string name="settings_image_allowlist_clear">Wissen</string>
     <string name="settings_strip_tracking_title">Trackingparameters verwijderen</string>
     <string name="settings_strip_tracking_subtitle">Verwijder trackers (utm_*, fbclid, gclid…) uit links voordat je ze opent, zodat afzenders niet kunnen zien wanneer je klikt.</string>
+    <string name="settings_confirm_links_title">Bevestigen voor het openen van links</string>
+    <string name="settings_confirm_links_subtitle">Toon de bestemming en vraag om bevestiging voordat een link uit een bericht wordt geopend.</string>
     <string name="settings_recipient_suggestions_section">Ontvangersuggesties</string>
     <string name="settings_suggest_contacts_title">Suggesties uit contacten</string>
     <string name="settings_suggest_contacts_subtitle">Vul ontvangers aan uit de contacten van dit apparaat terwijl je typt. Jmail leest ze alleen op het apparaat en uploadt ze nooit. Uitgeschakeld stelt het nog steeds mensen voor die je onlangs hebt gemaild.</string>
