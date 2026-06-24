@@ -4,9 +4,10 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <!-- A tern in flight (Sterna): wide swept wings, pointed tips, forked tail.
-         White silhouette, kept within the adaptive-icon safe zone. -->
+         Coral silhouette (the signature accent) on the calm teal-navy background,
+         kept within the adaptive-icon safe zone, legible at 48dp. -->
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="#FFFF6A4D"
         android:pathData="M20,54
             C32,43 42,45 54,49
             C66,45 76,43 88,54
