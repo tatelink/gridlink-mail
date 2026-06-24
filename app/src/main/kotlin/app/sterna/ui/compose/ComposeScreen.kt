@@ -6,6 +6,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -48,11 +52,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -72,6 +78,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sterna.R
+import app.sterna.ui.rememberMotionEnabled
+import app.sterna.ui.components.drawTern
 import app.sterna.core.data.db.ContactRow
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -97,7 +105,26 @@ fun ComposeScreen(
     }
 
     LaunchedEffect(Unit) { viewModel.prepare(replyTo, mode, accountId) }
-    LaunchedEffect(state) { if (state is ComposeState.Done) onDone() }
+
+    // "Takes flight": when the message is queued (Done), play a brief lift-off — the
+    // content rises and fades, a tern arcs off-screen — then navigate back. The send
+    // already fired in viewModel.send(); this is purely cosmetic and must not delay it.
+    val motionOn = rememberMotionEnabled()
+    var flying by remember { mutableStateOf(false) }
+    val fly by animateFloatAsState(
+        targetValue = if (flying) 1f else 0f,
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "send-flight",
+    )
+    LaunchedEffect(state) {
+        if (state is ComposeState.Done) {
+            if (motionOn) {
+                flying = true
+                delay(320)
+            }
+            onDone()
+        }
+    }
 
     var to by rememberSaveable { mutableStateOf("") }
     var cc by rememberSaveable { mutableStateOf("") }
@@ -276,12 +303,16 @@ fun ComposeScreen(
             )
         },
     ) { padding ->
+      Box(Modifier.fillMaxSize().padding(padding)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .graphicsLayer {
+                    translationY = -fly * 64.dp.toPx()
+                    alpha = 1f - fly
+                },
         ) {
             // From — switch sending account / identity (only when there's a choice).
             if (fromOptions.size > 1) {
@@ -400,6 +431,22 @@ fun ComposeScreen(
                 )
             }
         }
+        // The tern that carries the message off-screen, top-right.
+        if (flying) {
+            val ink = MaterialTheme.colorScheme.onSurfaceVariant
+            Canvas(
+                Modifier
+                    .align(Alignment.Center)
+                    .size(44.dp)
+                    .graphicsLayer {
+                        translationX = fly * size.width * 3f
+                        translationY = -fly * size.height * 6f
+                        alpha = 1f - fly
+                        rotationZ = fly * 16f
+                    },
+            ) { drawTern(spread = 1f, flap = 0.5f, color = ink) }
+        }
+      }
     }
 }
 

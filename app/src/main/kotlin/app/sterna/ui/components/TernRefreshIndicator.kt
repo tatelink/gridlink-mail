@@ -80,7 +80,9 @@ fun TernRefreshIndicator(
     }
 }
 
-private fun DrawScope.drawTern(spread: Float, flap: Float, color: Color) {
+/** Draws a small line-art tern; [spread] 0..1 folds→spreads the wings, [flap] 0..1
+ *  bobs the wing-tips (0.5 = level glide). Shared by the refresh + send-flight motions. */
+internal fun DrawScope.drawTern(spread: Float, flap: Float, color: Color) {
     val s = size.minDimension
     val cx = size.width / 2f
     val cy = size.height / 2f
