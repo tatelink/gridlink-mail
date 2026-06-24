@@ -1,6 +1,6 @@
 # Features
 
-This document tracks Jmail's feature set: what's built, what's planned on the
+This document tracks Sterna's feature set: what's built, what's planned on the
 roadmap, and proposed additions drawn from K-9 Mail / Thunderbird for Android
 and from what users expect of a modern, complete email client.
 
@@ -122,7 +122,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ JMAP **and** IMAP/SMTP account setup (protocol picker; host/port/security) — IMAP setup has quick-setup presets (Gmail, Outlook, Yahoo, iCloud, Fastmail, Proton Bridge) that prefill host/port/security, and password fields have a show/hide toggle
 - ✅ Account management panel — per-account editable server settings (protocol-aware: JMAP URL, or IMAP/SMTP host/port/security; username, password), with a "Test connection" button that validates the (edited) settings before saving
 - ✅ Optional account display name (falls back to the address when unset)
-- ✅ Onboarding via `/.well-known/jmap` autodiscovery — enter just email + password; Jmail probes the email domain's well-known endpoint (and mail./jmap. subdomains, following redirects) to find the JMAP server, with a manual-server fallback; 💡 DNS SRV (`_jmap._tcp`)
+- ✅ Onboarding via `/.well-known/jmap` autodiscovery — enter just email + password; Sterna probes the email domain's well-known endpoint (and mail./jmap. subdomains, following redirects) to find the JMAP server, with a manual-server fallback; 💡 DNS SRV (`_jmap._tcp`)
 - ✅ OAuth2 / Bearer auth — "Sign in with OAuth" uses the OAuth 2.0 Device Authorization Grant (RFC 8628): discovers the server's `/.well-known/oauth-authorization-server`, shows a user code to enter in the browser, polls for tokens, and stores an encrypted refresh token (auto-refreshed). No password handled by the app. Verified against Stalwart.
 - ✅ Per-account colour coding (picker in account settings; tints the account avatar + the unified-inbox account chip)
 - ✅ Settings export / import — app preferences (appearance, reading, notifications, privacy, language) to/from a JSON file via the Storage Access Framework (Settings → Backup); accounts and passwords are excluded (device-bound encryption)
