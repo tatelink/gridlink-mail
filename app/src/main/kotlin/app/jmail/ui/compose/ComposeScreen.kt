@@ -5,14 +5,19 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -33,6 +38,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -52,6 +59,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -102,10 +114,12 @@ fun ComposeScreen(
     LaunchedEffect(prefill) {
         prefill?.let {
             if (!applied) {
-                to = it.to
+                // Trailing ", " so prefilled (reply) recipients render as committed chips.
+                val prefilledTo = if (it.to.isNotBlank()) it.to.trimEnd(',', ';', ' ') + ", " else ""
+                to = prefilledTo
                 subject = it.subject
                 body = it.body
-                initialTo = it.to
+                initialTo = prefilledTo
                 initialSubject = it.subject
                 initialBody = it.body
                 applied = true
@@ -131,6 +145,9 @@ fun ComposeScreen(
     var showForgotAttachment by remember { mutableStateOf(false) }
     var showManyRecipients by remember { mutableStateOf(false) }
     val recipientCount = listOf(to, cc, bcc).sumOf { field -> field.split(',', ';').count { it.isNotBlank() } }
+    // Can send only with at least one To recipient and every entered address valid.
+    val allRecipients = listOf(to, cc, bcc).flatMap { recipientTokens(it) }
+    val canSend = recipientTokens(to).isNotEmpty() && allRecipients.all(::isValidEmail)
     val sendNow = { viewModel.send(to, cc, bcc, subject, body) }
     val proceedAfterAttachment = {
         if (recipientCount >= MANY_RECIPIENTS) showManyRecipients = true else sendNow()
@@ -228,7 +245,7 @@ fun ComposeScreen(
                         var scheduleMenu by remember { mutableStateOf(false) }
                         IconButton(
                             onClick = { scheduleMenu = true },
-                            enabled = !sending && to.isNotBlank(),
+                            enabled = !sending && canSend,
                         ) {
                             Icon(Icons.Filled.Schedule, contentDescription = stringResource(R.string.compose_schedule_send))
                         }
@@ -251,7 +268,7 @@ fun ComposeScreen(
                     }
                     IconButton(
                         onClick = attemptSend,
-                        enabled = !sending && to.isNotBlank(),
+                        enabled = !sending && canSend,
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.compose_send))
                     }
@@ -299,13 +316,13 @@ fun ComposeScreen(
                 FieldDivider()
             }
 
-            RecipientField(
+            RecipientChipsField(
                 label = stringResource(R.string.compose_to),
                 value = to,
                 onValueChange = { to = it },
                 suggestions = suggestions,
                 onSuggest = viewModel::suggest,
-                onPick = { to = applyPick(to, it.email); viewModel.clearSuggestions() },
+                onClearSuggestions = viewModel::clearSuggestions,
                 focusRequester = toFocus,
                 trailing = {
                     IconButton(onClick = { expanded = !expanded }) {
@@ -319,13 +336,13 @@ fun ComposeScreen(
                 },
             )
             if (expanded) {
-                RecipientField(
-                    stringResource(R.string.compose_cc), cc, { cc = it }, suggestions, viewModel::suggest,
-                    { cc = applyPick(cc, it.email); viewModel.clearSuggestions() },
+                RecipientChipsField(
+                    stringResource(R.string.compose_cc), cc, { cc = it }, suggestions,
+                    viewModel::suggest, viewModel::clearSuggestions,
                 )
-                RecipientField(
-                    stringResource(R.string.compose_bcc), bcc, { bcc = it }, suggestions, viewModel::suggest,
-                    { bcc = applyPick(bcc, it.email); viewModel.clearSuggestions() },
+                RecipientChipsField(
+                    stringResource(R.string.compose_bcc), bcc, { bcc = it }, suggestions,
+                    viewModel::suggest, viewModel::clearSuggestions,
                 )
             }
             ComposeField(stringResource(R.string.compose_subject), subject, { subject = it })
@@ -417,35 +434,110 @@ private fun ComposeField(
     }
 }
 
-/** A recipient line field with an inline autocomplete list shown while it's focused. */
+/** Above this many recipients (To + Cc + Bcc), sending asks for confirmation. */
+private const val MANY_RECIPIENTS = 5
+
+/** Split a recipient string into trimmed, non-empty address tokens. */
+private fun recipientTokens(value: String): List<String> =
+    value.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+
+private val EMAIL_REGEX = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
+private fun isValidEmail(address: String): Boolean = EMAIL_REGEX.matches(address.trim())
+
+/**
+ * A recipient line that shows committed addresses as chips (invalid ones flagged in
+ * the error colour) plus an inline editor with autocomplete. The field stays backed
+ * by a single comma-joined [value] string, so send / draft / schedule are unchanged:
+ * everything before the last separator is a committed chip; the trailing token is the
+ * still-editing input. A comma, semicolon or space commits the token to a chip;
+ * Backspace on an empty input removes the last chip.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun RecipientField(
+private fun RecipientChipsField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
     suggestions: List<ContactRow>,
     onSuggest: (String) -> Unit,
-    onPick: (ContactRow) -> Unit,
+    onClearSuggestions: () -> Unit,
     focusRequester: FocusRequester? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
+    val cut = value.lastIndexOfAny(charArrayOf(',', ';'))
+    val chips = recipientTokens(if (cut >= 0) value.substring(0, cut) else "")
+    val input = (if (cut >= 0) value.substring(cut + 1) else value).trimStart()
+
+    fun rebuild(newChips: List<String>, newInput: String) = newChips.joinToString("") { "$it, " } + newInput
+
     var focused by remember { mutableStateOf(false) }
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             FieldLabel(label)
-            BasicTextField(
-                value = value,
-                onValueChange = { onValueChange(it); onSuggest(it) },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(vertical = 14.dp)
-                    .onFocusChanged { focused = it.isFocused }
-                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
-            )
+            FlowRow(
+                modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                chips.forEachIndexed { index, chip ->
+                    val valid = isValidEmail(chip)
+                    InputChip(
+                        selected = false,
+                        onClick = {},
+                        label = { Text(chip, maxLines = 1) },
+                        trailingIcon = {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.compose_remove),
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clickable { onValueChange(rebuild(chips.filterIndexed { i, _ -> i != index }, input)) },
+                            )
+                        },
+                        colors = if (valid) {
+                            InputChipDefaults.inputChipColors()
+                        } else {
+                            InputChipDefaults.inputChipColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                labelColor = MaterialTheme.colorScheme.onErrorContainer,
+                                trailingIconColor = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                        },
+                    )
+                }
+                BasicTextField(
+                    value = input,
+                    onValueChange = { raw ->
+                        val last = raw.lastOrNull()
+                        if (last == ',' || last == ';' || last == ' ' || last == '\n') {
+                            val token = raw.dropLast(1).trim()
+                            onValueChange(rebuild(if (token.isNotEmpty()) chips + token else chips, ""))
+                            onClearSuggestions()
+                        } else {
+                            onValueChange(rebuild(chips, raw))
+                            onSuggest(raw)
+                        }
+                    },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier
+                        .widthIn(min = 90.dp)
+                        .padding(vertical = 8.dp)
+                        .onFocusChanged { focused = it.isFocused }
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type == KeyEventType.KeyDown && ev.key == Key.Backspace &&
+                                input.isEmpty() && chips.isNotEmpty()
+                            ) {
+                                onValueChange(rebuild(chips.dropLast(1), ""))
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+                )
+            }
             trailing?.invoke()
         }
         FieldDivider()
@@ -454,7 +546,10 @@ private fun RecipientField(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .clickable { onPick(contact) }
+                        .clickable {
+                            onValueChange(rebuild(chips + contact.email, ""))
+                            onClearSuggestions()
+                        }
                         .padding(horizontal = 8.dp, vertical = 10.dp),
                 ) {
                     Text(contact.name ?: contact.email, style = MaterialTheme.typography.bodyMedium)
@@ -470,16 +565,6 @@ private fun RecipientField(
             FieldDivider()
         }
     }
-}
-
-/** Above this many recipients (To + Cc + Bcc), sending asks for confirmation. */
-private const val MANY_RECIPIENTS = 5
-
-/** Replace the token being typed (after the last comma/semicolon) with [email]. */
-private fun applyPick(current: String, email: String): String {
-    val cut = current.lastIndexOfAny(charArrayOf(',', ';'))
-    val prefix = if (cut >= 0) current.substring(0, cut + 1).trimEnd() + " " else ""
-    return "$prefix$email, "
 }
 
 @Composable

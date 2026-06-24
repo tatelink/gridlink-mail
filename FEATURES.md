@@ -30,7 +30,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Compose overhaul: cross-account From picker, frameless full-width line fields,
   icon actions, auto-focused To, expandable Cc/Bcc (rich-text editor dropped —
   low value on mobile)
-- ✅ Recipient autocomplete: recent/cached contacts + opt-in device contacts
+- ✅ Recipient autocomplete: recent/cached contacts + opt-in device contacts; recipients show as chips (removable), with email-format validation — invalid addresses are flagged and block sending
 - ✅ Undo send (hold-back window); 💡 full Outbox + retry
 - ✅ Schedule send (quick presets; persisted + fired by WorkManager, survives app close)
 - ✅ Snooze a message until later
