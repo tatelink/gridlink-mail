@@ -86,6 +86,7 @@ fun MessageScreen(
     val stripTracking by viewModel.stripTracking.collectAsStateWithLifecycle()
     val confirmLinks by viewModel.confirmLinks.collectAsStateWithLifecycle()
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
+    val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
     // Per-message manual override; the sender allowlist auto-shows without it.
     var manualShow by remember(emailId) { mutableStateOf(false) }
     val senderEmail = (state as? MessageState.Loaded)?.email?.from?.firstOrNull()?.email
@@ -250,6 +251,7 @@ fun MessageScreen(
                     attachmentStatus = attachmentStatus,
                     onOpenAttachment = viewModel::openAttachment,
                     inlineImages = inlineImages,
+                    textZoom = messageTextSize.zoom,
                 )
             }
         }
@@ -267,6 +269,7 @@ private fun MessageBody(
     attachmentStatus: String?,
     onOpenAttachment: (EmailBodyPart) -> Unit,
     inlineImages: Map<String, String>,
+    textZoom: Int,
 ) {
     Column(Modifier.fillMaxSize()) {
         Header(email)
@@ -295,6 +298,7 @@ private fun MessageBody(
             stripTracking = stripTracking,
             confirmLinks = confirmLinks,
             backgroundColor = scheme.surface.toArgb(),
+            textZoom = textZoom,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
     }
@@ -471,6 +475,7 @@ private fun EmailWebView(
     stripTracking: Boolean,
     confirmLinks: Boolean,
     backgroundColor: Int,
+    textZoom: Int,
     modifier: Modifier,
 ) {
     val context = LocalContext.current
@@ -497,6 +502,7 @@ private fun EmailWebView(
         update = { webView ->
             // Match the WebView's own background to the theme so it doesn't flash white.
             webView.setBackgroundColor(backgroundColor)
+            webView.settings.textZoom = textZoom
             webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
         },
     )

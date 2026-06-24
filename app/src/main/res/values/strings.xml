@@ -200,6 +200,12 @@
     <string name="settings_preview_three_lines">3 lines</string>
     <string name="settings_preview_five_lines">5 lines</string>
     <string name="settings_reading_screen_title">Reading</string>
+    <string name="settings_message_section">Message</string>
+    <string name="settings_text_size_title">Text size</string>
+    <string name="settings_text_size_small">Small</string>
+    <string name="settings_text_size_normal">Normal</string>
+    <string name="settings_text_size_large">Large</string>
+    <string name="settings_text_size_huge">Huge</string>
     <string name="settings_conversation_section">Conversations</string>
     <string name="settings_conversation_title">Conversation view</string>
     <string name="settings_conversation_subtitle">Group messages of the same thread into one row, with a count.</string>

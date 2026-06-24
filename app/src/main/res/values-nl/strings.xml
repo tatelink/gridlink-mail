@@ -450,4 +450,10 @@
     <string name="settings_test_connecting">Testen…</string>
     <string name="settings_test_ok">Verbinding geslaagd.</string>
     <string name="settings_test_failed">Kon geen verbinding maken: %1$s</string>
+    <string name="settings_message_section">Bericht</string>
+    <string name="settings_text_size_title">Tekstgrootte</string>
+    <string name="settings_text_size_small">Klein</string>
+    <string name="settings_text_size_normal">Normaal</string>
+    <string name="settings_text_size_large">Groot</string>
+    <string name="settings_text_size_huge">Zeer groot</string>
 </resources>

@@ -94,6 +94,7 @@ import app.jmail.core.data.account.MailProtocol
 import app.jmail.core.data.account.StoredIdentity
 import app.jmail.core.data.account.SyncWindow
 import app.jmail.core.data.settings.ListDensity
+import app.jmail.core.data.settings.MessageTextSize
 import app.jmail.core.data.settings.PreviewLines
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.data.settings.ThemeMode
@@ -371,6 +372,7 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val swipeRight by viewModel.swipeRight.collectAsStateWithLifecycle()
     val swipeLeft by viewModel.swipeLeft.collectAsStateWithLifecycle()
     val conversationView by viewModel.conversationView.collectAsStateWithLifecycle()
+    val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
     val options = listOf(
         SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
     )
@@ -385,6 +387,18 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     subtitle = stringResource(R.string.settings_conversation_subtitle),
                     checked = conversationView,
                     onCheckedChange = viewModel::setConversationView,
+                )
+            }
+            SettingsSection(stringResource(R.string.settings_message_section)) {
+                SettingChoiceRow(
+                    title = stringResource(R.string.settings_text_size_title),
+                    options = listOf(
+                        MessageTextSize.SMALL, MessageTextSize.NORMAL,
+                        MessageTextSize.LARGE, MessageTextSize.HUGE,
+                    ),
+                    selected = messageTextSize,
+                    optionLabel = { textSizeLabel(context, it) },
+                    onSelect = viewModel::setMessageTextSize,
                 )
             }
             SettingsSection(stringResource(R.string.settings_swipe_actions_section)) {
@@ -413,6 +427,13 @@ private fun swipeLabel(context: Context, action: SwipeAction): String = when (ac
     SwipeAction.DELETE -> context.getString(R.string.settings_swipe_delete)
     SwipeAction.ARCHIVE -> context.getString(R.string.settings_swipe_archive)
     SwipeAction.FLAG -> context.getString(R.string.settings_swipe_flag)
+}
+
+private fun textSizeLabel(context: Context, size: MessageTextSize): String = when (size) {
+    MessageTextSize.SMALL -> context.getString(R.string.settings_text_size_small)
+    MessageTextSize.NORMAL -> context.getString(R.string.settings_text_size_normal)
+    MessageTextSize.LARGE -> context.getString(R.string.settings_text_size_large)
+    MessageTextSize.HUGE -> context.getString(R.string.settings_text_size_huge)
 }
 
 @Composable

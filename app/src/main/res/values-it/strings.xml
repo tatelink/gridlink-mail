@@ -447,4 +447,10 @@
     <string name="settings_test_connecting">Verifica in corso…</string>
     <string name="settings_test_ok">Connessione riuscita.</string>
     <string name="settings_test_failed">Impossibile connettersi: %1$s</string>
+    <string name="settings_message_section">Messaggio</string>
+    <string name="settings_text_size_title">Dimensione del testo</string>
+    <string name="settings_text_size_small">Piccola</string>
+    <string name="settings_text_size_normal">Normale</string>
+    <string name="settings_text_size_large">Grande</string>
+    <string name="settings_text_size_huge">Molto grande</string>
 </resources>

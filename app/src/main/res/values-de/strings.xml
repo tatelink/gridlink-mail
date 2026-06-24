@@ -447,4 +447,10 @@
     <string name="settings_test_connecting">Wird getestet…</string>
     <string name="settings_test_ok">Verbindung erfolgreich.</string>
     <string name="settings_test_failed">Verbindung fehlgeschlagen: %1$s</string>
+    <string name="settings_message_section">Nachricht</string>
+    <string name="settings_text_size_title">Textgröße</string>
+    <string name="settings_text_size_small">Klein</string>
+    <string name="settings_text_size_normal">Normal</string>
+    <string name="settings_text_size_large">Groß</string>
+    <string name="settings_text_size_huge">Sehr groß</string>
 </resources>

@@ -448,4 +448,10 @@
     <string name="settings_test_connecting">Проверка…</string>
     <string name="settings_test_ok">Подключение успешно.</string>
     <string name="settings_test_failed">Не удалось подключиться: %1$s</string>
+    <string name="settings_message_section">Сообщение</string>
+    <string name="settings_text_size_title">Размер текста</string>
+    <string name="settings_text_size_small">Маленький</string>
+    <string name="settings_text_size_normal">Обычный</string>
+    <string name="settings_text_size_large">Крупный</string>
+    <string name="settings_text_size_huge">Очень крупный</string>
 </resources>

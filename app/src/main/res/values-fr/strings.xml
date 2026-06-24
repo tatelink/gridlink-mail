@@ -449,4 +449,10 @@
     <string name="settings_test_connecting">Test en cours…</string>
     <string name="settings_test_ok">Connexion réussie.</string>
     <string name="settings_test_failed">Connexion impossible : %1$s</string>
+    <string name="settings_message_section">Message</string>
+    <string name="settings_text_size_title">Taille du texte</string>
+    <string name="settings_text_size_small">Petite</string>
+    <string name="settings_text_size_normal">Normale</string>
+    <string name="settings_text_size_large">Grande</string>
+    <string name="settings_text_size_huge">Très grande</string>
 </resources>

@@ -9,6 +9,7 @@ import app.jmail.container
 import app.jmail.R
 import app.jmail.snooze.Snoozes
 import app.jmail.core.data.account.AccountCredentials
+import app.jmail.core.data.settings.MessageTextSize
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailBodyPart
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +51,13 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = emptySet(),
+    )
+
+    /** Reading text size for the message body. */
+    val messageTextSize = settings.messageTextSize.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = MessageTextSize.NORMAL,
     )
 
     /** Add/remove a sender from the always-show-images allowlist. */

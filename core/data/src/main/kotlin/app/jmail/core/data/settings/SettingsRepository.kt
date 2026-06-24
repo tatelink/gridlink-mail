@@ -28,6 +28,9 @@ enum class SwipeAction { NONE, TOGGLE_READ, DELETE, ARCHIVE, FLAG }
 /** How the message list is ordered. */
 enum class SortOrder { DATE_DESC, DATE_ASC, SUBJECT, SENDER, UNREAD_FIRST }
 
+/** Reading text size for the message body (WebView text zoom, in percent). */
+enum class MessageTextSize(val zoom: Int) { SMALL(85), NORMAL(100), LARGE(125), HUGE(150) }
+
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 /**
@@ -90,6 +93,16 @@ class SettingsRepository(context: Context) {
 
     suspend fun setConversationView(enabled: Boolean) {
         dataStore.edit { it[KEY_CONVERSATION_VIEW] = enabled }
+    }
+
+    /** Reading text size for the message body. */
+    val messageTextSize: Flow<MessageTextSize> = dataStore.data.map { prefs ->
+        prefs[KEY_MESSAGE_TEXT_SIZE]?.let { runCatching { MessageTextSize.valueOf(it) }.getOrNull() }
+            ?: MessageTextSize.NORMAL
+    }
+
+    suspend fun setMessageTextSize(size: MessageTextSize) {
+        dataStore.edit { it[KEY_MESSAGE_TEXT_SIZE] = size.name }
     }
 
     /** Whether recipient autocomplete may read the device's contacts (off by default). */
@@ -219,6 +232,7 @@ class SettingsRepository(context: Context) {
         private val KEY_SWIPE_LEFT = stringPreferencesKey("swipe_left")
         private val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
         private val KEY_CONVERSATION_VIEW = booleanPreferencesKey("conversation_view")
+        private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         private val KEY_STRIP_TRACKING = booleanPreferencesKey("strip_tracking_params")
         private val KEY_CONFIRM_LINKS = booleanPreferencesKey("confirm_links")

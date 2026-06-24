@@ -447,4 +447,10 @@
     <string name="settings_test_connecting">Testowanie…</string>
     <string name="settings_test_ok">Połączenie udane.</string>
     <string name="settings_test_failed">Nie udało się połączyć: %1$s</string>
+    <string name="settings_message_section">Wiadomość</string>
+    <string name="settings_text_size_title">Rozmiar tekstu</string>
+    <string name="settings_text_size_small">Mały</string>
+    <string name="settings_text_size_normal">Normalny</string>
+    <string name="settings_text_size_large">Duży</string>
+    <string name="settings_text_size_huge">Bardzo duży</string>
 </resources>

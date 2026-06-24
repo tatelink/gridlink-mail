@@ -161,6 +161,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Theme toggle (auto / light / dark)
 - ✅ Message-list density (compact / normal / spaced)
 - ✅ Row preview length (subject only / 1 / 3 / 5 lines)
+- ✅ Message text size (small / normal / large / huge) — scales the message-body WebView (Settings → Reading → Message)
 - ✅ Compact inbox top bar showing folder + account
 - 💡 Home-screen widget(s) (unread count / inbox)
 - 💡 Accessibility pass (TalkBack, font scaling)

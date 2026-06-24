@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
 import app.jmail.core.data.settings.ListDensity
+import app.jmail.core.data.settings.MessageTextSize
 import app.jmail.core.data.settings.PreviewLines
 import app.jmail.core.data.settings.SettingsBackup
 import app.jmail.core.data.settings.SettingsBackupCodec
@@ -239,5 +240,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setConversationView(enabled: Boolean) {
         viewModelScope.launch { settings.setConversationView(enabled) }
+    }
+
+    val messageTextSize = settings.messageTextSize.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = MessageTextSize.NORMAL,
+    )
+
+    fun setMessageTextSize(size: MessageTextSize) {
+        viewModelScope.launch { settings.setMessageTextSize(size) }
     }
 }
