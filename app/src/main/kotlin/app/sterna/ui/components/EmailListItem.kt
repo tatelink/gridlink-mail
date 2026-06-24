@@ -164,7 +164,7 @@ fun EmailListItem(
             Text(
                 text = if (email.isFlagged) "★" else "☆",
                 style = MaterialTheme.typography.titleLarge,
-                color = if (email.isFlagged) MaterialTheme.colorScheme.primary
+                color = if (email.isFlagged) MaterialTheme.colorScheme.tertiary
                 else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .clip(CircleShape)

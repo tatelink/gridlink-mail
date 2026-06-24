@@ -97,7 +97,8 @@ fun EmptyState(
     action: (@Composable () -> Unit)? = null,
 ) {
     val ink = MaterialTheme.colorScheme.onSurfaceVariant
-    val accent = MaterialTheme.colorScheme.primary
+    // Coral is the marginal accent (tertiary), not the primary teal.
+    val accent = MaterialTheme.colorScheme.tertiary
     val image = remember(art, ink, accent) { artVector(art, ink, accent) }
     Column(
         modifier = modifier.padding(32.dp),

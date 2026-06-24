@@ -5,43 +5,47 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
 /**
- * Sterna Mail's brand palette — the visual identity of the Arctic tern: a calm,
- * cold base (sea-grey / navy-teal) with a warm coral pop (the tern's coral beak
- * and feet). Privacy-first, so it stays sober: one signature accent, restrained
- * neutrals.
+ * Sterna Mail's brand palette — the Arctic tern: a calm, cold base (sea-grey /
+ * navy-teal). The primary action colour is a **desaturated sea teal** (not coral):
+ * red reads as "destructive", so it must not carry positive actions like Save /
+ * Add. Coral — the tern's beak — is kept as a **marginal accent only** (mapped to
+ * tertiary): the favourite star, a small illustration touch. It never fills a
+ * button or a large surface. Red (error) is reserved for destructive actions.
  *
  * Two named schemes follow the tern's migration:
- *   - [ArcticColorScheme]  — the light theme (white / cold grey + coral)
- *   - [PelagicColorScheme] — the dark theme (deep navy-teal + brighter coral)
+ *   - [ArcticColorScheme]  — light (cold grey + teal action, coral accent)
+ *   - [PelagicColorScheme] — dark  (deep navy-teal + soft teal action, coral accent)
  *
- * Colours are tuned for WCAG AA text contrast on the roles that carry text
- * (primary/onPrimary, surface/onSurface, secondary/onSecondary, the *Variant
- * pairs). The signature coral is deepened in light mode (white label ≈ 4.7:1)
- * and brightened in dark mode (dark label ≈ 6:1).
+ * Colours are tuned for WCAG AA on the text-bearing roles (white-on-teal ≈ 7.3:1
+ * light, dark-on-teal ≈ 6:1 dark; white-on-coral ≈ 4.7:1, dark-on-coral ≈ 6:1).
  */
 
-// --- Signature accent: the tern's coral beak/feet ---
-private val CoralDeep = Color(0xFFD33E28) // light-mode primary, AA with white text
-private val CoralBright = Color(0xFFFF6A4D) // dark-mode primary
+// --- Primary action: desaturated sea teal ---
+private val TealDeep = Color(0xFF2F5E59) // light-mode primary, AA with white text
+private val TealSoft = Color(0xFF6FB1AB) // dark-mode primary
 
-// --- Cool secondary: the sea ---
+// --- Marginal accent: the tern's coral beak (tertiary only) ---
+private val CoralDeep = Color(0xFFD33E28)
+private val CoralBright = Color(0xFFFF6A4D)
+
+// --- Secondary: the sea ---
 private val SeaTeal = Color(0xFF2E6E7E)
 private val SeaTealLight = Color(0xFF6FC9DC)
 
 val ArcticColorScheme = lightColorScheme(
-    primary = CoralDeep,
+    primary = TealDeep,
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFFFDBD2),
-    onPrimaryContainer = Color(0xFF3F0400),
-    inversePrimary = Color(0xFFFFB4A4),
+    primaryContainer = Color(0xFFC6E6E1),
+    onPrimaryContainer = Color(0xFF0B201D),
+    inversePrimary = Color(0xFF9BCFC9),
     secondary = SeaTeal,
     onSecondary = Color(0xFFFFFFFF),
     secondaryContainer = Color(0xFFBFE9F3),
     onSecondaryContainer = Color(0xFF00363F),
-    tertiary = Color(0xFF4F5B67),
+    tertiary = CoralDeep,
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFD6DCE4),
-    onTertiaryContainer = Color(0xFF131C24),
+    tertiaryContainer = Color(0xFFFFDBD2),
+    onTertiaryContainer = Color(0xFF3F0400),
     error = Color(0xFFBA1A1A),
     onError = Color(0xFFFFFFFF),
     errorContainer = Color(0xFFFFDAD6),
@@ -52,7 +56,7 @@ val ArcticColorScheme = lightColorScheme(
     onSurface = Color(0xFF2B313A),
     surfaceVariant = Color(0xFFE0E4E9),
     onSurfaceVariant = Color(0xFF51606E),
-    surfaceTint = CoralDeep,
+    surfaceTint = TealDeep,
     inverseSurface = Color(0xFF2D3138),
     inverseOnSurface = Color(0xFFEFF1F4),
     outline = Color(0xFF6E7782),
@@ -68,19 +72,19 @@ val ArcticColorScheme = lightColorScheme(
 )
 
 val PelagicColorScheme = darkColorScheme(
-    primary = CoralBright,
-    onPrimary = Color(0xFF4A0F03),
-    primaryContainer = Color(0xFF8C2A17),
-    onPrimaryContainer = Color(0xFFFFDBD2),
-    inversePrimary = Color(0xFFB5311B),
+    primary = TealSoft,
+    onPrimary = Color(0xFF06302C),
+    primaryContainer = Color(0xFF1E4B47),
+    onPrimaryContainer = Color(0xFFC6E6E1),
+    inversePrimary = TealDeep,
     secondary = SeaTealLight,
     onSecondary = Color(0xFF003640),
     secondaryContainer = Color(0xFF1E5666),
     onSecondaryContainer = Color(0xFFBFE9F3),
-    tertiary = Color(0xFFB6C2CF),
-    onTertiary = Color(0xFF21303B),
-    tertiaryContainer = Color(0xFF3A4854),
-    onTertiaryContainer = Color(0xFFD6DCE4),
+    tertiary = CoralBright,
+    onTertiary = Color(0xFF4A0F03),
+    tertiaryContainer = Color(0xFF8C2A17),
+    onTertiaryContainer = Color(0xFFFFDBD2),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF93000A),
@@ -91,7 +95,7 @@ val PelagicColorScheme = darkColorScheme(
     onSurface = Color(0xFFDEE3E7),
     surfaceVariant = Color(0xFF3C4750),
     onSurfaceVariant = Color(0xFFBCC6CE),
-    surfaceTint = CoralBright,
+    surfaceTint = TealSoft,
     inverseSurface = Color(0xFFDEE3E7),
     inverseOnSurface = Color(0xFF2B3137),
     outline = Color(0xFF87919B),
