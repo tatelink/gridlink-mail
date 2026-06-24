@@ -64,6 +64,9 @@ The categories further down list the full feature set; this is the order of work
 
 ## Reading & triage
 
+- ✅ Friendly empty states (mail icon + a Compose call-to-action when a folder has no messages); a brief welcome header on the first-run account setup
+- ✅ Reply-all / mass-send guard — sending to 5+ recipients (To+Cc+Bcc) asks for confirmation, with the count
+- ✅ Sign-out asks for confirmation before removing an account and clearing its cache
 - ✅ Inbox list and message view (HTML in a WebView, remote content blocked;
   dark mode: theme colours for plain text, CSS invert for rich HTML)
 - ✅ Offline reading (Room cache)
@@ -137,7 +140,7 @@ The categories further down list the full feature set; this is the order of work
 
 - ✅ Remote image / tracking-pixel blocking by default
 - ✅ App lock — biometric / face, with screen PIN/pattern/password fallback
-- ✅ Per-sender "always load images" allowlist (message ⋮ menu; clear in Settings → Privacy)
+- ✅ Per-sender "always load images" allowlist (add from a message's ⋮ menu, or add/remove individual senders + clear all in Settings → Privacy)
 - 💡 Visible no-telemetry stance
 - ✅ Strip tracking parameters from tapped links (Settings → Privacy, on by default); ✅ confirm before opening external links (Settings → Privacy → Links, opt-in; dialog shows the destination)
 

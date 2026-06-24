@@ -433,4 +433,17 @@
     <string name="settings_conversation_section">Gesprekken</string>
     <string name="settings_conversation_title">Gespreksweergave</string>
     <string name="settings_conversation_subtitle">Groepeer berichten van dezelfde thread in één rij, met een telling.</string>
+
+    <string name="compose_many_recipients_title">Naar veel mensen verzenden?</string>
+    <string name="compose_many_recipients_message">Dit bericht gaat naar %1$d ontvangers.</string>
+    <string name="compose_many_recipients_send">Naar iedereen verzenden</string>
+    <string name="inbox_empty_subtitle">Hier is nog niets. Nieuwe e-mail verschijnt automatisch.</string>
+    <string name="settings_image_allowlist_empty">Er zijn nog geen afzenders ingesteld om afbeeldingen altijd te tonen.</string>
+    <string name="settings_image_allowlist_add">Afzender toevoegen…</string>
+    <string name="settings_image_allowlist_remove">Afzender verwijderen</string>
+    <string name="settings_image_allowlist_hint">sender@example.com</string>
+    <string name="settings_sign_out_title">Afmelden bij dit account?</string>
+    <string name="settings_sign_out_message">Dit account wordt uit Jmail verwijderd en de gedownloade e-mail wordt van dit apparaat gewist.</string>
+    <string name="connect_welcome_title">Welkom bij Jmail</string>
+    <string name="connect_welcome_subtitle">Een privacyvriendelijke, op standaarden gebaseerde e-mailapp. Voeg je account toe om te beginnen.</string>
 </resources>

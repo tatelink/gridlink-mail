@@ -431,4 +431,16 @@
     <string name="settings_conversation_section">Konwersacje</string>
     <string name="settings_conversation_title">Widok konwersacji</string>
     <string name="settings_conversation_subtitle">Grupuj wiadomości z tego samego wątku w jeden wiersz, z licznikiem.</string>
+    <string name="compose_many_recipients_title">Wysłać do wielu osób?</string>
+    <string name="compose_many_recipients_message">Ta wiadomość zostanie wysłana do %1$d odbiorców.</string>
+    <string name="compose_many_recipients_send">Wyślij do wszystkich</string>
+    <string name="inbox_empty_subtitle">Na razie nic tu nie ma. Nowe wiadomości pojawią się automatycznie.</string>
+    <string name="settings_image_allowlist_empty">Żaden nadawca nie ma jeszcze ustawionego zawsze pokazywania obrazów.</string>
+    <string name="settings_image_allowlist_add">Dodaj nadawcę…</string>
+    <string name="settings_image_allowlist_remove">Usuń nadawcę</string>
+    <string name="settings_image_allowlist_hint">sender@example.com</string>
+    <string name="settings_sign_out_title">Wylogować się z tego konta?</string>
+    <string name="settings_sign_out_message">To konto zostanie usunięte z Jmail, a pobrane wiadomości zostaną wyczyszczone z tego urządzenia.</string>
+    <string name="connect_welcome_title">Witamy w Jmail</string>
+    <string name="connect_welcome_subtitle">Prywatna aplikacja e-mail oparta na standardach. Dodaj swoje konto, aby rozpocząć.</string>
 </resources>

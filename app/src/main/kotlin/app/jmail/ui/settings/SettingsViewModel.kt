@@ -107,6 +107,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.clearImageAllowlist() }
     }
 
+    fun setImageAllowed(sender: String, allowed: Boolean) {
+        viewModelScope.launch { settings.setImageAllowed(sender, allowed) }
+    }
+
     fun setPushAllAccounts(value: Boolean) {
         store.setPushAllAccounts(value)
         _pushAllAccounts.value = value

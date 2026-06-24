@@ -58,6 +58,7 @@ import app.jmail.core.data.account.MailProtocol
 @Composable
 fun ConnectScreen(
     onConnected: () -> Unit,
+    firstRun: Boolean = false,
     viewModel: ConnectViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -106,6 +107,18 @@ fun ConnectScreen(
             if (awaiting != null) {
                 DeviceApprovalPanel(awaiting, onCancel = viewModel::cancelOAuth)
                 return@Column
+            }
+            if (firstRun) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    stringResource(R.string.connect_welcome_title),
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    stringResource(R.string.connect_welcome_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             Text(stringResource(R.string.connect_protocol), style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

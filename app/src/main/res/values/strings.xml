@@ -26,6 +26,9 @@
     <string name="compose_discard_message">You haven\'t saved your changes.</string>
     <string name="compose_discard_save">Save draft</string>
     <string name="compose_discard_discard">Discard</string>
+    <string name="compose_many_recipients_title">Send to many people?</string>
+    <string name="compose_many_recipients_message">This message will go to %1$d recipients.</string>
+    <string name="compose_many_recipients_send">Send to all</string>
     <string name="compose_forgot_attachment_title">Forgot an attachment?</string>
     <string name="compose_forgot_attachment_message">Your message mentions an attachment, but you haven\'t added one.</string>
     <string name="compose_forgot_attachment_send">Send anyway</string>
@@ -84,6 +87,7 @@
     <string name="inbox_retry">Retry</string>
     <string name="inbox_load_failed">Could not load mail:\n%1$s</string>
     <string name="inbox_no_messages">No messages</string>
+    <string name="inbox_empty_subtitle">Nothing here yet. New mail will show up automatically.</string>
     <string name="inbox_sort_newest_first">Newest first</string>
     <string name="inbox_sort_oldest_first">Oldest first</string>
     <string name="inbox_sort_subject">Subject</string>
@@ -274,7 +278,11 @@
     <string name="settings_app_lock_unavailable">Set up a fingerprint, face unlock, or screen lock in your device settings first.</string>
     <string name="settings_image_allowlist_section">Remote images</string>
     <string name="settings_image_allowlist_count">Senders set to always show images: %1$d</string>
-    <string name="settings_image_allowlist_clear">Clear</string>
+    <string name="settings_image_allowlist_clear">Clear all</string>
+    <string name="settings_image_allowlist_empty">No senders are set to always show images yet.</string>
+    <string name="settings_image_allowlist_add">Add sender…</string>
+    <string name="settings_image_allowlist_remove">Remove sender</string>
+    <string name="settings_image_allowlist_hint">sender@example.com</string>
     <string name="settings_links_section">Links</string>
     <string name="settings_strip_tracking_title">Strip tracking parameters</string>
     <string name="settings_strip_tracking_subtitle">Remove trackers (utm_*, fbclid, gclid…) from links before opening them, so senders can\'t tell when you click.</string>
@@ -341,12 +349,16 @@
     <string name="settings_saved">Saved</string>
     <string name="settings_save">Save</string>
     <string name="settings_sign_out">Sign out</string>
+    <string name="settings_sign_out_title">Sign out of this account?</string>
+    <string name="settings_sign_out_message">This account will be removed from Jmail and its downloaded mail cleared from this device.</string>
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">None</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Add account</string>
+    <string name="connect_welcome_title">Welcome to Jmail</string>
+    <string name="connect_welcome_subtitle">A private, standards-based email app. Add your account to get started.</string>
     <string name="connect_protocol">Protocol</string>
     <string name="connect_jmap">JMAP</string>
     <string name="connect_imap_smtp">IMAP / SMTP</string>

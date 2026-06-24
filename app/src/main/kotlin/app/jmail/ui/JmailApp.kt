@@ -88,7 +88,7 @@ fun JmailApp(viewModel: RootViewModel = viewModel()) {
             RootState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                 CircularProgressIndicator()
             }
-            RootState.NeedAccount -> ConnectScreen(onConnected = viewModel::refresh)
+            RootState.NeedAccount -> ConnectScreen(onConnected = viewModel::refresh, firstRun = true)
             is RootState.Authenticated -> key(s.accountId) {
                 MainNavHost(
                     accounts = viewModel.accounts(),

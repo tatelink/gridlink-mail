@@ -431,4 +431,17 @@
     <string name="settings_conversation_section">Беседы</string>
     <string name="settings_conversation_title">Просмотр беседы</string>
     <string name="settings_conversation_subtitle">Объединять сообщения одной цепочки в одну строку с указанием количества.</string>
+
+    <string name="compose_many_recipients_title">Отправить многим адресатам?</string>
+    <string name="compose_many_recipients_message">Это сообщение получат %1$d адресатов.</string>
+    <string name="compose_many_recipients_send">Отправить всем</string>
+    <string name="inbox_empty_subtitle">Здесь пока ничего нет. Новые письма появятся автоматически.</string>
+    <string name="settings_image_allowlist_empty">Пока ни для одного отправителя не настроен постоянный показ изображений.</string>
+    <string name="settings_image_allowlist_add">Добавить отправителя…</string>
+    <string name="settings_image_allowlist_remove">Удалить отправителя</string>
+    <string name="settings_image_allowlist_hint">sender@example.com</string>
+    <string name="settings_sign_out_title">Выйти из этого аккаунта?</string>
+    <string name="settings_sign_out_message">Этот аккаунт будет удалён из Jmail, а загруженные письма — стёрты с этого устройства.</string>
+    <string name="connect_welcome_title">Добро пожаловать в Jmail</string>
+    <string name="connect_welcome_subtitle">Приватное почтовое приложение на открытых стандартах. Добавьте аккаунт, чтобы начать.</string>
 </resources>

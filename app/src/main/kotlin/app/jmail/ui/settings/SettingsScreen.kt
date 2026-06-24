@@ -81,6 +81,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.content.Context
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -613,24 +614,76 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                     onCheckedChange = viewModel::setConfirmLinks,
                 )
             }
-            if (imageAllowlist.isNotEmpty()) {
-                SettingsSection(stringResource(R.string.settings_image_allowlist_section)) {
+            SettingsSection(stringResource(R.string.settings_image_allowlist_section)) {
+                var showAddSender by remember { mutableStateOf(false) }
+                if (imageAllowlist.isEmpty()) {
+                    Text(
+                        stringResource(R.string.settings_image_allowlist_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+                imageAllowlist.sorted().forEach { sender ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            stringResource(R.string.settings_image_allowlist_count, imageAllowlist.size),
+                            sender,
                             style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        Spacer(Modifier.width(16.dp))
+                        IconButton(onClick = { viewModel.setImageAllowed(sender, false) }) {
+                            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.settings_image_allowlist_remove))
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    TextButton(onClick = { showAddSender = true }) {
+                        Text(stringResource(R.string.settings_image_allowlist_add))
+                    }
+                    if (imageAllowlist.isNotEmpty()) {
                         TextButton(onClick = viewModel::clearImageAllowlist) {
                             Text(stringResource(R.string.settings_image_allowlist_clear))
                         }
                     }
+                }
+                if (showAddSender) {
+                    var sender by remember { mutableStateOf("") }
+                    AlertDialog(
+                        onDismissRequest = { showAddSender = false },
+                        title = { Text(stringResource(R.string.settings_image_allowlist_add)) },
+                        text = {
+                            OutlinedTextField(
+                                value = sender,
+                                onValueChange = { sender = it },
+                                singleLine = true,
+                                placeholder = { Text(stringResource(R.string.settings_image_allowlist_hint)) },
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    viewModel.setImageAllowed(sender, true)
+                                    showAddSender = false
+                                },
+                                enabled = sender.isNotBlank(),
+                            ) { Text(stringResource(R.string.settings_save)) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showAddSender = false }) {
+                                Text(stringResource(R.string.settings_cancel))
+                            }
+                        },
+                    )
                 }
             }
             SettingsSection(stringResource(R.string.settings_recipient_suggestions_section)) {
@@ -1145,14 +1198,36 @@ private fun AccountDetailScreen(
                         },
                     )
                 }
+                var confirmSignOut by remember(accountId) { mutableStateOf(false) }
                 OutlinedButton(
-                    onClick = {
-                        viewModel.signOut(accountId)
-                        onSignedOut()
-                    },
+                    onClick = { confirmSignOut = true },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(stringResource(R.string.settings_sign_out), color = MaterialTheme.colorScheme.error)
+                }
+                if (confirmSignOut) {
+                    AlertDialog(
+                        onDismissRequest = { confirmSignOut = false },
+                        title = { Text(stringResource(R.string.settings_sign_out_title)) },
+                        text = { Text(stringResource(R.string.settings_sign_out_message)) },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                confirmSignOut = false
+                                viewModel.signOut(accountId)
+                                onSignedOut()
+                            }) {
+                                Text(
+                                    stringResource(R.string.settings_sign_out),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { confirmSignOut = false }) {
+                                Text(stringResource(R.string.settings_cancel))
+                            }
+                        },
+                    )
                 }
             }
         }

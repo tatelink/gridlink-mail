@@ -127,14 +127,19 @@ fun ComposeScreen(
     var showDiscard by remember { mutableStateOf(false) }
     val attemptClose = { if (dirty && !sending) showDiscard = true else onCancel() }
 
-    // "Forgot an attachment?" guard: the body/subject mentions one but none is added.
+    // Pre-send guards, chained: "forgot attachment?" then "many recipients?".
     var showForgotAttachment by remember { mutableStateOf(false) }
+    var showManyRecipients by remember { mutableStateOf(false) }
+    val recipientCount = listOf(to, cc, bcc).sumOf { field -> field.split(',', ';').count { it.isNotBlank() } }
     val sendNow = { viewModel.send(to, cc, bcc, subject, body) }
+    val proceedAfterAttachment = {
+        if (recipientCount >= MANY_RECIPIENTS) showManyRecipients = true else sendNow()
+    }
     val attemptSend = {
         if (attachments.isEmpty() && mentionsAttachment("$subject\n$body")) {
             showForgotAttachment = true
         } else {
-            sendNow()
+            proceedAfterAttachment()
         }
     }
 
@@ -146,11 +151,30 @@ fun ComposeScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showForgotAttachment = false
-                    sendNow()
+                    proceedAfterAttachment()
                 }) { Text(stringResource(R.string.compose_forgot_attachment_send)) }
             },
             dismissButton = {
                 TextButton(onClick = { showForgotAttachment = false }) {
+                    Text(stringResource(R.string.compose_forgot_attachment_back))
+                }
+            },
+        )
+    }
+
+    if (showManyRecipients) {
+        AlertDialog(
+            onDismissRequest = { showManyRecipients = false },
+            title = { Text(stringResource(R.string.compose_many_recipients_title)) },
+            text = { Text(stringResource(R.string.compose_many_recipients_message, recipientCount)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showManyRecipients = false
+                    sendNow()
+                }) { Text(stringResource(R.string.compose_many_recipients_send)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showManyRecipients = false }) {
                     Text(stringResource(R.string.compose_forgot_attachment_back))
                 }
             },
@@ -447,6 +471,9 @@ private fun RecipientField(
         }
     }
 }
+
+/** Above this many recipients (To + Cc + Bcc), sending asks for confirmation. */
+private const val MANY_RECIPIENTS = 5
 
 /** Replace the token being typed (after the last comma/semicolon) with [email]. */
 private fun applyPick(current: String, email: String): String {

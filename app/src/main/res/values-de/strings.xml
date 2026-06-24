@@ -431,4 +431,16 @@
     <string name="settings_conversation_section">Konversationen</string>
     <string name="settings_conversation_title">Konversationsansicht</string>
     <string name="settings_conversation_subtitle">Nachrichten desselben Threads in einer Zeile zusammenfassen, mit einer Anzahl.</string>
+    <string name="compose_many_recipients_title">An viele Personen senden?</string>
+    <string name="compose_many_recipients_message">Diese Nachricht geht an %1$d Empfänger.</string>
+    <string name="compose_many_recipients_send">An alle senden</string>
+    <string name="inbox_empty_subtitle">Hier ist noch nichts. Neue E-Mails erscheinen automatisch.</string>
+    <string name="settings_image_allowlist_empty">Für noch keinen Absender werden Bilder immer angezeigt.</string>
+    <string name="settings_image_allowlist_add">Absender hinzufügen…</string>
+    <string name="settings_image_allowlist_remove">Absender entfernen</string>
+    <string name="settings_image_allowlist_hint">sender@example.com</string>
+    <string name="settings_sign_out_title">Von diesem Konto abmelden?</string>
+    <string name="settings_sign_out_message">Dieses Konto wird aus Jmail entfernt und die heruntergeladenen E-Mails werden von diesem Gerät gelöscht.</string>
+    <string name="connect_welcome_title">Willkommen bei Jmail</string>
+    <string name="connect_welcome_subtitle">Eine private, auf Standards basierende E-Mail-App. Füge dein Konto hinzu, um zu beginnen.</string>
 </resources>
