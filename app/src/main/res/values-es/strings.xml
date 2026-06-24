@@ -459,4 +459,8 @@
     <string name="settings_group_app">Aplicación</string>
     <string name="settings_group_current_account">Esta cuenta · %1$s</string>
     <string name="settings_group_current_account_generic">Esta cuenta</string>
+    <string name="inbox_new_subfolder">Nueva subcarpeta</string>
+    <string name="inbox_new_subfolder_in">Nueva subcarpeta en %1$s</string>
+    <string name="inbox_folder_expand">Expandir carpeta</string>
+    <string name="inbox_folder_collapse">Contraer carpeta</string>
 </resources>

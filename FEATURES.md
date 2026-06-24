@@ -94,7 +94,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account; JMAP + IMAP)
 - ✅ Richer search filters (from, subject, has-attachment, date) — advanced panel in Search, JMAP Email/query AND filter; 💡 `SearchSnippet` highlights
 - ✅ Auto-create an Archive folder on first archive (when the account has none)
-- ✅ Folder management — create / rename / delete custom folders from the drawer; 💡 subscribe + per-folder settings
+- ✅ Folder management — create / rename / delete custom folders from the drawer, including nested subfolders (JMAP parentId / IMAP path), shown as a collapsible tree; 💡 subscribe + per-folder settings, drag-to-reorder
 - ✅ Quick filter: unread-only toggle on the current view
 - 💡 Quick filters: starred-only, has-attachment
 

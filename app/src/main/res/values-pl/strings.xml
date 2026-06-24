@@ -459,4 +459,8 @@
     <string name="settings_group_app">Aplikacja</string>
     <string name="settings_group_current_account">To konto · %1$s</string>
     <string name="settings_group_current_account_generic">To konto</string>
+    <string name="inbox_new_subfolder">Nowy podfolder</string>
+    <string name="inbox_new_subfolder_in">Nowy podfolder w %1$s</string>
+    <string name="inbox_folder_expand">Rozwiń folder</string>
+    <string name="inbox_folder_collapse">Zwiń folder</string>
 </resources>

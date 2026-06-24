@@ -462,4 +462,8 @@
     <string name="settings_group_app">App</string>
     <string name="settings_group_current_account">Dit account · %1$s</string>
     <string name="settings_group_current_account_generic">Dit account</string>
+    <string name="inbox_new_subfolder">Nieuwe submap</string>
+    <string name="inbox_new_subfolder_in">Nieuwe submap in %1$s</string>
+    <string name="inbox_folder_expand">Map uitvouwen</string>
+    <string name="inbox_folder_collapse">Map samenvouwen</string>
 </resources>

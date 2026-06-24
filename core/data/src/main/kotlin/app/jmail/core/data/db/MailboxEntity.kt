@@ -9,6 +9,8 @@ data class MailboxEntity(
     @PrimaryKey val id: String,
     val name: String,
     val role: String?,
+    /** Parent mailbox id for nested folders (JMAP); null = top-level. */
+    val parentId: String? = null,
     val sortOrder: Int,
     val totalEmails: Int,
     val unreadEmails: Int,

@@ -460,4 +460,8 @@
     <string name="settings_group_app">Приложение</string>
     <string name="settings_group_current_account">Эта учётная запись · %1$s</string>
     <string name="settings_group_current_account_generic">Эта учётная запись</string>
+    <string name="inbox_new_subfolder">Новая вложенная папка</string>
+    <string name="inbox_new_subfolder_in">Новая вложенная папка в %1$s</string>
+    <string name="inbox_folder_expand">Развернуть папку</string>
+    <string name="inbox_folder_collapse">Свернуть папку</string>
 </resources>

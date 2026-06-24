@@ -786,12 +786,19 @@ class MailRepository(
     // ---- folder management ----
 
     /** Create a new folder, then refresh the cached folder list. */
-    suspend fun createFolder(credentials: AccountCredentials, name: String) {
+    suspend fun createFolder(credentials: AccountCredentials, name: String, parentId: String? = null) {
         if (credentials.protocol == MailProtocol.IMAP) {
-            imap.createFolder(credentials, name.trim())
+            // IMAP nests by path; the parent's id is its full path.
+            val path = if (parentId.isNullOrEmpty()) {
+                name.trim()
+            } else {
+                val delim = if (parentId.contains('/')) "/" else if (parentId.contains('.')) "." else "/"
+                "$parentId$delim${name.trim()}"
+            }
+            imap.createFolder(credentials, path)
         } else {
             val ctx = connect(credentials)
-            client.createMailbox(ctx.session, ctx.accountId, name.trim(), role = null, ctx.auth)
+            client.createMailbox(ctx.session, ctx.accountId, name.trim(), role = null, ctx.auth, parentId = parentId)
         }
         refreshMailboxes(credentials)
     }

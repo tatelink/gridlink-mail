@@ -559,6 +559,7 @@ class JmapClient internal constructor(
         name: String,
         role: String?,
         auth: JmapAuth,
+        parentId: String? = null,
     ): String = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
@@ -574,6 +575,7 @@ class JmapClient internal constructor(
                             putJsonObject("new") {
                                 put("name", name)
                                 if (role != null) put("role", role)
+                                if (parentId != null) put("parentId", parentId)
                             }
                         }
                     }

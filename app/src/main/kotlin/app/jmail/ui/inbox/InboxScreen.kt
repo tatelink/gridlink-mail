@@ -34,8 +34,10 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Schedule
@@ -147,6 +149,9 @@ fun InboxScreen(
     var showCreateFolder by remember { mutableStateOf(false) }
     var folderToRename by remember { mutableStateOf<Mailbox?>(null) }
     var folderToDelete by remember { mutableStateOf<Mailbox?>(null) }
+    var folderToAddChild by remember { mutableStateOf<Mailbox?>(null) }
+    // Folder ids whose children are hidden; empty = everything expanded.
+    var collapsedFolders by remember { mutableStateOf(emptySet<String>()) }
     val undo by viewModel.undo.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
@@ -217,6 +222,34 @@ fun InboxScreen(
                 ) { Text(stringResource(R.string.inbox_create)) }
             },
             dismissButton = { TextButton(onClick = { showCreateFolder = false }) { Text(stringResource(R.string.inbox_cancel)) } },
+        )
+    }
+
+    // Create a subfolder under the chosen parent.
+    folderToAddChild?.let { parent ->
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { folderToAddChild = null },
+            title = { Text(stringResource(R.string.inbox_new_subfolder_in, mailboxDisplayName(parent.role, parent.name))) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.inbox_folder_name)) },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.createFolder(name, parentId = parent.id)
+                        collapsedFolders = collapsedFolders - parent.id // reveal the new child
+                        folderToAddChild = null
+                    },
+                    enabled = name.isNotBlank(),
+                ) { Text(stringResource(R.string.inbox_create)) }
+            },
+            dismissButton = { TextButton(onClick = { folderToAddChild = null }) { Text(stringResource(R.string.inbox_cancel)) } },
         )
     }
 
@@ -348,17 +381,42 @@ fun InboxScreen(
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                 }
-                ui.mailboxes.forEach { mailbox ->
+                mailboxTree(ui.mailboxes, collapsedFolders).forEach { node ->
+                    val mailbox = node.mailbox
                     val displayName = mailboxDisplayName(mailbox.role, mailbox.name)
                     val label = if (mailbox.unreadEmails > 0) {
                         stringResource(R.string.inbox_folder_unread, displayName, mailbox.unreadEmails)
                     } else {
                         displayName
                     }
+                    val collapsed = mailbox.id in collapsedFolders
                     NavigationDrawerItem(
-                        icon = { Icon(folderIcon(mailbox.role), contentDescription = null) },
+                        icon = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Indent children; a chevron toggles collapse for parents.
+                                Spacer(Modifier.width((node.depth * 16).dp))
+                                if (node.hasChildren) {
+                                    Icon(
+                                        if (collapsed) Icons.Filled.ChevronRight else Icons.Filled.ExpandMore,
+                                        contentDescription = stringResource(
+                                            if (collapsed) R.string.inbox_folder_expand else R.string.inbox_folder_collapse,
+                                        ),
+                                        modifier = Modifier.clickable {
+                                            collapsedFolders = if (collapsed) {
+                                                collapsedFolders - mailbox.id
+                                            } else {
+                                                collapsedFolders + mailbox.id
+                                            }
+                                        },
+                                    )
+                                } else {
+                                    Spacer(Modifier.width(24.dp))
+                                }
+                                Icon(folderIcon(mailbox.role), contentDescription = null)
+                            }
+                        },
                         label = { Text(label) },
-                        // Only user-created folders (no special-use role) can be renamed/deleted.
+                        // Only user-created folders (no special-use role) can be managed.
                         badge = if (mailbox.role == null) {
                             {
                                 Box {
@@ -367,6 +425,10 @@ fun InboxScreen(
                                         Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_folder_options))
                                     }
                                     DropdownMenu(folderMenu, onDismissRequest = { folderMenu = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.inbox_new_subfolder)) },
+                                            onClick = { folderMenu = false; folderToAddChild = mailbox },
+                                        )
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.inbox_rename)) },
                                             onClick = { folderMenu = false; folderToRename = mailbox },
@@ -892,6 +954,41 @@ private fun sortLabel(order: SortOrder): Int = when (order) {
     SortOrder.SUBJECT -> R.string.inbox_sort_subject
     SortOrder.SENDER -> R.string.inbox_sort_sender
     SortOrder.UNREAD_FIRST -> R.string.inbox_sort_unread_first
+}
+
+/** One folder in the drawer tree: the mailbox, its [depth], and whether it has children. */
+private data class MailboxNode(val mailbox: Mailbox, val depth: Int, val hasChildren: Boolean)
+
+/**
+ * Flatten mailboxes into a depth-first tree. Nesting comes from the JMAP `parentId`
+ * or, for IMAP, the path delimiter in the id; a child whose parent isn't present
+ * falls back to top level. Ids in [collapsed] hide their descendants. The incoming
+ * order is preserved within each level.
+ */
+private fun mailboxTree(mailboxes: List<Mailbox>, collapsed: Set<String>): List<MailboxNode> {
+    val byId = mailboxes.associateBy { it.id }
+    fun parentOf(m: Mailbox): String? {
+        if (m.parentId != null && byId.containsKey(m.parentId)) return m.parentId
+        val delim = when {
+            m.id.contains('/') -> "/"
+            m.id.contains('.') -> "."
+            else -> return null
+        }
+        val parent = m.id.substringBeforeLast(delim, "")
+        return if (parent.isNotEmpty() && byId.containsKey(parent)) parent else null
+    }
+    val childrenOf = mailboxes.groupBy { parentOf(it) }
+    val result = mutableListOf<MailboxNode>()
+    val visited = mutableSetOf<String>()
+    fun visit(parent: String?, depth: Int) {
+        childrenOf[parent].orEmpty().forEach { m ->
+            if (!visited.add(m.id)) return@forEach // guard against pathological cycles
+            result += MailboxNode(m, depth, !childrenOf[m.id].isNullOrEmpty())
+            if (m.id !in collapsed) visit(m.id, depth + 1)
+        }
+    }
+    visit(null, 0)
+    return result
 }
 
 /** A leading icon for a folder, chosen by its JMAP role (falls back to a generic list icon). */

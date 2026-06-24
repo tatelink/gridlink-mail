@@ -459,4 +459,8 @@
     <string name="settings_group_app">App</string>
     <string name="settings_group_current_account">Dieses Konto · %1$s</string>
     <string name="settings_group_current_account_generic">Dieses Konto</string>
+    <string name="inbox_new_subfolder">Neuer Unterordner</string>
+    <string name="inbox_new_subfolder_in">Neuer Unterordner in %1$s</string>
+    <string name="inbox_folder_expand">Ordner aufklappen</string>
+    <string name="inbox_folder_collapse">Ordner zuklappen</string>
 </resources>

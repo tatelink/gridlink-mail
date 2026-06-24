@@ -419,7 +419,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     // ---- folder management ----
 
-    fun createFolder(name: String) = folderOp { c -> repo.createFolder(c, name) }
+    fun createFolder(name: String, parentId: String? = null) = folderOp { c -> repo.createFolder(c, name, parentId) }
     fun renameFolder(mailboxId: String, newName: String) = folderOp { c -> repo.renameFolder(c, mailboxId, newName) }
     fun deleteFolder(mailboxId: String) = folderOp { c -> repo.deleteFolder(c, mailboxId) }
 

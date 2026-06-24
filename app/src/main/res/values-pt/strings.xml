@@ -461,4 +461,8 @@
     <string name="settings_group_app">App</string>
     <string name="settings_group_current_account">Esta conta · %1$s</string>
     <string name="settings_group_current_account_generic">Esta conta</string>
+    <string name="inbox_new_subfolder">Nova subpasta</string>
+    <string name="inbox_new_subfolder_in">Nova subpasta em %1$s</string>
+    <string name="inbox_folder_expand">Expandir pasta</string>
+    <string name="inbox_folder_collapse">Recolher pasta</string>
 </resources>
