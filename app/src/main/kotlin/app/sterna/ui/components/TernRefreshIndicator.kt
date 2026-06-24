@@ -15,12 +15,14 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
@@ -65,10 +67,11 @@ fun TernRefreshIndicator(
         0.5f
     }
 
+    val disc = MaterialTheme.colorScheme.surface
     Canvas(
         modifier
-            .padding(top = 14.dp)
-            .size(46.dp)
+            .padding(top = 8.dp)
+            .size(54.dp)
             .graphicsLayer {
                 alpha = appear
                 val sc = 0.6f + 0.4f * appear
@@ -76,7 +79,22 @@ fun TernRefreshIndicator(
                 scaleY = sc
             },
     ) {
-        drawTern(spread = spread, flap = flap, color = color)
+        // Soft surface-coloured disc (radial fade to transparent) so the tern is cut
+        // cleanly from the list text behind it — theme-aware, not a baked white.
+        val r = size.minDimension / 2f
+        drawCircle(
+            brush = Brush.radialGradient(
+                0.0f to disc.copy(alpha = 0.94f),
+                0.72f to disc.copy(alpha = 0.94f),
+                1.0f to disc.copy(alpha = 0f),
+                center = center,
+                radius = r,
+            ),
+            radius = r,
+        )
+        scale(0.62f, pivot = center) {
+            drawTern(spread = spread, flap = flap, color = color)
+        }
     }
 }
 
