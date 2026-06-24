@@ -132,7 +132,7 @@
     <string name="settings_accounts_title">Accounts</string>
     <string name="settings_accounts_summary">Add, switch, server settings</string>
     <string name="settings_appearance_title">Appearance</string>
-    <string name="settings_appearance_summary">Theme, density</string>
+    <string name="settings_appearance_summary">Theme, density, language</string>
     <string name="settings_reading_title">Reading</string>
     <string name="settings_reading_summary">Swipe actions</string>
     <string name="settings_notifications_title">Notifications</string>
@@ -143,6 +143,16 @@
     <string name="settings_privacy_summary">App lock, remote images</string>
     <string name="settings_storage_title">Storage</string>
     <string name="settings_storage_summary">Cache usage, clear cache</string>
+    <string name="settings_backup_title">Backup</string>
+    <string name="settings_backup_summary">Export or import settings</string>
+    <string name="settings_backup_screen_title">Backup</string>
+    <string name="settings_backup_section">Settings backup</string>
+    <string name="settings_backup_explainer">Save your app preferences (appearance, reading, notifications, privacy, language) to a file, or restore them from one. Accounts and passwords are not included.</string>
+    <string name="settings_backup_export">Export settings…</string>
+    <string name="settings_backup_import">Import settings…</string>
+    <string name="settings_backup_exported">Settings exported</string>
+    <string name="settings_backup_imported">Settings imported</string>
+    <string name="settings_backup_failed">Couldn\'t complete — check the file and try again</string>
     <string name="settings_appearance_screen_title">Appearance</string>
     <string name="settings_language_section">Language</string>
     <string name="settings_language_title">App language</string>

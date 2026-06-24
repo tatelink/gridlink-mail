@@ -1,21 +1,26 @@
 package app.jmail.ui.settings
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.jmail.container
 import app.jmail.core.data.settings.ListDensity
 import app.jmail.core.data.settings.PreviewLines
+import app.jmail.core.data.settings.SettingsBackup
+import app.jmail.core.data.settings.SettingsBackupCodec
 import app.jmail.core.data.settings.SettingsRepository
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.data.settings.ThemeMode
 import app.jmail.push.PushService
 import app.jmail.security.canAuthenticate
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
@@ -137,6 +142,58 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setQuietHoursEnd(minutes: Int) {
         viewModelScope.launch { settings.setQuietHoursEnd(minutes) }
+    }
+
+    /**
+     * Writes a JSON snapshot of the app's preferences (not accounts/credentials)
+     * to [uri]. [onResult] is invoked on the main thread with success/failure.
+     */
+    fun exportSettings(uri: Uri, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = runCatching {
+                val backup = settings.snapshotBackup().copy(
+                    pushAllAccounts = store.pushAllAccounts(),
+                    language = currentAppLanguage().tag,
+                )
+                val text = SettingsBackupCodec.encode(backup)
+                withContext(Dispatchers.IO) {
+                    getApplication<Application>().contentResolver.openOutputStream(uri, "wt")?.use {
+                        it.write(text.toByteArray())
+                    } ?: error("no output stream")
+                }
+            }.isSuccess
+            onResult(ok)
+        }
+    }
+
+    /**
+     * Reads a backup file from [uri] and applies it. [onResult] reports success;
+     * [onLanguageChanged] fires (with the new language) only when the language
+     * differs, so the caller can recreate the activity to load the new strings.
+     */
+    fun importSettings(uri: Uri, onResult: (Boolean) -> Unit, onLanguageChanged: (AppLanguage) -> Unit) {
+        viewModelScope.launch {
+            val backup: SettingsBackup? = runCatching {
+                val text = withContext(Dispatchers.IO) {
+                    getApplication<Application>().contentResolver.openInputStream(uri)?.use {
+                        it.readBytes().decodeToString()
+                    } ?: error("no input stream")
+                }
+                SettingsBackupCodec.decode(text)
+            }.getOrNull()
+            if (backup == null) {
+                onResult(false)
+                return@launch
+            }
+            settings.restoreBackup(backup)
+            backup.pushAllAccounts?.let { setPushAllAccounts(it) }
+            _pushAllAccounts.value = store.pushAllAccounts()
+            onResult(true)
+            backup.language?.let { tag ->
+                val target = AppLanguage.entries.firstOrNull { it.tag == tag } ?: AppLanguage.SYSTEM
+                if (target != currentAppLanguage()) onLanguageChanged(target)
+            }
+        }
     }
 
     fun setAppLock(value: Boolean) {

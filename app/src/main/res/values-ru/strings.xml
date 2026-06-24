@@ -129,7 +129,7 @@
     <string name="settings_accounts_title">Аккаунты</string>
     <string name="settings_accounts_summary">Добавление, переключение, настройки сервера</string>
     <string name="settings_appearance_title">Внешний вид</string>
-    <string name="settings_appearance_summary">Тема, плотность</string>
+    <string name="settings_appearance_summary">Тема, плотность, язык</string>
     <string name="settings_reading_title">Чтение</string>
     <string name="settings_reading_summary">Действия смахиванием</string>
     <string name="settings_notifications_title">Уведомления</string>
@@ -140,6 +140,16 @@
     <string name="settings_privacy_summary">Блокировка, удалённые изображения</string>
     <string name="settings_storage_title">Хранилище</string>
     <string name="settings_storage_summary">Использование кеша, очистка кеша</string>
+    <string name="settings_backup_title">Резервное копирование</string>
+    <string name="settings_backup_summary">Экспорт или импорт настроек</string>
+    <string name="settings_backup_screen_title">Резервное копирование</string>
+    <string name="settings_backup_section">Резервная копия настроек</string>
+    <string name="settings_backup_explainer">Сохраните настройки приложения (внешний вид, чтение, уведомления, конфиденциальность, язык) в файл или восстановите их из него. Учётные записи и пароли не включаются.</string>
+    <string name="settings_backup_export">Экспортировать настройки…</string>
+    <string name="settings_backup_import">Импортировать настройки…</string>
+    <string name="settings_backup_exported">Настройки экспортированы</string>
+    <string name="settings_backup_imported">Настройки импортированы</string>
+    <string name="settings_backup_failed">Не удалось завершить — проверьте файл и попробуйте снова</string>
     <string name="settings_appearance_screen_title">Внешний вид</string>
     <string name="settings_language_section">Язык</string>
     <string name="settings_language_title">Язык приложения</string>

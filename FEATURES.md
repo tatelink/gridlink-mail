@@ -45,7 +45,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Richer search filters (from/subject/has-attachment/date, AND-combined); 💡 `SearchSnippet` highlights
 - ✅ Per-account colour (avatar + unified-inbox chip); 💡 home-screen widget(s); accessibility pass (TalkBack, font scaling)
 - ✅ Bundled/grouped notifications (per-account summary) + quiet hours (silent nightly window)
-- 💡 `/.well-known/jmap` autodiscovery + OAuth2; settings export/import
+- ✅ Settings export/import (app preferences → JSON file via SAF; excludes accounts/credentials); 💡 `/.well-known/jmap` autodiscovery + OAuth2
 
 ---
 
@@ -120,7 +120,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Optional account display name (falls back to the address when unset)
 - 💡 Onboarding via `/.well-known/jmap` autodiscovery; OAuth2 / Bearer auth
 - ✅ Per-account colour coding (picker in account settings; tints the account avatar + the unified-inbox account chip)
-- 💡 Settings export / import
+- ✅ Settings export / import — app preferences (appearance, reading, notifications, privacy, language) to/from a JSON file via the Storage Access Framework (Settings → Backup); accounts and passwords are excluded (device-bound encryption)
 
 ## Sync, push & notifications
 

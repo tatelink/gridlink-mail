@@ -129,7 +129,7 @@
     <string name="settings_accounts_title">Konta</string>
     <string name="settings_accounts_summary">Dodawanie, przełączanie, ustawienia serwera</string>
     <string name="settings_appearance_title">Wygląd</string>
-    <string name="settings_appearance_summary">Motyw, gęstość</string>
+    <string name="settings_appearance_summary">Motyw, gęstość, język</string>
     <string name="settings_reading_title">Czytanie</string>
     <string name="settings_reading_summary">Akcje przesunięcia</string>
     <string name="settings_notifications_title">Powiadomienia</string>
@@ -140,6 +140,16 @@
     <string name="settings_privacy_summary">Blokada aplikacji, obrazy zdalne</string>
     <string name="settings_storage_title">Pamięć</string>
     <string name="settings_storage_summary">Użycie pamięci podręcznej, czyszczenie</string>
+    <string name="settings_backup_title">Kopia zapasowa</string>
+    <string name="settings_backup_summary">Eksportuj lub importuj ustawienia</string>
+    <string name="settings_backup_screen_title">Kopia zapasowa</string>
+    <string name="settings_backup_section">Kopia zapasowa ustawień</string>
+    <string name="settings_backup_explainer">Zapisz preferencje aplikacji (wygląd, czytanie, powiadomienia, prywatność, język) do pliku lub przywróć je z pliku. Konta i hasła nie są uwzględniane.</string>
+    <string name="settings_backup_export">Eksportuj ustawienia…</string>
+    <string name="settings_backup_import">Importuj ustawienia…</string>
+    <string name="settings_backup_exported">Ustawienia wyeksportowane</string>
+    <string name="settings_backup_imported">Ustawienia zaimportowane</string>
+    <string name="settings_backup_failed">Nie udało się ukończyć — sprawdź plik i spróbuj ponownie</string>
     <string name="settings_appearance_screen_title">Wygląd</string>
     <string name="settings_language_section">Język</string>
     <string name="settings_language_title">Język aplikacji</string>

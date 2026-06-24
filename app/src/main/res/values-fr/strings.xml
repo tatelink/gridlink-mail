@@ -129,7 +129,7 @@
     <string name="settings_accounts_title">Comptes</string>
     <string name="settings_accounts_summary">Ajouter, changer, réglages serveur</string>
     <string name="settings_appearance_title">Apparence</string>
-    <string name="settings_appearance_summary">Thème, densité</string>
+    <string name="settings_appearance_summary">Thème, densité, langue</string>
     <string name="settings_reading_title">Lecture</string>
     <string name="settings_reading_summary">Actions de balayage</string>
     <string name="settings_notifications_title">Notifications</string>
@@ -140,6 +140,16 @@
     <string name="settings_privacy_summary">Verrouillage, images distantes</string>
     <string name="settings_storage_title">Stockage</string>
     <string name="settings_storage_summary">Utilisation du cache, vider le cache</string>
+    <string name="settings_backup_title">Sauvegarde</string>
+    <string name="settings_backup_summary">Exporter ou importer les paramètres</string>
+    <string name="settings_backup_screen_title">Sauvegarde</string>
+    <string name="settings_backup_section">Sauvegarde des paramètres</string>
+    <string name="settings_backup_explainer">Enregistrez vos préférences (apparence, lecture, notifications, confidentialité, langue) dans un fichier, ou restaurez-les depuis celui-ci. Les comptes et les mots de passe ne sont pas inclus.</string>
+    <string name="settings_backup_export">Exporter les paramètres…</string>
+    <string name="settings_backup_import">Importer les paramètres…</string>
+    <string name="settings_backup_exported">Paramètres exportés</string>
+    <string name="settings_backup_imported">Paramètres importés</string>
+    <string name="settings_backup_failed">Impossible de terminer — vérifiez le fichier et réessayez</string>
     <string name="settings_appearance_screen_title">Apparence</string>
     <string name="settings_language_section">Langue</string>
     <string name="settings_language_title">Langue de l\'application</string>

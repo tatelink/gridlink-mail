@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 /** How the app picks light vs dark colours. */
@@ -119,6 +120,45 @@ class SettingsRepository(context: Context) {
 
     suspend fun clearImageAllowlist() {
         dataStore.edit { it.remove(KEY_IMAGE_ALLOWLIST) }
+    }
+
+    suspend fun setImageAllowlist(senders: Set<String>) {
+        val cleaned = senders.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
+        dataStore.edit { it[KEY_IMAGE_ALLOWLIST] = cleaned }
+    }
+
+    /** Captures every DataStore-backed preference into a portable [SettingsBackup]. */
+    suspend fun snapshotBackup(): SettingsBackup = SettingsBackup(
+        themeMode = themeMode.first().name,
+        listDensity = listDensity.first().name,
+        previewLines = previewLines.first().name,
+        swipeRight = swipeRightAction.first().name,
+        swipeLeft = swipeLeftAction.first().name,
+        sortOrder = sortOrder.first().name,
+        contactSuggestions = contactSuggestions.first(),
+        stripTracking = stripTrackingParams.first(),
+        confirmLinks = confirmLinks.first(),
+        imageAllowlist = imageAllowlist.first().toList(),
+        quietHoursEnabled = quietHoursEnabled.first(),
+        quietHoursStart = quietHoursStart.first(),
+        quietHoursEnd = quietHoursEnd.first(),
+    )
+
+    /** Applies the DataStore-backed fields of [backup]; unknown enum values are skipped. */
+    suspend fun restoreBackup(backup: SettingsBackup) {
+        backup.themeMode?.let { v -> runCatching { ThemeMode.valueOf(v) }.getOrNull()?.let { setThemeMode(it) } }
+        backup.listDensity?.let { v -> runCatching { ListDensity.valueOf(v) }.getOrNull()?.let { setListDensity(it) } }
+        backup.previewLines?.let { v -> runCatching { PreviewLines.valueOf(v) }.getOrNull()?.let { setPreviewLines(it) } }
+        backup.swipeRight?.let { v -> runCatching { SwipeAction.valueOf(v) }.getOrNull()?.let { setSwipeRightAction(it) } }
+        backup.swipeLeft?.let { v -> runCatching { SwipeAction.valueOf(v) }.getOrNull()?.let { setSwipeLeftAction(it) } }
+        backup.sortOrder?.let { v -> runCatching { SortOrder.valueOf(v) }.getOrNull()?.let { setSortOrder(it) } }
+        backup.contactSuggestions?.let { setContactSuggestions(it) }
+        backup.stripTracking?.let { setStripTrackingParams(it) }
+        backup.confirmLinks?.let { setConfirmLinks(it) }
+        backup.imageAllowlist?.let { setImageAllowlist(it.toSet()) }
+        backup.quietHoursEnabled?.let { setQuietHoursEnabled(it) }
+        backup.quietHoursStart?.let { setQuietHoursStart(it) }
+        backup.quietHoursEnd?.let { setQuietHoursEnd(it) }
     }
 
     /**

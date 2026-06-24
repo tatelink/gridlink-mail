@@ -129,7 +129,7 @@
     <string name="settings_accounts_title">Contas</string>
     <string name="settings_accounts_summary">Adicionar, trocar, configurações do servidor</string>
     <string name="settings_appearance_title">Aparência</string>
-    <string name="settings_appearance_summary">Tema, densidade</string>
+    <string name="settings_appearance_summary">Tema, densidade, idioma</string>
     <string name="settings_reading_title">Leitura</string>
     <string name="settings_reading_summary">Ações de deslize</string>
     <string name="settings_notifications_title">Notificações</string>
@@ -140,6 +140,16 @@
     <string name="settings_privacy_summary">Bloqueio do app, imagens remotas</string>
     <string name="settings_storage_title">Armazenamento</string>
     <string name="settings_storage_summary">Uso do cache, limpar cache</string>
+    <string name="settings_backup_title">Backup</string>
+    <string name="settings_backup_summary">Exportar ou importar configurações</string>
+    <string name="settings_backup_screen_title">Backup</string>
+    <string name="settings_backup_section">Backup de configurações</string>
+    <string name="settings_backup_explainer">Salve as preferências do aplicativo (aparência, leitura, notificações, privacidade, idioma) em um arquivo, ou restaure-as a partir de um. Contas e senhas não estão incluídas.</string>
+    <string name="settings_backup_export">Exportar configurações…</string>
+    <string name="settings_backup_import">Importar configurações…</string>
+    <string name="settings_backup_exported">Configurações exportadas</string>
+    <string name="settings_backup_imported">Configurações importadas</string>
+    <string name="settings_backup_failed">Não foi possível concluir — verifique o arquivo e tente novamente</string>
     <string name="settings_appearance_screen_title">Aparência</string>
     <string name="settings_language_section">Idioma</string>
     <string name="settings_language_title">Idioma do app</string>

@@ -129,7 +129,7 @@
     <string name="settings_accounts_title">Accounts</string>
     <string name="settings_accounts_summary">Toevoegen, wisselen, serverinstellingen</string>
     <string name="settings_appearance_title">Weergave</string>
-    <string name="settings_appearance_summary">Thema, dichtheid</string>
+    <string name="settings_appearance_summary">Thema, dichtheid, taal</string>
     <string name="settings_reading_title">Lezen</string>
     <string name="settings_reading_summary">Veegacties</string>
     <string name="settings_notifications_title">Meldingen</string>
@@ -140,6 +140,16 @@
     <string name="settings_privacy_summary">App-vergrendeling, externe afbeeldingen</string>
     <string name="settings_storage_title">Opslag</string>
     <string name="settings_storage_summary">Cachegebruik, cache wissen</string>
+    <string name="settings_backup_title">Back-up</string>
+    <string name="settings_backup_summary">Instellingen exporteren of importeren</string>
+    <string name="settings_backup_screen_title">Back-up</string>
+    <string name="settings_backup_section">Back-up van instellingen</string>
+    <string name="settings_backup_explainer">Sla je app-voorkeuren (weergave, lezen, meldingen, privacy, taal) op in een bestand of herstel ze ervan. Accounts en wachtwoorden worden niet meegenomen.</string>
+    <string name="settings_backup_export">Instellingen exporteren…</string>
+    <string name="settings_backup_import">Instellingen importeren…</string>
+    <string name="settings_backup_exported">Instellingen geëxporteerd</string>
+    <string name="settings_backup_imported">Instellingen geïmporteerd</string>
+    <string name="settings_backup_failed">Kon niet voltooien — controleer het bestand en probeer het opnieuw</string>
     <string name="settings_appearance_screen_title">Weergave</string>
     <string name="settings_language_section">Taal</string>
     <string name="settings_language_title">App-taal</string>

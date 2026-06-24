@@ -37,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BeachAccess
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterAlt
@@ -128,6 +129,7 @@ fun SettingsScreen(
                 onOpenFilters = { nav.navigate("filters") },
                 onOpenPrivacy = { nav.navigate("privacy") },
                 onOpenStorage = { nav.navigate("storage") },
+                onOpenBackup = { nav.navigate("backup") },
             )
         }
         composable("accounts") {
@@ -182,6 +184,9 @@ fun SettingsScreen(
         composable("storage") {
             StorageScreen(onBack = { nav.popBackStack() })
         }
+        composable("backup") {
+            BackupScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
+        }
     }
 }
 
@@ -204,6 +209,7 @@ private fun SettingsHub(
     onOpenFilters: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenStorage: () -> Unit,
+    onOpenBackup: () -> Unit,
 ) {
     val categories = listOf(
         HubCategory(
@@ -253,6 +259,12 @@ private fun SettingsHub(
             stringResource(R.string.settings_storage_title),
             stringResource(R.string.settings_storage_summary),
             onOpenStorage,
+        ),
+        HubCategory(
+            Icons.Filled.Backup,
+            stringResource(R.string.settings_backup_title),
+            stringResource(R.string.settings_backup_summary),
+            onOpenBackup,
         ),
     )
     DetailScaffold(title = stringResource(R.string.settings_hub_title), onBack = onBack) { padding ->
@@ -475,6 +487,74 @@ private fun TimePickerRow(label: String, minutes: Int, onChange: (Int) -> Unit) 
             },
             text = { TimePicker(state = state) },
         )
+    }
+}
+
+@Composable
+private fun BackupScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val context = LocalContext.current
+    var message by remember { mutableStateOf<String?>(null) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            viewModel.exportSettings(uri) { ok ->
+                message = context.getString(
+                    if (ok) R.string.settings_backup_exported else R.string.settings_backup_failed,
+                )
+            }
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            viewModel.importSettings(
+                uri,
+                onResult = { ok ->
+                    message = context.getString(
+                        if (ok) R.string.settings_backup_imported else R.string.settings_backup_failed,
+                    )
+                },
+                onLanguageChanged = { applyAppLanguage(it) },
+            )
+        }
+    }
+
+    DetailScaffold(title = stringResource(R.string.settings_backup_screen_title), onBack = onBack) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
+        ) {
+            SettingsSection(stringResource(R.string.settings_backup_section)) {
+                Text(
+                    stringResource(R.string.settings_backup_explainer),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                Button(
+                    onClick = { exportLauncher.launch("jmail-settings.json") },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                ) { Text(stringResource(R.string.settings_backup_export)) }
+                OutlinedButton(
+                    onClick = {
+                        importLauncher.launch(
+                            arrayOf("application/json", "application/octet-stream", "text/plain"),
+                        )
+                    },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                ) { Text(stringResource(R.string.settings_backup_import)) }
+                message?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
+        }
     }
 }
 

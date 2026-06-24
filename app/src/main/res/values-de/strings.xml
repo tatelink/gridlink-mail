@@ -129,7 +129,7 @@
     <string name="settings_accounts_title">Konten</string>
     <string name="settings_accounts_summary">Hinzufügen, wechseln, Servereinstellungen</string>
     <string name="settings_appearance_title">Darstellung</string>
-    <string name="settings_appearance_summary">Design, Dichte</string>
+    <string name="settings_appearance_summary">Design, Dichte, Sprache</string>
     <string name="settings_reading_title">Lesen</string>
     <string name="settings_reading_summary">Wischaktionen</string>
     <string name="settings_notifications_title">Benachrichtigungen</string>
@@ -140,6 +140,16 @@
     <string name="settings_privacy_summary">App-Sperre, externe Bilder</string>
     <string name="settings_storage_title">Speicher</string>
     <string name="settings_storage_summary">Cache-Nutzung, Cache leeren</string>
+    <string name="settings_backup_title">Backup</string>
+    <string name="settings_backup_summary">Einstellungen exportieren oder importieren</string>
+    <string name="settings_backup_screen_title">Backup</string>
+    <string name="settings_backup_section">Einstellungen-Backup</string>
+    <string name="settings_backup_explainer">Speichern Sie Ihre App-Einstellungen (Darstellung, Lesen, Benachrichtigungen, Datenschutz, Sprache) in einer Datei oder stellen Sie sie daraus wieder her. Konten und Passwörter sind nicht enthalten.</string>
+    <string name="settings_backup_export">Einstellungen exportieren…</string>
+    <string name="settings_backup_import">Einstellungen importieren…</string>
+    <string name="settings_backup_exported">Einstellungen exportiert</string>
+    <string name="settings_backup_imported">Einstellungen importiert</string>
+    <string name="settings_backup_failed">Konnte nicht abgeschlossen werden — überprüfen Sie die Datei und versuchen Sie es erneut</string>
     <string name="settings_appearance_screen_title">Darstellung</string>
     <string name="settings_language_section">Sprache</string>
     <string name="settings_language_title">App-Sprache</string>

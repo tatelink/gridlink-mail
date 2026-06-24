@@ -129,7 +129,7 @@
     <string name="settings_accounts_title">Account</string>
     <string name="settings_accounts_summary">Aggiungi, cambia, impostazioni server</string>
     <string name="settings_appearance_title">Aspetto</string>
-    <string name="settings_appearance_summary">Tema, densità</string>
+    <string name="settings_appearance_summary">Tema, densità, lingua</string>
     <string name="settings_reading_title">Lettura</string>
     <string name="settings_reading_summary">Azioni di scorrimento</string>
     <string name="settings_notifications_title">Notifiche</string>
@@ -140,6 +140,16 @@
     <string name="settings_privacy_summary">Blocco app, immagini remote</string>
     <string name="settings_storage_title">Archiviazione</string>
     <string name="settings_storage_summary">Uso della cache, svuota cache</string>
+    <string name="settings_backup_title">Backup</string>
+    <string name="settings_backup_summary">Esporta o importa le impostazioni</string>
+    <string name="settings_backup_screen_title">Backup</string>
+    <string name="settings_backup_section">Backup delle impostazioni</string>
+    <string name="settings_backup_explainer">Salva le preferenze dell\'app (aspetto, lettura, notifiche, privacy, lingua) in un file, oppure ripristinale da uno. Account e password non sono inclusi.</string>
+    <string name="settings_backup_export">Esporta impostazioni…</string>
+    <string name="settings_backup_import">Importa impostazioni…</string>
+    <string name="settings_backup_exported">Impostazioni esportate</string>
+    <string name="settings_backup_imported">Impostazioni importate</string>
+    <string name="settings_backup_failed">Operazione non riuscita — controlla il file e riprova</string>
     <string name="settings_appearance_screen_title">Aspetto</string>
     <string name="settings_language_section">Lingua</string>
     <string name="settings_language_title">Lingua dell\'app</string>
