@@ -1,12 +1,16 @@
 package app.sterna.ui.theme
 
+import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import app.sterna.core.data.settings.ThemeMode
 
 /**
@@ -39,6 +43,20 @@ fun SternaTheme(
         }
         darkTheme -> PelagicColorScheme
         else -> ArcticColorScheme
+    }
+
+    // Match the system bar icons to the app theme (it drives light/dark via Compose,
+    // not the system, so the edge-to-edge bars must be told explicitly). In light
+    // theme the status-bar icons go dark so they stay legible on the light surface.
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as Activity).window
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !darkTheme
+                isAppearanceLightNavigationBars = !darkTheme
+            }
+        }
     }
 
     MaterialTheme(
