@@ -392,8 +392,8 @@
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Add account</string>
-    <string name="connect_welcome_title">Welcome to Sterna Mail</string>
-    <string name="connect_welcome_subtitle">A private, standards-based email app. Add your account to get started.</string>
+    <string name="connect_welcome_title">Your email, finally yours.</string>
+    <string name="connect_welcome_subtitle">Private, open, no lock-in. Add your account to get started.</string>
     <string name="connect_protocol">Protocol</string>
     <string name="connect_jmap">JMAP</string>
     <string name="connect_imap_smtp">IMAP / SMTP</string>
@@ -475,7 +475,7 @@
     <string name="notif_channel_mail">New mail</string>
     <string name="notif_channel_sync">Mail sync</string>
     <string name="notif_channel_sync_desc">Keeps a live connection to your mail server for instant mail.</string>
-    <string name="notif_watching">Watching for new mail</string>
+    <string name="notif_watching">In flight, watching for new mail</string>
     <string name="notif_new_message">New message</string>
     <string name="notif_mark_read">Mark read</string>
     <string name="notif_delete">Delete</string>

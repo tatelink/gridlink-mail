@@ -412,7 +412,7 @@
     <string name="notif_channel_mail">Correo nuevo</string>
     <string name="notif_channel_sync">Sincronización de correo</string>
     <string name="notif_channel_sync_desc">Mantiene una conexión activa con tu servidor de correo para recibir mensajes al instante.</string>
-    <string name="notif_watching">Vigilando si llega correo nuevo</string>
+    <string name="notif_watching">En vuelo, atenta al correo nuevo</string>
     <string name="notif_new_message">Nuevo mensaje</string>
     <string name="notif_mark_read">Marcar como leído</string>
     <string name="notif_delete">Eliminar</string>

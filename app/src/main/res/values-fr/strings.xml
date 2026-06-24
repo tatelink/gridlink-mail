@@ -412,7 +412,7 @@
     <string name="notif_channel_mail">Nouveaux messages</string>
     <string name="notif_channel_sync">Synchronisation</string>
     <string name="notif_channel_sync_desc">Maintient une connexion active à votre serveur de messagerie pour recevoir les messages instantanément.</string>
-    <string name="notif_watching">Surveillance des nouveaux messages</string>
+    <string name="notif_watching">En vol, à l\'affût des nouveaux messages</string>
     <string name="notif_new_message">Nouveau message</string>
     <string name="notif_mark_read">Marquer comme lu</string>
     <string name="notif_delete">Supprimer</string>
@@ -443,8 +443,8 @@
     <string name="settings_image_allowlist_hint">sender@example.com</string>
     <string name="settings_sign_out_title">Se déconnecter de ce compte ?</string>
     <string name="settings_sign_out_message">Ce compte sera supprimé de Sterna Mail et les messages téléchargés seront effacés de cet appareil.</string>
-    <string name="connect_welcome_title">Bienvenue dans Sterna Mail</string>
-    <string name="connect_welcome_subtitle">Une application e-mail privée et basée sur les standards. Ajoutez votre compte pour commencer.</string>
+    <string name="connect_welcome_title">Votre e-mail, enfin à vous.</string>
+    <string name="connect_welcome_subtitle">Privé, ouvert, sans enfermement. Ajoutez votre compte pour commencer.</string>
     <string name="settings_test_connection">Tester la connexion</string>
     <string name="settings_test_connecting">Test en cours…</string>
     <string name="settings_test_ok">Connexion réussie.</string>
