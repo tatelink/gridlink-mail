@@ -29,7 +29,7 @@ class AppContainer(context: Context) {
     val sendOutbox: SendOutbox = SendOutbox(appScope)
 }
 
-class JmailApplication : Application() {
+class SternaApplication : Application() {
     lateinit var container: AppContainer
         private set
 
@@ -41,4 +41,4 @@ class JmailApplication : Application() {
 
 /** Convenience accessor for ViewModels (which receive the Application). */
 val Application.container: AppContainer
-    get() = (this as JmailApplication).container
+    get() = (this as SternaApplication).container

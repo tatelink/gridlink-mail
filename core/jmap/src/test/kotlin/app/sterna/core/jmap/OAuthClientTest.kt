@@ -38,26 +38,26 @@ class OAuthClientTest {
             ),
         )
 
-        val device = client.startDeviceAuthorization(metadata(), "jmail", "scope-a offline_access")
+        val device = client.startDeviceAuthorization(metadata(), "sterna", "scope-a offline_access")
 
         assertEquals("DC", device.deviceCode)
         assertEquals("WDJB-MJHT", device.userCode)
         assertEquals(5, device.interval)
         val body = server.takeRequest().body.readUtf8()
-        assertTrue(body.contains("client_id=jmail"))
+        assertTrue(body.contains("client_id=sterna"))
         assertTrue(body.contains("scope=scope-a"))
     }
 
     @Test fun pollDeviceToken_pendingThenSuccess() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":"authorization_pending"}"""))
-        assertEquals(DeviceTokenResult.Pending, client.pollDeviceToken(metadata(), "DC", "jmail"))
+        assertEquals(DeviceTokenResult.Pending, client.pollDeviceToken(metadata(), "DC", "sterna"))
 
         server.enqueue(
             MockResponse().setBody(
                 """{"access_token":"AT","refresh_token":"RT","expires_in":3600,"token_type":"Bearer"}""",
             ),
         )
-        val result = client.pollDeviceToken(metadata(), "DC", "jmail")
+        val result = client.pollDeviceToken(metadata(), "DC", "sterna")
         assertTrue(result is DeviceTokenResult.Success)
         assertEquals("AT", (result as DeviceTokenResult.Success).tokens.accessToken)
         assertEquals("RT", result.tokens.refreshToken)
@@ -65,10 +65,10 @@ class OAuthClientTest {
 
     @Test fun pollDeviceToken_slowDownAndDenied() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":"slow_down"}"""))
-        assertEquals(DeviceTokenResult.SlowDown, client.pollDeviceToken(metadata(), "DC", "jmail"))
+        assertEquals(DeviceTokenResult.SlowDown, client.pollDeviceToken(metadata(), "DC", "sterna"))
 
         server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":"access_denied"}"""))
-        val denied = client.pollDeviceToken(metadata(), "DC", "jmail")
+        val denied = client.pollDeviceToken(metadata(), "DC", "sterna")
         assertTrue(denied is DeviceTokenResult.Failed)
         assertEquals("access_denied", (denied as DeviceTokenResult.Failed).error)
     }
@@ -77,7 +77,7 @@ class OAuthClientTest {
         server.enqueue(
             MockResponse().setBody("""{"access_token":"AT2","refresh_token":"RT2","expires_in":7200}"""),
         )
-        val tokens = client.refresh(server.url("/auth/token").toString(), "RT", "jmail")
+        val tokens = client.refresh(server.url("/auth/token").toString(), "RT", "sterna")
         assertEquals("AT2", tokens.accessToken)
         assertEquals(7200, tokens.expiresIn)
         val body = server.takeRequest().body.readUtf8()

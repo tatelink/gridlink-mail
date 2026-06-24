@@ -546,7 +546,7 @@ private fun BackupScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
                 Button(
-                    onClick = { exportLauncher.launch("jmail-settings.json") },
+                    onClick = { exportLauncher.launch("sterna-settings.json") },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 ) { Text(stringResource(R.string.settings_backup_export)) }
                 OutlinedButton(

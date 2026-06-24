@@ -77,7 +77,7 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
 }
 
 @Composable
-fun JmailApp(viewModel: RootViewModel = viewModel()) {
+fun SternaApp(viewModel: RootViewModel = viewModel()) {
     RequestNotificationPermission()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val appLock = (LocalContext.current.applicationContext as Application).container.appLock

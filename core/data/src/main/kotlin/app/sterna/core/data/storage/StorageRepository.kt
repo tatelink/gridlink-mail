@@ -101,7 +101,7 @@ class StorageRepository(
     private fun File.safeLength(): Long = if (exists()) length() else 0L
 
     private companion object {
-        val DB_FILES = listOf("jmail.db", "jmail.db-wal", "jmail.db-shm")
+        val DB_FILES = listOf("sterna.db", "sterna.db-wal", "sterna.db-shm")
         const val MAX_ATTACHMENT_BYTES = 200L * 1024 * 1024 // 200 MB
         const val MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000 // 30 days
     }

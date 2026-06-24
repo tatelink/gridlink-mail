@@ -162,7 +162,7 @@ sealed interface FilterRulesState {
     data object Unsupported : FilterRulesState
     data class Loaded(
         val rules: List<FilterRule>,
-        /** True if another script (not Jmail's) is the active one — saving will take over. */
+        /** True if another script (not Sterna's) is the active one — saving will take over. */
         val foreignActiveScript: Boolean = false,
     ) : FilterRulesState
 }
@@ -518,7 +518,7 @@ class MailRepository(
     suspend fun discoverOAuth(host: String): OAuthMetadata? =
         oauthClient.discoverMetadata(host)?.takeIf { it.supportsDeviceFlow }
 
-    /** Begin the device flow against [metadata] using Jmail's client id + scopes. */
+    /** Begin the device flow against [metadata] using Sterna's client id + scopes. */
     suspend fun startDeviceAuthorization(metadata: OAuthMetadata): DeviceAuthorization =
         oauthClient.startDeviceAuthorization(metadata, Jmap.OAUTH_CLIENT_ID, Jmap.OAUTH_SCOPE)
 
@@ -1228,7 +1228,7 @@ class MailRepository(
     }
 
     /**
-     * Load the account's Jmail-managed filter rules (server-side Sieve).
+     * Load the account's Sterna-managed filter rules (server-side Sieve).
      * [FilterRulesState.Unsupported] for IMAP accounts and JMAP servers without
      * the sieve capability.
      */
@@ -1242,7 +1242,7 @@ class MailRepository(
         val managed = scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }
         val rules = if (managed != null) {
             val bytes = client.downloadBlob(
-                ctx.session, ctx.accountId, managed.blobId, "application/sieve", "jmail.siv", ctx.auth,
+                ctx.session, ctx.accountId, managed.blobId, "application/sieve", "sterna.siv", ctx.auth,
             )
             SieveCodec.parseRules(bytes.toString(Charsets.UTF_8))
         } else {
@@ -1254,7 +1254,7 @@ class MailRepository(
 
     /**
      * Compile [rules] to Sieve, validate them server-side, then save and activate
-     * the Jmail-managed script. Throws if the server rejects the script.
+     * the Sterna-managed script. Throws if the server rejects the script.
      */
     suspend fun saveFilterRules(credentials: AccountCredentials, rules: List<FilterRule>) {
         val ctx = connect(credentials)

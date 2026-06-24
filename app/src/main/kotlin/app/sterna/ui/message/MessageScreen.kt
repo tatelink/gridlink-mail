@@ -588,13 +588,13 @@ private fun buildHtmlDocument(
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
               html, body { background-color: ${theme.background}; margin: 0; }
-              #jmail-content { filter: invert(1) hue-rotate(180deg); padding: 16px;
+              #sterna-content { filter: invert(1) hue-rotate(180deg); padding: 16px;
                                font-family: sans-serif; line-height: 1.45;
                                word-wrap: break-word; overflow-wrap: break-word; }
-              #jmail-content img, #jmail-content picture, #jmail-content video,
-              #jmail-content iframe { filter: invert(1) hue-rotate(180deg); }
+              #sterna-content img, #sterna-content picture, #sterna-content video,
+              #sterna-content iframe { filter: invert(1) hue-rotate(180deg); }
               img { max-width: 100%; height: auto; }
-            </style></head><body><div id="jmail-content">$inner</div></body></html>
+            </style></head><body><div id="sterna-content">$inner</div></body></html>
         """.trimIndent()
     }
     // Plain/simple text (or light mode): paint with the resolved theme colours directly.

@@ -18,10 +18,10 @@ object Jmap {
     const val OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server"
 
     /**
-     * OAuth client id Jmail identifies as. Stalwart accepts an arbitrary id (no
+     * OAuth client id Sterna identifies as. Stalwart accepts an arbitrary id (no
      * pre-registration); servers requiring dynamic registration can adopt it too.
      */
-    const val OAUTH_CLIENT_ID = "jmail"
+    const val OAUTH_CLIENT_ID = "sterna"
 
     /** Scopes requested for the device flow: JMAP access + a refresh token. */
     const val OAUTH_SCOPE =

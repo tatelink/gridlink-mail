@@ -159,7 +159,7 @@ object OutgoingMime {
                 append("\r\n")
                 append(base64(bodyContent.toByteArray(Charsets.UTF_8)))
             } else {
-                val boundary = "----jmail_${m.messageId.filter { it.isLetterOrDigit() }.take(24)}"
+                val boundary = "----sterna_${m.messageId.filter { it.isLetterOrDigit() }.take(24)}"
                 append("Content-Type: multipart/mixed; boundary=\"$boundary\"\r\n\r\n")
                 append("--$boundary\r\n")
                 append("Content-Type: $bodyType; charset=utf-8\r\n")

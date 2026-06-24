@@ -13,7 +13,7 @@ import androidx.room.RoomDatabase
     version = 8,
     exportSchema = false,
 )
-abstract class JmailDatabase : RoomDatabase() {
+abstract class SternaDatabase : RoomDatabase() {
     abstract fun emailDao(): EmailDao
     abstract fun mailboxDao(): MailboxDao
     abstract fun scheduledSendDao(): ScheduledSendDao
@@ -21,11 +21,11 @@ abstract class JmailDatabase : RoomDatabase() {
     abstract fun recentContactDao(): RecentContactDao
 
     companion object {
-        fun build(context: Context): JmailDatabase =
+        fun build(context: Context): SternaDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
-                JmailDatabase::class.java,
-                "jmail.db",
+                SternaDatabase::class.java,
+                "sterna.db",
             )
                 // Cache is a disposable mirror of the server, so just rebuild on schema changes.
                 .fallbackToDestructiveMigration()

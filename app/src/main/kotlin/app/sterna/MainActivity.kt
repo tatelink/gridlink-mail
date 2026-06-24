@@ -10,10 +10,10 @@ import androidx.appcompat.app.AppCompatActivity
 import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.data.settings.PreviewLines
 import app.sterna.core.data.settings.ThemeMode
-import app.sterna.ui.JmailApp
+import app.sterna.ui.SternaApp
 import app.sterna.ui.components.LocalListDensity
 import app.sterna.ui.components.LocalPreviewLines
-import app.sterna.ui.theme.JmailTheme
+import app.sterna.ui.theme.SternaTheme
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -25,12 +25,12 @@ class MainActivity : AppCompatActivity() {
             val dynamicColor by settings.dynamicColor.collectAsState(initial = false)
             val density by settings.listDensity.collectAsState(initial = ListDensity.NORMAL)
             val previewLines by settings.previewLines.collectAsState(initial = PreviewLines.ONE)
-            JmailTheme(themeMode = themeMode, dynamicColor = dynamicColor) {
+            SternaTheme(themeMode = themeMode, dynamicColor = dynamicColor) {
                 CompositionLocalProvider(
                     LocalListDensity provides density,
                     LocalPreviewLines provides previewLines,
                 ) {
-                    JmailApp()
+                    SternaApp()
                 }
             }
         }

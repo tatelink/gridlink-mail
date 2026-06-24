@@ -2,7 +2,7 @@ package app.sterna.core.data
 
 import android.content.Context
 import app.sterna.core.data.account.AccountStore
-import app.sterna.core.data.db.JmailDatabase
+import app.sterna.core.data.db.SternaDatabase
 import app.sterna.core.data.mail.ImapMailService
 import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.storage.StorageRepository
@@ -20,7 +20,7 @@ object DataFactory {
 
     fun create(context: Context, client: JmapClient, accountStore: AccountStore): DataLayer {
         val appContext = context.applicationContext
-        val database = JmailDatabase.build(appContext)
+        val database = SternaDatabase.build(appContext)
         val imapService = ImapMailService(ImapClient(), SmtpClient())
         return DataLayer(
             mailRepository = MailRepository(

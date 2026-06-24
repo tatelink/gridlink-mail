@@ -15,7 +15,7 @@ import javax.crypto.spec.GCMParameterSpec
  */
 internal object KeystoreCrypto {
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-    private const val KEY_ALIAS = "jmail.account.key"
+    private const val KEY_ALIAS = "sterna.account.key"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val IV_LENGTH = 12
     private const val TAG_LENGTH_BITS = 128

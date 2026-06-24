@@ -21,7 +21,7 @@ import app.sterna.core.data.settings.ThemeMode
  * [themeMode] selects whether to follow the system setting or force light / dark.
  */
 @Composable
-fun JmailTheme(
+fun SternaTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
@@ -43,7 +43,7 @@ fun JmailTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = JmailTypography,
+        typography = SternaTypography,
         content = content,
     )
 }

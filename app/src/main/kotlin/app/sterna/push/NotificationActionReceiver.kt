@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
-import app.sterna.JmailApplication
+import app.sterna.SternaApplication
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.mail.MailRepository
 import kotlinx.coroutines.CoroutineScope
@@ -26,7 +26,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val replyText = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(KEY_REPLY)?.toString()
 
         val appContext = context.applicationContext
-        val container = (appContext as JmailApplication).container
+        val container = (appContext as SternaApplication).container
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {

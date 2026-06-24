@@ -406,7 +406,7 @@ class AccountStore(context: Context) {
     }
 
     private companion object {
-        const val PREFS_NAME = "jmail_account"
+        const val PREFS_NAME = "sterna_account"
         const val KEY_ACCOUNTS = "accounts"
         const val KEY_CURRENT = "current"
         const val KEY_PUSH_ALL = "push_all_accounts"

@@ -7,14 +7,14 @@ import kotlinx.serialization.json.Json
  * Compiles structured [FilterRule]s to a Sieve script and reads them back.
  *
  * The round-trip trick: the full rule list is serialized to JSON and stored on a
- * single `# JMAIL-RULES-V1:` comment line at the top of the script. Generation
+ * single `# STERNA-RULES-V1:` comment line at the top of the script. Generation
  * is one-way (rules → Sieve); reading just parses that JSON comment, so we never
  * parse arbitrary Sieve. Disabled rules are kept in the JSON but not emitted as
  * Sieve, so they survive a save without filtering mail.
  */
 object SieveCodec {
-    const val SCRIPT_NAME = "jmail"
-    private const val MARKER = "# JMAIL-RULES-V1:"
+    const val SCRIPT_NAME = "sterna"
+    private const val MARKER = "# STERNA-RULES-V1:"
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
     private val serializer = ListSerializer(FilterRule.serializer())
 
