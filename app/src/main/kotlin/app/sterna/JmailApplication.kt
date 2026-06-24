@@ -1,0 +1,44 @@
+package app.sterna
+
+import android.app.Application
+import android.content.Context
+import app.sterna.core.data.DataFactory
+import app.sterna.core.data.account.AccountStore
+import app.sterna.core.data.mail.MailRepository
+import app.sterna.core.data.settings.SettingsRepository
+import app.sterna.core.data.storage.StorageRepository
+import app.sterna.core.jmap.JmapClient
+import app.sterna.security.AppLock
+import app.sterna.send.SendOutbox
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+
+/** Simple manual DI container — holds app-wide singletons. */
+class AppContainer(context: Context) {
+    val accountStore: AccountStore = AccountStore(context.applicationContext)
+    val settingsRepository: SettingsRepository = SettingsRepository(context.applicationContext)
+    private val jmapClient: JmapClient = JmapClient()
+    private val dataLayer = DataFactory.create(context.applicationContext, jmapClient, accountStore)
+    val mailRepository: MailRepository = dataLayer.mailRepository
+    val storageRepository: StorageRepository = dataLayer.storageRepository
+    val appLock: AppLock = AppLock(accountStore)
+
+    /** App-lifetime scope for work that must outlive a screen (e.g. Undo-send hold-back). */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val sendOutbox: SendOutbox = SendOutbox(appScope)
+}
+
+class JmailApplication : Application() {
+    lateinit var container: AppContainer
+        private set
+
+    override fun onCreate() {
+        super.onCreate()
+        container = AppContainer(this)
+    }
+}
+
+/** Convenience accessor for ViewModels (which receive the Application). */
+val Application.container: AppContainer
+    get() = (this as JmailApplication).container

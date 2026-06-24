@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Jmail</string>
+    <string name="app_name">Sterna Mail</string>
 
     <!-- Compose -->
     <string name="compose_title_new">Nuovo messaggio</string>
@@ -45,7 +45,7 @@
     <string name="inbox_undo">Annulla</string>
     <string name="inbox_message_sent">Messaggio inviato</string>
     <string name="inbox_send_failed">Impossibile inviare: %1$s</string>
-    <string name="inbox_app_name">Jmail</string>
+    <string name="inbox_app_name">Sterna Mail</string>
     <string name="inbox_switch_to_account">Passa a %1$s</string>
     <string name="inbox_all_inboxes">Tutte le caselle di posta</string>
     <string name="inbox_all_inboxes_unread">Tutte le caselle di posta  (%1$d)</string>
@@ -231,7 +231,7 @@
     <string name="settings_filters_add">Aggiungi regola</string>
     <string name="settings_filters_saved">Filtri salvati</string>
     <string name="settings_filters_untitled">Regola senza titolo</string>
-    <string name="settings_filters_foreign_warning">Sul server è attivo un altro script di filtro; salvando renderai attivo quello di Jmail.</string>
+    <string name="settings_filters_foreign_warning">Sul server è attivo un altro script di filtro; salvando renderai attivo quello di Sterna Mail.</string>
     <string name="settings_filters_edit_title">Modifica regola</string>
     <string name="settings_filter_name">Nome regola</string>
     <string name="settings_filter_if">Se</string>
@@ -254,7 +254,7 @@
     <string name="settings_privacy_screen_title">Privacy e sicurezza</string>
     <string name="settings_security_section">Sicurezza</string>
     <string name="settings_app_lock_title">Blocco app</string>
-    <string name="settings_app_lock_subtitle">Richiedi la tua impronta, il volto o il PIN dello schermo per aprire Jmail.</string>
+    <string name="settings_app_lock_subtitle">Richiedi la tua impronta, il volto o il PIN dello schermo per aprire Sterna Mail.</string>
     <string name="settings_app_lock_unavailable">Configura prima un\'impronta, lo sblocco con il volto o un blocco schermo nelle impostazioni del dispositivo.</string>
     <string name="settings_links_section">Collegamenti</string>
     <string name="settings_image_allowlist_section">Immagini remote</string>
@@ -266,7 +266,7 @@
     <string name="settings_confirm_links_subtitle">Mostra la destinazione e chiedi conferma prima di aprire un collegamento da un messaggio.</string>
     <string name="settings_recipient_suggestions_section">Suggerimenti destinatari</string>
     <string name="settings_suggest_contacts_title">Suggerisci dai contatti</string>
-    <string name="settings_suggest_contacts_subtitle">Completa automaticamente i destinatari dai contatti di questo dispositivo mentre digiti. Jmail li legge solo sul dispositivo e non li carica mai. Se disattivato, suggerisce comunque le persone a cui hai scritto di recente.</string>
+    <string name="settings_suggest_contacts_subtitle">Completa automaticamente i destinatari dai contatti di questo dispositivo mentre digiti. Sterna Mail li legge solo sul dispositivo e non li carica mai. Se disattivato, suggerisce comunque le persone a cui hai scritto di recente.</string>
     <string name="settings_storage_screen_title">Archiviazione</string>
     <string name="settings_on_device_usage_section">Uso sul dispositivo</string>
     <string name="settings_storage_total">Totale</string>
@@ -336,7 +336,7 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">Server JMAP</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Inserisci semplicemente la tua email e la password: Jmail troverà automaticamente il tuo server.</string>
+    <string name="connect_jmap_autodiscover_hint">Inserisci semplicemente la tua email e la password: Sterna Mail troverà automaticamente il tuo server.</string>
     <string name="connect_advanced_show">Impostazioni avanzate</string>
     <string name="connect_advanced_hide">Nascondi impostazioni avanzate</string>
     <string name="connect_discovering">Ricerca del tuo server in corso…</string>
@@ -387,10 +387,10 @@
     <string name="search_button">Cerca</string>
 
     <!-- App lock -->
-    <string name="lock_title">Jmail è bloccato</string>
+    <string name="lock_title">Sterna Mail è bloccato</string>
     <string name="lock_subtitle">Sblocca per leggere la tua posta.</string>
     <string name="lock_unlock">Sblocca</string>
-    <string name="lock_prompt_title">Sblocca Jmail</string>
+    <string name="lock_prompt_title">Sblocca Sterna Mail</string>
     <string name="lock_prompt_subtitle">Verifica la tua identità</string>
 
     <!-- ViewModel status / errors -->
@@ -440,8 +440,8 @@
     <string name="settings_image_allowlist_remove">Rimuovi mittente</string>
     <string name="settings_image_allowlist_hint">sender@example.com</string>
     <string name="settings_sign_out_title">Uscire da questo account?</string>
-    <string name="settings_sign_out_message">Questo account verrà rimosso da Jmail e la posta scaricata verrà cancellata da questo dispositivo.</string>
-    <string name="connect_welcome_title">Benvenuto in Jmail</string>
+    <string name="settings_sign_out_message">Questo account verrà rimosso da Sterna Mail e la posta scaricata verrà cancellata da questo dispositivo.</string>
+    <string name="connect_welcome_title">Benvenuto in Sterna Mail</string>
     <string name="connect_welcome_subtitle">Un\'app email privata e basata su standard aperti. Aggiungi il tuo account per iniziare.</string>
     <string name="settings_test_connection">Prova connessione</string>
     <string name="settings_test_connecting">Verifica in corso…</string>

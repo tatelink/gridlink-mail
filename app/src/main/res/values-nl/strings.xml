@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Jmail</string>
+    <string name="app_name">Sterna Mail</string>
 
     <!-- Compose -->
     <string name="compose_title_new">Nieuw bericht</string>
@@ -45,7 +45,7 @@
     <string name="inbox_undo">Ongedaan maken</string>
     <string name="inbox_message_sent">Bericht verzonden</string>
     <string name="inbox_send_failed">Kon niet verzenden: %1$s</string>
-    <string name="inbox_app_name">Jmail</string>
+    <string name="inbox_app_name">Sterna Mail</string>
     <string name="inbox_switch_to_account">Wisselen naar %1$s</string>
     <string name="inbox_all_inboxes">Alle postvakken IN</string>
     <string name="inbox_all_inboxes_unread">Alle postvakken IN  (%1$d)</string>
@@ -231,7 +231,7 @@
     <string name="settings_filters_add">Regel toevoegen</string>
     <string name="settings_filters_saved">Filters opgeslagen</string>
     <string name="settings_filters_untitled">Naamloze regel</string>
-    <string name="settings_filters_foreign_warning">Er is al een ander filterscript actief op de server; door op te slaan wordt dat van Jmail het actieve script.</string>
+    <string name="settings_filters_foreign_warning">Er is al een ander filterscript actief op de server; door op te slaan wordt dat van Sterna Mail het actieve script.</string>
     <string name="settings_filters_edit_title">Regel bewerken</string>
     <string name="settings_filter_name">Regelnaam</string>
     <string name="settings_filter_if">Als</string>
@@ -254,7 +254,7 @@
     <string name="settings_privacy_screen_title">Privacy en beveiliging</string>
     <string name="settings_security_section">Beveiliging</string>
     <string name="settings_app_lock_title">App-vergrendeling</string>
-    <string name="settings_app_lock_subtitle">Vereis je vingerafdruk, gezicht of schermpincode om Jmail te openen.</string>
+    <string name="settings_app_lock_subtitle">Vereis je vingerafdruk, gezicht of schermpincode om Sterna Mail te openen.</string>
     <string name="settings_app_lock_unavailable">Stel eerst een vingerafdruk, gezichtsontgrendeling of schermvergrendeling in bij je apparaatinstellingen.</string>
     <string name="settings_links_section">Links</string>
     <string name="settings_image_allowlist_section">Externe afbeeldingen</string>
@@ -266,7 +266,7 @@
     <string name="settings_confirm_links_subtitle">Toon de bestemming en vraag om bevestiging voordat een link uit een bericht wordt geopend.</string>
     <string name="settings_recipient_suggestions_section">Ontvangersuggesties</string>
     <string name="settings_suggest_contacts_title">Suggesties uit contacten</string>
-    <string name="settings_suggest_contacts_subtitle">Vul ontvangers aan uit de contacten van dit apparaat terwijl je typt. Jmail leest ze alleen op het apparaat en uploadt ze nooit. Uitgeschakeld stelt het nog steeds mensen voor die je onlangs hebt gemaild.</string>
+    <string name="settings_suggest_contacts_subtitle">Vul ontvangers aan uit de contacten van dit apparaat terwijl je typt. Sterna Mail leest ze alleen op het apparaat en uploadt ze nooit. Uitgeschakeld stelt het nog steeds mensen voor die je onlangs hebt gemaild.</string>
     <string name="settings_storage_screen_title">Opslag</string>
     <string name="settings_on_device_usage_section">Gebruik op apparaat</string>
     <string name="settings_storage_total">Totaal</string>
@@ -336,7 +336,7 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">JMAP-server</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Voer gewoon je e-mailadres en wachtwoord in — Jmail vindt je server automatisch.</string>
+    <string name="connect_jmap_autodiscover_hint">Voer gewoon je e-mailadres en wachtwoord in — Sterna Mail vindt je server automatisch.</string>
     <string name="connect_advanced_show">Geavanceerde instellingen</string>
     <string name="connect_advanced_hide">Geavanceerde instellingen verbergen</string>
     <string name="connect_discovering">Je server zoeken…</string>
@@ -387,10 +387,10 @@
     <string name="search_button">Zoeken</string>
 
     <!-- App lock -->
-    <string name="lock_title">Jmail is vergrendeld</string>
+    <string name="lock_title">Sterna Mail is vergrendeld</string>
     <string name="lock_subtitle">Ontgrendel om je e-mail te lezen.</string>
     <string name="lock_unlock">Ontgrendelen</string>
-    <string name="lock_prompt_title">Jmail ontgrendelen</string>
+    <string name="lock_prompt_title">Sterna Mail ontgrendelen</string>
     <string name="lock_prompt_subtitle">Verifieer dat jij het bent</string>
 
     <!-- ViewModel status / errors -->
@@ -443,8 +443,8 @@
     <string name="settings_image_allowlist_remove">Afzender verwijderen</string>
     <string name="settings_image_allowlist_hint">sender@example.com</string>
     <string name="settings_sign_out_title">Afmelden bij dit account?</string>
-    <string name="settings_sign_out_message">Dit account wordt uit Jmail verwijderd en de gedownloade e-mail wordt van dit apparaat gewist.</string>
-    <string name="connect_welcome_title">Welkom bij Jmail</string>
+    <string name="settings_sign_out_message">Dit account wordt uit Sterna Mail verwijderd en de gedownloade e-mail wordt van dit apparaat gewist.</string>
+    <string name="connect_welcome_title">Welkom bij Sterna Mail</string>
     <string name="connect_welcome_subtitle">Een privacyvriendelijke, op standaarden gebaseerde e-mailapp. Voeg je account toe om te beginnen.</string>
     <string name="settings_test_connection">Verbinding testen</string>
     <string name="settings_test_connecting">Testen…</string>

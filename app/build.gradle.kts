@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "app.jmail"
+    namespace = "app.sterna"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "app.jmail"
+        applicationId = "app.sterna"
         minSdk = 26
         targetSdk = 36
         versionCode = 98

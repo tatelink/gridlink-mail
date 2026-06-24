@@ -1,0 +1,215 @@
+package app.sterna.ui.message
+
+import android.app.Application
+import android.content.Intent
+import androidx.core.content.FileProvider
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import app.sterna.container
+import app.sterna.R
+import app.sterna.snooze.Snoozes
+import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.settings.MessageTextSize
+import app.sterna.core.jmap.model.Email
+import app.sterna.core.jmap.model.EmailBodyPart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+sealed interface MessageState {
+    data object Loading : MessageState
+    data class Loaded(val email: Email) : MessageState
+    data class Error(val message: String) : MessageState
+}
+
+class MessageViewModel(application: Application) : AndroidViewModel(application) {
+    private val store = application.container.accountStore
+    private val repo = application.container.mailRepository
+    private val storage = application.container.storageRepository
+    private val settings = application.container.settingsRepository
+
+    /** Whether tapped links should have tracking params stripped before opening. */
+    val stripTracking = settings.stripTrackingParams.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = true,
+    )
+
+    /** Whether to show the destination and ask before opening a tapped link. */
+    val confirmLinks = settings.confirmLinks.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
+    /** Sender addresses whose remote images load automatically. */
+    val imageAllowlist = settings.imageAllowlist.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptySet(),
+    )
+
+    /** Reading text size for the message body. */
+    val messageTextSize = settings.messageTextSize.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = MessageTextSize.NORMAL,
+    )
+
+    /** Add/remove a sender from the always-show-images allowlist. */
+    fun setImagesAlwaysAllowed(sender: String, allowed: Boolean) {
+        viewModelScope.launch { settings.setImageAllowed(sender, allowed) }
+    }
+
+    private val _state = MutableStateFlow<MessageState>(MessageState.Loading)
+    val state = _state.asStateFlow()
+
+    /** Other messages in the same conversation (excludes the opened one). */
+    private val _thread = MutableStateFlow<List<Email>>(emptyList())
+    val thread = _thread.asStateFlow()
+
+    /** Transient status while downloading/opening an attachment. */
+    private val _attachmentStatus = MutableStateFlow<String?>(null)
+    val attachmentStatus = _attachmentStatus.asStateFlow()
+
+    /** Inline images keyed by Content-ID, as `data:` URIs for the body to render. */
+    private val _inlineImages = MutableStateFlow<Map<String, String>>(emptyMap())
+    val inlineImages = _inlineImages.asStateFlow()
+
+    /** Whether the opened message is in the Junk folder (drives Report spam ↔ Not spam). */
+    private val _inJunk = MutableStateFlow(false)
+    val inJunk = _inJunk.asStateFlow()
+
+    private var loadedId: String? = null
+    /** Owning account when opened from the unified inbox; null = current account. */
+    private var accountId: String? = null
+
+    /** Credentials for the message's own account (unified inbox), else the current one. */
+    private fun credentials(): AccountCredentials? =
+        accountId?.let { store.credentials(it) } ?: store.load()
+
+    /** Loads the email once per id (idempotent across recompositions). */
+    fun load(emailId: String, accountId: String? = null) {
+        if (loadedId == emailId && _state.value !is MessageState.Error) return
+        loadedId = emailId
+        this.accountId = accountId
+        _state.value = MessageState.Loading
+        _thread.value = emptyList()
+        _inlineImages.value = emptyMap()
+        _inJunk.value = false
+        viewModelScope.launch {
+            try {
+                val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
+                val email = repo.openEmail(credentials, emailId)
+                _state.value = MessageState.Loaded(email)
+                _inJunk.value = repo.mailboxRole(email.mailboxId) == "junk"
+                loadInlineImages(credentials, email)
+                email.threadId?.let { threadId ->
+                    runCatching { repo.threadEmails(credentials, threadId) }
+                        .onSuccess { siblings -> _thread.value = siblings.filter { it.id != email.id } }
+                }
+            } catch (t: Throwable) {
+                _state.value = MessageState.Error(t.message ?: t.javaClass.simpleName)
+            }
+        }
+    }
+
+    /** Download inline images and expose them as `data:` URIs keyed by Content-ID. */
+    private fun loadInlineImages(credentials: AccountCredentials, email: Email) {
+        val parts = email.inlineImageParts()
+        if (parts.isEmpty()) return
+        viewModelScope.launch {
+            val map = mutableMapOf<String, String>()
+            val emailId = loadedId ?: return@launch
+            for (part in parts) {
+                val cid = part.cid?.trim()?.trim('<', '>')?.takeIf { it.isNotEmpty() } ?: continue
+                runCatching {
+                    val bytes = repo.downloadAttachment(credentials, part, emailId)
+                    val base64 = withContext(Dispatchers.IO) {
+                        android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    }
+                    map[cid] = "data:${part.type ?: "image/jpeg"};base64,$base64"
+                }
+            }
+            if (map.isNotEmpty()) _inlineImages.value = map.toMap()
+        }
+    }
+
+    /** Download an attachment to the cache and hand it to a viewer app. */
+    fun openAttachment(part: EmailBodyPart) {
+        val emailId = loadedId ?: return
+        val app = getApplication<Application>()
+        _attachmentStatus.value = "Opening ${part.name ?: "attachment"}…"
+        viewModelScope.launch {
+            try {
+                val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
+                val bytes = repo.downloadAttachment(credentials, part, emailId)
+                val file = storage.cacheAttachment(part.name, bytes)
+                val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
+                val view = Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, part.type ?: "*/*")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                app.startActivity(
+                    Intent.createChooser(view, app.getString(R.string.status_open_attachment)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+                _attachmentStatus.value = null
+            } catch (t: Throwable) {
+                _attachmentStatus.value =
+                    app.getString(R.string.status_open_attachment_failed, t.message ?: "error")
+            }
+        }
+    }
+
+    fun toggleFlag() {
+        val current = (_state.value as? MessageState.Loaded)?.email ?: return
+        val flagged = !current.isFlagged
+        // Optimistic local update.
+        _state.value = MessageState.Loaded(
+            current.copy(
+                keywords = current.keywords.toMutableMap().apply {
+                    if (flagged) put("\$flagged", true) else remove("\$flagged")
+                },
+            ),
+        )
+        viewModelScope.launch {
+            val credentials = credentials() ?: return@launch
+            runCatching { repo.setFlagged(credentials, current.id, flagged) }
+        }
+    }
+
+    fun markUnread(onDone: () -> Unit) = act(onDone) { c, id -> repo.setRead(c, id, false) }
+    fun archive(onDone: () -> Unit) = act(onDone) { c, id -> repo.archive(c, id) }
+    fun delete(onDone: () -> Unit) = act(onDone) { c, id -> repo.delete(c, id) }
+    fun reportSpam(onDone: () -> Unit) = act(onDone) { c, id -> repo.reportSpam(c, id) }
+    fun notSpam(onDone: () -> Unit) = act(onDone) { c, id -> repo.notSpam(c, id) }
+
+    /** Snooze the open message until [until]: hide it now, re-surface (and notify) at that time. */
+    fun snooze(until: Long, onDone: () -> Unit) {
+        val email = (_state.value as? MessageState.Loaded)?.email ?: return
+        viewModelScope.launch {
+            val credentials = credentials() ?: return@launch
+            runCatching {
+                repo.snooze(email.id, credentials.id, until)
+                Snoozes.enqueue(getApplication(), email.id, credentials.id, until)
+            }
+            onDone()
+        }
+    }
+
+    private fun act(onDone: () -> Unit, op: suspend (AccountCredentials, String) -> Unit) {
+        val id = loadedId ?: return
+        viewModelScope.launch {
+            try {
+                val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
+                op(credentials, id)
+                onDone()
+            } catch (t: Throwable) {
+                _state.value = MessageState.Error(t.message ?: t.javaClass.simpleName)
+            }
+        }
+    }
+}

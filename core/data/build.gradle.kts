@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "app.jmail.core.data"
+    namespace = "app.sterna.core.data"
     compileSdk = 36
 
     defaultConfig {

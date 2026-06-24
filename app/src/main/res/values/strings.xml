@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Jmail</string>
+    <string name="app_name">Sterna Mail</string>
 
     <!-- Compose -->
     <string name="compose_title_new">New message</string>
@@ -56,7 +56,7 @@
     <string name="inbox_undo">Undo</string>
     <string name="inbox_message_sent">Message sent</string>
     <string name="inbox_send_failed">Couldn\'t send: %1$s</string>
-    <string name="inbox_app_name">Jmail</string>
+    <string name="inbox_app_name">Sterna Mail</string>
     <string name="inbox_switch_to_account">Switch to %1$s</string>
     <string name="inbox_all_inboxes">All inboxes</string>
     <string name="inbox_all_inboxes_unread">All inboxes  (%1$d)</string>
@@ -266,7 +266,7 @@
     <string name="settings_filters_add">Add rule</string>
     <string name="settings_filters_saved">Filters saved</string>
     <string name="settings_filters_untitled">Untitled rule</string>
-    <string name="settings_filters_foreign_warning">Another filter script is active on the server; saving will make Jmail\'s the active one.</string>
+    <string name="settings_filters_foreign_warning">Another filter script is active on the server; saving will make Sterna Mail\'s the active one.</string>
     <string name="settings_filters_edit_title">Edit rule</string>
     <string name="settings_filter_name">Rule name</string>
     <string name="settings_filter_if">If</string>
@@ -289,7 +289,7 @@
     <string name="settings_privacy_screen_title">Privacy &amp; Security</string>
     <string name="settings_security_section">Security</string>
     <string name="settings_app_lock_title">App lock</string>
-    <string name="settings_app_lock_subtitle">Require your fingerprint, face, or screen PIN to open Jmail.</string>
+    <string name="settings_app_lock_subtitle">Require your fingerprint, face, or screen PIN to open Sterna Mail.</string>
     <string name="settings_app_lock_unavailable">Set up a fingerprint, face unlock, or screen lock in your device settings first.</string>
     <string name="settings_image_allowlist_section">Remote images</string>
     <string name="settings_image_allowlist_count">Senders set to always show images: %1$d</string>
@@ -305,7 +305,7 @@
     <string name="settings_confirm_links_subtitle">Show the destination and ask before opening a link from a message.</string>
     <string name="settings_recipient_suggestions_section">Recipient suggestions</string>
     <string name="settings_suggest_contacts_title">Suggest from contacts</string>
-    <string name="settings_suggest_contacts_subtitle">Autocomplete recipients from this device\'s contacts while you type. Jmail reads them on-device only, never uploads them. When off, it still suggests people you\'ve recently emailed.</string>
+    <string name="settings_suggest_contacts_subtitle">Autocomplete recipients from this device\'s contacts while you type. Sterna Mail reads them on-device only, never uploads them. When off, it still suggests people you\'ve recently emailed.</string>
     <string name="settings_storage_screen_title">Storage</string>
     <string name="settings_on_device_usage_section">On-device usage</string>
     <string name="settings_storage_total">Total</string>
@@ -372,21 +372,21 @@
     <string name="settings_test_failed">Couldn\'t connect: %1$s</string>
     <string name="settings_sign_out">Sign out</string>
     <string name="settings_sign_out_title">Sign out of this account?</string>
-    <string name="settings_sign_out_message">This account will be removed from Jmail and its downloaded mail cleared from this device.</string>
+    <string name="settings_sign_out_message">This account will be removed from Sterna Mail and its downloaded mail cleared from this device.</string>
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">None</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Add account</string>
-    <string name="connect_welcome_title">Welcome to Jmail</string>
+    <string name="connect_welcome_title">Welcome to Sterna Mail</string>
     <string name="connect_welcome_subtitle">A private, standards-based email app. Add your account to get started.</string>
     <string name="connect_protocol">Protocol</string>
     <string name="connect_jmap">JMAP</string>
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">JMAP server</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Just enter your email and password — Jmail will find your server automatically.</string>
+    <string name="connect_jmap_autodiscover_hint">Just enter your email and password — Sterna Mail will find your server automatically.</string>
     <string name="connect_advanced_show">Advanced settings</string>
     <string name="connect_advanced_hide">Hide advanced settings</string>
     <string name="connect_discovering">Finding your server…</string>
@@ -437,10 +437,10 @@
     <string name="search_button">Search</string>
 
     <!-- App lock -->
-    <string name="lock_title">Jmail is locked</string>
+    <string name="lock_title">Sterna Mail is locked</string>
     <string name="lock_subtitle">Unlock to read your mail.</string>
     <string name="lock_unlock">Unlock</string>
-    <string name="lock_prompt_title">Unlock Jmail</string>
+    <string name="lock_prompt_title">Unlock Sterna Mail</string>
     <string name="lock_prompt_subtitle">Verify it\'s you</string>
 
     <!-- ViewModel status / errors -->

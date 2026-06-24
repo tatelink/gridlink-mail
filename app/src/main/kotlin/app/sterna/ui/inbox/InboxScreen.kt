@@ -1,0 +1,1023 @@
+package app.sterna.ui.inbox
+
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
+import androidx.compose.foundation.shape.CircleShape
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.MailOutline
+import androidx.compose.material.icons.filled.MarkEmailUnread
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.DrawerValue
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import app.sterna.core.data.settings.SortOrder
+import app.sterna.core.data.settings.SwipeAction
+import app.sterna.core.data.mail.InboxRow
+import app.sterna.core.jmap.model.Email
+import app.sterna.core.jmap.model.Mailbox
+import app.sterna.R
+import app.sterna.ui.components.EmailListItem
+import app.sterna.ui.components.Monogram
+import app.sterna.ui.components.accountColorOf
+import app.sterna.ui.components.verticalScrollbar
+import kotlin.math.abs
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun InboxScreen(
+    onOpenEmail: (emailId: String, accountId: String?) -> Unit,
+    onCompose: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenSearch: () -> Unit,
+    onOpenScheduled: () -> Unit,
+    accounts: List<app.sterna.core.data.account.StoredAccount>,
+    currentAccountId: String,
+    onSwitchAccount: (String) -> Unit,
+    viewModel: InboxViewModel = viewModel(),
+) {
+    val ui by viewModel.state.collectAsStateWithLifecycle()
+    val pagedEmails = viewModel.pagedEmails.collectAsLazyPagingItems()
+    val swipe by viewModel.swipeConfig.collectAsStateWithLifecycle()
+    val selectionActive by viewModel.selectionActive.collectAsStateWithLifecycle()
+    val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
+    val selectionAllRead by viewModel.selectionAllRead.collectAsStateWithLifecycle()
+    var showMoveSheet by remember { mutableStateOf(false) }
+    var showCreateFolder by remember { mutableStateOf(false) }
+    var folderToRename by remember { mutableStateOf<Mailbox?>(null) }
+    var folderToDelete by remember { mutableStateOf<Mailbox?>(null) }
+    var folderToAddChild by remember { mutableStateOf<Mailbox?>(null) }
+    // Folder ids whose children are hidden; empty = everything expanded.
+    var collapsedFolders by remember { mutableStateOf(emptySet<String>()) }
+    val undo by viewModel.undo.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
+    val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
+    val outboxFailure by viewModel.outboxFailure.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    // Hoisted strings for snackbars shown from non-composable LaunchedEffect coroutines.
+    val undoLabel = stringResource(R.string.inbox_undo)
+    val messageSentLabel = stringResource(R.string.inbox_message_sent)
+    val context = LocalContext.current
+
+    // Surface transient action errors (e.g. "no Archive folder") in a snackbar.
+    LaunchedEffect(message) {
+        val m = message ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(m)
+        viewModel.clearMessage()
+    }
+
+    // Back exits multi-select mode first.
+    BackHandler(enabled = selectionActive) { viewModel.clearSelection() }
+
+    // Move-to-folder picker for the current selection.
+    if (showMoveSheet) {
+        val targets = ui.mailboxes.filter { it.id != ui.selectedMailboxId }
+        AlertDialog(
+            onDismissRequest = { showMoveSheet = false },
+            title = { Text(stringResource(R.string.inbox_move_to_folder)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    targets.forEach { folder ->
+                        Text(
+                            text = mailboxDisplayName(folder.role, folder.name),
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.moveSelectedTo(folder.id)
+                                    showMoveSheet = false
+                                }
+                                .padding(vertical = 12.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showMoveSheet = false }) { Text(stringResource(R.string.inbox_cancel)) } },
+        )
+    }
+
+    // Create folder.
+    if (showCreateFolder) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showCreateFolder = false },
+            title = { Text(stringResource(R.string.inbox_new_folder)) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.inbox_folder_name)) },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.createFolder(name); showCreateFolder = false },
+                    enabled = name.isNotBlank(),
+                ) { Text(stringResource(R.string.inbox_create)) }
+            },
+            dismissButton = { TextButton(onClick = { showCreateFolder = false }) { Text(stringResource(R.string.inbox_cancel)) } },
+        )
+    }
+
+    // Create a subfolder under the chosen parent.
+    folderToAddChild?.let { parent ->
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { folderToAddChild = null },
+            title = { Text(stringResource(R.string.inbox_new_subfolder_in, mailboxDisplayName(parent.role, parent.name))) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.inbox_folder_name)) },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.createFolder(name, parentId = parent.id)
+                        collapsedFolders = collapsedFolders - parent.id // reveal the new child
+                        folderToAddChild = null
+                    },
+                    enabled = name.isNotBlank(),
+                ) { Text(stringResource(R.string.inbox_create)) }
+            },
+            dismissButton = { TextButton(onClick = { folderToAddChild = null }) { Text(stringResource(R.string.inbox_cancel)) } },
+        )
+    }
+
+    // Rename folder.
+    folderToRename?.let { folder ->
+        var name by remember(folder.id) { mutableStateOf(folder.name) }
+        AlertDialog(
+            onDismissRequest = { folderToRename = null },
+            title = { Text(stringResource(R.string.inbox_rename_folder)) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.inbox_folder_name)) },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.renameFolder(folder.id, name); folderToRename = null },
+                    enabled = name.isNotBlank(),
+                ) { Text(stringResource(R.string.inbox_rename)) }
+            },
+            dismissButton = { TextButton(onClick = { folderToRename = null }) { Text(stringResource(R.string.inbox_cancel)) } },
+        )
+    }
+
+    // Delete folder.
+    folderToDelete?.let { folder ->
+        AlertDialog(
+            onDismissRequest = { folderToDelete = null },
+            title = { Text(stringResource(R.string.inbox_delete_folder_title)) },
+            text = { Text(stringResource(R.string.inbox_delete_folder_body, folder.name)) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.deleteFolder(folder.id); folderToDelete = null }) {
+                    Text(stringResource(R.string.inbox_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { folderToDelete = null }) { Text(stringResource(R.string.inbox_cancel)) } },
+        )
+    }
+
+    // Show an Undo snackbar whenever a swipe deletes/archives a message.
+    LaunchedEffect(undo) {
+        val action = undo ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = action.label,
+            actionLabel = undoLabel,
+            withDismissAction = true,
+        )
+        if (result == SnackbarResult.ActionPerformed) viewModel.undo() else viewModel.clearUndo()
+    }
+
+    // Undo-send: while a message is held in the outbox, offer an Undo. The snackbar is
+    // dismissed automatically when the hold-back elapses (pending clears → effect restarts).
+    LaunchedEffect(outboxPending) {
+        outboxPending ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = messageSentLabel,
+            actionLabel = undoLabel,
+            duration = SnackbarDuration.Indefinite,
+        )
+        if (result == SnackbarResult.ActionPerformed) viewModel.undoSend()
+    }
+    LaunchedEffect(outboxFailure) {
+        val msg = outboxFailure ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(context.getString(R.string.inbox_send_failed, msg))
+        viewModel.consumeSendFailure()
+    }
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    val fabExpanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
+
+    // Opening a different folder should always start at the top of that folder's list,
+    // not wherever the previous folder was scrolled (e.g. so a just-archived mail is visible).
+    LaunchedEffect(ui.selectedMailboxId, ui.unified) { listState.scrollToItem(0) }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
+                val currentAccount = accounts.firstOrNull { it.id == currentAccountId }
+                val currentLabel = currentAccount?.label()
+                    ?: ui.accountName.ifBlank { stringResource(R.string.inbox_app_name) }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.padding(16.dp),
+                ) {
+                    Monogram(seed = currentLabel, label = currentLabel, color = accountColorOf(currentAccount?.color))
+                    Text(
+                        text = currentLabel,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                accounts.filter { it.id != currentAccountId }.forEach { account ->
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Filled.Person, contentDescription = null) },
+                        label = {
+                            Text(stringResource(R.string.inbox_switch_to_account, account.label()), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        },
+                        selected = false,
+                        onClick = {
+                            onSwitchAccount(account.id)
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                }
+                HorizontalDivider()
+                if (accounts.size > 1) {
+                    val unifiedLabel = if (ui.unified && ui.unreadCount > 0) {
+                        stringResource(R.string.inbox_all_inboxes_unread, ui.unreadCount)
+                    } else {
+                        stringResource(R.string.inbox_all_inboxes)
+                    }
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Filled.MailOutline, contentDescription = null) },
+                        label = { Text(unifiedLabel) },
+                        selected = ui.unified,
+                        onClick = {
+                            viewModel.selectUnified()
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                }
+                mailboxTree(ui.mailboxes, collapsedFolders).forEach { node ->
+                    val mailbox = node.mailbox
+                    val displayName = mailboxDisplayName(mailbox.role, mailbox.name)
+                    val label = if (mailbox.unreadEmails > 0) {
+                        stringResource(R.string.inbox_folder_unread, displayName, mailbox.unreadEmails)
+                    } else {
+                        displayName
+                    }
+                    val collapsed = mailbox.id in collapsedFolders
+                    NavigationDrawerItem(
+                        icon = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Indent children; a chevron toggles collapse for parents.
+                                Spacer(Modifier.width((node.depth * 16).dp))
+                                if (node.hasChildren) {
+                                    Icon(
+                                        if (collapsed) Icons.Filled.ChevronRight else Icons.Filled.ExpandMore,
+                                        contentDescription = stringResource(
+                                            if (collapsed) R.string.inbox_folder_expand else R.string.inbox_folder_collapse,
+                                        ),
+                                        modifier = Modifier.clickable {
+                                            collapsedFolders = if (collapsed) {
+                                                collapsedFolders - mailbox.id
+                                            } else {
+                                                collapsedFolders + mailbox.id
+                                            }
+                                        },
+                                    )
+                                } else {
+                                    Spacer(Modifier.width(24.dp))
+                                }
+                                Icon(folderIcon(mailbox.role), contentDescription = null)
+                            }
+                        },
+                        label = { Text(label) },
+                        // Only user-created folders (no special-use role) can be managed.
+                        badge = if (mailbox.role == null) {
+                            {
+                                Box {
+                                    var folderMenu by remember { mutableStateOf(false) }
+                                    IconButton(onClick = { folderMenu = true }) {
+                                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_folder_options))
+                                    }
+                                    DropdownMenu(folderMenu, onDismissRequest = { folderMenu = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.inbox_new_subfolder)) },
+                                            onClick = { folderMenu = false; folderToAddChild = mailbox },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.inbox_rename)) },
+                                            onClick = { folderMenu = false; folderToRename = mailbox },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.inbox_delete)) },
+                                            onClick = { folderMenu = false; folderToDelete = mailbox },
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            null
+                        },
+                        selected = mailbox.id == ui.selectedMailboxId,
+                        onClick = {
+                            viewModel.select(mailbox)
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                }
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Filled.CreateNewFolder, contentDescription = null) },
+                    label = { Text(stringResource(R.string.inbox_new_folder)) },
+                    selected = false,
+                    onClick = { showCreateFolder = true },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+                HorizontalDivider()
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                    label = { Text(stringResource(R.string.inbox_settings)) },
+                    selected = false,
+                    onClick = {
+                        onOpenSettings()
+                        scope.launch { drawerState.close() }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+            }
+        },
+    ) {
+        Scaffold(
+            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            topBar = {
+                if (selectionActive) {
+                    TopAppBar(
+                        navigationIcon = {
+                            IconButton(onClick = { viewModel.clearSelection() }) {
+                                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.inbox_cancel_selection))
+                            }
+                        },
+                        title = { Text(stringResource(R.string.inbox_selected_count, selectedIds.size)) },
+                        actions = {
+                            // Toggle read/unread, keeping the selection (only the state changes).
+                            IconButton(onClick = { viewModel.toggleSelectedRead() }) {
+                                Icon(
+                                    if (selectionAllRead) Icons.Filled.MarkEmailUnread else Icons.Filled.DoneAll,
+                                    contentDescription = stringResource(if (selectionAllRead) R.string.inbox_mark_unread else R.string.inbox_mark_read),
+                                )
+                            }
+                            val currentRole = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
+                            if (currentRole == "archive") {
+                                val inboxId = ui.mailboxes.firstOrNull { it.role == "inbox" }?.id
+                                IconButton(
+                                    onClick = { inboxId?.let { viewModel.moveSelectedTo(it) } },
+                                    enabled = inboxId != null,
+                                ) {
+                                    Icon(Icons.Filled.Unarchive, contentDescription = stringResource(R.string.inbox_unarchive))
+                                }
+                            } else {
+                                IconButton(onClick = { viewModel.archiveSelected() }) {
+                                    Icon(Icons.Filled.Archive, contentDescription = stringResource(R.string.inbox_archive))
+                                }
+                            }
+                            IconButton(onClick = { showMoveSheet = true }) {
+                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = stringResource(R.string.inbox_move_to_folder))
+                            }
+                            IconButton(onClick = { viewModel.deleteSelected() }) {
+                                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.inbox_delete))
+                            }
+                        },
+                    )
+                } else if (ui.searching) {
+                    val focusRequester = remember { FocusRequester() }
+                    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+                    TopAppBar(
+                        navigationIcon = {
+                            IconButton(onClick = { viewModel.setSearchActive(false) }) {
+                                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.inbox_close_search))
+                            }
+                        },
+                        title = {
+                            val searchRole = ui.mailboxes
+                                .firstOrNull { it.id == ui.selectedMailboxId }?.role
+                            val scopeLabel = if (ui.unified) {
+                                stringResource(R.string.inbox_all_inboxes)
+                            } else {
+                                mailboxDisplayName(searchRole, ui.mailboxName)
+                            }
+                            TextField(
+                                value = ui.searchQuery,
+                                onValueChange = viewModel::setSearchQuery,
+                                placeholder = { Text(stringResource(R.string.inbox_search_in, scopeLabel)) },
+                                singleLine = true,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                ),
+                                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                            )
+                        },
+                        actions = {
+                            if (ui.searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.inbox_clear))
+                                }
+                            }
+                            IconButton(onClick = onOpenSearch) {
+                                Icon(Icons.Filled.Tune, contentDescription = stringResource(R.string.search_advanced_toggle))
+                            }
+                        },
+                    )
+                } else {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                // Localize the title for standard folders; the unified view
+                                // (no selected id) keeps its already-resolved label.
+                                val selectedRole = ui.mailboxes
+                                    .firstOrNull { it.id == ui.selectedMailboxId }?.role
+                                Text(
+                                    mailboxDisplayName(selectedRole, ui.mailboxName),
+                                    style = MaterialTheme.typography.titleLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (!ui.unified && ui.accountName.isNotBlank()) {
+                                    Text(
+                                        ui.accountName,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Filled.Menu, contentDescription = stringResource(R.string.inbox_menu))
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { viewModel.toggleUnreadOnly() }) {
+                                Icon(
+                                    Icons.Filled.FilterList,
+                                    contentDescription = stringResource(R.string.inbox_unread_only),
+                                    tint = if (ui.unreadOnly) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                                )
+                            }
+                            var sortOpen by remember { mutableStateOf(false) }
+                            IconButton(onClick = { sortOpen = true }) {
+                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.inbox_sort))
+                            }
+                            DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
+                                SortOrder.entries.forEach { order ->
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(sortLabel(order))) },
+                                        leadingIcon = {
+                                            if (order == ui.sortOrder) Icon(Icons.Filled.Check, contentDescription = null)
+                                        },
+                                        onClick = { viewModel.setSortOrder(order); sortOpen = false },
+                                    )
+                                }
+                            }
+                            IconButton(onClick = { viewModel.setSearchActive(true) }) {
+                                Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.inbox_search))
+                            }
+                            var overflowOpen by remember { mutableStateOf(false) }
+                            IconButton(onClick = { overflowOpen = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
+                            }
+                            DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.inbox_select_all)) },
+                                    leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
+                                    onClick = { viewModel.selectAll(); overflowOpen = false },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.inbox_mark_all_read)) },
+                                    leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
+                                    onClick = { viewModel.markAllRead(); overflowOpen = false },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.inbox_scheduled)) },
+                                    leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                                    onClick = { overflowOpen = false; onOpenScheduled() },
+                                )
+                            }
+                        },
+                        scrollBehavior = scrollBehavior,
+                    )
+                }
+            },
+            floatingActionButton = {
+                ExtendedFloatingActionButton(
+                    text = { Text(stringResource(R.string.inbox_compose)) },
+                    icon = { Icon(Icons.Filled.Create, contentDescription = null) },
+                    expanded = fabExpanded,
+                    onClick = onCompose,
+                )
+            },
+        ) { padding ->
+            // One row renderer, shared by the search list and the paged browse list.
+            // Takes the row modifier so the caller can pass `animateItem()` from its
+            // own LazyItemScope.
+            val emailRow: @Composable (InboxRow, Modifier) -> Unit = { row, rowModifier ->
+                val email = row.email
+                val ownerAccount = if (ui.unified) accounts.firstOrNull { it.id == email.accountId } else null
+                SwipeableEmailRow(
+                    email = email,
+                    accountLabel = ownerAccount?.label(),
+                    accountColor = accountColorOf(ownerAccount?.color),
+                    rightAction = swipe.right,
+                    leftAction = swipe.left,
+                    onSwipe = { action -> performSwipe(action, email, viewModel) },
+                    onClick = {
+                        if (selectionActive) viewModel.toggleSelect(email.id)
+                        else onOpenEmail(email.id, email.accountId)
+                    },
+                    onLongClick = { viewModel.enterSelection(email.id) },
+                    onToggleFavourite = {
+                        val favouriting = !email.isFlagged
+                        viewModel.toggleFlag(email)
+                        // Favourites pin to the top — scroll there so it's visibly landing.
+                        if (favouriting) scope.launch { listState.animateScrollToItem(0) }
+                    },
+                    selected = email.id in selectedIds,
+                    gesturesEnabled = !selectionActive,
+                    unread = row.unread,
+                    threadCount = row.threadCount,
+                    modifier = rowModifier,
+                )
+                HorizontalDivider()
+            }
+
+            PullToRefreshBox(
+                isRefreshing = ui.refreshing,
+                onRefresh = viewModel::refresh,
+                modifier = Modifier.fillMaxSize().padding(padding),
+            ) {
+                val searchActive = ui.searching && ui.searchQuery.isNotBlank()
+                val refreshLoading = pagedEmails.loadState.refresh is LoadState.Loading
+                when {
+                    searchActive -> when {
+                        ui.searchResults.isNotEmpty() ->
+                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                                items(ui.searchResults, key = { it.id }) { email ->
+                                    emailRow(InboxRow(email, threadCount = 1, unread = !email.isSeen), Modifier.animateItem())
+                                }
+                            }
+                        ui.searchLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                        else -> Text(stringResource(R.string.inbox_no_results), Modifier.align(Alignment.Center))
+                    }
+                    pagedEmails.itemCount > 0 ->
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize()
+                                .verticalScrollbar(listState, pagedEmails.itemCount),
+                        ) {
+                            items(
+                                count = pagedEmails.itemCount,
+                                key = pagedEmails.itemKey { it.email.id },
+                            ) { index ->
+                                // animateItem keeps each row identified across Paging snapshot
+                                // swaps so a read/unread toggle re-binds in place instead of
+                                // blinking. Placement-only (no fade) so loading a new page of
+                                // rows doesn't stutter the scroll.
+                                pagedEmails[index]?.let { row ->
+                                    emailRow(row, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null))
+                                }
+                            }
+                            // Footer: server fetch-on-scroll (RemoteMediator) progress/errors.
+                            when (pagedEmails.loadState.append) {
+                                is LoadState.Loading -> item(key = "append-loading") {
+                                    Box(
+                                        Modifier.fillMaxWidth().padding(16.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        CircularProgressIndicator(
+                                            Modifier.size(28.dp),
+                                            strokeWidth = 2.dp,
+                                        )
+                                    }
+                                }
+                                is LoadState.Error -> item(key = "append-error") {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(16.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            stringResource(R.string.inbox_load_more_failed),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Spacer(Modifier.width(12.dp))
+                                        Button(onClick = { pagedEmails.retry() }) { Text(stringResource(R.string.inbox_retry)) }
+                                    }
+                                }
+                                else -> Unit
+                            }
+                        }
+                    ui.refreshing || refreshLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    ui.error != null -> Column(
+                        modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(stringResource(R.string.inbox_load_failed, ui.error ?: ""), color = MaterialTheme.colorScheme.error)
+                        Button(onClick = viewModel::refresh) { Text(stringResource(R.string.inbox_retry)) }
+                    }
+                    else -> Column(
+                        modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.MailOutline,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            stringResource(R.string.inbox_no_messages),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            stringResource(R.string.inbox_empty_subtitle),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Button(onClick = onCompose) {
+                            Icon(Icons.Filled.Create, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.inbox_compose))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeableEmailRow(
+    email: Email,
+    accountLabel: String?,
+    accountColor: Color?,
+    rightAction: SwipeAction,
+    leftAction: SwipeAction,
+    onSwipe: (SwipeAction) -> Unit,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onToggleFavourite: () -> Unit,
+    selected: Boolean,
+    gesturesEnabled: Boolean,
+    unread: Boolean,
+    threadCount: Int,
+    modifier: Modifier = Modifier,
+) {
+    val offsetX = remember { Animatable(0f) }
+    var rowWidth by remember { mutableIntStateOf(0) }
+
+    Box(
+        modifier = modifier
+            .onSizeChanged { rowWidth = it.width }
+            .pointerInput(gesturesEnabled, rightAction, leftAction) {
+                if (!gesturesEnabled) return@pointerInput
+                val slop = viewConfiguration.touchSlop
+                val minOffset = if (leftAction == SwipeAction.NONE) 0f else -rowWidth.toFloat()
+                val maxOffset = if (rightAction == SwipeAction.NONE) 0f else rowWidth.toFloat()
+                coroutineScope {
+                    while (true) {
+                        val pointerId = awaitPointerEventScope {
+                            awaitFirstDown(requireUnconsumed = false).id
+                        }
+                        // Direction-lock: only treat this as a swipe once it is clearly
+                        // more horizontal than vertical, otherwise leave the gesture to
+                        // the list's vertical scroll. This stops accidental swipes when
+                        // the finger drifts sideways during a scroll.
+                        val horizontal = awaitPointerEventScope {
+                            var dx = 0f
+                            var dy = 0f
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == pointerId }
+                                if (change == null || !change.pressed) return@awaitPointerEventScope false
+                                dx += change.positionChange().x
+                                dy += change.positionChange().y
+                                if (abs(dy) > slop && abs(dy) >= abs(dx)) {
+                                    return@awaitPointerEventScope false
+                                }
+                                if (abs(dx) > slop * SWIPE_SLOP_FACTOR && abs(dx) > abs(dy)) {
+                                    change.consume()
+                                    return@awaitPointerEventScope true
+                                }
+                            }
+                            @Suppress("UNREACHABLE_CODE") false
+                        }
+                        if (!horizontal) continue
+
+                        offsetX.stop()
+                        awaitPointerEventScope {
+                            horizontalDrag(pointerId) { change ->
+                                val target = (offsetX.value + change.positionChange().x)
+                                    .coerceIn(minOffset, maxOffset)
+                                launch { offsetX.snapTo(target) }
+                                change.consume()
+                            }
+                        }
+
+                        val width = rowWidth.toFloat().coerceAtLeast(1f)
+                        val fraction = offsetX.value / width
+                        when {
+                            fraction >= SWIPE_COMMIT_FRACTION && rightAction != SwipeAction.NONE -> {
+                                onSwipe(rightAction)
+                                launch {
+                                    offsetX.animateTo(if (dismissesRow(rightAction)) width else 0f)
+                                }
+                            }
+                            -fraction >= SWIPE_COMMIT_FRACTION && leftAction != SwipeAction.NONE -> {
+                                onSwipe(leftAction)
+                                launch {
+                                    offsetX.animateTo(if (dismissesRow(leftAction)) -width else 0f)
+                                }
+                            }
+                            else -> launch { offsetX.animateTo(0f) }
+                        }
+                    }
+                }
+            },
+    ) {
+        val draggingRight = offsetX.value > 0f
+        val action = if (draggingRight) rightAction else leftAction
+        if (offsetX.value != 0f && action != SwipeAction.NONE) {
+            val destructive = action == SwipeAction.DELETE
+            val color = if (destructive) MaterialTheme.colorScheme.errorContainer
+            else MaterialTheme.colorScheme.secondaryContainer
+            val onColor = if (destructive) MaterialTheme.colorScheme.onErrorContainer
+            else MaterialTheme.colorScheme.onSecondaryContainer
+            Box(
+                Modifier.matchParentSize().background(color).padding(horizontal = 24.dp),
+                contentAlignment = if (draggingRight) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
+                val labelRes = swipeActionLabel(action, email)
+                if (labelRes != 0) {
+                    Text(stringResource(labelRes), color = onColor, style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+        Box(
+            // graphicsLayer (draw phase) instead of offset (layout phase): the swipe
+            // translation is GPU-cheap and the row is cached as a layer, which keeps
+            // scrolling smoother. offsetX is read here, not in composition.
+            modifier = Modifier.graphicsLayer { translationX = offsetX.value },
+        ) {
+            EmailListItem(
+                email = email,
+                onClick = onClick,
+                accountLabel = accountLabel,
+                accountColor = accountColor,
+                onToggleFavourite = onToggleFavourite,
+                selected = selected,
+                onLongClick = onLongClick,
+                unread = unread,
+                threadCount = threadCount,
+            )
+        }
+    }
+}
+
+/** Horizontal travel must exceed touch-slop × this before a swipe locks in. */
+private const val SWIPE_SLOP_FACTOR = 1.5f
+
+/** Fraction of the row width a swipe must reach to commit its action. */
+private const val SWIPE_COMMIT_FRACTION = 0.4f
+
+/** Whether a swipe action removes the row from the list (vs. snapping back). */
+private fun dismissesRow(action: SwipeAction): Boolean =
+    action == SwipeAction.DELETE || action == SwipeAction.ARCHIVE
+
+/** The string resource shown on the swipe background for [action] on [email] (0 = none). */
+private fun swipeActionLabel(action: SwipeAction, email: Email): Int = when (action) {
+    SwipeAction.NONE -> 0
+    SwipeAction.TOGGLE_READ -> if (email.isSeen) R.string.inbox_mark_unread else R.string.inbox_mark_read
+    SwipeAction.DELETE -> R.string.inbox_delete
+    SwipeAction.ARCHIVE -> R.string.inbox_archive
+    SwipeAction.FLAG -> if (email.isFlagged) R.string.inbox_unflag else R.string.inbox_flag
+}
+
+/** Dispatch a configured swipe action to the view model for [email]. */
+private fun performSwipe(action: SwipeAction, email: Email, viewModel: InboxViewModel) {
+    when (action) {
+        SwipeAction.NONE -> Unit
+        SwipeAction.TOGGLE_READ -> viewModel.toggleRead(email)
+        SwipeAction.DELETE -> viewModel.delete(email)
+        SwipeAction.ARCHIVE -> viewModel.archive(email)
+        SwipeAction.FLAG -> viewModel.toggleFlag(email)
+    }
+}
+
+/** String resource for a sort option label in the sort menu. */
+private fun sortLabel(order: SortOrder): Int = when (order) {
+    SortOrder.DATE_DESC -> R.string.inbox_sort_newest_first
+    SortOrder.DATE_ASC -> R.string.inbox_sort_oldest_first
+    SortOrder.SUBJECT -> R.string.inbox_sort_subject
+    SortOrder.SENDER -> R.string.inbox_sort_sender
+    SortOrder.UNREAD_FIRST -> R.string.inbox_sort_unread_first
+}
+
+/** One folder in the drawer tree: the mailbox, its [depth], and whether it has children. */
+private data class MailboxNode(val mailbox: Mailbox, val depth: Int, val hasChildren: Boolean)
+
+/**
+ * Flatten mailboxes into a depth-first tree. Nesting comes from the JMAP `parentId`
+ * or, for IMAP, the path delimiter in the id; a child whose parent isn't present
+ * falls back to top level. Ids in [collapsed] hide their descendants. The incoming
+ * order is preserved within each level.
+ */
+private fun mailboxTree(mailboxes: List<Mailbox>, collapsed: Set<String>): List<MailboxNode> {
+    val byId = mailboxes.associateBy { it.id }
+    fun parentOf(m: Mailbox): String? {
+        if (m.parentId != null && byId.containsKey(m.parentId)) return m.parentId
+        val delim = when {
+            m.id.contains('/') -> "/"
+            m.id.contains('.') -> "."
+            else -> return null
+        }
+        val parent = m.id.substringBeforeLast(delim, "")
+        return if (parent.isNotEmpty() && byId.containsKey(parent)) parent else null
+    }
+    val childrenOf = mailboxes.groupBy { parentOf(it) }
+    val result = mutableListOf<MailboxNode>()
+    val visited = mutableSetOf<String>()
+    fun visit(parent: String?, depth: Int) {
+        childrenOf[parent].orEmpty().forEach { m ->
+            if (!visited.add(m.id)) return@forEach // guard against pathological cycles
+            result += MailboxNode(m, depth, !childrenOf[m.id].isNullOrEmpty())
+            if (m.id !in collapsed) visit(m.id, depth + 1)
+        }
+    }
+    visit(null, 0)
+    return result
+}
+
+/** A leading icon for a folder, chosen by its JMAP role (falls back to a generic list icon). */
+private fun folderIcon(role: String?): ImageVector = when (role) {
+    "inbox" -> Icons.Filled.Email
+    "drafts" -> Icons.Filled.Create
+    "sent" -> Icons.AutoMirrored.Filled.Send
+    "trash" -> Icons.Filled.Delete
+    "junk" -> Icons.Filled.Warning
+    else -> Icons.AutoMirrored.Filled.List
+}
+
+/**
+ * The name to show for a folder. Standard folders — those the server tags with an
+ * RFC 8621 / IMAP special-use [role] — get a localized canonical label, so
+ * server-specific spellings like "Sent Items", "Junk Mail" or "Deleted Items"
+ * read consistently in the app's language. Folders the user created on their own
+ * server (role == null, or an unrecognised role) keep their raw [name] untouched.
+ */
+@Composable
+fun mailboxDisplayName(role: String?, name: String): String = when (role) {
+    "inbox" -> stringResource(R.string.folder_inbox)
+    "archive" -> stringResource(R.string.folder_archive)
+    "drafts" -> stringResource(R.string.folder_drafts)
+    "sent" -> stringResource(R.string.folder_sent)
+    "junk" -> stringResource(R.string.folder_junk)
+    "trash" -> stringResource(R.string.folder_trash)
+    "all" -> stringResource(R.string.folder_all)
+    "flagged" -> stringResource(R.string.folder_flagged)
+    "important" -> stringResource(R.string.folder_important)
+    else -> name
+}
