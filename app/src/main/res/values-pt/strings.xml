@@ -470,4 +470,15 @@
     <string name="settings_theme_sterna_caption">Paleta Sterna: Arctic (claro) · Pelagic (escuro).</string>
     <string name="settings_dynamic_color_title">Cores Material You</string>
     <string name="settings_dynamic_color_subtitle">Usar as cores do seu papel de parede em vez da paleta da Sterna (Android 12+).</string>
+
+    <!-- Empty states -->
+    <string name="empty_inbox_title">Tudo em dia</string>
+    <string name="empty_inbox_body">Nada em voo. As novas mensagens pousam aqui.</string>
+    <string name="empty_folder_title">Ainda não há nada aqui</string>
+    <string name="empty_folder_body">Esta pasta está vazia.</string>
+    <string name="empty_trash_title">O lixo está vazio</string>
+    <string name="empty_trash_body">As mensagens apagadas esperam aqui antes de partirem de vez.</string>
+    <string name="empty_offline_title">Não foi possível alcançar o seu correio</string>
+    <string name="empty_offline_body">Parece que está offline. Vamos sincronizar assim que voltar.</string>
+    <string name="empty_search_body">Nada corresponde. Tente outras palavras.</string>
 </resources>

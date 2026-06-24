@@ -468,4 +468,13 @@
     <string name="settings_theme_sterna_caption">Palette Sterna: Arctic (chiaro) · Pelagic (scuro).</string>
     <string name="settings_dynamic_color_title">Colori Material You</string>
     <string name="settings_dynamic_color_subtitle">Usa i colori dello sfondo invece della palette di Sterna (Android 12+).</string>
+    <string name="empty_inbox_title">Tutto in ordine</string>
+    <string name="empty_inbox_body">Nulla in volo. La nuova posta atterrerà qui.</string>
+    <string name="empty_folder_title">Ancora niente qui</string>
+    <string name="empty_folder_body">Questa cartella è vuota.</string>
+    <string name="empty_trash_title">Il cestino è vuoto</string>
+    <string name="empty_trash_body">La posta eliminata sosta qui prima di sparire per sempre.</string>
+    <string name="empty_offline_title">Impossibile raggiungere la posta</string>
+    <string name="empty_offline_body">Sembri offline. Sincronizzeremo non appena torni online.</string>
+    <string name="empty_search_body">Nessun risultato. Prova con parole diverse.</string>
 </resources>

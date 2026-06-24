@@ -119,6 +119,8 @@ import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.Mailbox
 import app.sterna.R
 import app.sterna.ui.components.EmailListItem
+import app.sterna.ui.components.EmptyArt
+import app.sterna.ui.components.EmptyState
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.components.accountColorOf
 import app.sterna.ui.components.verticalScrollbar
@@ -696,7 +698,12 @@ fun InboxScreen(
                                 }
                             }
                         ui.searchLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                        else -> Text(stringResource(R.string.inbox_no_results), Modifier.align(Alignment.Center))
+                        else -> EmptyState(
+                            art = EmptyArt.SEARCH,
+                            title = stringResource(R.string.inbox_no_results),
+                            body = stringResource(R.string.empty_search_body),
+                            modifier = Modifier.align(Alignment.Center),
+                        )
                     }
                     pagedEmails.itemCount > 0 ->
                         LazyColumn(
@@ -747,40 +754,51 @@ fun InboxScreen(
                             }
                         }
                     ui.refreshing || refreshLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                    ui.error != null -> Column(
-                        modifier = Modifier.align(Alignment.Center).padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(stringResource(R.string.inbox_load_failed, ui.error ?: ""), color = MaterialTheme.colorScheme.error)
-                        Button(onClick = viewModel::refresh) { Text(stringResource(R.string.inbox_retry)) }
-                    }
-                    else -> Column(
-                        modifier = Modifier.align(Alignment.Center).padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.MailOutline,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            stringResource(R.string.inbox_no_messages),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            stringResource(R.string.inbox_empty_subtitle),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                        Button(onClick = onCompose) {
-                            Icon(Icons.Filled.Create, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text(stringResource(R.string.inbox_compose))
+                    ui.error != null -> EmptyState(
+                        art = EmptyArt.OFFLINE,
+                        title = stringResource(R.string.empty_offline_title),
+                        body = stringResource(R.string.empty_offline_body),
+                        modifier = Modifier.align(Alignment.Center),
+                        action = {
+                            Button(onClick = viewModel::refresh) { Text(stringResource(R.string.inbox_retry)) }
+                        },
+                    )
+                    else -> {
+                        // Pick the scene + voice by what's empty: the inbox (hero),
+                        // the trash, or any other folder.
+                        val role = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
+                        val art = when {
+                            ui.unified || ui.selectedMailboxId == null || role == "inbox" -> EmptyArt.INBOX_ZERO
+                            role == "trash" -> EmptyArt.TRASH
+                            else -> EmptyArt.FOLDER
                         }
+                        val titleRes = when (art) {
+                            EmptyArt.TRASH -> R.string.empty_trash_title
+                            EmptyArt.FOLDER -> R.string.empty_folder_title
+                            else -> R.string.empty_inbox_title
+                        }
+                        val bodyRes = when (art) {
+                            EmptyArt.TRASH -> R.string.empty_trash_body
+                            EmptyArt.FOLDER -> R.string.empty_folder_body
+                            else -> R.string.empty_inbox_body
+                        }
+                        EmptyState(
+                            art = art,
+                            title = stringResource(titleRes),
+                            body = stringResource(bodyRes),
+                            modifier = Modifier.align(Alignment.Center),
+                            action = if (art == EmptyArt.INBOX_ZERO) {
+                                {
+                                    Button(onClick = onCompose) {
+                                        Icon(Icons.Filled.Create, contentDescription = null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(stringResource(R.string.inbox_compose))
+                                    }
+                                }
+                            } else {
+                                null
+                            },
+                        )
                     }
                 }
             }

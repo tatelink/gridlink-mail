@@ -48,6 +48,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sterna.R
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.ui.components.EmailListItem
+import app.sterna.ui.components.EmptyArt
+import app.sterna.ui.components.EmptyState
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -166,11 +168,12 @@ fun SearchScreen(
                         modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     )
                     is SearchState.Results -> if (s.emails.isEmpty()) {
-                        Text(
-                            if (s.label.isBlank()) stringResource(R.string.search_no_results_generic)
+                        EmptyState(
+                            art = EmptyArt.SEARCH,
+                            title = if (s.label.isBlank()) stringResource(R.string.search_no_results_generic)
                             else stringResource(R.string.search_no_results, s.label),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                            body = stringResource(R.string.empty_search_body),
+                            modifier = Modifier.align(Alignment.Center),
                         )
                     } else {
                         LazyColumn(Modifier.fillMaxSize()) {

@@ -469,4 +469,13 @@
     <string name="settings_theme_sterna_caption">Палитра Sterna: Arctic (светлая) · Pelagic (тёмная).</string>
     <string name="settings_dynamic_color_title">Цвета Material You</string>
     <string name="settings_dynamic_color_subtitle">Использовать цвета из ваших обоев вместо палитры Sterna (Android 12+).</string>
+    <string name="empty_inbox_title">Всё разобрано</string>
+    <string name="empty_inbox_body">Ничего в пути. Новые письма приземлятся здесь.</string>
+    <string name="empty_folder_title">Здесь пока пусто</string>
+    <string name="empty_folder_body">Эта папка пуста.</string>
+    <string name="empty_trash_title">Корзина пуста</string>
+    <string name="empty_trash_body">Удалённые письма ждут здесь, прежде чем исчезнуть навсегда.</string>
+    <string name="empty_offline_title">Не удаётся загрузить почту</string>
+    <string name="empty_offline_body">Похоже, вы не в сети. Мы синхронизируем всё, как только вы вернётесь.</string>
+    <string name="empty_search_body">Ничего не нашлось. Попробуйте другие слова.</string>
 </resources>

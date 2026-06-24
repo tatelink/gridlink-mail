@@ -92,6 +92,16 @@
     <string name="inbox_load_failed">Could not load mail:\n%1$s</string>
     <string name="inbox_no_messages">No messages</string>
     <string name="inbox_empty_subtitle">Nothing here yet. New mail will show up automatically.</string>
+    <!-- Empty states (calm, lightly coastal voice) -->
+    <string name="empty_inbox_title">All caught up</string>
+    <string name="empty_inbox_body">Nothing in flight. New mail will land here.</string>
+    <string name="empty_folder_title">Nothing here yet</string>
+    <string name="empty_folder_body">This folder is empty.</string>
+    <string name="empty_trash_title">Trash is empty</string>
+    <string name="empty_trash_body">Deleted mail waits here before it\'s gone for good.</string>
+    <string name="empty_offline_title">Can\'t reach your mail</string>
+    <string name="empty_offline_body">You seem to be offline. We\'ll sync as soon as you\'re back.</string>
+    <string name="empty_search_body">Nothing matched. Try different words.</string>
     <string name="inbox_sort_newest_first">Newest first</string>
     <string name="inbox_sort_oldest_first">Oldest first</string>
     <string name="inbox_sort_subject">Subject</string>

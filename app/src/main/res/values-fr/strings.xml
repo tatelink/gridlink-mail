@@ -470,4 +470,13 @@
     <string name="settings_theme_sterna_caption">Palette Sterna : Arctic (clair) · Pelagic (sombre).</string>
     <string name="settings_dynamic_color_title">Couleurs Material You</string>
     <string name="settings_dynamic_color_subtitle">Utiliser les couleurs de votre fond d\'écran plutôt que la palette Sterna (Android 12+).</string>
+    <string name="empty_inbox_title">Tout est à jour</string>
+    <string name="empty_inbox_body">Rien en vol pour l\'instant. Les nouveaux messages se poseront ici.</string>
+    <string name="empty_folder_title">Rien ici pour le moment</string>
+    <string name="empty_folder_body">Ce dossier est vide.</string>
+    <string name="empty_trash_title">La corbeille est vide</string>
+    <string name="empty_trash_body">Les messages supprimés patientent ici avant de disparaître pour de bon.</string>
+    <string name="empty_offline_title">Impossible d\'accéder à vos messages</string>
+    <string name="empty_offline_body">Vous semblez hors ligne. Nous synchroniserons dès votre retour.</string>
+    <string name="empty_search_body">Aucun résultat. Essayez d\'autres mots.</string>
 </resources>

@@ -468,4 +468,13 @@
     <string name="settings_theme_sterna_caption">Sterna-Palette: Arctic (hell) · Pelagic (dunkel).</string>
     <string name="settings_dynamic_color_title">Material You-Farben</string>
     <string name="settings_dynamic_color_subtitle">Farben aus deinem Hintergrundbild statt der Sterna-Palette verwenden (Android 12+).</string>
+    <string name="empty_inbox_title">Alles erledigt</string>
+    <string name="empty_inbox_body">Nichts unterwegs. Neue Post landet hier.</string>
+    <string name="empty_folder_title">Noch nichts hier</string>
+    <string name="empty_folder_body">Dieser Ordner ist leer.</string>
+    <string name="empty_trash_title">Papierkorb ist leer</string>
+    <string name="empty_trash_body">Gelöschte Post wartet hier, bevor sie endgültig verschwindet.</string>
+    <string name="empty_offline_title">Deine Post ist nicht erreichbar</string>
+    <string name="empty_offline_body">Du scheinst offline zu sein. Wir gleichen ab, sobald du zurück bist.</string>
+    <string name="empty_search_body">Nichts gefunden. Versuch es mit anderen Worten.</string>
 </resources>
