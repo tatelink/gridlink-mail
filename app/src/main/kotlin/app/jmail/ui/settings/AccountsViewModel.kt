@@ -11,6 +11,7 @@ import app.jmail.core.data.account.MailProtocol
 import app.jmail.core.data.account.StoredAccount
 import app.jmail.core.data.account.StoredIdentity
 import app.jmail.core.data.account.SyncWindow
+import app.jmail.push.PushService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -99,6 +100,13 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     fun setColor(id: String, color: Int?) {
         store.setColor(id, color)
         refresh()
+    }
+
+    /** Enable/disable new-mail notifications for an account; re-arm push to apply. */
+    fun setNotificationsEnabled(id: String, enabled: Boolean) {
+        store.setNotificationsEnabled(id, enabled)
+        refresh()
+        PushService.start(getApplication())
     }
 
     /** Load this account's cached-message count into [cacheCount]. */

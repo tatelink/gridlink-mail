@@ -61,7 +61,9 @@ class PushService : Service() {
         connections.values.forEach { runCatching { it.close() } }
         connections.clear()
         val store = application.container.accountStore
-        val accounts = if (store.pushAllAccounts()) store.allCredentials() else listOfNotNull(store.load())
+        val watched = if (store.pushAllAccounts()) store.allCredentials() else listOfNotNull(store.load())
+        // Honour the per-account notification opt-out.
+        val accounts = watched.filter { store.notificationsEnabled(it.id) }
         if (accounts.isEmpty()) {
             stopSelf()
             return

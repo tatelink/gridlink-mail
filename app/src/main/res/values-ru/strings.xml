@@ -454,4 +454,7 @@
     <string name="settings_text_size_normal">Обычный</string>
     <string name="settings_text_size_large">Крупный</string>
     <string name="settings_text_size_huge">Очень крупный</string>
+    <string name="settings_account_notifications_section">Уведомления</string>
+    <string name="settings_account_notifications_title">Уведомления о новых письмах</string>
+    <string name="settings_account_notifications_subtitle">Показывать уведомления о новых письмах в этой учётной записи.</string>
 </resources>

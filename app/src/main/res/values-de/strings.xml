@@ -453,4 +453,7 @@
     <string name="settings_text_size_normal">Normal</string>
     <string name="settings_text_size_large">Groß</string>
     <string name="settings_text_size_huge">Sehr groß</string>
+    <string name="settings_account_notifications_section">Benachrichtigungen</string>
+    <string name="settings_account_notifications_title">Benachrichtigungen für neue E-Mails</string>
+    <string name="settings_account_notifications_subtitle">Benachrichtigungen für neue E-Mails in diesem Konto anzeigen.</string>
 </resources>

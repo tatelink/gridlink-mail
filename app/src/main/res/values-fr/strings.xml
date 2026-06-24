@@ -455,4 +455,7 @@
     <string name="settings_text_size_normal">Normale</string>
     <string name="settings_text_size_large">Grande</string>
     <string name="settings_text_size_huge">Très grande</string>
+    <string name="settings_account_notifications_section">Notifications</string>
+    <string name="settings_account_notifications_title">Notifications de nouveaux messages</string>
+    <string name="settings_account_notifications_subtitle">Afficher les notifications pour les nouveaux messages de ce compte.</string>
 </resources>

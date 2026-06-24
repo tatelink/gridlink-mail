@@ -235,6 +235,14 @@ class AccountStore(context: Context) {
         saveAccounts(accounts().map { if (it.id == id) it.copy(color = color) else it })
     }
 
+    /** Whether new-mail notifications fire for an account (defaults to true). */
+    fun notificationsEnabled(id: String): Boolean = account(id)?.notificationsEnabled ?: true
+
+    /** Enable/disable new-mail notifications for an account. No-op if the id is unknown. */
+    fun setNotificationsEnabled(id: String, enabled: Boolean) {
+        saveAccounts(accounts().map { if (it.id == id) it.copy(notificationsEnabled = enabled) else it })
+    }
+
     /** Remove an account; if it was current, fall back to another (or none). */
     fun remove(id: String) {
         prefs.edit().remove(passwordKey(id)).apply()

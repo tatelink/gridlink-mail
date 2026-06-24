@@ -456,4 +456,7 @@
     <string name="settings_text_size_normal">Normaal</string>
     <string name="settings_text_size_large">Groot</string>
     <string name="settings_text_size_huge">Zeer groot</string>
+    <string name="settings_account_notifications_section">Meldingen</string>
+    <string name="settings_account_notifications_title">Meldingen voor nieuwe e-mail</string>
+    <string name="settings_account_notifications_subtitle">Toon meldingen voor nieuwe e-mail in dit account.</string>
 </resources>

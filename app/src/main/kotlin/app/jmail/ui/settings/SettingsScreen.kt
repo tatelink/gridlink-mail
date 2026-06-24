@@ -961,6 +961,7 @@ private fun AccountDetailScreen(
     var identities by remember(accountId) { mutableStateOf(account.resolvedIdentities()) }
     var syncWindow by remember(accountId) { mutableStateOf(account.syncWindow) }
     var colorArgb by remember(accountId) { mutableStateOf(account.color) }
+    var notificationsEnabled by remember(accountId) { mutableStateOf(account.notificationsEnabled) }
     var imapHost by remember(accountId) { mutableStateOf(account.imapHost) }
     var imapPort by remember(accountId) { mutableStateOf(account.imapPort.toString()) }
     var imapSecurity by remember(accountId) { mutableStateOf(account.imapSecurity) }
@@ -1011,6 +1012,17 @@ private fun AccountDetailScreen(
                         }
                     }
                 }
+            }
+            SettingsSection(stringResource(R.string.settings_account_notifications_section)) {
+                SettingSwitch(
+                    title = stringResource(R.string.settings_account_notifications_title),
+                    subtitle = stringResource(R.string.settings_account_notifications_subtitle),
+                    checked = notificationsEnabled,
+                    onCheckedChange = {
+                        notificationsEnabled = it
+                        viewModel.setNotificationsEnabled(accountId, it)
+                    },
+                )
             }
             SettingsSection(stringResource(R.string.settings_server_settings_section)) {
                 if (isImap) {

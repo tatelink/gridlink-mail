@@ -453,4 +453,7 @@
     <string name="settings_text_size_normal">Normale</string>
     <string name="settings_text_size_large">Grande</string>
     <string name="settings_text_size_huge">Molto grande</string>
+    <string name="settings_account_notifications_section">Notifiche</string>
+    <string name="settings_account_notifications_title">Notifiche di nuova posta</string>
+    <string name="settings_account_notifications_subtitle">Mostra le notifiche per la nuova posta di questo account.</string>
 </resources>

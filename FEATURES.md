@@ -130,7 +130,7 @@ The categories further down list the full feature set; this is the order of work
 
 - ✅ ⭐ Incremental sync (`Email/queryChanges` + `Email/changes` + per-type `state`) — JMAP; IMAP does a bounded full re-query
 - ✅ ⭐ Push (foreground service, no Google/FCM): JMAP EventSource, or IMAP IDLE (a dedicated connection per account, refreshed within the ~29-min limit)
-- ✅ New-mail notifications (per current account, or all accounts via a setting)
+- ✅ New-mail notifications (per current account, or all accounts via a setting); per-account opt-out toggle in Settings → Accounts → [account] → Notifications
 - ✅ Notification quick actions: reply (inline), mark read, delete
 - ✅ Push reconnects automatically when the connection drops (catches missed mail)
 - ✅ Bundled/grouped notifications per account — individual new-mail notifications collapse under a per-account summary
