@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Jmail"
+rootProject.name = "Sterna"
 
 include(":app")
 include(":core:jmap")

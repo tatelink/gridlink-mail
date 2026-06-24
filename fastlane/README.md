@@ -27,7 +27,7 @@ Add a new `<code>.txt` for each release.
 ## TODO before publishing (needs the physical Pixel 7)
 
 Images are not yet committed (binary, captured on-device). Capture on the
-Pixel 7 (see project memory `jmail-environment`), light **and** dark, with a
+Pixel 7 (see project memory `sterna-environment`), light **and** dark, with a
 demo account (no real mail):
 
 1. Unified inbox            5. Undo send / schedule send

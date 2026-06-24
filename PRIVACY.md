@@ -1,13 +1,13 @@
 # Privacy
 
-**Short version: Jmail collects nothing. It talks only to the mail server you
+**Short version: Sterna collects nothing. It talks only to the mail server you
 configure, and everything else stays on your device.**
 
-Jmail is free software (GPLv3) with no business model built on your data. There
-is no Jmail account, no Jmail server, and no company in the middle. This document
+Sterna is free software (GPLv3) with no business model built on your data. There
+is no Sterna account, no Sterna server, and no company in the middle. This document
 explains exactly what that means, in plain terms. Last updated: 2026-06-21.
 
-## What Jmail does NOT do
+## What Sterna does NOT do
 
 - **No analytics or telemetry.** No usage statistics, no event tracking, nothing
   phoned home — ever.
@@ -15,16 +15,16 @@ explains exactly what that means, in plain terms. Last updated: 2026-06-21.
 - **No third-party trackers.** The app contains no tracking or profiling
   libraries.
 - **No crash reporting to anyone.** Crashes are not sent off your device.
-- **No Google services.** Jmail does **not** use Firebase, Google Play Services,
+- **No Google services.** Sterna does **not** use Firebase, Google Play Services,
   or Firebase Cloud Messaging (FCM). Push works over the JMAP standard
   (EventSource) directly with your own server, so the app runs fully on
   de-Googled devices.
-- **No proprietary dependencies.** Jmail is built only from free/open-source
+- **No proprietary dependencies.** Sterna is built only from free/open-source
   libraries.
 
 ## Data stored on your device
 
-Everything Jmail keeps lives locally on your phone and is never uploaded anywhere
+Everything Sterna keeps lives locally on your phone and is never uploaded anywhere
 except, where relevant, back to your own mail server:
 
 - **Account credentials** — stored encrypted, protected by the Android KeyStore.
@@ -37,7 +37,7 @@ normal Android storage behaviour.
 
 ## Network connections
 
-Jmail makes network connections to **one place only: the JMAP mail server you
+Sterna makes network connections to **one place only: the JMAP mail server you
 enter when you add an account.** It does not contact any other host, server, or
 third-party service.
 
@@ -48,28 +48,28 @@ Concretely, the app:
 3. Holds an EventSource (push) connection to that server to learn about new mail.
 
 There is no intermediary. Your mail never passes through any infrastructure
-operated by the Jmail project.
+operated by the Sterna project.
 
 ## Remote content is blocked by default
 
 Many emails contain remote images and **tracking pixels** that report back to the
-sender when (and sometimes where) you open a message. Jmail **blocks remote
+sender when (and sometimes where) you open a message. Sterna **blocks remote
 content in messages by default**, so simply opening an email does not leak that
 you read it. Inline images that are part of the message itself are rendered from
 the message, not fetched from the network.
 
 ## What your mail server can see
 
-Jmail cannot make your email provider private. Whatever server you connect to
+Sterna cannot make your email provider private. Whatever server you connect to
 necessarily processes your messages and sees your requests — that is true of any
-email client. If this matters to you, connect Jmail to a server you trust or one
+email client. If this matters to you, connect Sterna to a server you trust or one
 you run yourself (for example, a self-hosted [Stalwart](https://stalw.art/)
-instance). Choosing and trusting your provider is the one privacy decision Jmail
+instance). Choosing and trusting your provider is the one privacy decision Sterna
 leaves in your hands.
 
 ## Permissions and why they are needed
 
-Jmail requests the minimum set of permissions:
+Sterna requests the minimum set of permissions:
 
 | Permission | Why |
 |---|---|
@@ -77,7 +77,7 @@ Jmail requests the minimum set of permissions:
 | `POST_NOTIFICATIONS` | Show new-mail notifications (Android 13+). Optional — you can deny it. |
 | `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_DATA_SYNC` | Keep the JMAP push connection alive to deliver new mail without Google's FCM. |
 
-Jmail asks for no other permissions — no contacts, no location, no storage
+Sterna asks for no other permissions — no contacts, no location, no storage
 beyond the app's own sandbox, no microphone or camera.
 
 ## Changes to this policy

@@ -1,6 +1,6 @@
-Jmail est un client e-mail Android privé et moderne, conçu pour JMAP — le
+Sterna Mail est un client e-mail Android privé et moderne, conçu pour JMAP — le
 successeur plus rapide d'IMAP — avec un support complet d'IMAP/SMTP classique.
-Vous choisissez le protocole en ajoutant un compte : Jmail fonctionne avec les
+Vous choisissez le protocole en ajoutant un compte : Sterna Mail fonctionne avec les
 serveurs JMAP comme Stalwart aussi bien qu'avec n'importe quel fournisseur de
 messagerie standard.
 
@@ -24,4 +24,4 @@ Fonctionnalités :
 * Verrouillage biométrique de l'application
 * Interface Material 3 qui suit le thème clair/sombre du système
 
-Jmail est open source. Le code peut être lu, audité et amélioré par tous.
+Sterna Mail est open source. Le code peut être lu, audité et amélioré par tous.

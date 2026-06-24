@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes how Jmail is built. It is aimed at developers.
+This document describes how Sterna is built. It is aimed at developers.
 
 ## Goals
 
@@ -55,7 +55,7 @@ user-facing setting** rather than a JMAP implementation detail.
 
 | Data | Location | Notes |
 |---|---|---|
-| Message list (metadata) | Room `jmail.db` (`emails`, `mailboxes`) | id, sender, subject, 1-line preview, flags, date — small rows. |
+| Message list (metadata) | Room `sterna.db` (`emails`, `mailboxes`) | id, sender, subject, 1-line preview, flags, date — small rows. |
 | Message bodies | Memory on open (today) | Opt-in on-disk persistence planned for offline + IMAP (see retention). |
 | Attachments | `cacheDir/attachments/` | Downloaded on demand; opened via `FileProvider`. |
 | Inline images (`cid:`) | Memory only | Rendered as data URIs, never persisted. |
@@ -90,7 +90,7 @@ The storage UI reports device usage; server quota is a separate, optional number
 
 ## Roadmap
 
-- **M0** — Toolchain, project scaffold, "Hello Jmail" running. *(done)*
+- **M0** — Toolchain, project scaffold, "Hello Sterna" running. *(done)*
 - **M1** — Connect to a JMAP server (Stalwart), list mailboxes. *(done)*
 - **M2** — Read mail: encrypted account persistence, inbox list, message view
   (HTML in a WebView with remote content blocked by default), Room offline

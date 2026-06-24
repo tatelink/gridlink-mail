@@ -1,6 +1,6 @@
-# Contributing to Jmail
+# Contributing to Sterna
 
-Thanks for your interest. Jmail is in early development; expect rapid change.
+Thanks for your interest. Sterna is in early development; expect rapid change.
 
 ## Requirements
 
