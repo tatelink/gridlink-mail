@@ -70,7 +70,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Mark read/unread, flag/star, archive, delete *(M3; JMAP + IMAP)*
 - ✅ Unread shown by bold text (not a status dot)
 - ✅ Folder navigation drawer; view any mailbox *(M3)*
-- ✅ ⭐ Conversation threading — JMAP native `Thread` objects (collapsed list + thread view)
+- ✅ ⭐ Conversation threading — JMAP native `Thread` objects. The list collapses a thread into one row with a message-count badge (Settings → Reading → Conversation view, on by default; toggle off for a flat list); opening a row shows the thread view. Grouping is done in SQL (representative = latest message, unread if any in the thread)
 - ✅ Pull-to-refresh
 - ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive
 - ✅ Configurable swipe actions (left/right, in Settings → Reading)

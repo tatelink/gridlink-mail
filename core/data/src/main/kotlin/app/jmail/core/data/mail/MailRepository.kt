@@ -83,6 +83,62 @@ private fun pagingQuery(mailboxIds: List<String>, sort: SortOrder, unreadOnly: B
     return SimpleSQLiteQuery(sql, mailboxIds.toTypedArray())
 }
 
+/**
+ * Build the conversation-collapsed paged query: one row per thread
+ * (COALESCE(threadId, id)) showing the thread's latest message, its message count
+ * in this view, and whether any message is unread. A sub-query finds, per thread,
+ * the max sortKey + count + unread; the outer joins back to fetch that exact
+ * representative row. [unreadOnly] keeps threads that have any unread message.
+ */
+private fun conversationQuery(mailboxIds: List<String>, sort: SortOrder, unreadOnly: Boolean): SimpleSQLiteQuery {
+    // mailboxIds are bound twice (inner WHERE + outer WHERE).
+    return SimpleSQLiteQuery(conversationSql(mailboxIds.size, sort, unreadOnly), (mailboxIds + mailboxIds).toTypedArray())
+}
+
+/**
+ * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite).
+ * [mailboxCount] `?` placeholders appear in the inner and outer WHERE, so callers
+ * bind the mailbox ids twice, in order.
+ */
+internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boolean): String {
+    val placeholders = List(mailboxCount) { "?" }.joinToString(",")
+    val notSnoozed = "id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
+        "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
+    val having = if (unreadOnly) " HAVING MIN(seen) = 0" else ""
+    val orderBy = "e.flagged DESC, " + when (sort) {
+        SortOrder.DATE_DESC -> "e.sortKey DESC"
+        SortOrder.DATE_ASC -> "e.sortKey ASC"
+        SortOrder.SUBJECT -> "LOWER(TRIM(e.subject)) ASC"
+        SortOrder.SENDER -> "LOWER(TRIM(COALESCE(e.fromName, e.fromEmail))) ASC"
+        SortOrder.UNREAD_FIRST -> "g.threadUnread ASC, e.sortKey DESC"
+    }
+    return """
+        SELECT e.*, g.threadCount AS threadCount, g.threadUnread AS threadUnread
+        FROM emails e
+        JOIN (
+            SELECT COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey,
+                   COUNT(*) AS threadCount, MIN(seen) AS threadUnread
+            FROM emails
+            WHERE mailboxId IN ($placeholders) AND $notSnoozed
+            GROUP BY tkey$having
+        ) g ON COALESCE(e.threadId, e.id) = g.tkey AND e.sortKey = g.maxKey
+        WHERE e.mailboxId IN ($placeholders) AND $notSnoozed
+        GROUP BY g.tkey
+        ORDER BY $orderBy
+    """.trimIndent()
+}
+
+/**
+ * One row in the paged list. In flat mode it's a single email ([threadCount] == 1);
+ * in conversation mode it's a collapsed thread whose representative is [email],
+ * [threadCount] messages in this view, [unread] if any is unread.
+ */
+data class InboxRow(
+    val email: Email,
+    val threadCount: Int,
+    val unread: Boolean,
+)
+
 /** Metadata about the selected mailbox after a refresh. */
 data class MailboxMeta(
     val accountName: String,
@@ -219,12 +275,24 @@ class MailRepository(
      * chosen [sort]; [unreadOnly] filters to unseen. Only a few pages are held in
      * memory at once, so very large folders no longer load (or freeze) all at once.
      */
-    fun pagedMailbox(mailboxIds: List<String>, sort: SortOrder, unreadOnly: Boolean): Flow<PagingData<Email>> {
+    fun pagedMailbox(
+        mailboxIds: List<String>,
+        sort: SortOrder,
+        unreadOnly: Boolean,
+        conversationView: Boolean,
+    ): Flow<PagingData<InboxRow>> {
         if (mailboxIds.isEmpty()) return flowOf(PagingData.empty())
-        return Pager(
-            config = pagingConfig(),
-            pagingSourceFactory = { emailDao.pagingSource(pagingQuery(mailboxIds, sort, unreadOnly)) },
-        ).flow.map { data -> data.map { it.toEmail() } }
+        return if (conversationView) {
+            Pager(
+                config = pagingConfig(),
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(mailboxIds, sort, unreadOnly)) },
+            ).flow.map { data -> data.map { it.toInboxRow() } }
+        } else {
+            Pager(
+                config = pagingConfig(),
+                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(mailboxIds, sort, unreadOnly)) },
+            ).flow.map { data -> data.map { InboxRow(it.toEmail(), threadCount = 1, unread = !it.seen) } }
+        }
     }
 
     /**
@@ -239,14 +307,40 @@ class MailRepository(
         mailboxId: String,
         sort: SortOrder,
         unreadOnly: Boolean,
-    ): Flow<PagingData<Email>> {
-        val mediator = object : RemoteMediator<Int, EmailEntity>() {
+        conversationView: Boolean,
+    ): Flow<PagingData<InboxRow>> {
+        return if (conversationView) {
+            Pager(
+                config = pagingConfig(),
+                remoteMediator = folderMediator(credentials, mailboxId),
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(listOf(mailboxId), sort, unreadOnly)) },
+            ).flow.map { data -> data.map { it.toInboxRow() } }
+        } else {
+            Pager(
+                config = pagingConfig(),
+                remoteMediator = folderMediator(credentials, mailboxId),
+                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(listOf(mailboxId), sort, unreadOnly)) },
+            ).flow.map { data -> data.map { InboxRow(it.toEmail(), threadCount = 1, unread = !it.seen) } }
+        }
+    }
+
+    /**
+     * The scroll-to-load-more mediator for a single folder. It only extends the
+     * EmailEntity cache (fetching older pages from the server on APPEND) and never
+     * inspects row contents, so it works for either paged value type [V].
+     */
+    @OptIn(ExperimentalPagingApi::class)
+    private fun <V : Any> folderMediator(
+        credentials: AccountCredentials,
+        mailboxId: String,
+    ): RemoteMediator<Int, V> {
+        return object : RemoteMediator<Int, V>() {
             // The cache is populated by refresh()/sync; only extend it on scroll.
             override suspend fun initialize() = InitializeAction.SKIP_INITIAL_REFRESH
 
             override suspend fun load(
                 loadType: LoadType,
-                state: PagingState<Int, EmailEntity>,
+                state: PagingState<Int, V>,
             ): MediatorResult {
                 if (loadType != LoadType.APPEND) {
                     return MediatorResult.Success(endOfPaginationReached = loadType == LoadType.PREPEND)
@@ -282,11 +376,6 @@ class MailRepository(
                 }
             }
         }
-        return Pager(
-            config = pagingConfig(),
-            remoteMediator = mediator,
-            pagingSourceFactory = { emailDao.pagingSource(pagingQuery(listOf(mailboxId), sort, unreadOnly)) },
-        ).flow.map { data -> data.map { it.toEmail() } }
     }
 
     private fun pagingConfig() = PagingConfig(

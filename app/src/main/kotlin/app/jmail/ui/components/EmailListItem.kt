@@ -48,8 +48,10 @@ fun EmailListItem(
     onToggleFavourite: (() -> Unit)? = null,
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
+    // In conversation view: the thread's unread state and how many messages it holds.
+    unread: Boolean = !email.isSeen,
+    threadCount: Int = 1,
 ) {
-    val unread = !email.isSeen
     val senderName = email.from.firstOrNull()?.display() ?: "(unknown sender)"
     val density = LocalListDensity.current
     val rowPadding = when (density) {
@@ -91,14 +93,31 @@ fun EmailListItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Text(
-                text = email.subject?.takeIf { it.isNotBlank() } ?: "(no subject)",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = email.subject?.takeIf { it.isNotBlank() } ?: "(no subject)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                // Conversation count badge — only when the thread has 2+ messages.
+                if (threadCount > 1) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = threadCount.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .clip(MaterialTheme.shapes.small)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
+                    )
+                }
+            }
             if (previewLines > 0) {
                 email.preview?.takeIf { it.isNotBlank() }?.let { preview ->
                     Text(

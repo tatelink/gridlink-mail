@@ -111,6 +111,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.data.settings.SwipeAction
+import app.jmail.core.data.mail.InboxRow
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.Mailbox
 import app.jmail.R
@@ -586,7 +587,8 @@ fun InboxScreen(
             // One row renderer, shared by the search list and the paged browse list.
             // Takes the row modifier so the caller can pass `animateItem()` from its
             // own LazyItemScope.
-            val emailRow: @Composable (Email, Modifier) -> Unit = { email, rowModifier ->
+            val emailRow: @Composable (InboxRow, Modifier) -> Unit = { row, rowModifier ->
+                val email = row.email
                 val ownerAccount = if (ui.unified) accounts.firstOrNull { it.id == email.accountId } else null
                 SwipeableEmailRow(
                     email = email,
@@ -608,6 +610,8 @@ fun InboxScreen(
                     },
                     selected = email.id in selectedIds,
                     gesturesEnabled = !selectionActive,
+                    unread = row.unread,
+                    threadCount = row.threadCount,
                     modifier = rowModifier,
                 )
                 HorizontalDivider()
@@ -625,7 +629,7 @@ fun InboxScreen(
                         ui.searchResults.isNotEmpty() ->
                             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                                 items(ui.searchResults, key = { it.id }) { email ->
-                                    emailRow(email, Modifier.animateItem())
+                                    emailRow(InboxRow(email, threadCount = 1, unread = !email.isSeen), Modifier.animateItem())
                                 }
                             }
                         ui.searchLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -639,14 +643,14 @@ fun InboxScreen(
                         ) {
                             items(
                                 count = pagedEmails.itemCount,
-                                key = pagedEmails.itemKey { it.id },
+                                key = pagedEmails.itemKey { it.email.id },
                             ) { index ->
                                 // animateItem keeps each row identified across Paging snapshot
                                 // swaps so a read/unread toggle re-binds in place instead of
                                 // blinking. Placement-only (no fade) so loading a new page of
                                 // rows doesn't stutter the scroll.
-                                pagedEmails[index]?.let { email ->
-                                    emailRow(email, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null))
+                                pagedEmails[index]?.let { row ->
+                                    emailRow(row, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null))
                                 }
                             }
                             // Footer: server fetch-on-scroll (RemoteMediator) progress/errors.
@@ -709,6 +713,8 @@ private fun SwipeableEmailRow(
     onToggleFavourite: () -> Unit,
     selected: Boolean,
     gesturesEnabled: Boolean,
+    unread: Boolean,
+    threadCount: Int,
     modifier: Modifier = Modifier,
 ) {
     val offsetX = remember { Animatable(0f) }
@@ -815,6 +821,8 @@ private fun SwipeableEmailRow(
                 onToggleFavourite = onToggleFavourite,
                 selected = selected,
                 onLongClick = onLongClick,
+                unread = unread,
+                threadCount = threadCount,
             )
         }
     }

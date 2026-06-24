@@ -428,4 +428,7 @@
     <string name="scheduled_empty">No hay mensajes programados.</string>
     <string name="scheduled_cancel">Cancelar envío programado</string>
     <string name="scheduled_send_at">Se envía %1$s</string>
+    <string name="settings_conversation_section">Conversaciones</string>
+    <string name="settings_conversation_title">Vista de conversación</string>
+    <string name="settings_conversation_subtitle">Agrupa los mensajes de un mismo hilo en una sola fila, con un contador.</string>
 </resources>

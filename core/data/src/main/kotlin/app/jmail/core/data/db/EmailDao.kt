@@ -24,6 +24,14 @@ interface EmailDao {
     @RawQuery(observedEntities = [EmailEntity::class, SnoozedEntity::class])
     fun pagingSource(query: SupportSQLiteQuery): PagingSource<Int, EmailEntity>
 
+    /**
+     * Paged source for the conversation (collapsed-thread) list: one row per thread
+     * with the representative message embedded plus the thread count + unread flag.
+     * Built dynamically (see MailRepository.conversationQuery).
+     */
+    @RawQuery(observedEntities = [EmailEntity::class, SnoozedEntity::class])
+    fun conversationPagingSource(query: SupportSQLiteQuery): PagingSource<Int, ConversationRow>
+
     /** Distinct recent senders matching [q] (for recipient autocomplete). */
     @Query(
         "SELECT fromEmail AS email, fromName AS name FROM emails " +

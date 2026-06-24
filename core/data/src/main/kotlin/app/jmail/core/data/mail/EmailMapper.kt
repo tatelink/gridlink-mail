@@ -1,10 +1,15 @@
 package app.jmail.core.data.mail
 
+import app.jmail.core.data.db.ConversationRow
 import app.jmail.core.data.db.EmailEntity
 import app.jmail.core.jmap.model.Email
 import app.jmail.core.jmap.model.EmailAddress
 import java.time.Instant
 import java.time.OffsetDateTime
+
+/** Map a grouped conversation row to the domain [InboxRow] (unread = any in thread). */
+internal fun ConversationRow.toInboxRow(): InboxRow =
+    InboxRow(email = email.toEmail(), threadCount = threadCount, unread = threadUnread == 0)
 
 internal fun Email.toEntity(accountId: String, mailboxId: String): EmailEntity {
     val sender = from.firstOrNull()

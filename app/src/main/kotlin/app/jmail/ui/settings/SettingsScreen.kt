@@ -369,6 +369,7 @@ private fun previewLabel(context: Context, preview: PreviewLines): String = when
 private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val swipeRight by viewModel.swipeRight.collectAsStateWithLifecycle()
     val swipeLeft by viewModel.swipeLeft.collectAsStateWithLifecycle()
+    val conversationView by viewModel.conversationView.collectAsStateWithLifecycle()
     val options = listOf(
         SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
     )
@@ -377,6 +378,14 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
+            SettingsSection(stringResource(R.string.settings_conversation_section)) {
+                SettingSwitch(
+                    title = stringResource(R.string.settings_conversation_title),
+                    subtitle = stringResource(R.string.settings_conversation_subtitle),
+                    checked = conversationView,
+                    onCheckedChange = viewModel::setConversationView,
+                )
+            }
             SettingsSection(stringResource(R.string.settings_swipe_actions_section)) {
                 SettingChoiceRow(
                     title = stringResource(R.string.settings_swipe_right_title),

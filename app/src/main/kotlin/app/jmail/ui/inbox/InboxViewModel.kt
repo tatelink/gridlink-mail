@@ -8,6 +8,7 @@ import androidx.paging.cachedIn
 import app.jmail.container
 import app.jmail.R
 import app.jmail.core.data.account.AccountCredentials
+import app.jmail.core.data.mail.InboxRow
 import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.jmap.model.Email
@@ -114,6 +115,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         val unifiedIds: List<String>,
         val sort: SortOrder,
         val unreadOnly: Boolean,
+        val conversationView: Boolean,
     )
 
     /** A just-performed swipe action that can be undone (move the message back). */
@@ -157,9 +159,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * pager (scrolling past the cache fetches older mail from the server); the unified
      * inbox just pages the cached rows across accounts.
      */
-    val pagedEmails: Flow<PagingData<Email>> =
-        combine(selection, unifiedInboxIds, settings.sortOrder, unreadOnly) { sel, uids, sort, unread ->
-            PageKey(sel, uids, sort, unread)
+    val pagedEmails: Flow<PagingData<InboxRow>> =
+        combine(selection, unifiedInboxIds, settings.sortOrder, unreadOnly, settings.conversationView) {
+                sel, uids, sort, unread, conversation ->
+            PageKey(sel, uids, sort, unread, conversation)
         }.flatMapLatest { key ->
             when (val sel = key.sel) {
                 is Sel.Folder -> {
@@ -168,10 +171,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                     if (id == null || credentials == null) {
                         flowOf(PagingData.empty())
                     } else {
-                        repo.pagedFolder(credentials, id, key.sort, key.unreadOnly)
+                        repo.pagedFolder(credentials, id, key.sort, key.unreadOnly, key.conversationView)
                     }
                 }
-                Sel.Unified -> repo.pagedMailbox(key.unifiedIds, key.sort, key.unreadOnly)
+                Sel.Unified -> repo.pagedMailbox(key.unifiedIds, key.sort, key.unreadOnly, key.conversationView)
             }
         }.cachedIn(viewModelScope)
 

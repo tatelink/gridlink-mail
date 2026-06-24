@@ -428,4 +428,7 @@
     <string name="scheduled_empty">Nessun messaggio programmato.</string>
     <string name="scheduled_cancel">Annulla invio programmato</string>
     <string name="scheduled_send_at">Invio %1$s</string>
+    <string name="settings_conversation_section">Conversazioni</string>
+    <string name="settings_conversation_title">Vista conversazione</string>
+    <string name="settings_conversation_subtitle">Raggruppa i messaggi della stessa conversazione in un\'unica riga, con un conteggio.</string>
 </resources>

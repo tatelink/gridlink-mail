@@ -226,4 +226,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setSwipeLeft(action: SwipeAction) {
         viewModelScope.launch { settings.setSwipeLeftAction(action) }
     }
+
+    val conversationView = settings.conversationView.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = true,
+    )
+
+    fun setConversationView(enabled: Boolean) {
+        viewModelScope.launch { settings.setConversationView(enabled) }
+    }
 }

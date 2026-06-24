@@ -428,4 +428,7 @@
     <string name="scheduled_empty">Keine geplanten Nachrichten.</string>
     <string name="scheduled_cancel">Geplanten Versand abbrechen</string>
     <string name="scheduled_send_at">Wird %1$s gesendet</string>
+    <string name="settings_conversation_section">Konversationen</string>
+    <string name="settings_conversation_title">Konversationsansicht</string>
+    <string name="settings_conversation_subtitle">Nachrichten desselben Threads in einer Zeile zusammenfassen, mit einer Anzahl.</string>
 </resources>

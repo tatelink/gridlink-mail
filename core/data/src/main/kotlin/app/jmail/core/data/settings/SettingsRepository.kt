@@ -85,6 +85,13 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_SORT_ORDER] = order.name }
     }
 
+    /** Collapse threads into one conversation row in the list (on by default). */
+    val conversationView: Flow<Boolean> = dataStore.data.map { it[KEY_CONVERSATION_VIEW] ?: true }
+
+    suspend fun setConversationView(enabled: Boolean) {
+        dataStore.edit { it[KEY_CONVERSATION_VIEW] = enabled }
+    }
+
     /** Whether recipient autocomplete may read the device's contacts (off by default). */
     val contactSuggestions: Flow<Boolean> = dataStore.data.map { it[KEY_CONTACT_SUGGESTIONS] ?: false }
 
@@ -211,6 +218,7 @@ class SettingsRepository(context: Context) {
         private val KEY_SWIPE_RIGHT = stringPreferencesKey("swipe_right")
         private val KEY_SWIPE_LEFT = stringPreferencesKey("swipe_left")
         private val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
+        private val KEY_CONVERSATION_VIEW = booleanPreferencesKey("conversation_view")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         private val KEY_STRIP_TRACKING = booleanPreferencesKey("strip_tracking_params")
         private val KEY_CONFIRM_LINKS = booleanPreferencesKey("confirm_links")

@@ -428,4 +428,7 @@
     <string name="scheduled_empty">Brak zaplanowanych wiadomości.</string>
     <string name="scheduled_cancel">Anuluj zaplanowane wysłanie</string>
     <string name="scheduled_send_at">Wysyłka %1$s</string>
+    <string name="settings_conversation_section">Konwersacje</string>
+    <string name="settings_conversation_title">Widok konwersacji</string>
+    <string name="settings_conversation_subtitle">Grupuj wiadomości z tego samego wątku w jeden wiersz, z licznikiem.</string>
 </resources>

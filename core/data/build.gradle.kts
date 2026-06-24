@@ -38,4 +38,6 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
 
     testImplementation(libs.junit)
+    // Real SQLite engine for unit-testing the conversation-grouping SQL on the JVM.
+    testImplementation("org.xerial:sqlite-jdbc:3.45.3.0")
 }

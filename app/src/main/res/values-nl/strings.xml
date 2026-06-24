@@ -428,4 +428,9 @@
     <string name="scheduled_empty">Geen geplande berichten.</string>
     <string name="scheduled_cancel">Geplande verzending annuleren</string>
     <string name="scheduled_send_at">Verzendt %1$s</string>
+
+    <!-- Conversations -->
+    <string name="settings_conversation_section">Gesprekken</string>
+    <string name="settings_conversation_title">Gespreksweergave</string>
+    <string name="settings_conversation_subtitle">Groepeer berichten van dezelfde thread in één rij, met een telling.</string>
 </resources>

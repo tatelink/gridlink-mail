@@ -428,4 +428,7 @@
     <string name="scheduled_empty">Нет отложенных сообщений.</string>
     <string name="scheduled_cancel">Отменить отложенную отправку</string>
     <string name="scheduled_send_at">Отправка %1$s</string>
+    <string name="settings_conversation_section">Беседы</string>
+    <string name="settings_conversation_title">Просмотр беседы</string>
+    <string name="settings_conversation_subtitle">Объединять сообщения одной цепочки в одну строку с указанием количества.</string>
 </resources>

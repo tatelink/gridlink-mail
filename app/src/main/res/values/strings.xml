@@ -196,6 +196,9 @@
     <string name="settings_preview_three_lines">3 lines</string>
     <string name="settings_preview_five_lines">5 lines</string>
     <string name="settings_reading_screen_title">Reading</string>
+    <string name="settings_conversation_section">Conversations</string>
+    <string name="settings_conversation_title">Conversation view</string>
+    <string name="settings_conversation_subtitle">Group messages of the same thread into one row, with a count.</string>
     <string name="settings_swipe_actions_section">Swipe actions</string>
     <string name="settings_swipe_right_title">Swipe right</string>
     <string name="settings_swipe_left_title">Swipe left</string>
