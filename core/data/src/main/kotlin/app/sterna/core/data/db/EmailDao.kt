@@ -44,6 +44,10 @@ interface EmailDao {
     @Query("SELECT * FROM emails WHERE mailboxId = :mailboxId ORDER BY sortKey DESC")
     suspend fun getByMailbox(mailboxId: String): List<EmailEntity>
 
+    /** The cached mailbox an email lives in (used to advance that mailbox's sync cursor). */
+    @Query("SELECT mailboxId FROM emails WHERE id = :id LIMIT 1")
+    suspend fun mailboxOf(id: String): String?
+
     /** Merged view across several mailboxes (the unified inbox), newest first. */
     @Query("SELECT * FROM emails WHERE mailboxId IN (:mailboxIds) ORDER BY sortKey DESC")
     fun observeByMailboxes(mailboxIds: List<String>): Flow<List<EmailEntity>>

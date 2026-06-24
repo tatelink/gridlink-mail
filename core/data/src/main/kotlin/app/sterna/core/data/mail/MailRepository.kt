@@ -210,6 +210,20 @@ class MailRepository(
     private val syncStates = java.util.concurrent.ConcurrentHashMap<String, SyncState>()
 
     /**
+     * After a local mutation (flag/move/delete) the server returns the new `Email/set`
+     * state. Advancing the affected mailboxes' stored emailState to it means the next
+     * `Email/changes` — including the push that echoes this very action back — no
+     * longer re-reports our own change, so the optimistic cache write isn't reverted
+     * (no flicker). [newState] null (e.g. IMAP) is a no-op.
+     */
+    private fun advanceEmailState(newState: String?, vararg mailboxIds: String?) {
+        val s = newState ?: return
+        mailboxIds.filterNotNull().distinct().forEach { mb ->
+            syncStates[mb]?.let { syncStates[mb] = it.copy(emailState = s) }
+        }
+    }
+
+    /**
      * Bring a mailbox's cache up to date. Uses Email/queryChanges (which respects
      * thread collapsing) + Email/changes when we have prior state; otherwise, or
      * when the server can't compute the delta, falls back to a full query.
@@ -231,10 +245,16 @@ class MailRepository(
             val canApply = queryChanges.calculated && changes.calculated &&
                 !changes.hasMoreChanges && queryChanges.newQueryState != null && changes.newState != null
             if (canApply) {
-                val toRemove = queryChanges.removed + changes.destroyed
+                // A row that merely changed position shows up in both removed and added
+                // (a reorder, e.g. favouriting pins to the top). Don't delete+re-add it —
+                // the cache already holds the new data and the query re-sorts it, so the
+                // reorder is a no-op (no blink). Only genuinely-gone ids are removed, and
+                // only genuinely-new ids are fetched.
+                val added = queryChanges.added.toSet()
+                val toRemove = (queryChanges.removed.toSet() - added).toList() + changes.destroyed
                 if (toRemove.isNotEmpty()) emailDao.deleteByIds(toRemove)
                 val cachedIds = emailDao.getByMailbox(mailboxId).map { it.id }.toSet()
-                val toFetch = (queryChanges.added + changes.updated.filter { it in cachedIds }).distinct()
+                val toFetch = ((added - cachedIds) + changes.updated.filter { it in cachedIds }).distinct()
                 if (toFetch.isNotEmpty()) {
                     val fetched = client.getEmailsByIds(session, accountId, toFetch, auth)
                     emailDao.upsertAll(fetched.map { it.toEntity(localAccountId, mailboxId) })
@@ -672,8 +692,10 @@ class MailRepository(
             return
         }
         val ctx = connect(credentials)
-        client.setSeen(ctx.session, ctx.accountId, emailId, seen, ctx.auth)
+        val mb = emailDao.mailboxOf(emailId)
+        val newState = client.setSeen(ctx.session, ctx.accountId, emailId, seen, ctx.auth)
         emailDao.setSeen(emailId, seen)
+        advanceEmailState(newState, mb)
     }
 
     suspend fun setFlagged(credentials: AccountCredentials, emailId: String, flagged: Boolean) {
@@ -683,8 +705,10 @@ class MailRepository(
             return
         }
         val ctx = connect(credentials)
-        client.setKeyword(ctx.session, ctx.accountId, emailId, "\$flagged", flagged, ctx.auth)
+        val mb = emailDao.mailboxOf(emailId)
+        val newState = client.setKeyword(ctx.session, ctx.accountId, emailId, "\$flagged", flagged, ctx.auth)
         emailDao.setFlagged(emailId, flagged)
+        advanceEmailState(newState, mb)
     }
 
     /** Source (mailbox path, UID) for an IMAP message id, or null if not parseable. */
@@ -709,9 +733,11 @@ class MailRepository(
             return
         }
         val ctx = connect(credentials)
+        val mb = emailDao.mailboxOf(emailId)
         val target = ctx.rolesToMailboxId["archive"] ?: createArchiveFolder(ctx)
-        client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
+        val newState = client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
         emailDao.deleteById(emailId)
+        advanceEmailState(newState, mb)
     }
 
     /** Move a message to an arbitrary mailbox (e.g. unarchive → Inbox, or move-to-folder). */
@@ -725,8 +751,10 @@ class MailRepository(
             return
         }
         val ctx = connect(credentials)
-        client.move(ctx.session, ctx.accountId, emailId, targetMailboxId, ctx.auth)
+        val mb = emailDao.mailboxOf(emailId)
+        val newState = client.move(ctx.session, ctx.accountId, emailId, targetMailboxId, ctx.auth)
         emailDao.deleteById(emailId)
+        advanceEmailState(newState, mb)
     }
 
     /** The cached role of a mailbox (e.g. "junk", "inbox"), or null. */
@@ -882,13 +910,15 @@ class MailRepository(
             return
         }
         val ctx = connect(credentials)
+        val mb = emailDao.mailboxOf(emailId)
         val trash = ctx.rolesToMailboxId["trash"]
-        if (trash != null) {
+        val newState = if (trash != null) {
             client.move(ctx.session, ctx.accountId, emailId, trash, ctx.auth)
         } else {
             client.destroy(ctx.session, ctx.accountId, emailId, ctx.auth)
         }
         emailDao.deleteById(emailId)
+        advanceEmailState(newState, mb)
     }
 
     /**

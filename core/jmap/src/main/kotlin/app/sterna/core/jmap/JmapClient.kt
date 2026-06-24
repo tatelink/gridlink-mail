@@ -516,6 +516,7 @@ class JmapClient internal constructor(
     }
 
     /** Set or clear a keyword (e.g. "${'$'}seen", "${'$'}flagged") on an email. */
+    /** Returns the new `Email/set` state so the caller can advance its sync cursor. */
     suspend fun setKeyword(
         session: JmapSession,
         accountId: String,
@@ -523,33 +524,39 @@ class JmapClient internal constructor(
         keyword: String,
         value: Boolean,
         auth: JmapAuth,
-    ) = emailSet(session, auth) {
-        put("accountId", accountId)
-        putJsonObject("update") {
-            putJsonObject(emailId) {
-                if (value) put("keywords/$keyword", true) else put("keywords/$keyword", JsonNull)
+    ): String? {
+        val args = emailSet(session, auth) {
+            put("accountId", accountId)
+            putJsonObject("update") {
+                putJsonObject(emailId) {
+                    if (value) put("keywords/$keyword", true) else put("keywords/$keyword", JsonNull)
+                }
             }
         }
+        return args["newState"]?.jsonPrimitive?.contentOrNull
     }
 
-    /** Convenience for the \$seen keyword. */
-    suspend fun setSeen(session: JmapSession, accountId: String, emailId: String, seen: Boolean, auth: JmapAuth) =
+    /** Convenience for the \$seen keyword. Returns the new `Email/set` state. */
+    suspend fun setSeen(session: JmapSession, accountId: String, emailId: String, seen: Boolean, auth: JmapAuth): String? =
         setKeyword(session, accountId, emailId, "\$seen", seen, auth)
 
-    /** Move an email so it belongs to exactly [targetMailboxId] (archive, trash, etc.). */
+    /** Move an email so it belongs to exactly [targetMailboxId]. Returns the new state. */
     suspend fun move(
         session: JmapSession,
         accountId: String,
         emailId: String,
         targetMailboxId: String,
         auth: JmapAuth,
-    ) = emailSet(session, auth) {
-        put("accountId", accountId)
-        putJsonObject("update") {
-            putJsonObject(emailId) {
-                putJsonObject("mailboxIds") { put(targetMailboxId, true) }
+    ): String? {
+        val args = emailSet(session, auth) {
+            put("accountId", accountId)
+            putJsonObject("update") {
+                putJsonObject(emailId) {
+                    putJsonObject("mailboxIds") { put(targetMailboxId, true) }
+                }
             }
         }
+        return args["newState"]?.jsonPrimitive?.contentOrNull
     }
 
     /** Create a mailbox (e.g. an Archive folder) and return its new id (RFC 8621 §2.5). */
@@ -645,11 +652,12 @@ class JmapClient internal constructor(
         }
 
     /** Permanently destroy an email (used when there is no Trash mailbox). */
-    suspend fun destroy(session: JmapSession, accountId: String, emailId: String, auth: JmapAuth) =
+    /** Permanently delete an email. Returns the new `Email/set` state. */
+    suspend fun destroy(session: JmapSession, accountId: String, emailId: String, auth: JmapAuth): String? =
         emailSet(session, auth) {
             put("accountId", accountId)
             putJsonArray("destroy") { add(emailId) }
-        }
+        }["newState"]?.jsonPrimitive?.contentOrNull
 
     /** Fetch the identities (from-addresses) the user may send as (RFC 8621 §6). */
     suspend fun getIdentities(session: JmapSession, accountId: String, auth: JmapAuth): List<Identity> =
@@ -1157,12 +1165,13 @@ class JmapClient internal constructor(
         return Closeable { eventSource.cancel() }
     }
 
-    /** Run an Email/set call with the given argument object, surfacing JMAP errors. */
+    /** Run an Email/set call with the given argument object, surfacing JMAP errors.
+     *  Returns the response args (which carry `newState`, `updated`, `destroyed`, …). */
     private suspend fun emailSet(
         session: JmapSession,
         auth: JmapAuth,
         args: JsonObjectBuilder.() -> Unit,
-    ) = withContext(Dispatchers.IO) {
+    ): JsonObject = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
                 add(Jmap.CORE_CAPABILITY)
@@ -1187,7 +1196,6 @@ class JmapClient internal constructor(
                 throw JmapException("Email/set failed: HTTP ${response.code} ${response.message}")
             }
             methodResponseArgs(response.body?.string().orEmpty(), "Email/set")
-            Unit
         }
     }
 
