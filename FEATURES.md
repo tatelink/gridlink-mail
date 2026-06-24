@@ -1,6 +1,6 @@
 # Features
 
-This document tracks Sterna's feature set: what's built, what's planned on the
+This document tracks Sterna Mail's feature set: what's built, what's planned on the
 roadmap, and proposed additions drawn from K-9 Mail / Thunderbird for Android
 and from what users expect of a modern, complete email client.
 
