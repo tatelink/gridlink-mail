@@ -61,4 +61,4 @@ Reclaim unused ones too: `docker network prune -f`.
   per run (a few hundred MB). Add SDK/Gradle caching later to speed it up.
 - To stop: `docker compose down`. To re-register from scratch: delete `./data`.
 - Status badge (once a run has completed):
-  `https://codeberg.org/emon/jmail/actions/workflows/ci.yml/badge.svg`
+  `https://codeberg.org/emon/sterna-mail/actions/workflows/ci.yml/badge.svg`

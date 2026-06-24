@@ -1,6 +1,6 @@
 # Sterna Mail
 
-[![CI](https://codeberg.org/emon/jmail/actions/workflows/ci.yml/badge.svg?branch=main)](https://codeberg.org/emon/jmail/actions)
+[![CI](https://codeberg.org/emon/sterna-mail/actions/workflows/ci.yml/badge.svg?branch=main)](https://codeberg.org/emon/sterna-mail/actions)
 
 **A private, modern email app for Android.**
 
