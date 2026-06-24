@@ -5,4 +5,11 @@
     <style name="Theme.Sterna" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowBackground">@color/sterna_window_background</item>
     </style>
+
+    <!-- Launch (cold-start) theme. On Android 12+ (values-v31) it carries the animated
+         tern splash; here (< 12) it's just the app theme with a light-grey window, so
+         the cold start shows a clean static background. -->
+    <style name="Theme.Sterna.Splash" parent="Theme.Sterna">
+        <item name="android:windowBackground">@color/sterna_splash_background</item>
+    </style>
 </resources>

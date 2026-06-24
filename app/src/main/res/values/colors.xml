@@ -2,4 +2,7 @@
     <!-- Pre-Compose window background, matching the Arctic (light) surface so launch
          shows the brand colour instead of a white flash. Compose drives all in-app colour. -->
     <color name="sterna_window_background">#F7F8FA</color>
+    <!-- Splash background: light grey, matching the adaptive launcher icon (kept light
+         in both themes so it stays consistent with the dark-tern-on-light-grey mark). -->
+    <color name="sterna_splash_background">#F4F6F8</color>
 </resources>
