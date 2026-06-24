@@ -81,6 +81,7 @@
     <string name="inbox_select_all">Select all</string>
     <string name="inbox_mark_all_read">Mark all read</string>
     <string name="inbox_scheduled">Scheduled messages</string>
+    <string name="inbox_empty_trash">Empty trash</string>
     <string name="scheduled_title">Scheduled</string>
     <string name="scheduled_empty">No scheduled messages.</string>
     <string name="scheduled_cancel">Cancel scheduled send</string>
@@ -460,6 +461,7 @@
     <string name="status_no_saved_account">No saved account.</string>
     <string name="status_add_recipient">Add at least one recipient.</string>
     <string name="status_message_deleted">Message deleted</string>
+    <string name="status_trash_emptied">Trash emptied</string>
     <string name="status_message_archived">Message archived</string>
     <string name="status_message_sent">Message sent</string>
     <string name="status_folder_op_failed">Folder operation failed</string>

@@ -892,6 +892,27 @@ class MailRepository(
     }
 
     /**
+     * Permanently delete every message in the Trash mailbox. Returns how many were
+     * removed. For JMAP this queries the server for all ids; for IMAP it deletes the
+     * messages currently cached for that mailbox.
+     */
+    suspend fun emptyTrash(credentials: AccountCredentials, trashMailboxId: String): Int {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val ids = cachedIds(listOf(trashMailboxId))
+            ids.forEach { id ->
+                imapTarget(id)?.let { (mb, uid) -> runCatching { imap.deleteMessage(credentials, mb, uid) } }
+                emailDao.deleteById(id)
+            }
+            return ids.size
+        }
+        val ctx = connect(credentials)
+        val emails = client.queryEmails(ctx.session, ctx.accountId, trashMailboxId, 10_000, ctx.auth)
+        emails.forEach { runCatching { client.destroy(ctx.session, ctx.accountId, it.id, ctx.auth) } }
+        emails.forEach { emailDao.deleteById(it.id) }
+        return emails.size
+    }
+
+    /**
      * Structured search across the account (results are transient, not cached).
      * IMAP accounts use the free-text term only; the advanced filters (from,
      * subject, attachment, date range) are JMAP-only for now.

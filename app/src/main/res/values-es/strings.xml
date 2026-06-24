@@ -477,4 +477,6 @@
     <string name="empty_offline_title">No podemos acceder a tu correo</string>
     <string name="empty_offline_body">Parece que no tienes conexión. Sincronizaremos en cuanto vuelvas.</string>
     <string name="empty_search_body">Nada coincidió. Prueba con otras palabras.</string>
+    <string name="inbox_empty_trash">Vaciar papelera</string>
+    <string name="status_trash_emptied">Papelera vaciada</string>
 </resources>

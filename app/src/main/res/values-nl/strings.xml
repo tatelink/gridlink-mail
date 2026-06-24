@@ -480,4 +480,6 @@
     <string name="empty_offline_title">Je post is niet bereikbaar</string>
     <string name="empty_offline_body">Je lijkt offline te zijn. We synchroniseren zodra je weer verbonden bent.</string>
     <string name="empty_search_body">Niets gevonden. Probeer andere woorden.</string>
+    <string name="inbox_empty_trash">Prullenbak legen</string>
+    <string name="status_trash_emptied">Prullenbak geleegd</string>
 </resources>

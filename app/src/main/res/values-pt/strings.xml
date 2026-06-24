@@ -481,4 +481,6 @@
     <string name="empty_offline_title">Não foi possível alcançar o seu correio</string>
     <string name="empty_offline_body">Parece que está offline. Vamos sincronizar assim que voltar.</string>
     <string name="empty_search_body">Nada corresponde. Tente outras palavras.</string>
+    <string name="inbox_empty_trash">Esvaziar lixeira</string>
+    <string name="status_trash_emptied">Lixeira esvaziada</string>
 </resources>

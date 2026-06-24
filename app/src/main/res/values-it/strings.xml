@@ -477,4 +477,6 @@
     <string name="empty_offline_title">Impossibile raggiungere la posta</string>
     <string name="empty_offline_body">Sembri offline. Sincronizzeremo non appena torni online.</string>
     <string name="empty_search_body">Nessun risultato. Prova con parole diverse.</string>
+    <string name="inbox_empty_trash">Svuota cestino</string>
+    <string name="status_trash_emptied">Cestino svuotato</string>
 </resources>

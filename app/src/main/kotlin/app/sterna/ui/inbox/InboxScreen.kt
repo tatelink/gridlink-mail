@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.FilterList
@@ -155,6 +157,7 @@ fun InboxScreen(
     // Folder ids whose children are hidden; empty = everything expanded.
     var collapsedFolders by remember { mutableStateOf(emptySet<String>()) }
     val undo by viewModel.undo.collectAsStateWithLifecycle()
+    val pendingPurge by viewModel.pendingPurge.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
     val outboxFailure by viewModel.outboxFailure.collectAsStateWithLifecycle()
@@ -320,6 +323,16 @@ fun InboxScreen(
         val msg = outboxFailure ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(context.getString(R.string.inbox_send_failed, msg))
         viewModel.consumeSendFailure()
+    }
+    // Empty-trash hold-back: offer Undo until the purge fires (pending clears → dismiss).
+    LaunchedEffect(pendingPurge) {
+        val label = pendingPurge ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = label,
+            actionLabel = undoLabel,
+            duration = SnackbarDuration.Indefinite,
+        )
+        if (result == SnackbarResult.ActionPerformed) viewModel.undoEmptyTrash()
     }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -618,6 +631,7 @@ fun InboxScreen(
                             IconButton(onClick = { overflowOpen = true }) {
                                 Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
                             }
+                            val isTrash = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
                             DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.inbox_select_all)) },
@@ -629,11 +643,32 @@ fun InboxScreen(
                                     leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
                                     onClick = { viewModel.markAllRead(); overflowOpen = false },
                                 )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.inbox_scheduled)) },
-                                    leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
-                                    onClick = { overflowOpen = false; onOpenScheduled() },
-                                )
+                                // The Trash gets "Empty trash" (destructive → error red) instead of
+                                // the scheduled-messages shortcut.
+                                if (isTrash) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                stringResource(R.string.inbox_empty_trash),
+                                                color = MaterialTheme.colorScheme.error,
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Filled.DeleteSweep,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error,
+                                            )
+                                        },
+                                        onClick = { overflowOpen = false; viewModel.emptyTrash() },
+                                    )
+                                } else {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.inbox_scheduled)) },
+                                        leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                                        onClick = { overflowOpen = false; onOpenScheduled() },
+                                    )
+                                }
                             }
                         },
                         scrollBehavior = scrollBehavior,
@@ -1016,7 +1051,8 @@ private fun folderIcon(role: String?): ImageVector = when (role) {
     "sent" -> Icons.AutoMirrored.Filled.Send
     "trash" -> Icons.Filled.Delete
     "junk" -> Icons.Filled.Warning
-    else -> Icons.AutoMirrored.Filled.List
+    "archive" -> Icons.Filled.Archive
+    else -> Icons.Filled.Folder
 }
 
 /**

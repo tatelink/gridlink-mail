@@ -122,6 +122,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val _undo = MutableStateFlow<UndoAction?>(null)
     val undo: StateFlow<UndoAction?> = _undo.asStateFlow()
 
+    /** Non-null label while an "empty trash" purge is held back and can still be undone. */
+    private val _pendingPurge = MutableStateFlow<String?>(null)
+    val pendingPurge: StateFlow<String?> = _pendingPurge.asStateFlow()
+    private var purgeJob: Job? = null
+
     /** A transient message to surface in a snackbar (e.g. an action error). */
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
@@ -335,6 +340,36 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _undo.value = null
     }
 
+    /**
+     * Empty the current Trash folder. The view clears immediately but the actual
+     * permanent delete is held back for a few seconds so it can be undone (like the
+     * delete snackbar). If not undone, the messages are destroyed on the server.
+     */
+    fun emptyTrash() {
+        val trashId = (selection.value as? Sel.Folder)?.id ?: return
+        val credentials = store.load() ?: return
+        purgeJob?.cancel()
+        viewModelScope.launch { repo.cachedIds(listOf(trashId)).forEach { repo.evict(it) } }
+        _pendingPurge.value = getApplication<Application>().getString(R.string.status_trash_emptied)
+        purgeJob = viewModelScope.launch {
+            delay(PURGE_HOLD_BACK_MS)
+            _pendingPurge.value = null
+            runCatching { repo.emptyTrash(credentials, trashId) }
+                .onFailure {
+                    _message.value = it.message ?: getApplication<Application>().getString(R.string.status_action_failed)
+                    refresh() // purge failed — bring the rows back
+                }
+        }
+    }
+
+    /** Cancel a held-back trash purge and restore the rows (nothing was destroyed yet). */
+    fun undoEmptyTrash() {
+        purgeJob?.cancel()
+        purgeJob = null
+        _pendingPurge.value = null
+        refresh()
+    }
+
     /** Swipe action: toggle flag/star. */
     fun toggleFlag(email: Email) {
         viewModelScope.launch {
@@ -382,9 +417,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleSelect(emailId: String) {
-        _selectedIds.value = _selectedIds.value.toMutableSet().apply {
+        val next = _selectedIds.value.toMutableSet().apply {
             if (!add(emailId)) remove(emailId)
         }
+        _selectedIds.value = next
+        // Deselecting the last message leaves selection mode (otherwise the row stays
+        // in a 0-selected state where swipes hit the drawer instead of the message).
+        if (next.isEmpty()) _selectionActive.value = false
     }
 
     fun selectAll() {
@@ -494,6 +533,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         const val UNIFIED_LABEL = "All inboxes"
         const val SEARCH_DEBOUNCE_MS = 300L
         const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
+        const val PURGE_HOLD_BACK_MS = 5_000L
     }
 }
 
