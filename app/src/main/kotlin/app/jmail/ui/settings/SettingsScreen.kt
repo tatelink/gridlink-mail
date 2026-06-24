@@ -947,8 +947,12 @@ private fun AccountDetailScreen(
     var smtpPort by remember(accountId) { mutableStateOf(account.smtpPort.toString()) }
     var smtpSecurity by remember(accountId) { mutableStateOf(account.smtpSecurity) }
     val cacheCount by viewModel.cacheCount.collectAsStateWithLifecycle()
+    val connTest by viewModel.connTest.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    LaunchedEffect(accountId) { viewModel.loadCacheCount(accountId) }
+    LaunchedEffect(accountId) {
+        viewModel.loadCacheCount(accountId)
+        viewModel.clearConnTest()
+    }
 
     val canSave = username.isNotBlank() && if (isImap) {
         imapHost.isNotBlank() && imapPort.toIntOrNull() != null &&
@@ -992,7 +996,7 @@ private fun AccountDetailScreen(
                     SettingTextField(
                         label = stringResource(R.string.settings_imap_server_label),
                         value = imapHost,
-                        onValueChange = { imapHost = it; saved = false },
+                        onValueChange = { imapHost = it; saved = false; viewModel.clearConnTest() },
                         keyboardType = KeyboardType.Uri,
                     )
                     SettingTextField(
@@ -1031,7 +1035,7 @@ private fun AccountDetailScreen(
                     SettingTextField(
                         label = stringResource(R.string.settings_server_url_label),
                         value = server,
-                        onValueChange = { server = it; saved = false },
+                        onValueChange = { server = it; saved = false; viewModel.clearConnTest() },
                         keyboardType = KeyboardType.Uri,
                     )
                 }
@@ -1044,7 +1048,7 @@ private fun AccountDetailScreen(
                 SettingTextField(
                     label = stringResource(R.string.settings_password_label),
                     value = password,
-                    onValueChange = { password = it; saved = false },
+                    onValueChange = { password = it; saved = false; viewModel.clearConnTest() },
                     keyboardType = KeyboardType.Password,
                     isPassword = true,
                 )
@@ -1163,6 +1167,42 @@ private fun AccountDetailScreen(
                 }
             }
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        viewModel.testConnection(
+                            accountId, server, username, password, isImap,
+                            imapHost, imapPort.toIntOrNull(), imapSecurity,
+                            smtpHost, smtpPort.toIntOrNull(), smtpSecurity,
+                        )
+                    },
+                    enabled = canSave && connTest != AccountsViewModel.ConnTest.Testing,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Text(stringResource(R.string.settings_test_connection))
+                }
+                when (val t = connTest) {
+                    AccountsViewModel.ConnTest.Testing -> Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text(stringResource(R.string.settings_test_connecting), style = MaterialTheme.typography.bodyMedium)
+                    }
+                    AccountsViewModel.ConnTest.Ok -> Text(
+                        stringResource(R.string.settings_test_ok),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                    is AccountsViewModel.ConnTest.Failed -> Text(
+                        stringResource(R.string.settings_test_failed, t.message),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                    else -> Unit
+                }
                 Button(
                     onClick = {
                         // Keep blank identities out, and mirror the first signature to the

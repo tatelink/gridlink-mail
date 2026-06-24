@@ -496,6 +496,24 @@ class MailRepository(
         return BearerAuth(tokens.accessToken)
     }
 
+    /**
+     * Validate an account's credentials without persisting anything or disturbing
+     * the active session: JMAP fetches the session (and checks for a mail account),
+     * IMAP connects + authenticates. Returns success/failure for a "test connection".
+     */
+    suspend fun testConnection(credentials: AccountCredentials): Result<Unit> = runCatching {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            imap.testConnection(credentials)
+        } else {
+            val session = client.fetchSession(
+                Jmap.sessionUrlFor(credentials.server),
+                BasicAuth(credentials.username, credentials.password),
+            )
+            requireNotNull(session.mailAccountId()) { "This user has no JMAP mail account." }
+            Unit
+        }
+    }
+
     /** OAuth metadata for a host, or null if it advertises no usable device flow. */
     suspend fun discoverOAuth(host: String): OAuthMetadata? =
         oauthClient.discoverMetadata(host)?.takeIf { it.supportsDeviceFlow }

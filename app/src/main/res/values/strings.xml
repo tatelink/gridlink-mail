@@ -348,6 +348,10 @@
     <string name="settings_clear_account_cache">Clear this account\'s cache</string>
     <string name="settings_saved">Saved</string>
     <string name="settings_save">Save</string>
+    <string name="settings_test_connection">Test connection</string>
+    <string name="settings_test_connecting">Testing…</string>
+    <string name="settings_test_ok">Connection successful.</string>
+    <string name="settings_test_failed">Couldn\'t connect: %1$s</string>
     <string name="settings_sign_out">Sign out</string>
     <string name="settings_sign_out_title">Sign out of this account?</string>
     <string name="settings_sign_out_message">This account will be removed from Jmail and its downloaded mail cleared from this device.</string>

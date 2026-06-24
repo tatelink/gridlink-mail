@@ -445,4 +445,8 @@
     <string name="settings_sign_out_message">Ce compte sera supprimé de Jmail et les messages téléchargés seront effacés de cet appareil.</string>
     <string name="connect_welcome_title">Bienvenue dans Jmail</string>
     <string name="connect_welcome_subtitle">Une application e-mail privée et basée sur les standards. Ajoutez votre compte pour commencer.</string>
+    <string name="settings_test_connection">Tester la connexion</string>
+    <string name="settings_test_connecting">Test en cours…</string>
+    <string name="settings_test_ok">Connexion réussie.</string>
+    <string name="settings_test_failed">Connexion impossible : %1$s</string>
 </resources>

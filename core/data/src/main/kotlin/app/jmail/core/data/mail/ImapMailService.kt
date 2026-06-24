@@ -119,6 +119,11 @@ class ImapMailService(
     suspend fun appendDraft(credentials: AccountCredentials, draftsMailbox: String, message: OutgoingMessage) =
         withSession(credentials) { it.append(draftsMailbox, OutgoingMime.build(message), "\\Draft") }
 
+    /** Connect + authenticate (and list folders) to verify the account's IMAP settings. */
+    suspend fun testConnection(credentials: AccountCredentials) {
+        withSession(credentials) { it.listFolders() }
+    }
+
     /** Connect, list folders, and fetch the newest [limit] of the target folder. */
     suspend fun loadFolder(
         credentials: AccountCredentials,

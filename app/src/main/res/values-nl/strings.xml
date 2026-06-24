@@ -446,4 +446,8 @@
     <string name="settings_sign_out_message">Dit account wordt uit Jmail verwijderd en de gedownloade e-mail wordt van dit apparaat gewist.</string>
     <string name="connect_welcome_title">Welkom bij Jmail</string>
     <string name="connect_welcome_subtitle">Een privacyvriendelijke, op standaarden gebaseerde e-mailapp. Voeg je account toe om te beginnen.</string>
+    <string name="settings_test_connection">Verbinding testen</string>
+    <string name="settings_test_connecting">Testen…</string>
+    <string name="settings_test_ok">Verbinding geslaagd.</string>
+    <string name="settings_test_failed">Kon geen verbinding maken: %1$s</string>
 </resources>

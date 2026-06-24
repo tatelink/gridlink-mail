@@ -444,4 +444,8 @@
     <string name="settings_sign_out_message">Этот аккаунт будет удалён из Jmail, а загруженные письма — стёрты с этого устройства.</string>
     <string name="connect_welcome_title">Добро пожаловать в Jmail</string>
     <string name="connect_welcome_subtitle">Приватное почтовое приложение на открытых стандартах. Добавьте аккаунт, чтобы начать.</string>
+    <string name="settings_test_connection">Проверить подключение</string>
+    <string name="settings_test_connecting">Проверка…</string>
+    <string name="settings_test_ok">Подключение успешно.</string>
+    <string name="settings_test_failed">Не удалось подключиться: %1$s</string>
 </resources>
