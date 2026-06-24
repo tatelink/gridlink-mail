@@ -83,6 +83,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.runtime.Composable
@@ -123,6 +124,7 @@ import app.sterna.R
 import app.sterna.ui.components.EmailListItem
 import app.sterna.ui.components.EmptyArt
 import app.sterna.ui.components.EmptyState
+import app.sterna.ui.components.TernRefreshIndicator
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.components.accountColorOf
 import app.sterna.ui.components.verticalScrollbar
@@ -717,10 +719,19 @@ fun InboxScreen(
                 HorizontalDivider()
             }
 
+            val refreshState = rememberPullToRefreshState()
             PullToRefreshBox(
                 isRefreshing = ui.refreshing,
                 onRefresh = viewModel::refresh,
                 modifier = Modifier.fillMaxSize().padding(padding),
+                state = refreshState,
+                indicator = {
+                    TernRefreshIndicator(
+                        state = refreshState,
+                        isRefreshing = ui.refreshing,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
+                },
             ) {
                 val searchActive = ui.searching && ui.searchQuery.isNotBlank()
                 val refreshLoading = pagedEmails.loadState.refresh is LoadState.Loading
