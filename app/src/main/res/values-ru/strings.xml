@@ -338,6 +338,12 @@
     <string name="connect_discovering">Поиск вашего сервера…</string>
     <string name="connect_server_not_found">Не удалось найти сервер автоматически. Введите его ниже.</string>
     <string name="connect_bad_credentials">Неверный адрес электронной почты или пароль.</string>
+    <string name="connect_provider_preset">Быстрая настройка</string>
+    <string name="connect_provider_app_password_note">Некоторым провайдерам (Gmail, Yahoo, iCloud…) требуется пароль приложения, а не ваш обычный пароль.</string>
+    <string name="connect_imap_host_placeholder">imap.example.com</string>
+    <string name="connect_smtp_host_placeholder">smtp.example.com</string>
+    <string name="connect_password_show">Показать пароль</string>
+    <string name="connect_password_hide">Скрыть пароль</string>
     <string name="connect_oauth_button">Войти через OAuth (без пароля)</string>
     <string name="connect_oauth_unsupported">Этот сервер не поддерживает вход через OAuth. Используйте адрес электронной почты и пароль.</string>
     <string name="connect_oauth_failed">Не удалось начать вход через OAuth. Попробуйте ещё раз.</string>

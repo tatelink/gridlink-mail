@@ -11,14 +11,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -39,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -70,12 +78,13 @@ fun ConnectScreen(
         if (state is ConnectState.NeedsServer) showAdvanced = true
     }
 
-    var imapHost by rememberSaveable { mutableStateOf("mail.pinty.fr") }
+    var imapHost by rememberSaveable { mutableStateOf("") }
     var imapPort by rememberSaveable { mutableStateOf("993") }
     var imapSecurity by rememberSaveable { mutableStateOf(ConnectionSecurity.TLS) }
-    var smtpHost by rememberSaveable { mutableStateOf("mail.pinty.fr") }
+    var smtpHost by rememberSaveable { mutableStateOf("") }
     var smtpPort by rememberSaveable { mutableStateOf("465") }
     var smtpSecurity by rememberSaveable { mutableStateOf(ConnectionSecurity.TLS) }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
 
     val ready = username.isNotBlank() && password.isNotBlank() && when (protocol) {
         // JMAP server is optional — autodiscovery derives it from the email domain.
@@ -139,10 +148,36 @@ fun ConnectScreen(
                     )
                 }
             } else {
+                Text(stringResource(R.string.connect_provider_preset), style = MaterialTheme.typography.labelLarge)
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    MAIL_PROVIDERS.forEach { provider ->
+                        AssistChip(
+                            onClick = {
+                                imapHost = provider.imapHost
+                                imapPort = provider.imapPort
+                                imapSecurity = provider.imapSecurity
+                                smtpHost = provider.smtpHost
+                                smtpPort = provider.smtpPort
+                                smtpSecurity = provider.smtpSecurity
+                            },
+                            label = { Text(provider.name) },
+                        )
+                    }
+                }
+                Text(
+                    stringResource(R.string.connect_provider_app_password_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
                 Text(stringResource(R.string.connect_incoming_imap), style = MaterialTheme.typography.labelLarge)
                 HostPortRow(
                     host = imapHost, onHost = { imapHost = it },
                     port = imapPort, onPort = { imapPort = it },
+                    hostPlaceholder = stringResource(R.string.connect_imap_host_placeholder),
                 )
                 SecurityChips(imapSecurity) { imapSecurity = it }
 
@@ -150,6 +185,7 @@ fun ConnectScreen(
                 HostPortRow(
                     host = smtpHost, onHost = { smtpHost = it },
                     port = smtpPort, onPort = { smtpPort = it },
+                    hostPlaceholder = stringResource(R.string.connect_smtp_host_placeholder),
                 )
                 SecurityChips(smtpSecurity) { smtpSecurity = it }
             }
@@ -174,7 +210,17 @@ fun ConnectScreen(
                 onValueChange = { password = it },
                 label = { Text(stringResource(R.string.connect_password)) },
                 singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                            contentDescription = stringResource(
+                                if (passwordVisible) R.string.connect_password_hide else R.string.connect_password_show,
+                            ),
+                        )
+                    }
+                },
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Done,
@@ -274,13 +320,40 @@ private fun DeviceApprovalPanel(state: ConnectState.AwaitingApproval, onCancel: 
     }
 }
 
+/** A known mail provider's IMAP/SMTP settings, applied by the quick-setup chips. */
+private data class MailProvider(
+    val name: String,
+    val imapHost: String,
+    val imapPort: String,
+    val imapSecurity: ConnectionSecurity,
+    val smtpHost: String,
+    val smtpPort: String,
+    val smtpSecurity: ConnectionSecurity,
+)
+
+private val MAIL_PROVIDERS = listOf(
+    MailProvider("Gmail", "imap.gmail.com", "993", ConnectionSecurity.TLS, "smtp.gmail.com", "465", ConnectionSecurity.TLS),
+    MailProvider("Outlook", "outlook.office365.com", "993", ConnectionSecurity.TLS, "smtp.office365.com", "587", ConnectionSecurity.STARTTLS),
+    MailProvider("Yahoo", "imap.mail.yahoo.com", "993", ConnectionSecurity.TLS, "smtp.mail.yahoo.com", "465", ConnectionSecurity.TLS),
+    MailProvider("iCloud", "imap.mail.me.com", "993", ConnectionSecurity.TLS, "smtp.mail.me.com", "587", ConnectionSecurity.STARTTLS),
+    MailProvider("Fastmail", "imap.fastmail.com", "993", ConnectionSecurity.TLS, "smtp.fastmail.com", "465", ConnectionSecurity.TLS),
+    MailProvider("Proton Bridge", "127.0.0.1", "1143", ConnectionSecurity.STARTTLS, "127.0.0.1", "1025", ConnectionSecurity.STARTTLS),
+)
+
 @Composable
-private fun HostPortRow(host: String, onHost: (String) -> Unit, port: String, onPort: (String) -> Unit) {
+private fun HostPortRow(
+    host: String,
+    onHost: (String) -> Unit,
+    port: String,
+    onPort: (String) -> Unit,
+    hostPlaceholder: String = "",
+) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
             value = host,
             onValueChange = onHost,
             label = { Text(stringResource(R.string.connect_server)) },
+            placeholder = { if (hostPlaceholder.isNotEmpty()) Text(hostPlaceholder) },
             singleLine = true,
             modifier = Modifier.weight(1f),
         )

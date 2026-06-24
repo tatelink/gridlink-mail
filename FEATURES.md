@@ -115,7 +115,7 @@ The categories further down list the full feature set; this is the order of work
 
 - ✅ Encrypted account persistence (AndroidKeyStore)
 - ✅ Multiple accounts — add / switch / sign out, with migration
-- ✅ JMAP **and** IMAP/SMTP account setup (protocol picker; host/port/security)
+- ✅ JMAP **and** IMAP/SMTP account setup (protocol picker; host/port/security) — IMAP setup has quick-setup presets (Gmail, Outlook, Yahoo, iCloud, Fastmail, Proton Bridge) that prefill host/port/security, and password fields have a show/hide toggle
 - ✅ Account management panel — per-account editable server settings (protocol-aware: JMAP URL, or IMAP/SMTP host/port/security; username, password)
 - ✅ Optional account display name (falls back to the address when unset)
 - ✅ Onboarding via `/.well-known/jmap` autodiscovery — enter just email + password; Jmail probes the email domain's well-known endpoint (and mail./jmap. subdomains, following redirects) to find the JMAP server, with a manual-server fallback; 💡 DNS SRV (`_jmap._tcp`)

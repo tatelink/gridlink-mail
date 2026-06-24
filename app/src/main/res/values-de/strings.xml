@@ -338,6 +338,12 @@
     <string name="connect_discovering">Server wird gesucht…</string>
     <string name="connect_server_not_found">Dein Server konnte nicht automatisch gefunden werden. Gib ihn unten ein.</string>
     <string name="connect_bad_credentials">Falsche E-Mail-Adresse oder falsches Passwort.</string>
+    <string name="connect_provider_preset">Schnelleinrichtung</string>
+    <string name="connect_provider_app_password_note">Einige Anbieter (Gmail, Yahoo, iCloud…) benötigen ein App-spezifisches Passwort, nicht Ihr normales.</string>
+    <string name="connect_imap_host_placeholder">imap.example.com</string>
+    <string name="connect_smtp_host_placeholder">smtp.example.com</string>
+    <string name="connect_password_show">Passwort anzeigen</string>
+    <string name="connect_password_hide">Passwort ausblenden</string>
     <string name="connect_oauth_button">Mit OAuth anmelden (ohne Passwort)</string>
     <string name="connect_oauth_unsupported">Dieser Server unterstützt die OAuth-Anmeldung nicht. Verwende stattdessen E-Mail-Adresse und Passwort.</string>
     <string name="connect_oauth_failed">OAuth-Anmeldung konnte nicht gestartet werden. Versuche es erneut.</string>
