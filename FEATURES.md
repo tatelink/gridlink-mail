@@ -43,7 +43,8 @@ The categories further down list the full feature set; this is the order of work
 
 **Tier 4 — polish**
 - ✅ Richer search filters (from/subject/has-attachment/date, AND-combined); 💡 `SearchSnippet` highlights
-- ✅ Per-account colour (avatar + unified-inbox chip); ✅ accessibility pass v1 (screen-reader labels, font scaling); 💡 home-screen widget(s), fuller TalkBack audit
+- ✅ Sterna brand identity — Arctic (light) / Pelagic (dark) palette, a calm sea-teal action colour with a coral accent (the tern's beak); Material You is an opt-in toggle; coastal line-art empty states; calmer microcopy
+- ✅ Per-account colour (avatar + unified-inbox chip); ✅ accessibility pass v1 (screen-reader labels, font scaling, system-bar contrast); 💡 home-screen widget(s), fuller TalkBack audit
 - ✅ Bundled/grouped notifications (per-account summary) + quiet hours (silent nightly window)
 - ✅ Settings export/import (app preferences → JSON file via SAF; excludes accounts/credentials); ✅ `/.well-known/jmap` autodiscovery (email → server); ✅ OAuth2 device-flow sign-in (RFC 8628)
 
@@ -64,7 +65,7 @@ The categories further down list the full feature set; this is the order of work
 
 ## Reading & triage
 
-- ✅ Friendly empty states (mail icon + a Compose call-to-action when a folder has no messages); a brief welcome header on the first-run account setup
+- ✅ Friendly empty states — coastal line-art illustrations (a tern over the horizon for an empty inbox, a magnifier for search, a folder, a swept bin for the trash, a drifting cloud for offline), theme-aware and drawn from the Material colour scheme; a calm welcome on first-run setup ("Your email, finally yours.")
 - ✅ Reply-all / mass-send guard — sending to 5+ recipients (To+Cc+Bcc) asks for confirmation, with the count
 - ✅ Sign-out asks for confirmation before removing an account and clearing its cache
 - ✅ Inbox list and message view (HTML in a WebView, remote content blocked;
@@ -75,7 +76,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Folder navigation drawer; view any mailbox *(M3)*
 - ✅ ⭐ Conversation threading — JMAP native `Thread` objects. The list collapses a thread into one row with a message-count badge (Settings → Reading → Conversation view, on by default; toggle off for a flat list); opening a row shows the thread view. Grouping is done in SQL (representative = latest message, unread if any in the thread)
 - ✅ Pull-to-refresh
-- ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive
+- ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive; "Empty trash" (Trash overflow menu) purges the folder behind the same held-back Undo
 - ✅ Configurable swipe actions (left/right, in Settings → Reading)
 - ✅ Sort (newest/oldest, subject, sender, unread-first) + Mark-all-read
 - ✅ Multi-select (long-press / select-all): bulk read/unread toggle (keeps the
@@ -151,7 +152,7 @@ The categories further down list the full feature set; this is the order of work
 
 ## UX & accessibility
 
-- ✅ Material 3 / Material You dynamic colour, follows system theme
+- ✅ Material 3 with Sterna's own brand palette (Arctic light / Pelagic deep-teal dark) by default; Material You wallpaper colour is an opt-in toggle (Settings → Appearance); the system status/navigation-bar icons follow the in-app theme so they stay legible
 - ✅ Contact avatars / sender initials (monograms)
 - ✅ Settings hub (Appearance / Notifications / Privacy & Security / Storage), DataStore-backed; grouped into Accounts · App · "This account · <name>" so app-wide vs per-account (server-side) settings are clear at a glance
 - ✅ Storage screen — on-device cache usage (DB + attachments, per-account breakdown) + Clear cache

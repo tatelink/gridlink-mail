@@ -1,4 +1,8 @@
-# 🐦 Sterna Mail
+<p align="center">
+  <img src="docs/logo.png" width="104" alt="Sterna Mail logo">
+</p>
+
+# Sterna Mail
 
 [![CI](https://codeberg.org/emon/sterna-mail/actions/workflows/ci.yml/badge.svg?branch=main)](https://codeberg.org/emon/sterna-mail/actions)
 [![Latest release](https://img.shields.io/badge/download-preview%20APK-2F5E59)](https://codeberg.org/emon/sterna-mail/releases/latest)
