@@ -16,10 +16,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import app.sterna.ui.rememberMotionEnabled
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.res.stringResource
@@ -161,6 +170,21 @@ fun EmailListItem(
             val favLabel = stringResource(
                 if (email.isFlagged) R.string.a11y_unfavourite else R.string.a11y_favourite,
             )
+            // Micro-pop: favouriting springs the star and pops it to coral — the one
+            // place vivid coral is earned (a positive, deliberate action).
+            val motionOn = rememberMotionEnabled()
+            val pop = remember { Animatable(1f) }
+            var firstPass by remember { mutableStateOf(true) }
+            LaunchedEffect(email.isFlagged) {
+                if (firstPass) { firstPass = false; return@LaunchedEffect }
+                if (email.isFlagged && motionOn) {
+                    pop.snapTo(1.4f)
+                    pop.animateTo(
+                        1f,
+                        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+                    )
+                }
+            }
             Text(
                 text = if (email.isFlagged) "★" else "☆",
                 style = MaterialTheme.typography.titleLarge,
@@ -170,6 +194,7 @@ fun EmailListItem(
                     .clip(CircleShape)
                     .clickable(onClick = onToggleFavourite)
                     .padding(8.dp)
+                    .scale(pop.value)
                     .clearAndSetSemantics {
                         contentDescription = favLabel
                         role = Role.Button
