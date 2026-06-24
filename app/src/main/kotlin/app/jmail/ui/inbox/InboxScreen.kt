@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.MailOutline
@@ -128,6 +129,7 @@ fun InboxScreen(
     onCompose: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenScheduled: () -> Unit,
     accounts: List<app.jmail.core.data.account.StoredAccount>,
     currentAccountId: String,
     onSwitchAccount: (String) -> Unit,
@@ -458,10 +460,17 @@ fun InboxScreen(
                             }
                         },
                         title = {
+                            val searchRole = ui.mailboxes
+                                .firstOrNull { it.id == ui.selectedMailboxId }?.role
+                            val scopeLabel = if (ui.unified) {
+                                stringResource(R.string.inbox_all_inboxes)
+                            } else {
+                                mailboxDisplayName(searchRole, ui.mailboxName)
+                            }
                             TextField(
                                 value = ui.searchQuery,
                                 onValueChange = viewModel::setSearchQuery,
-                                placeholder = { Text(stringResource(R.string.inbox_search_mail)) },
+                                placeholder = { Text(stringResource(R.string.inbox_search_in, scopeLabel)) },
                                 singleLine = true,
                                 colors = TextFieldDefaults.colors(
                                     focusedContainerColor = Color.Transparent,
@@ -553,6 +562,11 @@ fun InboxScreen(
                                     text = { Text(stringResource(R.string.inbox_mark_all_read)) },
                                     leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
                                     onClick = { viewModel.markAllRead(); overflowOpen = false },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.inbox_scheduled)) },
+                                    leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                                    onClick = { overflowOpen = false; onOpenScheduled() },
                                 )
                             }
                         },

@@ -418,4 +418,14 @@
     <string name="notif_delete">Elimina</string>
     <string name="notif_reply">Rispondi</string>
     <string name="notif_reply_hint">Rispondi…</string>
+    <string name="compose_forgot_attachment_title">Hai dimenticato un allegato?</string>
+    <string name="compose_forgot_attachment_message">Il tuo messaggio menziona un allegato, ma non ne hai aggiunto nessuno.</string>
+    <string name="compose_forgot_attachment_send">Invia comunque</string>
+    <string name="compose_forgot_attachment_back">Torna indietro</string>
+    <string name="inbox_search_in">Cerca in %1$s</string>
+    <string name="inbox_scheduled">Messaggi programmati</string>
+    <string name="scheduled_title">Programmati</string>
+    <string name="scheduled_empty">Nessun messaggio programmato.</string>
+    <string name="scheduled_cancel">Annulla invio programmato</string>
+    <string name="scheduled_send_at">Invio %1$s</string>
 </resources>

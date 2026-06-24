@@ -87,7 +87,7 @@ The categories further down list the full feature set; this is the order of work
 ## Organisation & search
 
 - ✅ Mailbox listing
-- ✅ Server-side search — inline on the mailbox (search-as-you-type; JMAP query / IMAP SEARCH, with instant local-cache results)
+- ✅ Server-side search — inline on the mailbox (search-as-you-type; JMAP query / IMAP SEARCH, with instant local-cache results); the search field names its scope (current folder, or "All inboxes")
 - ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account; JMAP + IMAP)
 - ✅ Richer search filters (from, subject, has-attachment, date) — advanced panel in Search, JMAP Email/query AND filter; 💡 `SearchSnippet` highlights
 - ✅ Auto-create an Archive folder on first archive (when the account has none)
@@ -104,8 +104,8 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Inline images (`cid:`) rendered in the body (downloaded as data URIs)
 - 💡 Rich-text editor plus plain-text mode
 - ✅ Undo send (hold-back window) — held in an app-scoped outbox; 💡 full Outbox/retry
-- ✅ Schedule send — quick presets; persisted in Room, fired by WorkManager (survives app close); v1 carries no attachments
-- 💡 "Forgot attachment?" reminder
+- ✅ Schedule send — quick presets; persisted in Room, fired by WorkManager (survives app close); v1 carries no attachments. A "Scheduled" screen (inbox ⋮ → Scheduled messages) lists pending sends and cancels them
+- ✅ "Forgot attachment?" reminder — sending a message that mentions an attachment (in any of the 9 UI languages) with none added prompts to confirm
 - ✅ Multiple sending identities per account (name + address), **each with its own
   signature** (plain text or HTML, with HTML-file import); a "From" picker in compose
   chooses which to send as (matched to a server `Identity` for JMAP submission)

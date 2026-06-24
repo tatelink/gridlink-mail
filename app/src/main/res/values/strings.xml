@@ -26,6 +26,10 @@
     <string name="compose_discard_message">You haven\'t saved your changes.</string>
     <string name="compose_discard_save">Save draft</string>
     <string name="compose_discard_discard">Discard</string>
+    <string name="compose_forgot_attachment_title">Forgot an attachment?</string>
+    <string name="compose_forgot_attachment_message">Your message mentions an attachment, but you haven\'t added one.</string>
+    <string name="compose_forgot_attachment_send">Send anyway</string>
+    <string name="compose_forgot_attachment_back">Go back</string>
     <string name="schedule_in_1_hour">In 1 hour</string>
     <string name="schedule_this_evening">This evening, 6 PM</string>
     <string name="schedule_tomorrow_morning">Tomorrow, 8 AM</string>
@@ -60,6 +64,7 @@
     <string name="inbox_archive">Archive</string>
     <string name="inbox_close_search">Close search</string>
     <string name="inbox_search_mail">Search mail</string>
+    <string name="inbox_search_in">Search %1$s</string>
     <string name="inbox_clear">Clear</string>
     <string name="inbox_menu">Menu</string>
     <string name="inbox_unread_only">Unread only</string>
@@ -68,6 +73,11 @@
     <string name="inbox_more">More</string>
     <string name="inbox_select_all">Select all</string>
     <string name="inbox_mark_all_read">Mark all read</string>
+    <string name="inbox_scheduled">Scheduled messages</string>
+    <string name="scheduled_title">Scheduled</string>
+    <string name="scheduled_empty">No scheduled messages.</string>
+    <string name="scheduled_cancel">Cancel scheduled send</string>
+    <string name="scheduled_send_at">Sends %1$s</string>
     <string name="inbox_compose">Compose</string>
     <string name="inbox_no_results">No results</string>
     <string name="inbox_load_more_failed">Couldn\'t load more</string>

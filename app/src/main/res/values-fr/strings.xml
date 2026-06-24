@@ -418,4 +418,14 @@
     <string name="notif_delete">Supprimer</string>
     <string name="notif_reply">Répondre</string>
     <string name="notif_reply_hint">Répondre…</string>
+    <string name="compose_forgot_attachment_title">Pièce jointe oubliée ?</string>
+    <string name="compose_forgot_attachment_message">Votre message mentionne une pièce jointe, mais vous n\'en avez ajouté aucune.</string>
+    <string name="compose_forgot_attachment_send">Envoyer quand même</string>
+    <string name="compose_forgot_attachment_back">Revenir en arrière</string>
+    <string name="inbox_search_in">Rechercher dans %1$s</string>
+    <string name="inbox_scheduled">Messages programmés</string>
+    <string name="scheduled_title">Programmés</string>
+    <string name="scheduled_empty">Aucun message programmé.</string>
+    <string name="scheduled_cancel">Annuler l\'envoi programmé</string>
+    <string name="scheduled_send_at">Envoi %1$s</string>
 </resources>

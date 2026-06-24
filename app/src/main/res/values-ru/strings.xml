@@ -418,4 +418,14 @@
     <string name="notif_delete">Удалить</string>
     <string name="notif_reply">Ответить</string>
     <string name="notif_reply_hint">Ответить…</string>
+    <string name="compose_forgot_attachment_title">Забыли вложение?</string>
+    <string name="compose_forgot_attachment_message">В вашем сообщении упоминается вложение, но вы его не добавили.</string>
+    <string name="compose_forgot_attachment_send">Всё равно отправить</string>
+    <string name="compose_forgot_attachment_back">Вернуться</string>
+    <string name="inbox_search_in">Поиск в %1$s</string>
+    <string name="inbox_scheduled">Отложенные сообщения</string>
+    <string name="scheduled_title">Отложенные</string>
+    <string name="scheduled_empty">Нет отложенных сообщений.</string>
+    <string name="scheduled_cancel">Отменить отложенную отправку</string>
+    <string name="scheduled_send_at">Отправка %1$s</string>
 </resources>

@@ -12,8 +12,8 @@ android {
         applicationId = "app.jmail"
         minSdk = 26
         targetSdk = 36
-        versionCode = 88
-        versionName = "0.78.0"
+        versionCode = 89
+        versionName = "0.79.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

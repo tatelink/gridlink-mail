@@ -127,6 +127,36 @@ fun ComposeScreen(
     var showDiscard by remember { mutableStateOf(false) }
     val attemptClose = { if (dirty && !sending) showDiscard = true else onCancel() }
 
+    // "Forgot an attachment?" guard: the body/subject mentions one but none is added.
+    var showForgotAttachment by remember { mutableStateOf(false) }
+    val sendNow = { viewModel.send(to, cc, bcc, subject, body) }
+    val attemptSend = {
+        if (attachments.isEmpty() && mentionsAttachment("$subject\n$body")) {
+            showForgotAttachment = true
+        } else {
+            sendNow()
+        }
+    }
+
+    if (showForgotAttachment) {
+        AlertDialog(
+            onDismissRequest = { showForgotAttachment = false },
+            title = { Text(stringResource(R.string.compose_forgot_attachment_title)) },
+            text = { Text(stringResource(R.string.compose_forgot_attachment_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showForgotAttachment = false
+                    sendNow()
+                }) { Text(stringResource(R.string.compose_forgot_attachment_send)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showForgotAttachment = false }) {
+                    Text(stringResource(R.string.compose_forgot_attachment_back))
+                }
+            },
+        )
+    }
+
     BackHandler(enabled = !showDiscard) { attemptClose() }
 
     if (showDiscard) {
@@ -196,7 +226,7 @@ fun ComposeScreen(
                         }
                     }
                     IconButton(
-                        onClick = { viewModel.send(to, cc, bcc, subject, body) },
+                        onClick = attemptSend,
                         enabled = !sending && to.isNotBlank(),
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.compose_send))

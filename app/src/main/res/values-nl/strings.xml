@@ -418,4 +418,14 @@
     <string name="notif_delete">Verwijderen</string>
     <string name="notif_reply">Beantwoorden</string>
     <string name="notif_reply_hint">Beantwoorden…</string>
+    <string name="compose_forgot_attachment_title">Bijlage vergeten?</string>
+    <string name="compose_forgot_attachment_message">Je bericht vermeldt een bijlage, maar je hebt er geen toegevoegd.</string>
+    <string name="compose_forgot_attachment_send">Toch verzenden</string>
+    <string name="compose_forgot_attachment_back">Terug</string>
+    <string name="inbox_search_in">Zoeken in %1$s</string>
+    <string name="inbox_scheduled">Geplande berichten</string>
+    <string name="scheduled_title">Gepland</string>
+    <string name="scheduled_empty">Geen geplande berichten.</string>
+    <string name="scheduled_cancel">Geplande verzending annuleren</string>
+    <string name="scheduled_send_at">Verzendt %1$s</string>
 </resources>

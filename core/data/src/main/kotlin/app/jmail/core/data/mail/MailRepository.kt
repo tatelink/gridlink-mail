@@ -1044,6 +1044,9 @@ class MailRepository(
     /** All scheduled sends (e.g. to re-arm workers on boot). */
     suspend fun scheduledSends(): List<ScheduledSendEntity> = scheduledSendDao.all()
 
+    /** Observe the pending scheduled sends, newest send-time last. */
+    fun scheduledSendsFlow(): Flow<List<ScheduledSendEntity>> = scheduledSendDao.observeAll()
+
     /** Download an attachment's bytes for the current account. */
     suspend fun downloadAttachment(
         credentials: AccountCredentials,

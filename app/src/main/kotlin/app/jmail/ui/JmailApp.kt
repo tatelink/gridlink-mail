@@ -34,6 +34,7 @@ import app.jmail.ui.compose.ComposeScreen
 import app.jmail.ui.connect.ConnectScreen
 import app.jmail.ui.inbox.InboxScreen
 import app.jmail.ui.message.MessageScreen
+import app.jmail.ui.scheduled.ScheduledSendsScreen
 import app.jmail.ui.search.SearchScreen
 import app.jmail.ui.settings.SettingsScreen
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -130,6 +131,7 @@ private fun MainNavHost(
                 onCompose = { nav.navigate("compose") },
                 onOpenSettings = { nav.navigate("settings") },
                 onOpenSearch = { nav.navigate("search") },
+                onOpenScheduled = { nav.navigate("scheduled") },
                 accounts = accounts,
                 currentAccountId = currentAccountId,
                 onSwitchAccount = onSwitchAccount,
@@ -180,6 +182,9 @@ private fun MainNavHost(
                 onBack = { nav.popBackStack() },
                 onAccountsChanged = onAccountsChanged,
             )
+        }
+        composable("scheduled") {
+            ScheduledSendsScreen(onBack = { nav.popBackStack() })
         }
     }
 }
