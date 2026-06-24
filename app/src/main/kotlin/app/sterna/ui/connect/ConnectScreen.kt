@@ -50,11 +50,14 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.autofill.AutofillType
 import app.sterna.R
+import app.sterna.ui.components.autofill
 import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailProtocol
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun ConnectScreen(
     onConnected: () -> Unit,
@@ -216,7 +219,9 @@ fun ConnectScreen(
                 label = { Text(stringResource(R.string.connect_email_username)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().autofill(
+                    listOf(AutofillType.EmailAddress, AutofillType.Username),
+                ) { username = it },
             )
             OutlinedTextField(
                 value = password,
@@ -238,7 +243,7 @@ fun ConnectScreen(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Done,
                 ),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().autofill(listOf(AutofillType.Password)) { password = it },
             )
             val busy = state is ConnectState.Connecting || state is ConnectState.Discovering
             Button(
