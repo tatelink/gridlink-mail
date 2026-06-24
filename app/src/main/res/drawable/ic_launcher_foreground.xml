@@ -3,20 +3,17 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Envelope body (white), centred within the adaptive-icon safe zone. -->
+    <!-- A tern in flight (Sterna): wide swept wings, pointed tips, forked tail.
+         White silhouette, kept within the adaptive-icon safe zone. -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M33,40 h42 a7,7 0 0 1 7,7 v20 a7,7 0 0 1 -7,7 h-42 a7,7 0 0 1 -7,-7 v-20 a7,7 0 0 1 7,-7 z" />
-    <!-- Envelope flap (teal), a clean downward chevron at the top of the body. -->
-    <path
-        android:fillColor="#0E6E66"
-        android:pathData="M26,46 L54,56 L82,46 Z" />
-    <!-- Bold J monogram (teal) on the lower body, clear of the flap. -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#0E6E66"
-        android:strokeWidth="8"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M50,58 H66 M61,58 V67 A9,9 0 0 1 47,67" />
+        android:pathData="M20,54
+            C32,43 42,45 54,49
+            C66,45 76,43 88,54
+            C76,52 65,54 59,58
+            L58,73
+            L54,63
+            L50,73
+            L49,58
+            C43,54 32,52 20,54 Z" />
 </vector>
