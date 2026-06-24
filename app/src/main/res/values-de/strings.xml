@@ -441,8 +441,8 @@
     <string name="settings_image_allowlist_hint">sender@example.com</string>
     <string name="settings_sign_out_title">Von diesem Konto abmelden?</string>
     <string name="settings_sign_out_message">Dieses Konto wird aus Sterna Mail entfernt und die heruntergeladenen E-Mails werden von diesem Gerät gelöscht.</string>
-    <string name="connect_welcome_title">Willkommen bei Sterna Mail</string>
-    <string name="connect_welcome_subtitle">Eine private, auf Standards basierende E-Mail-App. Füge dein Konto hinzu, um zu beginnen.</string>
+    <string name="connect_welcome_title">Deine E-Mail, endlich in deiner Hand.</string>
+    <string name="connect_welcome_subtitle">Keine Werbung, kein Tracking. Auf dem Server deiner Wahl.</string>
     <string name="settings_test_connection">Verbindung testen</string>
     <string name="settings_test_connecting">Wird getestet…</string>
     <string name="settings_test_ok">Verbindung erfolgreich.</string>

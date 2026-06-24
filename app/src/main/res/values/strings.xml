@@ -393,7 +393,7 @@
     <!-- Connect / add account -->
     <string name="connect_add_account">Add account</string>
     <string name="connect_welcome_title">Your email, finally yours.</string>
-    <string name="connect_welcome_subtitle">Private, open, no lock-in. Add your account to get started.</string>
+    <string name="connect_welcome_subtitle">No ads, no tracking. On the server of your choice.</string>
     <string name="connect_protocol">Protocol</string>
     <string name="connect_jmap">JMAP</string>
     <string name="connect_imap_smtp">IMAP / SMTP</string>

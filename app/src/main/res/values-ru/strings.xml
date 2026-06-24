@@ -442,8 +442,8 @@
     <string name="settings_image_allowlist_hint">sender@example.com</string>
     <string name="settings_sign_out_title">Выйти из этого аккаунта?</string>
     <string name="settings_sign_out_message">Этот аккаунт будет удалён из Sterna Mail, а загруженные письма — стёрты с этого устройства.</string>
-    <string name="connect_welcome_title">Добро пожаловать в Sterna Mail</string>
-    <string name="connect_welcome_subtitle">Приватное почтовое приложение на открытых стандартах. Добавьте аккаунт, чтобы начать.</string>
+    <string name="connect_welcome_title">Ваша почта — наконец-то ваша.</string>
+    <string name="connect_welcome_subtitle">Без рекламы и слежки. На том сервере, который выберете вы.</string>
     <string name="settings_test_connection">Проверить подключение</string>
     <string name="settings_test_connecting">Проверка…</string>
     <string name="settings_test_ok">Подключение успешно.</string>

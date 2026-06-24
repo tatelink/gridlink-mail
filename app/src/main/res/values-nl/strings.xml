@@ -444,8 +444,8 @@
     <string name="settings_image_allowlist_hint">sender@example.com</string>
     <string name="settings_sign_out_title">Afmelden bij dit account?</string>
     <string name="settings_sign_out_message">Dit account wordt uit Sterna Mail verwijderd en de gedownloade e-mail wordt van dit apparaat gewist.</string>
-    <string name="connect_welcome_title">Welkom bij Sterna Mail</string>
-    <string name="connect_welcome_subtitle">Een privacyvriendelijke, op standaarden gebaseerde e-mailapp. Voeg je account toe om te beginnen.</string>
+    <string name="connect_welcome_title">Je e-mail, eindelijk van jou.</string>
+    <string name="connect_welcome_subtitle">Geen advertenties, geen tracking. Op de server die jij kiest.</string>
     <string name="settings_test_connection">Verbinding testen</string>
     <string name="settings_test_connecting">Testen…</string>
     <string name="settings_test_ok">Verbinding geslaagd.</string>
