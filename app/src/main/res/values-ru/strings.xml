@@ -457,4 +457,7 @@
     <string name="settings_account_notifications_section">Уведомления</string>
     <string name="settings_account_notifications_title">Уведомления о новых письмах</string>
     <string name="settings_account_notifications_subtitle">Показывать уведомления о новых письмах в этой учётной записи.</string>
+    <string name="settings_group_app">Приложение</string>
+    <string name="settings_group_current_account">Эта учётная запись · %1$s</string>
+    <string name="settings_group_current_account_generic">Эта учётная запись</string>
 </resources>

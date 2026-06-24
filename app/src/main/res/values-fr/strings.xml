@@ -458,4 +458,7 @@
     <string name="settings_account_notifications_section">Notifications</string>
     <string name="settings_account_notifications_title">Notifications de nouveaux messages</string>
     <string name="settings_account_notifications_subtitle">Afficher les notifications pour les nouveaux messages de ce compte.</string>
+    <string name="settings_group_app">Application</string>
+    <string name="settings_group_current_account">Ce compte · %1$s</string>
+    <string name="settings_group_current_account_generic">Ce compte</string>
 </resources>

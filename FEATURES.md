@@ -153,7 +153,7 @@ The categories further down list the full feature set; this is the order of work
 
 - ✅ Material 3 / Material You dynamic colour, follows system theme
 - ✅ Contact avatars / sender initials (monograms)
-- ✅ Settings hub (Appearance / Notifications / Privacy & Security / Storage), DataStore-backed
+- ✅ Settings hub (Appearance / Notifications / Privacy & Security / Storage), DataStore-backed; grouped into Accounts · App · "This account · <name>" so app-wide vs per-account (server-side) settings are clear at a glance
 - ✅ Storage screen — on-device cache usage (DB + attachments, per-account breakdown) + Clear cache
 - ✅ Attachment cache cap (LRU by size/age); sign-out purges that account's cached mail + attachments
 - ✅ Per-account sync window — messages to sync by age (30/90 days, 1 year) or count (50/200/500/all), default 90 days

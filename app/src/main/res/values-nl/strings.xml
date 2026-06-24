@@ -459,4 +459,7 @@
     <string name="settings_account_notifications_section">Meldingen</string>
     <string name="settings_account_notifications_title">Meldingen voor nieuwe e-mail</string>
     <string name="settings_account_notifications_subtitle">Toon meldingen voor nieuwe e-mail in dit account.</string>
+    <string name="settings_group_app">App</string>
+    <string name="settings_group_current_account">Dit account · %1$s</string>
+    <string name="settings_group_current_account_generic">Dit account</string>
 </resources>

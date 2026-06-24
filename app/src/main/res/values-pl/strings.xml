@@ -456,4 +456,7 @@
     <string name="settings_account_notifications_section">Powiadomienia</string>
     <string name="settings_account_notifications_title">Powiadomienia o nowej poczcie</string>
     <string name="settings_account_notifications_subtitle">Pokazuj powiadomienia o nowej poczcie na tym koncie.</string>
+    <string name="settings_group_app">Aplikacja</string>
+    <string name="settings_group_current_account">To konto · %1$s</string>
+    <string name="settings_group_current_account_generic">To konto</string>
 </resources>

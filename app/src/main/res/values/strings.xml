@@ -143,6 +143,9 @@
 
     <!-- Settings -->
     <string name="settings_hub_title">Settings</string>
+    <string name="settings_group_app">App</string>
+    <string name="settings_group_current_account">This account · %1$s</string>
+    <string name="settings_group_current_account_generic">This account</string>
     <string name="settings_back">Back</string>
     <string name="settings_cancel">Cancel</string>
     <string name="settings_clear">Clear</string>

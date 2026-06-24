@@ -121,6 +121,9 @@ fun SettingsScreen(
     val nav = rememberNavController()
     NavHost(navController = nav, startDestination = "hub") {
         composable("hub") {
+            val accounts by accountsViewModel.accounts.collectAsStateWithLifecycle()
+            val currentId by accountsViewModel.currentId.collectAsStateWithLifecycle()
+            val currentLabel = accounts.firstOrNull { it.id == currentId }?.label().orEmpty()
             SettingsHub(
                 onBack = onBack,
                 onOpenAccounts = { nav.navigate("accounts") },
@@ -132,6 +135,7 @@ fun SettingsScreen(
                 onOpenPrivacy = { nav.navigate("privacy") },
                 onOpenStorage = { nav.navigate("storage") },
                 onOpenBackup = { nav.navigate("backup") },
+                currentAccountLabel = currentLabel,
             )
         }
         composable("accounts") {
@@ -192,13 +196,6 @@ fun SettingsScreen(
     }
 }
 
-private data class HubCategory(
-    val icon: ImageVector,
-    val title: String,
-    val summary: String,
-    val onClick: () -> Unit,
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsHub(
@@ -212,72 +209,38 @@ private fun SettingsHub(
     onOpenPrivacy: () -> Unit,
     onOpenStorage: () -> Unit,
     onOpenBackup: () -> Unit,
+    currentAccountLabel: String,
 ) {
-    val categories = listOf(
-        HubCategory(
-            Icons.Filled.Person,
-            stringResource(R.string.settings_accounts_title),
-            stringResource(R.string.settings_accounts_summary),
-            onOpenAccounts,
-        ),
-        HubCategory(
-            Icons.Filled.Star,
-            stringResource(R.string.settings_appearance_title),
-            stringResource(R.string.settings_appearance_summary),
-            onOpenAppearance,
-        ),
-        HubCategory(
-            Icons.AutoMirrored.Filled.List,
-            stringResource(R.string.settings_reading_title),
-            stringResource(R.string.settings_reading_summary),
-            onOpenReading,
-        ),
-        HubCategory(
-            Icons.Filled.Notifications,
-            stringResource(R.string.settings_notifications_title),
-            stringResource(R.string.settings_notifications_summary),
-            onOpenNotifications,
-        ),
-        HubCategory(
-            Icons.Filled.BeachAccess,
-            stringResource(R.string.settings_vacation_title),
-            stringResource(R.string.settings_vacation_summary),
-            onOpenVacation,
-        ),
-        HubCategory(
-            Icons.Filled.FilterAlt,
-            stringResource(R.string.settings_filters_title),
-            stringResource(R.string.settings_filters_summary),
-            onOpenFilters,
-        ),
-        HubCategory(
-            Icons.Filled.Lock,
-            stringResource(R.string.settings_privacy_title),
-            stringResource(R.string.settings_privacy_summary),
-            onOpenPrivacy,
-        ),
-        HubCategory(
-            Icons.Filled.Storage,
-            stringResource(R.string.settings_storage_title),
-            stringResource(R.string.settings_storage_summary),
-            onOpenStorage,
-        ),
-        HubCategory(
-            Icons.Filled.Backup,
-            stringResource(R.string.settings_backup_title),
-            stringResource(R.string.settings_backup_summary),
-            onOpenBackup,
-        ),
-    )
     DetailScaffold(title = stringResource(R.string.settings_hub_title), onBack = onBack) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-            items(categories) { category ->
-                SettingsCategoryRow(
-                    icon = category.icon,
-                    title = category.title,
-                    summary = category.summary,
-                    onClick = category.onClick,
-                )
+        Column(
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
+        ) {
+            // Account management on top.
+            SettingsCategoryRow(
+                Icons.Filled.Person,
+                stringResource(R.string.settings_accounts_title),
+                stringResource(R.string.settings_accounts_summary),
+                onOpenAccounts,
+            )
+            // App-wide preferences.
+            SettingsSection(stringResource(R.string.settings_group_app)) {
+                SettingsCategoryRow(Icons.Filled.Star, stringResource(R.string.settings_appearance_title), stringResource(R.string.settings_appearance_summary), onOpenAppearance)
+                SettingsCategoryRow(Icons.AutoMirrored.Filled.List, stringResource(R.string.settings_reading_title), stringResource(R.string.settings_reading_summary), onOpenReading)
+                SettingsCategoryRow(Icons.Filled.Notifications, stringResource(R.string.settings_notifications_title), stringResource(R.string.settings_notifications_summary), onOpenNotifications)
+                SettingsCategoryRow(Icons.Filled.Lock, stringResource(R.string.settings_privacy_title), stringResource(R.string.settings_privacy_summary), onOpenPrivacy)
+                SettingsCategoryRow(Icons.Filled.Storage, stringResource(R.string.settings_storage_title), stringResource(R.string.settings_storage_summary), onOpenStorage)
+                SettingsCategoryRow(Icons.Filled.Backup, stringResource(R.string.settings_backup_title), stringResource(R.string.settings_backup_summary), onOpenBackup)
+            }
+            // Server-side settings that apply to the current account only — the header
+            // names it so it's clear you'd switch accounts to configure another.
+            val accountGroupTitle = if (currentAccountLabel.isNotBlank()) {
+                stringResource(R.string.settings_group_current_account, currentAccountLabel)
+            } else {
+                stringResource(R.string.settings_group_current_account_generic)
+            }
+            SettingsSection(accountGroupTitle) {
+                SettingsCategoryRow(Icons.Filled.BeachAccess, stringResource(R.string.settings_vacation_title), stringResource(R.string.settings_vacation_summary), onOpenVacation)
+                SettingsCategoryRow(Icons.Filled.FilterAlt, stringResource(R.string.settings_filters_title), stringResource(R.string.settings_filters_summary), onOpenFilters)
             }
         }
     }
