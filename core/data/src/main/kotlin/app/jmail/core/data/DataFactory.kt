@@ -1,6 +1,7 @@
 package app.jmail.core.data
 
 import android.content.Context
+import app.jmail.core.data.account.AccountStore
 import app.jmail.core.data.db.JmailDatabase
 import app.jmail.core.data.mail.ImapMailService
 import app.jmail.core.data.mail.MailRepository
@@ -17,7 +18,7 @@ object DataFactory {
         val storageRepository: StorageRepository,
     )
 
-    fun create(context: Context, client: JmapClient): DataLayer {
+    fun create(context: Context, client: JmapClient, accountStore: AccountStore): DataLayer {
         val appContext = context.applicationContext
         val database = JmailDatabase.build(appContext)
         val imapService = ImapMailService(ImapClient(), SmtpClient())
@@ -25,6 +26,7 @@ object DataFactory {
             mailRepository = MailRepository(
                 client, database.emailDao(), database.mailboxDao(), imapService,
                 database.scheduledSendDao(), database.snoozedDao(), database.recentContactDao(),
+                accountStore,
             ),
             storageRepository = StorageRepository(appContext, database.emailDao(), database.mailboxDao()),
         )

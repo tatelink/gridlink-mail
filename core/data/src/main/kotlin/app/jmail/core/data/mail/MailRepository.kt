@@ -10,6 +10,7 @@ import androidx.paging.RemoteMediator
 import androidx.paging.map
 import androidx.sqlite.db.SimpleSQLiteQuery
 import app.jmail.core.data.account.AccountCredentials
+import app.jmail.core.data.account.AccountStore
 import app.jmail.core.data.account.MailProtocol
 import app.jmail.core.data.filter.FilterRule
 import app.jmail.core.data.filter.SieveCodec
@@ -25,6 +26,12 @@ import app.jmail.core.data.db.EmailEntity
 import app.jmail.core.data.db.MailboxDao
 import app.jmail.core.data.settings.SortOrder
 import app.jmail.core.jmap.BasicAuth
+import app.jmail.core.jmap.BearerAuth
+import app.jmail.core.jmap.DeviceAuthorization
+import app.jmail.core.jmap.DeviceTokenResult
+import app.jmail.core.jmap.OAuthClient
+import app.jmail.core.jmap.OAuthMetadata
+import app.jmail.core.jmap.OAuthTokens
 import app.jmail.core.jmap.Jmap
 import app.jmail.core.jmap.JmapAuth
 import app.jmail.core.jmap.JmapClient
@@ -124,6 +131,8 @@ class MailRepository(
     private val scheduledSendDao: ScheduledSendDao,
     private val snoozedDao: SnoozedDao,
     private val recentContactDao: RecentContactDao,
+    private val accountStore: AccountStore,
+    private val oauthClient: OAuthClient = OAuthClient(),
 ) {
     private class Context(
         val credentials: AccountCredentials,
@@ -377,6 +386,69 @@ class MailRepository(
         return if (sawAuthFailure) DiscoveryResult.BadCredentials else DiscoveryResult.NotFound
     }
 
+    /**
+     * Build JMAP auth for [credentials]: Bearer for OAuth accounts (refreshing the
+     * access token first when it's missing or within 60s of expiry, then persisting
+     * the new tokens), Basic otherwise.
+     */
+    private suspend fun jmapAuth(credentials: AccountCredentials): JmapAuth {
+        val oauth = credentials.oauth ?: return BasicAuth(credentials.username, credentials.password)
+        val fresh = oauth.accessToken.isNotBlank() &&
+            oauth.accessExpiresAtMillis - System.currentTimeMillis() > 60_000
+        if (fresh) return BearerAuth(oauth.accessToken)
+        val tokens = oauthClient.refresh(oauth.tokenEndpoint, oauth.refreshToken, oauth.clientId)
+        val expiresAt = System.currentTimeMillis() + tokens.expiresIn * 1000
+        accountStore.updateOAuthTokens(
+            credentials.id,
+            accessToken = tokens.accessToken,
+            refreshToken = tokens.refreshToken.orEmpty(),
+            accessExpiresAtMillis = expiresAt,
+        )
+        return BearerAuth(tokens.accessToken)
+    }
+
+    /** OAuth metadata for a host, or null if it advertises no usable device flow. */
+    suspend fun discoverOAuth(host: String): OAuthMetadata? =
+        oauthClient.discoverMetadata(host)?.takeIf { it.supportsDeviceFlow }
+
+    /** Begin the device flow against [metadata] using Jmail's client id + scopes. */
+    suspend fun startDeviceAuthorization(metadata: OAuthMetadata): DeviceAuthorization =
+        oauthClient.startDeviceAuthorization(metadata, Jmap.OAUTH_CLIENT_ID, Jmap.OAUTH_SCOPE)
+
+    /** Poll the token endpoint once for a pending device authorization. */
+    suspend fun pollDeviceToken(metadata: OAuthMetadata, deviceCode: String): DeviceTokenResult =
+        oauthClient.pollDeviceToken(metadata, deviceCode, Jmap.OAUTH_CLIENT_ID)
+
+    /**
+     * Validate freshly granted OAuth [tokens] against the JMAP server at [host],
+     * then persist the account and prime its inbox cache. Throws (persisting
+     * nothing) if the token doesn't authenticate or the user has no mail account.
+     */
+    suspend fun addOAuthAccount(
+        host: String,
+        email: String,
+        metadata: OAuthMetadata,
+        tokens: OAuthTokens,
+        accountName: String,
+    ) {
+        val expiresAt = System.currentTimeMillis() + tokens.expiresIn * 1000
+        client.fetchSession(Jmap.sessionUrlFor(host), BearerAuth(tokens.accessToken)).mailAccountId()
+            ?: error("This user has no JMAP mail account.")
+        val id = accountStore.addOAuth(
+            server = host,
+            username = email,
+            accountName = accountName,
+            accessToken = tokens.accessToken,
+            refreshToken = tokens.refreshToken.orEmpty(),
+            accessExpiresAtMillis = expiresAt,
+            tokenEndpoint = metadata.tokenEndpoint,
+            clientId = Jmap.OAUTH_CLIENT_ID,
+        )
+        val credentials = accountStore.credentials(id) ?: error("Account could not be loaded after creation.")
+        val meta = refresh(credentials)
+        accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
+    }
+
     suspend fun refresh(
         credentials: AccountCredentials,
         mailboxId: String? = null,
@@ -386,7 +458,7 @@ class MailRepository(
         pruneBeforeMillis: Long? = null,
     ): MailboxMeta {
         if (credentials.protocol == MailProtocol.IMAP) return refreshImap(credentials, mailboxId, limit, pruneBeforeMillis)
-        val auth = BasicAuth(credentials.username, credentials.password)
+        val auth = jmapAuth(credentials)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
         val accountId = session.mailAccountId()
             ?: error("This user has no JMAP mail account.")
@@ -765,7 +837,7 @@ class MailRepository(
 
     /** Fetch a fresh session + mailboxes for [credentials] without touching the cached context. */
     private suspend fun resolve(credentials: AccountCredentials): Resolved {
-        val auth = BasicAuth(credentials.username, credentials.password)
+        val auth = jmapAuth(credentials)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
         val accountId = session.mailAccountId() ?: error("This user has no JMAP mail account.")
         val mailboxes = client.getMailboxes(session, accountId, auth)
@@ -1086,7 +1158,7 @@ class MailRepository(
     /** Establish (or reuse) a session + mailbox-role map for the credentials. */
     private suspend fun connect(credentials: AccountCredentials): Context {
         context?.let { if (it.credentials == credentials) return it }
-        val auth = BasicAuth(credentials.username, credentials.password)
+        val auth = jmapAuth(credentials)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
         val accountId = session.mailAccountId()
             ?: error("This user has no JMAP mail account.")

@@ -10,6 +10,12 @@ import app.jmail.core.data.account.ConnectionSecurity
 import app.jmail.core.data.account.MailEndpoint
 import app.jmail.core.data.account.MailProtocol
 import app.jmail.core.data.mail.MailRepository
+import app.jmail.core.jmap.DeviceAuthorization
+import app.jmail.core.jmap.DeviceTokenResult
+import app.jmail.core.jmap.Jmap
+import app.jmail.core.jmap.OAuthMetadata
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +29,12 @@ sealed interface ConnectState {
     data object Connected : ConnectState
     /** Autodiscovery found no server; the user must enter it manually. */
     data object NeedsServer : ConnectState
+    /** Device flow started: show the user code and wait for browser approval. */
+    data class AwaitingApproval(
+        val userCode: String,
+        val verificationUri: String,
+        val verificationUriComplete: String?,
+    ) : ConnectState
     data class Error(val message: String) : ConnectState
 }
 
@@ -32,6 +44,8 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
 
     private val _state = MutableStateFlow<ConnectState>(ConnectState.Idle)
     val state: StateFlow<ConnectState> = _state.asStateFlow()
+
+    private var oauthJob: Job? = null
 
     fun connect(server: String, username: String, password: String, accountName: String) {
         if (_state.value is ConnectState.Connecting || _state.value is ConnectState.Discovering) return
@@ -65,6 +79,88 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             }
         }
     }
+
+    /**
+     * OAuth device flow (RFC 8628): discover the OAuth server for the email's
+     * domain, start a device authorization, show the user code, then poll until
+     * the user approves in a browser. The password field is ignored.
+     */
+    fun connectOAuth(email: String, server: String, accountName: String) {
+        if (busy()) return
+        val emailTrim = email.trim()
+        // If the user entered a server (advanced), discover OAuth there; otherwise
+        // derive candidate hosts from the email domain.
+        val candidates = if (server.isNotBlank()) listOf(server.trim()) else Jmap.autodiscoverHosts(emailTrim)
+        _state.value = ConnectState.Discovering
+        oauthJob = viewModelScope.launch {
+            var metadata: OAuthMetadata? = null
+            var host: String? = null
+            for (h in candidates) {
+                metadata = runCatching { container.mailRepository.discoverOAuth(h) }.getOrNull()
+                if (metadata != null) { host = h; break }
+            }
+            if (metadata == null || host == null) {
+                _state.value = ConnectState.Error(string(R.string.connect_oauth_unsupported))
+                return@launch
+            }
+            val device = runCatching { container.mailRepository.startDeviceAuthorization(metadata) }.getOrNull()
+            if (device == null) {
+                _state.value = ConnectState.Error(string(R.string.connect_oauth_failed))
+                return@launch
+            }
+            _state.value = ConnectState.AwaitingApproval(
+                device.userCode, device.verificationUri, device.verificationUriComplete,
+            )
+            pollForToken(host, metadata, device, emailTrim, accountName)
+        }
+    }
+
+    private suspend fun pollForToken(
+        host: String,
+        metadata: OAuthMetadata,
+        device: DeviceAuthorization,
+        email: String,
+        accountName: String,
+    ) {
+        var interval = device.interval.coerceAtLeast(1).toLong()
+        val deadline = System.currentTimeMillis() + device.expiresIn * 1000L
+        while (System.currentTimeMillis() < deadline) {
+            delay(interval * 1000)
+            when (val result = container.mailRepository.pollDeviceToken(metadata, device.deviceCode)) {
+                is DeviceTokenResult.Success -> {
+                    _state.value = ConnectState.Connecting
+                    val outcome = runCatching {
+                        container.mailRepository.addOAuthAccount(host, email, metadata, result.tokens, accountName)
+                    }
+                    _state.value = outcome.fold(
+                        onSuccess = { ConnectState.Connected },
+                        onFailure = { ConnectState.Error(it.message ?: it.javaClass.simpleName) },
+                    )
+                    return
+                }
+                DeviceTokenResult.Pending -> Unit
+                DeviceTokenResult.SlowDown -> interval += 5
+                is DeviceTokenResult.Failed -> {
+                    _state.value = ConnectState.Error(string(R.string.connect_oauth_denied))
+                    return
+                }
+            }
+        }
+        _state.value = ConnectState.Error(string(R.string.connect_oauth_expired))
+    }
+
+    /** Cancel an in-progress device flow and return to the form. */
+    fun cancelOAuth() {
+        oauthJob?.cancel()
+        oauthJob = null
+        _state.value = ConnectState.Idle
+    }
+
+    private fun busy() = _state.value is ConnectState.Connecting ||
+        _state.value is ConnectState.Discovering ||
+        _state.value is ConnectState.AwaitingApproval
+
+    private fun string(resId: Int) = getApplication<Application>().getString(resId)
 
     /** Validate against [server], persist on success. Runs in the caller's coroutine. */
     private suspend fun finishJmapConnect(server: String, username: String, password: String, accountName: String) {

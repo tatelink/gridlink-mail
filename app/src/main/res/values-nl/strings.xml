@@ -338,6 +338,15 @@
     <string name="connect_discovering">Je server zoeken…</string>
     <string name="connect_server_not_found">Kon je server niet automatisch vinden. Voer deze hieronder in.</string>
     <string name="connect_bad_credentials">Onjuist e-mailadres of wachtwoord.</string>
+    <string name="connect_oauth_button">Inloggen met OAuth (geen wachtwoord)</string>
+    <string name="connect_oauth_unsupported">Deze server ondersteunt geen inloggen met OAuth. Gebruik in plaats daarvan e-mailadres en wachtwoord.</string>
+    <string name="connect_oauth_failed">Kan inloggen met OAuth niet starten. Probeer het opnieuw.</string>
+    <string name="connect_oauth_denied">Inloggen is geweigerd of geannuleerd.</string>
+    <string name="connect_oauth_expired">Het inlogverzoek is verlopen. Probeer het opnieuw.</string>
+    <string name="connect_oauth_step1">Open de onderstaande pagina en voer deze code in om in te loggen:</string>
+    <string name="connect_oauth_open_browser">Open de inlogpagina</string>
+    <string name="connect_oauth_waiting">Wachten tot je goedkeuring geeft in de browser…</string>
+    <string name="connect_oauth_cancel">Annuleren</string>
     <string name="connect_incoming_imap">Inkomend (IMAP)</string>
     <string name="connect_outgoing_smtp">Uitgaand (SMTP)</string>
     <string name="connect_account_name_optional">Accountnaam (optioneel)</string>

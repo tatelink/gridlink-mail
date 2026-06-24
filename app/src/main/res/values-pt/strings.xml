@@ -338,6 +338,15 @@
     <string name="connect_discovering">A localizar o seu servidor…</string>
     <string name="connect_server_not_found">Não foi possível encontrar o seu servidor automaticamente. Insira-o abaixo.</string>
     <string name="connect_bad_credentials">E-mail ou palavra-passe incorretos.</string>
+    <string name="connect_oauth_button">Iniciar sessão com OAuth (sem palavra-passe)</string>
+    <string name="connect_oauth_unsupported">Este servidor não suporta o início de sessão com OAuth. Utilize o e-mail e a palavra-passe.</string>
+    <string name="connect_oauth_failed">Não foi possível iniciar a sessão com OAuth. Tente novamente.</string>
+    <string name="connect_oauth_denied">O início de sessão foi recusado ou cancelado.</string>
+    <string name="connect_oauth_expired">O pedido de início de sessão expirou. Tente novamente.</string>
+    <string name="connect_oauth_step1">Para iniciar sessão, abra a página abaixo e introduza este código:</string>
+    <string name="connect_oauth_open_browser">Abrir a página de início de sessão</string>
+    <string name="connect_oauth_waiting">A aguardar a sua aprovação no navegador…</string>
+    <string name="connect_oauth_cancel">Cancelar</string>
     <string name="connect_incoming_imap">Entrada (IMAP)</string>
     <string name="connect_outgoing_smtp">Saída (SMTP)</string>
     <string name="connect_account_name_optional">Nome da conta (opcional)</string>

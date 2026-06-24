@@ -1,5 +1,7 @@
 package app.jmail.ui.connect
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -29,8 +31,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -88,6 +93,11 @@ fun ConnectScreen(
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            val awaiting = state as? ConnectState.AwaitingApproval
+            if (awaiting != null) {
+                DeviceApprovalPanel(awaiting, onCancel = viewModel::cancelOAuth)
+                return@Column
+            }
             Text(stringResource(R.string.connect_protocol), style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
@@ -200,6 +210,14 @@ fun ConnectScreen(
                 )
             }
 
+            if (protocol == MailProtocol.JMAP) {
+                TextButton(
+                    onClick = { viewModel.connectOAuth(username, server, accountName) },
+                    enabled = !busy && username.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(stringResource(R.string.connect_oauth_button)) }
+            }
+
             Spacer(Modifier.height(4.dp))
             when (val s = state) {
                 is ConnectState.Connecting, is ConnectState.Discovering -> CircularProgressIndicator()
@@ -216,6 +234,43 @@ fun ConnectScreen(
                 else -> Unit
             }
         }
+    }
+}
+
+/** Device-flow approval screen: show the user code + a button to open the browser. */
+@Composable
+private fun DeviceApprovalPanel(state: ConnectState.AwaitingApproval, onCancel: () -> Unit) {
+    val context = LocalContext.current
+    Spacer(Modifier.height(8.dp))
+    Text(
+        stringResource(R.string.connect_oauth_step1),
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Text(
+        state.userCode,
+        style = MaterialTheme.typography.headlineMedium,
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.Center,
+    )
+    Button(
+        onClick = {
+            val target = state.verificationUriComplete ?: state.verificationUri
+            runCatching {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(target)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text(stringResource(R.string.connect_oauth_open_browser)) }
+    Text(
+        stringResource(R.string.connect_oauth_waiting),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        CircularProgressIndicator(modifier = Modifier.height(20.dp).width(20.dp))
+        TextButton(onClick = onCancel) { Text(stringResource(R.string.connect_oauth_cancel)) }
     }
 }
 

@@ -15,7 +15,23 @@ data class MailEndpoint(
     val security: ConnectionSecurity,
 )
 
-/** A configured account plus its (decrypted) password, used to build auth. */
+/** How an account authenticates. */
+enum class AuthType { BASIC, OAUTH }
+
+/**
+ * OAuth material for an account (present when [AccountCredentials.oauth] is set).
+ * The refresh token is the long-lived secret (stored encrypted); the access token
+ * is short-lived and refreshed on demand.
+ */
+data class OAuthCredentials(
+    val accessToken: String,
+    val refreshToken: String,
+    val accessExpiresAtMillis: Long,
+    val tokenEndpoint: String,
+    val clientId: String,
+)
+
+/** A configured account plus its (decrypted) secret, used to build auth. */
 data class AccountCredentials(
     val server: String,
     val username: String,
@@ -24,6 +40,8 @@ data class AccountCredentials(
     val protocol: MailProtocol = MailProtocol.JMAP,
     val imap: MailEndpoint? = null,
     val smtp: MailEndpoint? = null,
+    /** Non-null for OAuth accounts; when set, prefer Bearer auth over the password. */
+    val oauth: OAuthCredentials? = null,
 )
 
 /**
@@ -94,6 +112,53 @@ class AccountStore(context: Context) {
         saveAccounts(accounts() + account)
         prefs.edit().putString(KEY_CURRENT, id).apply()
         return id
+    }
+
+    /**
+     * Add a JMAP account authenticated via OAuth and make it current. The refresh
+     * token (the long-lived secret) is encrypted into the password slot; the
+     * short-lived access token is cached in the account record. Returns its id.
+     */
+    fun addOAuth(
+        server: String,
+        username: String,
+        accountName: String,
+        accessToken: String,
+        refreshToken: String,
+        accessExpiresAtMillis: Long,
+        tokenEndpoint: String,
+        clientId: String,
+    ): String {
+        val id = UUID.randomUUID().toString()
+        writePassword(id, refreshToken)
+        val account = StoredAccount(
+            id = id,
+            server = server.trim(),
+            username = username.trim(),
+            accountName = accountName,
+            authType = AuthType.OAUTH,
+            oauthAccessToken = accessToken,
+            oauthAccessExpiresAt = accessExpiresAtMillis,
+            oauthTokenEndpoint = tokenEndpoint,
+            oauthClientId = clientId,
+        )
+        saveAccounts(accounts() + account)
+        prefs.edit().putString(KEY_CURRENT, id).apply()
+        return id
+    }
+
+    /**
+     * Persist freshly minted OAuth tokens after a refresh. A blank [refreshToken]
+     * keeps the stored one (some servers don't rotate it). No-op for unknown ids.
+     */
+    fun updateOAuthTokens(id: String, accessToken: String, refreshToken: String, accessExpiresAtMillis: Long) {
+        if (accounts().none { it.id == id }) return
+        if (refreshToken.isNotBlank()) writePassword(id, refreshToken)
+        saveAccounts(
+            accounts().map {
+                if (it.id == id) it.copy(oauthAccessToken = accessToken, oauthAccessExpiresAt = accessExpiresAtMillis) else it
+            },
+        )
     }
 
     /** Look up a single stored account by id. */
@@ -189,13 +254,26 @@ class AccountStore(context: Context) {
 
     fun credentials(id: String): AccountCredentials? {
         val account = accounts().firstOrNull { it.id == id } ?: return null
-        val password = readPassword(id) ?: return null
+        // For OAuth accounts the encrypted slot holds the refresh token, not a password.
+        val secret = readPassword(id) ?: return null
+        val oauth = if (account.authType == AuthType.OAUTH) {
+            OAuthCredentials(
+                accessToken = account.oauthAccessToken,
+                refreshToken = secret,
+                accessExpiresAtMillis = account.oauthAccessExpiresAt,
+                tokenEndpoint = account.oauthTokenEndpoint,
+                clientId = account.oauthClientId,
+            )
+        } else {
+            null
+        }
         return AccountCredentials(
             server = account.server,
             username = account.username,
-            password = password,
+            password = if (oauth == null) secret else "",
             id = id,
             protocol = account.protocol,
+            oauth = oauth,
             imap = if (account.protocol == MailProtocol.IMAP) {
                 MailEndpoint(account.imapHost, account.imapPort, account.imapSecurity)
             } else {

@@ -338,6 +338,15 @@
     <string name="connect_discovering">Поиск вашего сервера…</string>
     <string name="connect_server_not_found">Не удалось найти сервер автоматически. Введите его ниже.</string>
     <string name="connect_bad_credentials">Неверный адрес электронной почты или пароль.</string>
+    <string name="connect_oauth_button">Войти через OAuth (без пароля)</string>
+    <string name="connect_oauth_unsupported">Этот сервер не поддерживает вход через OAuth. Используйте адрес электронной почты и пароль.</string>
+    <string name="connect_oauth_failed">Не удалось начать вход через OAuth. Попробуйте ещё раз.</string>
+    <string name="connect_oauth_denied">Вход был отклонён или отменён.</string>
+    <string name="connect_oauth_expired">Срок действия запроса на вход истёк. Попробуйте ещё раз.</string>
+    <string name="connect_oauth_step1">Чтобы войти, откройте страницу ниже и введите этот код:</string>
+    <string name="connect_oauth_open_browser">Открыть страницу входа</string>
+    <string name="connect_oauth_waiting">Ожидание подтверждения в браузере…</string>
+    <string name="connect_oauth_cancel">Отмена</string>
     <string name="connect_incoming_imap">Входящий (IMAP)</string>
     <string name="connect_outgoing_smtp">Исходящий (SMTP)</string>
     <string name="connect_account_name_optional">Имя аккаунта (необязательно)</string>

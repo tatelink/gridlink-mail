@@ -19,7 +19,7 @@ class AppContainer(context: Context) {
     val accountStore: AccountStore = AccountStore(context.applicationContext)
     val settingsRepository: SettingsRepository = SettingsRepository(context.applicationContext)
     private val jmapClient: JmapClient = JmapClient()
-    private val dataLayer = DataFactory.create(context.applicationContext, jmapClient)
+    private val dataLayer = DataFactory.create(context.applicationContext, jmapClient, accountStore)
     val mailRepository: MailRepository = dataLayer.mailRepository
     val storageRepository: StorageRepository = dataLayer.storageRepository
     val appLock: AppLock = AppLock(accountStore)

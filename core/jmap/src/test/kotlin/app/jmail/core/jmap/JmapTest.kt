@@ -34,6 +34,21 @@ class JmapTest {
     }
 
     @Test
+    fun oauthMetadataUrlNormalisesInput() {
+        val expected = "https://mail.example.com/.well-known/oauth-authorization-server"
+        assertEquals(expected, Jmap.oauthMetadataUrlFor("mail.example.com"))
+        assertEquals(expected, Jmap.oauthMetadataUrlFor("https://mail.example.com/"))
+        // A host given as its JMAP well-known URL still yields the OAuth metadata URL.
+        assertEquals(expected, Jmap.oauthMetadataUrlFor("https://mail.example.com/.well-known/jmap"))
+    }
+
+    @Test
+    fun oauthScopeRequestsJmapAndOfflineAccess() {
+        assertTrue(Jmap.OAUTH_SCOPE.contains(Jmap.MAIL_CAPABILITY))
+        assertTrue(Jmap.OAUTH_SCOPE.contains("offline_access"))
+    }
+
+    @Test
     fun autodiscoverRejectsMalformedAddresses() {
         assertTrue(Jmap.autodiscoverHosts("").isEmpty())
         assertTrue(Jmap.autodiscoverHosts("no-at-sign").isEmpty())

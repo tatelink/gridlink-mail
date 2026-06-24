@@ -14,6 +14,19 @@ object Jmap {
     /** Well-known path for JMAP autodiscovery (RFC 8620 §2.2). */
     const val WELL_KNOWN_PATH = "/.well-known/jmap"
 
+    /** Well-known path for OAuth 2.0 authorization-server metadata (RFC 8414). */
+    const val OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server"
+
+    /**
+     * OAuth client id Jmail identifies as. Stalwart accepts an arbitrary id (no
+     * pre-registration); servers requiring dynamic registration can adopt it too.
+     */
+    const val OAUTH_CLIENT_ID = "jmail"
+
+    /** Scopes requested for the device flow: JMAP access + a refresh token. */
+    const val OAUTH_SCOPE =
+        "$CORE_CAPABILITY $MAIL_CAPABILITY $SUBMISSION_CAPABILITY offline_access"
+
     /**
      * Build a JMAP Session URL from user input. Accepts a bare host
      * ("mail.example.com"), a base URL, or a full well-known URL, and
@@ -38,5 +51,14 @@ object Jmap {
         val domain = email.substringAfter('@', "").trim().lowercase().removeSuffix(".")
         if (domain.isEmpty() || !domain.contains('.')) return emptyList()
         return listOf(domain, "mail.$domain", "jmap.$domain")
+    }
+
+    /** Build the OAuth metadata URL for a host (mirrors [sessionUrlFor]). */
+    fun oauthMetadataUrlFor(serverInput: String): String {
+        var s = serverInput.trim()
+        if (s.isEmpty()) return s
+        if (!s.startsWith("http://") && !s.startsWith("https://")) s = "https://$s"
+        s = s.removeSuffix("/").removeSuffix(WELL_KNOWN_PATH)
+        return if (s.endsWith(OAUTH_METADATA_PATH)) s else "$s$OAUTH_METADATA_PATH"
     }
 }

@@ -20,6 +20,14 @@ data class StoredAccount(
     /** Sending identities; empty means use a default derived from the account. */
     val identities: List<StoredIdentity> = emptyList(),
     val protocol: MailProtocol = MailProtocol.JMAP,
+    // OAuth (used only when authType == OAUTH; the refresh token is stored encrypted
+    // in the password slot). The access token is short-lived; cached to avoid a
+    // refresh on every cold start.
+    val authType: AuthType = AuthType.BASIC,
+    val oauthAccessToken: String = "",
+    val oauthAccessExpiresAt: Long = 0,
+    val oauthTokenEndpoint: String = "",
+    val oauthClientId: String = "",
     // IMAP/SMTP connection details (used only when protocol == IMAP).
     val imapHost: String = "",
     val imapPort: Int = 993,

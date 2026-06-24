@@ -338,6 +338,15 @@
     <string name="connect_discovering">Wyszukiwanie serwera…</string>
     <string name="connect_server_not_found">Nie udało się automatycznie znaleźć Twojego serwera. Wpisz go poniżej.</string>
     <string name="connect_bad_credentials">Nieprawidłowy adres e-mail lub hasło.</string>
+    <string name="connect_oauth_button">Zaloguj się przez OAuth (bez hasła)</string>
+    <string name="connect_oauth_unsupported">Ten serwer nie obsługuje logowania OAuth. Użyj adresu e-mail i hasła.</string>
+    <string name="connect_oauth_failed">Nie udało się rozpocząć logowania OAuth. Spróbuj ponownie.</string>
+    <string name="connect_oauth_denied">Logowanie zostało odrzucone lub anulowane.</string>
+    <string name="connect_oauth_expired">Żądanie logowania wygasło. Spróbuj ponownie.</string>
+    <string name="connect_oauth_step1">Aby się zalogować, otwórz poniższą stronę i wpisz ten kod:</string>
+    <string name="connect_oauth_open_browser">Otwórz stronę logowania</string>
+    <string name="connect_oauth_waiting">Oczekiwanie na zatwierdzenie w przeglądarce…</string>
+    <string name="connect_oauth_cancel">Anuluj</string>
     <string name="connect_incoming_imap">Przychodzące (IMAP)</string>
     <string name="connect_outgoing_smtp">Wychodzące (SMTP)</string>
     <string name="connect_account_name_optional">Nazwa konta (opcjonalnie)</string>

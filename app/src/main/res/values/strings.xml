@@ -341,6 +341,15 @@
     <string name="connect_discovering">Finding your server…</string>
     <string name="connect_server_not_found">Couldn\'t find your server automatically. Enter it below.</string>
     <string name="connect_bad_credentials">Wrong email or password.</string>
+    <string name="connect_oauth_button">Sign in with OAuth (no password)</string>
+    <string name="connect_oauth_unsupported">This server doesn\'t support OAuth sign-in. Use email and password instead.</string>
+    <string name="connect_oauth_failed">Couldn\'t start OAuth sign-in. Try again.</string>
+    <string name="connect_oauth_denied">Sign-in was declined or cancelled.</string>
+    <string name="connect_oauth_expired">The sign-in request expired. Try again.</string>
+    <string name="connect_oauth_step1">To sign in, open the page below and enter this code:</string>
+    <string name="connect_oauth_open_browser">Open the sign-in page</string>
+    <string name="connect_oauth_waiting">Waiting for you to approve in the browser…</string>
+    <string name="connect_oauth_cancel">Cancel</string>
     <string name="connect_incoming_imap">Incoming (IMAP)</string>
     <string name="connect_outgoing_smtp">Outgoing (SMTP)</string>
     <string name="connect_account_name_optional">Account name (optional)</string>

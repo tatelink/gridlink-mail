@@ -338,6 +338,15 @@
     <string name="connect_discovering">Ricerca del tuo server in corso…</string>
     <string name="connect_server_not_found">Impossibile trovare automaticamente il tuo server. Inseriscilo qui sotto.</string>
     <string name="connect_bad_credentials">Email o password errati.</string>
+    <string name="connect_oauth_button">Accedi con OAuth (senza password)</string>
+    <string name="connect_oauth_unsupported">Questo server non supporta l\'accesso OAuth. Usa invece email e password.</string>
+    <string name="connect_oauth_failed">Impossibile avviare l\'accesso OAuth. Riprova.</string>
+    <string name="connect_oauth_denied">L\'accesso è stato rifiutato o annullato.</string>
+    <string name="connect_oauth_expired">La richiesta di accesso è scaduta. Riprova.</string>
+    <string name="connect_oauth_step1">Per accedere, apri la pagina qui sotto e inserisci questo codice:</string>
+    <string name="connect_oauth_open_browser">Apri la pagina di accesso</string>
+    <string name="connect_oauth_waiting">In attesa della tua approvazione nel browser…</string>
+    <string name="connect_oauth_cancel">Annulla</string>
     <string name="connect_incoming_imap">In entrata (IMAP)</string>
     <string name="connect_outgoing_smtp">In uscita (SMTP)</string>
     <string name="connect_account_name_optional">Nome account (facoltativo)</string>
