@@ -72,7 +72,10 @@ class JmapClient internal constructor(
             httpClient.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    throw JmapException("Session request failed: HTTP ${response.code} ${response.message}")
+                    throw JmapException(
+                        "Session request failed: HTTP ${response.code} ${response.message}",
+                        httpCode = response.code,
+                    )
                 }
                 runCatching { json.decodeFromString<JmapSession>(body) }
                     .getOrElse { throw JmapException("Could not parse JMAP session", it) }

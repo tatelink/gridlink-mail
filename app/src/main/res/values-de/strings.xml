@@ -331,6 +331,13 @@
     <string name="connect_jmap">JMAP</string>
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">JMAP-Server</string>
+    <string name="connect_jmap_server_placeholder">mail.example.com</string>
+    <string name="connect_jmap_autodiscover_hint">Gib einfach deine E-Mail-Adresse und dein Passwort ein — Jmail findet deinen Server automatisch.</string>
+    <string name="connect_advanced_show">Erweiterte Einstellungen</string>
+    <string name="connect_advanced_hide">Erweiterte Einstellungen ausblenden</string>
+    <string name="connect_discovering">Server wird gesucht…</string>
+    <string name="connect_server_not_found">Dein Server konnte nicht automatisch gefunden werden. Gib ihn unten ein.</string>
+    <string name="connect_bad_credentials">Falsche E-Mail-Adresse oder falsches Passwort.</string>
     <string name="connect_incoming_imap">Eingehend (IMAP)</string>
     <string name="connect_outgoing_smtp">Ausgehend (SMTP)</string>
     <string name="connect_account_name_optional">Kontoname (optional)</string>

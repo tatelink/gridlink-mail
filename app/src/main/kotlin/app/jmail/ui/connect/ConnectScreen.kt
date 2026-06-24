@@ -2,6 +2,7 @@ package app.jmail.ui.connect
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,10 +54,16 @@ fun ConnectScreen(
     }
 
     var protocol by rememberSaveable { mutableStateOf(MailProtocol.JMAP) }
-    var server by rememberSaveable { mutableStateOf("mail.pinty.fr") }
+    var server by rememberSaveable { mutableStateOf("") }
+    var showAdvanced by rememberSaveable { mutableStateOf(false) }
     var accountName by rememberSaveable { mutableStateOf("") }
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+
+    // Autodiscovery couldn't find the server → reveal the manual server field.
+    LaunchedEffect(state) {
+        if (state is ConnectState.NeedsServer) showAdvanced = true
+    }
 
     var imapHost by rememberSaveable { mutableStateOf("mail.pinty.fr") }
     var imapPort by rememberSaveable { mutableStateOf("993") }
@@ -65,7 +73,8 @@ fun ConnectScreen(
     var smtpSecurity by rememberSaveable { mutableStateOf(ConnectionSecurity.TLS) }
 
     val ready = username.isNotBlank() && password.isNotBlank() && when (protocol) {
-        MailProtocol.JMAP -> server.isNotBlank()
+        // JMAP server is optional — autodiscovery derives it from the email domain.
+        MailProtocol.JMAP -> true
         MailProtocol.IMAP -> imapHost.isNotBlank() && imapPort.toIntOrNull() != null &&
             smtpHost.isNotBlank() && smtpPort.toIntOrNull() != null
     }
@@ -94,13 +103,31 @@ fun ConnectScreen(
             }
 
             if (protocol == MailProtocol.JMAP) {
-                OutlinedTextField(
-                    value = server,
-                    onValueChange = { server = it },
-                    label = { Text(stringResource(R.string.connect_jmap_server)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                Text(
+                    stringResource(R.string.connect_jmap_autodiscover_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                TextButton(
+                    onClick = { showAdvanced = !showAdvanced },
+                    contentPadding = PaddingValues(0.dp),
+                ) {
+                    Text(
+                        stringResource(
+                            if (showAdvanced) R.string.connect_advanced_hide else R.string.connect_advanced_show,
+                        ),
+                    )
+                }
+                if (showAdvanced) {
+                    OutlinedTextField(
+                        value = server,
+                        onValueChange = { server = it },
+                        label = { Text(stringResource(R.string.connect_jmap_server)) },
+                        placeholder = { Text(stringResource(R.string.connect_jmap_server_placeholder)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             } else {
                 Text(stringResource(R.string.connect_incoming_imap), style = MaterialTheme.typography.labelLarge)
                 HostPortRow(
@@ -144,10 +171,15 @@ fun ConnectScreen(
                 ),
                 modifier = Modifier.fillMaxWidth(),
             )
+            val busy = state is ConnectState.Connecting || state is ConnectState.Discovering
             Button(
                 onClick = {
                     if (protocol == MailProtocol.JMAP) {
-                        viewModel.connect(server, username, password, accountName)
+                        if (server.isBlank()) {
+                            viewModel.connectAuto(username, password, accountName)
+                        } else {
+                            viewModel.connect(server, username, password, accountName)
+                        }
                     } else {
                         viewModel.connectImap(
                             username, password, accountName,
@@ -156,21 +188,26 @@ fun ConnectScreen(
                         )
                     }
                 },
-                enabled = state !is ConnectState.Connecting && ready,
+                enabled = !busy && ready,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    if (state is ConnectState.Connecting) {
-                        stringResource(R.string.connect_connecting)
-                    } else {
-                        stringResource(R.string.connect_connect)
+                    when (state) {
+                        is ConnectState.Discovering -> stringResource(R.string.connect_discovering)
+                        is ConnectState.Connecting -> stringResource(R.string.connect_connecting)
+                        else -> stringResource(R.string.connect_connect)
                     },
                 )
             }
 
             Spacer(Modifier.height(4.dp))
             when (val s = state) {
-                is ConnectState.Connecting -> CircularProgressIndicator()
+                is ConnectState.Connecting, is ConnectState.Discovering -> CircularProgressIndicator()
+                is ConnectState.NeedsServer -> Text(
+                    text = stringResource(R.string.connect_server_not_found),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 is ConnectState.Error -> Text(
                     text = stringResource(R.string.connect_error, s.message),
                     color = MaterialTheme.colorScheme.error,

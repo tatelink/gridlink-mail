@@ -45,7 +45,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Richer search filters (from/subject/has-attachment/date, AND-combined); 💡 `SearchSnippet` highlights
 - ✅ Per-account colour (avatar + unified-inbox chip); 💡 home-screen widget(s); accessibility pass (TalkBack, font scaling)
 - ✅ Bundled/grouped notifications (per-account summary) + quiet hours (silent nightly window)
-- ✅ Settings export/import (app preferences → JSON file via SAF; excludes accounts/credentials); 💡 `/.well-known/jmap` autodiscovery + OAuth2
+- ✅ Settings export/import (app preferences → JSON file via SAF; excludes accounts/credentials); ✅ `/.well-known/jmap` autodiscovery (email → server); 💡 OAuth2
 
 ---
 
@@ -118,7 +118,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ JMAP **and** IMAP/SMTP account setup (protocol picker; host/port/security)
 - ✅ Account management panel — per-account editable server settings (protocol-aware: JMAP URL, or IMAP/SMTP host/port/security; username, password)
 - ✅ Optional account display name (falls back to the address when unset)
-- 💡 Onboarding via `/.well-known/jmap` autodiscovery; OAuth2 / Bearer auth
+- ✅ Onboarding via `/.well-known/jmap` autodiscovery — enter just email + password; Jmail probes the email domain's well-known endpoint (and mail./jmap. subdomains, following redirects) to find the JMAP server, with a manual-server fallback; 💡 DNS SRV (`_jmap._tcp`), OAuth2 / Bearer auth
 - ✅ Per-account colour coding (picker in account settings; tints the account avatar + the unified-inbox account chip)
 - ✅ Settings export / import — app preferences (appearance, reading, notifications, privacy, language) to/from a JSON file via the Storage Access Framework (Settings → Backup); accounts and passwords are excluded (device-bound encryption)
 

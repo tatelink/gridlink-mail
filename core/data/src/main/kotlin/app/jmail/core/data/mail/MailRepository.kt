@@ -28,6 +28,7 @@ import app.jmail.core.jmap.BasicAuth
 import app.jmail.core.jmap.Jmap
 import app.jmail.core.jmap.JmapAuth
 import app.jmail.core.jmap.JmapClient
+import app.jmail.core.jmap.JmapException
 import app.jmail.core.imap.MimeBody
 import app.jmail.core.imap.MimeParser
 import app.jmail.core.imap.OutgoingAttachment
@@ -340,6 +341,42 @@ class MailRepository(
      * Refresh the mailbox list and the emails of [mailboxId] (or the inbox when
      * null), updating the cache and the in-memory session context.
      */
+    /** Outcome of JMAP autodiscovery for an email address. */
+    sealed interface DiscoveryResult {
+        /** A server host responded and authenticated; store this as the account `server`. */
+        data class Found(val server: String) : DiscoveryResult
+        /** A server was reached but rejected the credentials (HTTP 401/403). */
+        data object BadCredentials : DiscoveryResult
+        /** No candidate host responded as a JMAP server. */
+        data object NotFound : DiscoveryResult
+    }
+
+    /**
+     * JMAP autodiscovery (RFC 8620 §2.2): probe the email domain's
+     * `/.well-known/jmap` (and conventional mail./jmap. subdomains) with the given
+     * credentials, returning the host whose session authenticates. A 401/403 from
+     * any reachable candidate means the server was found but the password is wrong
+     * — reported distinctly so the UI can give a precise error.
+     */
+    suspend fun discoverJmapServer(email: String, password: String): DiscoveryResult {
+        val hosts = Jmap.autodiscoverHosts(email)
+        if (hosts.isEmpty()) return DiscoveryResult.NotFound
+        val auth = BasicAuth(email.trim(), password)
+        var sawAuthFailure = false
+        for (host in hosts) {
+            try {
+                val session = client.fetchSession(Jmap.sessionUrlFor(host), auth)
+                if (session.mailAccountId() != null) return DiscoveryResult.Found(host)
+            } catch (e: JmapException) {
+                if (e.httpCode == 401 || e.httpCode == 403) sawAuthFailure = true
+                // Other failures (host unreachable, not JMAP): try the next candidate.
+            } catch (_: Throwable) {
+                // Transport error (DNS, TLS, timeout): try the next candidate.
+            }
+        }
+        return if (sawAuthFailure) DiscoveryResult.BadCredentials else DiscoveryResult.NotFound
+    }
+
     suspend fun refresh(
         credentials: AccountCredentials,
         mailboxId: String? = null,
