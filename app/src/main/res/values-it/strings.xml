@@ -463,4 +463,6 @@
     <string name="inbox_new_subfolder_in">Nuova sottocartella in %1$s</string>
     <string name="inbox_folder_expand">Espandi cartella</string>
     <string name="inbox_folder_collapse">Comprimi cartella</string>
+    <string name="a11y_favourite">Aggiungi ai preferiti</string>
+    <string name="a11y_unfavourite">Rimuovi dai preferiti</string>
 </resources>

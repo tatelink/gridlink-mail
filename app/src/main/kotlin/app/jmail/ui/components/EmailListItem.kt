@@ -22,9 +22,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.jmail.R
 import app.jmail.core.data.settings.ListDensity
 import app.jmail.core.jmap.model.Email
 import java.time.Instant
@@ -52,7 +58,7 @@ fun EmailListItem(
     unread: Boolean = !email.isSeen,
     threadCount: Int = 1,
 ) {
-    val senderName = email.from.firstOrNull()?.display() ?: "(unknown sender)"
+    val senderName = email.from.firstOrNull()?.display() ?: stringResource(R.string.message_unknown_sender)
     val density = LocalListDensity.current
     val rowPadding = when (density) {
         ListDensity.COMPACT -> 6.dp
@@ -95,7 +101,7 @@ fun EmailListItem(
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = email.subject?.takeIf { it.isNotBlank() } ?: "(no subject)",
+                    text = email.subject?.takeIf { it.isNotBlank() } ?: stringResource(R.string.message_no_subject),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -150,6 +156,11 @@ fun EmailListItem(
             }
         }
         if (onToggleFavourite != null) {
+            // The ★/☆ glyph is meaningless to a screen reader, so replace its
+            // semantics with a clear, state-aware label + button role.
+            val favLabel = stringResource(
+                if (email.isFlagged) R.string.a11y_unfavourite else R.string.a11y_favourite,
+            )
             Text(
                 text = if (email.isFlagged) "★" else "☆",
                 style = MaterialTheme.typography.titleLarge,
@@ -158,7 +169,11 @@ fun EmailListItem(
                 modifier = Modifier
                     .clip(CircleShape)
                     .clickable(onClick = onToggleFavourite)
-                    .padding(8.dp),
+                    .padding(8.dp)
+                    .clearAndSetSemantics {
+                        contentDescription = favLabel
+                        role = Role.Button
+                    },
             )
         }
     }

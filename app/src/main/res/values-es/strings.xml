@@ -463,4 +463,6 @@
     <string name="inbox_new_subfolder_in">Nueva subcarpeta en %1$s</string>
     <string name="inbox_folder_expand">Expandir carpeta</string>
     <string name="inbox_folder_collapse">Contraer carpeta</string>
+    <string name="a11y_favourite">Añadir a favoritos</string>
+    <string name="a11y_unfavourite">Quitar de favoritos</string>
 </resources>

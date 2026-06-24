@@ -465,4 +465,6 @@
     <string name="inbox_new_subfolder_in">Nouveau sous-dossier dans %1$s</string>
     <string name="inbox_folder_expand">Développer le dossier</string>
     <string name="inbox_folder_collapse">Réduire le dossier</string>
+    <string name="a11y_favourite">Ajouter aux favoris</string>
+    <string name="a11y_unfavourite">Retirer des favoris</string>
 </resources>

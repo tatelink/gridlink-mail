@@ -465,4 +465,6 @@
     <string name="inbox_new_subfolder_in">Nova subpasta em %1$s</string>
     <string name="inbox_folder_expand">Expandir pasta</string>
     <string name="inbox_folder_collapse">Recolher pasta</string>
+    <string name="a11y_favourite">Adicionar aos favoritos</string>
+    <string name="a11y_unfavourite">Remover dos favoritos</string>
 </resources>

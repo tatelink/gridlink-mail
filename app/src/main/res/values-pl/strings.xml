@@ -463,4 +463,6 @@
     <string name="inbox_new_subfolder_in">Nowy podfolder w %1$s</string>
     <string name="inbox_folder_expand">Rozwiń folder</string>
     <string name="inbox_folder_collapse">Zwiń folder</string>
+    <string name="a11y_favourite">Dodaj do ulubionych</string>
+    <string name="a11y_unfavourite">Usuń z ulubionych</string>
 </resources>

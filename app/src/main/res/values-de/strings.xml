@@ -463,4 +463,6 @@
     <string name="inbox_new_subfolder_in">Neuer Unterordner in %1$s</string>
     <string name="inbox_folder_expand">Ordner aufklappen</string>
     <string name="inbox_folder_collapse">Ordner zuklappen</string>
+    <string name="a11y_favourite">Zu Favoriten hinzufügen</string>
+    <string name="a11y_unfavourite">Aus Favoriten entfernen</string>
 </resources>

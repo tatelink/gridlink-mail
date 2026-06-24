@@ -43,7 +43,7 @@ The categories further down list the full feature set; this is the order of work
 
 **Tier 4 — polish**
 - ✅ Richer search filters (from/subject/has-attachment/date, AND-combined); 💡 `SearchSnippet` highlights
-- ✅ Per-account colour (avatar + unified-inbox chip); 💡 home-screen widget(s); accessibility pass (TalkBack, font scaling)
+- ✅ Per-account colour (avatar + unified-inbox chip); ✅ accessibility pass v1 (screen-reader labels, font scaling); 💡 home-screen widget(s), fuller TalkBack audit
 - ✅ Bundled/grouped notifications (per-account summary) + quiet hours (silent nightly window)
 - ✅ Settings export/import (app preferences → JSON file via SAF; excludes accounts/credentials); ✅ `/.well-known/jmap` autodiscovery (email → server); ✅ OAuth2 device-flow sign-in (RFC 8628)
 
@@ -164,7 +164,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Message text size (small / normal / large / huge) — scales the message-body WebView (Settings → Reading → Message)
 - ✅ Compact inbox top bar showing folder + account
 - 💡 Home-screen widget(s) (unread count / inbox)
-- 💡 Accessibility pass (TalkBack, font scaling)
+- ✅ Accessibility pass (v1): screen-reader labels for icon-only controls (e.g. the favourite star reads "Add/Remove from favourites" instead of the ★ glyph), decorative icons left unlabelled to avoid double-announcement, and text scales with the system font size (Compose sp); 💡 fuller TalkBack audit, large-touch-target review
 
 ## "Complete app" extras
 
