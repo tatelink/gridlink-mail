@@ -129,6 +129,7 @@ private fun MainNavHost(
                     nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}")
                 },
                 onCompose = { nav.navigate("compose") },
+                onReopenDraft = { nav.navigate("compose?restore=true") },
                 onOpenSettings = { nav.navigate("settings") },
                 onOpenSearch = { nav.navigate("search") },
                 onOpenScheduled = { nav.navigate("scheduled") },
@@ -156,11 +157,12 @@ private fun MainNavHost(
             )
         }
         composable(
-            route = "compose?replyTo={replyTo}&mode={mode}&accountId={accountId}",
+            route = "compose?replyTo={replyTo}&mode={mode}&accountId={accountId}&restore={restore}",
             arguments = listOf(
                 navArgument("replyTo") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("mode") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("restore") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
             ComposeScreen(
@@ -169,6 +171,7 @@ private fun MainNavHost(
                 replyTo = entry.arguments?.getString("replyTo")?.let { Uri.decode(it) },
                 mode = entry.arguments?.getString("mode"),
                 accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null },
+                restore = entry.arguments?.getString("restore") == "true",
             )
         }
         composable("search") {

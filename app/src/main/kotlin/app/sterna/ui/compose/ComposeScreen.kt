@@ -90,6 +90,7 @@ fun ComposeScreen(
     replyTo: String? = null,
     mode: String? = null,
     accountId: String? = null,
+    restore: Boolean = false,
     viewModel: ComposeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -104,7 +105,7 @@ fun ComposeScreen(
         uri?.let(viewModel::attach)
     }
 
-    LaunchedEffect(Unit) { viewModel.prepare(replyTo, mode, accountId) }
+    LaunchedEffect(Unit) { viewModel.prepare(replyTo, mode, accountId, restore) }
 
     // "Takes flight": when the message is queued (Done), play a brief lift-off — the
     // content rises and fades, a tern arcs off-screen — then navigate back. The send
@@ -144,6 +145,9 @@ fun ComposeScreen(
                 // Trailing ", " so prefilled (reply) recipients render as committed chips.
                 val prefilledTo = if (it.to.isNotBlank()) it.to.trimEnd(',', ';', ' ') + ", " else ""
                 to = prefilledTo
+                cc = if (it.cc.isNotBlank()) it.cc.trimEnd(',', ';', ' ') + ", " else ""
+                bcc = if (it.bcc.isNotBlank()) it.bcc.trimEnd(',', ';', ' ') + ", " else ""
+                if (it.expand) expanded = true
                 subject = it.subject
                 body = it.body
                 initialTo = prefilledTo

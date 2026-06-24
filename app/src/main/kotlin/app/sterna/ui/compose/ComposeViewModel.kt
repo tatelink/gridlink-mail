@@ -14,6 +14,7 @@ import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.db.ScheduledSendEntity
 import app.sterna.send.ScheduledSends
+import app.sterna.send.SendOutbox
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import kotlinx.coroutines.Dispatchers
@@ -33,8 +34,16 @@ sealed interface ComposeState {
     data class Error(val message: String) : ComposeState
 }
 
-/** Initial field values, e.g. for a reply or forward. */
-data class DraftFields(val to: String, val subject: String, val body: String)
+/** Initial field values, e.g. for a reply, forward, or a restored (undone-send) draft. */
+data class DraftFields(
+    val to: String,
+    val cc: String = "",
+    val bcc: String = "",
+    val subject: String,
+    val body: String,
+    /** Reveal the Cc/Bcc row (used when restoring a draft that had them). */
+    val expand: Boolean = false,
+)
 
 /** A "From" choice: one identity belonging to a specific account. */
 data class FromOption(val accountId: String, val identity: StoredIdentity)
@@ -154,7 +163,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /** Build initial fields when opening as a reply/reply-all/forward of [replyToId]. */
-    fun prepare(replyToId: String?, mode: String?, accountId: String? = null) {
+    fun prepare(replyToId: String?, mode: String?, accountId: String? = null, restore: Boolean = false) {
         if (prepared) return
         prepared = true
         this.accountId = accountId
@@ -164,6 +173,27 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         _fromOptions.value = options
         val preferred = accountId ?: store.load()?.id
         _selectedFrom.value = options.firstOrNull { it.accountId == preferred } ?: options.firstOrNull()
+
+        // Reopening an undone send: restore every field the user had, including the
+        // "From" identity, Cc/Bcc, and attachments, so nothing is lost.
+        if (restore) {
+            outbox.restored.value?.let { d ->
+                _prefill.value = DraftFields(
+                    to = d.to, cc = d.cc, bcc = d.bcc, subject = d.subject, body = d.body,
+                    expand = d.cc.isNotBlank() || d.bcc.isNotBlank(),
+                )
+                _attachments.value = d.attachments
+                inReplyTo = d.inReplyTo
+                references = d.references
+                val match = options.firstOrNull {
+                    it.accountId == d.fromAccountId && it.identity.email == d.fromIdentityEmail
+                } ?: options.firstOrNull { it.accountId == d.fromAccountId }
+                if (match != null) _selectedFrom.value = match
+            }
+            outbox.consumeRestored()
+            return
+        }
+
         if (replyToId == null) return
         viewModelScope.launch {
             try {
@@ -200,7 +230,17 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 val attachments = _attachments.value
                 val replyTo = inReplyTo
                 val refs = references
-                outbox.enqueue(label = getApplication<Application>().getString(R.string.status_message_sent)) {
+                // Keep the raw draft so undoing the send can reopen compose with it intact.
+                val draft = SendOutbox.ComposeDraft(
+                    to = to, cc = cc, bcc = bcc, subject = subject, body = body,
+                    fromAccountId = _selectedFrom.value?.accountId,
+                    fromIdentityEmail = identity?.email,
+                    attachments = attachments, inReplyTo = replyTo, references = refs,
+                )
+                outbox.enqueue(
+                    label = getApplication<Application>().getString(R.string.status_message_sent),
+                    draft = draft,
+                ) {
                     repo.send(
                         credentials, recipients, subject, textBody, replyTo, refs,
                         attachments, htmlBody, identity?.name, identity?.email, ccList, bccList,

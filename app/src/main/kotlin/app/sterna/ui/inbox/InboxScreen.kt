@@ -137,6 +137,8 @@ import kotlinx.coroutines.launch
 fun InboxScreen(
     onOpenEmail: (emailId: String, accountId: String?) -> Unit,
     onCompose: () -> Unit,
+    /** Reopen compose with the draft of a send the user just undid. */
+    onReopenDraft: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenScheduled: () -> Unit,
@@ -319,7 +321,10 @@ fun InboxScreen(
             actionLabel = undoLabel,
             duration = SnackbarDuration.Indefinite,
         )
-        if (result == SnackbarResult.ActionPerformed) viewModel.undoSend()
+        if (result == SnackbarResult.ActionPerformed) {
+            viewModel.undoSend()
+            onReopenDraft() // bring the held draft back to compose instead of dropping it
+        }
     }
     LaunchedEffect(outboxFailure) {
         val msg = outboxFailure ?: return@LaunchedEffect
