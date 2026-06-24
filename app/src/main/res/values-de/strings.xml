@@ -465,4 +465,7 @@
     <string name="inbox_folder_collapse">Ordner zuklappen</string>
     <string name="a11y_favourite">Zu Favoriten hinzufügen</string>
     <string name="a11y_unfavourite">Aus Favoriten entfernen</string>
+    <string name="settings_theme_sterna_caption">Sterna-Palette: Arctic (hell) · Pelagic (dunkel).</string>
+    <string name="settings_dynamic_color_title">Material You-Farben</string>
+    <string name="settings_dynamic_color_subtitle">Farben aus deinem Hintergrundbild statt der Sterna-Palette verwenden (Android 12+).</string>
 </resources>

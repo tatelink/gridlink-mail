@@ -466,4 +466,7 @@
     <string name="inbox_folder_collapse">Свернуть папку</string>
     <string name="a11y_favourite">Добавить в избранное</string>
     <string name="a11y_unfavourite">Удалить из избранного</string>
+    <string name="settings_theme_sterna_caption">Палитра Sterna: Arctic (светлая) · Pelagic (тёмная).</string>
+    <string name="settings_dynamic_color_title">Цвета Material You</string>
+    <string name="settings_dynamic_color_subtitle">Использовать цвета из ваших обоев вместо палитры Sterna (Android 12+).</string>
 </resources>

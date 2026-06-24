@@ -22,9 +22,10 @@ class MainActivity : AppCompatActivity() {
         val settings = application.container.settingsRepository
         setContent {
             val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
+            val dynamicColor by settings.dynamicColor.collectAsState(initial = false)
             val density by settings.listDensity.collectAsState(initial = ListDensity.NORMAL)
             val previewLines by settings.previewLines.collectAsState(initial = PreviewLines.ONE)
-            JmailTheme(themeMode = themeMode) {
+            JmailTheme(themeMode = themeMode, dynamicColor = dynamicColor) {
                 CompositionLocalProvider(
                     LocalListDensity provides density,
                     LocalPreviewLines provides previewLines,

@@ -51,6 +51,15 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_THEME_MODE] = mode.name }
     }
 
+    /** Use Material You (wallpaper-derived) colours instead of Sterna's brand palette. Off by default. */
+    val dynamicColor: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[KEY_DYNAMIC_COLOR] ?: false
+    }
+
+    suspend fun setDynamicColor(enabled: Boolean) {
+        dataStore.edit { it[KEY_DYNAMIC_COLOR] = enabled }
+    }
+
     val listDensity: Flow<ListDensity> = dataStore.data.map { prefs ->
         prefs[KEY_LIST_DENSITY]?.let { runCatching { ListDensity.valueOf(it) }.getOrNull() }
             ?: ListDensity.NORMAL
@@ -150,6 +159,7 @@ class SettingsRepository(context: Context) {
     /** Captures every DataStore-backed preference into a portable [SettingsBackup]. */
     suspend fun snapshotBackup(): SettingsBackup = SettingsBackup(
         themeMode = themeMode.first().name,
+        dynamicColor = dynamicColor.first(),
         listDensity = listDensity.first().name,
         previewLines = previewLines.first().name,
         swipeRight = swipeRightAction.first().name,
@@ -167,6 +177,7 @@ class SettingsRepository(context: Context) {
     /** Applies the DataStore-backed fields of [backup]; unknown enum values are skipped. */
     suspend fun restoreBackup(backup: SettingsBackup) {
         backup.themeMode?.let { v -> runCatching { ThemeMode.valueOf(v) }.getOrNull()?.let { setThemeMode(it) } }
+        backup.dynamicColor?.let { setDynamicColor(it) }
         backup.listDensity?.let { v -> runCatching { ListDensity.valueOf(v) }.getOrNull()?.let { setListDensity(it) } }
         backup.previewLines?.let { v -> runCatching { PreviewLines.valueOf(v) }.getOrNull()?.let { setPreviewLines(it) } }
         backup.swipeRight?.let { v -> runCatching { SwipeAction.valueOf(v) }.getOrNull()?.let { setSwipeRightAction(it) } }
@@ -226,6 +237,7 @@ class SettingsRepository(context: Context) {
         }
 
         private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
+        private val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         private val KEY_LIST_DENSITY = stringPreferencesKey("list_density")
         private val KEY_PREVIEW_LINES = stringPreferencesKey("preview_lines")
         private val KEY_SWIPE_RIGHT = stringPreferencesKey("swipe_right")

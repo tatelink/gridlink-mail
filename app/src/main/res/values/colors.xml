@@ -1,0 +1,5 @@
+<resources>
+    <!-- Pre-Compose window background, matching the Arctic (light) surface so launch
+         shows the brand colour instead of a white flash. Compose drives all in-app colour. -->
+    <color name="sterna_window_background">#F7F8FA</color>
+</resources>

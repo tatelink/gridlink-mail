@@ -468,4 +468,7 @@
     <string name="inbox_folder_collapse">Map samenvouwen</string>
     <string name="a11y_favourite">Aan favorieten toevoegen</string>
     <string name="a11y_unfavourite">Uit favorieten verwijderen</string>
+    <string name="settings_theme_sterna_caption">Sterna-palet: Arctic (licht) · Pelagic (donker).</string>
+    <string name="settings_dynamic_color_title">Material You-kleuren</string>
+    <string name="settings_dynamic_color_subtitle">Gebruik kleuren van je achtergrond in plaats van het palet van Sterna (Android 12+).</string>
 </resources>

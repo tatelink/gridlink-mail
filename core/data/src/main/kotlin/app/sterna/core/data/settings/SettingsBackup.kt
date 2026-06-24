@@ -15,6 +15,7 @@ import kotlinx.serialization.json.Json
 data class SettingsBackup(
     val version: Int = 1,
     val themeMode: String? = null,
+    val dynamicColor: Boolean? = null,
     val listDensity: String? = null,
     val previewLines: String? = null,
     val swipeRight: String? = null,

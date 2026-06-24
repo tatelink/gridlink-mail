@@ -465,4 +465,7 @@
     <string name="inbox_folder_collapse">Contraer carpeta</string>
     <string name="a11y_favourite">Añadir a favoritos</string>
     <string name="a11y_unfavourite">Quitar de favoritos</string>
+    <string name="settings_theme_sterna_caption">Paleta Sterna: Arctic (claro) · Pelagic (oscuro).</string>
+    <string name="settings_dynamic_color_title">Colores Material You</string>
+    <string name="settings_dynamic_color_subtitle">Usa los colores de tu fondo de pantalla en lugar de la paleta de Sterna (Android 12+).</string>
 </resources>

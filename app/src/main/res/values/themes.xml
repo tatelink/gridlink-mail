@@ -3,6 +3,6 @@
          An AppCompat parent is required because MainActivity extends AppCompatActivity
          (needed for AppCompatDelegate's per-app language support). -->
     <style name="Theme.Jmail" parent="Theme.AppCompat.Light.NoActionBar">
-        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:windowBackground">@color/sterna_window_background</item>
     </style>
 </resources>

@@ -1,0 +1,4 @@
+<resources>
+    <!-- Pre-Compose window background, matching the Pelagic (dark) surface. -->
+    <color name="sterna_window_background">#0E1A1F</color>
+</resources>

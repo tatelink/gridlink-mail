@@ -2,6 +2,7 @@ package app.sterna.ui.settings
 
 import app.sterna.contacts.AndroidContacts
 import android.Manifest
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -249,6 +250,7 @@ private fun SettingsHub(
 @Composable
 private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val dynamicColor by viewModel.dynamicColor.collectAsStateWithLifecycle()
     val density by viewModel.listDensity.collectAsStateWithLifecycle()
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -276,6 +278,22 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     selected = themeMode,
                     optionLabel = { themeLabel(context, it) },
                     onSelect = viewModel::setThemeMode,
+                )
+                // Material You (wallpaper colours) is opt-in; Sterna's brand palette is
+                // the default. Only meaningful on Android 12+, where dynamic colour exists.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    SettingSwitch(
+                        title = stringResource(R.string.settings_dynamic_color_title),
+                        subtitle = stringResource(R.string.settings_dynamic_color_subtitle),
+                        checked = dynamicColor,
+                        onCheckedChange = viewModel::setDynamicColor,
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.settings_theme_sterna_caption),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
             SettingsSection(stringResource(R.string.settings_message_list_section)) {

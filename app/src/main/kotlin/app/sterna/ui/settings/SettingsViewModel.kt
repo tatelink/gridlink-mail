@@ -44,6 +44,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         initialValue = ThemeMode.SYSTEM,
     )
 
+    val dynamicColor = settings.dynamicColor.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
     val listDensity = settings.listDensity.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -210,6 +216,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _appLockUnavailable.value = false
         appLock.setEnabled(value)
         _appLock.value = value
+    }
+
+    fun setDynamicColor(enabled: Boolean) {
+        viewModelScope.launch { settings.setDynamicColor(enabled) }
     }
 
     fun setThemeMode(mode: ThemeMode) {

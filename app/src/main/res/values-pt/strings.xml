@@ -467,4 +467,7 @@
     <string name="inbox_folder_collapse">Recolher pasta</string>
     <string name="a11y_favourite">Adicionar aos favoritos</string>
     <string name="a11y_unfavourite">Remover dos favoritos</string>
+    <string name="settings_theme_sterna_caption">Paleta Sterna: Arctic (claro) · Pelagic (escuro).</string>
+    <string name="settings_dynamic_color_title">Cores Material You</string>
+    <string name="settings_dynamic_color_subtitle">Usar as cores do seu papel de parede em vez da paleta da Sterna (Android 12+).</string>
 </resources>
