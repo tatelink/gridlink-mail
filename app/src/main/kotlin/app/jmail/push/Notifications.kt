@@ -18,6 +18,9 @@ object Notifications {
     const val CHANNEL_SERVICE = "push_service"
     const val SERVICE_ID = 1
 
+    /** New-mail notifications are grouped per account under this key prefix. */
+    private const val GROUP_PREFIX = "mail:"
+
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
@@ -46,7 +49,7 @@ object Notifications {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-    fun notifyNewMail(context: Context, email: Email, accountId: String) {
+    fun notifyNewMail(context: Context, email: Email, accountId: String, silent: Boolean = false) {
         val sender = email.from.firstOrNull()?.display() ?: context.getString(R.string.notif_new_message)
         val subject = email.subject?.takeIf { it.isNotBlank() } ?: context.getString(R.string.message_no_subject)
         val notifId = email.id.hashCode()
@@ -66,11 +69,54 @@ object Notifications {
             .setAutoCancel(true)
             .setContentIntent(pending)
             .setCategory(NotificationCompat.CATEGORY_EMAIL)
+            .setGroup(GROUP_PREFIX + accountId)
+            .setSilent(silent)
             .addAction(replyAction(context, email.id, accountId, notifId))
             .addAction(simpleAction(context, context.getString(R.string.notif_mark_read), NotificationActionReceiver.ACTION_MARK_READ, email.id, accountId, notifId))
             .addAction(simpleAction(context, context.getString(R.string.notif_delete), NotificationActionReceiver.ACTION_DELETE, email.id, accountId, notifId))
             .build()
         context.getSystemService(NotificationManager::class.java).notify(notifId, notification)
+    }
+
+    /**
+     * Posts the per-account group summary that bundles the account's individual
+     * new-mail notifications (Android collapses them under one expandable entry).
+     * [lines] are "sender — subject" strings for the latest batch.
+     */
+    fun notifyGroupSummary(
+        context: Context,
+        accountId: String,
+        accountLabel: String,
+        count: Int,
+        lines: List<String>,
+        silent: Boolean = false,
+    ) {
+        val title = context.getString(R.string.notif_group_count, count, accountLabel)
+        val style = NotificationCompat.InboxStyle().setBigContentTitle(title)
+        lines.take(6).forEach { style.addLine(it) }
+        if (lines.size > 6) style.setSummaryText("+${lines.size - 6}")
+        val intent = Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val pending = PendingIntent.getActivity(
+            context,
+            ("summary:" + accountId).hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_MAIL)
+            .setSmallIcon(R.drawable.ic_stat_mail)
+            .setContentTitle(accountLabel)
+            .setContentText(title)
+            .setStyle(style)
+            .setGroup(GROUP_PREFIX + accountId)
+            .setGroupSummary(true)
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .setSilent(silent)
+            .setCategory(NotificationCompat.CATEGORY_EMAIL)
+            .build()
+        context.getSystemService(NotificationManager::class.java)
+            .notify(("summary:" + accountId).hashCode(), notification)
     }
 
     private fun actionIntent(context: Context, action: String, emailId: String, accountId: String, notifId: Int) =

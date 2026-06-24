@@ -181,6 +181,13 @@
     <string name="settings_new_mail_section">Nuova posta</string>
     <string name="settings_push_all_title">Push per tutti gli account</string>
     <string name="settings_push_all_subtitle">Controlla la nuova posta su tutti gli account, non solo su quello attuale. Consuma più batteria e connessioni.</string>
+    <string name="settings_quiet_hours_section">Ore di silenzio</string>
+    <string name="settings_quiet_hours_title">Ore di silenzio</string>
+    <string name="settings_quiet_hours_subtitle">Durante questo intervallo la nuova posta arriva comunque, ma senza suono, vibrazione o avviso in primo piano.</string>
+    <string name="settings_quiet_hours_start">Inizio</string>
+    <string name="settings_quiet_hours_end">Fine</string>
+    <string name="notif_group_count">%1$d nuovi messaggi · %2$s</string>
+    <string name="notif_group_line">%1$s — %2$s</string>
     <string name="settings_vacation_screen_title">Risponditore automatico</string>
     <string name="settings_vacation_section">Risposta automatica</string>
     <string name="settings_vacation_account">Account: %1$s</string>

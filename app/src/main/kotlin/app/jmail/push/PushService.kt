@@ -9,16 +9,20 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import app.jmail.R
 import app.jmail.container
 import app.jmail.core.data.account.AccountCredentials
+import app.jmail.core.data.settings.SettingsRepository
 import app.jmail.core.jmap.model.Email
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.Closeable
+import java.util.Calendar
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -109,12 +113,37 @@ class PushService : Service() {
     }
 
     /** Post notifications for inbox messages not seen before, then advance the baseline. */
-    private fun notifyNew(credentials: AccountCredentials, emails: List<Email>) {
+    private suspend fun notifyNew(credentials: AccountCredentials, emails: List<Email>) {
         val known = baselines[credentials.id].orEmpty()
         val newMail = emails.filter { it.id !in known && !it.isSeen }
         Log.i(TAG, "${credentials.username}: ${emails.size} total, ${newMail.size} new unseen")
-        newMail.forEach { Notifications.notifyNewMail(this, it, credentials.id) }
+        if (newMail.isNotEmpty()) {
+            val silent = quietHoursActive()
+            newMail.forEach { Notifications.notifyNewMail(this, it, credentials.id, silent) }
+            // A group summary requires 2+ children to be shown by the system.
+            if (newMail.size >= 2) {
+                val lines = newMail.map { mail ->
+                    val sender = mail.from.firstOrNull()?.display() ?: getString(R.string.notif_new_message)
+                    val subject = mail.subject?.takeIf { it.isNotBlank() } ?: getString(R.string.message_no_subject)
+                    getString(R.string.notif_group_line, sender, subject)
+                }
+                Notifications.notifyGroupSummary(this, credentials.id, credentials.username, newMail.size, lines, silent)
+            }
+        }
         baselines[credentials.id] = emails.map { it.id }.toSet()
+    }
+
+    /** Whether new mail should be posted silently right now (quiet-hours window). */
+    private suspend fun quietHoursActive(): Boolean {
+        val settings = application.container.settingsRepository
+        if (!settings.quietHoursEnabled.first()) return false
+        val now = Calendar.getInstance()
+        val minutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+        return SettingsRepository.isWithinQuietHours(
+            minutes,
+            settings.quietHoursStart.first(),
+            settings.quietHoursEnd.first(),
+        )
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

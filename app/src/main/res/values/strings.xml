@@ -184,6 +184,13 @@
     <string name="settings_new_mail_section">New mail</string>
     <string name="settings_push_all_title">Push for all accounts</string>
     <string name="settings_push_all_subtitle">Watch every account for new mail, not just the current one. Uses more battery and connections.</string>
+    <string name="settings_quiet_hours_section">Quiet hours</string>
+    <string name="settings_quiet_hours_title">Quiet hours</string>
+    <string name="settings_quiet_hours_subtitle">During this window, new mail still arrives but without sound, vibration, or a heads-up.</string>
+    <string name="settings_quiet_hours_start">Start</string>
+    <string name="settings_quiet_hours_end">End</string>
+    <string name="notif_group_count">%1$d new messages · %2$s</string>
+    <string name="notif_group_line">%1$s — %2$s</string>
     <string name="settings_vacation_screen_title">Vacation responder</string>
     <string name="settings_vacation_section">Auto-reply</string>
     <string name="settings_vacation_account">Account: %1$s</string>

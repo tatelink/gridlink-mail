@@ -62,8 +62,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -394,6 +396,9 @@ private fun swipeLabel(context: Context, action: SwipeAction): String = when (ac
 @Composable
 private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val pushAll by viewModel.pushAllAccounts.collectAsStateWithLifecycle()
+    val quietEnabled by viewModel.quietHoursEnabled.collectAsStateWithLifecycle()
+    val quietStart by viewModel.quietHoursStart.collectAsStateWithLifecycle()
+    val quietEnd by viewModel.quietHoursEnd.collectAsStateWithLifecycle()
     DetailScaffold(title = stringResource(R.string.settings_notifications_screen_title), onBack = onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
@@ -406,7 +411,70 @@ private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit
                     onCheckedChange = viewModel::setPushAllAccounts,
                 )
             }
+            SettingsSection(stringResource(R.string.settings_quiet_hours_section)) {
+                SettingSwitch(
+                    title = stringResource(R.string.settings_quiet_hours_title),
+                    subtitle = stringResource(R.string.settings_quiet_hours_subtitle),
+                    checked = quietEnabled,
+                    onCheckedChange = viewModel::setQuietHoursEnabled,
+                )
+                if (quietEnabled) {
+                    TimePickerRow(
+                        label = stringResource(R.string.settings_quiet_hours_start),
+                        minutes = quietStart,
+                        onChange = viewModel::setQuietHoursStart,
+                    )
+                    TimePickerRow(
+                        label = stringResource(R.string.settings_quiet_hours_end),
+                        minutes = quietEnd,
+                        onChange = viewModel::setQuietHoursEnd,
+                    )
+                }
+            }
         }
+    }
+}
+
+private fun formatMinutes(minutes: Int): String = "%02d:%02d".format(minutes / 60, minutes % 60)
+
+/** A row showing a time (HH:mm) that opens a Material time picker when tapped. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimePickerRow(label: String, minutes: Int, onChange: (Int) -> Unit) {
+    var show by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { show = true }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Text(
+            formatMinutes(minutes),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+    if (show) {
+        val state = rememberTimePickerState(
+            initialHour = minutes / 60,
+            initialMinute = minutes % 60,
+            is24Hour = true,
+        )
+        AlertDialog(
+            onDismissRequest = { show = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    onChange(state.hour * 60 + state.minute)
+                    show = false
+                }) { Text(stringResource(R.string.settings_save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { show = false }) { Text(stringResource(R.string.settings_cancel)) }
+            },
+            text = { TimePicker(state = state) },
+        )
     }
 }
 

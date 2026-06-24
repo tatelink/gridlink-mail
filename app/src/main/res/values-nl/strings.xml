@@ -181,6 +181,13 @@
     <string name="settings_new_mail_section">Nieuwe e-mail</string>
     <string name="settings_push_all_title">Push voor alle accounts</string>
     <string name="settings_push_all_subtitle">Houd alle accounts in de gaten voor nieuwe e-mail, niet alleen het huidige. Gebruikt meer batterij en verbindingen.</string>
+    <string name="settings_quiet_hours_section">Stille uren</string>
+    <string name="settings_quiet_hours_title">Stille uren</string>
+    <string name="settings_quiet_hours_subtitle">Tijdens dit venster komt nieuwe e-mail nog steeds binnen, maar zonder geluid, trilling of pop-upmelding.</string>
+    <string name="settings_quiet_hours_start">Begin</string>
+    <string name="settings_quiet_hours_end">Einde</string>
+    <string name="notif_group_count">%1$d nieuwe berichten · %2$s</string>
+    <string name="notif_group_line">%1$s — %2$s</string>
     <string name="settings_vacation_screen_title">Vakantiebeantwoorder</string>
     <string name="settings_vacation_section">Automatisch antwoorden</string>
     <string name="settings_vacation_account">Account: %1$s</string>

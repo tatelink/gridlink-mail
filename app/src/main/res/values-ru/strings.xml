@@ -181,6 +181,13 @@
     <string name="settings_new_mail_section">Новые письма</string>
     <string name="settings_push_all_title">Push для всех аккаунтов</string>
     <string name="settings_push_all_subtitle">Отслеживать новые письма во всех аккаунтах, а не только в текущем. Расходует больше заряда батареи и подключений.</string>
+    <string name="settings_quiet_hours_section">Тихие часы</string>
+    <string name="settings_quiet_hours_title">Тихие часы</string>
+    <string name="settings_quiet_hours_subtitle">В этот период новые письма по-прежнему приходят, но без звука, вибрации и всплывающих уведомлений.</string>
+    <string name="settings_quiet_hours_start">Начало</string>
+    <string name="settings_quiet_hours_end">Конец</string>
+    <string name="notif_group_count">%1$d новых сообщений · %2$s</string>
+    <string name="notif_group_line">%1$s — %2$s</string>
     <string name="settings_vacation_screen_title">Автоответчик</string>
     <string name="settings_vacation_section">Автоответ</string>
     <string name="settings_vacation_account">Аккаунт: %1$s</string>

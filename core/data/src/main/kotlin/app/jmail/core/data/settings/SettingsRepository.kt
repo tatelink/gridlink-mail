@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -120,21 +121,62 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it.remove(KEY_IMAGE_ALLOWLIST) }
     }
 
+    /**
+     * Quiet hours — when on, new-mail notifications still arrive but are posted
+     * silently (no sound/vibration/heads-up) during the nightly window. Off by default.
+     */
+    val quietHoursEnabled: Flow<Boolean> = dataStore.data.map { it[KEY_QUIET_ENABLED] ?: false }
+
+    suspend fun setQuietHoursEnabled(enabled: Boolean) {
+        dataStore.edit { it[KEY_QUIET_ENABLED] = enabled }
+    }
+
+    /** Window start, minutes past midnight (default 22:00). */
+    val quietHoursStart: Flow<Int> = dataStore.data.map { it[KEY_QUIET_START] ?: DEFAULT_QUIET_START }
+
+    suspend fun setQuietHoursStart(minutes: Int) {
+        dataStore.edit { it[KEY_QUIET_START] = minutes.coerceIn(0, 24 * 60 - 1) }
+    }
+
+    /** Window end, minutes past midnight (default 07:00). */
+    val quietHoursEnd: Flow<Int> = dataStore.data.map { it[KEY_QUIET_END] ?: DEFAULT_QUIET_END }
+
+    suspend fun setQuietHoursEnd(minutes: Int) {
+        dataStore.edit { it[KEY_QUIET_END] = minutes.coerceIn(0, 24 * 60 - 1) }
+    }
+
     private fun swipeFlow(key: Preferences.Key<String>, default: SwipeAction): Flow<SwipeAction> =
         dataStore.data.map { prefs ->
             prefs[key]?.let { runCatching { SwipeAction.valueOf(it) }.getOrNull() } ?: default
         }
 
-    private companion object {
-        val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
-        val KEY_LIST_DENSITY = stringPreferencesKey("list_density")
-        val KEY_PREVIEW_LINES = stringPreferencesKey("preview_lines")
-        val KEY_SWIPE_RIGHT = stringPreferencesKey("swipe_right")
-        val KEY_SWIPE_LEFT = stringPreferencesKey("swipe_left")
-        val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
-        val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
-        val KEY_STRIP_TRACKING = booleanPreferencesKey("strip_tracking_params")
-        val KEY_CONFIRM_LINKS = booleanPreferencesKey("confirm_links")
-        val KEY_IMAGE_ALLOWLIST = stringSetPreferencesKey("image_allowlist")
+    companion object {
+        const val DEFAULT_QUIET_START = 22 * 60
+        const val DEFAULT_QUIET_END = 7 * 60
+
+        /**
+         * True if [nowMinutes] (minutes past midnight) falls in the quiet window
+         * [start, end), handling windows that wrap past midnight (e.g. 22:00→07:00).
+         * An empty window (start == end) is never quiet.
+         */
+        fun isWithinQuietHours(nowMinutes: Int, start: Int, end: Int): Boolean = when {
+            start == end -> false
+            start < end -> nowMinutes in start until end
+            else -> nowMinutes >= start || nowMinutes < end
+        }
+
+        private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
+        private val KEY_LIST_DENSITY = stringPreferencesKey("list_density")
+        private val KEY_PREVIEW_LINES = stringPreferencesKey("preview_lines")
+        private val KEY_SWIPE_RIGHT = stringPreferencesKey("swipe_right")
+        private val KEY_SWIPE_LEFT = stringPreferencesKey("swipe_left")
+        private val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
+        private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
+        private val KEY_STRIP_TRACKING = booleanPreferencesKey("strip_tracking_params")
+        private val KEY_CONFIRM_LINKS = booleanPreferencesKey("confirm_links")
+        private val KEY_IMAGE_ALLOWLIST = stringSetPreferencesKey("image_allowlist")
+        private val KEY_QUIET_ENABLED = booleanPreferencesKey("quiet_hours_enabled")
+        private val KEY_QUIET_START = intPreferencesKey("quiet_hours_start")
+        private val KEY_QUIET_END = intPreferencesKey("quiet_hours_end")
     }
 }

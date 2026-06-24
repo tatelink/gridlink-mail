@@ -44,7 +44,7 @@ The categories further down list the full feature set; this is the order of work
 **Tier 4 — polish**
 - ✅ Richer search filters (from/subject/has-attachment/date, AND-combined); 💡 `SearchSnippet` highlights
 - ✅ Per-account colour (avatar + unified-inbox chip); 💡 home-screen widget(s); accessibility pass (TalkBack, font scaling)
-- 💡 Bundled/grouped notifications + quiet hours
+- ✅ Bundled/grouped notifications (per-account summary) + quiet hours (silent nightly window)
 - 💡 `/.well-known/jmap` autodiscovery + OAuth2; settings export/import
 
 ---
@@ -129,8 +129,8 @@ The categories further down list the full feature set; this is the order of work
 - ✅ New-mail notifications (per current account, or all accounts via a setting)
 - ✅ Notification quick actions: reply (inline), mark read, delete
 - ✅ Push reconnects automatically when the connection drops (catches missed mail)
-- 💡 Bundled/grouped notifications per account
-- 💡 Quiet hours / Do-Not-Disturb windows
+- ✅ Bundled/grouped notifications per account — individual new-mail notifications collapse under a per-account summary
+- ✅ Quiet hours — a nightly window (Settings → Notifications) during which new mail still arrives but silently (no sound/vibration/heads-up)
 
 ## Privacy & security
 

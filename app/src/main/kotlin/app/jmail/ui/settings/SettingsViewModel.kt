@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.jmail.container
 import app.jmail.core.data.settings.ListDensity
 import app.jmail.core.data.settings.PreviewLines
+import app.jmail.core.data.settings.SettingsRepository
 import app.jmail.core.data.settings.SwipeAction
 import app.jmail.core.data.settings.ThemeMode
 import app.jmail.push.PushService
@@ -106,6 +107,36 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _pushAllAccounts.value = value
         // Reconnect push with the new scope.
         PushService.start(getApplication())
+    }
+
+    val quietHoursEnabled = settings.quietHoursEnabled.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
+    val quietHoursStart = settings.quietHoursStart.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = SettingsRepository.DEFAULT_QUIET_START,
+    )
+
+    val quietHoursEnd = settings.quietHoursEnd.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = SettingsRepository.DEFAULT_QUIET_END,
+    )
+
+    fun setQuietHoursEnabled(value: Boolean) {
+        viewModelScope.launch { settings.setQuietHoursEnabled(value) }
+    }
+
+    fun setQuietHoursStart(minutes: Int) {
+        viewModelScope.launch { settings.setQuietHoursStart(minutes) }
+    }
+
+    fun setQuietHoursEnd(minutes: Int) {
+        viewModelScope.launch { settings.setQuietHoursEnd(minutes) }
     }
 
     fun setAppLock(value: Boolean) {

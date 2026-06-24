@@ -181,6 +181,13 @@
     <string name="settings_new_mail_section">Correo nuevo</string>
     <string name="settings_push_all_title">Push para todas las cuentas</string>
     <string name="settings_push_all_subtitle">Vigilar todas las cuentas en busca de correo nuevo, no solo la actual. Consume más batería y conexiones.</string>
+    <string name="settings_quiet_hours_section">Horas de silencio</string>
+    <string name="settings_quiet_hours_title">Horas de silencio</string>
+    <string name="settings_quiet_hours_subtitle">Durante este intervalo, el correo nuevo sigue llegando pero sin sonido, vibración ni aviso emergente.</string>
+    <string name="settings_quiet_hours_start">Inicio</string>
+    <string name="settings_quiet_hours_end">Fin</string>
+    <string name="notif_group_count">%1$d mensajes nuevos · %2$s</string>
+    <string name="notif_group_line">%1$s — %2$s</string>
     <string name="settings_vacation_screen_title">Respuesta de vacaciones</string>
     <string name="settings_vacation_section">Respuesta automática</string>
     <string name="settings_vacation_account">Cuenta: %1$s</string>
