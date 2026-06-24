@@ -99,7 +99,7 @@ The categories further down list the full feature set; this is the order of work
 
 - ✅ Compose and send (JMAP `EmailSubmission/set`, or SMTP submit + APPEND-to-Sent for IMAP)
 - ✅ Reply / reply-all / forward with quoting (threaded via `inReplyTo`/`references`)
-- ✅ Save drafts (JMAP, or IMAP APPEND to Drafts)
+- ✅ Save drafts (JMAP, or IMAP APPEND to Drafts); closing compose with unsaved edits prompts to save the draft, discard, or keep editing (intercepts the Close button and system back)
 - ✅ Attachments: pick & send, view/download/open incoming (JMAP blobs / IMAP multipart MIME + BODY-section fetch)
 - ✅ Inline images (`cid:`) rendered in the body (downloaded as data URIs)
 - 💡 Rich-text editor plus plain-text mode

@@ -22,6 +22,10 @@
     <string name="compose_body_placeholder">E-Mail verfassen</string>
     <string name="compose_could_not_send">Senden fehlgeschlagen: %1$s</string>
     <string name="compose_scheduled_toast">Geplant — %1$s</string>
+    <string name="compose_discard_title">Nachricht verwerfen?</string>
+    <string name="compose_discard_message">Du hast deine Änderungen nicht gespeichert.</string>
+    <string name="compose_discard_save">Entwurf speichern</string>
+    <string name="compose_discard_discard">Verwerfen</string>
     <string name="schedule_in_1_hour">In 1 Stunde</string>
     <string name="schedule_this_evening">Heute Abend, 18 Uhr</string>
     <string name="schedule_tomorrow_morning">Morgen, 8 Uhr</string>

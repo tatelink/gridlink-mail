@@ -1,6 +1,7 @@
 package app.jmail.ui.compose
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -92,6 +94,10 @@ fun ComposeScreen(
     var body by rememberSaveable { mutableStateOf("") }
     var expanded by rememberSaveable { mutableStateOf(false) }
     var applied by rememberSaveable { mutableStateOf(false) }
+    // Baseline to detect unsaved edits (set from the prefill for replies/forwards).
+    var initialTo by rememberSaveable { mutableStateOf("") }
+    var initialSubject by rememberSaveable { mutableStateOf("") }
+    var initialBody by rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(prefill) {
         prefill?.let {
@@ -99,6 +105,9 @@ fun ComposeScreen(
                 to = it.to
                 subject = it.subject
                 body = it.body
+                initialTo = it.to
+                initialSubject = it.subject
+                initialBody = it.body
                 applied = true
             }
         }
@@ -112,6 +121,34 @@ fun ComposeScreen(
 
     val sending = state is ComposeState.Sending
 
+    // Unsaved-changes guard: prompt before discarding non-empty, unsent edits.
+    val dirty = to != initialTo || cc.isNotBlank() || bcc.isNotBlank() ||
+        subject != initialSubject || body != initialBody || attachments.isNotEmpty()
+    var showDiscard by remember { mutableStateOf(false) }
+    val attemptClose = { if (dirty && !sending) showDiscard = true else onCancel() }
+
+    BackHandler(enabled = !showDiscard) { attemptClose() }
+
+    if (showDiscard) {
+        AlertDialog(
+            onDismissRequest = { showDiscard = false },
+            title = { Text(stringResource(R.string.compose_discard_title)) },
+            text = { Text(stringResource(R.string.compose_discard_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDiscard = false
+                    viewModel.saveDraft(to, cc, bcc, subject, body)
+                }) { Text(stringResource(R.string.compose_discard_save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showDiscard = false
+                    onCancel()
+                }) { Text(stringResource(R.string.compose_discard_discard)) }
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -119,7 +156,7 @@ fun ComposeScreen(
                     Text(stringResource(if (replyTo != null) R.string.compose_title_reply else R.string.compose_title_new))
                 },
                 navigationIcon = {
-                    IconButton(onClick = onCancel) {
+                    IconButton(onClick = attemptClose) {
                         Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.compose_discard))
                     }
                 },

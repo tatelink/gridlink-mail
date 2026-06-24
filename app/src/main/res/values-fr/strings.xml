@@ -22,6 +22,10 @@
     <string name="compose_body_placeholder">Rédigez votre message</string>
     <string name="compose_could_not_send">Échec de l\'envoi : %1$s</string>
     <string name="compose_scheduled_toast">Programmé — %1$s</string>
+    <string name="compose_discard_title">Abandonner le message ?</string>
+    <string name="compose_discard_message">Vous n\'avez pas enregistré vos modifications.</string>
+    <string name="compose_discard_save">Enregistrer le brouillon</string>
+    <string name="compose_discard_discard">Abandonner</string>
     <string name="schedule_in_1_hour">Dans 1 heure</string>
     <string name="schedule_this_evening">Ce soir, 18 h</string>
     <string name="schedule_tomorrow_morning">Demain, 8 h</string>

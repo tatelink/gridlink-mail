@@ -22,6 +22,10 @@
     <string name="compose_body_placeholder">Напишите письмо</string>
     <string name="compose_could_not_send">Не удалось отправить: %1$s</string>
     <string name="compose_scheduled_toast">Запланировано — %1$s</string>
+    <string name="compose_discard_title">Удалить сообщение?</string>
+    <string name="compose_discard_message">Вы не сохранили изменения.</string>
+    <string name="compose_discard_save">Сохранить черновик</string>
+    <string name="compose_discard_discard">Удалить</string>
     <string name="schedule_in_1_hour">Через 1 час</string>
     <string name="schedule_this_evening">Сегодня вечером, 18:00</string>
     <string name="schedule_tomorrow_morning">Завтра, 8:00</string>

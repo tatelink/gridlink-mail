@@ -22,6 +22,10 @@
     <string name="compose_body_placeholder">Napisz wiadomość</string>
     <string name="compose_could_not_send">Nie udało się wysłać: %1$s</string>
     <string name="compose_scheduled_toast">Zaplanowano — %1$s</string>
+    <string name="compose_discard_title">Odrzucić wiadomość?</string>
+    <string name="compose_discard_message">Nie zapisano wprowadzonych zmian.</string>
+    <string name="compose_discard_save">Zapisz wersję roboczą</string>
+    <string name="compose_discard_discard">Odrzuć</string>
     <string name="schedule_in_1_hour">Za 1 godzinę</string>
     <string name="schedule_this_evening">Dziś wieczorem, 18:00</string>
     <string name="schedule_tomorrow_morning">Jutro, 8:00</string>

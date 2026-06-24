@@ -22,6 +22,10 @@
     <string name="compose_body_placeholder">E-mail opstellen</string>
     <string name="compose_could_not_send">Kon niet verzenden: %1$s</string>
     <string name="compose_scheduled_toast">Gepland — %1$s</string>
+    <string name="compose_discard_title">Bericht verwijderen?</string>
+    <string name="compose_discard_message">Je hebt je wijzigingen niet opgeslagen.</string>
+    <string name="compose_discard_save">Concept opslaan</string>
+    <string name="compose_discard_discard">Verwijderen</string>
     <string name="schedule_in_1_hour">Over 1 uur</string>
     <string name="schedule_this_evening">Vanavond, 18:00</string>
     <string name="schedule_tomorrow_morning">Morgen, 08:00</string>

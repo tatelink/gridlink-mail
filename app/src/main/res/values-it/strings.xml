@@ -22,6 +22,10 @@
     <string name="compose_body_placeholder">Scrivi l\'email</string>
     <string name="compose_could_not_send">Impossibile inviare: %1$s</string>
     <string name="compose_scheduled_toast">Programmato — %1$s</string>
+    <string name="compose_discard_title">Eliminare il messaggio?</string>
+    <string name="compose_discard_message">Non hai salvato le modifiche.</string>
+    <string name="compose_discard_save">Salva bozza</string>
+    <string name="compose_discard_discard">Elimina</string>
     <string name="schedule_in_1_hour">Tra 1 ora</string>
     <string name="schedule_this_evening">Stasera, 18:00</string>
     <string name="schedule_tomorrow_morning">Domani, 8:00</string>
