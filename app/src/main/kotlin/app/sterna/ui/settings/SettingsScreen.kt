@@ -116,10 +116,15 @@ import java.time.format.FormatStyle
 fun SettingsScreen(
     onBack: () -> Unit,
     onAccountsChanged: () -> Unit = {},
+    /** When set, deep-link straight to this account's detail screen (drawer → tap account). */
+    initialAccountId: String? = null,
     viewModel: SettingsViewModel = viewModel(),
     accountsViewModel: AccountsViewModel = viewModel(),
 ) {
     val nav = rememberNavController()
+    LaunchedEffect(initialAccountId) {
+        if (initialAccountId != null) nav.navigate("account/$initialAccountId")
+    }
     NavHost(navController = nav, startDestination = "hub") {
         composable("hub") {
             val accounts by accountsViewModel.accounts.collectAsStateWithLifecycle()

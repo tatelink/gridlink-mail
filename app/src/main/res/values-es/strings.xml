@@ -47,6 +47,7 @@
     <string name="inbox_send_failed">No se pudo enviar: %1$s</string>
     <string name="inbox_app_name">Sterna Mail</string>
     <string name="inbox_switch_to_account">Cambiar a %1$s</string>
+    <string name="inbox_switch_account">Cambiar de cuenta</string>
     <string name="inbox_all_inboxes">Todas las bandejas de entrada</string>
     <string name="inbox_all_inboxes_unread">Todas las bandejas de entrada  (%1$d)</string>
     <string name="inbox_folder_unread">%1$s  (%2$d)</string>

@@ -136,6 +136,7 @@ private fun MainNavHost(
                 accounts = accounts,
                 currentAccountId = currentAccountId,
                 onSwitchAccount = onSwitchAccount,
+                onOpenAccountSettings = { id -> nav.navigate("settings?accountId=$id") },
             )
         }
         composable(
@@ -180,10 +181,16 @@ private fun MainNavHost(
                 onOpenEmail = { id -> nav.navigate("message/${Uri.encode(id)}?accountId=") },
             )
         }
-        composable("settings") {
+        composable(
+            route = "settings?accountId={accountId}",
+            arguments = listOf(
+                navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) { entry ->
             SettingsScreen(
                 onBack = { nav.popBackStack() },
                 onAccountsChanged = onAccountsChanged,
+                initialAccountId = entry.arguments?.getString("accountId")?.ifBlank { null },
             )
         }
         composable("scheduled") {

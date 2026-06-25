@@ -74,6 +74,10 @@ class OutlookSignIn(
                     delay(interval * 1000)
                     when (val result = repo.pollProviderToken(provider, device.deviceCode)) {
                         is DeviceTokenResult.Success -> {
+                            android.util.Log.i(
+                                "OutlookOAuth",
+                                "token ok — granted scopes='${result.tokens.scope}', idToken=${result.tokens.idToken != null}",
+                            )
                             _progress.value = OutlookProgress.Connecting
                             runCatching { repo.addOAuthImapAccount(provider, email, result.tokens, accountName) }
                                 .onSuccess {
@@ -81,6 +85,7 @@ class OutlookSignIn(
                                     _outcomes.emit(OutlookOutcome.Success)
                                 }
                                 .onFailure {
+                                    android.util.Log.e("OutlookOAuth", "addOAuthImapAccount failed", it)
                                     _outcomes.emit(OutlookOutcome.Error(it.message ?: it.javaClass.simpleName))
                                 }
                             _progress.value = OutlookProgress.Idle

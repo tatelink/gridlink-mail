@@ -98,11 +98,16 @@ fun ConnectScreen(
     var smtpSecurity by rememberSaveable { mutableStateOf(ConnectionSecurity.TLS) }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
 
-    val ready = username.isNotBlank() && password.isNotBlank() && when (protocol) {
-        // JMAP server is optional — autodiscovery derives it from the email domain.
-        MailProtocol.JMAP -> true
-        MailProtocol.IMAP -> imapHost.isNotBlank() && imapPort.toIntOrNull() != null &&
-            smtpHost.isNotBlank() && smtpPort.toIntOrNull() != null
+    val ready = if (oauthSelected) {
+        // Outlook (OAuth): only the email is needed; "Connect" launches the browser flow.
+        username.isNotBlank()
+    } else {
+        username.isNotBlank() && password.isNotBlank() && when (protocol) {
+            // JMAP server is optional — autodiscovery derives it from the email domain.
+            MailProtocol.JMAP -> true
+            MailProtocol.IMAP -> imapHost.isNotBlank() && imapPort.toIntOrNull() != null &&
+                smtpHost.isNotBlank() && smtpPort.toIntOrNull() != null
+        }
     }
 
     Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.connect_add_account)) }) }) { padding ->
@@ -181,8 +186,9 @@ fun ConnectScreen(
                         AssistChip(
                             onClick = {
                                 if (provider.oauth) {
+                                    // Just select Outlook (collapse the server fields); the
+                                    // "Connect" button launches the OAuth/browser flow.
                                     oauthSelected = true
-                                    viewModel.connectOutlookOAuth(username, accountName)
                                 } else {
                                     oauthSelected = false
                                     imapHost = provider.imapHost
@@ -266,7 +272,9 @@ fun ConnectScreen(
             val busy = state is ConnectState.Connecting || state is ConnectState.Discovering
             Button(
                 onClick = {
-                    if (protocol == MailProtocol.JMAP) {
+                    if (oauthSelected) {
+                        viewModel.connectOutlookOAuth(username, accountName)
+                    } else if (protocol == MailProtocol.JMAP) {
                         if (server.isBlank()) {
                             viewModel.connectAuto(username, password, accountName)
                         } else {
@@ -299,14 +307,7 @@ fun ConnectScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(stringResource(R.string.connect_oauth_button)) }
             }
-
-            // Outlook/Microsoft accounts authenticate over IMAP with OAuth (XOAUTH2); offered
-            // as its own shortcut since Microsoft has disabled password IMAP.
-            TextButton(
-                onClick = { viewModel.connectOutlookOAuth(username, accountName) },
-                enabled = !busy && username.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(stringResource(R.string.connect_outlook_signin)) }
+            // Outlook has no separate button — its provider chip launches the OAuth flow.
 
             Spacer(Modifier.height(4.dp))
             when (val s = state) {
