@@ -53,6 +53,9 @@ import app.sterna.core.jmap.model.VacationResponse
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.Closeable
 
 /** Cap on changes to apply incrementally before falling back to a full query. */
@@ -616,9 +619,12 @@ class MailRepository(
         accountName: String,
     ) {
         val expiresAt = System.currentTimeMillis() + tokens.expiresIn * 1000
+        // Microsoft IMAP wants the account's exact primary address as the XOAUTH2 user=,
+        // not whatever alias the user typed — take it from the signed-in identity (id_token).
+        val username = emailFromIdToken(tokens.idToken) ?: email
         val probe = AccountCredentials(
             server = "",
-            username = email,
+            username = username,
             password = "",
             protocol = MailProtocol.IMAP,
             imap = provider.imap,
@@ -639,7 +645,7 @@ class MailRepository(
         }
         val id = accountStore.addOAuth(
             server = "",
-            username = email,
+            username = username,
             accountName = accountName,
             accessToken = tokens.accessToken,
             refreshToken = tokens.refreshToken.orEmpty(),
@@ -657,6 +663,20 @@ class MailRepository(
         val credentials = accountStore.credentials(id) ?: error("Account could not be loaded after creation.")
         val meta = refresh(credentials)
         accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
+    }
+
+    /** The signed-in address from an OIDC id_token (`preferred_username`/`email`), or null. */
+    private fun emailFromIdToken(idToken: String?): String? {
+        if (idToken.isNullOrBlank()) return null
+        return runCatching {
+            val payload = idToken.split(".").getOrNull(1) ?: return null
+            val decoded = android.util.Base64.decode(
+                payload,
+                android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING,
+            )
+            val obj = Json.parseToJsonElement(String(decoded, Charsets.UTF_8)).jsonObject
+            (obj["preferred_username"] ?: obj["email"])?.jsonPrimitive?.content
+        }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
     suspend fun refresh(

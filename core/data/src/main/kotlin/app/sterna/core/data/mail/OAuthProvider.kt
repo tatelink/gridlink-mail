@@ -34,7 +34,7 @@ data class OAuthProvider(
             id = "microsoft",
             clientId = "46f1f544-a6df-45d0-9d26-3e4dad7a6c12",
             scope = "https://outlook.office.com/IMAP.AccessAsUser.All " +
-                "https://outlook.office.com/SMTP.Send offline_access",
+                "https://outlook.office.com/SMTP.Send offline_access openid email",
             metadata = OAuthMetadata(
                 issuer = "https://login.microsoftonline.com/common/v2.0",
                 tokenEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/token",

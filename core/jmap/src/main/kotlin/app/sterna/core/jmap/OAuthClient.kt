@@ -42,6 +42,8 @@ data class OAuthTokens(
     @SerialName("refresh_token") val refreshToken: String? = null,
     @SerialName("expires_in") val expiresIn: Long = 3600,
     @SerialName("token_type") val tokenType: String = "Bearer",
+    /** Present when the `openid` scope was requested; carries the signed-in identity. */
+    @SerialName("id_token") val idToken: String? = null,
 )
 
 /** One device-token poll outcome (RFC 8628 §3.5). */
