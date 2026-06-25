@@ -7,6 +7,7 @@
 [![CI](https://codeberg.org/emon/sterna-mail/actions/workflows/ci.yml/badge.svg?branch=main)](https://codeberg.org/emon/sterna-mail/actions)
 [![Latest release](https://img.shields.io/badge/download-preview%20APK-2F5E59)](https://codeberg.org/emon/sterna-mail/releases/latest)
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue)](LICENSE)
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF6A4D?logo=ko-fi&logoColor=white)](https://ko-fi.com/emoncode)
 
 **A private, modern email app for Android — your email, finally yours.** ✨
 
@@ -129,6 +130,12 @@ Architecture and build instructions live in [ARCHITECTURE.md](ARCHITECTURE.md)
 and [CONTRIBUTING.md](CONTRIBUTING.md). The planned and shipped feature set is
 tracked in [FEATURES.md](FEATURES.md). Contributions, bug reports and ideas are
 very welcome. 🙌
+
+## ☕ Support
+
+Sterna is free and open, and always will be. If it's useful to you and you'd like
+to help fuel its development, you can **[buy me a coffee on Ko-fi](https://ko-fi.com/emoncode)**.
+Entirely optional — thank you for even considering it. 💚
 
 ## 📄 License
 
