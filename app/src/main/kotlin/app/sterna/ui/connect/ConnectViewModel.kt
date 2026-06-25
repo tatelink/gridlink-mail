@@ -218,7 +218,20 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                 container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
                 _state.value = ConnectState.Connected
             } catch (t: Throwable) {
-                _state.value = ConnectState.Error(t.message ?: t.javaClass.simpleName)
+                // A rejected IMAP login surfaces as "LOGIN … failed" / "AUTHENTICATE …"
+                // (the command verb is redacted, so no password leaks). On those, point
+                // the user at app passwords — most big providers refuse the normal one.
+                val msg = t.message.orEmpty()
+                val authRejected = msg.contains("LOGIN", ignoreCase = true) ||
+                    msg.contains("AUTHENTICATE", ignoreCase = true)
+                _state.value = ConnectState.Error(
+                    if (authRejected) {
+                        string(R.string.connect_bad_credentials) + " " +
+                            string(R.string.connect_provider_app_password_note)
+                    } else {
+                        t.message ?: t.javaClass.simpleName
+                    },
+                )
             }
         }
     }
