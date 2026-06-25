@@ -359,6 +359,8 @@
     <string name="connect_oauth_step1">Aby się zalogować, otwórz poniższą stronę i wpisz ten kod:</string>
     <string name="connect_oauth_open_browser">Otwórz stronę logowania</string>
     <string name="connect_oauth_waiting">Oczekiwanie na zatwierdzenie w przeglądarce…</string>
+    <string name="connect_oauth_copy_code">Kopiuj kod</string>
+    <string name="connect_oauth_code_copied">Kod skopiowany</string>
     <string name="connect_oauth_cancel">Anuluj</string>
     <string name="connect_incoming_imap">Przychodzące (IMAP)</string>
     <string name="connect_outgoing_smtp">Wychodzące (SMTP)</string>

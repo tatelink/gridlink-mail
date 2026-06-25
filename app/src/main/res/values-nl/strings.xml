@@ -359,6 +359,8 @@
     <string name="connect_oauth_step1">Open de onderstaande pagina en voer deze code in om in te loggen:</string>
     <string name="connect_oauth_open_browser">Open de inlogpagina</string>
     <string name="connect_oauth_waiting">Wachten tot je goedkeuring geeft in de browser…</string>
+    <string name="connect_oauth_copy_code">Code kopiëren</string>
+    <string name="connect_oauth_code_copied">Code gekopieerd</string>
     <string name="connect_oauth_cancel">Annuleren</string>
     <string name="connect_incoming_imap">Inkomend (IMAP)</string>
     <string name="connect_outgoing_smtp">Uitgaand (SMTP)</string>

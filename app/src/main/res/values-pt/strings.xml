@@ -359,6 +359,8 @@
     <string name="connect_oauth_step1">Para iniciar sessão, abra a página abaixo e introduza este código:</string>
     <string name="connect_oauth_open_browser">Abrir a página de início de sessão</string>
     <string name="connect_oauth_waiting">A aguardar a sua aprovação no navegador…</string>
+    <string name="connect_oauth_copy_code">Copiar código</string>
+    <string name="connect_oauth_code_copied">Código copiado</string>
     <string name="connect_oauth_cancel">Cancelar</string>
     <string name="connect_incoming_imap">Entrada (IMAP)</string>
     <string name="connect_outgoing_smtp">Saída (SMTP)</string>

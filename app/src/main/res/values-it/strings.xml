@@ -359,6 +359,8 @@
     <string name="connect_oauth_step1">Per accedere, apri la pagina qui sotto e inserisci questo codice:</string>
     <string name="connect_oauth_open_browser">Apri la pagina di accesso</string>
     <string name="connect_oauth_waiting">In attesa della tua approvazione nel browser…</string>
+    <string name="connect_oauth_copy_code">Copia codice</string>
+    <string name="connect_oauth_code_copied">Codice copiato</string>
     <string name="connect_oauth_cancel">Annulla</string>
     <string name="connect_incoming_imap">In entrata (IMAP)</string>
     <string name="connect_outgoing_smtp">In uscita (SMTP)</string>

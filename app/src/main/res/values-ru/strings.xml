@@ -359,6 +359,8 @@
     <string name="connect_oauth_step1">Чтобы войти, откройте страницу ниже и введите этот код:</string>
     <string name="connect_oauth_open_browser">Открыть страницу входа</string>
     <string name="connect_oauth_waiting">Ожидание подтверждения в браузере…</string>
+    <string name="connect_oauth_copy_code">Скопировать код</string>
+    <string name="connect_oauth_code_copied">Код скопирован</string>
     <string name="connect_oauth_cancel">Отмена</string>
     <string name="connect_incoming_imap">Входящий (IMAP)</string>
     <string name="connect_outgoing_smtp">Исходящий (SMTP)</string>

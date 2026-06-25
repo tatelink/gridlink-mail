@@ -423,6 +423,8 @@
     <string name="connect_oauth_step1">To sign in, open the page below and enter this code:</string>
     <string name="connect_oauth_open_browser">Open the sign-in page</string>
     <string name="connect_oauth_waiting">Waiting for you to approve in the browser…</string>
+    <string name="connect_oauth_copy_code">Copy code</string>
+    <string name="connect_oauth_code_copied">Code copied</string>
     <string name="connect_oauth_cancel">Cancel</string>
     <string name="connect_incoming_imap">Incoming (IMAP)</string>
     <string name="connect_outgoing_smtp">Outgoing (SMTP)</string>

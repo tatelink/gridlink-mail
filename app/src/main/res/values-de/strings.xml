@@ -359,6 +359,8 @@
     <string name="connect_oauth_step1">Öffne zum Anmelden die Seite unten und gib diesen Code ein:</string>
     <string name="connect_oauth_open_browser">Anmeldeseite öffnen</string>
     <string name="connect_oauth_waiting">Warte auf deine Bestätigung im Browser…</string>
+    <string name="connect_oauth_copy_code">Code kopieren</string>
+    <string name="connect_oauth_code_copied">Code kopiert</string>
     <string name="connect_oauth_cancel">Abbrechen</string>
     <string name="connect_incoming_imap">Eingehend (IMAP)</string>
     <string name="connect_outgoing_smtp">Ausgehend (SMTP)</string>
