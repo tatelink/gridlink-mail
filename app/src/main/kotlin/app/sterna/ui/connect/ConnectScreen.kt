@@ -351,7 +351,10 @@ private data class MailProvider(
 
 private val MAIL_PROVIDERS = listOf(
     MailProvider("Gmail", "imap.gmail.com", "993", ConnectionSecurity.TLS, "smtp.gmail.com", "465", ConnectionSecurity.TLS),
-    MailProvider("Outlook", "outlook.office365.com", "993", ConnectionSecurity.TLS, "smtp.office365.com", "587", ConnectionSecurity.STARTTLS),
+    // No Outlook/Microsoft preset on purpose: it requires OAuth2 (XOAUTH2). Microsoft has
+    // disabled basic-auth IMAP, so neither a password nor an app password works — offering
+    // it would only lead to a guaranteed login failure. Re-add when OAuth sign-in for IMAP
+    // lands (tracked for 1.1).
     MailProvider("Yahoo", "imap.mail.yahoo.com", "993", ConnectionSecurity.TLS, "smtp.mail.yahoo.com", "465", ConnectionSecurity.TLS),
     MailProvider("iCloud", "imap.mail.me.com", "993", ConnectionSecurity.TLS, "smtp.mail.me.com", "587", ConnectionSecurity.STARTTLS),
     MailProvider("Fastmail", "imap.fastmail.com", "993", ConnectionSecurity.TLS, "smtp.fastmail.com", "465", ConnectionSecurity.TLS),
