@@ -57,6 +57,9 @@ import java.io.Closeable
 /** Cap on changes to apply incrementally before falling back to a full query. */
 private const val MAX_CHANGES = 50
 
+/** How long a locally flag/seen-changed id is protected from sync eviction (ms). */
+private const val RECENT_MUTATION_MS = 20_000L
+
 /** Page size for the cached email list (rows loaded per scroll step). */
 private const val PAGE_SIZE = 50
 
@@ -224,6 +227,26 @@ class MailRepository(
     }
 
     /**
+     * Ids whose flag/seen we just changed locally, with the time we did it. An email
+     * stays in its mailbox after a flag change, but the first `Email/queryChanges` run
+     * from the pre-change queryState can still report it as `removed` (some servers do
+     * this for any changed row under thread-collapsing). We must not evict it then —
+     * guard such ids briefly so a lagging delta can't drop a just-favourited message.
+     */
+    private val recentlyMutated = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private fun markRecentlyMutated(emailId: String) {
+        recentlyMutated[emailId] = System.currentTimeMillis()
+    }
+    private fun isRecentlyMutated(emailId: String): Boolean {
+        val at = recentlyMutated[emailId] ?: return false
+        if (System.currentTimeMillis() - at > RECENT_MUTATION_MS) {
+            recentlyMutated.remove(emailId)
+            return false
+        }
+        return true
+    }
+
+    /**
      * Bring a mailbox's cache up to date. Uses Email/queryChanges (which respects
      * thread collapsing) + Email/changes when we have prior state; otherwise, or
      * when the server can't compute the delta, falls back to a full query.
@@ -251,7 +274,11 @@ class MailRepository(
                 // reorder is a no-op (no blink). Only genuinely-gone ids are removed, and
                 // only genuinely-new ids are fetched.
                 val added = queryChanges.added.toSet()
-                val toRemove = (queryChanges.removed.toSet() - added).toList() + changes.destroyed
+                // Never evict an id we just flagged/read locally: a delta computed from
+                // the pre-mutation query state can report it as removed even though it's
+                // still in the mailbox (it only changed a keyword).
+                val toRemove = ((queryChanges.removed.toSet() - added).toList() + changes.destroyed)
+                    .filterNot { isRecentlyMutated(it) }
                 if (toRemove.isNotEmpty()) emailDao.deleteByIds(toRemove)
                 val cachedIds = emailDao.getByMailbox(mailboxId).map { it.id }.toSet()
                 val toFetch = ((added - cachedIds) + changes.updated.filter { it in cachedIds }).distinct()
@@ -686,6 +713,7 @@ class MailRepository(
     }
 
     suspend fun setRead(credentials: AccountCredentials, emailId: String, seen: Boolean) {
+        markRecentlyMutated(emailId)
         if (credentials.protocol == MailProtocol.IMAP) {
             imapTarget(emailId)?.let { (mb, uid) -> imap.setFlag(credentials, mb, uid, "\\Seen", seen) }
             emailDao.setSeen(emailId, seen)
@@ -699,6 +727,7 @@ class MailRepository(
     }
 
     suspend fun setFlagged(credentials: AccountCredentials, emailId: String, flagged: Boolean) {
+        markRecentlyMutated(emailId)
         if (credentials.protocol == MailProtocol.IMAP) {
             imapTarget(emailId)?.let { (mb, uid) -> imap.setFlag(credentials, mb, uid, "\\Flagged", flagged) }
             emailDao.setFlagged(emailId, flagged)
