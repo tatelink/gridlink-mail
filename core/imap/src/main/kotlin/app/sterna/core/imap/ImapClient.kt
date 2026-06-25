@@ -15,6 +15,16 @@ import javax.net.ssl.SSLSocketFactory
 
 class ImapException(message: String) : Exception(message)
 
+/**
+ * Turn on RFC 2818 endpoint identification so the TLS handshake verifies the peer
+ * certificate's CN/SAN against [host]. A bare [SSLSocket] only validates the chain,
+ * not the hostname, so without this an attacker with any CA-valid certificate can
+ * MITM the connection and capture credentials. Must be called before the handshake.
+ */
+internal fun SSLSocket.verifyingHostname(): SSLSocket = apply {
+    sslParameters = sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+}
+
 /** Opens authenticated IMAP sessions. The session object carries the live connection. */
 class ImapClient {
     suspend fun connect(config: MailServerConfig): ImapSession =
@@ -24,7 +34,8 @@ class ImapClient {
     fun openSession(config: MailServerConfig): ImapSession {
         val plain = Socket(config.host, config.port)
         val socket = when (config.security) {
-            MailSecurity.TLS -> tlsFactory.createSocket(plain, config.host, config.port, true) as SSLSocket
+            MailSecurity.TLS ->
+                (tlsFactory.createSocket(plain, config.host, config.port, true) as SSLSocket).verifyingHostname()
             else -> plain
         }
         val session = ImapSession(socket)
@@ -56,8 +67,8 @@ class ImapSession(private var socket: Socket) : Closeable {
     }
 
     internal fun upgradeTls(host: String, port: Int) {
-        val tls = (SSLSocketFactory.getDefault() as SSLSocketFactory)
-            .createSocket(socket, host, port, true) as SSLSocket
+        val tls = ((SSLSocketFactory.getDefault() as SSLSocketFactory)
+            .createSocket(socket, host, port, true) as SSLSocket).verifyingHostname()
         tls.startHandshake()
         socket = tls
         input = ImapParser(BufferedInputStream(tls.inputStream))
@@ -398,7 +409,15 @@ class ImapSession(private var socket: Socket) : Closeable {
         }
     }
 
-    private fun quote(s: String): String = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    /**
+     * IMAP quoted-string. Per RFC 3501 a quoted-string may not contain CR or LF; a raw
+     * newline here would terminate the command line and let an attacker-controlled value
+     * (folder name, search text) inject a second authenticated IMAP command. Reject it.
+     */
+    private fun quote(s: String): String {
+        if (s.any { it == '\r' || it == '\n' }) throw ImapException("Illegal newline in IMAP argument")
+        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    }
 
     private companion object {
         fun parseDate(raw: String?): Long {
@@ -425,7 +444,18 @@ class ImapSession(private var socket: Socket) : Closeable {
                     }
                     String(bytes, charset)
                 }.getOrDefault(m.value)
-            }.trim()
+            }.let { stripBidiAndControls(it) }.trim()
+        }
+
+        /**
+         * Remove control characters and Unicode bidi overrides from a decoded header before it
+         * is shown. A crafted display name can otherwise embed RTL/LTR overrides (e.g. to make
+         * "moc.knab@troppus" read as a bank address) or control chars for spoofing/UI confusion.
+         */
+        private fun stripBidiAndControls(s: String): String = s.filterNot { c ->
+            val code = c.code
+            (code in 0x00..0x08) || (code in 0x0B..0x1F) || (code in 0x7F..0x9F) ||
+                (code in 0x202A..0x202E) || (code in 0x2066..0x2069) || code == 0x200F || code == 0x200E
         }
 
         private fun decodeQ(data: String): ByteArray {
@@ -436,7 +466,9 @@ class ImapSession(private var socket: Socket) : Closeable {
                     '_' -> { out.add(' '.code.toByte()); i++ }
                     '=' -> {
                         val hex = data.substring(i + 1, (i + 3).coerceAtMost(data.length))
-                        out.add(hex.toInt(16).toByte()); i += 3
+                        val byte = if (hex.length == 2) hex.toIntOrNull(16) else null
+                        if (byte != null) { out.add(byte.toByte()); i += 3 }
+                        else { out.add('='.code.toByte()); i++ } // dangling/invalid escape: keep literal '='
                     }
                     else -> { out.add(c.code.toByte()); i++ }
                 }

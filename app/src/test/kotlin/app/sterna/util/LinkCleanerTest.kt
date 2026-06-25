@@ -74,4 +74,12 @@ class LinkCleanerTest {
         val url = "mailto:someone@example.com"
         assertEquals(url, LinkCleaner.strip(url))
     }
+
+    @Test fun stripsPercentEncodedTrackingParamName() {
+        // "utm%5Fsource" decodes to "utm_source" — must not slip past the matcher.
+        assertEquals(
+            "https://example.com/p?id=1",
+            LinkCleaner.strip("https://example.com/p?utm%5Fsource=news&id=1"),
+        )
+    }
 }

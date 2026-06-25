@@ -26,14 +26,26 @@ data class MimeBody(
  * section so they can be fetched on demand.
  */
 object MimeParser {
+    /** Bound multipart nesting so a maliciously deep message can't blow the stack. */
+    private const val MAX_DEPTH = 24
+
+    /** Bound sibling parts in one multipart so a message with a flood of tiny parts
+     *  can't drive quadratic copying / huge allocation. */
+    private const val MAX_PARTS = 1024
+
     fun parseBody(raw: String): MimeBody {
         val attachments = mutableListOf<MimeAttachment>()
-        val (html, text) = walk(raw, prefix = "", attachments = attachments)
+        val (html, text) = walk(raw, prefix = "", attachments = attachments, depth = 0)
         return MimeBody(html, text, attachments)
     }
 
     /** Returns (html, text) for [part]; appends any attachments found beneath it. */
-    private fun walk(part: String, prefix: String, attachments: MutableList<MimeAttachment>): Pair<String?, String?> {
+    private fun walk(
+        part: String,
+        prefix: String,
+        attachments: MutableList<MimeAttachment>,
+        depth: Int,
+    ): Pair<String?, String?> {
         val (headerText, body) = splitHeaders(part)
         val headers = parseHeaders(headerText)
         val contentType = headers["content-type"] ?: "text/plain"
@@ -43,12 +55,13 @@ object MimeParser {
         val filename = paramOf(disposition, "filename") ?: paramOf(contentType, "name")
 
         if (mime.startsWith("multipart/")) {
+            if (depth >= MAX_DEPTH) return null to null
             val boundary = paramOf(contentType, "boundary") ?: return null to null
             var html: String? = null
             var text: String? = null
-            splitMultipart(body, boundary).forEachIndexed { index, sub ->
+            splitMultipart(body, boundary).take(MAX_PARTS).forEachIndexed { index, sub ->
                 val childPrefix = if (prefix.isEmpty()) "${index + 1}" else "$prefix.${index + 1}"
-                val (h, t) = walk(sub, childPrefix, attachments)
+                val (h, t) = walk(sub, childPrefix, attachments, depth + 1)
                 if (html == null) html = h
                 if (text == null) text = t
             }

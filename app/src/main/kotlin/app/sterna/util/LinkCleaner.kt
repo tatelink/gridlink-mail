@@ -56,7 +56,7 @@ object LinkCleaner {
         if (rest.isEmpty()) return url
 
         val kept = rest.split('&').filter { pair ->
-            pair.isNotEmpty() && !isTracking(pair.substringBefore('=').lowercase())
+            pair.isNotEmpty() && !isTracking(decodeName(pair.substringBefore('=')).lowercase())
         }
         // No tracking params found → return the original string verbatim.
         if (kept.size == rest.split('&').count { it.isNotEmpty() }) return url
@@ -74,4 +74,13 @@ object LinkCleaner {
 
     private fun isTracking(name: String): Boolean =
         name in TRACKING_PARAMS || TRACKING_PREFIXES.any { name.startsWith(it) }
+
+    /**
+     * Percent-decode a parameter name so an encoded form (e.g. "utm%5Fsource") can't slip a
+     * tracker past the matcher. '+' is treated as a space per form-encoding. Falls back to the
+     * raw name if the encoding is malformed.
+     */
+    private fun decodeName(name: String): String = runCatching {
+        java.net.URLDecoder.decode(name.replace("+", "%2B"), "UTF-8")
+    }.getOrDefault(name)
 }

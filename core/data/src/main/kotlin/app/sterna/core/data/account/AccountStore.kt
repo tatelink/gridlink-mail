@@ -253,8 +253,12 @@ class AccountStore(context: Context) {
         }
     }
 
-    /** Remove every account (full reset). */
-    fun clear() = prefs.edit().clear().apply()
+    /** Remove every account (full reset), including the shared KeyStore key so any leftover
+     *  ciphertext (e.g. in a stale prefs file) can no longer be decrypted. */
+    fun clear() {
+        prefs.edit().clear().apply()
+        KeystoreCrypto.deleteKey()
+    }
 
     // ---- current-account convenience (used by existing callers) ----
 
@@ -360,7 +364,7 @@ class AccountStore(context: Context) {
 
     private fun writePassword(id: String, password: String) {
         val encrypted = Base64.encodeToString(
-            KeystoreCrypto.encrypt(password.toByteArray(Charsets.UTF_8)),
+            KeystoreCrypto.encrypt(password.toByteArray(Charsets.UTF_8), aadFor(id)),
             Base64.NO_WRAP,
         )
         prefs.edit().putString(passwordKey(id), encrypted).apply()
@@ -368,10 +372,20 @@ class AccountStore(context: Context) {
 
     private fun readPassword(id: String): String? {
         val encrypted = prefs.getString(passwordKey(id), null) ?: return null
+        val raw = Base64.decode(encrypted, Base64.NO_WRAP)
+        // Current format binds the blob to this account id via AAD.
+        runCatching {
+            String(KeystoreCrypto.decrypt(raw, aadFor(id)), Charsets.UTF_8)
+        }.getOrNull()?.let { return it }
+        // Legacy blob (encrypted before AAD binding): decrypt unbound, then transparently
+        // re-write it bound to the account so future reads use the hardened path.
         return runCatching {
-            String(KeystoreCrypto.decrypt(Base64.decode(encrypted, Base64.NO_WRAP)), Charsets.UTF_8)
-        }.getOrNull()
+            String(KeystoreCrypto.decrypt(raw), Charsets.UTF_8)
+        }.getOrNull()?.also { writePassword(id, it) }
     }
+
+    /** AAD tying a password blob to its account slot, so it can't be swapped between accounts. */
+    private fun aadFor(id: String) = "pw:$id".toByteArray(Charsets.UTF_8)
 
     private fun passwordKey(id: String) = "pw_$id"
 

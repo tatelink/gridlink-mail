@@ -83,7 +83,21 @@ internal class ImapParser(private val input: InputStream) {
         // The literal data starts right after the CRLF that follows '}'.
         if (peek() == '\r'.code) read()
         if (peek() == '\n'.code) read()
-        val n = num.toString().trim().toIntOrNull() ?: 0
+        val declared = num.toString().trim().toIntOrNull() ?: 0
+        // A hostile/buggy server can announce a huge {N}; allocating it eagerly would OOM
+        // the process from one short line. Cap the buffer and drain any excess from the
+        // stream so the connection stays in sync, then surface the oversize as empty.
+        if (declared > MAX_LITERAL) {
+            var remaining = declared.toLong()
+            val skip = ByteArray(8192)
+            while (remaining > 0) {
+                val r = input.read(skip, 0, minOf(skip.size.toLong(), remaining).toInt())
+                if (r == -1) break
+                remaining -= r
+            }
+            return ""
+        }
+        val n = declared.coerceAtLeast(0)
         val bytes = ByteArray(n)
         var off = 0
         while (off < n) {
@@ -108,5 +122,9 @@ internal class ImapParser(private val input: InputStream) {
 
     private companion object {
         const val NONE = -2
+
+        /** Largest IMAP literal we will buffer in memory (32 MiB) — covers real messages
+         *  and attachments while refusing absurd attacker-announced sizes. */
+        const val MAX_LITERAL = 32 * 1024 * 1024
     }
 }

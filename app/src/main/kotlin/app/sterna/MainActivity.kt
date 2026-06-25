@@ -1,6 +1,7 @@
 package app.sterna
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
@@ -44,5 +45,19 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         application.container.appLock.onAppForegrounded(System.currentTimeMillis())
+        applySecureFlag()
+    }
+
+    /**
+     * With app lock on, mark the window FLAG_SECURE so message bodies and the credential
+     * screen are kept out of the recents thumbnail, screenshots, and screen recordings —
+     * otherwise the lock overlay hides the live UI but the OS still snapshots it.
+     */
+    private fun applySecureFlag() {
+        if (application.container.appLock.isEnabled) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
     }
 }

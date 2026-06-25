@@ -20,21 +20,33 @@ internal object KeystoreCrypto {
     private const val IV_LENGTH = 12
     private const val TAG_LENGTH_BITS = 128
 
-    /** Returns IV (12 bytes) prepended to the ciphertext. */
-    fun encrypt(plaintext: ByteArray): ByteArray {
+    /**
+     * Returns IV (12 bytes) prepended to the ciphertext. [aad] (additional authenticated
+     * data) is not encrypted but is bound into the GCM tag, so a blob authenticated with one
+     * [aad] (e.g. an account id) cannot be relocated to another slot and still decrypt.
+     */
+    fun encrypt(plaintext: ByteArray, aad: ByteArray? = null): ByteArray {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         val iv = cipher.iv
+        if (aad != null) cipher.updateAAD(aad)
         val ciphertext = cipher.doFinal(plaintext)
         return iv + ciphertext
     }
 
-    fun decrypt(blob: ByteArray): ByteArray {
+    /** Decrypts a blob from [encrypt]; [aad] must match what was supplied at encryption. */
+    fun decrypt(blob: ByteArray, aad: ByteArray? = null): ByteArray {
         val iv = blob.copyOfRange(0, IV_LENGTH)
         val ciphertext = blob.copyOfRange(IV_LENGTH, blob.size)
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(TAG_LENGTH_BITS, iv))
+        if (aad != null) cipher.updateAAD(aad)
         return cipher.doFinal(ciphertext)
+    }
+
+    /** Remove the shared key — call on a full account reset so leftover ciphertext is unrecoverable. */
+    fun deleteKey() {
+        runCatching { KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }.deleteEntry(KEY_ALIAS) }
     }
 
     private fun getOrCreateKey(): SecretKey {

@@ -90,7 +90,7 @@ class PushService : Service() {
                 onClosed = { if (gen == generation) scheduleReconnect(credentials, gen) },
             )
         }.onFailure {
-            Log.e(TAG, "Push watch failed for ${credentials.username}", it)
+            Log.e(TAG, "Push watch failed for account ${credentials.id}", it)
             scheduleReconnect(credentials, gen)
         }
     }
@@ -99,7 +99,7 @@ class PushService : Service() {
         scope.launch {
             delay(RECONNECT_DELAY_MS)
             if (gen == generation) {
-                Log.i(TAG, "Reconnecting push for ${credentials.username}")
+                Log.i(TAG, "Reconnecting push for account ${credentials.id}")
                 runCatching { connections.remove(credentials.id)?.close() }
                 watch(credentials, gen, resetBaseline = false)
             }
@@ -118,7 +118,7 @@ class PushService : Service() {
     private suspend fun notifyNew(credentials: AccountCredentials, emails: List<Email>) {
         val known = baselines[credentials.id].orEmpty()
         val newMail = emails.filter { it.id !in known && !it.isSeen }
-        Log.i(TAG, "${credentials.username}: ${emails.size} total, ${newMail.size} new unseen")
+        Log.i(TAG, "account ${credentials.id}: ${emails.size} total, ${newMail.size} new unseen")
         if (newMail.isNotEmpty()) {
             val silent = quietHoursActive()
             newMail.forEach { Notifications.notifyNewMail(this, it, credentials.id, silent) }

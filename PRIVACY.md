@@ -76,8 +76,9 @@ Sterna requests the minimum set of permissions:
 | `INTERNET` | Connect to your JMAP mail server. This is the only outbound network use. |
 | `POST_NOTIFICATIONS` | Show new-mail notifications (Android 13+). Optional — you can deny it. |
 | `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_DATA_SYNC` | Keep the JMAP push connection alive to deliver new mail without Google's FCM. |
+| `READ_CONTACTS` | Optional and **off by default.** Only requested if you turn on recipient autocomplete in Settings, and only ever read locally to suggest addresses while composing — contacts are never uploaded. |
 
-Sterna asks for no other permissions — no contacts, no location, no storage
+Beyond these, Sterna asks for no other permissions — no location, no storage
 beyond the app's own sandbox, no microphone or camera.
 
 ## Changes to this policy

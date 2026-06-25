@@ -1268,6 +1268,10 @@ class JmapClient internal constructor(
         internal fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            // Discovery relies on following 3xx redirects, but never down to cleartext: a
+            // same-host HTTPS→HTTP redirect re-attaches the Authorization header, so an active
+            // attacker could harvest credentials in plaintext. Refuse the TLS downgrade.
+            .followSslRedirects(false)
             .build()
     }
 }

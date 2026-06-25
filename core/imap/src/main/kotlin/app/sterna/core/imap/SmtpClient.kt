@@ -46,7 +46,8 @@ class SmtpClient {
     suspend fun send(config: MailServerConfig, message: OutgoingMessage) = withContext(Dispatchers.IO) {
         val plain = Socket(config.host, config.port)
         var socket: Socket = if (config.security == MailSecurity.TLS) {
-            (tlsFactory.createSocket(plain, config.host, config.port, true) as SSLSocket).apply { startHandshake() }
+            (tlsFactory.createSocket(plain, config.host, config.port, true) as SSLSocket)
+                .verifyingHostname().apply { startHandshake() }
         } else {
             plain
         }
@@ -78,7 +79,8 @@ class SmtpClient {
         if (config.security == MailSecurity.STARTTLS) {
             write("STARTTLS")
             expect("220", "STARTTLS")
-            socket = (tlsFactory.createSocket(socket, config.host, config.port, true) as SSLSocket).apply { startHandshake() }
+            socket = (tlsFactory.createSocket(socket, config.host, config.port, true) as SSLSocket)
+                .verifyingHostname().apply { startHandshake() }
             reader = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8))
             out = socket.outputStream
             write("EHLO ${localHost()}")
@@ -142,14 +144,14 @@ object OutgoingMime {
             java.time.ZoneOffset.UTC,
         ).format(DateTimeFormatter.RFC_1123_DATE_TIME)
         return buildString {
-            append("From: ${m.from}\r\n")
-            append("To: ${m.to.joinToString(", ")}\r\n")
-            if (m.cc.isNotEmpty()) append("Cc: ${m.cc.joinToString(", ")}\r\n")
+            append("From: ${headerSafe(m.from)}\r\n")
+            append("To: ${m.to.joinToString(", ") { headerSafe(it) }}\r\n")
+            if (m.cc.isNotEmpty()) append("Cc: ${m.cc.joinToString(", ") { headerSafe(it) }}\r\n")
             append("Subject: ${encodeHeader(m.subject)}\r\n")
             append("Date: $date\r\n")
-            append("Message-ID: <${m.messageId}>\r\n")
-            m.inReplyTo?.let { append("In-Reply-To: <${it.trim('<', '>')}>\r\n") }
-            m.references?.let { append("References: $it\r\n") }
+            append("Message-ID: <${headerSafe(m.messageId.trim('<', '>'))}>\r\n")
+            m.inReplyTo?.let { append("In-Reply-To: <${headerSafe(it.trim('<', '>'))}>\r\n") }
+            m.references?.let { append("References: ${headerSafe(it)}\r\n") }
             append("MIME-Version: 1.0\r\n")
             val bodyContent = m.html ?: m.body
             val bodyType = if (m.html != null) "text/html" else "text/plain"
@@ -167,10 +169,12 @@ object OutgoingMime {
                 append(base64(bodyContent.toByteArray(Charsets.UTF_8)))
                 append("\r\n")
                 for (att in m.attachments) {
+                    val safeName = headerSafe(att.name).replace("\"", "")
+                    val safeType = headerSafe(att.type).replace("\"", "")
                     append("--$boundary\r\n")
-                    append("Content-Type: ${att.type}; name=\"${att.name}\"\r\n")
+                    append("Content-Type: $safeType; name=\"$safeName\"\r\n")
                     append("Content-Transfer-Encoding: base64\r\n")
-                    append("Content-Disposition: attachment; filename=\"${att.name}\"\r\n\r\n")
+                    append("Content-Disposition: attachment; filename=\"$safeName\"\r\n\r\n")
                     append(base64(att.bytes))
                     append("\r\n")
                 }
@@ -182,7 +186,17 @@ object OutgoingMime {
     private fun base64(bytes: ByteArray): String =
         Base64.getMimeEncoder().encodeToString(bytes).replace("\n", "\r\n")
 
-    /** RFC 2047-encode a header value if it contains non-ASCII. */
+    /**
+     * Strip CR/LF (and other control chars) from a structured header value so an
+     * attacker-influenced address/Message-ID/References cannot smuggle extra headers
+     * (e.g. a hidden Bcc:) or split the message. Reply/forward fields can echo a parsed
+     * Message-ID/References straight from a hostile incoming message, so this is the sink
+     * that must be clean.
+     */
+    private fun headerSafe(value: String): String =
+        value.filterNot { it == '\r' || it == '\n' || it.code < 32 }
+
+    /** RFC 2047-encode a header value if it contains non-ASCII OR control chars (CR/LF). */
     private fun encodeHeader(value: String): String =
         if (value.all { it.code in 32..126 }) {
             value

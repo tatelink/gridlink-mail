@@ -43,6 +43,17 @@ class ImapParserTest {
     }
 
     @Test
+    fun oversizeLiteralIsRefusedNotAllocated() {
+        // A hostile server announces a 2 GB literal. The parser must not allocate it; it
+        // returns the section as empty and stays in sync (no OOM, no crash).
+        val r = parse("* 1 FETCH (BODY[] {2000000000}\r\nignored)\r\n")
+        @Suppress("UNCHECKED_CAST")
+        val args = r[3] as List<Any?>
+        assertEquals("BODY[]", args[0])
+        assertEquals("", args[1])
+    }
+
+    @Test
     fun parsesNestedEnvelopeAddresses() {
         val raw = "* 1 FETCH (UID 42 FLAGS (\\Seen) ENVELOPE " +
             "(\"Wed, 17 Jul 2024 12:00:00 +0000\" \"Hi\" ((\"Jane Doe\" NIL \"jane\" \"example.com\")) " +

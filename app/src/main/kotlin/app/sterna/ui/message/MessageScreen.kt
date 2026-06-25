@@ -494,6 +494,16 @@ private fun EmailWebView(
                 settings.useWideViewPort = true
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
+                // Explicitly deny every path from email markup to the local filesystem,
+                // on-device storage, or geolocation. These are off by default on modern
+                // API levels, but untrusted HTML email warrants asserting it.
+                @Suppress("DEPRECATION")
+                settings.allowFileAccessFromFileURLs = false
+                @Suppress("DEPRECATION")
+                settings.allowUniversalAccessFromFileURLs = false
+                settings.domStorageEnabled = false
+                settings.setGeolocationEnabled(false)
+                settings.mediaPlaybackRequiresUserGesture = true
                 settings.builtInZoomControls = true
                 settings.displayZoomControls = false
                 webViewClient = client
@@ -547,23 +557,53 @@ private class BlockingWebViewClient : WebViewClient() {
     var onOpenUrl: (Uri) -> Unit = {}
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-        if (blockRemote && request != null) {
-            val scheme = request.url.scheme?.lowercase()
-            if (scheme == "http" || scheme == "https") {
-                return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
-            }
+        if (!blockRemote) return null
+        // Default-deny: only inert, local sources are allowed through. Anything else — http(s),
+        // protocol-relative URLs (which arrive with a null/empty scheme), ws, ftp, prefetch — is
+        // blocked so a tracking pixel can't fire by any vector. Keying on "http"/"https" alone
+        // (the old behaviour) let "//evil.com/x.gif" and friends slip past.
+        val scheme = request?.url?.scheme?.lowercase()
+        return if (scheme == "data" || scheme == "cid" || scheme == "about") {
+            null
+        } else {
+            WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
         }
-        return null
     }
 
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         val url = request?.url ?: return false
+        val scheme = url.scheme?.lowercase()
+        // Only hand off web/contact schemes to the system. Never forward intent:, javascript:,
+        // file:, content:, data: etc. — an <a href="intent://…"> in a hostile email could
+        // otherwise redirect into another app or an internal component.
+        if (scheme !in SAFE_OPEN_SCHEMES) return true // swallow: don't navigate, don't open
+        // Act only on a genuine user tap. Auto-navigations (<meta refresh>, scripted redirects)
+        // arrive without a gesture; ignoring them stops a message from opening an app or firing
+        // a network request just by being viewed.
+        if (!request.hasGesture()) return true
         // Strip tracking params (utm_*, fbclid, …) so the sender can't tell the link was clicked.
         val target = if (stripTracking) Uri.parse(LinkCleaner.strip(url.toString())) else url
         onOpenUrl(target)
         return true
     }
+
+    private companion object {
+        val SAFE_OPEN_SCHEMES = setOf("http", "https", "mailto", "tel", "sms", "geo")
+    }
 }
+
+/**
+ * Content-Security-Policy for rendered email. JavaScript is already disabled on the WebView;
+ * this is defense-in-depth that also kills scripts, plugins, iframes, and form submissions
+ * (phishing posts) outright, while still allowing inline styles and images. Remote images are
+ * permitted by the policy but gated at load time by [BlockingWebViewClient] so the "show images"
+ * toggle keeps working; the policy stops every other remote vector (connect/frame/object/script).
+ */
+private const val CSP_META =
+    "<meta http-equiv=\"Content-Security-Policy\" content=\"" +
+        "default-src 'none'; img-src data: cid: http: https:; style-src 'unsafe-inline'; " +
+        "font-src data:; media-src data: cid: http: https:; " +
+        "form-action 'none'; base-uri 'none'; frame-src 'none'; object-src 'none'\">"
 
 private fun buildHtmlDocument(
     email: Email,
@@ -585,6 +625,7 @@ private fun buildHtmlDocument(
         // keeps colours roughly intact; media is re-inverted so photos/logos look normal.
         return """
             <!DOCTYPE html><html><head>
+            $CSP_META
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
               html, body { background-color: ${theme.background}; margin: 0; }
@@ -603,6 +644,7 @@ private fun buildHtmlDocument(
     val link = if (theme.dark) theme.link else "#0b5fff"
     return """
         <!DOCTYPE html><html><head>
+        $CSP_META
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="color-scheme" content="${if (theme.dark) "dark" else "light"}">
         <style>
