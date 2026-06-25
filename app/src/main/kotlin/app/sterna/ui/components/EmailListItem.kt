@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -191,6 +192,7 @@ fun EmailListItem(
                 color = if (email.isFlagged) MaterialTheme.colorScheme.tertiary
                 else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .clip(CircleShape)
                     .clickable(onClick = onToggleFavourite)
                     .padding(8.dp)

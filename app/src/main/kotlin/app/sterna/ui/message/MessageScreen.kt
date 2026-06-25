@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
@@ -134,8 +135,13 @@ fun MessageScreen(
                 actions = {
                     val loaded = state as? MessageState.Loaded
                     if (loaded != null && !showRemote) {
-                        TextButton(onClick = { manualShow = true }) {
-                            Text(stringResource(R.string.message_show_images))
+                        // An icon (not a text button) so it can't overrun the back arrow
+                        // when the font scale is large; the label is kept for screen readers.
+                        IconButton(onClick = { manualShow = true }) {
+                            Icon(
+                                Icons.Filled.Image,
+                                contentDescription = stringResource(R.string.message_show_images),
+                            )
                         }
                     }
                     if (loaded != null) {

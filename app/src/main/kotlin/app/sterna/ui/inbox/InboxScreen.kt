@@ -637,7 +637,9 @@ fun InboxScreen(
                                     .firstOrNull { it.id == ui.selectedMailboxId }?.role
                                 Text(
                                     mailboxDisplayName(selectedRole, ui.mailboxName),
-                                    style = MaterialTheme.typography.titleLarge,
+                                    // titleMedium (not titleLarge) so the folder + account
+                                    // both fit the Medium bar's title area at large font scales.
+                                    style = MaterialTheme.typography.titleMedium,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -734,7 +736,14 @@ fun InboxScreen(
             floatingActionButton = {
                 ExtendedFloatingActionButton(
                     text = { Text(stringResource(R.string.inbox_compose)) },
-                    icon = { Icon(Icons.Filled.Create, contentDescription = null) },
+                    // When collapsed (scrolled) only the icon shows, so it must carry the
+                    // label; when expanded the text already provides it.
+                    icon = {
+                        Icon(
+                            Icons.Filled.Create,
+                            contentDescription = if (fabExpanded) null else stringResource(R.string.inbox_compose),
+                        )
+                    },
                     expanded = fabExpanded,
                     onClick = onCompose,
                 )
