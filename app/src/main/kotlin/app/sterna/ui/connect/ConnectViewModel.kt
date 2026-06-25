@@ -163,6 +163,10 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             return
         }
         val emailTrim = email.trim()
+        if (emailTrim.isBlank()) {
+            _state.value = ConnectState.Error(string(R.string.connect_oauth_need_email))
+            return
+        }
         _state.value = ConnectState.Discovering
         oauthJob = viewModelScope.launch {
             val device = runCatching { container.mailRepository.startProviderDeviceAuth(provider) }.getOrNull()

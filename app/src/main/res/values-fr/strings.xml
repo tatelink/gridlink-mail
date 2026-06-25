@@ -351,6 +351,7 @@
     <string name="connect_oauth_button">Se connecter avec OAuth (sans mot de passe)</string>
     <string name="connect_outlook_signin">Continuer avec Outlook</string>
     <string name="connect_oauth_provider_unconfigured">La connexion Outlook n\'est pas encore disponible dans cette version.</string>
+    <string name="connect_oauth_need_email">Entre d\'abord ton adresse e-mail Outlook.</string>
     <string name="connect_oauth_unsupported">Ce serveur ne prend pas en charge la connexion OAuth. Utilisez plutôt votre adresse e-mail et votre mot de passe.</string>
     <string name="connect_oauth_failed">Impossible de démarrer la connexion OAuth. Réessayez.</string>
     <string name="connect_oauth_denied">La connexion a été refusée ou annulée.</string>
