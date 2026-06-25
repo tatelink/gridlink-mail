@@ -79,6 +79,12 @@ class ImapSession(private var socket: Socket) : Closeable {
         command("LOGIN ${quote(username)} ${quote(password)}")
     }
 
+    /** Strip credential-bearing arguments before a command appears in an error/log. */
+    private fun redactCommand(line: String): String {
+        val verb = line.substringBefore(' ').uppercase()
+        return if (verb == "LOGIN" || verb == "AUTHENTICATE") "$verb …" else line
+    }
+
     /** Send a tagged command and collect untagged responses up to the tagged result. */
     internal fun command(line: String): ImapResult {
         val tag = "a${++tagN}"
@@ -94,7 +100,9 @@ class ImapSession(private var socket: Socket) : Closeable {
             when (resp[0]) {
                 tag -> {
                     val status = resp.getOrNull(1) as? String ?: "BAD"
-                    if (status != "OK") throw ImapException("$line failed: ${resp.drop(1).joinToString(" ")}")
+                    // Redact the echoed command: LOGIN/AUTHENTICATE carry the password,
+                    // and this message surfaces to the UI and logs.
+                    if (status != "OK") throw ImapException("${redactCommand(line)} failed: ${resp.drop(1).joinToString(" ")}")
                     return ImapResult(status, untagged, resp)
                 }
                 else -> untagged.add(resp) // "*" untagged or "+" continuation
