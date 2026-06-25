@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
@@ -157,6 +158,7 @@ fun InboxScreen(
     accounts: List<app.sterna.core.data.account.StoredAccount>,
     currentAccountId: String,
     onSwitchAccount: (String) -> Unit,
+    onOpenAccountSettings: (String) -> Unit,
     viewModel: InboxViewModel = viewModel(),
 ) {
     val ui by viewModel.state.collectAsStateWithLifecycle()
@@ -389,33 +391,60 @@ fun InboxScreen(
                 val currentAccount = accounts.firstOrNull { it.id == currentAccountId }
                 val currentLabel = currentAccount?.label()
                     ?: ui.accountName.ifBlank { stringResource(R.string.inbox_app_name) }
+                val otherAccounts = accounts.filter { it.id != currentAccountId }
+                var accountsExpanded by remember { mutableStateOf(false) }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                 ) {
-                    Monogram(seed = currentLabel, label = currentLabel, color = accountColorOf(currentAccount?.color))
-                    Text(
-                        text = currentLabel,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
+                    // Tap the active account → its settings.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f)
+                            .clickable {
+                                onOpenAccountSettings(currentAccountId)
+                                scope.launch { drawerState.close() }
+                            }
+                            .padding(vertical = 8.dp),
+                    ) {
+                        Monogram(seed = currentLabel, label = currentLabel, color = accountColorOf(currentAccount?.color))
+                        Text(
+                            text = currentLabel,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    // Chevron → unfold the other accounts to switch to.
+                    if (otherAccounts.isNotEmpty()) {
+                        IconButton(onClick = { accountsExpanded = !accountsExpanded }) {
+                            Icon(
+                                if (accountsExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                contentDescription = stringResource(R.string.inbox_switch_account),
+                            )
+                        }
+                    }
                 }
-                accounts.filter { it.id != currentAccountId }.forEach { account ->
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Filled.Person, contentDescription = null) },
-                        label = {
-                            Text(stringResource(R.string.inbox_switch_to_account, account.label()), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        },
-                        selected = false,
-                        onClick = {
-                            onSwitchAccount(account.id)
-                            scope.launch { drawerState.close() }
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                    )
+                if (accountsExpanded) {
+                    otherAccounts.forEach { account ->
+                        val label = account.label()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                                .clickable {
+                                    onSwitchAccount(account.id)
+                                    accountsExpanded = false
+                                    scope.launch { drawerState.close() }
+                                }
+                                .padding(start = 28.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+                        ) {
+                            Monogram(seed = label, label = label, color = accountColorOf(account.color))
+                            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
                 HorizontalDivider()
                 if (accounts.size > 1) {
@@ -853,16 +882,18 @@ fun InboxScreen(
                                     }
                                 }
                                 is LoadState.Error -> item(key = "append-error") {
-                                    Row(
+                                    // Column (not Row): a long localized message must not squeeze
+                                    // the Retry button down to a 1-char-wide, multi-line stub.
+                                    Column(
                                         Modifier.fillMaxWidth().padding(16.dp),
-                                        horizontalArrangement = Arrangement.Center,
-                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
                                     ) {
                                         Text(
                                             stringResource(R.string.inbox_load_more_failed),
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center,
                                         )
-                                        Spacer(Modifier.width(12.dp))
                                         Button(onClick = { pagedEmails.retry() }) { Text(stringResource(R.string.inbox_retry)) }
                                     }
                                 }
