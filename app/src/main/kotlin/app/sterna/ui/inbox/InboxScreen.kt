@@ -1,6 +1,8 @@
 package app.sterna.ui.inbox
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -128,8 +130,14 @@ import app.sterna.ui.components.TernRefreshIndicator
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.components.accountColorOf
 import app.sterna.ui.components.verticalScrollbar
+import app.sterna.ui.rememberMotionEnabled
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
 import kotlin.math.abs
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -349,6 +357,24 @@ fun InboxScreen(
     // Opening a different folder should always start at the top of that folder's list,
     // not wherever the previous folder was scrolled (e.g. so a just-archived mail is visible).
     LaunchedEffect(ui.selectedMailboxId, ui.unified) { listState.scrollToItem(0) }
+
+    // Staggered first-screen entry: the first rows of a freshly-opened folder fade +
+    // slide in once, in a gentle cascade. ONLY the first screen (rows past the cap never
+    // animate) and ONLY on the initial show — the cascade self-locks after it plays and
+    // on the first scroll, so rows recycled back into view while browsing a large box
+    // never re-fade. Honours reduced motion.
+    val listMotionOn = rememberMotionEnabled()
+    var entryPlayed by rememberSaveable(ui.selectedMailboxId, ui.unified) { mutableStateOf(false) }
+    LaunchedEffect(ui.selectedMailboxId, ui.unified) {
+        if (entryPlayed) return@LaunchedEffect
+        snapshotFlow { pagedEmails.itemCount }.first { it > 0 }
+        delay(ENTRY_CAP * ENTRY_STEP_MS + ENTRY_ROW_MS + 80L)
+        entryPlayed = true
+    }
+    LaunchedEffect(ui.selectedMailboxId, ui.unified) {
+        snapshotFlow { listState.isScrollInProgress }.first { it }
+        entryPlayed = true
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -694,7 +720,7 @@ fun InboxScreen(
             // One row renderer, shared by the search list and the paged browse list.
             // Takes the row modifier so the caller can pass `animateItem()` from its
             // own LazyItemScope.
-            val emailRow: @Composable (InboxRow, Modifier) -> Unit = { row, rowModifier ->
+            val emailRow: @Composable (InboxRow, Modifier, Boolean, Int) -> Unit = { row, rowModifier, animateEntry, entryIndex ->
                 val email = row.email
                 val ownerAccount = if (ui.unified) accounts.firstOrNull { it.id == email.accountId } else null
                 SwipeableEmailRow(
@@ -719,6 +745,8 @@ fun InboxScreen(
                     gesturesEnabled = !selectionActive,
                     unread = row.unread,
                     threadCount = row.threadCount,
+                    animateEntry = animateEntry,
+                    entryIndex = entryIndex,
                     modifier = rowModifier,
                 )
                 HorizontalDivider()
@@ -745,7 +773,7 @@ fun InboxScreen(
                         ui.searchResults.isNotEmpty() ->
                             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                                 items(ui.searchResults, key = { it.id }) { email ->
-                                    emailRow(InboxRow(email, threadCount = 1, unread = !email.isSeen), Modifier.animateItem())
+                                    emailRow(InboxRow(email, threadCount = 1, unread = !email.isSeen), Modifier.animateItem(), false, 0)
                                 }
                             }
                         ui.searchLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -771,7 +799,12 @@ fun InboxScreen(
                                 // blinking. Placement-only (no fade) so loading a new page of
                                 // rows doesn't stutter the scroll.
                                 pagedEmails[index]?.let { row ->
-                                    emailRow(row, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null))
+                                    emailRow(
+                                        row,
+                                        Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
+                                        listMotionOn && !entryPlayed && index < ENTRY_CAP,
+                                        index,
+                                    )
                                 }
                             }
                             // Footer: server fetch-on-scroll (RemoteMediator) progress/errors.
@@ -873,13 +906,38 @@ private fun SwipeableEmailRow(
     gesturesEnabled: Boolean,
     unread: Boolean,
     threadCount: Int,
+    animateEntry: Boolean = false,
+    entryIndex: Int = 0,
     modifier: Modifier = Modifier,
 ) {
+    val motionOn = rememberMotionEnabled()
     val offsetX = remember { Animatable(0f) }
     var rowWidth by remember { mutableIntStateOf(0) }
 
+    // Staggered first-screen entry (fade + slight rise), cascaded by row index. Plays
+    // at most once per row; rows recycled in during scroll arrive with animateEntry
+    // false and so snap straight to rest.
+    val enter = remember { Animatable(if (animateEntry) 0f else 1f) }
+    LaunchedEffect(Unit) {
+        if (animateEntry) {
+            delay(entryIndex * ENTRY_STEP_MS)
+            enter.animateTo(1f, tween(ENTRY_ROW_MS, easing = FastOutSlowInEasing))
+        }
+    }
+
+    // Swipe "takes flight": on a dismissing swipe (archive/delete) the row lifts off in
+    // a short arc — rising, tilting, fading — instead of a flat slide, then the row is
+    // actually removed. Undo logic is unchanged (the action just fires as the bird
+    // clears the screen). Static slide-off under reduced motion.
+    val lift = remember { Animatable(0f) }
+    var flyDir by remember { mutableIntStateOf(0) }
+
     Box(
         modifier = modifier
+            .graphicsLayer {
+                alpha = enter.value
+                translationY = (1f - enter.value) * 14.dp.toPx()
+            }
             .onSizeChanged { rowWidth = it.width }
             .pointerInput(gesturesEnabled, rightAction, leftAction) {
                 if (!gesturesEnabled) return@pointerInput
@@ -929,18 +987,10 @@ private fun SwipeableEmailRow(
                         val width = rowWidth.toFloat().coerceAtLeast(1f)
                         val fraction = offsetX.value / width
                         when {
-                            fraction >= SWIPE_COMMIT_FRACTION && rightAction != SwipeAction.NONE -> {
-                                onSwipe(rightAction)
-                                launch {
-                                    offsetX.animateTo(if (dismissesRow(rightAction)) width else 0f)
-                                }
-                            }
-                            -fraction >= SWIPE_COMMIT_FRACTION && leftAction != SwipeAction.NONE -> {
-                                onSwipe(leftAction)
-                                launch {
-                                    offsetX.animateTo(if (dismissesRow(leftAction)) -width else 0f)
-                                }
-                            }
+                            fraction >= SWIPE_COMMIT_FRACTION && rightAction != SwipeAction.NONE ->
+                                commitSwipe(rightAction, 1, width, motionOn, offsetX, lift, onSwipe) { flyDir = it }
+                            -fraction >= SWIPE_COMMIT_FRACTION && leftAction != SwipeAction.NONE ->
+                                commitSwipe(leftAction, -1, width, motionOn, offsetX, lift, onSwipe) { flyDir = it }
                             else -> launch { offsetX.animateTo(0f) }
                         }
                     }
@@ -968,8 +1018,20 @@ private fun SwipeableEmailRow(
         Box(
             // graphicsLayer (draw phase) instead of offset (layout phase): the swipe
             // translation is GPU-cheap and the row is cached as a layer, which keeps
-            // scrolling smoother. offsetX is read here, not in composition.
-            modifier = Modifier.graphicsLayer { translationX = offsetX.value },
+            // scrolling smoother. offsetX is read here, not in composition. On a
+            // dismissing swipe `lift` adds the take-off arc: rise, tilt, and fade.
+            modifier = Modifier.graphicsLayer {
+                translationX = offsetX.value
+                if (lift.value > 0f) {
+                    val p = lift.value
+                    translationY = -size.height * 0.6f * p
+                    rotationZ = flyDir * 10f * p
+                    alpha = 1f - p
+                    val sc = 1f - 0.06f * p
+                    scaleX = sc
+                    scaleY = sc
+                }
+            },
         ) {
             EmailListItem(
                 email = email,
@@ -992,9 +1054,46 @@ private const val SWIPE_SLOP_FACTOR = 1.5f
 /** Fraction of the row width a swipe must reach to commit its action. */
 private const val SWIPE_COMMIT_FRACTION = 0.4f
 
+// Staggered first-screen entry: only the first ENTRY_CAP rows cascade, ENTRY_STEP_MS
+// apart, each fading/rising over ENTRY_ROW_MS. The take-off arc on a dismissing swipe
+// runs over FLIGHT_MS.
+private const val ENTRY_CAP = 12
+private const val ENTRY_STEP_MS = 28L
+private const val ENTRY_ROW_MS = 220
+private const val FLIGHT_MS = 300
+
 /** Whether a swipe action removes the row from the list (vs. snapping back). */
 private fun dismissesRow(action: SwipeAction): Boolean =
     action == SwipeAction.DELETE || action == SwipeAction.ARCHIVE
+
+/**
+ * Commit a swipe: a dismissing action with motion enabled lifts the row off in a short
+ * arc ([lift] 0→1 driving rise/tilt/fade in the row's graphicsLayer) and only then runs
+ * [onSwipe], so the removal lands as the bird clears the screen. Otherwise the row
+ * snaps to its edge (dismiss) or back to centre, and the action fires immediately.
+ */
+private fun CoroutineScope.commitSwipe(
+    action: SwipeAction,
+    dir: Int,
+    width: Float,
+    motionOn: Boolean,
+    offsetX: Animatable<Float, *>,
+    lift: Animatable<Float, *>,
+    onSwipe: (SwipeAction) -> Unit,
+    setFlyDir: (Int) -> Unit,
+) {
+    if (dismissesRow(action) && motionOn) {
+        setFlyDir(dir)
+        launch {
+            launch { offsetX.animateTo(dir * width, tween(FLIGHT_MS, easing = FastOutSlowInEasing)) }
+            lift.animateTo(1f, tween(FLIGHT_MS, easing = FastOutSlowInEasing))
+            onSwipe(action)
+        }
+    } else {
+        onSwipe(action)
+        launch { offsetX.animateTo(if (dismissesRow(action)) dir * width else 0f) }
+    }
+}
 
 /** The string resource shown on the swipe background for [action] on [email] (0 = none). */
 private fun swipeActionLabel(action: SwipeAction, email: Email): Int = when (action) {
