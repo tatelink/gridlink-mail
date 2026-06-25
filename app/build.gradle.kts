@@ -14,9 +14,15 @@ android {
         applicationId = "app.sterna"
         minSdk = 26
         targetSdk = 36
-        versionCode = 102
-        versionName = "1.0.1"
+        versionCode = 103
+        versionName = "1.0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // No Google dependency-metadata blob in the APK/AAB (required by IzzyOnDroid/F-Droid).
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     // Release signing. If a git-ignored keystore.properties is present (real release
