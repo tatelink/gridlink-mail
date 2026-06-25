@@ -763,7 +763,7 @@ class MailRepository(
         }
         val ctx = connect(credentials)
         val mb = emailDao.mailboxOf(emailId)
-        val target = ctx.rolesToMailboxId["archive"] ?: createArchiveFolder(ctx)
+        val target = archiveMailboxId(ctx) ?: createArchiveFolder(ctx)
         val newState = client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
         emailDao.deleteById(emailId)
         advanceEmailState(newState, mb)
@@ -898,8 +898,36 @@ class MailRepository(
     }
 
     /** Create an "Archive" folder on the server, cache it in the context, and refresh the folder list. */
+    /**
+     * The account's archive folder id: by JMAP `archive` role, or — when the server set
+     * no role (some accounts only have a plain folder named "Archive"/"Archives"/… ) — by
+     * a recognised archive name. Null when the account has neither. The name match is
+     * cached into the context's role map so a bulk archive resolves it once instead of
+     * making every message try (and fail) to create a duplicate archive folder.
+     */
+    /** Lowercased folder names that clearly denote an archive, across Sterna's locales. */
+    private val ARCHIVE_FOLDER_NAMES = listOf(
+        "archive", "archives", "archived",
+        "archivé", "archivés", "archiv", "archivio",
+        "arquivo", "arquivos", "archief", "archiwum", "архив",
+    )
+
+    private suspend fun archiveMailboxId(ctx: Context): String? {
+        ctx.rolesToMailboxId["archive"]?.let { return it }
+        val byName = mailboxDao.idForAnyName(ARCHIVE_FOLDER_NAMES) ?: return null
+        context = Context(ctx.credentials, ctx.session, ctx.accountId, ctx.auth, ctx.rolesToMailboxId + ("archive" to byName))
+        return byName
+    }
+
     private suspend fun createArchiveFolder(ctx: Context): String {
-        val id = client.createMailbox(ctx.session, ctx.accountId, "Archive", "archive", ctx.auth)
+        val id = runCatching {
+            client.createMailbox(ctx.session, ctx.accountId, "Archive", "archive", ctx.auth)
+        }.getOrElse { err ->
+            // Creation can fail when an archive folder already exists under a name/role we
+            // didn't recognise — re-sync the folder list and reuse it rather than failing.
+            runCatching { mailboxDao.replaceAll(client.getMailboxes(ctx.session, ctx.accountId, ctx.auth).map { it.toEntity() }) }
+            mailboxDao.idForRole("archive") ?: mailboxDao.idForAnyName(ARCHIVE_FOLDER_NAMES) ?: throw err
+        }
         context = Context(ctx.credentials, ctx.session, ctx.accountId, ctx.auth, ctx.rolesToMailboxId + ("archive" to id))
         runCatching {
             mailboxDao.replaceAll(client.getMailboxes(ctx.session, ctx.accountId, ctx.auth).map { it.toEntity() })
@@ -1020,7 +1048,7 @@ class MailRepository(
 
     /** Whether [credentials]' account has an Archive folder (so an archive action can work). */
     suspend fun hasArchiveFolder(credentials: AccountCredentials): Boolean =
-        connect(credentials).rolesToMailboxId.containsKey("archive")
+        archiveMailboxId(connect(credentials)) != null
 
     private class Resolved(
         val session: JmapSession,

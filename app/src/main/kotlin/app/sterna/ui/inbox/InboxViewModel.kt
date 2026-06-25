@@ -443,9 +443,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         val ids = _selectedIds.value
         if (clearAfter) clearSelection()
         viewModelScope.launch {
+            var failed = 0
             repo.cachedEmailsByIds(ids).forEach { email ->
-                val credentials = credentialsFor(email) ?: return@forEach
-                runCatching { op(credentials, email.id) }
+                val credentials = credentialsFor(email)
+                if (credentials == null) { failed++; return@forEach }
+                runCatching { op(credentials, email.id) }.onFailure { failed++ }
+            }
+            // Don't fail silently: if nothing (or only some) went through, tell the user.
+            if (failed > 0) {
+                _message.value = getApplication<Application>().getString(R.string.status_action_failed)
             }
         }
     }
