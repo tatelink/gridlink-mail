@@ -32,7 +32,7 @@ data class OAuthProvider(
          */
         val MICROSOFT = OAuthProvider(
             id = "microsoft",
-            clientId = "TODO_AZURE_PUBLIC_CLIENT_ID",
+            clientId = "8a121c38-f2b9-47cc-b754-390ee7f853ae",
             scope = "https://outlook.office.com/IMAP.AccessAsUser.All " +
                 "https://outlook.office.com/SMTP.Send offline_access",
             metadata = OAuthMetadata(
