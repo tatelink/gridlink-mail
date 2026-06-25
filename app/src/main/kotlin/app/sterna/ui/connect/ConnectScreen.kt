@@ -90,6 +90,9 @@ fun ConnectScreen(
     var imapHost by rememberSaveable { mutableStateOf("") }
     var imapPort by rememberSaveable { mutableStateOf("993") }
     var imapSecurity by rememberSaveable { mutableStateOf(ConnectionSecurity.TLS) }
+    // An OAuth provider (Outlook) is selected: hide the server/port fields — they're
+    // irrelevant since sign-in is by OAuth, not a manually-configured server.
+    var oauthSelected by rememberSaveable { mutableStateOf(false) }
     var smtpHost by rememberSaveable { mutableStateOf("") }
     var smtpPort by rememberSaveable { mutableStateOf("465") }
     var smtpSecurity by rememberSaveable { mutableStateOf(ConnectionSecurity.TLS) }
@@ -178,8 +181,10 @@ fun ConnectScreen(
                         AssistChip(
                             onClick = {
                                 if (provider.oauth) {
+                                    oauthSelected = true
                                     viewModel.connectOutlookOAuth(username, accountName)
                                 } else {
+                                    oauthSelected = false
                                     imapHost = provider.imapHost
                                     imapPort = provider.imapPort
                                     imapSecurity = provider.imapSecurity
@@ -192,27 +197,31 @@ fun ConnectScreen(
                         )
                     }
                 }
-                Text(
-                    stringResource(R.string.connect_provider_app_password_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // Outlook signs in by OAuth, so the app-password note and the manual
+                // server/port fields don't apply — hide them once it's selected.
+                if (!oauthSelected) {
+                    Text(
+                        stringResource(R.string.connect_provider_app_password_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
 
-                Text(stringResource(R.string.connect_incoming_imap), style = MaterialTheme.typography.labelLarge)
-                HostPortRow(
-                    host = imapHost, onHost = { imapHost = it },
-                    port = imapPort, onPort = { imapPort = it },
-                    hostPlaceholder = stringResource(R.string.connect_imap_host_placeholder),
-                )
-                SecurityChips(imapSecurity) { imapSecurity = it }
+                    Text(stringResource(R.string.connect_incoming_imap), style = MaterialTheme.typography.labelLarge)
+                    HostPortRow(
+                        host = imapHost, onHost = { imapHost = it },
+                        port = imapPort, onPort = { imapPort = it },
+                        hostPlaceholder = stringResource(R.string.connect_imap_host_placeholder),
+                    )
+                    SecurityChips(imapSecurity) { imapSecurity = it }
 
-                Text(stringResource(R.string.connect_outgoing_smtp), style = MaterialTheme.typography.labelLarge)
-                HostPortRow(
-                    host = smtpHost, onHost = { smtpHost = it },
-                    port = smtpPort, onPort = { smtpPort = it },
-                    hostPlaceholder = stringResource(R.string.connect_smtp_host_placeholder),
-                )
-                SecurityChips(smtpSecurity) { smtpSecurity = it }
+                    Text(stringResource(R.string.connect_outgoing_smtp), style = MaterialTheme.typography.labelLarge)
+                    HostPortRow(
+                        host = smtpHost, onHost = { smtpHost = it },
+                        port = smtpPort, onPort = { smtpPort = it },
+                        hostPlaceholder = stringResource(R.string.connect_smtp_host_placeholder),
+                    )
+                    SecurityChips(smtpSecurity) { smtpSecurity = it }
+                }
             }
 
             OutlinedTextField(
