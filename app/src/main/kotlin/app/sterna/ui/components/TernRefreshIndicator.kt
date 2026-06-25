@@ -18,23 +18,23 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
 import app.sterna.ui.rememberMotionEnabled
 
 /**
- * Sterna's signature pull-to-refresh: a line-art tern that **opens its wings** as
- * you pull (the pull distance drives the spread), then **flaps** in a gentle loop
- * while the list refreshes, and fades away when it's done. Ink-coloured
- * (onSurfaceVariant), never coral. With reduced motion the bird still appears but
- * holds a static glide (no flapping). The refresh itself never waits on this — the
- * indicator is purely cosmetic.
+ * Sterna's signature pull-to-refresh: the launcher-icon tern (a filled teal
+ * silhouette) that **opens its wings** as you pull (the pull distance drives the
+ * spread), then **flaps** in a gentle loop while the list refreshes, and fades away
+ * when it's done. Brand teal (primary), the same bird as the app icon and splash.
+ * With reduced motion the bird still appears but holds a static glide (no flapping).
+ * The refresh itself never waits on this — the indicator is purely cosmetic.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,7 +44,7 @@ fun TernRefreshIndicator(
     modifier: Modifier = Modifier,
 ) {
     val motionOn = rememberMotionEnabled()
-    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    val color = MaterialTheme.colorScheme.primary
 
     val pull = state.distanceFraction.coerceIn(0f, 1f)
     val appear = if (isRefreshing) 1f else pull
@@ -98,33 +98,28 @@ fun TernRefreshIndicator(
     }
 }
 
-/** Draws a small line-art tern; [spread] 0..1 folds→spreads the wings, [flap] 0..1
- *  bobs the wing-tips (0.5 = level glide). Shared by the refresh + send-flight motions. */
-internal fun DrawScope.drawTern(spread: Float, flap: Float, color: Color) {
-    val s = size.minDimension
-    val cx = size.width / 2f
-    val cy = size.height / 2f
-    val sw = s * 0.055f
-    val stroke = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round)
-    // Wing-tips bob up/down together while flapping (0.5 = level glide).
-    val bob = (flap - 0.5f) * s * 0.18f
+// The launcher-icon tern as fillable paths in a 108×108 design space (the exact
+// pathData from res/drawable/splash_tern.xml). Parsed once; body is static, the two
+// wings pivot at the shoulders so they can fold (pull) and beat (refresh).
+private val ternBody = PathParser().parsePathString("M49,58 L50,73 L54,63 L58,73 L59,58 L54,49 Z").toPath()
+private val ternLeftWing = PathParser().parsePathString("M54,49 C42,45 32,43 20,54 C32,52 43,54 50,57 Z").toPath()
+private val ternRightWing = PathParser().parsePathString("M54,49 C66,45 76,43 88,54 C76,52 65,54 58,57 Z").toPath()
 
-    fun wing(sign: Float): Path {
-        val shoulderX = cx + sign * s * 0.04f
-        val tipX = cx + sign * lerp(s * 0.10f, s * 0.42f, spread)
-        val tipY = cy - lerp(s * 0.20f, s * 0.04f, spread) + bob
-        val ctrlX = cx + sign * lerp(s * 0.04f, s * 0.22f, spread)
-        val ctrlY = cy - lerp(s * 0.10f, s * 0.16f, spread)
-        return Path().apply {
-            moveTo(shoulderX, cy)
-            quadraticBezierTo(ctrlX, ctrlY, tipX, tipY)
+/** Draws the filled icon tern; [spread] 0..1 folds→opens the wings, [flap] 0..1 beats
+ *  them (0.5 = level glide). Shared by the refresh + send-flight motions. */
+internal fun DrawScope.drawTern(spread: Float, flap: Float, color: Color) {
+    val k = size.minDimension / 108f
+    val ox = (size.width - 108f * k) / 2f
+    val oy = (size.height - 108f * k) / 2f
+    // Wings fold up at rest and open out as you pull; during refresh they beat.
+    val fold = lerp(24f, 0f, spread)
+    val beat = (flap - 0.5f) * 26f
+    val swing = fold + beat
+    translate(ox, oy) {
+        scale(k, k, pivot = Offset.Zero) {
+            drawPath(ternBody, color)
+            rotate(-swing, pivot = Offset(51f, 54f)) { drawPath(ternLeftWing, color) }
+            rotate(swing, pivot = Offset(57f, 54f)) { drawPath(ternRightWing, color) }
         }
     }
-    drawPath(wing(-1f), color, style = stroke)
-    drawPath(wing(1f), color, style = stroke)
-    // Body / head.
-    drawLine(color, Offset(cx, cy - s * 0.10f), Offset(cx, cy + s * 0.06f), sw, StrokeCap.Round)
-    // Forked tail.
-    drawLine(color, Offset(cx, cy + s * 0.06f), Offset(cx - s * 0.06f, cy + s * 0.22f), sw, StrokeCap.Round)
-    drawLine(color, Offset(cx, cy + s * 0.06f), Offset(cx + s * 0.06f, cy + s * 0.22f), sw, StrokeCap.Round)
 }
