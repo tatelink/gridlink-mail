@@ -26,6 +26,25 @@ sealed interface MessageState {
     data class Error(val message: String) : MessageState
 }
 
+/**
+ * One message in the opened conversation. [header] always has the summary fields
+ * (from/date/subject/preview); [body] is the full email (with body parts), fetched
+ * lazily the first time the card is expanded. The newest message (the one tapped in
+ * the inbox) starts expanded with its body already loaded.
+ */
+data class ThreadMessage(
+    val id: String,
+    val header: Email,
+    val body: Email? = null,
+    val expanded: Boolean = false,
+    val loading: Boolean = false,
+    val inlineImages: Map<String, String> = emptyMap(),
+)
+
+/** A copy with the $seen keyword set, so a just-opened/expanded message renders as read. */
+private fun Email.markRead(): Email =
+    if (isSeen) this else copy(keywords = keywords + ("\$seen" to true))
+
 class MessageViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
@@ -68,17 +87,17 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val _state = MutableStateFlow<MessageState>(MessageState.Loading)
     val state = _state.asStateFlow()
 
-    /** Other messages in the same conversation (excludes the opened one). */
-    private val _thread = MutableStateFlow<List<Email>>(emptyList())
-    val thread = _thread.asStateFlow()
+    /** The whole conversation as a stack of collapsible messages, oldest first. */
+    private val _messages = MutableStateFlow<List<ThreadMessage>>(emptyList())
+    val messages = _messages.asStateFlow()
 
     /** Transient status while downloading/opening an attachment. */
     private val _attachmentStatus = MutableStateFlow<String?>(null)
     val attachmentStatus = _attachmentStatus.asStateFlow()
 
-    /** Inline images keyed by Content-ID, as `data:` URIs for the body to render. */
-    private val _inlineImages = MutableStateFlow<Map<String, String>>(emptyMap())
-    val inlineImages = _inlineImages.asStateFlow()
+    private fun updateMessage(id: String, transform: (ThreadMessage) -> ThreadMessage) {
+        _messages.value = _messages.value.map { if (it.id == id) transform(it) else it }
+    }
 
     /** Whether the opened message is in the Junk folder (drives Report spam ↔ Not spam). */
     private val _inJunk = MutableStateFlow(false)
@@ -92,56 +111,102 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private fun credentials(): AccountCredentials? =
         accountId?.let { store.credentials(it) } ?: store.load()
 
-    /** Loads the email once per id (idempotent across recompositions). */
+    /** Loads the conversation once per id (idempotent across recompositions). */
     fun load(emailId: String, accountId: String? = null) {
         if (loadedId == emailId && _state.value !is MessageState.Error) return
         loadedId = emailId
         this.accountId = accountId
         _state.value = MessageState.Loading
-        _thread.value = emptyList()
-        _inlineImages.value = emptyMap()
+        _messages.value = emptyList()
         _inJunk.value = false
         viewModelScope.launch {
             try {
                 val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
-                val email = repo.openEmail(credentials, emailId)
-                _state.value = MessageState.Loaded(email)
-                _inJunk.value = repo.mailboxRole(email.mailboxId) == "junk"
-                loadInlineImages(credentials, email)
-                email.threadId?.let { threadId ->
-                    runCatching { repo.threadEmails(credentials, threadId) }
-                        .onSuccess { siblings -> _thread.value = siblings.filter { it.id != email.id } }
+                // The tapped (newest) message: fetch the full body and mark it read.
+                val anchor = repo.openEmail(credentials, emailId)
+                _state.value = MessageState.Loaded(anchor)
+                _inJunk.value = repo.mailboxRole(anchor.mailboxId) == "junk"
+
+                // The rest of the thread (header-only); merge in the anchor and order
+                // oldest→newest (receivedAt is an ISO-8601 string, so it sorts in time).
+                val siblings = anchor.threadId?.let { threadId ->
+                    runCatching { repo.threadEmails(credentials, threadId) }.getOrNull()
+                }.orEmpty()
+                val byId = LinkedHashMap<String, Email>()
+                siblings.forEach { byId[it.id] = it }
+                byId[anchor.id] = anchor
+                val ordered = byId.values.sortedBy { it.receivedAt ?: "" }
+                _messages.value = ordered.map { e ->
+                    val isAnchor = e.id == anchor.id
+                    // The anchor was just marked read on open; reflect that in its header.
+                    ThreadMessage(
+                        id = e.id,
+                        header = if (isAnchor) anchor.markRead() else e,
+                        body = if (isAnchor) anchor.markRead() else null,
+                        expanded = isAnchor,
+                    )
                 }
+
+                // Inline images for the already-expanded anchor.
+                val inline = fetchInlineImages(credentials, anchor, anchor.id)
+                if (inline.isNotEmpty()) updateMessage(anchor.id) { it.copy(inlineImages = inline) }
             } catch (t: Throwable) {
                 _state.value = MessageState.Error(t.message ?: t.javaClass.simpleName)
             }
         }
     }
 
-    /** Download inline images and expose them as `data:` URIs keyed by Content-ID. */
-    private fun loadInlineImages(credentials: AccountCredentials, email: Email) {
-        val parts = email.inlineImageParts()
-        if (parts.isEmpty()) return
+    /** Fold/unfold a message in the conversation; fetches its body on first expand. */
+    fun toggleExpand(id: String) {
+        val msg = _messages.value.firstOrNull { it.id == id } ?: return
+        if (msg.expanded) {
+            updateMessage(id) { it.copy(expanded = false) }
+            return
+        }
+        if (msg.body != null) {
+            updateMessage(id) { it.copy(expanded = true) }
+            return
+        }
+        updateMessage(id) { it.copy(expanded = true, loading = true) }
         viewModelScope.launch {
-            val map = mutableMapOf<String, String>()
-            val emailId = loadedId ?: return@launch
-            for (part in parts) {
-                val cid = part.cid?.trim()?.trim('<', '>')?.takeIf { it.isNotEmpty() } ?: continue
-                runCatching {
-                    val bytes = repo.downloadAttachment(credentials, part, emailId)
-                    val base64 = withContext(Dispatchers.IO) {
-                        android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-                    }
-                    map[cid] = "data:${part.type ?: "image/jpeg"};base64,$base64"
-                }
+            val credentials = credentials()
+            if (credentials == null) {
+                updateMessage(id) { it.copy(loading = false) }
+                return@launch
             }
-            if (map.isNotEmpty()) _inlineImages.value = map.toMap()
+            runCatching { repo.openEmail(credentials, id) }
+                .onSuccess { full ->
+                    val inline = fetchInlineImages(credentials, full, id)
+                    // Expanding a message reads it; reflect that in the header too.
+                    updateMessage(id) {
+                        it.copy(header = it.header.markRead(), body = full, loading = false, inlineImages = inline)
+                    }
+                }
+                .onFailure { updateMessage(id) { it.copy(loading = false, expanded = false) } }
         }
     }
 
+    /** Download a message's inline images as `data:` URIs keyed by Content-ID. */
+    private suspend fun fetchInlineImages(credentials: AccountCredentials, email: Email, emailId: String): Map<String, String> {
+        val parts = email.inlineImageParts()
+        if (parts.isEmpty()) return emptyMap()
+        val map = mutableMapOf<String, String>()
+        for (part in parts) {
+            val cid = part.cid?.trim()?.trim('<', '>')?.takeIf { it.isNotEmpty() } ?: continue
+            runCatching {
+                val bytes = repo.downloadAttachment(credentials, part, emailId)
+                val base64 = withContext(Dispatchers.IO) {
+                    android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                }
+                map[cid] = "data:${part.type ?: "image/jpeg"};base64,$base64"
+            }
+        }
+        return map
+    }
+
     /** Download an attachment to the cache and hand it to a viewer app. */
-    fun openAttachment(part: EmailBodyPart) {
-        val emailId = loadedId ?: return
+    fun openAttachment(part: EmailBodyPart, ownerId: String) {
+        val emailId = ownerId
         val app = getApplication<Application>()
         _attachmentStatus.value = "Opening ${part.name ?: "attachment"}…"
         viewModelScope.launch {

@@ -16,7 +16,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
@@ -79,9 +89,8 @@ fun MessageScreen(
 ) {
     LaunchedEffect(emailId, accountId) { viewModel.load(emailId, accountId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val thread by viewModel.thread.collectAsStateWithLifecycle()
+    val messages by viewModel.messages.collectAsStateWithLifecycle()
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
-    val inlineImages by viewModel.inlineImages.collectAsStateWithLifecycle()
     val inJunk by viewModel.inJunk.collectAsStateWithLifecycle()
     val stripTracking by viewModel.stripTracking.collectAsStateWithLifecycle()
     val confirmLinks by viewModel.confirmLinks.collectAsStateWithLifecycle()
@@ -241,16 +250,14 @@ fun MessageScreen(
                         Text(stringResource(R.string.message_retry))
                     }
                 }
-                is MessageState.Loaded -> MessageBody(
-                    email = s.email,
-                    siblings = thread,
+                is MessageState.Loaded -> ConversationBody(
+                    messages = messages,
                     blockRemote = !showRemote,
                     stripTracking = stripTracking,
                     confirmLinks = confirmLinks,
-                    onOpenEmail = onOpenEmail,
                     attachmentStatus = attachmentStatus,
+                    onToggle = viewModel::toggleExpand,
                     onOpenAttachment = viewModel::openAttachment,
-                    inlineImages = inlineImages,
                     textZoom = messageTextSize.zoom,
                 )
             }
@@ -259,95 +266,131 @@ fun MessageScreen(
 }
 
 @Composable
-private fun MessageBody(
-    email: Email,
-    siblings: List<Email>,
+private fun ConversationBody(
+    messages: List<ThreadMessage>,
     blockRemote: Boolean,
     stripTracking: Boolean,
     confirmLinks: Boolean,
-    onOpenEmail: (String) -> Unit,
     attachmentStatus: String?,
-    onOpenAttachment: (EmailBodyPart) -> Unit,
-    inlineImages: Map<String, String>,
+    onToggle: (String) -> Unit,
+    onOpenAttachment: (EmailBodyPart, String) -> Unit,
     textZoom: Int,
 ) {
-    Column(Modifier.fillMaxSize()) {
-        Header(email)
-        if (siblings.isNotEmpty()) {
-            HorizontalDivider()
-            ThreadSection(siblings, onOpenEmail)
+    // A plain scrolling Column (not a LazyColumn): a thread is small, and not
+    // recycling the cards keeps each expanded WebView alive instead of reloading its
+    // body every time it scrolls past.
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        messages.forEachIndexed { index, msg ->
+            if (index > 0) HorizontalDivider()
+            MessageCard(
+                msg = msg,
+                collapsible = messages.size > 1,
+                blockRemote = blockRemote,
+                stripTracking = stripTracking,
+                confirmLinks = confirmLinks,
+                attachmentStatus = attachmentStatus,
+                onToggle = onToggle,
+                onOpenAttachment = onOpenAttachment,
+                textZoom = textZoom,
+            )
         }
-        val attachments = email.fileAttachmentParts()
-        if (attachments.isNotEmpty()) {
-            HorizontalDivider()
-            AttachmentSection(attachments, attachmentStatus, onOpenAttachment)
-        }
-        HorizontalDivider()
-        val scheme = MaterialTheme.colorScheme
-        val dark = scheme.surface.luminance() < 0.5f
-        val emailTheme = EmailTheme(
-            background = scheme.surface.toCssHex(),
-            text = scheme.onSurface.toCssHex(),
-            link = scheme.primary.toCssHex(),
-            dark = dark,
-        )
-        val html = remember(email, inlineImages, emailTheme) { buildHtmlDocument(email, inlineImages, emailTheme) }
-        EmailWebView(
-            html = html,
-            blockRemote = blockRemote,
-            stripTracking = stripTracking,
-            confirmLinks = confirmLinks,
-            backgroundColor = scheme.surface.toArgb(),
-            textZoom = textZoom,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-        )
     }
 }
 
+/** One message in the stacked conversation: a tappable header that folds/unfolds the
+ *  full body (fetched lazily). A lone message stays open and isn't collapsible. */
 @Composable
-private fun ThreadSection(siblings: List<Email>, onOpenEmail: (String) -> Unit) {
-    var expanded by remember(siblings) { mutableStateOf(false) }
+private fun MessageCard(
+    msg: ThreadMessage,
+    collapsible: Boolean,
+    blockRemote: Boolean,
+    stripTracking: Boolean,
+    confirmLinks: Boolean,
+    attachmentStatus: String?,
+    onToggle: (String) -> Unit,
+    onOpenAttachment: (EmailBodyPart, String) -> Unit,
+    textZoom: Int,
+) {
+    val sender = msg.header.from.firstOrNull()
+    val unread = !msg.header.isSeen
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .then(if (collapsible) Modifier.clickable { onToggle(msg.id) } else Modifier)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = stringResource(R.string.message_thread_more, siblings.size),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.weight(1f),
-            )
-            Text(if (expanded) "▲" else "▼", color = MaterialTheme.colorScheme.primary)
-        }
-        if (expanded) {
-            siblings.forEach { sibling ->
-                HorizontalDivider()
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenEmail(sibling.id) }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
+            Monogram(seed = sender?.email ?: "?", label = sender?.display() ?: "?")
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = sender?.display() ?: stringResource(R.string.message_unknown_sender),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (msg.expanded) {
                     Text(
-                        text = sibling.from.firstOrNull()?.display()
-                            ?: stringResource(R.string.message_unknown_sender),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        text = formatFull(msg.header.receivedAt),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                } else {
                     Text(
-                        text = sibling.subject?.takeIf { it.isNotBlank() }
-                            ?: stringResource(R.string.message_no_subject),
+                        text = msg.header.preview?.takeIf { it.isNotBlank() } ?: "",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+            if (!msg.expanded) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = formatCompact(msg.header.receivedAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (unread) {
+                Spacer(Modifier.width(8.dp))
+                Box(Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+            }
+        }
+        if (msg.expanded) {
+            val full = msg.body
+            if (full == null) {
+                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                }
+            } else {
+                val attachments = full.fileAttachmentParts()
+                if (attachments.isNotEmpty()) {
+                    HorizontalDivider()
+                    AttachmentSection(attachments, attachmentStatus) { part -> onOpenAttachment(part, msg.id) }
+                }
+                HorizontalDivider()
+                val scheme = MaterialTheme.colorScheme
+                val dark = scheme.surface.luminance() < 0.5f
+                val emailTheme = EmailTheme(
+                    background = scheme.surface.toCssHex(),
+                    text = scheme.onSurface.toCssHex(),
+                    link = scheme.primary.toCssHex(),
+                    dark = dark,
+                )
+                val html = remember(full, msg.inlineImages, emailTheme) { buildHtmlDocument(full, msg.inlineImages, emailTheme) }
+                EmailWebView(
+                    html = html,
+                    blockRemote = blockRemote,
+                    stripTracking = stripTracking,
+                    confirmLinks = confirmLinks,
+                    backgroundColor = scheme.surface.toArgb(),
+                    textZoom = textZoom,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -413,62 +456,6 @@ private fun formatSize(bytes: Long): String = when {
 }
 
 @Composable
-private fun Header(email: Email) {
-    val sender = email.from.firstOrNull()
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-    ) {
-        Text(
-            text = email.subject?.takeIf { it.isNotBlank() }
-                ?: stringResource(R.string.message_no_subject),
-            style = MaterialTheme.typography.titleLarge,
-        )
-        Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Monogram(seed = sender?.email ?: "?", label = sender?.display() ?: "?")
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = sender?.display() ?: stringResource(R.string.message_unknown_sender),
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (sender != null && !sender.name.isNullOrBlank() && sender.email.isNotBlank()) {
-                    Text(
-                        text = sender.email,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Text(
-                    text = formatFull(email.receivedAt),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (email.to.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = stringResource(
-                    R.string.message_to,
-                    email.to.joinToString { it.display() },
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-@Composable
 private fun EmailWebView(
     html: String,
     blockRemote: Boolean,
@@ -479,14 +466,23 @@ private fun EmailWebView(
     modifier: Modifier,
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     // When confirmation is on, a tapped link is held here until the user approves it.
     var pendingLink by remember { mutableStateOf<Uri?>(null) }
+    // Measured content height: the WebView sizes to its content (no internal scroll) so
+    // it stacks naturally in the conversation's outer scroll. JS is disabled, so this
+    // comes from the native contentHeight, read once layout settles.
+    var heightPx by remember { mutableIntStateOf(0) }
     val client = remember { BlockingWebViewClient() }
     client.blockRemote = blockRemote
     client.stripTracking = stripTracking
     client.onOpenUrl = { uri -> if (confirmLinks) pendingLink = uri else openExternally(context, uri) }
+    client.onContentHeight = { heightPx = it }
     AndroidView(
-        modifier = modifier,
+        modifier = modifier.then(
+            if (heightPx > 0) Modifier.height(with(density) { heightPx.toDp() })
+            else Modifier.heightIn(min = 80.dp),
+        ),
         factory = { ctx ->
             WebView(ctx).apply {
                 settings.javaScriptEnabled = false
@@ -555,6 +551,21 @@ private class BlockingWebViewClient : WebViewClient() {
 
     /** Reports the final (possibly cleaned) URL to open; the composable decides how. */
     var onOpenUrl: (Uri) -> Unit = {}
+
+    /** Reports the rendered content height (Android px) so the view can size to it. */
+    var onContentHeight: (Int) -> Unit = {}
+
+    override fun onPageFinished(view: WebView?, url: String?) {
+        val wv = view ?: return
+        // No JS to measure with, so read the native content height once layout settles,
+        // then again shortly after to catch any image reflow.
+        fun report() {
+            val px = (wv.contentHeight * wv.resources.displayMetrics.density).toInt()
+            if (px > 0) onContentHeight(px)
+        }
+        wv.post { report() }
+        wv.postDelayed({ report() }, 250)
+    }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
         if (!blockRemote) return null
@@ -667,13 +678,19 @@ private fun escapeHtml(text: String): String = text
     .replace(">", "&gt;")
 
 private val fullFormatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", appLocale)
+private val compactFormatter = DateTimeFormatter.ofPattern("d MMM", appLocale)
 
-private fun formatFull(iso: String?): String {
+private fun formatFull(iso: String?): String = formatWith(iso, fullFormatter)
+
+/** Short date (e.g. "21 Jun") for a collapsed conversation card. */
+private fun formatCompact(iso: String?): String = formatWith(iso, compactFormatter)
+
+private fun formatWith(iso: String?, formatter: DateTimeFormatter): String {
     if (iso.isNullOrBlank()) return ""
     val instant = runCatching { Instant.parse(iso) }
         .recoverCatching { OffsetDateTime.parse(iso).toInstant() }
         .getOrNull() ?: return ""
-    return instant.atZone(ZoneId.systemDefault()).format(fullFormatter)
+    return instant.atZone(ZoneId.systemDefault()).format(formatter)
 }
 
 /** Snooze presets → (label, epoch-millis), computed in the device's time zone. */
