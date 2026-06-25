@@ -1177,7 +1177,11 @@ private fun mailboxTree(mailboxes: List<Mailbox>, collapsed: Set<String>): List<
         val parent = m.id.substringBeforeLast(delim, "")
         return if (parent.isNotEmpty() && byId.containsKey(parent)) parent else null
     }
+    // Order each level by role so the standard folders come first in a familiar order
+    // (Inbox, Drafts, Sent, Trash, Spam, Archive), then any custom folders keep their
+    // server order (sortedBy is stable, so same-rank items aren't reshuffled).
     val childrenOf = mailboxes.groupBy { parentOf(it) }
+        .mapValues { (_, kids) -> kids.sortedBy { folderRank(it.role) } }
     val result = mutableListOf<MailboxNode>()
     val visited = mutableSetOf<String>()
     fun visit(parent: String?, depth: Int) {
@@ -1189,6 +1193,17 @@ private fun mailboxTree(mailboxes: List<Mailbox>, collapsed: Set<String>): List<
     }
     visit(null, 0)
     return result
+}
+
+/** Drawer ordering rank for a folder's role: standard folders first, custom folders last. */
+private fun folderRank(role: String?): Int = when (role) {
+    "inbox" -> 0
+    "drafts" -> 1
+    "sent" -> 2
+    "trash" -> 3
+    "junk" -> 4
+    "archive" -> 5
+    else -> 6
 }
 
 /** A leading icon for a folder, chosen by its JMAP role (falls back to a generic list icon). */
