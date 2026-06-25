@@ -12,6 +12,7 @@ import androidx.sqlite.db.SimpleSQLiteQuery
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.account.AccountStore
 import app.sterna.core.data.account.MailProtocol
+import app.sterna.core.data.account.OAuthCredentials
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.filter.SieveCodec
 import app.sterna.core.data.db.EmailDao
@@ -203,6 +204,8 @@ class MailRepository(
 
     @Volatile
     private var context: Context? = null
+
+    private val tokenRefresher = OAuthTokenRefresher(oauthClient, accountStore)
 
     /** Where an IMAP message was moved (for undo): emailId → (destination folder, new UID). */
     private class ImapLoc(val mailboxId: String, val uid: Long)
@@ -528,19 +531,9 @@ class MailRepository(
      * the new tokens), Basic otherwise.
      */
     private suspend fun jmapAuth(credentials: AccountCredentials): JmapAuth {
-        val oauth = credentials.oauth ?: return BasicAuth(credentials.username, credentials.password)
-        val fresh = oauth.accessToken.isNotBlank() &&
-            oauth.accessExpiresAtMillis - System.currentTimeMillis() > 60_000
-        if (fresh) return BearerAuth(oauth.accessToken)
-        val tokens = oauthClient.refresh(oauth.tokenEndpoint, oauth.refreshToken, oauth.clientId)
-        val expiresAt = System.currentTimeMillis() + tokens.expiresIn * 1000
-        accountStore.updateOAuthTokens(
-            credentials.id,
-            accessToken = tokens.accessToken,
-            refreshToken = tokens.refreshToken.orEmpty(),
-            accessExpiresAtMillis = expiresAt,
-        )
-        return BearerAuth(tokens.accessToken)
+        val token = tokenRefresher.freshAccessToken(credentials)
+            ?: return BasicAuth(credentials.username, credentials.password)
+        return BearerAuth(token)
     }
 
     /**
@@ -597,6 +590,69 @@ class MailRepository(
             accessExpiresAtMillis = expiresAt,
             tokenEndpoint = metadata.tokenEndpoint,
             clientId = Jmap.OAUTH_CLIENT_ID,
+        )
+        val credentials = accountStore.credentials(id) ?: error("Account could not be loaded after creation.")
+        val meta = refresh(credentials)
+        accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
+    }
+
+    /** Begin the device flow for a built-in OAuth provider (Microsoft, …). */
+    suspend fun startProviderDeviceAuth(provider: OAuthProvider): DeviceAuthorization =
+        oauthClient.startDeviceAuthorization(provider.metadata, provider.clientId, provider.scope)
+
+    /** Poll a built-in provider's token endpoint once for a pending device authorization. */
+    suspend fun pollProviderToken(provider: OAuthProvider, deviceCode: String): DeviceTokenResult =
+        oauthClient.pollDeviceToken(provider.metadata, deviceCode, provider.clientId)
+
+    /**
+     * Validate freshly granted OAuth [tokens] by connecting to [provider]'s IMAP server
+     * with XOAUTH2, then persist an IMAP/SMTP account and prime its inbox cache. Throws
+     * (persisting nothing) if the token is rejected.
+     */
+    suspend fun addOAuthImapAccount(
+        provider: OAuthProvider,
+        email: String,
+        tokens: OAuthTokens,
+        accountName: String,
+    ) {
+        val expiresAt = System.currentTimeMillis() + tokens.expiresIn * 1000
+        val probe = AccountCredentials(
+            server = "",
+            username = email,
+            password = "",
+            protocol = MailProtocol.IMAP,
+            imap = provider.imap,
+            smtp = provider.smtp,
+            oauth = OAuthCredentials(
+                accessToken = tokens.accessToken,
+                refreshToken = tokens.refreshToken.orEmpty(),
+                accessExpiresAtMillis = expiresAt,
+                tokenEndpoint = provider.metadata.tokenEndpoint,
+                clientId = provider.clientId,
+            ),
+        )
+        // Validate against the IMAP server before persisting anything; drop the probe conn.
+        try {
+            imap.testConnection(probe)
+        } finally {
+            runCatching { imap.disconnect("") }
+        }
+        val id = accountStore.addOAuth(
+            server = "",
+            username = email,
+            accountName = accountName,
+            accessToken = tokens.accessToken,
+            refreshToken = tokens.refreshToken.orEmpty(),
+            accessExpiresAtMillis = expiresAt,
+            tokenEndpoint = provider.metadata.tokenEndpoint,
+            clientId = provider.clientId,
+            protocol = MailProtocol.IMAP,
+            imapHost = provider.imap.host,
+            imapPort = provider.imap.port,
+            imapSecurity = provider.imap.security,
+            smtpHost = provider.smtp.host,
+            smtpPort = provider.smtp.port,
+            smtpSecurity = provider.smtp.security,
         )
         val credentials = accountStore.credentials(id) ?: error("Account could not be loaded after creation.")
         val meta = refresh(credentials)

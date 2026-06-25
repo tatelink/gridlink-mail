@@ -19,7 +19,22 @@ data class MailServerConfig(
     val security: MailSecurity,
     val username: String,
     val password: String,
+    /**
+     * OAuth bearer access token. When non-null the client authenticates with the SASL
+     * **XOAUTH2** mechanism instead of a password (used for Outlook/Microsoft etc.).
+     */
+    val accessToken: String? = null,
 )
+
+/**
+ * The SASL XOAUTH2 initial client response (base64), per the Google/Microsoft spec:
+ * `base64("user=" + username + ^A + "auth=Bearer " + token + ^A^A)` where ^A is U+0001.
+ */
+internal fun xoauth2Payload(username: String, accessToken: String): String {
+    val sep = Char(1) // SASL XOAUTH2 field separator (Ctrl-A / U+0001)
+    val raw = "user=$username${sep}auth=Bearer $accessToken$sep$sep"
+    return java.util.Base64.getEncoder().encodeToString(raw.toByteArray(Charsets.UTF_8))
+}
 
 /** A mailbox returned by LIST, with any role inferred from its name/attributes. */
 data class ImapFolder(

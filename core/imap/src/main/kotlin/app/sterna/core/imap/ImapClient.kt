@@ -44,7 +44,11 @@ class ImapClient {
             session.command("STARTTLS")
             session.upgradeTls(config.host, config.port)
         }
-        session.login(config.username, config.password)
+        if (config.accessToken != null) {
+            session.authenticateXoauth2(config.username, config.accessToken)
+        } else {
+            session.login(config.username, config.password)
+        }
         return session
     }
 
@@ -77,6 +81,37 @@ class ImapSession(private var socket: Socket) : Closeable {
 
     internal fun login(username: String, password: String) {
         command("LOGIN ${quote(username)} ${quote(password)}")
+    }
+
+    /**
+     * Authenticate with SASL XOAUTH2 (OAuth bearer token) instead of a password.
+     * On a bad token the server sends a "+" base64 error challenge and then waits for an
+     * empty client response before issuing the tagged NO — we acknowledge it so the
+     * failure surfaces as an auth error instead of hanging.
+     */
+    internal fun authenticateXoauth2(username: String, accessToken: String) {
+        val tag = "a${++tagN}"
+        output.write("$tag AUTHENTICATE XOAUTH2 ${xoauth2Payload(username, accessToken)}\r\n".toByteArray(Charsets.UTF_8))
+        output.flush()
+        while (true) {
+            val resp = input.readResponse()
+            if (resp.isEmpty()) {
+                if (socket.isClosed) throw ImapException("Connection closed")
+                continue
+            }
+            when (resp[0]) {
+                tag -> {
+                    val status = resp.getOrNull(1) as? String ?: "BAD"
+                    if (status != "OK") throw ImapException("AUTHENTICATE … failed: ${resp.drop(1).joinToString(" ")}")
+                    return
+                }
+                "+" -> {
+                    output.write("\r\n".toByteArray(Charsets.UTF_8))
+                    output.flush()
+                }
+                // else: an untagged "*" status line — ignore and read on for the tag.
+            }
+        }
     }
 
     /** Strip credential-bearing arguments before a command appears in an error/log. */

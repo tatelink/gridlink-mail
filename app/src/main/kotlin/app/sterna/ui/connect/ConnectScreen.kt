@@ -282,6 +282,14 @@ fun ConnectScreen(
                 ) { Text(stringResource(R.string.connect_oauth_button)) }
             }
 
+            // Outlook/Microsoft accounts authenticate over IMAP with OAuth (XOAUTH2); offered
+            // as its own shortcut since Microsoft has disabled password IMAP.
+            TextButton(
+                onClick = { viewModel.connectOutlookOAuth(username, accountName) },
+                enabled = !busy && username.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(stringResource(R.string.connect_outlook_signin)) }
+
             Spacer(Modifier.height(4.dp))
             when (val s = state) {
                 is ConnectState.Connecting, is ConnectState.Discovering -> CircularProgressIndicator()

@@ -413,6 +413,8 @@
     <string name="connect_password_show">Show password</string>
     <string name="connect_password_hide">Hide password</string>
     <string name="connect_oauth_button">Sign in with OAuth (no password)</string>
+    <string name="connect_outlook_signin">Continue with Outlook</string>
+    <string name="connect_oauth_provider_unconfigured">Outlook sign-in isn\'t available in this build yet.</string>
     <string name="connect_oauth_unsupported">This server doesn\'t support OAuth sign-in. Use email and password instead.</string>
     <string name="connect_oauth_failed">Couldn\'t start OAuth sign-in. Try again.</string>
     <string name="connect_oauth_denied">Sign-in was declined or cancelled.</string>

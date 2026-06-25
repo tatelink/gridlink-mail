@@ -87,13 +87,24 @@ class SmtpClient {
             expect("250", "EHLO (TLS)")
         }
 
-        // AUTH LOGIN
-        write("AUTH LOGIN")
-        expect("334", "AUTH")
-        write(base64(config.username))
-        expect("334", "AUTH user")
-        write(base64(config.password))
-        expect("235", "AUTH password")
+        // AUTH: XOAUTH2 (OAuth bearer) when a token is present, else plain AUTH LOGIN.
+        if (config.accessToken != null) {
+            write("AUTH XOAUTH2 ${xoauth2Payload(config.username, config.accessToken)}")
+            val resp = read()
+            if (!resp.startsWith("235")) {
+                // A rejected token comes back as "334 <base64 error>"; reply with an empty
+                // line so the server can finish (with its 535), then report the failure.
+                if (resp.startsWith("334")) { write(""); read() }
+                throw SmtpException("AUTH XOAUTH2: $resp")
+            }
+        } else {
+            write("AUTH LOGIN")
+            expect("334", "AUTH")
+            write(base64(config.username))
+            expect("334", "AUTH user")
+            write(base64(config.password))
+            expect("235", "AUTH password")
+        }
 
         // Envelope
         write("MAIL FROM:<${addressOnly(message.from)}>")

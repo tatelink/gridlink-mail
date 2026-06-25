@@ -349,6 +349,8 @@
     <string name="connect_password_show">Passwort anzeigen</string>
     <string name="connect_password_hide">Passwort ausblenden</string>
     <string name="connect_oauth_button">Mit OAuth anmelden (ohne Passwort)</string>
+    <string name="connect_outlook_signin">Mit Outlook fortfahren</string>
+    <string name="connect_oauth_provider_unconfigured">Die Outlook-Anmeldung ist in dieser Version noch nicht verfügbar.</string>
     <string name="connect_oauth_unsupported">Dieser Server unterstützt die OAuth-Anmeldung nicht. Verwende stattdessen E-Mail-Adresse und Passwort.</string>
     <string name="connect_oauth_failed">OAuth-Anmeldung konnte nicht gestartet werden. Versuche es erneut.</string>
     <string name="connect_oauth_denied">Die Anmeldung wurde abgelehnt oder abgebrochen.</string>

@@ -10,6 +10,7 @@ import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.mail.MailRepository
+import app.sterna.core.data.mail.OAuthProvider
 import app.sterna.core.jmap.DeviceAuthorization
 import app.sterna.core.jmap.DeviceTokenResult
 import app.sterna.core.jmap.Jmap
@@ -131,6 +132,66 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                     _state.value = ConnectState.Connecting
                     val outcome = runCatching {
                         container.mailRepository.addOAuthAccount(host, email, metadata, result.tokens, accountName)
+                    }
+                    _state.value = outcome.fold(
+                        onSuccess = { ConnectState.Connected },
+                        onFailure = { ConnectState.Error(it.message ?: it.javaClass.simpleName) },
+                    )
+                    return
+                }
+                DeviceTokenResult.Pending -> Unit
+                DeviceTokenResult.SlowDown -> interval += 5
+                is DeviceTokenResult.Failed -> {
+                    _state.value = ConnectState.Error(string(R.string.connect_oauth_denied))
+                    return
+                }
+            }
+        }
+        _state.value = ConnectState.Error(string(R.string.connect_oauth_expired))
+    }
+
+    /**
+     * OAuth device flow for a built-in provider (Outlook/Microsoft) over IMAP+SMTP with
+     * XOAUTH2 — fixed endpoints, no discovery. The email/password fields are ignored apart
+     * from the address used to label the account.
+     */
+    fun connectOutlookOAuth(email: String, accountName: String) {
+        if (busy()) return
+        val provider = OAuthProvider.MICROSOFT
+        if (!provider.isConfigured) {
+            _state.value = ConnectState.Error(string(R.string.connect_oauth_provider_unconfigured))
+            return
+        }
+        val emailTrim = email.trim()
+        _state.value = ConnectState.Discovering
+        oauthJob = viewModelScope.launch {
+            val device = runCatching { container.mailRepository.startProviderDeviceAuth(provider) }.getOrNull()
+            if (device == null) {
+                _state.value = ConnectState.Error(string(R.string.connect_oauth_failed))
+                return@launch
+            }
+            _state.value = ConnectState.AwaitingApproval(
+                device.userCode, device.verificationUri, device.verificationUriComplete,
+            )
+            pollForProviderToken(provider, device, emailTrim, accountName)
+        }
+    }
+
+    private suspend fun pollForProviderToken(
+        provider: OAuthProvider,
+        device: DeviceAuthorization,
+        email: String,
+        accountName: String,
+    ) {
+        var interval = device.interval.coerceAtLeast(1).toLong()
+        val deadline = System.currentTimeMillis() + device.expiresIn * 1000L
+        while (System.currentTimeMillis() < deadline) {
+            delay(interval * 1000)
+            when (val result = container.mailRepository.pollProviderToken(provider, device.deviceCode)) {
+                is DeviceTokenResult.Success -> {
+                    _state.value = ConnectState.Connecting
+                    val outcome = runCatching {
+                        container.mailRepository.addOAuthImapAccount(provider, email, result.tokens, accountName)
                     }
                     _state.value = outcome.fold(
                         onSuccess = { ConnectState.Connected },

@@ -349,6 +349,8 @@
     <string name="connect_password_show">Wachtwoord tonen</string>
     <string name="connect_password_hide">Wachtwoord verbergen</string>
     <string name="connect_oauth_button">Inloggen met OAuth (geen wachtwoord)</string>
+    <string name="connect_outlook_signin">Doorgaan met Outlook</string>
+    <string name="connect_oauth_provider_unconfigured">Aanmelden met Outlook is nog niet beschikbaar in deze versie.</string>
     <string name="connect_oauth_unsupported">Deze server ondersteunt geen inloggen met OAuth. Gebruik in plaats daarvan e-mailadres en wachtwoord.</string>
     <string name="connect_oauth_failed">Kan inloggen met OAuth niet starten. Probeer het opnieuw.</string>
     <string name="connect_oauth_denied">Inloggen is geweigerd of geannuleerd.</string>

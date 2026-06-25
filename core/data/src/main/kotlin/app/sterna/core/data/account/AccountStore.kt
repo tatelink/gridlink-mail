@@ -128,6 +128,13 @@ class AccountStore(context: Context) {
         accessExpiresAtMillis: Long,
         tokenEndpoint: String,
         clientId: String,
+        protocol: MailProtocol = MailProtocol.JMAP,
+        imapHost: String = "",
+        imapPort: Int = 993,
+        imapSecurity: ConnectionSecurity = ConnectionSecurity.TLS,
+        smtpHost: String = "",
+        smtpPort: Int = 587,
+        smtpSecurity: ConnectionSecurity = ConnectionSecurity.STARTTLS,
     ): String {
         val id = UUID.randomUUID().toString()
         writePassword(id, refreshToken)
@@ -136,11 +143,18 @@ class AccountStore(context: Context) {
             server = server.trim(),
             username = username.trim(),
             accountName = accountName,
+            protocol = protocol,
             authType = AuthType.OAUTH,
             oauthAccessToken = accessToken,
             oauthAccessExpiresAt = accessExpiresAtMillis,
             oauthTokenEndpoint = tokenEndpoint,
             oauthClientId = clientId,
+            imapHost = imapHost,
+            imapPort = imapPort,
+            imapSecurity = imapSecurity,
+            smtpHost = smtpHost,
+            smtpPort = smtpPort,
+            smtpSecurity = smtpSecurity,
         )
         saveAccounts(accounts() + account)
         prefs.edit().putString(KEY_CURRENT, id).apply()

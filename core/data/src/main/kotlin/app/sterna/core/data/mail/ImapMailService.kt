@@ -41,6 +41,7 @@ data class ImapFolderLoad(
 class ImapMailService(
     private val imapClient: ImapClient,
     private val smtpClient: SmtpClient,
+    private val tokenRefresher: OAuthTokenRefresher,
 ) {
     /** A pooled, reusable connection for one account. */
     private class Pooled {
@@ -89,8 +90,10 @@ class ImapMailService(
      * Open a dedicated IDLE connection on the account's INBOX for push. Separate from the
      * pooled connection (IDLE blocks); returns a Closeable the caller closes to stop.
      */
-    fun openIdle(credentials: AccountCredentials, onChanged: () -> Unit, onClosed: () -> Unit): java.io.Closeable {
+    suspend fun openIdle(credentials: AccountCredentials, onChanged: () -> Unit, onClosed: () -> Unit): java.io.Closeable {
         val endpoint = credentials.imap ?: error("Account has no IMAP server configured.")
+        // The token is resolved fresh here; if it expires mid-IDLE the connection drops and
+        // the caller reopens (re-refreshing) via onClosed.
         return ImapIdleConnection(imapClient, config(endpoint, credentials), "INBOX", onChanged, onClosed)
     }
 
@@ -106,8 +109,9 @@ class ImapMailService(
     /** Send via SMTP, then APPEND a \Seen copy into the Sent folder (if known). */
     suspend fun send(credentials: AccountCredentials, message: OutgoingMessage, sentMailbox: String?) {
         val smtp = credentials.smtp ?: error("Account has no SMTP server configured.")
+        val token = tokenRefresher.freshAccessToken(credentials)
         smtpClient.send(
-            MailServerConfig(smtp.host, smtp.port, smtp.security.toMailSecurity(), credentials.username, credentials.password),
+            MailServerConfig(smtp.host, smtp.port, smtp.security.toMailSecurity(), credentials.username, credentials.password, token),
             message,
         )
         if (sentMailbox != null) {
@@ -254,12 +258,14 @@ class ImapMailService(
         sortKey = dateMillis,
     )
 
-    private fun config(endpoint: MailEndpoint, credentials: AccountCredentials) = MailServerConfig(
+    private suspend fun config(endpoint: MailEndpoint, credentials: AccountCredentials) = MailServerConfig(
         host = endpoint.host,
         port = endpoint.port,
         security = endpoint.security.toMailSecurity(),
         username = credentials.username,
         password = credentials.password,
+        // OAuth accounts authenticate with a fresh bearer token (XOAUTH2); null = password.
+        accessToken = tokenRefresher.freshAccessToken(credentials),
     )
 
     private fun ConnectionSecurity.toMailSecurity(): MailSecurity = when (this) {
