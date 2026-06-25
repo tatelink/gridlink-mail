@@ -622,7 +622,6 @@ class MailRepository(
         // Microsoft IMAP wants the account's exact primary address as the XOAUTH2 user=,
         // not whatever alias the user typed — take it from the signed-in identity (id_token).
         val username = emailFromIdToken(tokens.idToken) ?: email
-        android.util.Log.i("OutlookOAuth", "imap user='$username' (typed='$email') host=${provider.imap.host}")
         val probe = AccountCredentials(
             server = "",
             username = username,
