@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -17,11 +19,28 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // Sign release with the local debug keystore (when present) so a release build
-    // installs over the debug one for real-world performance testing. A proper
-    // release keystore replaces this before publishing.
+    // Release signing. If a git-ignored keystore.properties is present (real release
+    // key), the release build is signed with it; otherwise it falls back to the local
+    // debug keystore so debug builds and CI still work. keystore.properties holds:
+    //   storeFile=/absolute/path/to/sterna-release.jks
+    //   storePassword=...
+    //   keyAlias=sterna
+    //   keyPassword=...
+    val keystorePropsFile = rootProject.file("keystore.properties")
+    val keystoreProps = Properties().apply {
+        if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
+    }
+    val hasReleaseKey = keystoreProps.getProperty("storeFile") != null
     val debugKeystore = file(System.getProperty("user.home") + "/.android/debug.keystore")
     signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
         if (debugKeystore.exists()) {
             create("debugSigned") {
                 storeFile = debugKeystore
@@ -35,7 +54,9 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            if (debugKeystore.exists()) signingConfig = signingConfigs.getByName("debugSigned")
+            // Prefer the real release key; fall back to the debug key when absent.
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.findByName("debugSigned")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
