@@ -35,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ChevronRight
@@ -100,6 +101,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -531,7 +534,24 @@ fun InboxScreen(
                                 Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.inbox_cancel_selection))
                             }
                         },
-                        title = { Text(stringResource(R.string.inbox_selected_count, selectedIds.size)) },
+                        title = {
+                            // A check + the count: compact and language-proof (the old
+                            // "N sélectionné(s)" wrapped to three lines here). The full
+                            // localized label is kept for screen readers.
+                            val countLabel = stringResource(R.string.inbox_selected_count, selectedIds.size)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clearAndSetSemantics { contentDescription = countLabel },
+                            ) {
+                                Icon(
+                                    Icons.Filled.CheckCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(selectedIds.size.toString(), maxLines = 1)
+                            }
+                        },
                         actions = {
                             // Toggle read/unread, keeping the selection (only the state changes).
                             IconButton(onClick = { viewModel.toggleSelectedRead() }) {
