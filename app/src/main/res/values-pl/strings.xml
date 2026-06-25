@@ -350,6 +350,7 @@
     <string name="connect_password_hide">Ukryj hasło</string>
     <string name="connect_oauth_button">Zaloguj się przez OAuth (bez hasła)</string>
     <string name="connect_outlook_signin">Kontynuuj z Outlookiem</string>
+    <string name="connect_outlook_added">Dodano konto Outlook</string>
     <string name="connect_oauth_provider_unconfigured">Logowanie przez Outlook nie jest jeszcze dostępne w tej wersji.</string>
     <string name="connect_oauth_need_email">Najpierw wpisz swój adres e-mail Outlook.</string>
     <string name="connect_oauth_unsupported">Ten serwer nie obsługuje logowania OAuth. Użyj adresu e-mail i hasła.</string>

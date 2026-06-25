@@ -48,6 +48,10 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
 
     private var oauthJob: Job? = null
 
+    init {
+        observeOutlookSignIn()
+    }
+
     fun connect(server: String, username: String, password: String, accountName: String) {
         if (_state.value is ConnectState.Connecting || _state.value is ConnectState.Discovering) return
         _state.value = ConnectState.Connecting
@@ -151,14 +155,14 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * OAuth device flow for a built-in provider (Outlook/Microsoft) over IMAP+SMTP with
-     * XOAUTH2 — fixed endpoints, no discovery. The email/password fields are ignored apart
-     * from the address used to label the account.
+     * OAuth device flow for Outlook/Microsoft over IMAP+SMTP with XOAUTH2. Delegates to the
+     * app-scoped [OutlookSignIn] so the token poll survives the round-trip to the browser
+     * (backgrounding / app lock / this screen being popped) — see [OutlookSignIn]. The
+     * email labels the account; the password field is ignored.
      */
     fun connectOutlookOAuth(email: String, accountName: String) {
         if (busy()) return
-        val provider = OAuthProvider.MICROSOFT
-        if (!provider.isConfigured) {
+        if (!OAuthProvider.MICROSOFT.isConfigured) {
             _state.value = ConnectState.Error(string(R.string.connect_oauth_provider_unconfigured))
             return
         }
@@ -167,57 +171,37 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             _state.value = ConnectState.Error(string(R.string.connect_oauth_need_email))
             return
         }
-        _state.value = ConnectState.Discovering
-        oauthJob = viewModelScope.launch {
-            val device = runCatching { container.mailRepository.startProviderDeviceAuth(provider) }.getOrNull()
-            if (device == null) {
-                _state.value = ConnectState.Error(string(R.string.connect_oauth_failed))
-                return@launch
-            }
-            _state.value = ConnectState.AwaitingApproval(
-                device.userCode, device.verificationUri, device.verificationUriComplete,
-            )
-            pollForProviderToken(provider, device, emailTrim, accountName)
-        }
+        container.outlookSignIn.start(emailTrim, accountName)
     }
 
-    private suspend fun pollForProviderToken(
-        provider: OAuthProvider,
-        device: DeviceAuthorization,
-        email: String,
-        accountName: String,
-    ) {
-        var interval = device.interval.coerceAtLeast(1).toLong()
-        val deadline = System.currentTimeMillis() + device.expiresIn * 1000L
-        while (System.currentTimeMillis() < deadline) {
-            delay(interval * 1000)
-            when (val result = container.mailRepository.pollProviderToken(provider, device.deviceCode)) {
-                is DeviceTokenResult.Success -> {
-                    _state.value = ConnectState.Connecting
-                    val outcome = runCatching {
-                        container.mailRepository.addOAuthImapAccount(provider, email, result.tokens, accountName)
-                    }
-                    _state.value = outcome.fold(
-                        onSuccess = { ConnectState.Connected },
-                        onFailure = { ConnectState.Error(it.message ?: it.javaClass.simpleName) },
-                    )
-                    return
-                }
-                DeviceTokenResult.Pending -> Unit
-                DeviceTokenResult.SlowDown -> interval += 5
-                is DeviceTokenResult.Failed -> {
-                    _state.value = ConnectState.Error(string(R.string.connect_oauth_denied))
-                    return
+    /** Mirror the app-scoped Outlook sign-in into this screen's state. */
+    private fun observeOutlookSignIn() {
+        viewModelScope.launch {
+            container.outlookSignIn.progress.collect { p ->
+                _state.value = when (p) {
+                    OutlookProgress.Idle -> return@collect
+                    OutlookProgress.Starting -> ConnectState.Discovering
+                    is OutlookProgress.AwaitingApproval ->
+                        ConnectState.AwaitingApproval(p.userCode, p.verificationUri, p.verificationUriComplete)
+                    OutlookProgress.Connecting -> ConnectState.Connecting
                 }
             }
         }
-        _state.value = ConnectState.Error(string(R.string.connect_oauth_expired))
+        viewModelScope.launch {
+            container.outlookSignIn.outcomes.collect { o ->
+                _state.value = when (o) {
+                    OutlookOutcome.Success -> ConnectState.Connected
+                    is OutlookOutcome.Error -> ConnectState.Error(o.message)
+                }
+            }
+        }
     }
 
     /** Cancel an in-progress device flow and return to the form. */
     fun cancelOAuth() {
         oauthJob?.cancel()
         oauthJob = null
+        container.outlookSignIn.cancel()
         _state.value = ConnectState.Idle
     }
 

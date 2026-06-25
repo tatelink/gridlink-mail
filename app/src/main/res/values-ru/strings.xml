@@ -350,6 +350,7 @@
     <string name="connect_password_hide">Скрыть пароль</string>
     <string name="connect_oauth_button">Войти через OAuth (без пароля)</string>
     <string name="connect_outlook_signin">Продолжить с Outlook</string>
+    <string name="connect_outlook_added">Учётная запись Outlook добавлена</string>
     <string name="connect_oauth_provider_unconfigured">Вход через Outlook пока недоступен в этой сборке.</string>
     <string name="connect_oauth_need_email">Сначала введите адрес электронной почты Outlook.</string>
     <string name="connect_oauth_unsupported">Этот сервер не поддерживает вход через OAuth. Используйте адрес электронной почты и пароль.</string>

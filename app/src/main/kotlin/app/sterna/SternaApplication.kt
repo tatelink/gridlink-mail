@@ -10,6 +10,7 @@ import app.sterna.core.data.storage.StorageRepository
 import app.sterna.core.jmap.JmapClient
 import app.sterna.security.AppLock
 import app.sterna.send.SendOutbox
+import app.sterna.ui.connect.OutlookSignIn
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,6 +28,9 @@ class AppContainer(context: Context) {
     /** App-lifetime scope for work that must outlive a screen (e.g. Undo-send hold-back). */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val sendOutbox: SendOutbox = SendOutbox(appScope)
+
+    /** Drives the Outlook OAuth device flow app-scoped, so it survives the browser round-trip. */
+    val outlookSignIn: OutlookSignIn = OutlookSignIn(mailRepository, appScope, context.applicationContext)
 }
 
 class SternaApplication : Application() {

@@ -350,6 +350,7 @@
     <string name="connect_password_hide">Ocultar palavra-passe</string>
     <string name="connect_oauth_button">Iniciar sessão com OAuth (sem palavra-passe)</string>
     <string name="connect_outlook_signin">Continuar com o Outlook</string>
+    <string name="connect_outlook_added">Conta do Outlook adicionada</string>
     <string name="connect_oauth_provider_unconfigured">O início de sessão do Outlook ainda não está disponível nesta versão.</string>
     <string name="connect_oauth_need_email">Introduz primeiro o teu endereço de e-mail do Outlook.</string>
     <string name="connect_oauth_unsupported">Este servidor não suporta o início de sessão com OAuth. Utilize o e-mail e a palavra-passe.</string>
