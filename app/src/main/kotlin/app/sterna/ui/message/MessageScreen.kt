@@ -16,6 +16,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -70,6 +78,7 @@ import app.sterna.R
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.ui.components.Monogram
+import app.sterna.ui.rememberMotionEnabled
 import app.sterna.util.LinkCleaner
 import java.io.ByteArrayInputStream
 import java.time.Instant
@@ -279,7 +288,12 @@ private fun ConversationBody(
     // A plain scrolling Column (not a LazyColumn): a thread is small, and not
     // recycling the cards keeps each expanded WebView alive instead of reloading its
     // body every time it scrolls past.
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+            .verticalScroll(rememberScrollState()),
+    ) {
         messages.forEachIndexed { index, msg ->
             if (index > 0) HorizontalDivider()
             MessageCard(
@@ -313,6 +327,7 @@ private fun MessageCard(
 ) {
     val sender = msg.header.from.firstOrNull()
     val unread = !msg.header.isSeen
+    val motionOn = rememberMotionEnabled()
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -360,37 +375,44 @@ private fun MessageCard(
                 Box(Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
             }
         }
-        if (msg.expanded) {
+        // A quick "unroll" as the card opens (respecting reduced motion).
+        AnimatedVisibility(
+            visible = msg.expanded,
+            enter = if (motionOn) expandVertically(tween(200)) + fadeIn(tween(200)) else EnterTransition.None,
+            exit = if (motionOn) shrinkVertically(tween(160)) + fadeOut(tween(120)) else ExitTransition.None,
+        ) {
             val full = msg.body
             if (full == null) {
                 Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                 }
             } else {
-                val attachments = full.fileAttachmentParts()
-                if (attachments.isNotEmpty()) {
+                Column(Modifier.fillMaxWidth()) {
+                    val attachments = full.fileAttachmentParts()
+                    if (attachments.isNotEmpty()) {
+                        HorizontalDivider()
+                        AttachmentSection(attachments, attachmentStatus) { part -> onOpenAttachment(part, msg.id) }
+                    }
                     HorizontalDivider()
-                    AttachmentSection(attachments, attachmentStatus) { part -> onOpenAttachment(part, msg.id) }
+                    val scheme = MaterialTheme.colorScheme
+                    val dark = scheme.surface.luminance() < 0.5f
+                    val emailTheme = EmailTheme(
+                        background = scheme.surface.toCssHex(),
+                        text = scheme.onSurface.toCssHex(),
+                        link = scheme.primary.toCssHex(),
+                        dark = dark,
+                    )
+                    val html = remember(full, msg.inlineImages, emailTheme) { buildHtmlDocument(full, msg.inlineImages, emailTheme) }
+                    EmailWebView(
+                        html = html,
+                        blockRemote = blockRemote,
+                        stripTracking = stripTracking,
+                        confirmLinks = confirmLinks,
+                        backgroundColor = scheme.surface.toArgb(),
+                        textZoom = textZoom,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
-                HorizontalDivider()
-                val scheme = MaterialTheme.colorScheme
-                val dark = scheme.surface.luminance() < 0.5f
-                val emailTheme = EmailTheme(
-                    background = scheme.surface.toCssHex(),
-                    text = scheme.onSurface.toCssHex(),
-                    link = scheme.primary.toCssHex(),
-                    dark = dark,
-                )
-                val html = remember(full, msg.inlineImages, emailTheme) { buildHtmlDocument(full, msg.inlineImages, emailTheme) }
-                EmailWebView(
-                    html = html,
-                    blockRemote = blockRemote,
-                    stripTracking = stripTracking,
-                    confirmLinks = confirmLinks,
-                    backgroundColor = scheme.surface.toArgb(),
-                    textZoom = textZoom,
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
         }
     }
@@ -509,7 +531,13 @@ private fun EmailWebView(
             // Match the WebView's own background to the theme so it doesn't flash white.
             webView.setBackgroundColor(backgroundColor)
             webView.settings.textZoom = textZoom
-            webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+            // update() runs on every recomposition; only (re)load when the document
+            // actually changed, otherwise expanding one card reloads (and flickers)
+            // every other open body in the conversation.
+            if (webView.tag != html) {
+                webView.tag = html
+                webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+            }
         },
     )
 
@@ -649,10 +677,11 @@ private fun buildHtmlDocument(
             </style></head><body><div id="sterna-content">$inner</div></body></html>
         """.trimIndent()
     }
-    // Plain/simple text (or light mode): paint with the resolved theme colours directly.
-    val bg = if (theme.dark) theme.background else "#ffffff"
-    val fg = if (theme.dark) theme.text else "#111111"
-    val link = if (theme.dark) theme.link else "#0b5fff"
+    // Plain/simple text (or light mode): paint with the resolved theme colours directly,
+    // so the body's background matches the app surface (no seam below the message).
+    val bg = theme.background
+    val fg = theme.text
+    val link = theme.link
     return """
         <!DOCTYPE html><html><head>
         $CSP_META

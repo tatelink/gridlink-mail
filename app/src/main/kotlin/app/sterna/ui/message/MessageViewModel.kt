@@ -128,14 +128,15 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 _inJunk.value = repo.mailboxRole(anchor.mailboxId) == "junk"
 
                 // The rest of the thread (header-only); merge in the anchor and order
-                // oldest→newest (receivedAt is an ISO-8601 string, so it sorts in time).
+                // newest→oldest (receivedAt is an ISO-8601 string, so it sorts in time):
+                // the tapped message sits at the top, expanded.
                 val siblings = anchor.threadId?.let { threadId ->
                     runCatching { repo.threadEmails(credentials, threadId) }.getOrNull()
                 }.orEmpty()
                 val byId = LinkedHashMap<String, Email>()
                 siblings.forEach { byId[it.id] = it }
                 byId[anchor.id] = anchor
-                val ordered = byId.values.sortedBy { it.receivedAt ?: "" }
+                val ordered = byId.values.sortedByDescending { it.receivedAt ?: "" }
                 _messages.value = ordered.map { e ->
                     val isAnchor = e.id == anchor.id
                     // The anchor was just marked read on open; reflect that in its header.
