@@ -236,6 +236,20 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Re-point the inbox at the now-current account when the user switches accounts.
+     * Selection + header are reset from the *cached* metadata immediately (so the list
+     * shows the new account's cached mail at once, consistent with the header, instead of
+     * lingering on the previous account's mail until a slow/failed network refresh), then
+     * a refresh fetches newer mail.
+     */
+    fun onAccountChanged() {
+        selection.value = Sel.Folder(store.inboxMailboxId())
+        unifiedInboxIds.value = store.allInboxMailboxIds()
+        meta.value = Meta(store.accountLabel(), store.inboxMailboxName(), store.unreadCount())
+        refresh()
+    }
+
     fun refresh() {
         status.value = Status(refreshing = true, error = null)
         viewModelScope.launch {

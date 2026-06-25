@@ -186,6 +186,16 @@ fun InboxScreen(
     val messageSentLabel = stringResource(R.string.inbox_message_sent)
     val context = LocalContext.current
 
+    // When the user switches accounts, re-point the inbox at the new one (skip the first
+    // composition — the ViewModel already loads on init).
+    var lastAccount by rememberSaveable { mutableStateOf(currentAccountId) }
+    LaunchedEffect(currentAccountId) {
+        if (currentAccountId != lastAccount) {
+            lastAccount = currentAccountId
+            viewModel.onAccountChanged()
+        }
+    }
+
     // Surface transient action errors (e.g. "no Archive folder") in a snackbar.
     LaunchedEffect(message) {
         val m = message ?: return@LaunchedEffect
