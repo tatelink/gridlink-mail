@@ -70,6 +70,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
@@ -354,7 +355,9 @@ fun InboxScreen(
     }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    // exitUntilCollapsed pairs with the MediumTopAppBar: the folder + account get a
+    // full-width second line at the top, then collapse into a compact bar on scroll.
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val fabExpanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
 
     // Opening a different folder should always start at the top of that folder's list,
@@ -625,7 +628,7 @@ fun InboxScreen(
                         },
                     )
                 } else {
-                    TopAppBar(
+                    MediumTopAppBar(
                         title = {
                             Column {
                                 // Localize the title for standard folders; the unified view
