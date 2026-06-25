@@ -1,0 +1,7 @@
+Sterna Mail 1.0 — notre première version publique. 🐦
+
+Une appli e-mail privée et native pour JMAP et IMAP/SMTP : boîte de réception
+unifiée multi-comptes, lecture hors-ligne, conversations, recherche avancée,
+rédaction avec envoi programmé et annulable, notifications sans services
+Google, et blocage du contenu de pistage par défaut. Sans pub ni pistage,
+open source.
