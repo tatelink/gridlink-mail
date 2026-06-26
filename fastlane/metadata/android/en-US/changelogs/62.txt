@@ -1,3 +1,0 @@
-Folder management (create, rename, delete) and report-spam.
-Earlier: schedule send, undo send, IMAP IDLE push, multiple signatures,
-dark message bodies, and selection-bar bulk actions.

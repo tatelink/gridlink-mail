@@ -1,3 +1,0 @@
-Gestion des dossiers (créer, renommer, supprimer) et signalement de spam.
-Précédemment : envoi programmé, annulation d'envoi, push IMAP IDLE, signatures
-multiples, corps de message en mode sombre et actions groupées par sélection.
