@@ -470,6 +470,7 @@
     <string name="status_message_deleted">Message deleted</string>
     <string name="status_trash_emptied">Trash emptied</string>
     <string name="status_message_archived">Message archived</string>
+    <string name="status_message_unarchived">Message unarchived</string>
     <string name="status_message_sent">Message sent</string>
     <string name="status_folder_op_failed">Folder operation failed</string>
     <string name="status_attach_failed">Attach failed: %1$s</string>

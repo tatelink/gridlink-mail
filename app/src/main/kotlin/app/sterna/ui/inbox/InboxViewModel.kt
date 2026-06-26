@@ -317,6 +317,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Swipe action: archive. */
     fun archive(email: Email) = swipeRemove(email, getApplication<Application>().getString(R.string.status_message_archived)) { c, id -> repo.archive(c, id) }
 
+    /** Swipe action when already inside Archive: move the message back to the Inbox. */
+    fun unarchive(email: Email, inboxId: String) = swipeRemove(email, getApplication<Application>().getString(R.string.status_message_unarchived)) { c, id -> repo.moveToMailbox(c, id, inboxId) }
+
     /**
      * Remove [email] optimistically (so the row leaves instantly — never stuck mid-swipe), run
      * the server [op], then either offer Undo on success or restore the row + report the error.

@@ -405,6 +405,7 @@
     <string name="status_add_recipient">Adicione pelo menos um destinatário.</string>
     <string name="status_message_deleted">Mensagem excluída</string>
     <string name="status_message_archived">Mensagem arquivada</string>
+    <string name="status_message_unarchived">Mensagem desarquivada</string>
     <string name="status_message_sent">Mensagem enviada</string>
     <string name="status_folder_op_failed">Falha na operação da pasta</string>
     <string name="status_attach_failed">Falha ao anexar: %1$s</string>

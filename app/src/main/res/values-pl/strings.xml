@@ -405,6 +405,7 @@
     <string name="status_add_recipient">Dodaj co najmniej jednego odbiorcę.</string>
     <string name="status_message_deleted">Wiadomość usunięta</string>
     <string name="status_message_archived">Wiadomość zarchiwizowana</string>
+    <string name="status_message_unarchived">Cofnięto archiwizację wiadomości</string>
     <string name="status_message_sent">Wiadomość wysłana</string>
     <string name="status_folder_op_failed">Operacja na folderze nie powiodła się</string>
     <string name="status_attach_failed">Załączanie nie powiodło się: %1$s</string>

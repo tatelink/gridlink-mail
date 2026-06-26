@@ -800,7 +800,7 @@ fun InboxScreen(
                     accountColor = accountColorOf(ownerAccount?.color),
                     rightAction = swipe.right,
                     leftAction = swipe.left,
-                    onSwipe = { action -> performSwipe(action, email, viewModel) },
+                    onSwipe = { action -> performSwipe(action, email, viewModel, ui) },
                     onClick = {
                         if (selectionActive) viewModel.toggleSelect(email.id)
                         else onOpenEmail(email.id, email.accountId)
@@ -1178,12 +1178,21 @@ private fun swipeActionLabel(action: SwipeAction, email: Email): Int = when (act
 }
 
 /** Dispatch a configured swipe action to the view model for [email]. */
-private fun performSwipe(action: SwipeAction, email: Email, viewModel: InboxViewModel) {
+private fun performSwipe(action: SwipeAction, email: Email, viewModel: InboxViewModel, ui: MailUi) {
     when (action) {
         SwipeAction.NONE -> Unit
         SwipeAction.TOGGLE_READ -> viewModel.toggleRead(email)
         SwipeAction.DELETE -> viewModel.delete(email)
-        SwipeAction.ARCHIVE -> viewModel.archive(email)
+        // Inside the Archive folder, an "archive" swipe means unarchive → move back to Inbox
+        // (re-archiving would silently drop the row from a folder it's already in).
+        SwipeAction.ARCHIVE -> {
+            val currentRole = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
+            if (currentRole == "archive") {
+                ui.mailboxes.firstOrNull { it.role == "inbox" }?.id?.let { viewModel.unarchive(email, it) }
+            } else {
+                viewModel.archive(email)
+            }
+        }
         SwipeAction.FLAG -> viewModel.toggleFlag(email)
     }
 }

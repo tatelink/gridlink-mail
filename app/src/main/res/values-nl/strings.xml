@@ -405,6 +405,7 @@
     <string name="status_add_recipient">Voeg ten minste één ontvanger toe.</string>
     <string name="status_message_deleted">Bericht verwijderd</string>
     <string name="status_message_archived">Bericht gearchiveerd</string>
+    <string name="status_message_unarchived">Bericht uit archief gehaald</string>
     <string name="status_message_sent">Bericht verzonden</string>
     <string name="status_folder_op_failed">Mapbewerking mislukt</string>
     <string name="status_attach_failed">Bijvoegen mislukt: %1$s</string>

@@ -405,6 +405,7 @@
     <string name="status_add_recipient">Добавьте хотя бы одного получателя.</string>
     <string name="status_message_deleted">Письмо удалено</string>
     <string name="status_message_archived">Письмо архивировано</string>
+    <string name="status_message_unarchived">Письмо извлечено из архива</string>
     <string name="status_message_sent">Письмо отправлено</string>
     <string name="status_folder_op_failed">Не удалось выполнить операцию с папкой</string>
     <string name="status_attach_failed">Не удалось прикрепить: %1$s</string>

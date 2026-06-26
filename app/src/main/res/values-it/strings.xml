@@ -405,6 +405,7 @@
     <string name="status_add_recipient">Aggiungi almeno un destinatario.</string>
     <string name="status_message_deleted">Messaggio eliminato</string>
     <string name="status_message_archived">Messaggio archiviato</string>
+    <string name="status_message_unarchived">Archiviazione annullata</string>
     <string name="status_message_sent">Messaggio inviato</string>
     <string name="status_folder_op_failed">Operazione sulla cartella non riuscita</string>
     <string name="status_attach_failed">Allegato non riuscito: %1$s</string>

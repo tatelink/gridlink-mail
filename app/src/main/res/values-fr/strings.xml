@@ -405,6 +405,7 @@
     <string name="status_add_recipient">Ajoutez au moins un destinataire.</string>
     <string name="status_message_deleted">Message supprimé</string>
     <string name="status_message_archived">Message archivé</string>
+    <string name="status_message_unarchived">Message désarchivé</string>
     <string name="status_message_sent">Message envoyé</string>
     <string name="status_folder_op_failed">Échec de l\'opération sur le dossier</string>
     <string name="status_attach_failed">Échec de la pièce jointe : %1$s</string>

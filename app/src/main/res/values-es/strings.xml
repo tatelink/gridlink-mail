@@ -405,6 +405,7 @@
     <string name="status_add_recipient">Añade al menos un destinatario.</string>
     <string name="status_message_deleted">Mensaje eliminado</string>
     <string name="status_message_archived">Mensaje archivado</string>
+    <string name="status_message_unarchived">Mensaje desarchivado</string>
     <string name="status_message_sent">Mensaje enviado</string>
     <string name="status_folder_op_failed">La operación con la carpeta falló</string>
     <string name="status_attach_failed">Error al adjuntar: %1$s</string>
