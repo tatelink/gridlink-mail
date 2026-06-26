@@ -131,29 +131,43 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 // Body and images arrive together so the WebView renders once, complete.
                 val opened = repo.openMessage(credentials, emailId)
                 val anchor = opened.email
+                val anchorRead = anchor.markRead()
                 _state.value = MessageState.Loaded(anchor)
+                // Show the opened message (body + inline images) IMMEDIATELY. The thread fetch
+                // below is a separate network round-trip; it must not gate the body the user
+                // came to read — otherwise a cached/prefetched body still waits on the network.
+                _messages.value = listOf(
+                    ThreadMessage(
+                        id = anchor.id,
+                        header = anchorRead,
+                        body = anchorRead,
+                        expanded = true,
+                        inlineImages = opened.inlineImages,
+                    ),
+                )
                 _inJunk.value = repo.mailboxRole(anchor.mailboxId) == "junk"
 
-                // The rest of the thread (header-only); merge in the anchor and order
-                // newest→oldest (receivedAt is an ISO-8601 string, so it sorts in time):
-                // the tapped message sits at the top, expanded.
-                val siblings = anchor.threadId?.let { threadId ->
+                // Then merge in the rest of the thread (siblings, header-only), keeping the
+                // anchor in place (same id → its rendered body isn't disturbed). Order
+                // newest→oldest (receivedAt is an ISO-8601 string, so it sorts in time).
+                val others = anchor.threadId?.let { threadId ->
                     runCatching { repo.threadEmails(credentials, threadId) }.getOrNull()
-                }.orEmpty()
-                val byId = LinkedHashMap<String, Email>()
-                siblings.forEach { byId[it.id] = it }
-                byId[anchor.id] = anchor
-                val ordered = byId.values.sortedByDescending { it.receivedAt ?: "" }
-                _messages.value = ordered.map { e ->
-                    val isAnchor = e.id == anchor.id
-                    // The anchor was just marked read on open; reflect that in its header.
-                    ThreadMessage(
-                        id = e.id,
-                        header = if (isAnchor) anchor.markRead() else e,
-                        body = if (isAnchor) anchor.markRead() else null,
-                        expanded = isAnchor,
-                        inlineImages = if (isAnchor) opened.inlineImages else emptyMap(),
-                    )
+                }.orEmpty().filter { it.id != anchor.id }
+                if (others.isNotEmpty()) {
+                    val byId = LinkedHashMap<String, Email>()
+                    others.forEach { byId[it.id] = it }
+                    byId[anchor.id] = anchor
+                    val ordered = byId.values.sortedByDescending { it.receivedAt ?: "" }
+                    _messages.value = ordered.map { e ->
+                        val isAnchor = e.id == anchor.id
+                        ThreadMessage(
+                            id = e.id,
+                            header = if (isAnchor) anchorRead else e,
+                            body = if (isAnchor) anchorRead else null,
+                            expanded = isAnchor,
+                            inlineImages = if (isAnchor) opened.inlineImages else emptyMap(),
+                        )
+                    }
                 }
             } catch (t: Throwable) {
                 _state.value = MessageState.Error(t.message ?: t.javaClass.simpleName)
