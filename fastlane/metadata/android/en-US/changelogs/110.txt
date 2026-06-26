@@ -1,0 +1,4 @@
+Fix: connecting to JMAP servers behind a TLS reverse proxy now works. When the
+server is reached securely over https but advertises plain http links in its
+session (a common reverse-proxy misconfiguration), Sterna upgrades them to https
+instead of failing with a "cleartext not permitted" error.
