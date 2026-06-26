@@ -18,8 +18,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -43,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import app.sterna.R
 import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.jmap.model.Email
+import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -67,6 +71,9 @@ fun EmailListItem(
     // In conversation view: the thread's unread state and how many messages it holds.
     unread: Boolean = !email.isSeen,
     threadCount: Int = 1,
+    // Brief emphasis flash when returning to the list from this message.
+    highlighted: Boolean = false,
+    onHighlightShown: () -> Unit = {},
 ) {
     val senderName = email.from.firstOrNull()?.display() ?: stringResource(R.string.message_unknown_sender)
     val density = LocalListDensity.current
@@ -77,13 +84,30 @@ fun EmailListItem(
     }
     val previewLines = LocalPreviewLines.current.lines
     val receivedLabel = remember(email.receivedAt) { formatReceived(email.receivedAt) }
+    val motionOn = rememberMotionEnabled()
+    // Return-from-message emphasis: a soft accent tint that rises then fades over ~1s, so the
+    // eye lands on the row just left. Skipped (and consumed at once) under reduced motion.
+    val highlight = remember { Animatable(0f) }
+    LaunchedEffect(highlighted) {
+        if (!highlighted) return@LaunchedEffect
+        if (motionOn) {
+            // Small lead-in so the flash lands just after the list is back, not the instant
+            // the return transition starts (which read as a touch by mistake).
+            delay(100)
+            highlight.animateTo(1f, tween(160))
+            highlight.animateTo(0f, tween(840, easing = FastOutSlowInEasing))
+        }
+        onHighlightShown()
+    }
+    val baseColor = if (selected) MaterialTheme.colorScheme.secondaryContainer
+    else MaterialTheme.colorScheme.surface
+    val rowColor = if (highlight.value > 0f)
+        lerp(baseColor, MaterialTheme.colorScheme.primary, 0.14f * highlight.value)
+    else baseColor
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(
-                if (selected) MaterialTheme.colorScheme.secondaryContainer
-                else MaterialTheme.colorScheme.surface,
-            )
+            .background(rowColor)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(start = 16.dp, end = 4.dp, top = rowPadding, bottom = rowPadding),
         verticalAlignment = Alignment.CenterVertically,
@@ -173,7 +197,6 @@ fun EmailListItem(
             )
             // Micro-pop: favouriting springs the star and pops it to coral — the one
             // place vivid coral is earned (a positive, deliberate action).
-            val motionOn = rememberMotionEnabled()
             val pop = remember { Animatable(1f) }
             var firstPass by remember { mutableStateOf(true) }
             LaunchedEffect(email.isFlagged) {

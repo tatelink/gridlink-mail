@@ -85,6 +85,7 @@ import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.rememberMotionEnabled
 import app.sterna.util.LinkCleaner
+import kotlinx.coroutines.delay
 import java.io.ByteArrayInputStream
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -420,10 +421,13 @@ private fun MessageCard(
         ) {
             val full = msg.body
             // The body is rendered exactly once — by the WebView — and only revealed when it
-            // has laid out at its final height (EmailWebView.onReady). Until then a single
-            // spinner bridges the wait (network fetch + first layout); the WebView measures
+            // has laid out at its final height (EmailWebView.onReady). The WebView measures
             // off-screen so no half-laid-out content or reflow is ever shown.
             var bodyReady by remember(msg.id) { mutableStateOf(false) }
+            // Only surface a spinner if the body is still not ready after a beat — cached /
+            // prefetched messages appear well within this, so no spinner flashes for them.
+            var spinnerDue by remember(msg.id) { mutableStateOf(false) }
+            LaunchedEffect(msg.id) { delay(500); spinnerDue = true }
             Box(Modifier.fillMaxWidth()) {
                 if (full != null) {
                     Column(Modifier.fillMaxWidth().alpha(if (bodyReady) 1f else 0f)) {
@@ -454,7 +458,7 @@ private fun MessageCard(
                         )
                     }
                 }
-                if (!bodyReady) {
+                if (!bodyReady && spinnerDue) {
                     Box(
                         Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(24.dp),
                         contentAlignment = Alignment.Center,

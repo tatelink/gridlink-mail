@@ -92,6 +92,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -120,6 +121,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sterna.core.data.settings.SortOrder
@@ -179,6 +183,18 @@ fun InboxScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
     val outboxFailure by viewModel.outboxFailure.collectAsStateWithLifecycle()
+    val highlightId by viewModel.highlightId.collectAsStateWithLifecycle()
+    // Promote the just-opened row's highlight as this screen starts coming back (ON_START,
+    // i.e. during the return transition) rather than after it settles (ON_RESUME) — so the
+    // flash is already underway as the list reappears, reading as part of the back gesture.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) viewModel.activatePendingHighlight()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     // Hoisted strings for snackbars shown from non-composable LaunchedEffect coroutines.
@@ -810,8 +826,12 @@ fun InboxScreen(
                     unarchiveContext = isUnarchiveContext(ui),
                     onSwipe = { action -> performSwipe(action, email, viewModel, ui) },
                     onClick = {
-                        if (selectionActive) viewModel.toggleSelect(email.id)
-                        else onOpenEmail(email.id, email.accountId)
+                        if (selectionActive) {
+                            viewModel.toggleSelect(email.id)
+                        } else {
+                            viewModel.onEmailOpened(email.id)
+                            onOpenEmail(email.id, email.accountId)
+                        }
                     },
                     onLongClick = { viewModel.enterSelection(email.id) },
                     onToggleFavourite = {
@@ -826,6 +846,8 @@ fun InboxScreen(
                     threadCount = row.threadCount,
                     animateEntry = animateEntry,
                     entryIndex = entryIndex,
+                    highlighted = email.id == highlightId,
+                    onHighlightShown = viewModel::clearHighlight,
                     modifier = rowModifier,
                 )
                 HorizontalDivider()
@@ -990,6 +1012,8 @@ private fun SwipeableEmailRow(
     threadCount: Int,
     animateEntry: Boolean = false,
     entryIndex: Int = 0,
+    highlighted: Boolean = false,
+    onHighlightShown: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val motionOn = rememberMotionEnabled()
@@ -1125,6 +1149,8 @@ private fun SwipeableEmailRow(
                 onLongClick = onLongClick,
                 unread = unread,
                 threadCount = threadCount,
+                highlighted = highlighted,
+                onHighlightShown = onHighlightShown,
             )
         }
     }

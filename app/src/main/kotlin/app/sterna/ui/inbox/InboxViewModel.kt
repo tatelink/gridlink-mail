@@ -135,6 +135,28 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _message.value = null
     }
 
+    // Briefly highlight, on return to the list, the row of the message the user just opened.
+    // The id is staged on open and only promoted to [highlightId] when the list is resumed —
+    // so the flash plays on the way back, not under the opening message — then cleared once
+    // the row has flashed.
+    private var pendingHighlightId: String? = null
+    private val _highlightId = MutableStateFlow<String?>(null)
+    val highlightId: StateFlow<String?> = _highlightId.asStateFlow()
+
+    /** Stage the just-opened message's row to flash when the user returns to the list. */
+    fun onEmailOpened(id: String) {
+        pendingHighlightId = id
+    }
+
+    /** Promote the staged id when the list resumes (i.e. we're back from the message). */
+    fun activatePendingHighlight() {
+        pendingHighlightId?.let { _highlightId.value = it; pendingHighlightId = null }
+    }
+
+    fun clearHighlight() {
+        _highlightId.value = null
+    }
+
     private val selection = MutableStateFlow<Sel>(Sel.Folder(store.inboxMailboxId()))
     private val unifiedInboxIds = MutableStateFlow(store.allInboxMailboxIds())
     private val meta = MutableStateFlow(

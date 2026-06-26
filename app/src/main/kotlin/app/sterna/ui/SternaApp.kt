@@ -7,11 +7,6 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.core.EaseInOut
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -127,7 +122,6 @@ private fun MainNavHost(
     onAccountsChanged: () -> Unit,
 ) {
     val nav = rememberNavController()
-    val motionOn = rememberMotionEnabled()
     NavHost(navController = nav, startDestination = "inbox") {
         composable("inbox") {
             InboxScreen(
@@ -151,17 +145,8 @@ private fun MainNavHost(
                 navArgument("emailId") { type = NavType.StringType },
                 navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
-            // Opening a message unrolls it downward from the top edge over the inbox, with a
-            // soft fade. Closing (Back) keeps the default — an explicit roll-up read as too
-            // harsh. Honours the reduced-motion system setting.
-            enterTransition = {
-                if (motionOn) {
-                    expandVertically(tween(360, easing = EaseInOut), expandFrom = Alignment.Top) +
-                        fadeIn(tween(320, easing = EaseInOut))
-                } else {
-                    EnterTransition.None
-                }
-            },
+            // Open and close both use the NavHost default cross-fade (no custom transition) —
+            // the same soft fade in each direction.
         ) { entry ->
             val emailId = Uri.decode(entry.arguments?.getString("emailId").orEmpty())
             val accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null }
