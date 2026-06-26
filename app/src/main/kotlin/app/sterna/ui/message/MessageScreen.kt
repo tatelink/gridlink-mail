@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -418,36 +419,48 @@ private fun MessageCard(
             exit = if (motionOn) shrinkVertically(tween(160)) + fadeOut(tween(120)) else ExitTransition.None,
         ) {
             val full = msg.body
-            if (full == null) {
-                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                }
-            } else {
-                Column(Modifier.fillMaxWidth()) {
-                    val attachments = full.fileAttachmentParts()
-                    if (attachments.isNotEmpty()) {
+            // The body is rendered exactly once — by the WebView — and only revealed when it
+            // has laid out at its final height (EmailWebView.onReady). Until then a single
+            // spinner bridges the wait (network fetch + first layout); the WebView measures
+            // off-screen so no half-laid-out content or reflow is ever shown.
+            var bodyReady by remember(msg.id) { mutableStateOf(false) }
+            Box(Modifier.fillMaxWidth()) {
+                if (full != null) {
+                    Column(Modifier.fillMaxWidth().alpha(if (bodyReady) 1f else 0f)) {
+                        val attachments = full.fileAttachmentParts()
+                        if (attachments.isNotEmpty()) {
+                            HorizontalDivider()
+                            AttachmentSection(attachments, attachmentStatus) { part -> onOpenAttachment(part, msg.id) }
+                        }
                         HorizontalDivider()
-                        AttachmentSection(attachments, attachmentStatus) { part -> onOpenAttachment(part, msg.id) }
+                        val scheme = MaterialTheme.colorScheme
+                        val dark = scheme.surface.luminance() < 0.5f
+                        val emailTheme = EmailTheme(
+                            background = scheme.surface.toCssHex(),
+                            text = scheme.onSurface.toCssHex(),
+                            link = scheme.primary.toCssHex(),
+                            dark = dark,
+                        )
+                        val html = remember(full, msg.inlineImages, emailTheme) { buildHtmlDocument(full, msg.inlineImages, emailTheme) }
+                        EmailWebView(
+                            html = html,
+                            blockRemote = blockRemote,
+                            stripTracking = stripTracking,
+                            confirmLinks = confirmLinks,
+                            backgroundColor = scheme.surface.toArgb(),
+                            textZoom = textZoom,
+                            onReady = { bodyReady = true },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
-                    HorizontalDivider()
-                    val scheme = MaterialTheme.colorScheme
-                    val dark = scheme.surface.luminance() < 0.5f
-                    val emailTheme = EmailTheme(
-                        background = scheme.surface.toCssHex(),
-                        text = scheme.onSurface.toCssHex(),
-                        link = scheme.primary.toCssHex(),
-                        dark = dark,
-                    )
-                    val html = remember(full, msg.inlineImages, emailTheme) { buildHtmlDocument(full, msg.inlineImages, emailTheme) }
-                    EmailWebView(
-                        html = html,
-                        blockRemote = blockRemote,
-                        stripTracking = stripTracking,
-                        confirmLinks = confirmLinks,
-                        backgroundColor = scheme.surface.toArgb(),
-                        textZoom = textZoom,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                }
+                if (!bodyReady) {
+                    Box(
+                        Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(24.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                    }
                 }
             }
         }
@@ -521,26 +534,29 @@ private fun EmailWebView(
     confirmLinks: Boolean,
     backgroundColor: Int,
     textZoom: Int,
+    onReady: () -> Unit,
     modifier: Modifier,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
     // When confirmation is on, a tapped link is held here until the user approves it.
     var pendingLink by remember { mutableStateOf<Uri?>(null) }
-    // Measured content height: the WebView sizes to its content (no internal scroll) so
-    // it stacks naturally in the conversation's outer scroll. JS is disabled, so this
-    // comes from the native contentHeight, read once layout settles.
+    // Measured content height: the WebView sizes to its content (no internal scroll) so it
+    // stacks naturally in the conversation's outer scroll. JS is disabled, so this comes from
+    // the native contentHeight, reported once it has stabilised (BlockingWebViewClient polls
+    // until two readings agree). Until then the view measures at 1dp off-screen (the parent
+    // keeps it invisible and shows a spinner); once known we pin the final height and the
+    // parent reveals it — a single clean appearance, no reflow.
     var heightPx by remember { mutableIntStateOf(0) }
     val client = remember { BlockingWebViewClient() }
     client.blockRemote = blockRemote
     client.stripTracking = stripTracking
     client.onOpenUrl = { uri -> if (confirmLinks) pendingLink = uri else openExternally(context, uri) }
     client.onContentHeight = { heightPx = it }
+    val ready = heightPx > 0
+    LaunchedEffect(ready) { if (ready) onReady() }
     AndroidView(
-        modifier = modifier.then(
-            if (heightPx > 0) Modifier.height(with(density) { heightPx.toDp() })
-            else Modifier.heightIn(min = 80.dp),
-        ),
+        modifier = modifier.height(if (ready) with(density) { heightPx.toDp() } else 1.dp),
         factory = { ctx ->
             WebView(ctx).apply {
                 settings.javaScriptEnabled = false
@@ -624,14 +640,27 @@ private class BlockingWebViewClient : WebViewClient() {
 
     override fun onPageFinished(view: WebView?, url: String?) {
         val wv = view ?: return
-        // No JS to measure with, so read the native content height once layout settles,
-        // then again shortly after to catch any image reflow.
-        fun report() {
+        // No JS to measure with, so poll the native content height until it stabilises (two
+        // consecutive equal readings), then report the final height ONCE. This absorbs the
+        // brief reflow as text lays out and inline (data:) images decode, so the body is sized
+        // and revealed a single time — never half-laid-out, never resized in view. Caps at
+        // ~1s so a pathological page still reveals.
+        var last = -1
+        fun poll(triesLeft: Int) {
+            if (wv.parent == null) return // detached (recycled/closed) — stop
             val px = (wv.contentHeight * wv.resources.displayMetrics.density).toInt()
-            if (px > 0) onContentHeight(px)
+            if (px > 0 && px == last) {
+                onContentHeight(px)
+                return
+            }
+            if (triesLeft <= 0) {
+                if (px > 0) onContentHeight(px)
+                return
+            }
+            last = px
+            wv.postDelayed({ poll(triesLeft - 1) }, 32)
         }
-        wv.post { report() }
-        wv.postDelayed({ report() }, 250)
+        wv.post { last = -1; poll(30) }
     }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {

@@ -120,6 +120,13 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _messages.value = emptyList()
         _inJunk.value = false
         viewModelScope.launch {
+            // Paint the cached header (sender/subject/preview) immediately so the screen shows
+            // the tapped message at once; the body fills in when the fetch returns. Header-only
+            // (body = null) — the body itself is rendered a single time, by the WebView.
+            runCatching { repo.cachedEmail(emailId) }.getOrNull()?.let { cached ->
+                _messages.value = listOf(ThreadMessage(id = cached.id, header = cached, expanded = true))
+                _state.value = MessageState.Loaded(cached)
+            }
             try {
                 val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
                 // The tapped (newest) message: fetch the full body and mark it read.
