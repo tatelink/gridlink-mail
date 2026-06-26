@@ -1131,12 +1131,15 @@ private fun AccountDetailScreen(
                             minLines = 2,
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             OutlinedButton(onClick = { importTarget = index; importLauncher.launch("text/html") }) {
                                 Text(stringResource(R.string.settings_import_html))
                             }
                             if (identities.size > 1) {
-                                Spacer(Modifier.width(8.dp))
+                                Spacer(Modifier.weight(1f))
                                 TextButton(onClick = {
                                     identities = identities.filterIndexed { i, _ -> i != index }
                                     saved = false
@@ -1145,7 +1148,7 @@ private fun AccountDetailScreen(
                                 }
                             }
                         }
-                        HorizontalDivider(Modifier.padding(top = 8.dp))
+                        HorizontalDivider(Modifier.padding(top = 12.dp))
                     }
                 }
                 OutlinedButton(
@@ -1155,7 +1158,7 @@ private fun AccountDetailScreen(
                         )
                         saved = false
                     },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text(stringResource(R.string.settings_add_identity))
                 }
@@ -1180,7 +1183,7 @@ private fun AccountDetailScreen(
                 StorageStatRow(stringResource(R.string.settings_cached_messages), "$cacheCount")
                 OutlinedButton(
                     onClick = { viewModel.clearAccountCache(accountId) },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text(stringResource(R.string.settings_clear_account_cache))
                 }
@@ -1195,13 +1198,13 @@ private fun AccountDetailScreen(
                         )
                     },
                     enabled = canSave && connTest != AccountsViewModel.ConnTest.Testing,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(stringResource(R.string.settings_test_connection))
                 }
                 when (val t = connTest) {
                     AccountsViewModel.ConnTest.Testing -> Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -1212,13 +1215,13 @@ private fun AccountDetailScreen(
                         stringResource(R.string.settings_test_ok),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(vertical = 4.dp),
                     )
                     is AccountsViewModel.ConnTest.Failed -> Text(
                         stringResource(R.string.settings_test_failed, t.message),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(vertical = 4.dp),
                     )
                     else -> Unit
                 }
