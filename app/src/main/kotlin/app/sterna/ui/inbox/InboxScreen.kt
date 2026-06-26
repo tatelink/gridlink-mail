@@ -8,9 +8,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -108,6 +111,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -348,6 +352,9 @@ fun InboxScreen(
             message = action.label,
             actionLabel = undoLabel,
             withDismissAction = true,
+            // Without an explicit duration a snackbar WITH an action defaults to Indefinite —
+            // so the Undo bar never went away. Auto-dismiss after a short window.
+            duration = SnackbarDuration.Short,
         )
         if (result == SnackbarResult.ActionPerformed) viewModel.undo() else viewModel.clearUndo()
     }
@@ -439,29 +446,77 @@ fun InboxScreen(
                     ?: ui.accountName.ifBlank { stringResource(R.string.inbox_app_name) }
                 val otherAccounts = accounts.filter { it.id != currentAccountId }
                 var accountsExpanded by remember { mutableStateOf(false) }
+                val accountOffset = remember { Animatable(0f) }
+                var chipWidth by remember { mutableIntStateOf(0) }
+                val curIdx = accounts.indexOfFirst { it.id == currentAccountId }
+                val nextAccount = if (accounts.size > 1 && curIdx >= 0) accounts[(curIdx + 1) % accounts.size] else null
+                val prevAccount = if (accounts.size > 1 && curIdx >= 0) accounts[(curIdx - 1 + accounts.size) % accounts.size] else null
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                 ) {
-                    // Tap the active account → its settings.
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                            .clickable {
-                                onOpenAccountSettings(currentAccountId)
-                                scope.launch { drawerState.close() }
-                            }
-                            .padding(vertical = 8.dp),
+                    // The active account as a little carousel: drag it sideways to bring the
+                    // next/previous account in; releasing past a threshold slides it across and
+                    // switches account in place — the drawer stays open and its folders update.
+                    // A tap opens the account's settings; the chevron still lists all accounts.
+                    Box(
+                        modifier = Modifier.weight(1f).clipToBounds()
+                            .onSizeChanged { chipWidth = it.width }
+                            .then(
+                                if (accounts.size > 1) {
+                                    Modifier.pointerInput(accounts, currentAccountId) {
+                                        detectHorizontalDragGestures(
+                                            onHorizontalDrag = { change, delta ->
+                                                change.consume()
+                                                val w = chipWidth.toFloat().coerceAtLeast(1f)
+                                                scope.launch { accountOffset.snapTo((accountOffset.value + delta).coerceIn(-w, w)) }
+                                            },
+                                            onDragEnd = {
+                                                val w = chipWidth.toFloat().coerceAtLeast(1f)
+                                                val o = accountOffset.value
+                                                scope.launch {
+                                                    if (kotlin.math.abs(o) > w * 0.3f) {
+                                                        val goNext = o < 0
+                                                        val target = if (goNext) nextAccount else prevAccount
+                                                        accountOffset.animateTo(if (goNext) -w else w, tween(200, easing = FastOutSlowInEasing))
+                                                        if (target != null) onSwitchAccount(target.id)
+                                                        accountOffset.snapTo(0f)
+                                                    } else {
+                                                        accountOffset.animateTo(0f, tween(200, easing = FastOutSlowInEasing))
+                                                    }
+                                                }
+                                            },
+                                        )
+                                    }
+                                } else {
+                                    Modifier
+                                },
+                            ),
                     ) {
-                        Monogram(seed = currentLabel, label = currentLabel, color = accountColorOf(currentAccount?.color))
-                        Text(
-                            text = currentLabel,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                        AccountChip(
+                            label = currentLabel,
+                            color = accountColorOf(currentAccount?.color),
+                            modifier = Modifier
+                                .graphicsLayer { translationX = accountOffset.value }
+                                .clickable {
+                                    onOpenAccountSettings(currentAccountId)
+                                    scope.launch { drawerState.close() }
+                                },
                         )
+                        // The account being dragged toward, peeking in from the opposite edge.
+                        val peek = if (accountOffset.value < 0f) nextAccount
+                        else if (accountOffset.value > 0f) prevAccount else null
+                        if (peek != null) {
+                            AccountChip(
+                                label = peek.label(),
+                                color = accountColorOf(peek.color),
+                                modifier = Modifier.graphicsLayer {
+                                    translationX = accountOffset.value +
+                                        if (accountOffset.value < 0f) chipWidth.toFloat() else -chipWidth.toFloat()
+                                },
+                            )
+                        }
                     }
                     // Chevron → unfold the other accounts to switch to.
                     if (otherAccounts.isNotEmpty()) {
@@ -954,15 +1009,17 @@ fun InboxScreen(
                             }
                         }
                     ui.refreshing || refreshLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                    ui.error != null -> EmptyState(
-                        art = EmptyArt.OFFLINE,
-                        title = stringResource(R.string.empty_offline_title),
-                        body = stringResource(R.string.empty_offline_body),
-                        modifier = Modifier.align(Alignment.Center),
-                        action = {
-                            Button(onClick = viewModel::refresh) { Text(stringResource(R.string.inbox_retry)) }
-                        },
-                    )
+                    ui.error != null -> PullableCenter {
+                        EmptyState(
+                            art = EmptyArt.OFFLINE,
+                            title = stringResource(R.string.empty_offline_title),
+                            body = stringResource(R.string.empty_offline_body),
+                            modifier = Modifier.align(Alignment.Center),
+                            action = {
+                                Button(onClick = viewModel::refresh) { Text(stringResource(R.string.inbox_retry)) }
+                            },
+                        )
+                    }
                     else -> {
                         // Pick the scene + voice by what's empty: the inbox (hero),
                         // the trash, or any other folder.
@@ -982,27 +1039,79 @@ fun InboxScreen(
                             EmptyArt.FOLDER -> R.string.empty_folder_body
                             else -> R.string.empty_inbox_body
                         }
-                        EmptyState(
-                            art = art,
-                            title = stringResource(titleRes),
-                            body = stringResource(bodyRes),
-                            modifier = Modifier.align(Alignment.Center),
-                            action = if (art == EmptyArt.INBOX_ZERO) {
-                                {
-                                    Button(onClick = onCompose) {
-                                        Icon(Icons.Filled.Create, contentDescription = null)
-                                        Spacer(Modifier.width(8.dp))
-                                        Text(stringResource(R.string.inbox_compose))
+                        // Empty list still pulls to refresh; tapping the empty space opens the
+                        // drawer (the only navigation when there are no rows to act on).
+                        PullableCenter(onClick = { scope.launch { drawerState.open() } }) {
+                            EmptyState(
+                                art = art,
+                                title = stringResource(titleRes),
+                                body = stringResource(bodyRes),
+                                modifier = Modifier.align(Alignment.Center),
+                                action = if (art == EmptyArt.INBOX_ZERO) {
+                                    {
+                                        Button(onClick = onCompose) {
+                                            Icon(Icons.Filled.Create, contentDescription = null)
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(stringResource(R.string.inbox_compose))
+                                        }
                                     }
-                                }
-                            } else {
-                                null
-                            },
-                        )
+                                } else {
+                                    null
+                                },
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Hosts an empty/error state inside a full-screen scrollable so pull-to-refresh still fires:
+ * PullToRefreshBox needs a scrollable child to receive the gesture, which a static centered
+ * Box doesn't provide. A single viewport-filling LazyColumn item gives that without changing
+ * the layout.
+ */
+@Composable
+private fun PullableCenter(onClick: (() -> Unit)? = null, content: @Composable BoxScope.() -> Unit) {
+    LazyColumn(Modifier.fillMaxSize()) {
+        item {
+            Box(
+                Modifier.fillParentMaxSize().then(
+                    if (onClick != null) {
+                        // No ripple — a full-screen flash on an empty list reads as a glitch.
+                        Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onClick,
+                        )
+                    } else {
+                        Modifier
+                    },
+                ),
+                contentAlignment = Alignment.Center,
+                content = content,
+            )
+        }
+    }
+}
+
+/** The account drawer header's monogram + name, reused for the current and peeking accounts. */
+@Composable
+private fun AccountChip(label: String, color: Color?, modifier: Modifier = Modifier) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier.fillMaxWidth().padding(vertical = 8.dp),
+    ) {
+        Monogram(seed = label, label = label, color = color)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

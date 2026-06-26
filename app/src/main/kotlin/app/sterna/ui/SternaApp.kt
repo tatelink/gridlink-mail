@@ -18,7 +18,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -94,14 +93,15 @@ fun SternaApp(viewModel: RootViewModel = viewModel()) {
                 CircularProgressIndicator()
             }
             RootState.NeedAccount -> ConnectScreen(onConnected = viewModel::refresh, firstRun = true)
-            is RootState.Authenticated -> key(s.accountId) {
-                MainNavHost(
-                    accounts = viewModel.accounts(),
-                    currentAccountId = s.accountId,
-                    onSwitchAccount = viewModel::switchAccount,
-                    onAccountsChanged = viewModel::refresh,
-                )
-            }
+            // No key(accountId) here: switching account updates currentAccountId in place so
+            // the inbox re-points (InboxScreen reacts via onAccountChanged) WITHOUT recreating
+            // the screen — which lets the drawer's account carousel stay open across a switch.
+            is RootState.Authenticated -> MainNavHost(
+                accounts = viewModel.accounts(),
+                currentAccountId = s.accountId,
+                onSwitchAccount = viewModel::switchAccount,
+                onAccountsChanged = viewModel::refresh,
+            )
         }
         if (locked) LockScreen(onUnlocked = appLock::unlock)
     }
