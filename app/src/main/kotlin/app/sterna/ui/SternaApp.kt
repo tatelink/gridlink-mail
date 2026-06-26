@@ -7,6 +7,11 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -122,7 +127,16 @@ private fun MainNavHost(
     onAccountsChanged: () -> Unit,
 ) {
     val nav = rememberNavController()
-    NavHost(navController = nav, startDestination = "inbox") {
+    // Instant transitions between menus/screens by default: navigation-compose's default
+    // animated cross-fade gets stuck (showing the bare window background) on rapid back/forth
+    // navigation. The message route opts back into the soft fade below — the one place an
+    // animation is wanted and rapid open/close is unlikely.
+    NavHost(
+        navController = nav,
+        startDestination = "inbox",
+        enterTransition = { EnterTransition.None },
+        exitTransition = { ExitTransition.None },
+    ) {
         composable("inbox") {
             InboxScreen(
                 onOpenEmail = { id, accountId ->
@@ -145,8 +159,10 @@ private fun MainNavHost(
                 navArgument("emailId") { type = NavType.StringType },
                 navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
-            // Open and close both use the NavHost default cross-fade (no custom transition) —
-            // the same soft fade in each direction.
+            // Opening and closing a message keep a soft cross-fade (matching the previous
+            // default), while the rest of the app navigates instantly.
+            enterTransition = { fadeIn(tween(700)) },
+            popExitTransition = { fadeOut(tween(700)) },
         ) { entry ->
             val emailId = Uri.decode(entry.arguments?.getString("emailId").orEmpty())
             val accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null }

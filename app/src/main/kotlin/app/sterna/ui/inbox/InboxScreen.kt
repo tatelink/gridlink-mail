@@ -382,6 +382,19 @@ fun InboxScreen(
         if (result == SnackbarResult.ActionPerformed) viewModel.undoEmptyTrash()
     }
     val scope = rememberCoroutineScope()
+    // Make sure the drawer is shut whenever the inbox returns to the foreground. A drawer item
+    // animates `drawerState.close()` then navigates, but instant navigation disposes this
+    // screen before that animation finishes, leaving the drawer state open on return — snap it
+    // closed (no visible animation) so we never come back to a half-open drawer.
+    DisposableEffect(lifecycleOwner, drawerState) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START && drawerState.isOpen) {
+                scope.launch { drawerState.snapTo(DrawerValue.Closed) }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val listState = rememberLazyListState()
     // exitUntilCollapsed pairs with the MediumTopAppBar: the folder + account get a
     // full-width second line at the top, then collapse into a compact bar on scroll.

@@ -85,6 +85,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.content.Context
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -125,7 +127,15 @@ fun SettingsScreen(
     LaunchedEffect(initialAccountId) {
         if (initialAccountId != null) nav.navigate("account/$initialAccountId")
     }
-    NavHost(navController = nav, startDestination = "hub") {
+    // Instant (no animated) transitions inside Settings: hub↔detail switches immediately, so
+    // a fast double-back (e.g. right after changing the theme, whose recomposition disturbs an
+    // in-flight transition) can't be swallowed mid-animation — which left a blank start frame.
+    NavHost(
+        navController = nav,
+        startDestination = "hub",
+        enterTransition = { EnterTransition.None },
+        exitTransition = { ExitTransition.None },
+    ) {
         composable("hub") {
             val accounts by accountsViewModel.accounts.collectAsStateWithLifecycle()
             val currentId by accountsViewModel.currentId.collectAsStateWithLifecycle()
