@@ -1,30 +1,36 @@
 <p align="center">
-  <img src="docs/logo.png" width="104" alt="Sterna Mail logo">
+  <img src="docs/logo.png" width="112" alt="Sterna Mail logo">
 </p>
 
-# Sterna Mail
+<h1 align="center">Sterna Mail</h1>
 
-[![CI](https://codeberg.org/emon/sterna-mail/actions/workflows/ci.yml/badge.svg?branch=main)](https://codeberg.org/emon/sterna-mail/actions)
-[![Latest release](https://img.shields.io/badge/download-preview%20APK-2F5E59)](https://codeberg.org/emon/sterna-mail/releases/latest)
-[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue)](LICENSE)
-[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF6A4D?logo=ko-fi&logoColor=white)](https://ko-fi.com/emoncode)
+<p align="center">
+  <b>Your email, finally yours.</b><br>
+  A fast, private <b>JMAP email client for Android</b>, fluent in classic <b>IMAP/SMTP</b> too.<br>
+  No ads. No tracking. No Google. ✨
+</p>
 
-**A private, modern email app for Android — your email, finally yours.** ✨
+<p align="center">
+  <a href="https://codeberg.org/emon/sterna-mail/actions"><img alt="CI" src="https://codeberg.org/emon/sterna-mail/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://codeberg.org/emon/sterna-mail/releases/latest"><img alt="Latest release" src="https://img.shields.io/badge/download-latest%20APK-2F5E59"></a>
+  <a href="LICENSE"><img alt="License: GPLv3" src="https://img.shields.io/badge/license-GPLv3-blue"></a>
+  <a href="https://ko-fi.com/emoncode"><img alt="Support on Ko-fi" src="https://img.shields.io/badge/Ko--fi-support-FF6A4D?logo=ko-fi&logoColor=white"></a>
+</p>
 
-Sterna Mail is an open-source email client built for **JMAP**, the new and faster
-internet standard for email — with full support for classic **IMAP/SMTP** too. No
-ads, no tracking, no Google services. Just your mail, on the server *you* choose.
+Sterna Mail is open-source and built for **JMAP**, the new and faster internet
+standard for email, with full support for classic **IMAP/SMTP** too. Just your
+mail, on the server *you* choose.
 
 > _Named after **Sterna**, the genus of terns 🐦 — the Arctic tern flies the
 > longest migration of any animal, carrying itself clear across the world and back
 > every single year. We liked the idea of mail that travels light and always finds
 > its way home._
 
-> **Status: pre-release (and proud of it).** Sterna is already a complete, daily
-> drivable email client — read, organise, search, write, schedule, and send mail
-> (with attachments) over JMAP or IMAP/SMTP, across multiple accounts, fully
+> **Status: 1.0, and shipping.** Sterna is a complete, daily-drivable email
+> client: read, organise, search, write, schedule, and send mail (with
+> attachments) over JMAP or IMAP/SMTP, across multiple accounts, fully
 > offline-capable, with push notifications and remote content blocked by default.
-> It's pre-1.0, so expect the odd rough edge — and please tell us about them!
+> Hit a rough edge? Please tell us about it!
 
 ## 📸 A look
 
@@ -37,16 +43,16 @@ coral touch — the tern's beak. 🪸*
 
 ## 📲 Download & install
 
-There's no app-store listing yet, but you can grab the **preview APK** today:
+There's no app-store listing yet, but you can grab the **latest APK** today:
 
 1. **[⬇️ Download the latest APK](https://codeberg.org/emon/sterna-mail/releases/latest)** (under *Assets*).
 2. Open the downloaded `.apk` on your phone. Android will ask whether to **allow
    installing apps from this source** — accept it for your browser or file manager.
 3. Tap **Install**, then open Sterna and add your account. 🎉
 
-> ⚠️ The preview is signed with a **test key**, so the eventual official build (and
-> the future [F-Droid](https://f-droid.org/) release) will install as a separate
-> app. It's pre-1.0 — back up nothing important to it just yet. 😉
+> ℹ️ Releases are signed with Sterna's **own key**, the same one the future
+> [F-Droid](https://f-droid.org/) build will use, so updates install cleanly over
+> each other. No Google account or app store needed, ever.
 
 Prefer to build it yourself? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
