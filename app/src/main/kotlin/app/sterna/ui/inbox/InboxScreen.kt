@@ -603,7 +603,7 @@ fun InboxScreen(
                                 )
                             }
                             val currentRole = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
-                            if (currentRole == "archive") {
+                            if (currentRole == "archive" || currentRole == "all") {
                                 val inboxId = ui.mailboxes.firstOrNull { it.role == "inbox" }?.id
                                 IconButton(
                                     onClick = { inboxId?.let { viewModel.moveSelectedTo(it) } },
@@ -800,6 +800,7 @@ fun InboxScreen(
                     accountColor = accountColorOf(ownerAccount?.color),
                     rightAction = swipe.right,
                     leftAction = swipe.left,
+                    unarchiveContext = isUnarchiveContext(ui),
                     onSwipe = { action -> performSwipe(action, email, viewModel, ui) },
                     onClick = {
                         if (selectionActive) viewModel.toggleSelect(email.id)
@@ -971,6 +972,7 @@ private fun SwipeableEmailRow(
     accountColor: Color?,
     rightAction: SwipeAction,
     leftAction: SwipeAction,
+    unarchiveContext: Boolean,
     onSwipe: (SwipeAction) -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -1082,7 +1084,7 @@ private fun SwipeableEmailRow(
                 Modifier.matchParentSize().background(color).padding(horizontal = 24.dp),
                 contentAlignment = if (draggingRight) Alignment.CenterStart else Alignment.CenterEnd,
             ) {
-                val labelRes = swipeActionLabel(action, email)
+                val labelRes = swipeActionLabel(action, email, unarchiveContext)
                 if (labelRes != 0) {
                     Text(stringResource(labelRes), color = onColor, style = MaterialTheme.typography.labelLarge)
                 }
@@ -1168,12 +1170,21 @@ private fun CoroutineScope.commitSwipe(
     }
 }
 
+/**
+ * True when the visible folder is one where an "archive" swipe should instead unarchive:
+ * the Archive folder, or a Gmail-style "All Mail" (role "all").
+ */
+private fun isUnarchiveContext(ui: MailUi): Boolean {
+    val role = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
+    return role == "archive" || role == "all"
+}
+
 /** The string resource shown on the swipe background for [action] on [email] (0 = none). */
-private fun swipeActionLabel(action: SwipeAction, email: Email): Int = when (action) {
+private fun swipeActionLabel(action: SwipeAction, email: Email, unarchiveContext: Boolean): Int = when (action) {
     SwipeAction.NONE -> 0
     SwipeAction.TOGGLE_READ -> if (email.isSeen) R.string.inbox_mark_unread else R.string.inbox_mark_read
     SwipeAction.DELETE -> R.string.inbox_delete
-    SwipeAction.ARCHIVE -> R.string.inbox_archive
+    SwipeAction.ARCHIVE -> if (unarchiveContext) R.string.inbox_unarchive else R.string.inbox_archive
     SwipeAction.FLAG -> if (email.isFlagged) R.string.inbox_unflag else R.string.inbox_flag
 }
 
@@ -1183,11 +1194,13 @@ private fun performSwipe(action: SwipeAction, email: Email, viewModel: InboxView
         SwipeAction.NONE -> Unit
         SwipeAction.TOGGLE_READ -> viewModel.toggleRead(email)
         SwipeAction.DELETE -> viewModel.delete(email)
-        // Inside the Archive folder, an "archive" swipe means unarchive → move back to Inbox
-        // (re-archiving would silently drop the row from a folder it's already in).
+        // Inside the Archive folder — or Gmail-style "All Mail" — an "archive" swipe means
+        // unarchive → move back to Inbox (re-archiving would silently drop the row from a
+        // folder it's already in). NB: a still-in-Inbox message viewed from All Mail can't be
+        // told apart from an archived one without per-message membership data, so it unarchives
+        // too; refining that is tracked as a follow-up.
         SwipeAction.ARCHIVE -> {
-            val currentRole = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
-            if (currentRole == "archive") {
+            if (isUnarchiveContext(ui)) {
                 ui.mailboxes.firstOrNull { it.role == "inbox" }?.id?.let { viewModel.unarchive(email, it) }
             } else {
                 viewModel.archive(email)

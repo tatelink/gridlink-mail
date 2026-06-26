@@ -852,15 +852,19 @@ class MailRepository(
         return mb to uid
     }
 
-    /** Move to the Archive mailbox (creating one if the account has none) and drop from the local list. */
+    /**
+     * Archive a message: move it to the account's archive location and drop it from the list.
+     * Resolution order — a real Archive folder, else All Mail (Gmail-style accounts have no
+     * Archive folder; "archiving" just drops the Inbox membership, leaving the message in \All),
+     * else create an Archive folder as a last resort.
+     */
     suspend fun archive(credentials: AccountCredentials, emailId: String) {
         if (credentials.protocol == MailProtocol.IMAP) {
             imapTarget(emailId)?.let { (mb, uid) ->
-                var dest = mailboxDao.idForRole("archive")
-                if (dest == null) {
-                    imap.createFolder(credentials, "Archive")
-                    dest = "Archive"
-                }
+                val dest = mailboxDao.idForRole("archive")
+                    ?: mailboxDao.idForRole("all")
+                    ?: run { imap.createFolder(credentials, "Archive"); "Archive" }
+                if (mb == dest) return // already in the archive/all folder — nothing to do
                 imap.move(credentials, mb, uid, dest)?.let { lastImapMove[emailId] = ImapLoc(dest, it) }
             }
             emailDao.deleteById(emailId)
@@ -868,7 +872,8 @@ class MailRepository(
         }
         val ctx = connect(credentials)
         val mb = emailDao.mailboxOf(emailId)
-        val target = archiveMailboxId(ctx) ?: createArchiveFolder(ctx)
+        val target = archiveMailboxId(ctx) ?: ctx.rolesToMailboxId["all"] ?: createArchiveFolder(ctx)
+        if (mb == target) return // already in the archive/all folder — nothing to do
         val newState = client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
         emailDao.deleteById(emailId)
         advanceEmailState(newState, credentials.id, mb)
