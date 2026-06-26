@@ -1,0 +1,4 @@
+Fix: swipe-to-archive inside the Archive folder — or Gmail's All Mail — now
+unarchives the message back to the Inbox, and the swipe shows an "Unarchive"
+label. Archiving on Gmail-style accounts goes through All Mail without leaving
+a stray folder behind.
