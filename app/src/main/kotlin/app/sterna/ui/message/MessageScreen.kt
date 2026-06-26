@@ -39,9 +39,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.MailOutline
+import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -92,7 +92,7 @@ import java.time.format.DateTimeFormatter
 fun MessageScreen(
     emailId: String,
     onBack: () -> Unit,
-    onReply: (mode: String) -> Unit,
+    onReply: (mode: String, replyToId: String) -> Unit,
     onOpenEmail: (String) -> Unit,
     accountId: String? = null,
     viewModel: MessageViewModel = viewModel(),
@@ -111,6 +111,9 @@ fun MessageScreen(
     val senderEmail = (state as? MessageState.Loaded)?.email?.from?.firstOrNull()?.email
     val senderAllowed = senderEmail?.lowercase()?.let { it in imageAllowlist } == true
     val showRemote = manualShow || senderAllowed
+    // Replies attach to the most recent message in the thread (messages are oldest-first),
+    // not the row that happened to open the conversation. Falls back to the anchor.
+    val replyTargetId = messages.lastOrNull()?.id ?: emailId
 
     Scaffold(
         topBar = {
@@ -134,20 +137,10 @@ fun MessageScreen(
                 },
                 actions = {
                     val loaded = state as? MessageState.Loaded
-                    if (loaded != null && !showRemote) {
-                        // An icon (not a text button) so it can't overrun the back arrow
-                        // when the font scale is large; the label is kept for screen readers.
-                        IconButton(onClick = { manualShow = true }) {
-                            Icon(
-                                Icons.Filled.Image,
-                                contentDescription = stringResource(R.string.message_show_images),
-                            )
-                        }
-                    }
                     if (loaded != null) {
                         IconButton(onClick = { viewModel.markUnread(onBack) }) {
                             Icon(
-                                Icons.Filled.MailOutline,
+                                Icons.Filled.MarkEmailUnread,
                                 contentDescription = stringResource(R.string.message_mark_unread),
                             )
                         }
@@ -155,6 +148,12 @@ fun MessageScreen(
                             Icon(
                                 Icons.Filled.Delete,
                                 contentDescription = stringResource(R.string.message_delete),
+                            )
+                        }
+                        IconButton(onClick = { onReply("reply", replyTargetId) }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Reply,
+                                contentDescription = stringResource(R.string.message_reply),
                             )
                         }
                         var menuOpen by remember { mutableStateOf(false) }
@@ -181,29 +180,42 @@ fun MessageScreen(
                                     )
                                 }
                             } else {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.message_reply)) },
-                                    onClick = { menuOpen = false; onReply("reply") },
-                                )
+                                // Reply variants (plain Reply is the toolbar icon).
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.message_reply_all)) },
-                                    onClick = { menuOpen = false; onReply("replyAll") },
+                                    onClick = { menuOpen = false; onReply("replyAll", replyTargetId) },
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.message_forward)) },
-                                    onClick = { menuOpen = false; onReply("forward") },
+                                    onClick = { menuOpen = false; onReply("forward", replyTargetId) },
                                 )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            stringResource(
-                                                if (loaded.email.isFlagged) R.string.message_unflag
-                                                else R.string.message_flag,
-                                            ),
-                                        )
-                                    },
-                                    onClick = { menuOpen = false; viewModel.toggleFlag() },
-                                )
+                                // Image controls: one-time show only while still blocked,
+                                // plus the per-sender allowlist toggle.
+                                if (!showRemote || senderEmail != null) HorizontalDivider()
+                                if (!showRemote) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.message_show_images)) },
+                                        onClick = { menuOpen = false; manualShow = true },
+                                    )
+                                }
+                                if (senderEmail != null) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                stringResource(
+                                                    if (senderAllowed) R.string.message_images_stop_sender
+                                                    else R.string.message_images_always_sender,
+                                                ),
+                                            )
+                                        },
+                                        onClick = {
+                                            menuOpen = false
+                                            viewModel.setImagesAlwaysAllowed(senderEmail, !senderAllowed)
+                                        },
+                                    )
+                                }
+                                // Triage actions.
+                                HorizontalDivider()
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.message_archive)) },
                                     onClick = { menuOpen = false; viewModel.archive(onBack) },
@@ -226,22 +238,6 @@ fun MessageScreen(
                                     text = { Text(stringResource(R.string.message_snooze)) },
                                     onClick = { snoozeSubmenu = true },
                                 )
-                                if (senderEmail != null) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                stringResource(
-                                                    if (senderAllowed) R.string.message_images_stop_sender
-                                                    else R.string.message_images_always_sender,
-                                                ),
-                                            )
-                                        },
-                                        onClick = {
-                                            menuOpen = false
-                                            viewModel.setImagesAlwaysAllowed(senderEmail, !senderAllowed)
-                                        },
-                                    )
-                                }
                             }
                         }
                     }

@@ -153,7 +153,7 @@ private fun MainNavHost(
                 emailId = emailId,
                 accountId = accountId,
                 onBack = { nav.popBackStack() },
-                onReply = { mode -> nav.navigate("compose?replyTo=${Uri.encode(emailId)}&mode=$mode$accountArg") },
+                onReply = { mode, replyToId -> nav.navigate("compose?replyTo=${Uri.encode(replyToId)}&mode=$mode$accountArg") },
                 onOpenEmail = { id -> nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}") },
             )
         }
