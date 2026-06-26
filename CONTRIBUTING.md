@@ -48,6 +48,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md). In short:
 
 - Kotlin official code style (`kotlin.code.style=official`).
 - Keep `:core:jmap` free of Android dependencies so it stays testable on the JVM.
+- **FOSS dependencies only.** Every library must be free/open-source
+  (OSI/FSF-approved, GPLv3-compatible). No proprietary or closed-source libraries,
+  no Google Play Services / Firebase / GMS, no analytics or tracking SDKs, and
+  nothing that requires a non-free service to function. This keeps Sterna
+  F-Droid-eligible (build-from-source, no anti-features) and Google-free.
 - No telemetry, ever. Don't add tracking or analytics.
 
 ## License
