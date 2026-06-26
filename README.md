@@ -5,7 +5,7 @@
 <h1 align="center">Sterna Mail</h1>
 
 <p align="center">
-  <b>Your email, finally yours.</b><br>
+  <b>All your mail. None of the baggage.</b><br>
   A fast, private <b>JMAP email client for Android</b>, fluent in classic <b>IMAP/SMTP</b> too.<br>
   No ads. No tracking. No Google. ✨
 </p>
