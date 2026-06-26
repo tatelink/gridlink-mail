@@ -698,22 +698,32 @@ private fun buildHtmlDocument(
     }
     val richHtml = htmlContent != null
     if (theme.dark && richHtml) {
-        // Rich HTML carries its own (usually white) backgrounds we can't restyle reliably.
-        // Wrap it and invert: a deterministic dark render that works for any markup. hue-rotate
-        // keeps colours roughly intact; media is re-inverted so photos/logos look normal.
+        // Rich HTML carries its own (usually white) backgrounds we can't restyle reliably,
+        // so render it light and invert the whole page. The filter MUST sit on the root
+        // <html>: marketing emails are full <html> documents, and the parser hoists their
+        // <body> out of any wrapper <div> — a div filter would then invert nothing (the
+        // old "white frame" bug). The root always contains every node, wherever it lands.
+        // hue-rotate keeps colours roughly intact; media is re-inverted to look normal.
         return """
             <!DOCTYPE html><html><head>
             $CSP_META
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
-              html, body { background-color: ${theme.background}; margin: 0; }
-              #sterna-content { filter: invert(1) hue-rotate(180deg); padding: 16px;
-                               font-family: sans-serif; line-height: 1.45;
-                               word-wrap: break-word; overflow-wrap: break-word; }
-              #sterna-content img, #sterna-content picture, #sterna-content video,
-              #sterna-content iframe { filter: invert(1) hue-rotate(180deg); }
+              /* Transparent page background: the filter only inverts the document's own
+                 painting, not the WebView's native background (set to the app surface).
+                 So empty areas show the app's dark surface instead of a pure-black box
+                 (white inverted) that clashed with it. !important beats the document-level
+                 background many emails set via an inline style on <body> (which otherwise
+                 leaves a bright band below the content where the body shows through).
+                 Inner wrappers keep their own backgrounds and still get inverted. */
+              html { filter: invert(1) hue-rotate(180deg); background: transparent !important; }
+              body { margin: 16px; font-family: sans-serif; line-height: 1.45; color: #111111;
+                     background: transparent !important;
+                     word-wrap: break-word; overflow-wrap: break-word; }
+              img, picture, video, svg, iframe { filter: invert(1) hue-rotate(180deg); }
               img { max-width: 100%; height: auto; }
-            </style></head><body><div id="sterna-content">$inner</div></body></html>
+              a { color: #0b57d0; }
+            </style></head><body>$inner</body></html>
         """.trimIndent()
     }
     // Plain/simple text (or light mode): paint with the resolved theme colours directly,
