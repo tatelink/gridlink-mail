@@ -35,12 +35,15 @@ class ConversationSqlTest {
 
     @After fun tearDown() = db.close()
 
-    private fun insert(id: String, threadId: String?, seen: Int, flagged: Int, sortKey: Long, mailbox: String = "inbox") {
+    private fun insert(
+        id: String, threadId: String?, seen: Int, flagged: Int, sortKey: Long,
+        mailbox: String = "inbox", accountId: String = "acc",
+    ) {
         db.prepareStatement(
-            "INSERT INTO emails VALUES(?, 'acc', ?, ?, 'subj', 'prev', '', 'N', 'e', ?, ?, 0, ?)",
+            "INSERT INTO emails VALUES(?, ?, ?, ?, 'subj', 'prev', '', 'N', 'e', ?, ?, 0, ?)",
         ).use { ps ->
-            ps.setString(1, id); ps.setString(2, mailbox); ps.setString(3, threadId)
-            ps.setInt(4, seen); ps.setInt(5, flagged); ps.setLong(6, sortKey)
+            ps.setString(1, id); ps.setString(2, accountId); ps.setString(3, mailbox); ps.setString(4, threadId)
+            ps.setInt(5, seen); ps.setInt(6, flagged); ps.setLong(7, sortKey)
             ps.executeUpdate()
         }
     }
@@ -107,6 +110,22 @@ class ConversationSqlTest {
         val rows = run()
         assertEquals(1, rows.size)
         assertEquals("s1", rows[0]["id"])
+    }
+
+    @Test fun accountScopeExcludesOtherAccountSharingAMailboxId() {
+        // Two accounts whose inbox shares the same server-assigned mailbox id ("inbox")
+        // — the case that made a single-account folder view show a mix of both accounts.
+        insert("a1", threadId = null, seen = 1, flagged = 0, sortKey = 100, accountId = "accA")
+        insert("b1", threadId = null, seen = 1, flagged = 0, sortKey = 200, accountId = "accB")
+
+        val sql = conversationSql(mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false, hasAccountId = true)
+        val rows = db.prepareStatement(sql).use { ps ->
+            // Per clause: mailbox, accountId — bound twice (inner + outer WHERE).
+            ps.setString(1, "inbox"); ps.setString(2, "accA")
+            ps.setString(3, "inbox"); ps.setString(4, "accA")
+            ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
+        }
+        assertEquals(listOf("a1"), rows) // only account A's mail; b1 is excluded
     }
 
     @Test fun favouritesPinToTop() {

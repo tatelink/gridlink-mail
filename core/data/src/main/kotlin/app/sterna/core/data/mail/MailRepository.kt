@@ -73,8 +73,18 @@ private const val PAGE_SIZE = 50
  * Mailbox ids are bound as parameters; the sort expression is a fixed whitelist
  * (never user input), so it is safe to inline.
  */
-private fun pagingQuery(mailboxIds: List<String>, sort: SortOrder, unreadOnly: Boolean): SimpleSQLiteQuery {
+private fun pagingQuery(
+    mailboxIds: List<String>,
+    sort: SortOrder,
+    unreadOnly: Boolean,
+    // Single-account folder views pass the account id so the query can't pick up
+    // another account's rows when two accounts share a server-assigned mailbox id
+    // (Stalwart numbers mailboxes per-account, so different accounts' inboxes collide).
+    // Unified views leave it null to span all accounts.
+    accountId: String? = null,
+): SimpleSQLiteQuery {
     val placeholders = mailboxIds.joinToString(",") { "?" }
+    val accountFilter = if (accountId != null) " AND accountId = ?" else ""
     val seenFilter = if (unreadOnly) " AND seen = 0" else ""
     val orderBy = "flagged DESC, " + when (sort) {
         SortOrder.DATE_DESC -> "sortKey DESC"
@@ -86,8 +96,8 @@ private fun pagingQuery(mailboxIds: List<String>, sort: SortOrder, unreadOnly: B
     // Hide messages snoozed into the future (re-appear once their time passes).
     val notSnoozed = " AND id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
         "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
-    val sql = "SELECT * FROM emails WHERE mailboxId IN ($placeholders)$seenFilter$notSnoozed ORDER BY $orderBy"
-    return SimpleSQLiteQuery(sql, mailboxIds.toTypedArray())
+    val sql = "SELECT * FROM emails WHERE mailboxId IN ($placeholders)$accountFilter$seenFilter$notSnoozed ORDER BY $orderBy"
+    return SimpleSQLiteQuery(sql, (mailboxIds + listOfNotNull(accountId)).toTypedArray())
 }
 
 /**
@@ -97,9 +107,19 @@ private fun pagingQuery(mailboxIds: List<String>, sort: SortOrder, unreadOnly: B
  * the max sortKey + count + unread; the outer joins back to fetch that exact
  * representative row. [unreadOnly] keeps threads that have any unread message.
  */
-private fun conversationQuery(mailboxIds: List<String>, sort: SortOrder, unreadOnly: Boolean): SimpleSQLiteQuery {
-    // mailboxIds are bound twice (inner WHERE + outer WHERE).
-    return SimpleSQLiteQuery(conversationSql(mailboxIds.size, sort, unreadOnly), (mailboxIds + mailboxIds).toTypedArray())
+private fun conversationQuery(
+    mailboxIds: List<String>,
+    sort: SortOrder,
+    unreadOnly: Boolean,
+    accountId: String? = null,
+): SimpleSQLiteQuery {
+    // Each clause (inner + outer WHERE) binds the mailbox ids and, for a single-account
+    // folder view, the account id — in order — so the full arg list repeats per clause.
+    val perClause = mailboxIds + listOfNotNull(accountId)
+    return SimpleSQLiteQuery(
+        conversationSql(mailboxIds.size, sort, unreadOnly, accountId != null),
+        (perClause + perClause).toTypedArray(),
+    )
 }
 
 /**
@@ -107,8 +127,10 @@ private fun conversationQuery(mailboxIds: List<String>, sort: SortOrder, unreadO
  * [mailboxCount] `?` placeholders appear in the inner and outer WHERE, so callers
  * bind the mailbox ids twice, in order.
  */
-internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boolean): String {
+internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boolean, hasAccountId: Boolean = false): String {
     val placeholders = List(mailboxCount) { "?" }.joinToString(",")
+    val accountInner = if (hasAccountId) " AND accountId = ?" else ""
+    val accountOuter = if (hasAccountId) " AND e.accountId = ?" else ""
     val notSnoozed = "id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
         "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
     val having = if (unreadOnly) " HAVING MIN(seen) = 0" else ""
@@ -126,10 +148,10 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
             SELECT COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey,
                    COUNT(*) AS threadCount, MIN(seen) AS threadUnread
             FROM emails
-            WHERE mailboxId IN ($placeholders) AND $notSnoozed
+            WHERE mailboxId IN ($placeholders)$accountInner AND $notSnoozed
             GROUP BY tkey$having
         ) g ON COALESCE(e.threadId, e.id) = g.tkey AND e.sortKey = g.maxKey
-        WHERE e.mailboxId IN ($placeholders) AND $notSnoozed
+        WHERE e.mailboxId IN ($placeholders)$accountOuter AND $notSnoozed
         GROUP BY g.tkey
         ORDER BY $orderBy
     """.trimIndent()
@@ -366,13 +388,13 @@ class MailRepository(
             Pager(
                 config = pagingConfig(),
                 remoteMediator = folderMediator(credentials, mailboxId),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(listOf(mailboxId), sort, unreadOnly)) },
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(listOf(mailboxId), sort, unreadOnly, credentials.id)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
                 config = pagingConfig(),
                 remoteMediator = folderMediator(credentials, mailboxId),
-                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(listOf(mailboxId), sort, unreadOnly)) },
+                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(listOf(mailboxId), sort, unreadOnly, credentials.id)) },
             ).flow.map { data -> data.map { InboxRow(it.toEmail(), threadCount = 1, unread = !it.seen) } }
         }
     }
