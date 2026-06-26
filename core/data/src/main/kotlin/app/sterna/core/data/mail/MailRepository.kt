@@ -1044,15 +1044,25 @@ class MailRepository(
 
     /** Move a message to the Junk folder (Report spam). */
     suspend fun reportSpam(credentials: AccountCredentials, emailId: String) {
-        val junk = mailboxDao.idForRole("junk") ?: error("This account has no Junk folder.")
+        val junk = roleMailboxId(credentials, "junk") ?: error("This account has no Junk folder.")
         moveToMailbox(credentials, emailId, junk)
     }
 
     /** Move a message out of Junk back to the Inbox (Not spam). */
     suspend fun notSpam(credentials: AccountCredentials, emailId: String) {
-        val inbox = mailboxDao.idForRole("inbox") ?: error("This account has no Inbox.")
+        val inbox = roleMailboxId(credentials, "inbox") ?: error("This account has no Inbox.")
         moveToMailbox(credentials, emailId, inbox)
     }
+
+    /**
+     * A role's mailbox id for a SPECIFIC account. For JMAP this comes from that account's own
+     * connection context, not the global mailbox cache (which holds only the last-synced
+     * account) — so moving a message from a non-current account in the unified inbox (Report
+     * spam / Not spam) targets the right folder instead of silently no-op'ing.
+     */
+    private suspend fun roleMailboxId(credentials: AccountCredentials, role: String): String? =
+        if (credentials.protocol == MailProtocol.IMAP) mailboxDao.idForRole(role)
+        else connect(credentials).rolesToMailboxId[role]
 
     // ---- recipient suggestions ----
 
