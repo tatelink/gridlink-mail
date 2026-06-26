@@ -1,0 +1,7 @@
+Sign in to Outlook / Microsoft with OAuth (XOAUTH2) — no password or app
+password needed. Pick the Outlook provider on the sign-in screen and authorise
+in your browser.
+
+* Fix: switching accounts no longer shows another account's mail, and no longer
+  stalls when two accounts live on the same server.
+* Tidier identity & account settings: consistent, full-width action buttons.
