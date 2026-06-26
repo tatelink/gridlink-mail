@@ -243,6 +243,11 @@ class MailRepository(
         val accountId: String,
         val auth: JmapAuth,
         val rolesToMailboxId: Map<String, String>,
+        // This account's own mailboxes, so folder lookups (e.g. Archive by name when the
+        // server set no role) stay scoped to THIS account — never the global mailbox cache,
+        // which holds only the last-synced account and is wrong for a non-current account
+        // archived from the unified inbox.
+        val mailboxes: List<Mailbox> = emptyList(),
     )
 
     @Volatile
@@ -757,6 +762,7 @@ class MailRepository(
             accountId = accountId,
             auth = auth,
             rolesToMailboxId = mailboxes.mapNotNull { mb -> mb.role?.let { it to mb.id } }.toMap(),
+            mailboxes = mailboxes,
         )
 
         val target = mailboxId?.let { id -> mailboxes.firstOrNull { it.id == id } }
@@ -1161,24 +1167,36 @@ class MailRepository(
 
     private suspend fun archiveMailboxId(ctx: Context): String? {
         ctx.rolesToMailboxId["archive"]?.let { return it }
-        val byName = mailboxDao.idForAnyName(ARCHIVE_FOLDER_NAMES) ?: return null
-        context = Context(ctx.credentials, ctx.session, ctx.accountId, ctx.auth, ctx.rolesToMailboxId + ("archive" to byName))
+        // Match THIS account's own folders by name (top-level preferred), not the global
+        // mailbox cache — otherwise archiving a non-current account from the unified inbox
+        // would target the current account's Archive id (which doesn't exist server-side for
+        // the message's account), and the move would silently no-op.
+        val byName = ctx.mailboxes
+            .filter { it.name.lowercase() in ARCHIVE_FOLDER_NAMES }
+            .minByOrNull { if (it.parentId == null) 0 else 1 }
+            ?.id
+            ?: return null
+        context = Context(ctx.credentials, ctx.session, ctx.accountId, ctx.auth, ctx.rolesToMailboxId + ("archive" to byName), ctx.mailboxes)
         return byName
     }
 
     private suspend fun createArchiveFolder(ctx: Context): String {
+        // Prefer creating with the archive role, but many servers reject a client-set
+        // special-use role — fall back to a plain "Archive" folder, then to any existing
+        // archive-named folder for THIS account (re-fetched, never the global cache which may
+        // hold a different account's folders).
         val id = runCatching {
             client.createMailbox(ctx.session, ctx.accountId, "Archive", "archive", ctx.auth)
+        }.recoverCatching {
+            client.createMailbox(ctx.session, ctx.accountId, "Archive", null, ctx.auth)
         }.getOrElse { err ->
-            // Creation can fail when an archive folder already exists under a name/role we
-            // didn't recognise — re-sync the folder list and reuse it rather than failing.
-            runCatching { mailboxDao.replaceAll(client.getMailboxes(ctx.session, ctx.accountId, ctx.auth).map { it.toEntity() }) }
-            mailboxDao.idForRole("archive") ?: mailboxDao.idForAnyName(ARCHIVE_FOLDER_NAMES) ?: throw err
+            val mbs = runCatching { client.getMailboxes(ctx.session, ctx.accountId, ctx.auth) }.getOrDefault(emptyList())
+            mbs.firstOrNull { it.role == "archive" }?.id
+                ?: mbs.filter { it.name.lowercase() in ARCHIVE_FOLDER_NAMES }
+                    .minByOrNull { if (it.parentId == null) 0 else 1 }?.id
+                ?: throw err
         }
-        context = Context(ctx.credentials, ctx.session, ctx.accountId, ctx.auth, ctx.rolesToMailboxId + ("archive" to id))
-        runCatching {
-            mailboxDao.replaceAll(client.getMailboxes(ctx.session, ctx.accountId, ctx.auth).map { it.toEntity() })
-        }
+        context = Context(ctx.credentials, ctx.session, ctx.accountId, ctx.auth, ctx.rolesToMailboxId + ("archive" to id), ctx.mailboxes)
         return id
     }
 
@@ -1630,9 +1648,8 @@ class MailRepository(
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
         val accountId = session.mailAccountId()
             ?: error("This user has no JMAP mail account.")
-        val roles = client.getMailboxes(session, accountId, auth)
-            .mapNotNull { mb -> mb.role?.let { it to mb.id } }
-            .toMap()
-        return Context(credentials, session, accountId, auth, roles).also { context = it }
+        val mailboxes = client.getMailboxes(session, accountId, auth)
+        val roles = mailboxes.mapNotNull { mb -> mb.role?.let { it to mb.id } }.toMap()
+        return Context(credentials, session, accountId, auth, roles, mailboxes).also { context = it }
     }
 }
