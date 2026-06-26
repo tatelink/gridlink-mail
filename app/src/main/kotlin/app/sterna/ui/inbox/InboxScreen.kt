@@ -372,9 +372,16 @@ fun InboxScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val fabExpanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
 
-    // Opening a different folder should always start at the top of that folder's list,
-    // not wherever the previous folder was scrolled (e.g. so a just-archived mail is visible).
-    LaunchedEffect(ui.selectedMailboxId, ui.unified) { listState.scrollToItem(0) }
+    // Opening a *different* folder starts at the top of that folder's list. Returning to the
+    // same folder (e.g. from a message) must keep the scroll position the user left — so the
+    // reset fires only on a genuine folder change, tracked via a saved key, not on every
+    // re-entry of this screen (which would otherwise stomp the restored position).
+    var lastFolderKey by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(ui.selectedMailboxId, ui.unified) {
+        val key = "${ui.unified}:${ui.selectedMailboxId}"
+        if (lastFolderKey != null && lastFolderKey != key) listState.scrollToItem(0)
+        lastFolderKey = key
+    }
 
     // Staggered first-screen entry: the first rows of a freshly-opened folder fade +
     // slide in once, in a gentle cascade. ONLY the first screen (rows past the cap never

@@ -8,13 +8,10 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -155,21 +152,14 @@ private fun MainNavHost(
                 navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
             // Opening a message unrolls it downward from the top edge over the inbox, with a
-            // soft fade; Back rolls it back up. Honours the reduced-motion system setting.
+            // soft fade. Closing (Back) keeps the default — an explicit roll-up read as too
+            // harsh. Honours the reduced-motion system setting.
             enterTransition = {
                 if (motionOn) {
-                    expandVertically(tween(250, easing = FastOutSlowInEasing), expandFrom = Alignment.Top) +
-                        fadeIn(tween(200))
+                    expandVertically(tween(360, easing = EaseInOut), expandFrom = Alignment.Top) +
+                        fadeIn(tween(320, easing = EaseInOut))
                 } else {
                     EnterTransition.None
-                }
-            },
-            popExitTransition = {
-                if (motionOn) {
-                    shrinkVertically(tween(200, easing = FastOutSlowInEasing), shrinkTowards = Alignment.Top) +
-                        fadeOut(tween(160))
-                } else {
-                    ExitTransition.None
                 }
             },
         ) { entry ->
