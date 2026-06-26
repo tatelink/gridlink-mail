@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Forward
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MarkEmailUnread
@@ -48,9 +49,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -270,6 +273,7 @@ fun MessageScreen(
                     onToggle = viewModel::toggleExpand,
                     onOpenAttachment = viewModel::openAttachment,
                     textZoom = messageTextSize.zoom,
+                    onReply = { mode -> onReply(mode, replyTargetId) },
                 )
             }
         }
@@ -286,6 +290,7 @@ private fun ConversationBody(
     onToggle: (String) -> Unit,
     onOpenAttachment: (EmailBodyPart, String) -> Unit,
     textZoom: Int,
+    onReply: (mode: String) -> Unit,
 ) {
     // A plain scrolling Column (not a LazyColumn): a thread is small, and not
     // recycling the cards keeps each expanded WebView alive instead of reloading its
@@ -309,6 +314,35 @@ private fun ConversationBody(
                 onOpenAttachment = onOpenAttachment,
                 textZoom = textZoom,
             )
+        }
+        // Single-mail view only: Reply/Forward at the end of the content. Short mails
+        // show them without scrolling; long ones reveal them when scrolled to the bottom.
+        // A thread already has the toolbar Reply (targeting its latest message).
+        if (messages.size == 1) {
+            HorizontalDivider()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                FilledTonalButton(
+                    onClick = { onReply("reply") },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.message_reply))
+                }
+                OutlinedButton(
+                    onClick = { onReply("forward") },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.message_forward))
+                }
+            }
         }
     }
 }
