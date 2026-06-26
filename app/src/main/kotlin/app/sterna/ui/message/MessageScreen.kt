@@ -539,9 +539,12 @@ private fun EmailWebView(
             webView.settings.textZoom = textZoom
             // update() runs on every recomposition; only (re)load when the document
             // actually changed, otherwise expanding one card reloads (and flickers)
-            // every other open body in the conversation.
-            if (webView.tag != html) {
-                webView.tag = html
+            // every other open body in the conversation. blockRemote is part of the
+            // key so toggling "show images" reloads the page — otherwise the already
+            // intercepted (blocked) image requests are never re-issued and stay broken.
+            val loadKey = Pair(blockRemote, html)
+            if (webView.tag != loadKey) {
+                webView.tag = loadKey
                 webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
             }
         },
