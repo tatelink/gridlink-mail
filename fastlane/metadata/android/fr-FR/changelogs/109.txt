@@ -1,0 +1,3 @@
+Correction : « Signaler comme spam » fonctionne désormais depuis la boîte de
+réception unifiée. Sterna retrouve le dossier Indésirables du bon compte avant
+de déplacer le message, au lieu d'agir sur le mauvais compte.

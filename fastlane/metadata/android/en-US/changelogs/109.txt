@@ -1,0 +1,3 @@
+Fix: "Report spam" now works from the unified inbox. Sterna resolves the Junk
+folder for the message's own account before moving it, instead of acting on the
+wrong account.

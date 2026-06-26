@@ -1,0 +1,7 @@
+Opening a message is now instant: email bodies are cached and prefetched, so
+they appear immediately instead of waiting on the network, with a smoother
+open animation.
+
+* Navigation: menu and drawer transitions are now instant.
+* Fix: HTML emails that define their own dark styles no longer render
+  incorrectly in the dark theme.
