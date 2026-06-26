@@ -77,8 +77,9 @@ class JmapClient internal constructor(
                         httpCode = response.code,
                     )
                 }
-                runCatching { json.decodeFromString<JmapSession>(body) }
+                val session = runCatching { json.decodeFromString<JmapSession>(body) }
                     .getOrElse { throw JmapException("Could not parse JMAP session", it) }
+                upgradeSessionUrls(session, sessionUrl)
             }
         }
 
@@ -1296,6 +1297,35 @@ class JmapClient internal constructor(
     companion object {
         /** How often the server should ping the EventSource connection, in seconds. */
         private const val PING_SECONDS = 90L
+
+        /**
+         * Defensively upgrade the session-advertised URLs from http:// to https:// when the
+         * session itself was fetched over an https [sessionUrl]. A TLS reverse proxy that
+         * doesn't honour X-Forwarded-Proto often advertises http:// apiUrl/downloadUrl/
+         * uploadUrl/eventSourceUrl even though it served the session over https. Since we
+         * reached the same host securely, those URLs are reachable over TLS too, so the
+         * http:// scheme is a proxy artifact, not a real downgrade. Rewriting it keeps the
+         * TLS requirement intact (we never touch cleartext on the wire) and transparently
+         * fixes the common misconfiguration. If the session was somehow fetched over http
+         * (impossible in the https-only autodiscovery flow), leave everything unchanged.
+         */
+        internal fun upgradeSessionUrls(session: JmapSession, sessionUrl: String): JmapSession {
+            if (!sessionUrl.startsWith("https://", ignoreCase = true)) return session
+            return session.copy(
+                apiUrl = upgradeScheme(session.apiUrl)!!,
+                downloadUrl = upgradeScheme(session.downloadUrl),
+                uploadUrl = upgradeScheme(session.uploadUrl),
+                eventSourceUrl = upgradeScheme(session.eventSourceUrl),
+            )
+        }
+
+        /** Rewrite a leading `http://` to `https://`; leave null and already-https URLs untouched. */
+        private fun upgradeScheme(url: String?): String? =
+            if (url != null && url.startsWith("http://", ignoreCase = true)) {
+                "https://" + url.substring("http://".length)
+            } else {
+                url
+            }
 
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 

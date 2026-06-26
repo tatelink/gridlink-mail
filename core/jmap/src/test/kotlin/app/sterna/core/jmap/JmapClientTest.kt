@@ -49,6 +49,78 @@ class JmapClientTest {
         assertEquals(expected, server.takeRequest().getHeader("Authorization"))
     }
 
+    // The scheme-upgrade is exercised directly (a real https MockWebServer would need an
+    // extra TLS test dependency we deliberately don't add). The no-upgrade-over-http case is
+    // also covered end-to-end through fetchSession against the plaintext mock server below.
+
+    @Test fun upgradeSessionUrls_upgradesHttpUrlsWhenFetchedOverHttps() {
+        val raw = JmapSession(
+            apiUrl = "http://mail.example.com/jmap/api/",
+            downloadUrl = "http://mail.example.com/jmap/download/",
+            uploadUrl = "http://mail.example.com/jmap/upload/",
+            eventSourceUrl = "http://mail.example.com/jmap/eventsource/",
+        )
+
+        val upgraded = JmapClient.upgradeSessionUrls(raw, "https://mail.example.com/.well-known/jmap")
+
+        assertEquals("https://mail.example.com/jmap/api/", upgraded.apiUrl)
+        assertEquals("https://mail.example.com/jmap/download/", upgraded.downloadUrl)
+        assertEquals("https://mail.example.com/jmap/upload/", upgraded.uploadUrl)
+        assertEquals("https://mail.example.com/jmap/eventsource/", upgraded.eventSourceUrl)
+    }
+
+    @Test fun upgradeSessionUrls_leavesHttpsUrlsUntouched() {
+        val raw = JmapSession(
+            apiUrl = "https://mail.example.com/jmap/api/",
+            downloadUrl = "https://mail.example.com/jmap/download/",
+        )
+
+        val upgraded = JmapClient.upgradeSessionUrls(raw, "https://mail.example.com/.well-known/jmap")
+
+        // Already-https URLs are not double-rewritten or mangled.
+        assertEquals("https://mail.example.com/jmap/api/", upgraded.apiUrl)
+        assertEquals("https://mail.example.com/jmap/download/", upgraded.downloadUrl)
+    }
+
+    @Test fun upgradeSessionUrls_keepsNullOptionalUrlsNull() {
+        val raw = JmapSession(apiUrl = "http://mail.example.com/jmap/api/")
+
+        val upgraded = JmapClient.upgradeSessionUrls(raw, "https://mail.example.com/.well-known/jmap")
+
+        // Optional URLs that were absent stay null, not "https://null".
+        assertEquals("https://mail.example.com/jmap/api/", upgraded.apiUrl)
+        assertNull(upgraded.downloadUrl)
+        assertNull(upgraded.uploadUrl)
+        assertNull(upgraded.eventSourceUrl)
+    }
+
+    @Test fun upgradeSessionUrls_doesNotUpgradeWhenFetchedOverHttp() {
+        val raw = JmapSession(
+            apiUrl = "http://mail.example.com/jmap/api/",
+            downloadUrl = "http://mail.example.com/jmap/download/",
+        )
+
+        // A session reached over a plain-http sessionUrl is left as-is (impossible in the
+        // https-only autodiscovery flow, but guards the upgrade behind a real TLS fetch).
+        val unchanged = JmapClient.upgradeSessionUrls(raw, "http://mail.example.com/.well-known/jmap")
+
+        assertEquals("http://mail.example.com/jmap/api/", unchanged.apiUrl)
+        assertEquals("http://mail.example.com/jmap/download/", unchanged.downloadUrl)
+    }
+
+    @Test fun fetchSession_doesNotUpgradeWhenFetchedOverHttp() = runBlocking {
+        server.enqueue(MockResponse().setBody(HTTP_URLS_SESSION_JSON))
+
+        // End-to-end: the mock server speaks http, so the http:// session URLs survive.
+        val session = client.fetchSession(
+            server.url("/.well-known/jmap").toString(),
+            BasicAuth("u", "p"),
+        )
+
+        assertEquals("http://mail.example.com/jmap/api/", session.apiUrl)
+        assertEquals("http://mail.example.com/jmap/download/", session.downloadUrl)
+    }
+
     @Test fun getMailboxes_parsesList() = runBlocking {
         server.enqueue(MockResponse().setBody(MAILBOX_JSON))
 
@@ -187,6 +259,27 @@ class JmapClientTest {
               "username": "admin@masto.top",
               "apiUrl": "https://mail.example.com/jmap/api/",
               "downloadUrl": "https://mail.example.com/jmap/download/",
+              "state": "s1"
+            }
+        """
+
+        // A session as served by a misconfigured TLS reverse proxy: every advertised URL
+        // comes back as http:// even though the session itself was fetched over https.
+        const val HTTP_URLS_SESSION_JSON = """
+            {
+              "capabilities": {
+                "urn:ietf:params:jmap:core": {},
+                "urn:ietf:params:jmap:mail": {}
+              },
+              "accounts": {
+                "acc1": { "name": "admin@masto.top", "isPersonal": true, "isReadOnly": false }
+              },
+              "primaryAccounts": { "urn:ietf:params:jmap:mail": "acc1" },
+              "username": "admin@masto.top",
+              "apiUrl": "http://mail.example.com/jmap/api/",
+              "downloadUrl": "http://mail.example.com/jmap/download/",
+              "uploadUrl": "http://mail.example.com/jmap/upload/",
+              "eventSourceUrl": "http://mail.example.com/jmap/eventsource/",
               "state": "s1"
             }
         """
