@@ -766,6 +766,12 @@ class MailRepository(
 
         syncMailbox(session, accountId, auth, target.id, limit, credentials.id)
         if (pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, target.id, pruneBeforeMillis)
+        // Warm the body cache for the top of the inbox so opening is instant (single-account
+        // refresh path; the unified path warms it in refreshAllInboxes). Inbox only, to bound
+        // bandwidth. Fire-and-forget so it never delays the list.
+        if (target.role == "inbox") {
+            bgScope.launch { runCatching { prefetchInboxBodies(credentials, target.id) } }
+        }
 
         val accountName = session.accounts[accountId]?.name ?: credentials.username
         return MailboxMeta(accountName, target.id, target.name, target.unreadEmails)
