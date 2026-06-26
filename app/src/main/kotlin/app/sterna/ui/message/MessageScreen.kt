@@ -729,6 +729,16 @@ private fun buildHtmlDocument(
     inlineImages.forEach { (cid, dataUri) ->
         inner = inner.replace("cid:$cid", dataUri).replace("cid:<$cid>", dataUri)
     }
+    // Neutralise the email's own dark-mode styles. On a dark-mode device the WebView matches
+    // `prefers-color-scheme: dark`, so a marketing email renders its dark variant — which our
+    // invert then turns light (the "white band in dark theme" bug); declaring color-scheme is
+    // ignored by Android WebView, so we defang the media queries directly by appending an
+    // always-false condition. The email then always renders its light design, which we show
+    // as-is (light theme) or invert (dark theme).
+    inner = inner.replace(
+        Regex("""prefers-color-scheme\s*:\s*dark""", RegexOption.IGNORE_CASE),
+        "prefers-color-scheme:dark) and (max-width:0px",
+    )
     val richHtml = htmlContent != null
     if (theme.dark && richHtml) {
         // Rich HTML carries its own (usually white) backgrounds we can't restyle reliably,
@@ -741,7 +751,14 @@ private fun buildHtmlDocument(
             <!DOCTYPE html><html><head>
             $CSP_META
             <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="color-scheme" content="only light">
             <style>
+              /* Force the email to render its LIGHT design before we invert: many marketing
+                 emails ship a prefers-color-scheme:dark variant, which the WebView would pick
+                 on a dark-mode device — inverting an already-dark email yields a wrong, light
+                 result (e.g. a white band in dark theme). "only light" opts the page out of the
+                 system dark preference so its dark media queries don't fire. */
+              html { color-scheme: only light; }
               /* Transparent page background: the filter only inverts the document's own
                  painting, not the WebView's native background (set to the app surface).
                  So empty areas show the app's dark surface instead of a pure-black box
@@ -764,12 +781,17 @@ private fun buildHtmlDocument(
     val bg = theme.background
     val fg = theme.text
     val link = theme.link
+    // Rich HTML reaches here only in light theme: pin it to its light design (same reason as
+    // the invert branch) so a prefers-color-scheme:dark email doesn't render dark on a
+    // dark-mode device. Plain text follows the app theme.
+    val colorScheme = if (richHtml) "only light" else if (theme.dark) "dark" else "light"
     return """
         <!DOCTYPE html><html><head>
         $CSP_META
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="color-scheme" content="${if (theme.dark) "dark" else "light"}">
+        <meta name="color-scheme" content="$colorScheme">
         <style>
+          html { color-scheme: $colorScheme; }
           html, body { background-color: $bg; }
           body { margin: 16px; font-family: sans-serif; line-height: 1.45; color: $fg;
                  word-wrap: break-word; overflow-wrap: break-word; }
