@@ -16,6 +16,8 @@ import app.sterna.core.data.account.OAuthCredentials
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.filter.SieveCodec
 import app.sterna.core.data.db.EmailDao
+import app.sterna.core.data.db.EmailBodyDao
+import app.sterna.core.data.db.EmailBodyEntity
 import app.sterna.core.data.db.ScheduledSendDao
 import app.sterna.core.data.db.ScheduledSendEntity
 import app.sterna.core.data.db.SnoozedDao
@@ -50,9 +52,15 @@ import app.sterna.core.jmap.model.JmapSession
 import app.sterna.core.jmap.model.Quota
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.core.jmap.model.VacationResponse
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -66,6 +74,12 @@ private const val RECENT_MUTATION_MS = 20_000L
 
 /** Page size for the cached email list (rows loaded per scroll step). */
 private const val PAGE_SIZE = 50
+
+/** How many of the inbox's newest messages to prefetch (bodies) into the cache per sync. */
+private const val PREFETCH_COUNT = 20
+
+/** Max cached message bodies kept per account (LRU); bounds on-device storage. */
+private const val BODY_CACHE_CAP = 100
 
 /**
  * Build the dynamic ORDER BY / WHERE for the paged list. Favourites (flagged)
@@ -208,9 +222,13 @@ sealed interface VacationState {
  * while the network methods fetch over JMAP and update the cache. A session +
  * mailbox-role map is cached in memory so actions don't re-discover them.
  */
+/** A message body ready to render: the full [Email] plus its inline images (cid → data: URI). */
+data class MessageBody(val email: Email, val inlineImages: Map<String, String>)
+
 class MailRepository(
     private val client: JmapClient,
     private val emailDao: EmailDao,
+    private val emailBodyDao: EmailBodyDao,
     private val mailboxDao: MailboxDao,
     private val imap: ImapMailService,
     private val scheduledSendDao: ScheduledSendDao,
@@ -231,6 +249,13 @@ class MailRepository(
     private var context: Context? = null
 
     private val tokenRefresher = OAuthTokenRefresher(oauthClient, accountStore)
+
+    /** Background scope for fire-and-forget work (body prefetch) that must outlive a sync call. */
+    private val bgScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Tolerant JSON for the on-disk body cache (schema may add fields across versions). */
+    private val cacheJson = Json { ignoreUnknownKeys = true }
+    private val inlineImagesSerializer = MapSerializer(String.serializer(), String.serializer())
 
     /** Where an IMAP message was moved (for undo): emailId → (destination folder, new UID). */
     private class ImapLoc(val mailboxId: String, val uid: Long)
@@ -512,6 +537,8 @@ class MailRepository(
                 syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit, credentials.id)
                 val name = resolved.session.accounts[resolved.accountId]?.name ?: credentials.username
                 results += AccountInboxMeta(credentials.id, name, inbox.id, inbox.name, inbox.unreadEmails)
+                // Warm the body cache for the visible top of the inbox so opening is instant.
+                bgScope.launch { runCatching { prefetchInboxBodies(credentials, inbox.id) } }
             }
         }
         return results
@@ -814,6 +841,110 @@ class MailRepository(
                 attachments = attachments,
             )
             else -> copy(attachments = attachments)
+        }
+    }
+
+    // ---- Body cache + prefetch -------------------------------------------------------------
+
+    /**
+     * Open a message for display, body cache first: a cached (or prefetched) body renders with
+     * no network round-trip; a miss fetches over the network and persists it. Inline images are
+     * resolved before returning so the body renders once, complete (no cid: reflow). Marks read.
+     */
+    suspend fun openMessage(credentials: AccountCredentials, emailId: String): MessageBody {
+        cachedMessage(emailId)?.let { cached ->
+            // Mark read out of band — the body is already in hand, don't make the user wait.
+            bgScope.launch { runCatching { setRead(credentials, emailId, true) } }
+            return ensureInlineImages(credentials, emailId, cached)
+        }
+        val email = openEmail(credentials, emailId) // network fetch; marks read
+        val inline = fetchInlineImages(credentials, email, emailId)
+        persistBody(credentials.id, emailId, email, inline)
+        return MessageBody(email, inline)
+    }
+
+    /** The cached body for [emailId], or null if not yet fetched/prefetched. No network. */
+    suspend fun cachedMessage(emailId: String): MessageBody? {
+        val row = emailBodyDao.byId(emailId) ?: return null
+        return runCatching {
+            MessageBody(
+                email = cacheJson.decodeFromString(Email.serializer(), row.bodyJson),
+                inlineImages = cacheJson.decodeFromString(inlineImagesSerializer, row.inlineImagesJson),
+            )
+        }.getOrNull()
+    }
+
+    /** Inline images present if the body needs them; downloads + persists them on first open. */
+    private suspend fun ensureInlineImages(
+        credentials: AccountCredentials,
+        emailId: String,
+        cached: MessageBody,
+    ): MessageBody {
+        if (cached.email.inlineImageParts().isEmpty() || cached.inlineImages.isNotEmpty()) return cached
+        val inline = fetchInlineImages(credentials, cached.email, emailId)
+        if (inline.isNotEmpty()) persistBody(credentials.id, emailId, cached.email, inline)
+        return cached.copy(inlineImages = inline)
+    }
+
+    /** Download a message's inline images as `data:` URIs keyed by Content-ID. */
+    private suspend fun fetchInlineImages(
+        credentials: AccountCredentials,
+        email: Email,
+        emailId: String,
+    ): Map<String, String> {
+        val parts = email.inlineImageParts()
+        if (parts.isEmpty()) return emptyMap()
+        val map = mutableMapOf<String, String>()
+        for (part in parts) {
+            val cid = part.cid?.trim()?.trim('<', '>')?.takeIf { it.isNotEmpty() } ?: continue
+            runCatching {
+                val bytes = downloadAttachment(credentials, part, emailId)
+                val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                map[cid] = "data:${part.type ?: "image/jpeg"};base64,$base64"
+            }
+        }
+        return map
+    }
+
+    /** Persist a fetched body (and any inline images) to the cache, then LRU-prune the account. */
+    private suspend fun persistBody(
+        accountId: String,
+        emailId: String,
+        email: Email,
+        inlineImages: Map<String, String>,
+    ) {
+        runCatching {
+            emailBodyDao.upsert(
+                EmailBodyEntity(
+                    id = emailId,
+                    accountId = accountId,
+                    bodyJson = cacheJson.encodeToString(Email.serializer(), email),
+                    inlineImagesJson = cacheJson.encodeToString(inlineImagesSerializer, inlineImages),
+                    fetchedAt = System.currentTimeMillis(),
+                ),
+            )
+            emailBodyDao.pruneForAccount(accountId, BODY_CACHE_CAP)
+        }
+    }
+
+    /**
+     * Prefetch the newest [PREFETCH_COUNT] inbox bodies for an account into the cache so opening
+     * them is instant. JMAP only (one batched Email/get); skips ids already cached. Body only —
+     * inline images fill in on first open. Best-effort: never throws into the caller.
+     */
+    private suspend fun prefetchInboxBodies(credentials: AccountCredentials, mailboxId: String) {
+        if (credentials.protocol == MailProtocol.IMAP) return
+        runCatching {
+            val newest = emailDao.getByMailbox(credentials.id, mailboxId)
+                .take(PREFETCH_COUNT)
+                .map { it.id }
+            if (newest.isEmpty()) return
+            val already = emailBodyDao.cachedIds(newest).toSet()
+            val missing = newest.filter { it !in already }
+            if (missing.isEmpty()) return
+            val ctx = connect(credentials)
+            val emails = client.getEmailsWithBody(ctx.session, ctx.accountId, missing, ctx.auth)
+            for (email in emails) persistBody(credentials.id, email.id, email, emptyMap())
         }
     }
 

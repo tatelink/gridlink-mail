@@ -7,14 +7,15 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [
-        EmailEntity::class, MailboxEntity::class, ScheduledSendEntity::class,
+        EmailEntity::class, EmailBodyEntity::class, MailboxEntity::class, ScheduledSendEntity::class,
         SnoozedEntity::class, RecentContactEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class SternaDatabase : RoomDatabase() {
     abstract fun emailDao(): EmailDao
+    abstract fun emailBodyDao(): EmailBodyDao
     abstract fun mailboxDao(): MailboxDao
     abstract fun scheduledSendDao(): ScheduledSendDao
     abstract fun snoozedDao(): SnoozedDao

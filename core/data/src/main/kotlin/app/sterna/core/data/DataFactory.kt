@@ -26,11 +26,13 @@ object DataFactory {
         val imapService = ImapMailService(ImapClient(), SmtpClient(), OAuthTokenRefresher(OAuthClient(), accountStore))
         return DataLayer(
             mailRepository = MailRepository(
-                client, database.emailDao(), database.mailboxDao(), imapService,
+                client, database.emailDao(), database.emailBodyDao(), database.mailboxDao(), imapService,
                 database.scheduledSendDao(), database.snoozedDao(), database.recentContactDao(),
                 accountStore,
             ),
-            storageRepository = StorageRepository(appContext, database.emailDao(), database.mailboxDao()),
+            storageRepository = StorageRepository(
+                appContext, database.emailDao(), database.emailBodyDao(), database.mailboxDao(),
+            ),
         )
     }
 }

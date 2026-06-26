@@ -1,6 +1,7 @@
 package app.sterna.core.data.storage
 
 import android.content.Context
+import app.sterna.core.data.db.EmailBodyDao
 import app.sterna.core.data.db.EmailDao
 import app.sterna.core.data.db.MailboxDao
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +29,7 @@ data class AccountUsage(val accountId: String, val messageCount: Int)
 class StorageRepository(
     private val context: Context,
     private val emailDao: EmailDao,
+    private val emailBodyDao: EmailBodyDao,
     private val mailboxDao: MailboxDao,
 ) {
     private val attachmentsDir: File get() = File(context.cacheDir, "attachments")
@@ -43,6 +45,7 @@ class StorageRepository(
     /** Purge every cached message + mailbox + attachment, keeping accounts/settings. */
     suspend fun clearAllCache() = withContext(Dispatchers.IO) {
         emailDao.deleteAll()
+        emailBodyDao.deleteAll()
         mailboxDao.deleteAll()
         clearAttachments()
     }
@@ -55,6 +58,7 @@ class StorageRepository(
     /** Purge one account's cached messages. */
     suspend fun clearAccountCache(accountId: String) = withContext(Dispatchers.IO) {
         emailDao.deleteForAccount(accountId)
+        emailBodyDao.deleteForAccount(accountId)
     }
 
     /**
@@ -64,6 +68,7 @@ class StorageRepository(
      */
     suspend fun purgeAccount(accountId: String) = withContext(Dispatchers.IO) {
         emailDao.deleteForAccount(accountId)
+        emailBodyDao.deleteForAccount(accountId)
         clearAttachments()
     }
 

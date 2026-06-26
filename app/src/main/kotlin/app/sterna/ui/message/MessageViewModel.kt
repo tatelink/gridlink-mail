@@ -12,13 +12,11 @@ import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 sealed interface MessageState {
     data object Loading : MessageState
@@ -129,8 +127,10 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             }
             try {
                 val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
-                // The tapped (newest) message: fetch the full body and mark it read.
-                val anchor = repo.openEmail(credentials, emailId)
+                // The tapped (newest) message: cache-first body + its inline images, marked read.
+                // Body and images arrive together so the WebView renders once, complete.
+                val opened = repo.openMessage(credentials, emailId)
+                val anchor = opened.email
                 _state.value = MessageState.Loaded(anchor)
                 _inJunk.value = repo.mailboxRole(anchor.mailboxId) == "junk"
 
@@ -152,12 +152,9 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                         header = if (isAnchor) anchor.markRead() else e,
                         body = if (isAnchor) anchor.markRead() else null,
                         expanded = isAnchor,
+                        inlineImages = if (isAnchor) opened.inlineImages else emptyMap(),
                     )
                 }
-
-                // Inline images for the already-expanded anchor.
-                val inline = fetchInlineImages(credentials, anchor, anchor.id)
-                if (inline.isNotEmpty()) updateMessage(anchor.id) { it.copy(inlineImages = inline) }
             } catch (t: Throwable) {
                 _state.value = MessageState.Error(t.message ?: t.javaClass.simpleName)
             }
@@ -182,34 +179,20 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 updateMessage(id) { it.copy(loading = false) }
                 return@launch
             }
-            runCatching { repo.openEmail(credentials, id) }
-                .onSuccess { full ->
-                    val inline = fetchInlineImages(credentials, full, id)
+            runCatching { repo.openMessage(credentials, id) }
+                .onSuccess { opened ->
                     // Expanding a message reads it; reflect that in the header too.
                     updateMessage(id) {
-                        it.copy(header = it.header.markRead(), body = full, loading = false, inlineImages = inline)
+                        it.copy(
+                            header = it.header.markRead(),
+                            body = opened.email,
+                            loading = false,
+                            inlineImages = opened.inlineImages,
+                        )
                     }
                 }
                 .onFailure { updateMessage(id) { it.copy(loading = false, expanded = false) } }
         }
-    }
-
-    /** Download a message's inline images as `data:` URIs keyed by Content-ID. */
-    private suspend fun fetchInlineImages(credentials: AccountCredentials, email: Email, emailId: String): Map<String, String> {
-        val parts = email.inlineImageParts()
-        if (parts.isEmpty()) return emptyMap()
-        val map = mutableMapOf<String, String>()
-        for (part in parts) {
-            val cid = part.cid?.trim()?.trim('<', '>')?.takeIf { it.isNotEmpty() } ?: continue
-            runCatching {
-                val bytes = repo.downloadAttachment(credentials, part, emailId)
-                val base64 = withContext(Dispatchers.IO) {
-                    android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-                }
-                map[cid] = "data:${part.type ?: "image/jpeg"};base64,$base64"
-            }
-        }
-        return map
     }
 
     /** Download an attachment to the cache and hand it to a viewer app. */

@@ -459,6 +459,48 @@ class JmapClient internal constructor(
         }
     }
 
+    /**
+     * Fetch several messages WITH their bodies in one Email/get (for prefetching the top of
+     * the inbox into the local cache). Same properties as [getEmail] but many ids at once;
+     * does NOT mark anything read.
+     */
+    suspend fun getEmailsWithBody(
+        session: JmapSession,
+        accountId: String,
+        ids: List<String>,
+        auth: JmapAuth,
+    ): List<Email> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("ids") { ids.forEach { add(it) } }
+                        putJsonArray("properties") {
+                            listOf(
+                                "id", "threadId", "subject", "preview", "receivedAt",
+                                "from", "to", "cc", "messageId", "references",
+                                "hasAttachment", "keywords",
+                                "htmlBody", "textBody", "attachments", "bodyValues",
+                            ).forEach { add(it) }
+                        }
+                        put("fetchHTMLBodyValues", true)
+                        put("fetchTextBodyValues", true)
+                    }
+                    add("g0")
+                }
+            }
+        }
+        val body = postJmap(session, auth, payload)
+        decodeList(body, "Email/get", Email.serializer())
+    }
+
     /** Fetch all emails in a thread (lightweight, no body) via Thread/get + Email/get (RFC 8621 §3). */
     suspend fun getThreadEmails(
         session: JmapSession,
