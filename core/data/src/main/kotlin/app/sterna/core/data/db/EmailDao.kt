@@ -41,8 +41,11 @@ interface EmailDao {
     )
     suspend fun suggestSenders(q: String, limit: Int): List<ContactRow>
 
-    @Query("SELECT * FROM emails WHERE mailboxId = :mailboxId ORDER BY sortKey DESC")
-    suspend fun getByMailbox(mailboxId: String): List<EmailEntity>
+    // Scoped by accountId as well as mailboxId: servers (e.g. Stalwart) number
+    // mailboxes per-account, so two accounts' inboxes can share an id — without the
+    // accountId these per-mailbox reads/writes would bleed across same-server accounts.
+    @Query("SELECT * FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId ORDER BY sortKey DESC")
+    suspend fun getByMailbox(accountId: String, mailboxId: String): List<EmailEntity>
 
     /** The cached mailbox an email lives in (used to advance that mailbox's sync cursor). */
     @Query("SELECT mailboxId FROM emails WHERE id = :id LIMIT 1")
@@ -55,8 +58,8 @@ interface EmailDao {
     @Upsert
     suspend fun upsertAll(emails: List<EmailEntity>)
 
-    @Query("DELETE FROM emails WHERE mailboxId = :mailboxId AND id NOT IN (:keepIds)")
-    suspend fun deleteNotIn(mailboxId: String, keepIds: List<String>)
+    @Query("DELETE FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId AND id NOT IN (:keepIds)")
+    suspend fun deleteNotIn(accountId: String, mailboxId: String, keepIds: List<String>)
 
     @Query("UPDATE emails SET seen = :seen WHERE id = :id")
     suspend fun setSeen(id: String, seen: Boolean)
@@ -70,13 +73,13 @@ interface EmailDao {
     @Query("DELETE FROM emails WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>)
 
-    /** Cached message count for one mailbox (end-of-pagination check). */
-    @Query("SELECT COUNT(*) FROM emails WHERE mailboxId = :mailboxId")
-    suspend fun countForMailbox(mailboxId: String): Int
+    /** Cached message count for one account's mailbox (end-of-pagination check). */
+    @Query("SELECT COUNT(*) FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId")
+    suspend fun countForMailbox(accountId: String, mailboxId: String): Int
 
-    /** Oldest cached email id in a mailbox (the anchor for fetching the next older page). */
-    @Query("SELECT id FROM emails WHERE mailboxId = :mailboxId ORDER BY sortKey ASC LIMIT 1")
-    suspend fun oldestEmailId(mailboxId: String): String?
+    /** Oldest cached email id in an account's mailbox (anchor for the next older page). */
+    @Query("SELECT id FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId ORDER BY sortKey ASC LIMIT 1")
+    suspend fun oldestEmailId(accountId: String, mailboxId: String): String?
 
     /** All cached ids across the given mailboxes (for "select all"). */
     @Query("SELECT id FROM emails WHERE mailboxId IN (:mailboxIds)")
@@ -112,14 +115,14 @@ interface EmailDao {
     suspend fun deleteForAccount(accountId: String)
 
     /** Prune messages older than [cutoff] (epoch millis) from a mailbox; keeps undated rows. */
-    @Query("DELETE FROM emails WHERE mailboxId = :mailboxId AND sortKey > 0 AND sortKey < :cutoff")
-    suspend fun deleteOlderThan(mailboxId: String, cutoff: Long)
+    @Query("DELETE FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId AND sortKey > 0 AND sortKey < :cutoff")
+    suspend fun deleteOlderThan(accountId: String, mailboxId: String, cutoff: Long)
 
-    /** Replace the cached contents of a mailbox with a fresh snapshot. */
+    /** Replace one account's cached contents of a mailbox with a fresh snapshot. */
     @Transaction
-    suspend fun replaceMailbox(mailboxId: String, emails: List<EmailEntity>) {
+    suspend fun replaceMailbox(accountId: String, mailboxId: String, emails: List<EmailEntity>) {
         upsertAll(emails)
-        deleteNotIn(mailboxId, emails.map { it.id })
+        deleteNotIn(accountId, mailboxId, emails.map { it.id })
     }
 }
 

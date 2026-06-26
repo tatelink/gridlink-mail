@@ -247,12 +247,18 @@ class MailRepository(
      * longer re-reports our own change, so the optimistic cache write isn't reverted
      * (no flicker). [newState] null (e.g. IMAP) is a no-op.
      */
-    private fun advanceEmailState(newState: String?, vararg mailboxIds: String?) {
+    private fun advanceEmailState(newState: String?, accountId: String, vararg mailboxIds: String?) {
         val s = newState ?: return
         mailboxIds.filterNotNull().distinct().forEach { mb ->
-            syncStates[mb]?.let { syncStates[mb] = it.copy(emailState = s) }
+            val k = syncKey(accountId, mb)
+            syncStates[k]?.let { syncStates[k] = it.copy(emailState = s) }
         }
     }
+
+    // syncStates is keyed by (account, mailbox), not mailbox alone: same-server accounts
+    // can share a mailbox id, and a shared key would let one account's sync cursor
+    // overwrite the other's — forcing perpetual full re-queries and cross-account wipes.
+    private fun syncKey(accountId: String, mailboxId: String) = "$accountId$mailboxId"
 
     /**
      * Ids whose flag/seen we just changed locally, with the time we did it. An email
@@ -289,7 +295,8 @@ class MailRepository(
         // [accountId] used for API calls), so per-account routing and storage work.
         localAccountId: String,
     ) {
-        val stored = syncStates[mailboxId]
+        val key = syncKey(localAccountId, mailboxId)
+        val stored = syncStates[key]
         if (stored != null) {
             val queryChanges = client.emailQueryChanges(session, accountId, mailboxId, stored.queryState, MAX_CHANGES, auth)
             val changes = client.emailChanges(session, accountId, stored.emailState, MAX_CHANGES, auth)
@@ -308,27 +315,27 @@ class MailRepository(
                 val toRemove = ((queryChanges.removed.toSet() - added).toList() + changes.destroyed)
                     .filterNot { isRecentlyMutated(it) }
                 if (toRemove.isNotEmpty()) emailDao.deleteByIds(toRemove)
-                val cachedIds = emailDao.getByMailbox(mailboxId).map { it.id }.toSet()
+                val cachedIds = emailDao.getByMailbox(localAccountId, mailboxId).map { it.id }.toSet()
                 val toFetch = ((added - cachedIds) + changes.updated.filter { it in cachedIds }).distinct()
                 if (toFetch.isNotEmpty()) {
                     val fetched = client.getEmailsByIds(session, accountId, toFetch, auth)
                     emailDao.upsertAll(fetched.map { it.toEntity(localAccountId, mailboxId) })
                 }
-                syncStates[mailboxId] = SyncState(queryChanges.newQueryState!!, changes.newState!!)
+                syncStates[key] = SyncState(queryChanges.newQueryState!!, changes.newState!!)
                 android.util.Log.i("MailSync", "incremental $mailboxId: +${toFetch.size} -${toRemove.size}")
                 return
             }
         }
         // Cold cache, or the server can't compute changes — full query.
         val page = client.queryEmailsPage(session, accountId, mailboxId, limit, auth)
-        emailDao.replaceMailbox(mailboxId, page.emails.map { it.toEntity(localAccountId, mailboxId) })
+        emailDao.replaceMailbox(localAccountId, mailboxId, page.emails.map { it.toEntity(localAccountId, mailboxId) })
         android.util.Log.i("MailSync", "full query $mailboxId: ${page.emails.size} emails")
         val queryState = page.queryState
         val emailState = page.emailState
         if (queryState != null && emailState != null) {
-            syncStates[mailboxId] = SyncState(queryState, emailState)
+            syncStates[key] = SyncState(queryState, emailState)
         } else {
-            syncStates.remove(mailboxId)
+            syncStates.remove(key)
         }
     }
 
@@ -422,7 +429,7 @@ class MailRepository(
                 }
                 return try {
                     val (added, total) = if (credentials.protocol == MailProtocol.IMAP) {
-                        val offset = emailDao.countForMailbox(mailboxId)
+                        val offset = emailDao.countForMailbox(credentials.id, mailboxId)
                         val (entities, exists) = imap.fetchOlderPage(credentials, mailboxId, offset, PAGE_SIZE)
                         if (entities.isNotEmpty()) emailDao.upsertAll(entities)
                         entities.size to exists
@@ -431,7 +438,7 @@ class MailRepository(
                         // Anchor on the oldest cached message and fetch the page right after
                         // it: unlike an absolute offset, the anchor doesn't shift when new
                         // mail arrives at the top, so no page is skipped or duplicated.
-                        val anchorId = emailDao.oldestEmailId(mailboxId)
+                        val anchorId = emailDao.oldestEmailId(credentials.id, mailboxId)
                         val page = client.queryEmailsPage(
                             ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
                             calculateTotal = true,
@@ -443,7 +450,7 @@ class MailRepository(
                         }
                         page.emails.size to page.total
                     }
-                    val cached = emailDao.countForMailbox(mailboxId)
+                    val cached = emailDao.countForMailbox(credentials.id, mailboxId)
                     val reachedEnd = added == 0 || (total != null && cached >= total)
                     MediatorResult.Success(endOfPaginationReached = reachedEnd)
                 } catch (t: Throwable) {
@@ -492,7 +499,7 @@ class MailRepository(
             runCatching {
                 if (credentials.protocol == MailProtocol.IMAP) {
                     val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = limit)
-                    emailDao.replaceMailbox(load.targetMailboxId, load.messages)
+                    emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages)
                     results += AccountInboxMeta(
                         credentials.id, load.accountName, load.targetMailboxId, load.targetName, load.unread,
                     )
@@ -731,7 +738,7 @@ class MailRepository(
             ?: error("No mailboxes found.")
 
         syncMailbox(session, accountId, auth, target.id, limit, credentials.id)
-        if (pruneBeforeMillis != null) emailDao.deleteOlderThan(target.id, pruneBeforeMillis)
+        if (pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, target.id, pruneBeforeMillis)
 
         val accountName = session.accounts[accountId]?.name ?: credentials.username
         return MailboxMeta(accountName, target.id, target.name, target.unreadEmails)
@@ -746,8 +753,8 @@ class MailRepository(
     ): MailboxMeta {
         val load = imap.loadFolder(credentials, mailboxId, limit)
         mailboxDao.replaceAll(load.mailboxes)
-        emailDao.replaceMailbox(load.targetMailboxId, load.messages)
-        if (pruneBeforeMillis != null) emailDao.deleteOlderThan(load.targetMailboxId, pruneBeforeMillis)
+        emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages)
+        if (pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, load.targetMailboxId, pruneBeforeMillis)
         return MailboxMeta(load.accountName, load.targetMailboxId, load.targetName, load.unread)
     }
 
@@ -821,7 +828,7 @@ class MailRepository(
         val mb = emailDao.mailboxOf(emailId)
         val newState = client.setSeen(ctx.session, ctx.accountId, emailId, seen, ctx.auth)
         emailDao.setSeen(emailId, seen)
-        advanceEmailState(newState, mb)
+        advanceEmailState(newState, credentials.id, mb)
     }
 
     suspend fun setFlagged(credentials: AccountCredentials, emailId: String, flagged: Boolean) {
@@ -835,7 +842,7 @@ class MailRepository(
         val mb = emailDao.mailboxOf(emailId)
         val newState = client.setKeyword(ctx.session, ctx.accountId, emailId, "\$flagged", flagged, ctx.auth)
         emailDao.setFlagged(emailId, flagged)
-        advanceEmailState(newState, mb)
+        advanceEmailState(newState, credentials.id, mb)
     }
 
     /** Source (mailbox path, UID) for an IMAP message id, or null if not parseable. */
@@ -864,7 +871,7 @@ class MailRepository(
         val target = archiveMailboxId(ctx) ?: createArchiveFolder(ctx)
         val newState = client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
         emailDao.deleteById(emailId)
-        advanceEmailState(newState, mb)
+        advanceEmailState(newState, credentials.id, mb)
     }
 
     /** Move a message to an arbitrary mailbox (e.g. unarchive → Inbox, or move-to-folder). */
@@ -881,7 +888,7 @@ class MailRepository(
         val mb = emailDao.mailboxOf(emailId)
         val newState = client.move(ctx.session, ctx.accountId, emailId, targetMailboxId, ctx.auth)
         emailDao.deleteById(emailId)
-        advanceEmailState(newState, mb)
+        advanceEmailState(newState, credentials.id, mb)
     }
 
     /** The cached role of a mailbox (e.g. "junk", "inbox"), or null. */
@@ -980,7 +987,7 @@ class MailRepository(
             val ctx = connect(credentials)
             client.deleteMailbox(ctx.session, ctx.accountId, mailboxId, ctx.auth)
         }
-        emailDao.replaceMailbox(mailboxId, emptyList())
+        emailDao.replaceMailbox(credentials.id, mailboxId, emptyList())
         refreshMailboxes(credentials)
     }
 
@@ -1073,7 +1080,7 @@ class MailRepository(
             client.destroy(ctx.session, ctx.accountId, emailId, ctx.auth)
         }
         emailDao.deleteById(emailId)
-        advanceEmailState(newState, mb)
+        advanceEmailState(newState, credentials.id, mb)
     }
 
     /**
@@ -1123,10 +1130,6 @@ class MailRepository(
         val ctx = connect(credentials)
         return client.getThreadEmails(ctx.session, ctx.accountId, threadId, ctx.auth)
     }
-
-    /** One-shot read of cached emails for a mailbox. */
-    suspend fun cachedEmails(mailboxId: String): List<Email> =
-        emailDao.getByMailbox(mailboxId).map { it.toEmail() }
 
     /** Remove a message from the local cache only (optimistic UI removal). */
     suspend fun evict(emailId: String) = emailDao.deleteById(emailId)
@@ -1179,7 +1182,7 @@ class MailRepository(
             ?: resolved.mailboxes.firstOrNull()
             ?: error("No mailboxes found.")
         syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit, credentials.id)
-        return inbox.id to emailDao.getByMailbox(inbox.id).map { it.toEmail() }
+        return inbox.id to emailDao.getByMailbox(credentials.id, inbox.id).map { it.toEmail() }
     }
 
     /**
