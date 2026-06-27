@@ -91,6 +91,9 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberDrawerState
@@ -114,6 +117,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -262,6 +266,9 @@ fun InboxScreen(
     // Create folder.
     if (showCreateFolder) {
         var name by remember { mutableStateOf("") }
+        val focusRequester = remember { FocusRequester() }
+        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+        fun submit() { if (name.isNotBlank()) { viewModel.createFolder(name); showCreateFolder = false } }
         AlertDialog(
             onDismissRequest = { showCreateFolder = false },
             title = { Text(stringResource(R.string.inbox_new_folder)) },
@@ -271,11 +278,14 @@ fun InboxScreen(
                     onValueChange = { name = it },
                     label = { Text(stringResource(R.string.inbox_folder_name)) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                    modifier = Modifier.focusRequester(focusRequester),
                 )
             },
             confirmButton = {
                 TextButton(
-                    onClick = { viewModel.createFolder(name); showCreateFolder = false },
+                    onClick = { submit() },
                     enabled = name.isNotBlank(),
                 ) { Text(stringResource(R.string.inbox_create)) }
             },
@@ -286,6 +296,15 @@ fun InboxScreen(
     // Create a subfolder under the chosen parent.
     folderToAddChild?.let { parent ->
         var name by remember { mutableStateOf("") }
+        val focusRequester = remember { FocusRequester() }
+        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+        fun submit() {
+            if (name.isNotBlank()) {
+                viewModel.createFolder(name, parentId = parent.id)
+                collapsedFolders = collapsedFolders - parent.id // reveal the new child
+                folderToAddChild = null
+            }
+        }
         AlertDialog(
             onDismissRequest = { folderToAddChild = null },
             title = { Text(stringResource(R.string.inbox_new_subfolder_in, mailboxDisplayName(parent.role, parent.name))) },
@@ -295,15 +314,14 @@ fun InboxScreen(
                     onValueChange = { name = it },
                     label = { Text(stringResource(R.string.inbox_folder_name)) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                    modifier = Modifier.focusRequester(focusRequester),
                 )
             },
             confirmButton = {
                 TextButton(
-                    onClick = {
-                        viewModel.createFolder(name, parentId = parent.id)
-                        collapsedFolders = collapsedFolders - parent.id // reveal the new child
-                        folderToAddChild = null
-                    },
+                    onClick = { submit() },
                     enabled = name.isNotBlank(),
                 ) { Text(stringResource(R.string.inbox_create)) }
             },
@@ -314,6 +332,9 @@ fun InboxScreen(
     // Rename folder.
     folderToRename?.let { folder ->
         var name by remember(folder.id) { mutableStateOf(folder.name) }
+        val focusRequester = remember { FocusRequester() }
+        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+        fun submit() { if (name.isNotBlank()) { viewModel.renameFolder(folder.id, name); folderToRename = null } }
         AlertDialog(
             onDismissRequest = { folderToRename = null },
             title = { Text(stringResource(R.string.inbox_rename_folder)) },
@@ -323,11 +344,14 @@ fun InboxScreen(
                     onValueChange = { name = it },
                     label = { Text(stringResource(R.string.inbox_folder_name)) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                    modifier = Modifier.focusRequester(focusRequester),
                 )
             },
             confirmButton = {
                 TextButton(
-                    onClick = { viewModel.renameFolder(folder.id, name); folderToRename = null },
+                    onClick = { submit() },
                     enabled = name.isNotBlank(),
                 ) { Text(stringResource(R.string.inbox_rename)) }
             },
@@ -737,11 +761,23 @@ fun InboxScreen(
                             } else {
                                 mailboxDisplayName(searchRole, ui.mailboxName)
                             }
+                            val focusManager = LocalFocusManager.current
                             TextField(
                                 value = ui.searchQuery,
                                 onValueChange = viewModel::setSearchQuery,
-                                placeholder = { Text(stringResource(R.string.inbox_search_in, scopeLabel)) },
-                                singleLine = true,
+                                placeholder = {
+                                    // Let a long folder name wrap to a second line instead of
+                                    // being clipped (e.g. "Search in Lists/Newsletters/…").
+                                    Text(
+                                        stringResource(R.string.inbox_search_in, scopeLabel),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                                // Live search-as-you-type; the Search key just folds the keyboard.
+                                maxLines = 2,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
                                 colors = TextFieldDefaults.colors(
                                     focusedContainerColor = Color.Transparent,
                                     unfocusedContainerColor = Color.Transparent,
