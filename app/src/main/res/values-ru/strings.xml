@@ -415,6 +415,7 @@
     <string name="status_read_file_failed">Не удалось прочитать выбранный файл.</string>
     <string name="status_open_attachment_failed">Не удалось открыть вложение: %1$s</string>
     <string name="status_action_failed">Не удалось выполнить действие.</string>
+    <string name="status_moved_to_folder">Перемещено в %1$s</string>
 
     <!-- Notifications -->
     <string name="notif_channel_mail">Новые письма</string>
@@ -474,6 +475,8 @@
     <string name="inbox_folder_collapse">Свернуть папку</string>
     <string name="a11y_favourite">Добавить в избранное</string>
     <string name="a11y_unfavourite">Удалить из избранного</string>
+    <string name="a11y_has_attachment">Есть вложение</string>
+    <string name="a11y_flagged">Отмечено</string>
     <string name="settings_theme_sterna_caption">Палитра Sterna: Arctic (светлая) · Pelagic (тёмная).</string>
     <string name="settings_dynamic_color_title">Цвета Material You</string>
     <string name="settings_dynamic_color_subtitle">Использовать цвета из ваших обоев вместо палитры Sterna (Android 12+).</string>

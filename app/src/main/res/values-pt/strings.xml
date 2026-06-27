@@ -415,6 +415,7 @@
     <string name="status_read_file_failed">Não foi possível ler o arquivo selecionado.</string>
     <string name="status_open_attachment_failed">Não foi possível abrir o anexo: %1$s</string>
     <string name="status_action_failed">Não foi possível concluir a ação.</string>
+    <string name="status_moved_to_folder">Movido para %1$s</string>
 
     <!-- Notifications -->
     <string name="notif_channel_mail">Novos e-mails</string>
@@ -475,6 +476,8 @@
     <string name="inbox_folder_collapse">Recolher pasta</string>
     <string name="a11y_favourite">Adicionar aos favoritos</string>
     <string name="a11y_unfavourite">Remover dos favoritos</string>
+    <string name="a11y_has_attachment">Tem um anexo</string>
+    <string name="a11y_flagged">Marcado</string>
     <string name="settings_theme_sterna_caption">Paleta Sterna: Arctic (claro) · Pelagic (escuro).</string>
     <string name="settings_dynamic_color_title">Cores Material You</string>
     <string name="settings_dynamic_color_subtitle">Usar as cores do seu papel de parede em vez da paleta da Sterna (Android 12+).</string>
