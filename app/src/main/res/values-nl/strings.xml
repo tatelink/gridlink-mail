@@ -406,6 +406,9 @@
     <string name="status_message_deleted">Bericht verwijderd</string>
     <string name="status_message_archived">Bericht gearchiveerd</string>
     <string name="status_message_unarchived">Bericht uit archief gehaald</string>
+    <string name="status_conversation_deleted">Gesprek verwijderd</string>
+    <string name="status_conversation_archived">Gesprek gearchiveerd</string>
+    <string name="status_conversation_unarchived">Gesprek uit archief gehaald</string>
     <string name="status_message_sent">Bericht verzonden</string>
     <string name="status_folder_op_failed">Mapbewerking mislukt</string>
     <string name="status_attach_failed">Bijvoegen mislukt: %1$s</string>
@@ -478,6 +481,9 @@
     <string name="a11y_favourite">Aan favorieten toevoegen</string>
     <string name="a11y_unfavourite">Uit favorieten verwijderen</string>
     <string name="a11y_has_attachment">Heeft een bijlage</string>
+    <string name="a11y_conversation_pill">Gesprek, %1$d berichten</string>
+    <string name="a11y_conversation_expanded">Uitgevouwen</string>
+    <string name="a11y_conversation_collapsed">Samengevouwen</string>
     <string name="a11y_flagged">Gemarkeerd</string>
     <string name="settings_theme_sterna_caption">Sterna-palet: Arctic (licht) · Pelagic (donker).</string>
     <string name="settings_dynamic_color_title">Material You-kleuren</string>

@@ -59,8 +59,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // R8 minify + resource shrink, unless built with -PnoR8 (faster test builds).
+            val noR8 = providers.gradleProperty("noR8").isPresent
+            isMinifyEnabled = !noR8
+            isShrinkResources = !noR8
             // Prefer the real release key; fall back to the debug key when absent.
             signingConfig = signingConfigs.findByName("release")
                 ?: signingConfigs.findByName("debugSigned")

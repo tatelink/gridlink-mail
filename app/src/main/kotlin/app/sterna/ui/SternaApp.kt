@@ -163,6 +163,13 @@ private fun MainNavHost(
                         nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}&index=$index&src=$src")
                     }
                 },
+                // A message tapped inside an inline-expanded conversation opens it standalone
+                // (single-message reader, no list paging — src/index omitted).
+                onOpenThreadMessage = { id, accountId ->
+                    if (entry.lifecycleIsResumed()) {
+                        nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}")
+                    }
+                },
                 onCompose = { if (entry.lifecycleIsResumed()) nav.navigate("compose") },
                 onReopenDraft = { if (entry.lifecycleIsResumed()) nav.navigate("compose?restore=true") },
                 onOpenSettings = { if (entry.lifecycleIsResumed()) nav.navigate("settings") },

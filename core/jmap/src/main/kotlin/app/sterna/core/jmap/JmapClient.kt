@@ -535,7 +535,7 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "threadId", "subject", "preview", "receivedAt",
-                                "from", "hasAttachment", "keywords",
+                                "from", "hasAttachment", "keywords", "mailboxIds",
                             ).forEach { add(it) }
                         }
                     }

@@ -18,24 +18,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.padding
@@ -98,7 +88,6 @@ import app.sterna.R
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.ui.components.Monogram
-import app.sterna.ui.rememberMotionEnabled
 import app.sterna.util.LinkCleaner
 import kotlinx.coroutines.delay
 import java.io.ByteArrayInputStream
@@ -320,9 +309,9 @@ private fun MessageContent(
     val senderEmail = (state as? MessageState.Loaded)?.email?.from?.firstOrNull()?.email
     val senderAllowed = senderEmail?.lowercase()?.let { it in imageAllowlist } == true
     val showRemote = manualShow || senderAllowed
-    // Replies attach to the most recent message in the thread (messages are oldest-first),
-    // not the row that happened to open the conversation. Falls back to the anchor.
-    val replyTargetId = messages.lastOrNull()?.id ?: emailId
+    // The reader shows a single message; reply / reply-all / forward all target exactly the
+    // opened message (the conversation itself lives in the list's inline unfold).
+    val replyTargetId = emailId
 
     Scaffold(
         topBar = {
@@ -489,7 +478,6 @@ private fun MessageContent(
                     stripTracking = stripTracking,
                     confirmLinks = confirmLinks,
                     attachmentStatus = attachmentStatus,
-                    onToggle = viewModel::toggleExpand,
                     onOpenAttachment = viewModel::openAttachment,
                     textZoom = messageTextSize.zoom,
                     onReply = { mode -> onReply(mode, replyTargetId, accountId) },
@@ -506,88 +494,74 @@ private fun ConversationBody(
     stripTracking: Boolean,
     confirmLinks: Boolean,
     attachmentStatus: String?,
-    onToggle: (String) -> Unit,
     onOpenAttachment: (EmailBodyPart, String) -> Unit,
     textZoom: Int,
     onReply: (mode: String) -> Unit,
 ) {
-    // A plain scrolling Column (not a LazyColumn): a thread is small, and not
-    // recycling the cards keeps each expanded WebView alive instead of reloading its
-    // body every time it scrolls past.
+    val msg = messages.firstOrNull() ?: return
+    // A plain scrolling Column (not a LazyColumn): the body's WebView stays alive instead of
+    // reloading on every scroll. The reader is a single message.
     Column(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
             .verticalScroll(rememberScrollState()),
     ) {
-        messages.forEachIndexed { index, msg ->
-            if (index > 0) HorizontalDivider()
-            MessageCard(
-                msg = msg,
-                collapsible = messages.size > 1,
-                blockRemote = blockRemote,
-                stripTracking = stripTracking,
-                confirmLinks = confirmLinks,
-                attachmentStatus = attachmentStatus,
-                onToggle = onToggle,
-                onOpenAttachment = onOpenAttachment,
-                textZoom = textZoom,
-            )
-        }
-        // Single-mail view only: Reply/Forward at the end of the content. Short mails
-        // show them without scrolling; long ones reveal them when scrolled to the bottom.
-        // A thread already has the toolbar Reply (targeting its latest message).
-        if (messages.size == 1) {
-            HorizontalDivider()
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+        MessageCard(
+            msg = msg,
+            blockRemote = blockRemote,
+            stripTracking = stripTracking,
+            confirmLinks = confirmLinks,
+            attachmentStatus = attachmentStatus,
+            onOpenAttachment = onOpenAttachment,
+            textZoom = textZoom,
+        )
+        // Reply / Forward at the end of the message — short mails show them without scrolling,
+        // long ones reveal them at the bottom. (Reply-all lives in the toolbar overflow.)
+        HorizontalDivider()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            FilledTonalButton(
+                onClick = { onReply("reply") },
+                modifier = Modifier.weight(1f),
             ) {
-                FilledTonalButton(
-                    onClick = { onReply("reply") },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.message_reply))
-                }
-                OutlinedButton(
-                    onClick = { onReply("forward") },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.message_forward))
-                }
+                Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.message_reply))
+            }
+            OutlinedButton(
+                onClick = { onReply("forward") },
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.message_forward))
             }
         }
     }
 }
 
-/** One message in the stacked conversation: a tappable header that folds/unfolds the
- *  full body (fetched lazily). A lone message stays open and isn't collapsible. */
+/** The opened message: a header (sender, date, star/attachment) above its rendered body. */
 @Composable
 private fun MessageCard(
     msg: ThreadMessage,
-    collapsible: Boolean,
     blockRemote: Boolean,
     stripTracking: Boolean,
     confirmLinks: Boolean,
     attachmentStatus: String?,
-    onToggle: (String) -> Unit,
     onOpenAttachment: (EmailBodyPart, String) -> Unit,
     textZoom: Int,
 ) {
     val sender = msg.header.from.firstOrNull()
     val unread = !msg.header.isSeen
-    val motionOn = rememberMotionEnabled()
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(if (collapsible) Modifier.clickable { onToggle(msg.id) } else Modifier)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -601,21 +575,11 @@ private fun MessageCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (msg.expanded) {
-                    Text(
-                        text = formatFull(msg.header.receivedAt),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Text(
-                        text = msg.header.preview?.takeIf { it.isNotBlank() } ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                Text(
+                    text = formatFull(msg.header.receivedAt),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             // Flagged star and an attachment paperclip, mirroring the message-list row.
             if (msg.header.isFlagged) {
@@ -636,71 +600,52 @@ private fun MessageCard(
                     modifier = Modifier.size(18.dp),
                 )
             }
-            if (!msg.expanded) {
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = formatCompact(msg.header.receivedAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (unread) {
-                Spacer(Modifier.width(8.dp))
-                Box(Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
-            }
         }
-        // A quick "unroll" as the card opens (respecting reduced motion).
-        AnimatedVisibility(
-            visible = msg.expanded,
-            enter = if (motionOn) expandVertically(tween(200)) + fadeIn(tween(200)) else EnterTransition.None,
-            exit = if (motionOn) shrinkVertically(tween(160)) + fadeOut(tween(120)) else ExitTransition.None,
-        ) {
-            val full = msg.body
-            // The body is rendered exactly once — by the WebView — and only revealed when it
-            // has laid out at its final height (EmailWebView.onReady). The WebView measures
-            // off-screen so no half-laid-out content or reflow is ever shown.
-            var bodyReady by remember(msg.id) { mutableStateOf(false) }
-            // Only surface a spinner if the body is still not ready after a beat — cached /
-            // prefetched messages appear well within this, so no spinner flashes for them.
-            var spinnerDue by remember(msg.id) { mutableStateOf(false) }
-            LaunchedEffect(msg.id) { delay(500); spinnerDue = true }
-            Box(Modifier.fillMaxWidth()) {
-                if (full != null) {
-                    Column(Modifier.fillMaxWidth().alpha(if (bodyReady) 1f else 0f)) {
-                        val attachments = full.fileAttachmentParts()
-                        if (attachments.isNotEmpty()) {
-                            HorizontalDivider()
-                            AttachmentSection(attachments, attachmentStatus) { part -> onOpenAttachment(part, msg.id) }
-                        }
+        val full = msg.body
+        // The body is rendered exactly once — by the WebView — and only revealed when it has
+        // laid out at its final height (EmailWebView.onReady). The WebView measures off-screen
+        // so no half-laid-out content or reflow is ever shown.
+        var bodyReady by remember(msg.id) { mutableStateOf(false) }
+        // Only surface a spinner if the body is still not ready after a beat — cached /
+        // prefetched messages appear well within this, so no spinner flashes for them.
+        var spinnerDue by remember(msg.id) { mutableStateOf(false) }
+        LaunchedEffect(msg.id) { delay(500); spinnerDue = true }
+        Box(Modifier.fillMaxWidth()) {
+            if (full != null) {
+                Column(Modifier.fillMaxWidth().alpha(if (bodyReady) 1f else 0f)) {
+                    val attachments = full.fileAttachmentParts()
+                    if (attachments.isNotEmpty()) {
                         HorizontalDivider()
-                        val scheme = MaterialTheme.colorScheme
-                        val dark = scheme.surface.luminance() < 0.5f
-                        val emailTheme = EmailTheme(
-                            background = scheme.surface.toCssHex(),
-                            text = scheme.onSurface.toCssHex(),
-                            link = scheme.primary.toCssHex(),
-                            dark = dark,
-                        )
-                        val html = remember(full, msg.inlineImages, emailTheme) { buildHtmlDocument(full, msg.inlineImages, emailTheme) }
-                        EmailWebView(
-                            html = html,
-                            blockRemote = blockRemote,
-                            stripTracking = stripTracking,
-                            confirmLinks = confirmLinks,
-                            backgroundColor = scheme.surface.toArgb(),
-                            textZoom = textZoom,
-                            onReady = { bodyReady = true },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        AttachmentSection(attachments, attachmentStatus) { part -> onOpenAttachment(part, msg.id) }
                     }
+                    HorizontalDivider()
+                    val scheme = MaterialTheme.colorScheme
+                    val dark = scheme.surface.luminance() < 0.5f
+                    val emailTheme = EmailTheme(
+                        background = scheme.surface.toCssHex(),
+                        text = scheme.onSurface.toCssHex(),
+                        link = scheme.primary.toCssHex(),
+                        dark = dark,
+                    )
+                    val html = remember(full, msg.inlineImages, emailTheme) { buildHtmlDocument(full, msg.inlineImages, emailTheme) }
+                    EmailWebView(
+                        html = html,
+                        blockRemote = blockRemote,
+                        stripTracking = stripTracking,
+                        confirmLinks = confirmLinks,
+                        backgroundColor = scheme.surface.toArgb(),
+                        textZoom = textZoom,
+                        onReady = { bodyReady = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
-                if (!bodyReady && spinnerDue) {
-                    Box(
-                        Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(24.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                    }
+            }
+            if (!bodyReady && spinnerDue) {
+                Box(
+                    Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                 }
             }
         }
@@ -1087,12 +1032,8 @@ private fun escapeHtml(text: String): String = text
     .replace(">", "&gt;")
 
 private val fullFormatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", appLocale)
-private val compactFormatter = DateTimeFormatter.ofPattern("d MMM", appLocale)
 
 private fun formatFull(iso: String?): String = formatWith(iso, fullFormatter)
-
-/** Short date (e.g. "21 Jun") for a collapsed conversation card. */
-private fun formatCompact(iso: String?): String = formatWith(iso, compactFormatter)
 
 private fun formatWith(iso: String?, formatter: DateTimeFormatter): String {
     if (iso.isNullOrBlank()) return ""

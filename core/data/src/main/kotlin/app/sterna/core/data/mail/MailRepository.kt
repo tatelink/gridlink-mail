@@ -116,10 +116,10 @@ private fun pagingQuery(
 
 /**
  * Build the conversation-collapsed paged query: one row per thread
- * (COALESCE(threadId, id)) showing the thread's latest message, its message count
- * in this view, and whether any message is unread. A sub-query finds, per thread,
- * the max sortKey + count + unread; the outer joins back to fetch that exact
- * representative row. [unreadOnly] keeps threads that have any unread message.
+ * (COALESCE(threadId, id)) showing the thread's latest message in this view, its TOTAL
+ * message count across the account's folders, and whether the in-view part is unread.
+ * Counting across folders (not just the viewed mailbox) means a thread whose reply sits in
+ * Sent still reads as a conversation. [unreadOnly] keeps threads whose in-view part is unread.
  */
 private fun conversationQuery(
     mailboxIds: List<String>,
@@ -127,24 +127,32 @@ private fun conversationQuery(
     unreadOnly: Boolean,
     accountId: String? = null,
 ): SimpleSQLiteQuery {
-    // Each clause (inner + outer WHERE) binds the mailbox ids and, for a single-account
-    // folder view, the account id — in order — so the full arg list repeats per clause.
+    // Bind order matches the clauses left-to-right in the SQL: the in-view sub-query (mailbox
+    // ids [+ account id]), then the cross-folder count scope (the account id for a single
+    // account, else the same mailbox ids), then the outer WHERE (mailbox ids [+ account id]).
     val perClause = mailboxIds + listOfNotNull(accountId)
+    val countScope = if (accountId != null) listOf(accountId) else mailboxIds
+    val args = perClause + countScope + perClause
     return SimpleSQLiteQuery(
         conversationSql(mailboxIds.size, sort, unreadOnly, accountId != null),
-        (perClause + perClause).toTypedArray(),
+        args.toTypedArray(),
     )
 }
 
 /**
- * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite).
- * [mailboxCount] `?` placeholders appear in the inner and outer WHERE, so callers
- * bind the mailbox ids twice, in order.
+ * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite). Bind order:
+ * the in-view sub-query's mailbox ids [+ account id], then the cross-folder count scope
+ * (account id when [hasAccountId], else the mailbox ids again), then the outer WHERE's mailbox
+ * ids [+ account id]. The representative row and unread state come from the in-view sub-query
+ * `g`; the message count comes from the cross-folder sub-query `t`.
  */
 internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boolean, hasAccountId: Boolean = false): String {
     val placeholders = List(mailboxCount) { "?" }.joinToString(",")
     val accountInner = if (hasAccountId) " AND accountId = ?" else ""
     val accountOuter = if (hasAccountId) " AND e.accountId = ?" else ""
+    // Cross-folder count: the whole account's mail when its id is known, else (the unified
+    // inbox, where no single account is in scope) fall back to the viewed mailboxes.
+    val countScope = if (hasAccountId) "accountId = ?" else "mailboxId IN ($placeholders)"
     val notSnoozed = "id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
         "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
     val having = if (unreadOnly) " HAVING MIN(seen) = 0" else ""
@@ -156,15 +164,20 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
         SortOrder.UNREAD_FIRST -> "g.threadUnread ASC, e.sortKey DESC"
     }
     return """
-        SELECT e.*, g.threadCount AS threadCount, g.threadUnread AS threadUnread
+        SELECT e.*, t.threadCount AS threadCount, g.threadUnread AS threadUnread
         FROM emails e
         JOIN (
-            SELECT COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey,
-                   COUNT(*) AS threadCount, MIN(seen) AS threadUnread
+            SELECT COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread
             FROM emails
             WHERE mailboxId IN ($placeholders)$accountInner AND $notSnoozed
             GROUP BY tkey$having
         ) g ON COALESCE(e.threadId, e.id) = g.tkey AND e.sortKey = g.maxKey
+        JOIN (
+            SELECT COALESCE(threadId, id) AS tkey2, COUNT(*) AS threadCount
+            FROM emails
+            WHERE $countScope AND $notSnoozed
+            GROUP BY tkey2
+        ) t ON t.tkey2 = g.tkey
         WHERE e.mailboxId IN ($placeholders)$accountOuter AND $notSnoozed
         GROUP BY g.tkey
         ORDER BY $orderBy
@@ -1308,6 +1321,47 @@ class MailRepository(
         return client.getThreadEmails(ctx.session, ctx.accountId, threadId, ctx.auth)
     }
 
+    /**
+     * Fetch a thread's FULL membership from the server (JMAP Thread/get) so an inline-expanded
+     * conversation can show received messages that fell outside the folder's short sync window
+     * (the cache holds only the latest page). Best-effort persists each member under its real
+     * mailbox, so the next expand — and the collapsed row's count — is complete without network.
+     *
+     * Returns the fetched members (header-level, no body), or empty for IMAP (no Thread/get) and
+     * on any failure (offline): the caller then simply keeps what the cache already gave it.
+     */
+    suspend fun fetchThreadMembers(credentials: AccountCredentials, threadId: String): List<Email> {
+        if (credentials.protocol == MailProtocol.IMAP) return emptyList()
+        val emails = runCatching { threadEmails(credentials, threadId) }.getOrNull() ?: return emptyList()
+        // Persist members under their actual folder (from mailboxIds); skip any without one so we
+        // never invent a mailbox. A re-fetched Inbox member out of window will be pruned again on
+        // the next Inbox replaceMailbox — that's fine; this mainly keeps Sent/Archive members.
+        val entities = emails.mapNotNull { e ->
+            val mailbox = e.mailboxId ?: e.mailboxIds.keys.firstOrNull() ?: return@mapNotNull null
+            e.toEntity(credentials.id, mailbox)
+        }
+        if (entities.isNotEmpty()) runCatching { emailDao.upsertAll(entities) }
+        return emails
+    }
+
+    /**
+     * Cached members of a thread for inline conversation expansion: newest-first, scoped to
+     * the representative's [accountId] and the current view's [mailboxIds]. Cache only — no
+     * network — so unfolding a conversation row is instant and works offline. [threadKey] is
+     * the representative's threadId (or its id when thread-less).
+     */
+    suspend fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): List<Email> =
+        if (mailboxIds.isEmpty()) emptyList()
+        else emailDao.cachedThreadEmails(accountId, mailboxIds, threadKey).map { it.toEmail() }
+
+    /**
+     * Cached members of a thread across ALL the account's folders (Sent, Archive, …), newest
+     * first — used to populate an inline-expanded conversation so it shows the whole exchange,
+     * not only the messages in the folder being browsed. Cache only, no network.
+     */
+    suspend fun cachedThreadEmailsAllFolders(accountId: String, threadKey: String): List<Email> =
+        emailDao.cachedThreadEmailsAllFolders(accountId, threadKey).map { it.toEmail() }
+
     /** Remove a message from the local cache only (optimistic UI removal). */
     suspend fun evict(emailId: String) = emailDao.deleteById(emailId)
 
@@ -1530,6 +1584,11 @@ class MailRepository(
             references = references,
             attachments = attachments,
         )
+        // The message is now filed in Sent with a server-assigned threadId. Pull it into the
+        // local cache at once (best-effort) so the conversation it belongs to reflects the
+        // reply immediately — the list counts a thread's messages from the cache, so an
+        // un-cached Sent reply would otherwise leave the conversation looking like one message.
+        runCatching { syncMailbox(ctx.session, ctx.accountId, ctx.auth, sentId, PAGE_SIZE, credentials.id) }
     }
 
     // ---- scheduled send ----

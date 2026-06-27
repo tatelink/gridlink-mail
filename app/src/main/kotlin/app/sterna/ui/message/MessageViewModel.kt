@@ -25,17 +25,14 @@ sealed interface MessageState {
 }
 
 /**
- * One message in the opened conversation. [header] always has the summary fields
- * (from/date/subject/preview); [body] is the full email (with body parts), fetched
- * lazily the first time the card is expanded. The newest message (the one tapped in
- * the inbox) starts expanded with its body already loaded.
+ * The opened message. [header] has the summary fields (from/date/subject/preview), shown at
+ * once; [body] is the full email (with body parts) and its [inlineImages]. The reader shows a
+ * single message — the conversation it belongs to lives in the list's inline unfold.
  */
 data class ThreadMessage(
     val id: String,
     val header: Email,
     val body: Email? = null,
-    val expanded: Boolean = false,
-    val loading: Boolean = false,
     val inlineImages: Map<String, String> = emptyMap(),
 )
 
@@ -135,7 +132,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             // JMAP (an email belongs to a *set* of mailboxes), so junk detection keys off this.
             val listEmail = runCatching { repo.cachedEmail(emailId) }.getOrNull()
             listEmail?.let { cached ->
-                _messages.value = listOf(ThreadMessage(id = cached.id, header = cached, expanded = true))
+                _messages.value = listOf(ThreadMessage(id = cached.id, header = cached))
                 _state.value = MessageState.Loaded(cached)
                 _inJunk.value = repo.mailboxRole(cached.mailboxId) == "junk"
             }
@@ -156,36 +153,14 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                         id = anchor.id,
                         header = anchorBody,
                         body = anchorBody,
-                        expanded = true,
                         inlineImages = opened.inlineImages,
                     ),
                 )
                 _inJunk.value = repo.mailboxRole(anchor.mailboxId ?: listEmail?.mailboxId) == "junk"
                 // If the page already settled before the body arrived, read it now.
                 maybeMarkRead()
-
-                // Then merge in the rest of the thread (siblings, header-only), keeping the
-                // anchor in place (same id → its rendered body isn't disturbed). Order
-                // newest→oldest (receivedAt is an ISO-8601 string, so it sorts in time).
-                val others = anchor.threadId?.let { threadId ->
-                    runCatching { repo.threadEmails(credentials, threadId) }.getOrNull()
-                }.orEmpty().filter { it.id != anchor.id }
-                if (others.isNotEmpty()) {
-                    val byId = LinkedHashMap<String, Email>()
-                    others.forEach { byId[it.id] = it }
-                    byId[anchor.id] = anchor
-                    val ordered = byId.values.sortedByDescending { it.receivedAt ?: "" }
-                    _messages.value = ordered.map { e ->
-                        val isAnchor = e.id == anchor.id
-                        ThreadMessage(
-                            id = e.id,
-                            header = if (isAnchor) anchorDisplay(anchor) else e,
-                            body = if (isAnchor) anchorDisplay(anchor) else null,
-                            expanded = isAnchor,
-                            inlineImages = if (isAnchor) opened.inlineImages else emptyMap(),
-                        )
-                    }
-                }
+                // The reader shows the single opened message; the conversation (the rest of the
+                // thread) now lives only in the list's inline unfold, so no thread merge here.
             } catch (t: Throwable) {
                 _state.value = MessageState.Error(t.message ?: t.javaClass.simpleName)
             }
@@ -217,40 +192,6 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val credentials = credentials() ?: return@launch
             runCatching { repo.setRead(credentials, current.id, true) }
-        }
-    }
-
-    /** Fold/unfold a message in the conversation; fetches its body on first expand. */
-    fun toggleExpand(id: String) {
-        val msg = _messages.value.firstOrNull { it.id == id } ?: return
-        if (msg.expanded) {
-            updateMessage(id) { it.copy(expanded = false) }
-            return
-        }
-        if (msg.body != null) {
-            updateMessage(id) { it.copy(expanded = true) }
-            return
-        }
-        updateMessage(id) { it.copy(expanded = true, loading = true) }
-        viewModelScope.launch {
-            val credentials = credentials()
-            if (credentials == null) {
-                updateMessage(id) { it.copy(loading = false) }
-                return@launch
-            }
-            runCatching { repo.openMessage(credentials, id) }
-                .onSuccess { opened ->
-                    // Expanding a message reads it; reflect that in the header too.
-                    updateMessage(id) {
-                        it.copy(
-                            header = it.header.markRead(),
-                            body = opened.email,
-                            loading = false,
-                            inlineImages = opened.inlineImages,
-                        )
-                    }
-                }
-                .onFailure { updateMessage(id) { it.copy(loading = false, expanded = false) } }
         }
     }
 
