@@ -727,7 +727,12 @@ private fun AttachmentSection(
                     .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("📎", modifier = Modifier.padding(end = 12.dp))
+                Icon(
+                    Icons.Filled.AttachFile,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 12.dp).size(20.dp),
+                )
                 Column(Modifier.weight(1f)) {
                     Text(
                         text = att.name ?: stringResource(R.string.message_attachment_fallback),
