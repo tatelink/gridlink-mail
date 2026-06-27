@@ -74,6 +74,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -311,6 +312,7 @@ private fun MessageContent(
     val confirmLinks by viewModel.confirmLinks.collectAsStateWithLifecycle()
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
     val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     // Per-message manual override; the sender allowlist auto-shows without it.
     var manualShow by remember(emailId) { mutableStateOf(false) }
     val senderEmail = (state as? MessageState.Loaded)?.email?.from?.firstOrNull()?.email
@@ -436,7 +438,20 @@ private fun MessageContent(
                                     },
                                     onClick = {
                                         menuOpen = false
-                                        if (inJunk) viewModel.notSpam(onBack) else viewModel.reportSpam(onBack)
+                                        // Confirm the move once it lands, naming the destination
+                                        // folder — junk → Inbox ("Not spam"), inbox → Spam.
+                                        val destName = context.getString(
+                                            if (inJunk) R.string.folder_inbox else R.string.folder_junk,
+                                        )
+                                        val confirmMove: () -> Unit = {
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(R.string.status_moved_to_folder, destName),
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                            onBack()
+                                        }
+                                        if (inJunk) viewModel.notSpam(confirmMove) else viewModel.reportSpam(confirmMove)
                                     },
                                 )
                                 DropdownMenuItem(
