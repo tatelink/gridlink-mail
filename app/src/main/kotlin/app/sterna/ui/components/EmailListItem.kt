@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -188,6 +191,17 @@ fun EmailListItem(
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
+        }
+        // A small paperclip flags rows whose message carries an attachment — sits just
+        // left of the favourite star, mirroring the star's muted weight until earned.
+        if (email.hasAttachment) {
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                Icons.Filled.AttachFile,
+                contentDescription = stringResource(R.string.a11y_has_attachment),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
         }
         if (onToggleFavourite != null) {
             // The ★/☆ glyph is meaningless to a screen reader, so replace its
