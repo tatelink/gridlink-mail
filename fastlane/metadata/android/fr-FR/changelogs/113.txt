@@ -1,0 +1,4 @@
+Correction : les comptes Gmail n'affichent plus le conteneur vide « [Gmail] »
+dans la liste des dossiers. Les dossiers conteneurs non sélectionnables sont
+désormais masqués, donc Envoyés, Brouillons, Corbeille et Spam apparaissent
+directement au lieu d'être imbriqués un niveau plus bas.
