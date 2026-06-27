@@ -1561,6 +1561,11 @@ class MailRepository(
             references = references,
             attachments = attachments,
         )
+        // The message is now filed in Sent with a server-assigned threadId. Pull it into the
+        // local cache at once (best-effort) so the conversation it belongs to reflects the
+        // reply immediately — the list counts a thread's messages from the cache, so an
+        // un-cached Sent reply would otherwise leave the conversation looking like one message.
+        runCatching { syncMailbox(ctx.session, ctx.accountId, ctx.auth, sentId, PAGE_SIZE, credentials.id) }
     }
 
     // ---- scheduled send ----
