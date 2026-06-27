@@ -183,19 +183,44 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val _threadMembers = MutableStateFlow<Map<String, List<Email>>>(emptyMap())
     val threadMembers: StateFlow<Map<String, List<Email>>> = _threadMembers.asStateFlow()
 
+    /** Thread keys already completed from the server this session — fetched at most once each. */
+    private val completedThreads = mutableSetOf<String>()
+
     /** The thread an email belongs to: its threadId, or its own id when thread-less. */
     private fun threadKeyOf(email: Email): String = ConversationExpansion.threadKey(email.threadId, email.id)
 
-    /** Fold/unfold a conversation row in place. On expand, loads its members from the cache. */
+    /**
+     * Fold/unfold a conversation row in place. On expand the cached members render at once
+     * (offline-safe, zero latency); for JMAP threads a background Thread/get then completes the
+     * list with received messages that fell outside the folder's short cache window.
+     */
     fun toggleThreadExpanded(rep: Email) {
         val key = threadKeyOf(rep)
-        val nowExpanded = key !in _expandedThreads.value
-        _expandedThreads.value = ConversationExpansion.toggle(_expandedThreads.value, key)
-        if (!nowExpanded || _threadMembers.value.containsKey(key)) return
-        viewModelScope.launch {
-            val members = runCatching { loadThreadMembers(rep) }.getOrDefault(emptyList())
-            _threadMembers.value = _threadMembers.value + (key to members)
+        if (key in _expandedThreads.value) {
+            _expandedThreads.value = _expandedThreads.value - key
+            return
         }
+        _expandedThreads.value = _expandedThreads.value + key
+        viewModelScope.launch { expandThread(rep, key) }
+    }
+
+    private suspend fun expandThread(rep: Email, key: String) {
+        // 1. Instant cache render (skip if a previous expand already loaded this thread).
+        if (!_threadMembers.value.containsKey(key)) {
+            val cached = runCatching { loadThreadMembers(rep) }.getOrDefault(emptyList())
+            if (key !in _expandedThreads.value) return // collapsed again while loading the cache
+            _threadMembers.value = _threadMembers.value + (key to cached)
+        }
+        // 2. Background completion from the server, once per thread. JMAP only (IMAP has no
+        //    Thread/get and thread-less messages have nothing to complete).
+        if (key in completedThreads) return
+        val threadId = rep.threadId ?: return
+        val credentials = credentialsFor(rep) ?: return
+        val fetched = runCatching { repo.fetchThreadMembers(credentials, threadId) }.getOrDefault(emptyList())
+        completedThreads += key
+        if (fetched.isEmpty() || key !in _expandedThreads.value) return // offline, or collapsed meanwhile
+        val current = _threadMembers.value[key].orEmpty()
+        _threadMembers.value = _threadMembers.value + (key to ConversationExpansion.mergeMembers(current, fetched, rep.id))
     }
 
     /**
@@ -407,6 +432,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private fun collapseThreads() {
         _expandedThreads.value = emptySet()
         _threadMembers.value = emptyMap()
+        completedThreads.clear()
     }
 
     /** Swipe action: toggle read/unread (cache update drives the list). */
@@ -474,6 +500,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             val key = threadKeyOf(rep)
             _expandedThreads.value = _expandedThreads.value - key
             _threadMembers.value = _threadMembers.value - key
+            completedThreads -= key
             val entries = mutableListOf<UndoEntry>()
             var failed = false
             members.forEach { m ->

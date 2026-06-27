@@ -21,4 +21,20 @@ internal object ConversationExpansion {
      */
     fun membersBelow(all: List<Email>, representativeId: String): List<Email> =
         all.filter { it.id != representativeId }
+
+    /**
+     * Merge the instantly-shown [cached] members with the [fetched] full-thread members from the
+     * server: dedup by id (the fresher [fetched] copy wins), drop the representative
+     * ([representativeId]) already shown at the top, and order newest-first by receivedAt — so a
+     * server completion fills in received messages missing from the cache window without
+     * reordering or duplicating what is already on screen.
+     */
+    fun mergeMembers(cached: List<Email>, fetched: List<Email>, representativeId: String): List<Email> {
+        val byId = LinkedHashMap<String, Email>()
+        cached.forEach { byId[it.id] = it }
+        fetched.forEach { byId[it.id] = it }
+        return byId.values
+            .filter { it.id != representativeId }
+            .sortedByDescending { it.receivedAt ?: "" }
+    }
 }

@@ -38,4 +38,32 @@ class ConversationExpansionTest {
         val all = listOf(Email(id = "only"))
         assertEquals(emptyList<String>(), ConversationExpansion.membersBelow(all, "only").map { it.id })
     }
+
+    @Test fun `merge adds fetched members missing from the cache, newest-first`() {
+        // Cache only had the recent received reply; the server fills in two older received ones.
+        val cached = listOf(Email(id = "c2", receivedAt = "2026-06-20T10:00:00Z"))
+        val fetched = listOf(
+            Email(id = "rep", receivedAt = "2026-06-21T10:00:00Z"),
+            Email(id = "c2", receivedAt = "2026-06-20T10:00:00Z"),
+            Email(id = "old1", receivedAt = "2026-06-18T10:00:00Z"),
+            Email(id = "old2", receivedAt = "2026-06-19T10:00:00Z"),
+        )
+        val merged = ConversationExpansion.mergeMembers(cached, fetched, representativeId = "rep")
+        // Representative excluded; rest newest-first; no duplicate of c2.
+        assertEquals(listOf("c2", "old2", "old1"), merged.map { it.id })
+    }
+
+    @Test fun `merge dedups by id and prefers the fetched copy`() {
+        val cached = listOf(Email(id = "m1", subject = "stale"))
+        val fetched = listOf(Email(id = "m1", subject = "fresh"))
+        val merged = ConversationExpansion.mergeMembers(cached, fetched, representativeId = "rep")
+        assertEquals(1, merged.size)
+        assertEquals("fresh", merged[0].subject)
+    }
+
+    @Test fun `merge with no fetched members keeps the cached list (offline)`() {
+        val cached = listOf(Email(id = "a", receivedAt = "2026-06-20T10:00:00Z"))
+        val merged = ConversationExpansion.mergeMembers(cached, emptyList(), representativeId = "rep")
+        assertEquals(listOf("a"), merged.map { it.id })
+    }
 }

@@ -1322,6 +1322,29 @@ class MailRepository(
     }
 
     /**
+     * Fetch a thread's FULL membership from the server (JMAP Thread/get) so an inline-expanded
+     * conversation can show received messages that fell outside the folder's short sync window
+     * (the cache holds only the latest page). Best-effort persists each member under its real
+     * mailbox, so the next expand — and the collapsed row's count — is complete without network.
+     *
+     * Returns the fetched members (header-level, no body), or empty for IMAP (no Thread/get) and
+     * on any failure (offline): the caller then simply keeps what the cache already gave it.
+     */
+    suspend fun fetchThreadMembers(credentials: AccountCredentials, threadId: String): List<Email> {
+        if (credentials.protocol == MailProtocol.IMAP) return emptyList()
+        val emails = runCatching { threadEmails(credentials, threadId) }.getOrNull() ?: return emptyList()
+        // Persist members under their actual folder (from mailboxIds); skip any without one so we
+        // never invent a mailbox. A re-fetched Inbox member out of window will be pruned again on
+        // the next Inbox replaceMailbox — that's fine; this mainly keeps Sent/Archive members.
+        val entities = emails.mapNotNull { e ->
+            val mailbox = e.mailboxId ?: e.mailboxIds.keys.firstOrNull() ?: return@mapNotNull null
+            e.toEntity(credentials.id, mailbox)
+        }
+        if (entities.isNotEmpty()) runCatching { emailDao.upsertAll(entities) }
+        return emails
+    }
+
+    /**
      * Cached members of a thread for inline conversation expansion: newest-first, scoped to
      * the representative's [accountId] and the current view's [mailboxIds]. Cache only — no
      * network — so unfolding a conversation row is instant and works offline. [threadKey] is

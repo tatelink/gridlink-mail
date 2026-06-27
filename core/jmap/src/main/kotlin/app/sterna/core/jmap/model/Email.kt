@@ -51,6 +51,12 @@ data class Email(
     val accountId: String? = null,
     /** Source mailbox, populated from the local cache; lets a swipe action be undone (moved back). */
     val mailboxId: String? = null,
+    /**
+     * The set of mailboxes this email belongs to (`{mailboxId: true}`), as returned by JMAP
+     * when requested (e.g. Thread/get → Email/get). Empty unless the call asked for it; used to
+     * file a server-fetched thread member under its real folder when caching it.
+     */
+    val mailboxIds: Map<String, Boolean> = emptyMap(),
     val threadId: String? = null,
     val subject: String? = null,
     val preview: String? = null,
