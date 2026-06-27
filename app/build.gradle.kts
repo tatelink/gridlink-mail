@@ -106,6 +106,10 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.paging.compose)
+    // Installs the bundled baseline profile (src/main/baseline-prof.txt) on first launch so
+    // ART AOT-compiles the hot startup/scroll paths. Needed because sideloaded/F-Droid installs
+    // don't run install-time dexopt from the embedded profile on all ROMs (verified on the S7).
+    implementation(libs.androidx.profileinstaller)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
