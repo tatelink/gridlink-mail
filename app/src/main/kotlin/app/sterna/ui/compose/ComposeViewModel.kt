@@ -311,6 +311,41 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private fun htmlify(s: String): String =
         s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
+    /**
+     * Best-effort HTML→plain-text for quoting an original that has no text/plain part
+     * (most modern mail is HTML-only). Converts block boundaries to newlines so the quoted
+     * original keeps its paragraphs, instead of collapsing to one line.
+     */
+    private fun htmlToText(html: String): String =
+        html
+            .replace(Regex("(?is)<(script|style|head)\\b.*?</\\1>"), "")
+            .replace(Regex("(?i)<br\\s*/?>"), "\n")
+            .replace(Regex("(?i)</(p|div|li|tr|h[1-6]|blockquote|ul|ol|table)\\s*>"), "\n")
+            .replace(Regex("<[^>]+>"), "")
+            .let(::unescapeEntities)
+            .replace(Regex("[ \\t]+\n"), "\n")
+            .replace(Regex("\n{3,}"), "\n\n")
+            .trim()
+
+    // &amp; last so an escaped entity like "&amp;lt;" decodes to "&lt;", not "<".
+    private fun unescapeEntities(s: String): String =
+        s.replace("&nbsp;", " ")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
+
+    /**
+     * The original's body as plain text for quoting: its text/plain part, else its HTML
+     * converted to text, else the one-line preview as a last resort.
+     */
+    private fun originalPlainText(o: Email): String =
+        o.textContent()?.takeIf { it.isNotBlank() }
+            ?: o.htmlContent()?.takeIf { it.isNotBlank() }?.let { htmlToText(it) }?.takeIf { it.isNotBlank() }
+            ?: o.preview.orEmpty()
+
     fun saveDraft(to: String, cc: String, bcc: String, subject: String, body: String) =
         submit(to) { credentials, recipients ->
             repo.saveDraft(credentials, recipients, subject, body, parseAddrs(cc), parseAddrs(bcc))
@@ -370,14 +405,14 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     private fun quote(o: Email): String {
         val sender = o.from.firstOrNull()?.display() ?: "someone"
-        val text = (o.textContent() ?: o.preview).orEmpty()
+        val text = originalPlainText(o)
         val quoted = text.lineSequence().joinToString("\n") { "> $it" }
         return "\n\nOn ${o.receivedAt.orEmpty()}, $sender wrote:\n$quoted"
     }
 
     private fun forwardBody(o: Email): String {
         val from = o.from.joinToString { it.display() }
-        val text = (o.textContent() ?: o.preview).orEmpty()
+        val text = originalPlainText(o)
         return "\n\n---------- Forwarded message ----------\n" +
             "From: $from\nSubject: ${o.subject.orEmpty()}\n\n$text"
     }
