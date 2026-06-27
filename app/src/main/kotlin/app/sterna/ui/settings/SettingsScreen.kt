@@ -786,7 +786,7 @@ private fun StorageScreen(
                         confirm = false
                         viewModel.clearCache()
                     },
-                ) { Text(stringResource(R.string.settings_clear)) }
+                ) { Text(stringResource(R.string.settings_clear), color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.settings_cancel)) }
