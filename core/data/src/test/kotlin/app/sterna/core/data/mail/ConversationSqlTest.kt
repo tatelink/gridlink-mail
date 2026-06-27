@@ -58,7 +58,8 @@ class ConversationSqlTest {
     private fun run(sort: SortOrder = SortOrder.DATE_DESC, unreadOnly: Boolean = false): List<Map<String, Any?>> {
         val sql = conversationSql(mailboxCount = 1, sort = sort, unreadOnly = unreadOnly)
         return db.prepareStatement(sql).use { ps ->
-            ps.setString(1, "inbox"); ps.setString(2, "inbox") // bound twice
+            // in-view sub-query, cross-folder count scope, outer WHERE — each binds "inbox".
+            ps.setString(1, "inbox"); ps.setString(2, "inbox"); ps.setString(3, "inbox")
             ps.executeQuery().use { rs ->
                 buildList {
                     while (rs.next()) {
@@ -120,12 +121,35 @@ class ConversationSqlTest {
 
         val sql = conversationSql(mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false, hasAccountId = true)
         val rows = db.prepareStatement(sql).use { ps ->
-            // Per clause: mailbox, accountId — bound twice (inner + outer WHERE).
+            // in-view (mailbox, accountId), cross-folder count scope (accountId), outer (mailbox, accountId).
             ps.setString(1, "inbox"); ps.setString(2, "accA")
-            ps.setString(3, "inbox"); ps.setString(4, "accA")
+            ps.setString(3, "accA")
+            ps.setString(4, "inbox"); ps.setString(5, "accA")
             ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
         }
         assertEquals(listOf("a1"), rows) // only account A's mail; b1 is excluded
+    }
+
+    @Test fun threadCountSpansFoldersSoAnInboxMessageWithASentReplyIsAConversation() {
+        // A thread with one message in the Inbox and its reply filed in Sent.
+        insert("in1", threadId = "T1", seen = 0, flagged = 0, sortKey = 100, mailbox = "inbox")
+        insert("sent1", threadId = "T1", seen = 1, flagged = 0, sortKey = 200, mailbox = "sent")
+
+        val sql = conversationSql(mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false, hasAccountId = true)
+        val rows = db.prepareStatement(sql).use { ps ->
+            // Viewing the Inbox for account "acc".
+            ps.setString(1, "inbox"); ps.setString(2, "acc")
+            ps.setString(3, "acc")
+            ps.setString(4, "inbox"); ps.setString(5, "acc")
+            ps.executeQuery().use { rs ->
+                buildList {
+                    while (rs.next()) add(mapOf("id" to rs.getString("id"), "threadCount" to rs.getInt("threadCount")))
+                }
+            }
+        }
+        assertEquals(1, rows.size)
+        assertEquals("in1", rows[0]["id"])   // representative is the in-view (Inbox) message…
+        assertEquals(2, rows[0]["threadCount"]) // …but the count includes the Sent reply.
     }
 
     @Test fun favouritesPinToTop() {

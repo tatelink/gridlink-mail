@@ -116,10 +116,10 @@ private fun pagingQuery(
 
 /**
  * Build the conversation-collapsed paged query: one row per thread
- * (COALESCE(threadId, id)) showing the thread's latest message, its message count
- * in this view, and whether any message is unread. A sub-query finds, per thread,
- * the max sortKey + count + unread; the outer joins back to fetch that exact
- * representative row. [unreadOnly] keeps threads that have any unread message.
+ * (COALESCE(threadId, id)) showing the thread's latest message in this view, its TOTAL
+ * message count across the account's folders, and whether the in-view part is unread.
+ * Counting across folders (not just the viewed mailbox) means a thread whose reply sits in
+ * Sent still reads as a conversation. [unreadOnly] keeps threads whose in-view part is unread.
  */
 private fun conversationQuery(
     mailboxIds: List<String>,
@@ -127,24 +127,32 @@ private fun conversationQuery(
     unreadOnly: Boolean,
     accountId: String? = null,
 ): SimpleSQLiteQuery {
-    // Each clause (inner + outer WHERE) binds the mailbox ids and, for a single-account
-    // folder view, the account id — in order — so the full arg list repeats per clause.
+    // Bind order matches the clauses left-to-right in the SQL: the in-view sub-query (mailbox
+    // ids [+ account id]), then the cross-folder count scope (the account id for a single
+    // account, else the same mailbox ids), then the outer WHERE (mailbox ids [+ account id]).
     val perClause = mailboxIds + listOfNotNull(accountId)
+    val countScope = if (accountId != null) listOf(accountId) else mailboxIds
+    val args = perClause + countScope + perClause
     return SimpleSQLiteQuery(
         conversationSql(mailboxIds.size, sort, unreadOnly, accountId != null),
-        (perClause + perClause).toTypedArray(),
+        args.toTypedArray(),
     )
 }
 
 /**
- * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite).
- * [mailboxCount] `?` placeholders appear in the inner and outer WHERE, so callers
- * bind the mailbox ids twice, in order.
+ * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite). Bind order:
+ * the in-view sub-query's mailbox ids [+ account id], then the cross-folder count scope
+ * (account id when [hasAccountId], else the mailbox ids again), then the outer WHERE's mailbox
+ * ids [+ account id]. The representative row and unread state come from the in-view sub-query
+ * `g`; the message count comes from the cross-folder sub-query `t`.
  */
 internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boolean, hasAccountId: Boolean = false): String {
     val placeholders = List(mailboxCount) { "?" }.joinToString(",")
     val accountInner = if (hasAccountId) " AND accountId = ?" else ""
     val accountOuter = if (hasAccountId) " AND e.accountId = ?" else ""
+    // Cross-folder count: the whole account's mail when its id is known, else (the unified
+    // inbox, where no single account is in scope) fall back to the viewed mailboxes.
+    val countScope = if (hasAccountId) "accountId = ?" else "mailboxId IN ($placeholders)"
     val notSnoozed = "id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
         "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
     val having = if (unreadOnly) " HAVING MIN(seen) = 0" else ""
@@ -156,15 +164,20 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
         SortOrder.UNREAD_FIRST -> "g.threadUnread ASC, e.sortKey DESC"
     }
     return """
-        SELECT e.*, g.threadCount AS threadCount, g.threadUnread AS threadUnread
+        SELECT e.*, t.threadCount AS threadCount, g.threadUnread AS threadUnread
         FROM emails e
         JOIN (
-            SELECT COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey,
-                   COUNT(*) AS threadCount, MIN(seen) AS threadUnread
+            SELECT COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread
             FROM emails
             WHERE mailboxId IN ($placeholders)$accountInner AND $notSnoozed
             GROUP BY tkey$having
         ) g ON COALESCE(e.threadId, e.id) = g.tkey AND e.sortKey = g.maxKey
+        JOIN (
+            SELECT COALESCE(threadId, id) AS tkey2, COUNT(*) AS threadCount
+            FROM emails
+            WHERE $countScope AND $notSnoozed
+            GROUP BY tkey2
+        ) t ON t.tkey2 = g.tkey
         WHERE e.mailboxId IN ($placeholders)$accountOuter AND $notSnoozed
         GROUP BY g.tkey
         ORDER BY $orderBy
