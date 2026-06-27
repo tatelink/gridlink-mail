@@ -243,19 +243,7 @@ class ImapSession(private var socket: Socket) : Closeable {
     }
 
     /** LIST every mailbox, inferring a role from special-use attributes or the name. */
-    fun listFolders(): List<ImapFolder> {
-        val result = command("LIST \"\" \"*\"")
-        return result.untagged.mapNotNull { resp ->
-            // * LIST (attrs) "delim" "name"
-            if (resp.getOrNull(1) != "LIST") return@mapNotNull null
-            @Suppress("UNCHECKED_CAST")
-            val attrs = (resp.getOrNull(2) as? List<Any?>)?.mapNotNull { it as? String } ?: emptyList()
-            val delim = resp.getOrNull(3) as? String ?: "/"
-            val path = resp.getOrNull(4) as? String ?: return@mapNotNull null
-            val name = path.substringAfterLast(delim)
-            ImapFolder(name = name, path = path, role = roleOf(name, attrs), delimiter = delim)
-        }
-    }
+    fun listFolders(): List<ImapFolder> = parseListFolders(command("LIST \"\" \"*\"").untagged)
 
     fun select(path: String): ImapMailboxStatus {
         val result = command("SELECT ${quote(path)}")
@@ -429,29 +417,6 @@ class ImapSession(private var socket: Socket) : Closeable {
         return walk(bodystructure)
     }
 
-    private fun roleOf(name: String, attrs: List<String>): String? {
-        attrs.firstNotNullOfOrNull { attr ->
-            when (attr.lowercase()) {
-                "\\sent" -> "sent"
-                "\\drafts" -> "drafts"
-                "\\trash" -> "trash"
-                "\\junk" -> "junk"
-                "\\archive" -> "archive"
-                "\\all" -> "all"
-                else -> null
-            }
-        }?.let { return it }
-        return when (name.lowercase()) {
-            "inbox" -> "inbox"
-            "sent", "sent mail", "sent items" -> "sent"
-            "drafts" -> "drafts"
-            "trash", "deleted", "deleted items" -> "trash"
-            "junk", "spam" -> "junk"
-            "archive", "archives" -> "archive"
-            else -> null
-        }
-    }
-
     /**
      * IMAP quoted-string. Per RFC 3501 a quoted-string may not contain CR or LF; a raw
      * newline here would terminate the command line and let an attacker-controlled value
@@ -527,3 +492,52 @@ internal class ImapResult(
     val untagged: List<List<Any?>>,
     val tagged: List<Any?> = emptyList(),
 )
+
+/**
+ * Map the untagged responses of a `LIST` command to [ImapFolder]s, dropping
+ * non-selectable container mailboxes. A `\Noselect` (or `\NonExistent`) entry can't be
+ * opened: Gmail nests its special mailboxes under such a container literally named
+ * "[Gmail]", so surfacing it only adds a dead level in the drawer. Its selectable
+ * children keep their full path and re-parent to top level (the drawer infers parents
+ * from the path, finds the dropped container missing, and promotes them). INBOX is
+ * never dropped, even if a server mislabels it.
+ */
+internal fun parseListFolders(untagged: List<List<Any?>>): List<ImapFolder> =
+    untagged.mapNotNull { resp ->
+        // * LIST (attrs) "delim" "name"
+        if (resp.getOrNull(1) != "LIST") return@mapNotNull null
+        @Suppress("UNCHECKED_CAST")
+        val attrs = (resp.getOrNull(2) as? List<Any?>)?.mapNotNull { it as? String } ?: emptyList()
+        val delim = resp.getOrNull(3) as? String ?: "/"
+        val path = resp.getOrNull(4) as? String ?: return@mapNotNull null
+        val name = path.substringAfterLast(delim)
+        val nonSelectable = attrs.any {
+            it.equals("\\Noselect", ignoreCase = true) || it.equals("\\NonExistent", ignoreCase = true)
+        }
+        if (nonSelectable && !path.equals("INBOX", ignoreCase = true)) return@mapNotNull null
+        ImapFolder(name = name, path = path, role = roleOf(name, attrs), delimiter = delim)
+    }
+
+/** Infer a normalised folder role from SPECIAL-USE attributes first, then the name. */
+internal fun roleOf(name: String, attrs: List<String>): String? {
+    attrs.firstNotNullOfOrNull { attr ->
+        when (attr.lowercase()) {
+            "\\sent" -> "sent"
+            "\\drafts" -> "drafts"
+            "\\trash" -> "trash"
+            "\\junk" -> "junk"
+            "\\archive" -> "archive"
+            "\\all" -> "all"
+            else -> null
+        }
+    }?.let { return it }
+    return when (name.lowercase()) {
+        "inbox" -> "inbox"
+        "sent", "sent mail", "sent items" -> "sent"
+        "drafts" -> "drafts"
+        "trash", "deleted", "deleted items" -> "trash"
+        "junk", "spam" -> "junk"
+        "archive", "archives" -> "archive"
+        else -> null
+    }
+}
