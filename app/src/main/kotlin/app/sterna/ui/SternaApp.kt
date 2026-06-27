@@ -239,7 +239,9 @@ private fun MainNavHost(
             ),
         ) { entry ->
             ComposeScreen(
-                onDone = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
+                // After a send (new mail, reply or forward) return to the inbox rather than
+                // the message that was open underneath compose.
+                onDone = { if (entry.lifecycleIsResumed()) nav.popBackStack("inbox", inclusive = false) },
                 onCancel = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
                 replyTo = entry.arguments?.getString("replyTo")?.let { Uri.decode(it) },
                 mode = entry.arguments?.getString("mode"),
