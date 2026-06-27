@@ -52,6 +52,11 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -844,6 +849,7 @@ private fun QuotaRow(quota: QuotaUi) {
 private fun ColourSwatch(color: Color?, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
+            .minimumInteractiveComponentSize()
             .size(44.dp)
             .clip(CircleShape)
             .background(color ?: MaterialTheme.colorScheme.surfaceVariant)
@@ -852,7 +858,8 @@ private fun ColourSwatch(color: Color?, selected: Boolean, onClick: () -> Unit) 
                 color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 shape = CircleShape,
             )
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .semantics { role = Role.Button; this.selected = selected },
         contentAlignment = Alignment.Center,
     ) {
         when {
