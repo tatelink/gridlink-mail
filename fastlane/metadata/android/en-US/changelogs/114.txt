@@ -1,0 +1,3 @@
+New: conversation view. A thread now collapses into a single entry you can unfold to read every message in it.
+
+Also: faster startup and a smaller download, replies keep their line breaks, smoother swiping between messages, Back from any folder returns to the inbox, and a fix for a crash when marking mail as not spam.
