@@ -341,10 +341,18 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      * The original's body as plain text for quoting: its text/plain part, else its HTML
      * converted to text, else the one-line preview as a last resort.
      */
-    private fun originalPlainText(o: Email): String =
-        o.textContent()?.takeIf { it.isNotBlank() }
-            ?: o.htmlContent()?.takeIf { it.isNotBlank() }?.let { htmlToText(it) }?.takeIf { it.isNotBlank() }
-            ?: o.preview.orEmpty()
+    private fun originalPlainText(o: Email): String {
+        // HTML-only mail makes the server synthesise textBody = the HTML part, so the "text"
+        // body can actually be HTML. Convert it (keeping line breaks) instead of quoting raw
+        // HTML on one line. A genuine text/plain part is used as-is.
+        val textPart = o.textBody.firstOrNull()
+        val raw = textPart?.partId?.let { o.bodyValues[it]?.value }
+        if (!raw.isNullOrBlank()) {
+            return if (textPart?.type.equals("text/html", ignoreCase = true)) htmlToText(raw) else raw
+        }
+        o.htmlContent()?.takeIf { it.isNotBlank() }?.let { return htmlToText(it) }
+        return o.preview.orEmpty()
+    }
 
     fun saveDraft(to: String, cc: String, bcc: String, subject: String, body: String) =
         submit(to) { credentials, recipients ->
