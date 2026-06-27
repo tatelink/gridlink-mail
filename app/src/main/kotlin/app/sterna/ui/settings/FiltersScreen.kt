@@ -97,7 +97,9 @@ private fun BoxScope.FiltersNote(text: String, onRetry: (() -> Unit)? = null) {
     ) {
         Text(text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (onRetry != null) {
-            OutlinedButton(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
+            // Filled Button to match every other error-recovery "Retry" (inbox,
+            // message load): the same action should read the same everywhere.
+            Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
                 Text(stringResource(R.string.settings_vacation_retry))
             }
         }

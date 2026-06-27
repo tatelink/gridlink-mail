@@ -30,7 +30,9 @@ fun Monogram(seed: String, label: String, modifier: Modifier = Modifier, color: 
     ) {
         Text(
             text = initialOf(label, seed),
-            color = Color.White,
+            // Pick black/white by luminance so the initial stays legible on light
+            // accent colours (white on yellow/orange fails AA). See onAccentColor.
+            color = onAccentColor(background),
             style = MaterialTheme.typography.titleMedium,
         )
     }
