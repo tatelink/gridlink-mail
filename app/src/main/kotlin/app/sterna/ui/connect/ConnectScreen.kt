@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -43,8 +44,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
@@ -119,6 +122,7 @@ fun ConnectScreen(
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            val focusManager = LocalFocusManager.current
             val awaiting = state as? ConnectState.AwaitingApproval
             if (awaiting != null) {
                 DeviceApprovalPanel(awaiting, onCancel = viewModel::cancelOAuth)
@@ -235,6 +239,8 @@ fun ConnectScreen(
                 onValueChange = { accountName = it },
                 label = { Text(stringResource(R.string.connect_account_name_optional)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -242,7 +248,8 @@ fun ConnectScreen(
                 onValueChange = { username = it },
                 label = { Text(stringResource(R.string.connect_email_username)) },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
                 modifier = Modifier.fillMaxWidth().autofill(
                     listOf(AutofillType.EmailAddress, AutofillType.Username),
                 ) { username = it },
@@ -267,6 +274,7 @@ fun ConnectScreen(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Done,
                 ),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                 modifier = Modifier.fillMaxWidth().autofill(listOf(AutofillType.Password)) { password = it },
             )
             val busy = state is ConnectState.Connecting || state is ConnectState.Discovering

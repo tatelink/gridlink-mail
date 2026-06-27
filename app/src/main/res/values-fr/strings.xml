@@ -415,6 +415,7 @@
     <string name="status_read_file_failed">Impossible de lire le fichier sélectionné.</string>
     <string name="status_open_attachment_failed">Impossible d\'ouvrir la pièce jointe : %1$s</string>
     <string name="status_action_failed">Impossible d\'effectuer l\'action.</string>
+    <string name="status_moved_to_folder">Déplacé vers %1$s</string>
 
     <!-- Notifications -->
     <string name="notif_channel_mail">Nouveaux messages</string>
@@ -475,6 +476,8 @@
     <string name="inbox_folder_collapse">Réduire le dossier</string>
     <string name="a11y_favourite">Ajouter aux favoris</string>
     <string name="a11y_unfavourite">Retirer des favoris</string>
+    <string name="a11y_has_attachment">Contient une pièce jointe</string>
+    <string name="a11y_flagged">Marqué</string>
     <string name="settings_theme_sterna_caption">Palette Sterna : Arctic (clair) · Pelagic (sombre).</string>
     <string name="settings_dynamic_color_title">Couleurs Material You</string>
     <string name="settings_dynamic_color_subtitle">Utiliser les couleurs de votre fond d\'écran plutôt que la palette Sterna (Android 12+).</string>

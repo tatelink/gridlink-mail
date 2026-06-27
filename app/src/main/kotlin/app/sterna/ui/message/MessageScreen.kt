@@ -44,8 +44,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Forward
 import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MarkEmailUnread
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -74,6 +76,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -311,6 +314,7 @@ private fun MessageContent(
     val confirmLinks by viewModel.confirmLinks.collectAsStateWithLifecycle()
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
     val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     // Per-message manual override; the sender allowlist auto-shows without it.
     var manualShow by remember(emailId) { mutableStateOf(false) }
     val senderEmail = (state as? MessageState.Loaded)?.email?.from?.firstOrNull()?.email
@@ -436,7 +440,20 @@ private fun MessageContent(
                                     },
                                     onClick = {
                                         menuOpen = false
-                                        if (inJunk) viewModel.notSpam(onBack) else viewModel.reportSpam(onBack)
+                                        // Confirm the move once it lands, naming the destination
+                                        // folder — junk → Inbox ("Not spam"), inbox → Spam.
+                                        val destName = context.getString(
+                                            if (inJunk) R.string.folder_inbox else R.string.folder_junk,
+                                        )
+                                        val confirmMove: () -> Unit = {
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(R.string.status_moved_to_folder, destName),
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                            onBack()
+                                        }
+                                        if (inJunk) viewModel.notSpam(confirmMove) else viewModel.reportSpam(confirmMove)
                                     },
                                 )
                                 DropdownMenuItem(
@@ -600,6 +617,25 @@ private fun MessageCard(
                     )
                 }
             }
+            // Flagged star and an attachment paperclip, mirroring the message-list row.
+            if (msg.header.isFlagged) {
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    Icons.Filled.Star,
+                    contentDescription = stringResource(R.string.a11y_flagged),
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            if (msg.header.hasAttachment) {
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    Icons.Filled.AttachFile,
+                    contentDescription = stringResource(R.string.a11y_has_attachment),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
             if (!msg.expanded) {
                 Spacer(Modifier.width(8.dp))
                 Text(
@@ -691,7 +727,12 @@ private fun AttachmentSection(
                     .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("📎", modifier = Modifier.padding(end = 12.dp))
+                Icon(
+                    Icons.Filled.AttachFile,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 12.dp).size(20.dp),
+                )
                 Column(Modifier.weight(1f)) {
                     Text(
                         text = att.name ?: stringResource(R.string.message_attachment_fallback),

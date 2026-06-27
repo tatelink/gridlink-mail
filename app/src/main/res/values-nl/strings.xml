@@ -415,6 +415,7 @@
     <string name="status_read_file_failed">Kon het geselecteerde bestand niet lezen.</string>
     <string name="status_open_attachment_failed">Kon bijlage niet openen: %1$s</string>
     <string name="status_action_failed">Kon de actie niet voltooien.</string>
+    <string name="status_moved_to_folder">Verplaatst naar %1$s</string>
 
     <!-- Notifications -->
     <string name="notif_channel_mail">Nieuwe e-mail</string>
@@ -476,6 +477,8 @@
     <string name="inbox_folder_collapse">Map samenvouwen</string>
     <string name="a11y_favourite">Aan favorieten toevoegen</string>
     <string name="a11y_unfavourite">Uit favorieten verwijderen</string>
+    <string name="a11y_has_attachment">Heeft een bijlage</string>
+    <string name="a11y_flagged">Gemarkeerd</string>
     <string name="settings_theme_sterna_caption">Sterna-palet: Arctic (licht) · Pelagic (donker).</string>
     <string name="settings_dynamic_color_title">Material You-kleuren</string>
     <string name="settings_dynamic_color_subtitle">Gebruik kleuren van je achtergrond in plaats van het palet van Sterna (Android 12+).</string>

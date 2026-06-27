@@ -22,7 +22,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -48,6 +52,11 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -675,6 +684,14 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                 }
                 if (showAddSender) {
                     var sender by remember { mutableStateOf("") }
+                    val focusRequester = remember { FocusRequester() }
+                    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+                    fun submit() {
+                        if (sender.isNotBlank()) {
+                            viewModel.setImageAllowed(sender, true)
+                            showAddSender = false
+                        }
+                    }
                     AlertDialog(
                         onDismissRequest = { showAddSender = false },
                         title = { Text(stringResource(R.string.settings_image_allowlist_add)) },
@@ -684,14 +701,14 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                                 onValueChange = { sender = it },
                                 singleLine = true,
                                 placeholder = { Text(stringResource(R.string.settings_image_allowlist_hint)) },
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { submit() }),
+                                modifier = Modifier.focusRequester(focusRequester),
                             )
                         },
                         confirmButton = {
                             TextButton(
-                                onClick = {
-                                    viewModel.setImageAllowed(sender, true)
-                                    showAddSender = false
-                                },
+                                onClick = { submit() },
                                 enabled = sender.isNotBlank(),
                             ) { Text(stringResource(R.string.settings_save)) }
                         },
@@ -786,7 +803,7 @@ private fun StorageScreen(
                         confirm = false
                         viewModel.clearCache()
                     },
-                ) { Text(stringResource(R.string.settings_clear)) }
+                ) { Text(stringResource(R.string.settings_clear), color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.settings_cancel)) }
@@ -832,6 +849,7 @@ private fun QuotaRow(quota: QuotaUi) {
 private fun ColourSwatch(color: Color?, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
+            .minimumInteractiveComponentSize()
             .size(44.dp)
             .clip(CircleShape)
             .background(color ?: MaterialTheme.colorScheme.surfaceVariant)
@@ -840,7 +858,8 @@ private fun ColourSwatch(color: Color?, selected: Boolean, onClick: () -> Unit) 
                 color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 shape = CircleShape,
             )
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .semantics { role = Role.Button; this.selected = selected },
         contentAlignment = Alignment.Center,
     ) {
         when {
