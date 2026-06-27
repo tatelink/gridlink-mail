@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.layout.size
 import app.sterna.ui.components.AccountPalette
 import app.sterna.ui.components.accountColorOf
+import app.sterna.ui.components.onAccentColor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -849,7 +850,7 @@ private fun ColourSwatch(color: Color?, selected: Boolean, onClick: () -> Unit) 
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            selected -> Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White)
+            selected -> Icon(Icons.Filled.Check, contentDescription = null, tint = onAccentColor(color))
         }
     }
 }
