@@ -92,7 +92,7 @@ fun TernRefreshIndicator(
             ),
             radius = r,
         )
-        scale(0.62f, pivot = center) {
+        scale(0.775f, pivot = center) {
             drawTern(spread = spread, flap = flap, color = color)
         }
     }
