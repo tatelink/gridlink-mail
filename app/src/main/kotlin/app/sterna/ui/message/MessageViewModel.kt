@@ -130,9 +130,14 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             // Paint the cached header (sender/subject/preview) immediately so the screen shows
             // the tapped message at once; the body fills in when the fetch returns. Header-only
             // (body = null) — the body itself is rendered a single time, by the WebView.
-            runCatching { repo.cachedEmail(emailId) }.getOrNull()?.let { cached ->
+            // The cached list row carries the folder it's filed under (its mailboxId), which is
+            // reliable on both IMAP and JMAP. The fetched body's mailboxId can be absent over
+            // JMAP (an email belongs to a *set* of mailboxes), so junk detection keys off this.
+            val listEmail = runCatching { repo.cachedEmail(emailId) }.getOrNull()
+            listEmail?.let { cached ->
                 _messages.value = listOf(ThreadMessage(id = cached.id, header = cached, expanded = true))
                 _state.value = MessageState.Loaded(cached)
+                _inJunk.value = repo.mailboxRole(cached.mailboxId) == "junk"
             }
             try {
                 val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
@@ -155,7 +160,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                         inlineImages = opened.inlineImages,
                     ),
                 )
-                _inJunk.value = repo.mailboxRole(anchor.mailboxId) == "junk"
+                _inJunk.value = repo.mailboxRole(anchor.mailboxId ?: listEmail?.mailboxId) == "junk"
                 // If the page already settled before the body arrived, read it now.
                 maybeMarkRead()
 
