@@ -22,7 +22,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -675,6 +679,14 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                 }
                 if (showAddSender) {
                     var sender by remember { mutableStateOf("") }
+                    val focusRequester = remember { FocusRequester() }
+                    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+                    fun submit() {
+                        if (sender.isNotBlank()) {
+                            viewModel.setImageAllowed(sender, true)
+                            showAddSender = false
+                        }
+                    }
                     AlertDialog(
                         onDismissRequest = { showAddSender = false },
                         title = { Text(stringResource(R.string.settings_image_allowlist_add)) },
@@ -684,14 +696,14 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                                 onValueChange = { sender = it },
                                 singleLine = true,
                                 placeholder = { Text(stringResource(R.string.settings_image_allowlist_hint)) },
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { submit() }),
+                                modifier = Modifier.focusRequester(focusRequester),
                             )
                         },
                         confirmButton = {
                             TextButton(
-                                onClick = {
-                                    viewModel.setImageAllowed(sender, true)
-                                    showAddSender = false
-                                },
+                                onClick = { submit() },
                                 enabled = sender.isNotBlank(),
                             ) { Text(stringResource(R.string.settings_save)) }
                         },
