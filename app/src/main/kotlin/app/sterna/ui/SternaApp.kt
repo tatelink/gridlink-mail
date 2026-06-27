@@ -26,6 +26,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -121,6 +123,18 @@ private fun RequestNotificationPermission() {
     }
 }
 
+/**
+ * True only while this back-stack entry is the resumed (settled, on-top) destination.
+ * A destination that is mid enter/exit transition is at most STARTED, so gating every
+ * navigation action on this de-duplicates rapid taps: a second tap landing on a screen
+ * that is already animating away is ignored instead of issuing a re-entrant
+ * navigate/popBackStack. This is what prevents the white-screen freeze where a tap on the
+ * message screen's still-visible Back arrow (during its fade-out pop) popped a second time
+ * and emptied the back stack. See the canonical navigation-compose "navigate once" pattern.
+ */
+private fun NavBackStackEntry.lifecycleIsResumed() =
+    lifecycle.currentState == Lifecycle.State.RESUMED
+
 @Composable
 private fun MainNavHost(
     accounts: List<StoredAccount>,
@@ -139,23 +153,25 @@ private fun MainNavHost(
         enterTransition = { EnterTransition.None },
         exitTransition = { ExitTransition.None },
     ) {
-        composable("inbox") {
+        composable("inbox") { entry ->
             InboxScreen(
                 onOpenEmail = { id, accountId, index, fromSearch ->
                     // Carry the tapped entry's position and whether it came from the inline
                     // search results, so the reading view can page between the same entries.
-                    val src = if (fromSearch) "search" else "list"
-                    nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}&index=$index&src=$src")
+                    if (entry.lifecycleIsResumed()) {
+                        val src = if (fromSearch) "search" else "list"
+                        nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}&index=$index&src=$src")
+                    }
                 },
-                onCompose = { nav.navigate("compose") },
-                onReopenDraft = { nav.navigate("compose?restore=true") },
-                onOpenSettings = { nav.navigate("settings") },
-                onOpenSearch = { nav.navigate("search") },
-                onOpenScheduled = { nav.navigate("scheduled") },
+                onCompose = { if (entry.lifecycleIsResumed()) nav.navigate("compose") },
+                onReopenDraft = { if (entry.lifecycleIsResumed()) nav.navigate("compose?restore=true") },
+                onOpenSettings = { if (entry.lifecycleIsResumed()) nav.navigate("settings") },
+                onOpenSearch = { if (entry.lifecycleIsResumed()) nav.navigate("search") },
+                onOpenScheduled = { if (entry.lifecycleIsResumed()) nav.navigate("scheduled") },
                 accounts = accounts,
                 currentAccountId = currentAccountId,
                 onSwitchAccount = onSwitchAccount,
-                onOpenAccountSettings = { id -> nav.navigate("settings?accountId=$id") },
+                onOpenAccountSettings = { id -> if (entry.lifecycleIsResumed()) nav.navigate("settings?accountId=$id") },
             )
         }
         composable(
@@ -193,10 +209,16 @@ private fun MainNavHost(
                 initialIndex = index,
                 listSource = listSource,
                 searchResults = searchResults,
-                onBack = { nav.popBackStack() },
+                // Guard both actions on the message entry being resumed: during its fade-out
+                // pop the screen is still composed and its Back arrow still tappable, so an
+                // unguarded onBack would popBackStack a second time and empty the stack
+                // (the white-screen freeze). A reply navigate is gated for the same reason.
+                onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
                 onReply = { mode, replyToId, replyAccountId ->
-                    val accountArg = replyAccountId?.let { "&accountId=${Uri.encode(it)}" }.orEmpty()
-                    nav.navigate("compose?replyTo=${Uri.encode(replyToId)}&mode=$mode$accountArg")
+                    if (entry.lifecycleIsResumed()) {
+                        val accountArg = replyAccountId?.let { "&accountId=${Uri.encode(it)}" }.orEmpty()
+                        nav.navigate("compose?replyTo=${Uri.encode(replyToId)}&mode=$mode$accountArg")
+                    }
                 },
             )
         }
@@ -210,18 +232,18 @@ private fun MainNavHost(
             ),
         ) { entry ->
             ComposeScreen(
-                onDone = { nav.popBackStack() },
-                onCancel = { nav.popBackStack() },
+                onDone = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
+                onCancel = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
                 replyTo = entry.arguments?.getString("replyTo")?.let { Uri.decode(it) },
                 mode = entry.arguments?.getString("mode"),
                 accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null },
                 restore = entry.arguments?.getString("restore") == "true",
             )
         }
-        composable("search") {
+        composable("search") { entry ->
             SearchScreen(
-                onBack = { nav.popBackStack() },
-                onOpenEmail = { id -> nav.navigate("message/${Uri.encode(id)}?accountId=") },
+                onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
+                onOpenEmail = { id -> if (entry.lifecycleIsResumed()) nav.navigate("message/${Uri.encode(id)}?accountId=") },
             )
         }
         composable(
@@ -231,13 +253,13 @@ private fun MainNavHost(
             ),
         ) { entry ->
             SettingsScreen(
-                onBack = { nav.popBackStack() },
+                onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
                 onAccountsChanged = onAccountsChanged,
                 initialAccountId = entry.arguments?.getString("accountId")?.ifBlank { null },
             )
         }
-        composable("scheduled") {
-            ScheduledSendsScreen(onBack = { nav.popBackStack() })
+        composable("scheduled") { entry ->
+            ScheduledSendsScreen(onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() })
         }
     }
 }
