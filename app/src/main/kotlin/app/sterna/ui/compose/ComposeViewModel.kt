@@ -297,7 +297,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      * fallback), separated by the standard "-- " delimiter.
      */
     private fun bodiesWithSignature(userBody: String, signature: String): Pair<String, String?> {
-        if (signature.isBlank()) return userBody to null
+        // Always send an HTML alternative (explicit <br>), even with no signature: a text/plain
+        // body is subject to format=flowed reflow by some servers (e.g. Stalwart), which joins
+        // single newlines on retrieval and flattens the message to one line. The <br> survives.
+        if (signature.isBlank()) return userBody to htmlify(userBody)
         val textSig = if (looksLikeHtml(signature)) stripTags(signature) else signature.trim()
         val htmlSig = if (looksLikeHtml(signature)) signature.trim() else htmlify(signature.trim())
         val textBody = "$userBody\n\n-- \n$textSig"
