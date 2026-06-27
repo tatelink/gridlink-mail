@@ -44,8 +44,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Forward
 import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MarkEmailUnread
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -614,6 +616,25 @@ private fun MessageCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+            // Flagged star and an attachment paperclip, mirroring the message-list row.
+            if (msg.header.isFlagged) {
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    Icons.Filled.Star,
+                    contentDescription = stringResource(R.string.a11y_flagged),
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            if (msg.header.hasAttachment) {
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    Icons.Filled.AttachFile,
+                    contentDescription = stringResource(R.string.a11y_has_attachment),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
             }
             if (!msg.expanded) {
                 Spacer(Modifier.width(8.dp))
