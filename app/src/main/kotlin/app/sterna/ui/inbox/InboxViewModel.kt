@@ -36,6 +36,9 @@ data class MailUi(
     val selectedMailboxId: String?,
     /** True when showing the cross-account unified inbox (no single folder selected). */
     val unified: Boolean,
+    /** True when the current view is the inbox home (unified, or the account's Inbox folder).
+     *  Drives Back: from any other folder, Back returns here instead of leaving the app. */
+    val atInbox: Boolean = true,
     /** The normal browse list is paged separately ([InboxViewModel.pagedEmails]); this
      *  holds the (bounded) results shown while inline search is active. */
     val searchResults: List<Email> = emptyList(),
@@ -55,6 +58,7 @@ private data class Base(
     val mailboxes: List<Mailbox>,
     val selectedMailboxId: String?,
     val unified: Boolean,
+    val atInbox: Boolean,
     val accountName: String,
     val mailboxName: String,
     val unread: Int,
@@ -310,6 +314,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             mailboxes = mailboxes,
             selectedMailboxId = (sel as? Sel.Folder)?.id,
             unified = sel is Sel.Unified,
+            atInbox = sel is Sel.Unified || (sel as? Sel.Folder)?.id == store.inboxMailboxId(),
             accountName = meta.accountName,
             mailboxName = meta.mailboxName,
             unread = meta.unread,
@@ -325,6 +330,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             unreadCount = base.unread,
             selectedMailboxId = base.selectedMailboxId,
             unified = base.unified,
+            atInbox = base.atInbox,
             searchResults = search.results.orEmpty(),
             mailboxes = base.mailboxes,
             refreshing = base.refreshing,
@@ -344,6 +350,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             unreadCount = meta.value.unread,
             selectedMailboxId = (selection.value as? Sel.Folder)?.id,
             unified = selection.value is Sel.Unified,
+            atInbox = selection.value is Sel.Unified || (selection.value as? Sel.Folder)?.id == store.inboxMailboxId(),
             mailboxes = emptyList(),
             refreshing = true,
             error = null,
@@ -425,6 +432,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         collapseThreads()
         selection.value = Sel.Folder(mailbox.id)
         meta.value = Meta(store.accountLabel(), mailbox.name, mailbox.unreadEmails)
+        refresh()
+    }
+
+    /** Return to the account's Inbox — Back from any other folder lands here. */
+    fun showInbox() {
+        val inboxId = store.inboxMailboxId()
+        if (selection.value == Sel.Folder(inboxId)) return
+        collapseThreads()
+        selection.value = Sel.Folder(inboxId)
+        meta.value = Meta(store.accountLabel(), store.inboxMailboxName(), store.unreadCount())
         refresh()
     }
 

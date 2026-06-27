@@ -247,6 +247,8 @@ fun InboxScreen(
 
     // Back exits multi-select mode first.
     BackHandler(enabled = selectionActive) { viewModel.clearSelection() }
+    // From any non-inbox folder, Back returns to the Inbox instead of leaving the app.
+    BackHandler(enabled = !selectionActive && !ui.atInbox) { viewModel.showInbox() }
 
     // Move-to-folder picker for the current selection.
     if (showMoveSheet) {
