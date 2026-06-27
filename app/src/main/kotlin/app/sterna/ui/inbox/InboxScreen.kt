@@ -22,12 +22,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -1013,6 +1010,7 @@ fun InboxScreen(
                             onOpenThreadMessage(child.id, child.accountId)
                         },
                         onSwipeChild = { action, child -> performSwipe(action, child, viewModel, ui) },
+                        onToggleChildFavourite = { child -> viewModel.toggleChildFlag(child) },
                         onHighlightShown = viewModel::clearHighlight,
                     )
                 }
@@ -1519,6 +1517,7 @@ private fun ThreadChildren(
     highlightId: String?,
     onOpenChild: (Email) -> Unit,
     onSwipeChild: (SwipeAction, Email) -> Unit,
+    onToggleChildFavourite: (Email) -> Unit,
     onHighlightShown: () -> Unit,
 ) {
     val motionOn = rememberMotionEnabled()
@@ -1531,19 +1530,9 @@ private fun ThreadChildren(
             members.forEach { child ->
                 key(child.id) {
                     val ownerAccount = if (unified) accounts.firstOrNull { it.id == child.accountId } else null
-                    Row(
-                        Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                    // Indented so the children read as belonging to the conversation above.
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width(16.dp))
-                        // Accent rail ties the children to their conversation. The indentation
-                        // itself carries the grouping, so it is never conveyed by colour alone.
-                        Box(
-                            Modifier
-                                .width(2.dp)
-                                .fillMaxHeight()
-                                .background(MaterialTheme.colorScheme.outlineVariant),
-                        )
                         SwipeableEmailRow(
                             email = child,
                             accountLabel = ownerAccount?.label(),
@@ -1553,6 +1542,9 @@ private fun ThreadChildren(
                             unarchiveContext = unarchiveContext,
                             onSwipe = { action -> onSwipeChild(action, child) },
                             onClick = { onOpenChild(child) },
+                            // Children carry the same favourite star and attachment indicator as
+                            // top-level rows, so the unfolded preview matches the collapsed one.
+                            onToggleFavourite = { onToggleChildFavourite(child) },
                             selected = false,
                             gesturesEnabled = true,
                             unread = !child.isSeen,

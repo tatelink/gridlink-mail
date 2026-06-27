@@ -18,8 +18,15 @@ class ThreadMembersSqlTest {
     private lateinit var db: Connection
 
     // Single mailbox in the IN-list, matching how the DAO expands `mailboxId IN (:mailboxIds)`.
+    // Mirrors the folder-scoped query used by whole-thread swipe (cachedThreadEmails).
     private val sql =
         "SELECT id FROM emails WHERE accountId = ? AND mailboxId IN (?) " +
+            "AND COALESCE(threadId, id) = ? ORDER BY sortKey DESC"
+
+    // Mirrors the all-folders query used to populate an unfolded conversation
+    // (cachedThreadEmailsAllFolders): no mailbox filter, so Sent/Archive replies are included.
+    private val allFoldersSql =
+        "SELECT id FROM emails WHERE accountId = ? " +
             "AND COALESCE(threadId, id) = ? ORDER BY sortKey DESC"
 
     @Before fun setUp() {
@@ -59,6 +66,12 @@ class ThreadMembersSqlTest {
             ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
         }
 
+    private fun membersAllFolders(accountId: String, threadKey: String): List<String> =
+        db.prepareStatement(allFoldersSql).use { ps ->
+            ps.setString(1, accountId); ps.setString(2, threadKey)
+            ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
+        }
+
     @Test fun returnsAllThreadMembersNewestFirstIncludingRepresentative() {
         insert("m1", threadId = "T1", sortKey = 100)
         insert("m2", threadId = "T1", sortKey = 300) // newest → representative
@@ -77,5 +90,14 @@ class ThreadMembersSqlTest {
         insert("solo", threadId = null, sortKey = 100)
         insert("nope", threadId = null, sortKey = 200)
         assertEquals(listOf("solo"), members("acc", "inbox", "solo"))
+    }
+
+    @Test fun allFoldersQueryIncludesSentReplies() {
+        insert("in1", threadId = "T1", sortKey = 100, mailbox = "inbox")
+        insert("sent1", threadId = "T1", sortKey = 200, mailbox = "sent") // a reply, filed in Sent
+        // Folder-scoped (inbox) sees only the inbox message…
+        assertEquals(listOf("in1"), members("acc", "inbox", "T1"))
+        // …while the all-folders query used for the unfold also lists the Sent reply, newest-first.
+        assertEquals(listOf("sent1", "in1"), membersAllFolders("acc", "T1"))
     }
 }

@@ -198,11 +198,38 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Cached thread members minus the representative already shown on the collapsed row. */
+    /**
+     * Cached thread members minus the representative already shown on the collapsed row.
+     * Pulled from ALL the account's folders, so the unfolded conversation also lists replies
+     * filed under Sent (or Archive), not just the messages in the folder being viewed.
+     */
     private suspend fun loadThreadMembers(rep: Email): List<Email> {
         val accountId = rep.accountId ?: store.load()?.id ?: return emptyList()
-        val all = repo.cachedThreadEmails(accountId, currentMailboxIds(), threadKeyOf(rep))
+        val all = repo.cachedThreadEmailsAllFolders(accountId, threadKeyOf(rep))
         return ConversationExpansion.membersBelow(all, rep.id)
+    }
+
+    /**
+     * Toggle the favourite star on one message inside an expanded conversation. The expanded
+     * members are a cache snapshot (not a live query), so the new state is also written back
+     * into [_threadMembers] optimistically to flip the star at once.
+     */
+    fun toggleChildFlag(child: Email) {
+        val flagged = !child.isFlagged
+        _threadMembers.value = _threadMembers.value.mapValues { (_, members) ->
+            members.map { m ->
+                if (m.id != child.id) m
+                else m.copy(
+                    keywords = m.keywords.toMutableMap().apply {
+                        if (flagged) put("\$flagged", true) else remove("\$flagged")
+                    },
+                )
+            }
+        }
+        viewModelScope.launch {
+            val credentials = credentialsFor(child) ?: return@launch
+            runCatching { repo.setFlagged(credentials, child.id, flagged) }
+        }
     }
 
     private val selection = MutableStateFlow<Sel>(Sel.Folder(store.inboxMailboxId()))

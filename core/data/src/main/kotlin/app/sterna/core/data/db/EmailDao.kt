@@ -106,6 +106,17 @@ interface EmailDao {
     )
     suspend fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): List<EmailEntity>
 
+    /**
+     * Like [cachedThreadEmails] but across ALL of the account's cached folders — so an
+     * unfolded conversation also lists the thread's replies filed under Sent (or Archive),
+     * not just the messages in the folder currently being viewed.
+     */
+    @Query(
+        "SELECT * FROM emails WHERE accountId = :accountId " +
+            "AND COALESCE(threadId, id) = :threadKey ORDER BY sortKey DESC",
+    )
+    suspend fun cachedThreadEmailsAllFolders(accountId: String, threadKey: String): List<EmailEntity>
+
     /** Instant local search over the cache for the given mailboxes, newest first. */
     @Query(
         "SELECT * FROM emails WHERE mailboxId IN (:mailboxIds) AND " +

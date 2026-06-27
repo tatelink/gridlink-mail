@@ -1318,6 +1318,14 @@ class MailRepository(
         if (mailboxIds.isEmpty()) emptyList()
         else emailDao.cachedThreadEmails(accountId, mailboxIds, threadKey).map { it.toEmail() }
 
+    /**
+     * Cached members of a thread across ALL the account's folders (Sent, Archive, …), newest
+     * first — used to populate an inline-expanded conversation so it shows the whole exchange,
+     * not only the messages in the folder being browsed. Cache only, no network.
+     */
+    suspend fun cachedThreadEmailsAllFolders(accountId: String, threadKey: String): List<Email> =
+        emailDao.cachedThreadEmailsAllFolders(accountId, threadKey).map { it.toEmail() }
+
     /** Remove a message from the local cache only (optimistic UI removal). */
     suspend fun evict(emailId: String) = emailDao.deleteById(emailId)
 
