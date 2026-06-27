@@ -93,6 +93,19 @@ interface EmailDao {
     @Query("SELECT * FROM emails WHERE id IN (:ids)")
     suspend fun emailsByIds(ids: List<String>): List<EmailEntity>
 
+    /**
+     * All cached messages of one thread, newest first, scoped to a single account and the
+     * current view's mailboxes — so an expanded conversation lists its members from the
+     * cache with no network round-trip. [threadKey] is COALESCE(threadId, id) (a
+     * thread-less message is its own thread). The account scope matters in the unified
+     * inbox, where two accounts can share a server-assigned thread id.
+     */
+    @Query(
+        "SELECT * FROM emails WHERE accountId = :accountId AND mailboxId IN (:mailboxIds) " +
+            "AND COALESCE(threadId, id) = :threadKey ORDER BY sortKey DESC",
+    )
+    suspend fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): List<EmailEntity>
+
     /** Instant local search over the cache for the given mailboxes, newest first. */
     @Query(
         "SELECT * FROM emails WHERE mailboxId IN (:mailboxIds) AND " +

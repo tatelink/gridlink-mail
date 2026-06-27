@@ -72,11 +72,20 @@ private data class SearchUi(
 /** The actions bound to the two swipe directions (from Settings → Reading). */
 data class SwipeConfig(val right: SwipeAction, val left: SwipeAction)
 
-/** A reversible swipe action, surfaced as an "Undo" snackbar. */
-data class UndoAction(
+/** One message that can be moved back to its original mailbox by an Undo. */
+data class UndoEntry(
     val emailId: String,
     val accountId: String?,
     val mailboxId: String,
+)
+
+/**
+ * A reversible swipe action, surfaced as an "Undo" snackbar. Holds one entry for a
+ * single-message swipe, or every message of a thread for a collapsed-conversation swipe,
+ * so undo restores the whole batch at once.
+ */
+data class UndoAction(
+    val entries: List<UndoEntry>,
     val label: String,
 )
 
@@ -155,6 +164,45 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearHighlight() {
         _highlightId.value = null
+    }
+
+    // ---- inline conversation expansion ----
+
+    /**
+     * Thread keys (COALESCE(threadId, id) of the representative) currently unfolded inline.
+     * Kept here, not in the paged list, so a Paging snapshot swap doesn't reset what's open.
+     */
+    private val _expandedThreads = MutableStateFlow<Set<String>>(emptySet())
+    val expandedThreads: StateFlow<Set<String>> = _expandedThreads.asStateFlow()
+
+    /**
+     * Lazily-loaded members of an expanded thread, keyed by thread key — the thread's other
+     * messages (newest-first, the latest/representative excluded since the collapsed row
+     * already shows it). Loaded from the local cache on expand; no network.
+     */
+    private val _threadMembers = MutableStateFlow<Map<String, List<Email>>>(emptyMap())
+    val threadMembers: StateFlow<Map<String, List<Email>>> = _threadMembers.asStateFlow()
+
+    /** The thread an email belongs to: its threadId, or its own id when thread-less. */
+    private fun threadKeyOf(email: Email): String = ConversationExpansion.threadKey(email.threadId, email.id)
+
+    /** Fold/unfold a conversation row in place. On expand, loads its members from the cache. */
+    fun toggleThreadExpanded(rep: Email) {
+        val key = threadKeyOf(rep)
+        val nowExpanded = key !in _expandedThreads.value
+        _expandedThreads.value = ConversationExpansion.toggle(_expandedThreads.value, key)
+        if (!nowExpanded || _threadMembers.value.containsKey(key)) return
+        viewModelScope.launch {
+            val members = runCatching { loadThreadMembers(rep) }.getOrDefault(emptyList())
+            _threadMembers.value = _threadMembers.value + (key to members)
+        }
+    }
+
+    /** Cached thread members minus the representative already shown on the collapsed row. */
+    private suspend fun loadThreadMembers(rep: Email): List<Email> {
+        val accountId = rep.accountId ?: store.load()?.id ?: return emptyList()
+        val all = repo.cachedThreadEmails(accountId, currentMailboxIds(), threadKeyOf(rep))
+        return ConversationExpansion.membersBelow(all, rep.id)
     }
 
     private val selection = MutableStateFlow<Sel>(Sel.Folder(store.inboxMailboxId()))
@@ -266,6 +314,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * a refresh fetches newer mail.
      */
     fun onAccountChanged() {
+        collapseThreads()
         selection.value = Sel.Folder(store.inboxMailboxId())
         unifiedInboxIds.value = store.allInboxMailboxIds()
         meta.value = Meta(store.accountLabel(), store.inboxMailboxName(), store.unreadCount())
@@ -312,6 +361,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Switch to the cross-account unified inbox. */
     fun selectUnified() {
         if (selection.value is Sel.Unified) return
+        collapseThreads()
         selection.value = Sel.Unified
         unifiedInboxIds.value = store.allInboxMailboxIds()
         meta.value = Meta(UNIFIED_LABEL, UNIFIED_LABEL, store.totalUnreadCount())
@@ -320,9 +370,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     fun select(mailbox: Mailbox) {
         if (selection.value == Sel.Folder(mailbox.id)) return
+        collapseThreads()
         selection.value = Sel.Folder(mailbox.id)
         meta.value = Meta(store.accountLabel(), mailbox.name, mailbox.unreadEmails)
         refresh()
+    }
+
+    /** Drop all inline-expansion state — e.g. when the list's contents change underneath it. */
+    private fun collapseThreads() {
+        _expandedThreads.value = emptySet()
+        _threadMembers.value = emptyMap()
     }
 
     /** Swipe action: toggle read/unread (cache update drives the list). */
@@ -342,6 +399,74 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Swipe action when already inside Archive: move the message back to the Inbox. */
     fun unarchive(email: Email, inboxId: String) = swipeRemove(email, getApplication<Application>().getString(R.string.status_message_unarchived)) { c, id -> repo.moveToMailbox(c, id, inboxId) }
 
+    // ---- whole-thread swipe (collapsed conversation rows act on the whole conversation) ----
+
+    /** A thread's full membership from the cache (representative included), or [rep] alone. */
+    private suspend fun threadMessages(rep: Email): List<Email> {
+        val accountId = rep.accountId ?: store.load()?.id ?: return listOf(rep)
+        return repo.cachedThreadEmails(accountId, currentMailboxIds(), threadKeyOf(rep))
+            .ifEmpty { listOf(rep) }
+    }
+
+    /** Toggle read across a whole thread: mark all read if any is unread, else all unread. */
+    fun toggleReadThread(rep: Email) {
+        viewModelScope.launch {
+            val members = threadMessages(rep)
+            val targetSeen = members.any { !it.isSeen }
+            members.forEach { m ->
+                val credentials = credentialsFor(m) ?: return@forEach
+                runCatching { repo.setRead(credentials, m.id, targetSeen) }
+            }
+        }
+    }
+
+    /** Toggle flag across a whole thread, following the representative's current state. */
+    fun toggleFlagThread(rep: Email) {
+        viewModelScope.launch {
+            val flagged = !rep.isFlagged
+            threadMessages(rep).forEach { m ->
+                val credentials = credentialsFor(m) ?: return@forEach
+                runCatching { repo.setFlagged(credentials, m.id, flagged) }
+            }
+        }
+    }
+
+    fun deleteThread(rep: Email) = threadSwipeRemove(rep, R.string.status_conversation_deleted) { c, id -> repo.delete(c, id) }
+    fun archiveThread(rep: Email) = threadSwipeRemove(rep, R.string.status_conversation_archived) { c, id -> repo.archive(c, id) }
+    fun unarchiveThread(rep: Email, inboxId: String) =
+        threadSwipeRemove(rep, R.string.status_conversation_unarchived) { c, id -> repo.moveToMailbox(c, id, inboxId) }
+
+    /**
+     * Remove every message of a thread optimistically, run [op] per message, then offer one Undo
+     * that restores the whole batch. Mirrors [swipeRemove] but for a collapsed conversation.
+     */
+    private fun threadSwipeRemove(rep: Email, labelRes: Int, op: suspend (AccountCredentials, String) -> Unit) {
+        viewModelScope.launch {
+            val members = threadMessages(rep)
+            // The conversation is leaving the list — drop its inline-expansion state.
+            val key = threadKeyOf(rep)
+            _expandedThreads.value = _expandedThreads.value - key
+            _threadMembers.value = _threadMembers.value - key
+            val entries = mutableListOf<UndoEntry>()
+            var failed = false
+            members.forEach { m ->
+                val credentials = credentialsFor(m) ?: return@forEach
+                val mailboxId = m.mailboxId ?: return@forEach
+                repo.evict(m.id)
+                runCatching { op(credentials, m.id) }
+                    .onSuccess { entries += UndoEntry(m.id, m.accountId, mailboxId) }
+                    .onFailure { failed = true }
+            }
+            if (entries.isNotEmpty()) {
+                _undo.value = UndoAction(entries, getApplication<Application>().getString(labelRes))
+            }
+            if (failed) {
+                _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+                refresh() // a server op failed — bring the optimistically-removed rows back
+            }
+        }
+    }
+
     /**
      * Remove [email] optimistically (so the row leaves instantly — never stuck mid-swipe), run
      * the server [op], then either offer Undo on success or restore the row + report the error.
@@ -354,7 +479,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { op(credentials, email.id) }
                 .onSuccess {
                     if (mailboxId != null) {
-                        _undo.value = UndoAction(email.id, email.accountId, mailboxId, label)
+                        _undo.value = UndoAction(listOf(UndoEntry(email.id, email.accountId, mailboxId)), label)
                     }
                 }
                 .onFailure {
@@ -364,14 +489,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Move the last deleted/archived message back to its original mailbox. */
+    /** Move the last deleted/archived message(s) back to their original mailbox(es). */
     fun undo() {
         val action = _undo.value ?: return
         _undo.value = null
         viewModelScope.launch {
-            val credentials = action.accountId?.let { store.credentials(it) } ?: store.load() ?: return@launch
-            runCatching { repo.restore(credentials, action.emailId, action.mailboxId) }
-                .onFailure { status.value = Status(refreshing = false, error = it.message) }
+            action.entries.forEach { entry ->
+                val credentials = entry.accountId?.let { store.credentials(it) } ?: store.load() ?: return@forEach
+                runCatching { repo.restore(credentials, entry.emailId, entry.mailboxId) }
+                    .onFailure { status.value = Status(refreshing = false, error = it.message) }
+            }
         }
     }
 

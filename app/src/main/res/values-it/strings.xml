@@ -406,6 +406,9 @@
     <string name="status_message_deleted">Messaggio eliminato</string>
     <string name="status_message_archived">Messaggio archiviato</string>
     <string name="status_message_unarchived">Archiviazione annullata</string>
+    <string name="status_conversation_deleted">Conversazione eliminata</string>
+    <string name="status_conversation_archived">Conversazione archiviata</string>
+    <string name="status_conversation_unarchived">Archiviazione annullata</string>
     <string name="status_message_sent">Messaggio inviato</string>
     <string name="status_folder_op_failed">Operazione sulla cartella non riuscita</string>
     <string name="status_attach_failed">Allegato non riuscito: %1$s</string>
@@ -475,6 +478,9 @@
     <string name="a11y_favourite">Aggiungi ai preferiti</string>
     <string name="a11y_unfavourite">Rimuovi dai preferiti</string>
     <string name="a11y_has_attachment">Contiene un allegato</string>
+    <string name="a11y_conversation_pill">Conversazione, %1$d messaggi</string>
+    <string name="a11y_conversation_expanded">Espansa</string>
+    <string name="a11y_conversation_collapsed">Compressa</string>
     <string name="a11y_flagged">Contrassegnato</string>
     <string name="settings_theme_sterna_caption">Palette Sterna: Arctic (chiaro) · Pelagic (scuro).</string>
     <string name="settings_dynamic_color_title">Colori Material You</string>

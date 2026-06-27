@@ -406,6 +406,9 @@
     <string name="status_message_deleted">Письмо удалено</string>
     <string name="status_message_archived">Письмо архивировано</string>
     <string name="status_message_unarchived">Письмо извлечено из архива</string>
+    <string name="status_conversation_deleted">Переписка удалена</string>
+    <string name="status_conversation_archived">Переписка архивирована</string>
+    <string name="status_conversation_unarchived">Переписка извлечена из архива</string>
     <string name="status_message_sent">Письмо отправлено</string>
     <string name="status_folder_op_failed">Не удалось выполнить операцию с папкой</string>
     <string name="status_attach_failed">Не удалось прикрепить: %1$s</string>
@@ -476,6 +479,9 @@
     <string name="a11y_favourite">Добавить в избранное</string>
     <string name="a11y_unfavourite">Удалить из избранного</string>
     <string name="a11y_has_attachment">Есть вложение</string>
+    <string name="a11y_conversation_pill">Переписка, сообщений: %1$d</string>
+    <string name="a11y_conversation_expanded">Развёрнуто</string>
+    <string name="a11y_conversation_collapsed">Свёрнуто</string>
     <string name="a11y_flagged">Отмечено</string>
     <string name="settings_theme_sterna_caption">Палитра Sterna: Arctic (светлая) · Pelagic (тёмная).</string>
     <string name="settings_dynamic_color_title">Цвета Material You</string>

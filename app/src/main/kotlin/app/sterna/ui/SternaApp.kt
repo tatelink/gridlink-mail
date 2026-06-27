@@ -147,6 +147,11 @@ private fun MainNavHost(
                     val src = if (fromSearch) "search" else "list"
                     nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}&index=$index&src=$src")
                 },
+                // A message tapped inside an inline-expanded conversation opens the thread reader
+                // anchored on it, standalone (no list paging — src/index omitted).
+                onOpenThreadMessage = { id, accountId ->
+                    nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}")
+                },
                 onCompose = { nav.navigate("compose") },
                 onReopenDraft = { nav.navigate("compose?restore=true") },
                 onOpenSettings = { nav.navigate("settings") },

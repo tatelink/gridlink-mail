@@ -406,6 +406,9 @@
     <string name="status_message_deleted">Nachricht gelöscht</string>
     <string name="status_message_archived">Nachricht archiviert</string>
     <string name="status_message_unarchived">Nachricht aus Archiv geholt</string>
+    <string name="status_conversation_deleted">Unterhaltung gelöscht</string>
+    <string name="status_conversation_archived">Unterhaltung archiviert</string>
+    <string name="status_conversation_unarchived">Unterhaltung aus Archiv geholt</string>
     <string name="status_message_sent">Nachricht gesendet</string>
     <string name="status_folder_op_failed">Ordnervorgang fehlgeschlagen</string>
     <string name="status_attach_failed">Anhängen fehlgeschlagen: %1$s</string>
@@ -475,6 +478,9 @@
     <string name="a11y_favourite">Zu Favoriten hinzufügen</string>
     <string name="a11y_unfavourite">Aus Favoriten entfernen</string>
     <string name="a11y_has_attachment">Hat einen Anhang</string>
+    <string name="a11y_conversation_pill">Unterhaltung, %1$d Nachrichten</string>
+    <string name="a11y_conversation_expanded">Ausgeklappt</string>
+    <string name="a11y_conversation_collapsed">Eingeklappt</string>
     <string name="a11y_flagged">Markiert</string>
     <string name="settings_theme_sterna_caption">Sterna-Palette: Arctic (hell) · Pelagic (dunkel).</string>
     <string name="settings_dynamic_color_title">Material You-Farben</string>

@@ -1308,6 +1308,16 @@ class MailRepository(
         return client.getThreadEmails(ctx.session, ctx.accountId, threadId, ctx.auth)
     }
 
+    /**
+     * Cached members of a thread for inline conversation expansion: newest-first, scoped to
+     * the representative's [accountId] and the current view's [mailboxIds]. Cache only — no
+     * network — so unfolding a conversation row is instant and works offline. [threadKey] is
+     * the representative's threadId (or its id when thread-less).
+     */
+    suspend fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): List<Email> =
+        if (mailboxIds.isEmpty()) emptyList()
+        else emailDao.cachedThreadEmails(accountId, mailboxIds, threadKey).map { it.toEmail() }
+
     /** Remove a message from the local cache only (optimistic UI removal). */
     suspend fun evict(emailId: String) = emailDao.deleteById(emailId)
 

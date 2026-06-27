@@ -117,6 +117,9 @@
     <string name="a11y_favourite">Add to favourites</string>
     <string name="a11y_unfavourite">Remove from favourites</string>
     <string name="a11y_has_attachment">Has attachment</string>
+    <string name="a11y_conversation_pill">Conversation, %1$d messages</string>
+    <string name="a11y_conversation_expanded">Expanded</string>
+    <string name="a11y_conversation_collapsed">Collapsed</string>
     <string name="a11y_flagged">Flagged</string>
     <string name="inbox_flag">Flag</string>
 
@@ -477,6 +480,9 @@
     <string name="status_trash_emptied">Trash emptied</string>
     <string name="status_message_archived">Message archived</string>
     <string name="status_message_unarchived">Message unarchived</string>
+    <string name="status_conversation_deleted">Conversation deleted</string>
+    <string name="status_conversation_archived">Conversation archived</string>
+    <string name="status_conversation_unarchived">Conversation unarchived</string>
     <string name="status_message_sent">Message sent</string>
     <string name="status_folder_op_failed">Folder operation failed</string>
     <string name="status_attach_failed">Attach failed: %1$s</string>

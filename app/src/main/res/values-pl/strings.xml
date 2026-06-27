@@ -406,6 +406,9 @@
     <string name="status_message_deleted">Wiadomość usunięta</string>
     <string name="status_message_archived">Wiadomość zarchiwizowana</string>
     <string name="status_message_unarchived">Cofnięto archiwizację wiadomości</string>
+    <string name="status_conversation_deleted">Rozmowa usunięta</string>
+    <string name="status_conversation_archived">Rozmowa zarchiwizowana</string>
+    <string name="status_conversation_unarchived">Cofnięto archiwizację rozmowy</string>
     <string name="status_message_sent">Wiadomość wysłana</string>
     <string name="status_folder_op_failed">Operacja na folderze nie powiodła się</string>
     <string name="status_attach_failed">Załączanie nie powiodło się: %1$s</string>
@@ -475,6 +478,9 @@
     <string name="a11y_favourite">Dodaj do ulubionych</string>
     <string name="a11y_unfavourite">Usuń z ulubionych</string>
     <string name="a11y_has_attachment">Zawiera załącznik</string>
+    <string name="a11y_conversation_pill">Rozmowa, %1$d wiadomości</string>
+    <string name="a11y_conversation_expanded">Rozwinięto</string>
+    <string name="a11y_conversation_collapsed">Zwinięto</string>
     <string name="a11y_flagged">Oznaczone</string>
     <string name="settings_theme_sterna_caption">Paleta Sterna: Arctic (jasna) · Pelagic (ciemna).</string>
     <string name="settings_dynamic_color_title">Kolory Material You</string>

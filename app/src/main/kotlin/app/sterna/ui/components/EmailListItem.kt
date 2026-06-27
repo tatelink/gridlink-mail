@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,6 +24,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +37,7 @@ import app.sterna.ui.rememberMotionEnabled
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -43,6 +47,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -74,6 +80,11 @@ fun EmailListItem(
     // In conversation view: the thread's unread state and how many messages it holds.
     unread: Boolean = !email.isSeen,
     threadCount: Int = 1,
+    // Conversation expand affordance: when the row is a thread (threadCount > 1) and a handler
+    // is given, the count badge becomes a tappable chevron pill that unfolds the thread inline.
+    // [expanded] drives the chevron direction and the accessibility expanded/collapsed state.
+    onToggleExpand: (() -> Unit)? = null,
+    expanded: Boolean = false,
     // Brief emphasis flash when returning to the list from this message.
     highlighted: Boolean = false,
     onHighlightShown: () -> Unit = {},
@@ -146,18 +157,15 @@ fun EmailListItem(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                // Conversation count badge — only when the thread has 2+ messages.
+                // Conversation pill — only when the thread has 2+ messages. A count plus a
+                // chevron that unfolds the thread inline; tappable when a handler is given
+                // (the browse list), otherwise a static count badge (e.g. search results).
                 if (threadCount > 1) {
                     Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = threadCount.toString(),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .clip(MaterialTheme.shapes.small)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .padding(horizontal = 6.dp, vertical = 1.dp),
+                    ThreadPill(
+                        count = threadCount,
+                        expanded = expanded,
+                        onToggleExpand = onToggleExpand,
                     )
                 }
             }
@@ -238,6 +246,63 @@ fun EmailListItem(
                         contentDescription = favLabel
                         role = Role.Button
                     },
+            )
+        }
+    }
+}
+
+/**
+ * The conversation pill on a collapsed thread row: a message [count] and a chevron that
+ * unfolds the thread inline. Tappable when [onToggleExpand] is given (the browse list);
+ * a plain count badge otherwise (e.g. search results, which can't expand in place). The
+ * chevron flips on [expanded]; screen readers get a labelled button with an expanded/
+ * collapsed state, so the affordance is never conveyed by the glyph alone.
+ */
+@Composable
+private fun ThreadPill(
+    count: Int,
+    expanded: Boolean,
+    onToggleExpand: (() -> Unit)?,
+) {
+    val motionOn = rememberMotionEnabled()
+    val rotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = if (motionOn) tween(180) else snap(),
+        label = "threadChevron",
+    )
+    val pillLabel = stringResource(R.string.a11y_conversation_pill, count)
+    val stateLabel = stringResource(
+        if (expanded) R.string.a11y_conversation_expanded else R.string.a11y_conversation_collapsed,
+    )
+    val base = Modifier
+        .clip(MaterialTheme.shapes.small)
+        .background(MaterialTheme.colorScheme.surfaceVariant)
+    val pillModifier = if (onToggleExpand != null) {
+        base
+            .clickable(onClick = onToggleExpand)
+            .semantics {
+                contentDescription = pillLabel
+                stateDescription = stateLabel
+                role = Role.Button
+            }
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    } else {
+        base.padding(horizontal = 6.dp, vertical = 1.dp)
+    }
+    Row(modifier = pillModifier, verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = count.toString(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (onToggleExpand != null) {
+            Spacer(Modifier.width(2.dp))
+            Icon(
+                Icons.Filled.ExpandMore,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp).rotate(rotation),
             )
         }
     }

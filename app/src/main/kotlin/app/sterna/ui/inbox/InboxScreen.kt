@@ -1,5 +1,12 @@
 package app.sterna.ui.inbox
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -15,9 +22,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -100,6 +110,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -165,6 +176,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun InboxScreen(
     onOpenEmail: (emailId: String, accountId: String?, index: Int, fromSearch: Boolean) -> Unit,
+    /** Open a single thread's reading view anchored on one message (no list paging) — used
+     *  when tapping a message inside an inline-expanded conversation. */
+    onOpenThreadMessage: (emailId: String, accountId: String?) -> Unit,
     onCompose: () -> Unit,
     /** Reopen compose with the draft of a send the user just undid. */
     onReopenDraft: () -> Unit,
@@ -183,6 +197,9 @@ fun InboxScreen(
     val selectionActive by viewModel.selectionActive.collectAsStateWithLifecycle()
     val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
     val selectionAllRead by viewModel.selectionAllRead.collectAsStateWithLifecycle()
+    // Inline conversation expansion: which threads are unfolded, and their lazily-loaded members.
+    val expandedThreads by viewModel.expandedThreads.collectAsStateWithLifecycle()
+    val threadMembers by viewModel.threadMembers.collectAsStateWithLifecycle()
     var showMoveSheet by remember { mutableStateOf(false) }
     var showCreateFolder by remember { mutableStateOf(false) }
     var folderToRename by remember { mutableStateOf<Mailbox?>(null) }
@@ -935,6 +952,10 @@ fun InboxScreen(
             val emailRow: @Composable (InboxRow, Modifier, Boolean, Int, Boolean) -> Unit = { row, rowModifier, animateEntry, entryIndex, fromSearch ->
                 val email = row.email
                 val ownerAccount = if (ui.unified) accounts.firstOrNull { it.id == email.accountId } else null
+                // A conversation in the browse list can unfold inline; search results stay flat.
+                val expandable = !fromSearch && row.threadCount > 1
+                val threadKey = email.threadId ?: email.id
+                val isExpanded = expandable && threadKey in expandedThreads
                 SwipeableEmailRow(
                     email = email,
                     accountLabel = ownerAccount?.label(),
@@ -942,7 +963,11 @@ fun InboxScreen(
                     rightAction = swipe.right,
                     leftAction = swipe.left,
                     unarchiveContext = isUnarchiveContext(ui),
-                    onSwipe = { action -> performSwipe(action, email, viewModel, ui) },
+                    // A collapsed conversation acts on the whole thread; a flat row on its one message.
+                    onSwipe = { action ->
+                        if (expandable) performThreadSwipe(action, email, viewModel, ui)
+                        else performSwipe(action, email, viewModel, ui)
+                    },
                     onClick = {
                         if (selectionActive) {
                             viewModel.toggleSelect(email.id)
@@ -962,12 +987,35 @@ fun InboxScreen(
                     gesturesEnabled = !selectionActive,
                     unread = row.unread,
                     threadCount = row.threadCount,
+                    // The pill unfolds the thread in place; suppressed during multi-select.
+                    onToggleExpand = if (expandable && !selectionActive) {
+                        { viewModel.toggleThreadExpanded(email) }
+                    } else null,
+                    expanded = isExpanded,
                     animateEntry = animateEntry,
                     entryIndex = entryIndex,
                     highlighted = email.id == highlightId,
                     onHighlightShown = viewModel::clearHighlight,
                     modifier = rowModifier,
                 )
+                if (expandable) {
+                    ThreadChildren(
+                        visible = isExpanded,
+                        members = threadMembers[threadKey].orEmpty(),
+                        unified = ui.unified,
+                        accounts = accounts,
+                        rightAction = swipe.right,
+                        leftAction = swipe.left,
+                        unarchiveContext = isUnarchiveContext(ui),
+                        highlightId = highlightId,
+                        onOpenChild = { child ->
+                            viewModel.onEmailOpened(child.id)
+                            onOpenThreadMessage(child.id, child.accountId)
+                        },
+                        onSwipeChild = { action, child -> performSwipe(action, child, viewModel, ui) },
+                        onHighlightShown = viewModel::clearHighlight,
+                    )
+                }
                 HorizontalDivider()
             }
 
@@ -1192,12 +1240,15 @@ private fun SwipeableEmailRow(
     unarchiveContext: Boolean,
     onSwipe: (SwipeAction) -> Unit,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    onToggleFavourite: () -> Unit,
+    // Nullable so inline conversation children can omit long-press selection and the star.
+    onLongClick: (() -> Unit)? = null,
+    onToggleFavourite: (() -> Unit)? = null,
     selected: Boolean,
     gesturesEnabled: Boolean,
     unread: Boolean,
     threadCount: Int,
+    onToggleExpand: (() -> Unit)? = null,
+    expanded: Boolean = false,
     animateEntry: Boolean = false,
     entryIndex: Int = 0,
     highlighted: Boolean = false,
@@ -1337,6 +1388,8 @@ private fun SwipeableEmailRow(
                 onLongClick = onLongClick,
                 unread = unread,
                 threadCount = threadCount,
+                onToggleExpand = onToggleExpand,
+                expanded = expanded,
                 highlighted = highlighted,
                 onHighlightShown = onHighlightShown,
             )
@@ -1428,6 +1481,91 @@ private fun performSwipe(action: SwipeAction, email: Email, viewModel: InboxView
             }
         }
         SwipeAction.FLAG -> viewModel.toggleFlag(email)
+    }
+}
+
+/** Dispatch a configured swipe action to the whole conversation behind a collapsed row. */
+private fun performThreadSwipe(action: SwipeAction, rep: Email, viewModel: InboxViewModel, ui: MailUi) {
+    when (action) {
+        SwipeAction.NONE -> Unit
+        SwipeAction.TOGGLE_READ -> viewModel.toggleReadThread(rep)
+        SwipeAction.DELETE -> viewModel.deleteThread(rep)
+        SwipeAction.ARCHIVE -> {
+            if (isUnarchiveContext(ui)) {
+                ui.mailboxes.firstOrNull { it.role == "inbox" }?.id?.let { viewModel.unarchiveThread(rep, it) }
+            } else {
+                viewModel.archiveThread(rep)
+            }
+        }
+        SwipeAction.FLAG -> viewModel.toggleFlagThread(rep)
+    }
+}
+
+/**
+ * The inline-expanded members of a conversation, indented under the collapsed row behind a
+ * left accent rail so they read as "belonging to the conversation above". Each child opens
+ * the thread reading view anchored on that message; a swipe acts on that one message.
+ * Expansion animates (expand + fade) unless the system "remove animations" setting is on.
+ */
+@Composable
+private fun ThreadChildren(
+    visible: Boolean,
+    members: List<Email>,
+    unified: Boolean,
+    accounts: List<app.sterna.core.data.account.StoredAccount>,
+    rightAction: SwipeAction,
+    leftAction: SwipeAction,
+    unarchiveContext: Boolean,
+    highlightId: String?,
+    onOpenChild: (Email) -> Unit,
+    onSwipeChild: (SwipeAction, Email) -> Unit,
+    onHighlightShown: () -> Unit,
+) {
+    val motionOn = rememberMotionEnabled()
+    AnimatedVisibility(
+        visible = visible,
+        enter = if (motionOn) expandVertically() + fadeIn() else EnterTransition.None,
+        exit = if (motionOn) shrinkVertically() + fadeOut() else ExitTransition.None,
+    ) {
+        Column(Modifier.background(MaterialTheme.colorScheme.surface)) {
+            members.forEach { child ->
+                key(child.id) {
+                    val ownerAccount = if (unified) accounts.firstOrNull { it.id == child.accountId } else null
+                    Row(
+                        Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Spacer(Modifier.width(16.dp))
+                        // Accent rail ties the children to their conversation. The indentation
+                        // itself carries the grouping, so it is never conveyed by colour alone.
+                        Box(
+                            Modifier
+                                .width(2.dp)
+                                .fillMaxHeight()
+                                .background(MaterialTheme.colorScheme.outlineVariant),
+                        )
+                        SwipeableEmailRow(
+                            email = child,
+                            accountLabel = ownerAccount?.label(),
+                            accountColor = accountColorOf(ownerAccount?.color),
+                            rightAction = rightAction,
+                            leftAction = leftAction,
+                            unarchiveContext = unarchiveContext,
+                            onSwipe = { action -> onSwipeChild(action, child) },
+                            onClick = { onOpenChild(child) },
+                            selected = false,
+                            gesturesEnabled = true,
+                            unread = !child.isSeen,
+                            threadCount = 1,
+                            highlighted = child.id == highlightId,
+                            onHighlightShown = onHighlightShown,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    HorizontalDivider()
+                }
+            }
+        }
     }
 }
 
