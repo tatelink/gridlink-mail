@@ -4,6 +4,8 @@ import app.sterna.appLocale
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.view.View
+import android.view.ViewConfiguration
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -750,17 +752,38 @@ private fun EmailWebView(
     // keeps it invisible and shows a spinner); once known we pin the final height and the
     // parent reveals it — a single clean appearance, no reflow.
     var heightPx by remember { mutableIntStateOf(0) }
+    // Upper bound on the pinned body height. The WebView renders in a software layer (see
+    // factory — it sidesteps a GPU-functor SIGSEGV on devices with mismatched HWUI/GPU
+    // drivers), and a software layer is a single ARGB_8888 bitmap whose size is capped by the
+    // view drawing-cache limit (~one screen). A taller bitmap is silently dropped ("WebView
+    // not displayed because it is too large to fit into a software layer"), leaving the body
+    // blank. So we pin at most this many pixels; a taller body scrolls inside the WebView
+    // instead of stacking at full height (see `scrollable` handling in update()).
+    val maxLayerHeightPx = remember(context) {
+        val maxBytes = ViewConfiguration.get(context).scaledMaximumDrawingCacheSize
+        val widthPx = context.resources.displayMetrics.widthPixels.coerceAtLeast(1)
+        (maxBytes / 4 / widthPx).coerceAtLeast(1)
+    }
     val client = remember { BlockingWebViewClient() }
     client.blockRemote = blockRemote
     client.stripTracking = stripTracking
     client.onOpenUrl = { uri -> if (confirmLinks) pendingLink = uri else openExternally(context, uri) }
     client.onContentHeight = { heightPx = it }
     val ready = heightPx > 0
+    val pinnedHeightPx = heightPx.coerceAtMost(maxLayerHeightPx)
     LaunchedEffect(ready) { if (ready) onReady() }
     AndroidView(
-        modifier = modifier.height(if (ready) with(density) { heightPx.toDp() } else 1.dp),
+        modifier = modifier.height(if (ready) with(density) { pinnedHeightPx.toDp() } else 1.dp),
         factory = { ctx ->
             WebView(ctx).apply {
+                // Render in a software layer rather than the hardware-accelerated GLFunctor
+                // path. On devices whose HWUI/GPU blobs are mismatched (e.g. older hardware
+                // running a newer custom ROM, which reports a modern API level so we can't
+                // gate by version), the accelerated WebView functor dereferences a null
+                // SkSurface in RenderThread and the whole app SIGSEGVs the instant a mail
+                // body is drawn. Software layer sidesteps that functor; for a static,
+                // JS-disabled email body the rendering cost is negligible.
+                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                 settings.javaScriptEnabled = false
                 settings.loadWithOverviewMode = true
                 settings.useWideViewPort = true
@@ -785,6 +808,20 @@ private fun EmailWebView(
             // Match the WebView's own background to the theme so it doesn't flash white.
             webView.setBackgroundColor(backgroundColor)
             webView.settings.textZoom = textZoom
+            // A body taller than the software-layer cap is pinned shorter than its content, so
+            // it must scroll internally. Enable its scrollbar and, while it's the active touch
+            // target, stop the outer conversation list from stealing the drag — otherwise the
+            // clipped lower part is unreachable. Short bodies stack at full height and never
+            // scroll internally, so they keep the default (outer list owns the gesture).
+            val scrollable = heightPx > maxLayerHeightPx
+            webView.isVerticalScrollBarEnabled = scrollable
+            webView.setOnTouchListener(
+                if (scrollable) {
+                    View.OnTouchListener { v, _ -> v.parent?.requestDisallowInterceptTouchEvent(true); false }
+                } else {
+                    null
+                }
+            )
             // update() runs on every recomposition; only (re)load when the document
             // actually changed, otherwise expanding one card reloads (and flickers)
             // every other open body in the conversation. blockRemote is part of the
