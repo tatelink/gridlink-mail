@@ -1,0 +1,7 @@
+New: swipe left or right in an open message to move to the previous or next
+message in the list, the way most mail apps work. The list's context (folder or
+unified inbox, sort, unread filter, and any active search) is kept, and older
+mail still loads as you reach the end.
+
+Also: when the unread filter is on and everything is already read, the inbox now
+says so clearly instead of looking empty, with a one-tap way to show all mail.
