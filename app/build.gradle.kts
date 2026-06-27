@@ -59,7 +59,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             // Prefer the real release key; fall back to the debug key when absent.
             signingConfig = signingConfigs.findByName("release")
                 ?: signingConfigs.findByName("debugSigned")
