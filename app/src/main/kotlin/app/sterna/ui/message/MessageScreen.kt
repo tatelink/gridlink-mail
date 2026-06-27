@@ -4,6 +4,7 @@ import app.sterna.appLocale
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.webkit.WebResourceRequest
@@ -750,6 +751,41 @@ private fun EmailWebView(
         val widthPx = context.resources.displayMetrics.widthPixels.coerceAtLeast(1)
         (maxBytes / 4 / widthPx).coerceAtLeast(1)
     }
+    val touchSlop = remember(context) { ViewConfiguration.get(context).scaledTouchSlop }
+    // A body taller than the software-layer cap is pinned shorter than its content and scrolls
+    // INSIDE the WebView. A plain requestDisallowInterceptTouchEvent(true) on every touch (the
+    // old behaviour) claimed the whole gesture for the WebView — which also swallowed horizontal
+    // drags, so the reading view's HorizontalPager could no longer swipe between list entries on
+    // any long mail (the 1.0.10 swipe-paging regression). Decide per gesture by its dominant axis:
+    // a vertical drag stays in the WebView (scrolls the clipped body), a horizontal drag bubbles
+    // up so the pager pages to the previous/next message. Only installed on scrollable bodies;
+    // short ones never scroll internally and keep the default (outer column scrolls, pager pages).
+    val pagerAwareTouchListener = remember {
+        object : View.OnTouchListener {
+            private var downX = 0f
+            private var downY = 0f
+            private var decided = false
+            override fun onTouch(v: View, e: MotionEvent): Boolean {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = e.x; downY = e.y; decided = false
+                        // Until the direction is known, let the pager observe the gesture.
+                        v.parent?.requestDisallowInterceptTouchEvent(false)
+                    }
+                    MotionEvent.ACTION_MOVE -> if (!decided) {
+                        val dx = kotlin.math.abs(e.x - downX)
+                        val dy = kotlin.math.abs(e.y - downY)
+                        if (dx > touchSlop || dy > touchSlop) {
+                            decided = true
+                            // Vertical → keep it in the WebView; horizontal → release to the pager.
+                            v.parent?.requestDisallowInterceptTouchEvent(dy >= dx)
+                        }
+                    }
+                }
+                return false
+            }
+        }
+    }
     val client = remember { BlockingWebViewClient() }
     client.blockRemote = blockRemote
     client.stripTracking = stripTracking
@@ -795,19 +831,14 @@ private fun EmailWebView(
             webView.setBackgroundColor(backgroundColor)
             webView.settings.textZoom = textZoom
             // A body taller than the software-layer cap is pinned shorter than its content, so
-            // it must scroll internally. Enable its scrollbar and, while it's the active touch
-            // target, stop the outer conversation list from stealing the drag — otherwise the
-            // clipped lower part is unreachable. Short bodies stack at full height and never
-            // scroll internally, so they keep the default (outer list owns the gesture).
+            // it must scroll internally. Enable its scrollbar and install the direction-aware
+            // touch listener (see [pagerAwareTouchListener]): vertical drags scroll the clipped
+            // body, horizontal drags are released so the reading view's pager can swipe between
+            // list entries. Short bodies stack at full height and never scroll internally, so they
+            // keep the default (outer column owns vertical scroll, pager owns horizontal swipe).
             val scrollable = heightPx > maxLayerHeightPx
             webView.isVerticalScrollBarEnabled = scrollable
-            webView.setOnTouchListener(
-                if (scrollable) {
-                    View.OnTouchListener { v, _ -> v.parent?.requestDisallowInterceptTouchEvent(true); false }
-                } else {
-                    null
-                }
-            )
+            webView.setOnTouchListener(if (scrollable) pagerAwareTouchListener else null)
             // update() runs on every recomposition; only (re)load when the document
             // actually changed, otherwise expanding one card reloads (and flickers)
             // every other open body in the conversation. blockRemote is part of the
