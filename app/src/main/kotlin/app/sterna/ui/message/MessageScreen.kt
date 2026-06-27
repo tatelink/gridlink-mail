@@ -145,7 +145,10 @@ fun MessageScreen(
                     initialPage = initialPage,
                     // Indexing the paged items near the end triggers paging (incl. the
                     // RemoteMediator's server fetch), so older entries swipe in as on scroll.
-                    entryAt = { i -> items[i]?.email?.let { it.id to it.accountId } },
+                    // Bounds-guard: a triage action (not-spam/archive/delete) removes the open
+                    // message, shrinking the paged list while the pager still asks for the old
+                    // index — an unguarded items[i] then throws IndexOutOfBounds and crashes.
+                    entryAt = { i -> if (i < items.itemCount) items[i]?.email?.let { it.id to it.accountId } else null },
                     onBack = onBack,
                     onReply = onReply,
                 )
@@ -158,7 +161,7 @@ fun MessageScreen(
             MessagePager(
                 pageCount = searchResults.size,
                 initialPage = initialPage,
-                entryAt = { i -> searchResults[i].let { it.id to it.accountId } },
+                entryAt = { i -> searchResults.getOrNull(i)?.let { it.id to it.accountId } },
                 onBack = onBack,
                 onReply = onReply,
             )
