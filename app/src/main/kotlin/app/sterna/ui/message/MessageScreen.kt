@@ -79,6 +79,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import android.app.Application
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.DisposableEffect
+import androidx.paging.compose.collectAsLazyPagingItems
 import app.sterna.R
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
@@ -92,17 +102,205 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The reading view. A [HorizontalPager] lets the user swipe left/right between the entries
+ * of the list they came from, in the same order and context (mailbox / unified inbox, sort,
+ * unread filter, or active search). Three sources feed it:
+ *
+ *  - [listSource]: the inbox's own paged flow (shared, so swiping near the end pages older
+ *    mail in from the server exactly as scrolling the list does);
+ *  - [searchResults]: the bounded, in-memory results when a search was active;
+ *  - neither: a single message (opened from a context without a list, e.g. global search).
+ *
+ * Each page owns its own [MessageViewModel] (and its account context), so Reply/Forward,
+ * back, and mark-as-read stay correct per entry. Mark-as-read fires on settle, never while
+ * a message is flicked past. The horizontal pager only claims horizontal drags, so a long
+ * body still scrolls vertically.
+ */
 @Composable
 fun MessageScreen(
-    emailId: String,
+    anchorEmailId: String,
+    anchorAccountId: String?,
+    initialIndex: Int,
+    listSource: kotlinx.coroutines.flow.Flow<androidx.paging.PagingData<app.sterna.core.data.mail.InboxRow>>?,
+    searchResults: List<Email>?,
     onBack: () -> Unit,
-    onReply: (mode: String, replyToId: String) -> Unit,
-    onOpenEmail: (String) -> Unit,
-    accountId: String? = null,
-    viewModel: MessageViewModel = viewModel(),
+    onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
 ) {
+    when {
+        listSource != null -> {
+            val items = listSource.collectAsLazyPagingItems()
+            val count = items.itemCount
+            if (count == 0) {
+                // The shared paged flow replays its cached pages within a frame or two; show a
+                // brief loader until the entry list is known so the pager opens on the right page.
+                MessageLoadingScaffold(onBack)
+            } else {
+                // Resolve the opening page once: by the anchor's id when it's in the loaded
+                // window (robust to the list having shifted), else the tapped index.
+                val initialPage = remember {
+                    MessagePaging.resolveInitialPage(
+                        items.itemSnapshotList.items.map { it.email.id },
+                        anchorEmailId,
+                        initialIndex,
+                    )
+                }
+                MessagePager(
+                    pageCount = count,
+                    initialPage = initialPage,
+                    // Indexing the paged items near the end triggers paging (incl. the
+                    // RemoteMediator's server fetch), so older entries swipe in as on scroll.
+                    entryAt = { i -> items[i]?.email?.let { it.id to it.accountId } },
+                    onBack = onBack,
+                    onReply = onReply,
+                )
+            }
+        }
+        !searchResults.isNullOrEmpty() -> {
+            val initialPage = remember(searchResults) {
+                MessagePaging.resolveInitialPage(searchResults.map { it.id }, anchorEmailId, initialIndex)
+            }
+            MessagePager(
+                pageCount = searchResults.size,
+                initialPage = initialPage,
+                entryAt = { i -> searchResults[i].let { it.id to it.accountId } },
+                onBack = onBack,
+                onReply = onReply,
+            )
+        }
+        // No list context: a lone message (e.g. opened from global search).
+        else -> MessagePager(
+            pageCount = 1,
+            initialPage = 0,
+            entryAt = { anchorEmailId to anchorAccountId },
+            onBack = onBack,
+            onReply = onReply,
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MessagePager(
+    pageCount: Int,
+    initialPage: Int,
+    entryAt: (Int) -> Pair<String, String?>?,
+    onBack: () -> Unit,
+    onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+) {
+    val pagerState = rememberPagerState(initialPage = initialPage.coerceIn(0, (pageCount - 1).coerceAtLeast(0))) { pageCount }
+    HorizontalPager(
+        state = pagerState,
+        modifier = Modifier.fillMaxSize(),
+        // Key by entry id so a row read/removed elsewhere re-binds the right page; warm one
+        // neighbour each side so a swipe reveals the adjacent body without a load flash.
+        key = { i -> entryAt(i)?.first ?: "page-$i" },
+        beyondViewportPageCount = 1,
+    ) { page ->
+        val entry = entryAt(page)
+        if (entry == null) {
+            // Paged item for this page hasn't loaded yet (near the growing end).
+            MessageLoadingScaffold(onBack)
+        } else {
+            MessagePage(
+                emailId = entry.first,
+                accountId = entry.second,
+                // Read-on-settle: only the page the user lands on marks its message read.
+                active = pagerState.settledPage == page,
+                onBack = onBack,
+                onReply = onReply,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MessagePage(
+    emailId: String,
+    accountId: String?,
+    active: Boolean,
+    onBack: () -> Unit,
+    onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+) {
+    val app = LocalContext.current.applicationContext as Application
+    // Each page needs its own MessageViewModel (the pager composes several at once). A
+    // per-page ViewModelStore, cleared when the page leaves the pager, bounds memory so
+    // swiping through a long list doesn't pile up bodies/inline images.
+    val owner = rememberDisposableViewModelStoreOwner()
+    val viewModel: MessageViewModel = viewModel(
+        viewModelStoreOwner = owner,
+        factory = viewModelFactory { initializer { MessageViewModel(app) } },
+    )
     LaunchedEffect(emailId, accountId) { viewModel.load(emailId, accountId) }
+    LaunchedEffect(active) { viewModel.onActiveChanged(active) }
+    MessageContent(
+        viewModel = viewModel,
+        emailId = emailId,
+        accountId = accountId,
+        onBack = onBack,
+        onReply = onReply,
+    )
+}
+
+/** A ViewModelStoreOwner whose store is cleared when this composable leaves composition. */
+@Composable
+private fun rememberDisposableViewModelStoreOwner(): ViewModelStoreOwner {
+    val owner = remember {
+        object : ViewModelStoreOwner {
+            override val viewModelStore = ViewModelStore()
+        }
+    }
+    DisposableEffect(owner) {
+        onDispose { owner.viewModelStore.clear() }
+    }
+    return owner
+}
+
+/** Toolbar + centred spinner shown while a page's entry/body is still being resolved. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageLoadingScaffold(onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        stringResource(R.string.message_title_fallback),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.message_back),
+                        )
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding), Alignment.Center) {
+            CircularProgressIndicator()
+        }
+    }
+}
+
+/**
+ * One page of the reading view: the toolbar + conversation body for a single list entry,
+ * driven by its own [viewModel]. The horizontal pager ([MessageScreen]) hosts one of these
+ * per adjacent list entry so the user can swipe between them.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageContent(
+    viewModel: MessageViewModel,
+    emailId: String,
+    accountId: String?,
+    onBack: () -> Unit,
+    onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
@@ -155,7 +353,7 @@ fun MessageScreen(
                                 contentDescription = stringResource(R.string.message_delete),
                             )
                         }
-                        IconButton(onClick = { onReply("reply", replyTargetId) }) {
+                        IconButton(onClick = { onReply("reply", replyTargetId, accountId) }) {
                             Icon(
                                 Icons.AutoMirrored.Filled.Reply,
                                 contentDescription = stringResource(R.string.message_reply),
@@ -188,11 +386,11 @@ fun MessageScreen(
                                 // Reply variants (plain Reply is the toolbar icon).
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.message_reply_all)) },
-                                    onClick = { menuOpen = false; onReply("replyAll", replyTargetId) },
+                                    onClick = { menuOpen = false; onReply("replyAll", replyTargetId, accountId) },
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.message_forward)) },
-                                    onClick = { menuOpen = false; onReply("forward", replyTargetId) },
+                                    onClick = { menuOpen = false; onReply("forward", replyTargetId, accountId) },
                                 )
                                 // Image controls: one-time show only while still blocked,
                                 // plus the per-sender allowlist toggle.
@@ -275,7 +473,7 @@ fun MessageScreen(
                     onToggle = viewModel::toggleExpand,
                     onOpenAttachment = viewModel::openAttachment,
                     textZoom = messageTextSize.zoom,
-                    onReply = { mode -> onReply(mode, replyTargetId) },
+                    onReply = { mode -> onReply(mode, replyTargetId, accountId) },
                 )
             }
         }

@@ -105,15 +105,24 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     /** Owning account when opened from the unified inbox; null = current account. */
     private var accountId: String? = null
 
+    // Mark-as-read is deferred to "settle": the message pager composes neighbouring pages
+    // while swiping, so reading on load() would mark messages read just by flicking past
+    // them. [active] tracks whether this page is the one settled in front of the user;
+    // the anchor is read once (guarded by [anchorMarked]) when it is both active and loaded.
+    private var active = false
+    private var anchorMarked = false
+
     /** Credentials for the message's own account (unified inbox), else the current one. */
     private fun credentials(): AccountCredentials? =
         accountId?.let { store.credentials(it) } ?: store.load()
 
-    /** Loads the conversation once per id (idempotent across recompositions). */
+    /** Loads the conversation once per id (idempotent across recompositions). Does NOT mark
+     *  read — [onActiveChanged] does that when the pager settles on this page. */
     fun load(emailId: String, accountId: String? = null) {
         if (loadedId == emailId && _state.value !is MessageState.Error) return
         loadedId = emailId
         this.accountId = accountId
+        anchorMarked = false
         _state.value = MessageState.Loading
         _messages.value = emptyList()
         _inJunk.value = false
@@ -127,25 +136,28 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             }
             try {
                 val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
-                // The tapped (newest) message: cache-first body + its inline images, marked read.
-                // Body and images arrive together so the WebView renders once, complete.
-                val opened = repo.openMessage(credentials, emailId)
+                // The tapped (newest) message: cache-first body + its inline images. Body and
+                // images arrive together so the WebView renders once, complete. Not marked read
+                // here — see [onActiveChanged].
+                val opened = repo.openMessage(credentials, emailId, markRead = false)
                 val anchor = opened.email
-                val anchorRead = anchor.markRead()
-                _state.value = MessageState.Loaded(anchor)
+                _state.value = MessageState.Loaded(anchorDisplay(anchor))
                 // Show the opened message (body + inline images) IMMEDIATELY. The thread fetch
                 // below is a separate network round-trip; it must not gate the body the user
                 // came to read — otherwise a cached/prefetched body still waits on the network.
+                val anchorBody = anchorDisplay(anchor)
                 _messages.value = listOf(
                     ThreadMessage(
                         id = anchor.id,
-                        header = anchorRead,
-                        body = anchorRead,
+                        header = anchorBody,
+                        body = anchorBody,
                         expanded = true,
                         inlineImages = opened.inlineImages,
                     ),
                 )
                 _inJunk.value = repo.mailboxRole(anchor.mailboxId) == "junk"
+                // If the page already settled before the body arrived, read it now.
+                maybeMarkRead()
 
                 // Then merge in the rest of the thread (siblings, header-only), keeping the
                 // anchor in place (same id → its rendered body isn't disturbed). Order
@@ -162,8 +174,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                         val isAnchor = e.id == anchor.id
                         ThreadMessage(
                             id = e.id,
-                            header = if (isAnchor) anchorRead else e,
-                            body = if (isAnchor) anchorRead else null,
+                            header = if (isAnchor) anchorDisplay(anchor) else e,
+                            body = if (isAnchor) anchorDisplay(anchor) else null,
                             expanded = isAnchor,
                             inlineImages = if (isAnchor) opened.inlineImages else emptyMap(),
                         )
@@ -172,6 +184,34 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             } catch (t: Throwable) {
                 _state.value = MessageState.Error(t.message ?: t.javaClass.simpleName)
             }
+        }
+    }
+
+    /** The anchor as displayed: shown read once it has been settled on (else its true state). */
+    private fun anchorDisplay(anchor: Email): Email = if (anchorMarked) anchor.markRead() else anchor
+
+    /**
+     * Called by the pager as this page becomes (or stops being) the settled, front-most one.
+     * Reading is tied to settling, not to composition, so a message swiped past is not read.
+     */
+    fun onActiveChanged(isActive: Boolean) {
+        active = isActive
+        if (isActive) maybeMarkRead()
+    }
+
+    /** Mark the anchor read (once) when this page is both settled and loaded. */
+    private fun maybeMarkRead() {
+        if (!active || anchorMarked) return
+        val current = (_state.value as? MessageState.Loaded)?.email ?: return
+        anchorMarked = true
+        if (current.isSeen) return
+        // Reflect the read state immediately so the unread dot clears on settle…
+        updateMessage(current.id) { it.copy(header = it.header.markRead(), body = it.body?.markRead()) }
+        _state.value = MessageState.Loaded(current.markRead())
+        // …then persist it (server + cache).
+        viewModelScope.launch {
+            val credentials = credentials() ?: return@launch
+            runCatching { repo.setRead(credentials, current.id, true) }
         }
     }
 

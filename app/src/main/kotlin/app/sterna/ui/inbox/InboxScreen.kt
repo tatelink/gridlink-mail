@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -156,7 +157,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InboxScreen(
-    onOpenEmail: (emailId: String, accountId: String?) -> Unit,
+    onOpenEmail: (emailId: String, accountId: String?, index: Int, fromSearch: Boolean) -> Unit,
     onCompose: () -> Unit,
     /** Reopen compose with the draft of a send the user just undid. */
     onReopenDraft: () -> Unit,
@@ -882,7 +883,7 @@ fun InboxScreen(
             // One row renderer, shared by the search list and the paged browse list.
             // Takes the row modifier so the caller can pass `animateItem()` from its
             // own LazyItemScope.
-            val emailRow: @Composable (InboxRow, Modifier, Boolean, Int) -> Unit = { row, rowModifier, animateEntry, entryIndex ->
+            val emailRow: @Composable (InboxRow, Modifier, Boolean, Int, Boolean) -> Unit = { row, rowModifier, animateEntry, entryIndex, fromSearch ->
                 val email = row.email
                 val ownerAccount = if (ui.unified) accounts.firstOrNull { it.id == email.accountId } else null
                 SwipeableEmailRow(
@@ -898,7 +899,7 @@ fun InboxScreen(
                             viewModel.toggleSelect(email.id)
                         } else {
                             viewModel.onEmailOpened(email.id)
-                            onOpenEmail(email.id, email.accountId)
+                            onOpenEmail(email.id, email.accountId, entryIndex, fromSearch)
                         }
                     },
                     onLongClick = { viewModel.enterSelection(email.id) },
@@ -941,8 +942,8 @@ fun InboxScreen(
                     searchActive -> when {
                         ui.searchResults.isNotEmpty() ->
                             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                                items(ui.searchResults, key = { it.id }) { email ->
-                                    emailRow(InboxRow(email, threadCount = 1, unread = !email.isSeen), Modifier.animateItem(), false, 0)
+                                itemsIndexed(ui.searchResults, key = { _, it -> it.id }) { index, email ->
+                                    emailRow(InboxRow(email, threadCount = 1, unread = !email.isSeen), Modifier.animateItem(), false, index, true)
                                 }
                             }
                         ui.searchLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -973,6 +974,7 @@ fun InboxScreen(
                                         Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
                                         listMotionOn && !entryPlayed && index < ENTRY_CAP,
                                         index,
+                                        false,
                                     )
                                 }
                             }

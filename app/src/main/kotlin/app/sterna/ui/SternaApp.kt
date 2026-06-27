@@ -18,6 +18,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -37,6 +38,7 @@ import app.sterna.security.LockScreen
 import app.sterna.ui.compose.ComposeScreen
 import app.sterna.ui.connect.ConnectScreen
 import app.sterna.ui.inbox.InboxScreen
+import app.sterna.ui.inbox.InboxViewModel
 import app.sterna.ui.message.MessageScreen
 import app.sterna.ui.scheduled.ScheduledSendsScreen
 import app.sterna.ui.search.SearchScreen
@@ -139,8 +141,11 @@ private fun MainNavHost(
     ) {
         composable("inbox") {
             InboxScreen(
-                onOpenEmail = { id, accountId ->
-                    nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}")
+                onOpenEmail = { id, accountId, index, fromSearch ->
+                    // Carry the tapped entry's position and whether it came from the inline
+                    // search results, so the reading view can page between the same entries.
+                    val src = if (fromSearch) "search" else "list"
+                    nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}&index=$index&src=$src")
                 },
                 onCompose = { nav.navigate("compose") },
                 onReopenDraft = { nav.navigate("compose?restore=true") },
@@ -154,10 +159,14 @@ private fun MainNavHost(
             )
         }
         composable(
-            route = "message/{emailId}?accountId={accountId}",
+            route = "message/{emailId}?accountId={accountId}&index={index}&src={src}",
             arguments = listOf(
                 navArgument("emailId") { type = NavType.StringType },
                 navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                // Position of the tapped entry in the originating list, and which list it
+                // was ("list" = paged browse, "search" = inline search; absent = no list).
+                navArgument("index") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("src") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
             // Opening and closing a message keep a soft cross-fade (matching the previous
             // default), while the rest of the app navigates instantly.
@@ -166,13 +175,29 @@ private fun MainNavHost(
         ) { entry ->
             val emailId = Uri.decode(entry.arguments?.getString("emailId").orEmpty())
             val accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null }
-            val accountArg = accountId?.let { "&accountId=${Uri.encode(it)}" }.orEmpty()
+            val index = entry.arguments?.getString("index")?.toIntOrNull() ?: 0
+            val src = entry.arguments?.getString("src")
+            // Share the inbox's own ViewModel (same backstack entry) so the reading view pages
+            // over the exact list the user was looking at — reusing its paging, not a copy.
+            val inboxEntry = remember(entry) { nav.getBackStackEntry("inbox") }
+            val inboxViewModel: InboxViewModel = viewModel(inboxEntry)
+            val listSource = if (src == "list") inboxViewModel.pagedEmails else null
+            val searchResults = if (src == "search") {
+                remember(inboxViewModel) { inboxViewModel.state.value.searchResults }
+            } else {
+                null
+            }
             MessageScreen(
-                emailId = emailId,
-                accountId = accountId,
+                anchorEmailId = emailId,
+                anchorAccountId = accountId,
+                initialIndex = index,
+                listSource = listSource,
+                searchResults = searchResults,
                 onBack = { nav.popBackStack() },
-                onReply = { mode, replyToId -> nav.navigate("compose?replyTo=${Uri.encode(replyToId)}&mode=$mode$accountArg") },
-                onOpenEmail = { id -> nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}") },
+                onReply = { mode, replyToId, replyAccountId ->
+                    val accountArg = replyAccountId?.let { "&accountId=${Uri.encode(it)}" }.orEmpty()
+                    nav.navigate("compose?replyTo=${Uri.encode(replyToId)}&mode=$mode$accountArg")
+                },
             )
         }
         composable(

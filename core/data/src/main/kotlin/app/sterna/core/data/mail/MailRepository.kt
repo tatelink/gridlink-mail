@@ -797,12 +797,17 @@ class MailRepository(
         return MailboxMeta(load.accountName, load.targetMailboxId, load.targetName, load.unread)
     }
 
-    /** Fetch a single message (with body), marking it read locally and on the server. */
-    suspend fun openEmail(credentials: AccountCredentials, emailId: String): Email {
-        if (credentials.protocol == MailProtocol.IMAP) return openEmailImap(credentials, emailId)
+    /**
+     * Fetch a single message (with body). Marks it read locally and on the server when
+     * [markRead] (the default); pass false to fetch the body without reading it — used by
+     * the message pager, which only marks the entry read once it settles, not while it is
+     * flicked past.
+     */
+    suspend fun openEmail(credentials: AccountCredentials, emailId: String, markRead: Boolean = true): Email {
+        if (credentials.protocol == MailProtocol.IMAP) return openEmailImap(credentials, emailId, markRead)
         val ctx = connect(credentials)
         val email = client.getEmail(ctx.session, ctx.accountId, emailId, ctx.auth)
-        if (!email.isSeen) {
+        if (markRead && !email.isSeen) {
             runCatching {
                 client.setSeen(ctx.session, ctx.accountId, emailId, seen = true, ctx.auth)
                 emailDao.setSeen(emailId, true)
@@ -811,14 +816,14 @@ class MailRepository(
         return email
     }
 
-    /** IMAP message open: fetch the raw source, parse the body, mark seen. */
-    private suspend fun openEmailImap(credentials: AccountCredentials, emailId: String): Email {
+    /** IMAP message open: fetch the raw source, parse the body, mark seen when [markRead]. */
+    private suspend fun openEmailImap(credentials: AccountCredentials, emailId: String, markRead: Boolean = true): Email {
         val cached = emailDao.emailsByIds(listOf(emailId)).firstOrNull()?.toEmail()
             ?: error("Message is not in the cache.")
         val mailboxId = cached.mailboxId ?: error("Unknown mailbox for message.")
         val uid = ImapMailService.uidOf(emailId) ?: error("Not an IMAP message.")
         val body = MimeParser.parseBody(imap.fetchSource(credentials, mailboxId, uid))
-        if (!cached.isSeen) {
+        if (markRead && !cached.isSeen) {
             runCatching {
                 imap.markSeen(credentials, mailboxId, uid)
                 emailDao.setSeen(emailId, true)
@@ -861,15 +866,17 @@ class MailRepository(
     /**
      * Open a message for display, body cache first: a cached (or prefetched) body renders with
      * no network round-trip; a miss fetches over the network and persists it. Inline images are
-     * resolved before returning so the body renders once, complete (no cid: reflow). Marks read.
+     * resolved before returning so the body renders once, complete (no cid: reflow). Marks read
+     * when [markRead] (the default); the message pager passes false and marks the settled entry
+     * read separately, so flicking past a message does not read it.
      */
-    suspend fun openMessage(credentials: AccountCredentials, emailId: String): MessageBody {
+    suspend fun openMessage(credentials: AccountCredentials, emailId: String, markRead: Boolean = true): MessageBody {
         cachedMessage(emailId)?.let { cached ->
             // Mark read out of band — the body is already in hand, don't make the user wait.
-            bgScope.launch { runCatching { setRead(credentials, emailId, true) } }
+            if (markRead) bgScope.launch { runCatching { setRead(credentials, emailId, true) } }
             return ensureInlineImages(credentials, emailId, cached)
         }
-        val email = openEmail(credentials, emailId) // network fetch; marks read
+        val email = openEmail(credentials, emailId, markRead) // network fetch
         val inline = fetchInlineImages(credentials, email, emailId)
         persistBody(credentials.id, emailId, email, inline)
         return MessageBody(email, inline)
