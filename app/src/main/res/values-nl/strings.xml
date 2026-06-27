@@ -488,6 +488,9 @@
     <string name="empty_offline_title">Je post is niet bereikbaar</string>
     <string name="empty_offline_body">Je lijkt offline te zijn. We synchroniseren zodra je weer verbonden bent.</string>
     <string name="empty_search_body">Niets gevonden. Probeer andere woorden.</string>
+    <string name="empty_unread_title">Geen ongelezen berichten</string>
+    <string name="empty_unread_body">Je hebt hier alles gelezen. Schakel het filter voor ongelezen berichten uit om alle e-mail te zien.</string>
+    <string name="empty_unread_action">Alles tonen</string>
     <string name="inbox_empty_trash">Prullenbak legen</string>
     <string name="status_trash_emptied">Prullenbak geleegd</string>
 </resources>

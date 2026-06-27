@@ -486,6 +486,9 @@
     <string name="empty_offline_title">Не удаётся загрузить почту</string>
     <string name="empty_offline_body">Похоже, вы не в сети. Мы синхронизируем всё, как только вы вернётесь.</string>
     <string name="empty_search_body">Ничего не нашлось. Попробуйте другие слова.</string>
+    <string name="empty_unread_title">Нет непрочитанных сообщений</string>
+    <string name="empty_unread_body">Здесь всё прочитано. Отключите фильтр непрочитанных, чтобы увидеть всю почту.</string>
+    <string name="empty_unread_action">Показать все</string>
     <string name="inbox_empty_trash">Очистить корзину</string>
     <string name="status_trash_emptied">Корзина очищена</string>
 </resources>

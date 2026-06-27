@@ -104,6 +104,10 @@
     <string name="empty_offline_title">Can\'t reach your mail</string>
     <string name="empty_offline_body">You seem to be offline. We\'ll sync as soon as you\'re back.</string>
     <string name="empty_search_body">Nothing matched. Try different words.</string>
+    <!-- Shown when the unread-only filter is on but everything in view is already read. -->
+    <string name="empty_unread_title">No unread messages</string>
+    <string name="empty_unread_body">You\'ve read everything here. Turn off the unread filter to see all mail.</string>
+    <string name="empty_unread_action">Show all</string>
     <string name="inbox_sort_newest_first">Newest first</string>
     <string name="inbox_sort_oldest_first">Oldest first</string>
     <string name="inbox_sort_subject">Subject</string>

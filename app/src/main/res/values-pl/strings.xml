@@ -485,6 +485,9 @@
     <string name="empty_offline_title">Nie można połączyć się z pocztą</string>
     <string name="empty_offline_body">Wygląda na to, że jesteś offline. Zsynchronizujemy wszystko, gdy tylko wrócisz.</string>
     <string name="empty_search_body">Nic nie pasuje. Spróbuj innych słów.</string>
+    <string name="empty_unread_title">Brak nieprzeczytanych wiadomości</string>
+    <string name="empty_unread_body">Wszystko tutaj przeczytane. Wyłącz filtr nieprzeczytanych, aby zobaczyć całą pocztę.</string>
+    <string name="empty_unread_action">Pokaż wszystkie</string>
     <string name="inbox_empty_trash">Opróżnij kosz</string>
     <string name="status_trash_emptied">Kosz opróżniony</string>
 </resources>

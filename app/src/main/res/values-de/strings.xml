@@ -485,6 +485,9 @@
     <string name="empty_offline_title">Deine Post ist nicht erreichbar</string>
     <string name="empty_offline_body">Du scheinst offline zu sein. Wir gleichen ab, sobald du zurück bist.</string>
     <string name="empty_search_body">Nichts gefunden. Versuch es mit anderen Worten.</string>
+    <string name="empty_unread_title">Keine ungelesenen Nachrichten</string>
+    <string name="empty_unread_body">Hier ist alles gelesen. Schalte den Ungelesen-Filter aus, um alle E-Mails zu sehen.</string>
+    <string name="empty_unread_action">Alle anzeigen</string>
     <string name="inbox_empty_trash">Papierkorb leeren</string>
     <string name="status_trash_emptied">Papierkorb geleert</string>
 </resources>

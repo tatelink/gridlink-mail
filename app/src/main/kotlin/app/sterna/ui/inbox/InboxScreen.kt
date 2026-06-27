@@ -1031,14 +1031,19 @@ fun InboxScreen(
                             role == "trash" -> EmptyArt.TRASH
                             else -> EmptyArt.FOLDER
                         }
-                        val titleRes = when (art) {
-                            EmptyArt.TRASH -> R.string.empty_trash_title
-                            EmptyArt.FOLDER -> R.string.empty_folder_title
+                        // The list can be empty merely because the unread-only filter hid every
+                        // (read) message — say so, rather than the misleading "folder is empty".
+                        val unreadFiltered = ui.unreadOnly
+                        val titleRes = when {
+                            unreadFiltered -> R.string.empty_unread_title
+                            art == EmptyArt.TRASH -> R.string.empty_trash_title
+                            art == EmptyArt.FOLDER -> R.string.empty_folder_title
                             else -> R.string.empty_inbox_title
                         }
-                        val bodyRes = when (art) {
-                            EmptyArt.TRASH -> R.string.empty_trash_body
-                            EmptyArt.FOLDER -> R.string.empty_folder_body
+                        val bodyRes = when {
+                            unreadFiltered -> R.string.empty_unread_body
+                            art == EmptyArt.TRASH -> R.string.empty_trash_body
+                            art == EmptyArt.FOLDER -> R.string.empty_folder_body
                             else -> R.string.empty_inbox_body
                         }
                         // Empty list still pulls to refresh; tapping the empty space opens the
@@ -1049,16 +1054,26 @@ fun InboxScreen(
                                 title = stringResource(titleRes),
                                 body = stringResource(bodyRes),
                                 modifier = Modifier.align(Alignment.Center),
-                                action = if (art == EmptyArt.INBOX_ZERO) {
-                                    {
-                                        Button(onClick = onCompose) {
-                                            Icon(Icons.Filled.Create, contentDescription = null)
-                                            Spacer(Modifier.width(8.dp))
-                                            Text(stringResource(R.string.inbox_compose))
+                                // Filtered-empty offers a one-tap way out (clear the filter);
+                                // a genuinely empty inbox offers Compose instead.
+                                action = when {
+                                    unreadFiltered -> {
+                                        {
+                                            Button(onClick = { viewModel.toggleUnreadOnly() }) {
+                                                Text(stringResource(R.string.empty_unread_action))
+                                            }
                                         }
                                     }
-                                } else {
-                                    null
+                                    art == EmptyArt.INBOX_ZERO -> {
+                                        {
+                                            Button(onClick = onCompose) {
+                                                Icon(Icons.Filled.Create, contentDescription = null)
+                                                Spacer(Modifier.width(8.dp))
+                                                Text(stringResource(R.string.inbox_compose))
+                                            }
+                                        }
+                                    }
+                                    else -> null
                                 },
                             )
                         }

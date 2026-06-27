@@ -487,6 +487,9 @@
     <string name="empty_offline_title">Impossible d\'accéder à vos messages</string>
     <string name="empty_offline_body">Vous semblez hors ligne. Nous synchroniserons dès votre retour.</string>
     <string name="empty_search_body">Aucun résultat. Essayez d\'autres mots.</string>
+    <string name="empty_unread_title">Aucun message non lu</string>
+    <string name="empty_unread_body">Vous avez tout lu ici. Désactivez le filtre « non lus » pour voir tout le courrier.</string>
+    <string name="empty_unread_action">Tout afficher</string>
     <string name="inbox_empty_trash">Vider la corbeille</string>
     <string name="status_trash_emptied">Corbeille vidée</string>
 </resources>

@@ -485,6 +485,9 @@
     <string name="empty_offline_title">Impossibile raggiungere la posta</string>
     <string name="empty_offline_body">Sembri offline. Sincronizzeremo non appena torni online.</string>
     <string name="empty_search_body">Nessun risultato. Prova con parole diverse.</string>
+    <string name="empty_unread_title">Nessun messaggio non letto</string>
+    <string name="empty_unread_body">Hai letto tutto qui. Disattiva il filtro non letti per vedere tutta la posta.</string>
+    <string name="empty_unread_action">Mostra tutti</string>
     <string name="inbox_empty_trash">Svuota cestino</string>
     <string name="status_trash_emptied">Cestino svuotato</string>
 </resources>
