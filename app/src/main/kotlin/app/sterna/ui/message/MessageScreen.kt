@@ -505,20 +505,26 @@ private fun ConversationBody(
     Column(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .verticalScroll(rememberScrollState()),
+            .background(MaterialTheme.colorScheme.surface),
     ) {
-        MessageCard(
-            msg = msg,
-            blockRemote = blockRemote,
-            stripTracking = stripTracking,
-            confirmLinks = confirmLinks,
-            attachmentStatus = attachmentStatus,
-            onOpenAttachment = onOpenAttachment,
-            textZoom = textZoom,
-        )
-        // Reply / Forward at the end of the message — short mails show them without scrolling,
-        // long ones reveal them at the bottom. (Reply-all lives in the toolbar overflow.)
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            MessageCard(
+                msg = msg,
+                blockRemote = blockRemote,
+                stripTracking = stripTracking,
+                confirmLinks = confirmLinks,
+                attachmentStatus = attachmentStatus,
+                onOpenAttachment = onOpenAttachment,
+                textZoom = textZoom,
+            )
+        }
+        // Reply / Forward pinned at the bottom so they sit in the same place whether the mail is
+        // short or long, instead of floating mid-screen right under a short message.
         HorizontalDivider()
         Row(
             modifier = Modifier
