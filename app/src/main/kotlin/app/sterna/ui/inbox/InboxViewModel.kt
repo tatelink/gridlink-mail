@@ -522,6 +522,22 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Drop [email] from any expanded conversation's inline member snapshot. The collapsed-row
+     * swipe clears the whole thread via [threadSwipeRemove]; this covers a single child message
+     * swiped away inside an unfolded conversation, whose rows come from [_threadMembers] (a
+     * static cache snapshot) rather than the live paged list — so without this the deleted row
+     * would linger on screen.
+     */
+    private fun dropThreadMember(email: Email) {
+        val key = threadKeyOf(email)
+        val members = _threadMembers.value[key] ?: return
+        val remaining = members.filterNot { it.id == email.id }
+        _threadMembers.value =
+            if (remaining.isEmpty()) _threadMembers.value - key
+            else _threadMembers.value + (key to remaining)
+    }
+
+    /**
      * Remove [email] optimistically (so the row leaves instantly — never stuck mid-swipe), run
      * the server [op], then either offer Undo on success or restore the row + report the error.
      */
@@ -530,6 +546,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         val mailboxId = email.mailboxId
         viewModelScope.launch {
             repo.evict(email.id)
+            dropThreadMember(email)
             runCatching { op(credentials, email.id) }
                 .onSuccess {
                     if (mailboxId != null) {
