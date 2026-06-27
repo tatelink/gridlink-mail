@@ -762,30 +762,39 @@ fun InboxScreen(
                                 mailboxDisplayName(searchRole, ui.mailboxName)
                             }
                             val focusManager = LocalFocusManager.current
-                            TextField(
-                                value = ui.searchQuery,
-                                onValueChange = viewModel::setSearchQuery,
-                                placeholder = {
-                                    // Let a long folder name wrap to a second line instead of
-                                    // being clipped (e.g. "Search in Lists/Newsletters/…").
+                            // The input stays single-line (a filled TextField can't grow past
+                            // the app bar's height without clipping), but the hint is drawn as a
+                            // separate Text behind it so a long folder name wraps to two lines
+                            // instead of being cut off with an ellipsis.
+                            Box(Modifier.fillMaxWidth()) {
+                                if (ui.searchQuery.isEmpty()) {
                                     Text(
                                         stringResource(R.string.inbox_search_in, scopeLabel),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .align(Alignment.CenterStart)
+                                            .padding(horizontal = 16.dp),
                                     )
-                                },
-                                // Live search-as-you-type; the Search key just folds the keyboard.
-                                maxLines = 2,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent,
-                                ),
-                                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
-                            )
+                                }
+                                TextField(
+                                    value = ui.searchQuery,
+                                    onValueChange = viewModel::setSearchQuery,
+                                    singleLine = true,
+                                    // Live search-as-you-type; the Search key just folds the keyboard.
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                    keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = Color.Transparent,
+                                        unfocusedContainerColor = Color.Transparent,
+                                        focusedIndicatorColor = Color.Transparent,
+                                        unfocusedIndicatorColor = Color.Transparent,
+                                    ),
+                                    modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                                )
+                            }
                         },
                         actions = {
                             if (ui.searchQuery.isNotEmpty()) {
