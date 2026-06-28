@@ -1591,6 +1591,44 @@ class MailRepository(
         runCatching { syncMailbox(ctx.session, ctx.accountId, ctx.auth, sentId, PAGE_SIZE, credentials.id) }
     }
 
+    /**
+     * Send an iTIP REPLY to a calendar invite: a short text/plain note plus [replyIcs] as a
+     * text/calendar attachment, addressed to [organizerEmail], from this account's identity.
+     * Reuses the normal [send] path — JMAP uploads the blob, IMAP stages a temp file — so there
+     * is no separate sender. The decisive REPLY signal is the in-body METHOD:REPLY line, so the
+     * reply is valid even when a protocol can't carry the Content-Type method parameter.
+     */
+    suspend fun sendCalendarReply(
+        credentials: AccountCredentials,
+        organizerEmail: String,
+        subject: String,
+        textBody: String,
+        replyIcs: ByteArray,
+    ) {
+        require(organizerEmail.isNotBlank()) { "The invite has no organizer to reply to." }
+        val attachment = if (credentials.protocol == MailProtocol.IMAP) {
+            // No blob store for IMAP — stage the bytes as a temp file the SMTP send reads, and
+            // pass the method parameter verbatim in the Content-Type (OutgoingMime echoes it).
+            val file = java.io.File.createTempFile("sterna-reply", ".ics").apply { writeBytes(replyIcs) }
+            EmailBodyPart(
+                partId = file.absolutePath,
+                type = "text/calendar; method=REPLY; charset=utf-8",
+                size = replyIcs.size.toLong(),
+                name = "invite.ics",
+                disposition = "attachment",
+            )
+        } else {
+            uploadAttachment(credentials, replyIcs, "text/calendar", "invite.ics")
+        }
+        send(
+            credentials = credentials,
+            to = listOf(organizerEmail),
+            subject = subject,
+            body = textBody,
+            attachments = listOf(attachment),
+        )
+    }
+
     // ---- scheduled send ----
 
     /** Persist a message to send later; returns its row id (used to schedule the worker). */

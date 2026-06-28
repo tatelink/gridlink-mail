@@ -502,6 +502,7 @@ private fun MessageContent(
                     attachmentStatus = attachmentStatus,
                     onOpenAttachment = viewModel::openAttachment,
                     calendar = calendar,
+                    onRespondToInvite = viewModel::respondToInvite,
                     textZoom = messageTextSize.zoom,
                     onReply = { mode -> onReply(mode, replyTargetId, accountId) },
                 )
@@ -519,6 +520,7 @@ private fun ConversationBody(
     attachmentStatus: String?,
     onOpenAttachment: (EmailBodyPart, String) -> Unit,
     calendar: CalendarInvite?,
+    onRespondToInvite: (String) -> Unit,
     textZoom: Int,
     onReply: (mode: String) -> Unit,
 ) {
@@ -558,6 +560,7 @@ private fun ConversationBody(
                     attachmentStatus = attachmentStatus,
                     onOpenAttachment = onOpenAttachment,
                     calendar = calendar,
+                    onRespondToInvite = onRespondToInvite,
                     textZoom = textZoom,
                     onBodyReady = { bodyReady = true },
                 )
@@ -606,6 +609,7 @@ private fun MessageCard(
     attachmentStatus: String?,
     onOpenAttachment: (EmailBodyPart, String) -> Unit,
     calendar: CalendarInvite?,
+    onRespondToInvite: (String) -> Unit,
     textZoom: Int,
     onBodyReady: () -> Unit = {},
 ) {
@@ -674,9 +678,13 @@ private fun MessageCard(
                     // A calendar invite renders as an event preview card above the body.
                     if (calendar != null && full.calendarParts().isNotEmpty()) {
                         HorizontalDivider()
-                        CalendarEventCard(calendar) {
-                            calendar.part?.let { onOpenAttachment(it, calendar.ownerId ?: msg.id) }
-                        }
+                        CalendarEventCard(
+                            invite = calendar,
+                            onRespond = onRespondToInvite,
+                            onOpenInvitation = {
+                                calendar.part?.let { onOpenAttachment(it, calendar.ownerId ?: msg.id) }
+                            },
+                        )
                     }
                     HorizontalDivider()
                     val scheme = MaterialTheme.colorScheme
@@ -779,6 +787,7 @@ private fun AttachmentSection(
 @Composable
 private fun CalendarEventCard(
     invite: CalendarInvite,
+    onRespond: (String) -> Unit,
     onOpenInvitation: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -849,6 +858,11 @@ private fun CalendarEventCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // RSVP is offered only for an actionable request (a REQUEST that names an
+                // organiser to reply to and isn't cancelled). CANCEL/REPLY methods get no buttons.
+                if (event.method == "REQUEST" && !event.cancelled && !event.organizerEmail.isNullOrBlank()) {
+                    InviteRsvp(invite.response, onRespond)
+                }
                 Spacer(Modifier.height(10.dp))
                 Button(onClick = {
                     if (!addToCalendar(context, event)) {
@@ -875,6 +889,65 @@ private fun CalendarEventCard(
                     OutlinedButton(onClick = onOpenInvitation) {
                         Text(stringResource(R.string.calendar_open_invitation))
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * RSVP controls for a meeting request: Accept / Decline / Tentative. While the reply is sending
+ * it shows progress; once sent it collapses to a confirmation line; on failure it shows an error
+ * and the buttons act as a retry. Reflected for the current session only (not persisted).
+ */
+@Composable
+private fun InviteRsvp(response: InviteResponse, onRespond: (String) -> Unit) {
+    Spacer(Modifier.height(12.dp))
+    when (response) {
+        is InviteResponse.Sent -> {
+            val msg = when (response.partstat) {
+                "ACCEPTED" -> R.string.calendar_responded_accepted
+                "DECLINED" -> R.string.calendar_responded_declined
+                else -> R.string.calendar_responded_tentative
+            }
+            Text(
+                text = stringResource(msg),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        InviteResponse.Sending -> {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.calendar_reply_sending),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        else -> {
+            if (response is InviteResponse.Failed) {
+                Text(
+                    text = stringResource(R.string.calendar_reply_failed),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(onClick = { onRespond("ACCEPTED") }, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.calendar_accept))
+                }
+                OutlinedButton(onClick = { onRespond("DECLINED") }, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.calendar_decline))
+                }
+                OutlinedButton(onClick = { onRespond("TENTATIVE") }, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.calendar_tentative))
                 }
             }
         }

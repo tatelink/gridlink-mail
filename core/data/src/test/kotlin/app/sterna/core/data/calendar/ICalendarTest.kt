@@ -207,4 +207,95 @@ class ICalendarTest {
             .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         assertEquals(expected, event.startMillis)
     }
+
+    // ---- Reply-oriented parsing (phase 2) --------------------------------------------------
+
+    private fun request(): ParsedEvent = ICalendar.parse(
+        ics(
+            "METHOD:REQUEST",
+            "BEGIN:VEVENT",
+            "UID:abc-123@example.com",
+            "SEQUENCE:2",
+            "SUMMARY:Sprint review",
+            "ORGANIZER;CN=Chair Person:mailto:chair@example.com",
+            "DTSTART;TZID=Europe/Paris:20260703T140000",
+            "DTEND;TZID=Europe/Paris:20260703T150000",
+            "ATTENDEE;CN=Ann:mailto:ann@example.com",
+            "ATTENDEE;CN=Bob Builder:mailto:bob@example.com",
+            "END:VEVENT",
+        ),
+    )!!
+
+    @Test fun parsesUidSequenceOrganizerAttendees() {
+        val e = request()
+        assertEquals("abc-123@example.com", e.uid)
+        assertEquals(2, e.sequence)
+        assertEquals("chair@example.com", e.organizerEmail)
+        assertEquals("Chair Person", e.organizerCn)
+        assertEquals(2, e.attendees.size)
+        assertEquals("ann@example.com", e.attendees[0].email)
+        assertEquals("Ann", e.attendees[0].cn)
+        assertEquals("bob@example.com", e.attendees[1].email)
+    }
+
+    @Test fun keepsRawDtStartForEcho() {
+        val e = request()
+        assertEquals("DTSTART;TZID=Europe/Paris:20260703T140000", e.rawDtStart)
+        assertEquals("DTEND;TZID=Europe/Paris:20260703T150000", e.rawDtEnd)
+        assertEquals("UID:abc-123@example.com", e.rawUid)
+        assertEquals("SEQUENCE:2", e.rawSequence)
+    }
+
+    @Test fun sequenceDefaultsToZero() {
+        val e = ICalendar.parse(
+            ics("BEGIN:VEVENT", "DTSTART:20260703T140000Z", "END:VEVENT"),
+        )!!
+        assertEquals(0, e.sequence)
+        assertNull(e.uid)
+    }
+
+    @Test fun buildReplyAccepted() {
+        val ics = ICalendar.buildReply(
+            event = request(),
+            attendeeEmail = "ann@example.com",
+            attendeeCn = "Ann",
+            partstat = "ACCEPTED",
+            nowMillis = Instant.parse("2026-06-28T09:30:00Z").toEpochMilli(),
+        )
+        // CRLF line endings.
+        assertTrue(ics.contains("\r\n"))
+        val lines = ics.split("\r\n")
+        assertTrue("METHOD:REPLY" in lines)
+        assertTrue("VERSION:2.0" in lines)
+        assertTrue("PRODID:-//Sterna Mail//EN" in lines)
+        assertTrue("UID:abc-123@example.com" in lines)
+        // Organizer echoed as mailto with its CN.
+        assertTrue(lines.any { it.startsWith("ORGANIZER") && it.contains("mailto:chair@example.com") })
+        // Raw DTSTART echoed verbatim (time-zone preserved).
+        assertTrue("DTSTART;TZID=Europe/Paris:20260703T140000" in lines)
+        assertTrue("SEQUENCE:2" in lines)
+        // DTSTAMP formatted as UTC.
+        assertTrue("DTSTAMP:20260628T093000Z" in lines)
+        // The replying attendee with PARTSTAT.
+        assertTrue("ATTENDEE;PARTSTAT=ACCEPTED;CN=Ann:mailto:ann@example.com" in lines)
+        assertTrue("SUMMARY:Sprint review" in lines)
+    }
+
+    @Test fun buildReplyDeclinedAndTentative() {
+        val declined = ICalendar.buildReply(request(), "ann@example.com", null, "DECLINED", 0L)
+        assertTrue(declined.split("\r\n").any { it.startsWith("ATTENDEE;PARTSTAT=DECLINED:") })
+        assertTrue("METHOD:REPLY" in declined.split("\r\n"))
+        val tentative = ICalendar.buildReply(request(), "ann@example.com", null, "TENTATIVE", 0L)
+        assertTrue(tentative.split("\r\n").any { it.startsWith("ATTENDEE;PARTSTAT=TENTATIVE:") })
+    }
+
+    @Test fun buildReplyFoldsLongLines() {
+        val longUid = "x".repeat(120)
+        val e = ICalendar.parse(
+            ics("BEGIN:VEVENT", "UID:$longUid", "DTSTART:20260703T140000Z", "END:VEVENT"),
+        )!!
+        val ics = ICalendar.buildReply(e, "a@b.com", null, "ACCEPTED", 0L)
+        // No physical line may exceed 75 octets (folding inserts CRLF + space).
+        ics.split("\r\n").forEach { assertTrue(it.toByteArray().size <= 75) }
+    }
 }

@@ -49,7 +49,18 @@ data class CalendarInvite(
     val failed: Boolean = false,
     val part: EmailBodyPart? = null,
     val ownerId: String? = null,
+    /** State of the RSVP reply for this invite (idle until the user taps Accept/Decline/…). */
+    val response: InviteResponse = InviteResponse.Idle,
 )
+
+/** RSVP reply lifecycle for a calendar invite, reflected on the event card. */
+sealed interface InviteResponse {
+    data object Idle : InviteResponse
+    data object Sending : InviteResponse
+    /** Reply sent; [partstat] is ACCEPTED / DECLINED / TENTATIVE. */
+    data class Sent(val partstat: String) : InviteResponse
+    data object Failed : InviteResponse
+}
 
 /** A copy with the $seen keyword set, so a just-opened/expanded message renders as read. */
 private fun Email.markRead(): Email =
@@ -276,6 +287,52 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 )
             } catch (t: Throwable) {
                 _calendar.value = CalendarInvite(loading = false, failed = true, part = part, ownerId = msg.id)
+            }
+        }
+    }
+
+    /**
+     * RSVP to the open invite: build an iTIP REPLY .ics for [partstat] (ACCEPTED / DECLINED /
+     * TENTATIVE) and e-mail it to the organiser via the normal send path. The chosen status is
+     * reflected on the card for this session only (not persisted across restarts). The reply's
+     * timestamp is taken here and passed into the pure builder so it stays testable.
+     */
+    fun respondToInvite(partstat: String) {
+        val invite = _calendar.value ?: return
+        val event = invite.event ?: return
+        val organizer = event.organizerEmail?.takeIf { it.isNotBlank() } ?: return
+        if (invite.response is InviteResponse.Sending) return
+        val nowMillis = System.currentTimeMillis()
+        _calendar.value = invite.copy(response = InviteResponse.Sending)
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            try {
+                val credentials = credentials() ?: error(app.getString(R.string.status_no_saved_account))
+                // The replying attendee is this account; reuse its CN from the invite if it lists us.
+                val accountEmail = credentials.username
+                val cn = event.attendees.firstOrNull { it.email.equals(accountEmail, true) }?.cn
+                val ics = ICalendar.buildReply(event, accountEmail, cn, partstat, nowMillis)
+                val summary = event.title ?: app.getString(R.string.calendar_event_untitled)
+                val subject = when (partstat) {
+                    "ACCEPTED" -> app.getString(R.string.calendar_reply_subject_accepted, summary)
+                    "DECLINED" -> app.getString(R.string.calendar_reply_subject_declined, summary)
+                    else -> app.getString(R.string.calendar_reply_subject_tentative, summary)
+                }
+                val who = cn?.takeIf { it.isNotBlank() } ?: accountEmail
+                val body = when (partstat) {
+                    "ACCEPTED" -> app.getString(R.string.calendar_reply_body_accepted, who)
+                    "DECLINED" -> app.getString(R.string.calendar_reply_body_declined, who)
+                    else -> app.getString(R.string.calendar_reply_body_tentative, who)
+                }
+                repo.sendCalendarReply(credentials, organizer, subject, body, ics.toByteArray(Charsets.UTF_8))
+                // The message may have changed underneath us while sending — guard by owner.
+                if (_calendar.value?.ownerId == invite.ownerId) {
+                    _calendar.value = _calendar.value?.copy(response = InviteResponse.Sent(partstat))
+                }
+            } catch (t: Throwable) {
+                if (_calendar.value?.ownerId == invite.ownerId) {
+                    _calendar.value = _calendar.value?.copy(response = InviteResponse.Failed)
+                }
             }
         }
     }

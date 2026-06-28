@@ -28,10 +28,28 @@ data class ParsedEvent(
     val method: String?,
     /** VEVENT STATUS (CONFIRMED, CANCELLED, …) in upper case, if present. */
     val status: String?,
+    /** VEVENT UID — the invite's stable identity; a REPLY must echo it. */
+    val uid: String? = null,
+    /** VEVENT SEQUENCE (revision counter); defaults to 0 when absent. */
+    val sequence: Int = 0,
+    /** Organizer e-mail (mailto: stripped), needed as the REPLY recipient. */
+    val organizerEmail: String? = null,
+    /** Organizer display name (CN) on its own, if any. */
+    val organizerCn: String? = null,
+    /** Verbatim (post-unfolding) property lines so a REPLY can echo them exactly. */
+    val rawUid: String? = null,
+    val rawDtStart: String? = null,
+    val rawDtEnd: String? = null,
+    val rawSequence: String? = null,
+    /** Every ATTENDEE on the event, so we can find "our" entry and reuse its CN. */
+    val attendees: List<Attendee> = emptyList(),
 ) {
     /** A cancellation, whether signalled by the transport METHOD or the event STATUS. */
     val cancelled: Boolean get() = method == "CANCEL" || status == "CANCELLED"
 }
+
+/** One ATTENDEE line: its e-mail (mailto: stripped), optional CN, and the verbatim line. */
+data class Attendee(val email: String, val cn: String?, val raw: String)
 
 /**
  * A small, dependency-free RFC 5545 reader. It unfolds, finds the first VEVENT, and pulls the
@@ -74,18 +92,34 @@ object ICalendar {
                 else -> first("DURATION")?.let { parseDuration(it.value) }?.let { start.millis + it }
             }
 
+            val organizerLine = first("ORGANIZER")
+            val seqLine = first("SEQUENCE")
+            val uidLine = first("UID")
+            val attendees = event.filter { it.name == "ATTENDEE" }.map {
+                Attendee(email = emailOf(it.value), cn = cnOf(it), raw = it.raw)
+            }
+
             ParsedEvent(
                 title = first("SUMMARY")?.let { unescapeText(it.value) }?.takeIf { it.isNotBlank() },
                 startMillis = start.millis,
                 endMillis = end,
                 allDay = start.allDay,
                 location = first("LOCATION")?.let { unescapeText(it.value) }?.takeIf { it.isNotBlank() },
-                organizer = first("ORGANIZER")?.let(::organizerOf),
-                attendeeCount = event.count { it.name == "ATTENDEE" },
+                organizer = organizerLine?.let(::organizerOf),
+                attendeeCount = attendees.size,
                 recurs = event.any { it.name == "RRULE" },
                 description = first("DESCRIPTION")?.let { unescapeText(it.value) }?.takeIf { it.isNotBlank() },
                 method = method,
                 status = first("STATUS")?.value?.trim()?.uppercase()?.takeIf { it.isNotBlank() },
+                uid = uidLine?.value?.trim()?.takeIf { it.isNotBlank() },
+                sequence = seqLine?.value?.trim()?.toIntOrNull() ?: 0,
+                organizerEmail = organizerLine?.let { emailOf(it.value) }?.takeIf { it.isNotBlank() },
+                organizerCn = organizerLine?.let(::cnOf),
+                rawUid = uidLine?.raw,
+                rawDtStart = startLine.raw,
+                rawDtEnd = endLine?.raw,
+                rawSequence = seqLine?.raw,
+                attendees = attendees,
             )
         } catch (t: Throwable) {
             null
@@ -94,7 +128,13 @@ object ICalendar {
 
     // ---- Lines -------------------------------------------------------------------------------
 
-    private data class Line(val name: String, val params: Map<String, String>, val value: String)
+    private data class Line(
+        val name: String,
+        val params: Map<String, String>,
+        val value: String,
+        /** The verbatim unfolded source line, kept so a REPLY can echo it exactly. */
+        val raw: String,
+    )
 
     private data class Dated(val millis: Long, val allDay: Boolean)
 
@@ -140,7 +180,7 @@ object ICalendar {
                     segs[j].substring(eq + 1).trim().trim('"')
             }
         }
-        return Line(name, params, value)
+        return Line(name, params, value, line)
     }
 
     private fun splitUnquoted(s: String, sep: Char): List<String> {
@@ -234,6 +274,99 @@ object ICalendar {
 
     private fun organizerOf(line: Line): String? {
         line.params["CN"]?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
-        return line.value.trim().replaceFirst(Regex("(?i)^mailto:"), "").takeIf { it.isNotBlank() }
+        return emailOf(line.value).takeIf { it.isNotBlank() }
+    }
+
+    /** A CAL-ADDRESS value reduced to its e-mail (drops a leading `mailto:`). */
+    private fun emailOf(value: String): String =
+        value.trim().replaceFirst(Regex("(?i)^mailto:"), "").trim()
+
+    private fun cnOf(line: Line): String? =
+        line.params["CN"]?.trim()?.takeIf { it.isNotBlank() }
+
+    // ---- REPLY (iTIP) generation ------------------------------------------------------------
+
+    private val UTC_STAMP =
+        DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC)
+
+    /**
+     * Build a minimal, valid iTIP REPLY (RFC 5546) VCALENDAR for [event]. The reply echoes the
+     * invite's UID, ORGANIZER, DTSTART, SEQUENCE and SUMMARY verbatim where possible (safest for
+     * time-zone correctness) and carries the replying [attendeeEmail] with the chosen [partstat]
+     * (ACCEPTED / DECLINED / TENTATIVE). [nowMillis] supplies DTSTAMP as UTC; it is passed in so
+     * this stays pure and testable. Output uses CRLF line endings and RFC 5545 75-octet folding.
+     */
+    fun buildReply(
+        event: ParsedEvent,
+        attendeeEmail: String,
+        attendeeCn: String?,
+        partstat: String,
+        nowMillis: Long,
+    ): String {
+        val lines = ArrayList<String>()
+        lines += "BEGIN:VCALENDAR"
+        lines += "VERSION:2.0"
+        lines += "PRODID:-//Sterna Mail//EN"
+        lines += "METHOD:REPLY"
+        lines += "BEGIN:VEVENT"
+        when {
+            event.rawUid != null -> lines += event.rawUid
+            event.uid != null -> lines += "UID:${event.uid}"
+        }
+        lines += "DTSTAMP:${UTC_STAMP.format(Instant.ofEpochMilli(nowMillis))}"
+        organizerLine(event)?.let { lines += it }
+        event.rawDtStart?.let { lines += it }
+        lines += event.rawSequence ?: "SEQUENCE:${event.sequence}"
+        lines += attendeeLine(attendeeEmail, attendeeCn, partstat)
+        event.title?.let { lines += "SUMMARY:${escapeText(it)}" }
+        lines += "END:VEVENT"
+        lines += "END:VCALENDAR"
+        return lines.joinToString("\r\n") { fold(it) } + "\r\n"
+    }
+
+    private fun organizerLine(event: ParsedEvent): String? {
+        val email = event.organizerEmail?.takeIf { it.isNotBlank() } ?: return null
+        val cn = event.organizerCn?.let { ";CN=${quoteParam(it)}" } ?: ""
+        return "ORGANIZER$cn:mailto:$email"
+    }
+
+    private fun attendeeLine(email: String, cn: String?, partstat: String): String {
+        val cnParam = cn?.takeIf { it.isNotBlank() }?.let { ";CN=${quoteParam(it)}" } ?: ""
+        return "ATTENDEE;PARTSTAT=$partstat$cnParam:mailto:$email"
+    }
+
+    /** Quote a parameter value if it contains a character that requires it (RFC 5545 §3.2). */
+    private fun quoteParam(value: String): String {
+        val v = value.replace("\"", "")
+        return if (v.any { it == ',' || it == ';' || it == ':' }) "\"$v\"" else v
+    }
+
+    /** Escape an iCalendar TEXT value: backslash, newline, comma and semicolon. */
+    private fun escapeText(s: String): String = s
+        .replace("\\", "\\\\")
+        .replace("\n", "\\n")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+
+    /** Fold a content line to <=75 octets per RFC 5545, continuations indented with a space. */
+    private fun fold(line: String): String {
+        if (line.toByteArray(Charsets.UTF_8).size <= 75) return line
+        val out = StringBuilder()
+        var lineBytes = 0
+        var i = 0
+        while (i < line.length) {
+            val cp = line.codePointAt(i)
+            val chars = Character.charCount(cp)
+            val piece = line.substring(i, i + chars)
+            val b = piece.toByteArray(Charsets.UTF_8).size
+            if (lineBytes + b > 75) {
+                out.append("\r\n ")
+                lineBytes = 1 // the leading space counts toward the octet budget
+            }
+            out.append(piece)
+            lineBytes += b
+            i += chars
+        }
+        return out.toString()
     }
 }
