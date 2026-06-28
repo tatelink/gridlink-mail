@@ -91,6 +91,8 @@ let autodiscovery find the server for you.
   filter
 - Search-as-you-type (server-side + instant local results) with advanced filters
   (from, subject, has-attachment, date)
+- Calendar invites preview as an event card; one tap adds them to your calendar
+  app (no calendar permission needed)
 
 **✍️ Writing & sending**
 - Compose with recipient chips + autocomplete and email validation, multiple

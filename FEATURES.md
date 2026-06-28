@@ -174,4 +174,10 @@ The categories further down list the full feature set; this is the order of work
 - ✅ ⭐ Vacation responder / auto-reply — JMAP `VacationResponse` (RFC 8621); per-account, server-side, Settings → Vacation responder (enable + subject + message + optional date range), IMAP/no-capability gated
 - ✅ On-device storage usage + Clear cache (Settings → Storage); ✅ server mailbox quota via JMAP `Quota` (RFC 9425) shown in Settings → Storage when supported
 - ✅ Server-side filters/rules where the server supports `SieveScript` (RFC 9661) — form-based rule builder (condition → move/mark-read/flag), compiled to Sieve and round-tripped via a JSON metadata comment
-- 💡 Calendar / `.ics` invite preview (later)
+- ✅ Calendar invite (`.ics`) preview — a `text/calendar` part is detected (captured on
+  IMAP even without a filename; JMAP lists it already), the first `VEVENT` is parsed by a
+  small dependency-free iCalendar reader (timezones, all-day, recurrence, `DURATION`), and
+  an event card above the body shows title / when / where / organiser / guests. "Add to
+  calendar" opens the user's calendar app prefilled via an Intent, so **no calendar
+  permission** is taken; a parse failure falls back to opening the raw `.ics`. 💡 RSVP
+  (Accept/Decline iTIP reply) and conflict detection later
