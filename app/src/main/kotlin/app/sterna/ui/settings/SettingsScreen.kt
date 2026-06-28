@@ -49,8 +49,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -250,7 +250,7 @@ private fun SettingsHub(
             )
             // App-wide preferences.
             SettingsSection(stringResource(R.string.settings_group_app)) {
-                SettingsCategoryRow(Icons.Filled.Star, stringResource(R.string.settings_appearance_title), stringResource(R.string.settings_appearance_summary), onOpenAppearance)
+                SettingsCategoryRow(Icons.Filled.Palette, stringResource(R.string.settings_appearance_title), stringResource(R.string.settings_appearance_summary), onOpenAppearance)
                 SettingsCategoryRow(Icons.AutoMirrored.Filled.List, stringResource(R.string.settings_reading_title), stringResource(R.string.settings_reading_summary), onOpenReading)
                 SettingsCategoryRow(Icons.Filled.Notifications, stringResource(R.string.settings_notifications_title), stringResource(R.string.settings_notifications_summary), onOpenNotifications)
                 SettingsCategoryRow(Icons.Filled.Lock, stringResource(R.string.settings_privacy_title), stringResource(R.string.settings_privacy_summary), onOpenPrivacy)
@@ -1373,7 +1373,9 @@ private fun BoxScope.VacationNote(text: String, onRetry: (() -> Unit)? = null) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (onRetry != null) {
-            OutlinedButton(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
+            // Filled Button to match every other error-recovery "Retry" (inbox,
+            // message load, filters): the same action should read the same everywhere.
+            Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
                 Text(stringResource(R.string.settings_vacation_retry))
             }
         }

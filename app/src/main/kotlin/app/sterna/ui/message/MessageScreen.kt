@@ -35,11 +35,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Forward
 import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.automirrored.filled.ReplyAll
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MarkEmailUnread
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Report
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -368,6 +374,7 @@ private fun MessageContent(
                         DropdownMenu(
                             expanded = menuOpen,
                             onDismissRequest = { menuOpen = false; snoozeSubmenu = false },
+                            shape = MaterialTheme.shapes.medium,
                         ) {
                             if (snoozeSubmenu) {
                                 val context = LocalContext.current
@@ -384,10 +391,12 @@ private fun MessageContent(
                                 // Reply variants (plain Reply is the toolbar icon).
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.message_reply_all)) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ReplyAll, contentDescription = null) },
                                     onClick = { menuOpen = false; onReply("replyAll", replyTargetId, accountId) },
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.message_forward)) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null) },
                                     onClick = { menuOpen = false; onReply("forward", replyTargetId, accountId) },
                                 )
                                 // Image controls: one-time show only while still blocked,
@@ -396,6 +405,7 @@ private fun MessageContent(
                                 if (!showRemote) {
                                     DropdownMenuItem(
                                         text = { Text(stringResource(R.string.message_show_images)) },
+                                        leadingIcon = { Icon(Icons.Filled.Image, contentDescription = null) },
                                         onClick = { menuOpen = false; manualShow = true },
                                     )
                                 }
@@ -409,6 +419,7 @@ private fun MessageContent(
                                                 ),
                                             )
                                         },
+                                        leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
                                         onClick = {
                                             menuOpen = false
                                             viewModel.setImagesAlwaysAllowed(senderEmail, !senderAllowed)
@@ -419,6 +430,7 @@ private fun MessageContent(
                                 HorizontalDivider()
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.message_archive)) },
+                                    leadingIcon = { Icon(Icons.Filled.Archive, contentDescription = null) },
                                     onClick = { menuOpen = false; viewModel.archive(onBack) },
                                 )
                                 DropdownMenuItem(
@@ -430,6 +442,7 @@ private fun MessageContent(
                                             ),
                                         )
                                     },
+                                    leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
                                     onClick = {
                                         menuOpen = false
                                         // Confirm the move once it lands, naming the destination
@@ -450,6 +463,7 @@ private fun MessageContent(
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.message_snooze)) },
+                                    leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
                                     onClick = { snoozeSubmenu = true },
                                 )
                             }

@@ -187,7 +187,7 @@
     <string name="settings_notifications_summary">Push scope, new mail</string>
     <string name="settings_vacation_title">Vacation responder</string>
     <string name="settings_vacation_summary">Auto-reply while you\'re away</string>
-    <string name="settings_privacy_title">Privacy &amp; Security</string>
+    <string name="settings_privacy_title">Privacy &amp; security</string>
     <string name="settings_privacy_summary">App lock, remote images</string>
     <string name="settings_storage_title">Storage</string>
     <string name="settings_storage_summary">Cache usage, clear cache</string>
@@ -310,7 +310,7 @@
     <string name="settings_filter_field_subject">Subject</string>
     <string name="settings_filter_match_contains">contains</string>
     <string name="settings_filter_match_is">is exactly</string>
-    <string name="settings_privacy_screen_title">Privacy &amp; Security</string>
+    <string name="settings_privacy_screen_title">Privacy &amp; security</string>
     <string name="settings_security_section">Security</string>
     <string name="settings_app_lock_title">App lock</string>
     <string name="settings_app_lock_subtitle">Require your fingerprint, face, or screen PIN to open Sterna Mail.</string>

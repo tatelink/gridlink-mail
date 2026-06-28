@@ -280,7 +280,7 @@ fun ComposeScreen(
                         ) {
                             Icon(Icons.Filled.Schedule, contentDescription = stringResource(R.string.compose_schedule_send))
                         }
-                        DropdownMenu(expanded = scheduleMenu, onDismissRequest = { scheduleMenu = false }) {
+                        DropdownMenu(expanded = scheduleMenu, onDismissRequest = { scheduleMenu = false }, shape = MaterialTheme.shapes.medium) {
                             schedulePresets(context).forEach { (label, millis) ->
                                 DropdownMenuItem(
                                     text = { Text(label) },
@@ -339,7 +339,7 @@ fun ComposeScreen(
                         )
                         Icon(Icons.Filled.ExpandMore, contentDescription = stringResource(R.string.compose_choose_sender))
                     }
-                    DropdownMenu(expanded = fromMenu, onDismissRequest = { fromMenu = false }) {
+                    DropdownMenu(expanded = fromMenu, onDismissRequest = { fromMenu = false }, shape = MaterialTheme.shapes.medium) {
                         fromOptions.forEach { option ->
                             DropdownMenuItem(
                                 text = { Text(option.identity.display()) },

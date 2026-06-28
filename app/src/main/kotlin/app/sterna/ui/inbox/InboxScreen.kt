@@ -60,7 +60,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.MailOutline
+import androidx.compose.material.icons.filled.AllInbox
 import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
@@ -69,7 +69,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Unarchive
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Report
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -600,7 +600,7 @@ fun InboxScreen(
                         stringResource(R.string.inbox_all_inboxes)
                     }
                     NavigationDrawerItem(
-                        icon = { Icon(Icons.Filled.MailOutline, contentDescription = null) },
+                        icon = { Icon(Icons.Filled.AllInbox, contentDescription = null) },
                         label = { Text(unifiedLabel) },
                         selected = ui.unified,
                         onClick = {
@@ -653,7 +653,7 @@ fun InboxScreen(
                                     IconButton(onClick = { folderMenu = true }) {
                                         Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_folder_options))
                                     }
-                                    DropdownMenu(folderMenu, onDismissRequest = { folderMenu = false }) {
+                                    DropdownMenu(folderMenu, onDismissRequest = { folderMenu = false }, shape = MaterialTheme.shapes.medium) {
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.inbox_new_subfolder)) },
                                             onClick = { folderMenu = false; folderToAddChild = mailbox },
@@ -867,7 +867,7 @@ fun InboxScreen(
                             IconButton(onClick = { sortOpen = true }) {
                                 Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.inbox_sort))
                             }
-                            DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
+                            DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }, shape = MaterialTheme.shapes.medium) {
                                 SortOrder.entries.forEach { order ->
                                     DropdownMenuItem(
                                         text = { Text(stringResource(sortLabel(order))) },
@@ -886,7 +886,7 @@ fun InboxScreen(
                                 Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
                             }
                             val isTrash = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
-                            DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
+                            DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, shape = MaterialTheme.shapes.medium) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.inbox_select_all)) },
                                     leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
@@ -1346,10 +1346,20 @@ private fun SwipeableEmailRow(
         val action = if (draggingRight) rightAction else leftAction
         if (offsetX.value != 0f && action != SwipeAction.NONE) {
             val destructive = action == SwipeAction.DELETE
-            val color = if (destructive) MaterialTheme.colorScheme.errorContainer
-            else MaterialTheme.colorScheme.secondaryContainer
-            val onColor = if (destructive) MaterialTheme.colorScheme.onErrorContainer
-            else MaterialTheme.colorScheme.onSecondaryContainer
+            // Flag reveal uses the coral tertiary to echo the favourite star
+            // (same concept, same accent); other non-destructive actions keep the
+            // calmer secondary. The label text carries the meaning either way.
+            val isFlag = action == SwipeAction.FLAG
+            val color = when {
+                destructive -> MaterialTheme.colorScheme.errorContainer
+                isFlag -> MaterialTheme.colorScheme.tertiaryContainer
+                else -> MaterialTheme.colorScheme.secondaryContainer
+            }
+            val onColor = when {
+                destructive -> MaterialTheme.colorScheme.onErrorContainer
+                isFlag -> MaterialTheme.colorScheme.onTertiaryContainer
+                else -> MaterialTheme.colorScheme.onSecondaryContainer
+            }
             Box(
                 Modifier.matchParentSize().background(color).padding(horizontal = 24.dp),
                 contentAlignment = if (draggingRight) Alignment.CenterStart else Alignment.CenterEnd,
@@ -1628,7 +1638,7 @@ private fun folderIcon(role: String?): ImageVector = when (role) {
     "drafts" -> Icons.Filled.Create
     "sent" -> Icons.AutoMirrored.Filled.Send
     "trash" -> Icons.Filled.Delete
-    "junk" -> Icons.Filled.Warning
+    "junk" -> Icons.Filled.Report
     "archive" -> Icons.Filled.Archive
     else -> Icons.Filled.Folder
 }
