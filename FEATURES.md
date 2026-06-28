@@ -179,5 +179,8 @@ The categories further down list the full feature set; this is the order of work
   small dependency-free iCalendar reader (timezones, all-day, recurrence, `DURATION`), and
   an event card above the body shows title / when / where / organiser / guests. "Add to
   calendar" opens the user's calendar app prefilled via an Intent, so **no calendar
-  permission** is taken; a parse failure falls back to opening the raw `.ics`. 💡 RSVP
-  (Accept/Decline iTIP reply) and conflict detection later
+  permission** is taken; a parse failure falls back to opening the raw `.ics`.
+- ✅ RSVP to an invite — Accept / Decline / Tentative on a `REQUEST` invite sends an iTIP
+  `REPLY` email (`text/calendar; METHOD:REPLY`) to the organiser, built without any
+  dependency and sent over the existing JMAP/IMAP path (so still **no calendar
+  permission**). 💡 Conflict detection later (deferred: it would need calendar read access)
