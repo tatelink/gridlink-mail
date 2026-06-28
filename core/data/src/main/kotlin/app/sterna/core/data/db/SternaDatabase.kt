@@ -8,9 +8,9 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [
         EmailEntity::class, EmailBodyEntity::class, MailboxEntity::class, ScheduledSendEntity::class,
-        SnoozedEntity::class, RecentContactEntity::class,
+        SnoozedEntity::class, RecentContactEntity::class, OutboxEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class SternaDatabase : RoomDatabase() {
@@ -20,6 +20,7 @@ abstract class SternaDatabase : RoomDatabase() {
     abstract fun scheduledSendDao(): ScheduledSendDao
     abstract fun snoozedDao(): SnoozedDao
     abstract fun recentContactDao(): RecentContactDao
+    abstract fun outboxDao(): OutboxDao
 
     companion object {
         fun build(context: Context): SternaDatabase =
@@ -28,7 +29,11 @@ abstract class SternaDatabase : RoomDatabase() {
                 SternaDatabase::class.java,
                 "sterna.db",
             )
-                // Cache is a disposable mirror of the server, so just rebuild on schema changes.
+                // The outbox holds unsent mail (user data): migrate it additively so a schema
+                // bump never destroys a queued send.
+                .addMigrations(MIGRATION_9_10)
+                // The rest of the DB is a disposable mirror of the server: if some other schema
+                // change has no migration, rebuilding the cache is an acceptable fallback.
                 .fallbackToDestructiveMigration()
                 .build()
     }

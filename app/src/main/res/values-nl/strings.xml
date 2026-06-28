@@ -467,6 +467,19 @@
     <string name="scheduled_empty">Geen geplande berichten.</string>
     <string name="scheduled_cancel">Geplande verzending annuleren</string>
     <string name="scheduled_send_at">Verzendt %1$s</string>
+    <!-- Outbox (persistent send queue) -->
+    <string name="inbox_outbox">Postvak uit</string>
+    <string name="outbox_title">Postvak uit</string>
+    <string name="outbox_empty">Postvak uit leeg</string>
+    <string name="outbox_empty_body">Verzonden berichten wachten hier tot ze zijn afgeleverd.</string>
+    <string name="outbox_state_waiting">Wacht op verzending</string>
+    <string name="outbox_state_sending">Verzenden…</string>
+    <string name="outbox_state_failed">Mislukt: %1$s</string>
+    <string name="outbox_state_failed_unknown">verzenden mislukt</string>
+    <string name="outbox_retry">Opnieuw</string>
+    <string name="outbox_edit">Bewerken</string>
+    <string name="outbox_delete">Verwijderen</string>
+    <string name="outbox_banner_failed">Sommige berichten zijn niet verzonden. Tik om te bekijken.</string>
 
     <!-- Conversations -->
     <string name="settings_conversation_section">Gesprekken</string>

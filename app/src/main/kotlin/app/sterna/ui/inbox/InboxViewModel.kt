@@ -8,6 +8,7 @@ import androidx.paging.cachedIn
 import app.sterna.container
 import app.sterna.R
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.db.OutboxState
 import app.sterna.core.data.mail.InboxRow
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.data.settings.SwipeAction
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -100,11 +102,25 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val settings = application.container.settingsRepository
     private val outbox = application.container.sendOutbox
 
-    /** Undo-send: a message held in the outbox, and a send that failed after the window. */
+    /** Undo-send: a message held in the outbox during its cancellable window. */
     val outboxPending: StateFlow<SendOutbox.Pending?> = outbox.pending
-    val outboxFailure: StateFlow<String?> = outbox.failure
     fun undoSend() = outbox.undo()
-    fun consumeSendFailure() = outbox.consumeFailure()
+
+    /** Discreet badge: how many outbox items are pending or failed (the undo window is silent). */
+    val outboxCount: StateFlow<Int> = repo.outboxActiveCount().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = 0,
+    )
+
+    /** Whether any outbox item is parked as failed (drives the failure banner). */
+    val outboxHasFailures: StateFlow<Boolean> = repo.outboxFlow()
+        .map { items -> items.any { it.state == OutboxState.FAILED } }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = false,
+        )
 
     /** Configured swipe-right / swipe-left actions, observed for the list rows. */
     val swipeConfig: StateFlow<SwipeConfig> =

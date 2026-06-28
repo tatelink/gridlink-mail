@@ -1,0 +1,50 @@
+package app.sterna.core.data.db
+
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
+/** Lifecycle of an outgoing message held in the persistent outbox. */
+enum class OutboxState {
+    /** Held back for the undo window (or a scheduled time); not yet eligible to send. */
+    HELD,
+
+    /** Ready to send as soon as the worker runs and the network is up. */
+    QUEUED,
+
+    /** A send attempt is in flight. */
+    SENDING,
+
+    /** Auto-retry gave up; the item stays for manual retry/edit/delete. */
+    FAILED,
+}
+
+/**
+ * A message persisted in the outbox: the single reliable downstream send path. A row
+ * survives the app being killed and is delivered by [app.sterna.send] WorkManager job,
+ * with automatic retry. Unlike the disposable cache, this is user data (unsent mail),
+ * so its table is migrated additively rather than rebuilt.
+ */
+@Entity(tableName = "outbox")
+data class OutboxEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val accountId: String,
+    val recipients: String, // comma-separated
+    val cc: String? = null, // comma-separated
+    val bcc: String? = null, // comma-separated
+    val subject: String,
+    val textBody: String,
+    val htmlBody: String? = null,
+    val fromName: String? = null,
+    val fromEmail: String? = null,
+    val inReplyTo: String? = null, // space-separated message-ids
+    val references: String? = null, // space-separated message-ids
+    /** Durable attachment descriptors; see [OutboxAttachments]. */
+    val attachmentsJson: String = "[]",
+    val createdAtMillis: Long,
+    /** Don't send before this instant: serves both the undo window and a scheduled time. */
+    val notBeforeMillis: Long,
+    val state: OutboxState = OutboxState.QUEUED,
+    val attemptCount: Int = 0,
+    val lastError: String? = null,
+    val lastAttemptMillis: Long? = null,
+)

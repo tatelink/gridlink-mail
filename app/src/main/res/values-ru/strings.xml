@@ -467,6 +467,19 @@
     <string name="scheduled_empty">Нет отложенных сообщений.</string>
     <string name="scheduled_cancel">Отменить отложенную отправку</string>
     <string name="scheduled_send_at">Отправка %1$s</string>
+    <!-- Outbox (persistent send queue) -->
+    <string name="inbox_outbox">Исходящие</string>
+    <string name="outbox_title">Исходящие</string>
+    <string name="outbox_empty">Исходящие пусты</string>
+    <string name="outbox_empty_body">Отправляемые сообщения ждут здесь до доставки.</string>
+    <string name="outbox_state_waiting">Ожидает отправки</string>
+    <string name="outbox_state_sending">Отправка…</string>
+    <string name="outbox_state_failed">Ошибка: %1$s</string>
+    <string name="outbox_state_failed_unknown">не удалось отправить</string>
+    <string name="outbox_retry">Повторить</string>
+    <string name="outbox_edit">Изменить</string>
+    <string name="outbox_delete">Удалить</string>
+    <string name="outbox_banner_failed">Некоторые сообщения не отправлены. Нажмите, чтобы проверить.</string>
     <string name="settings_conversation_section">Беседы</string>
     <string name="settings_conversation_title">Просмотр беседы</string>
     <string name="settings_conversation_subtitle">Объединять сообщения одной цепочки в одну строку с указанием количества.</string>

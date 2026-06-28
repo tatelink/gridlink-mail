@@ -13,6 +13,7 @@ import app.sterna.core.data.db.ContactRow
 import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.db.ScheduledSendEntity
+import app.sterna.send.Outbox
 import app.sterna.send.ScheduledSends
 import app.sterna.send.SendOutbox
 import app.sterna.core.jmap.model.Email
@@ -231,9 +232,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Queue the message with a hold-back window (Undo-send): validate + capture now,
-     * close the screen, and let the app-scoped [outbox] actually send a few seconds
-     * later unless the user undoes it.
+     * Queue the message in the persistent outbox with a hold-back window (Undo-send): validate +
+     * capture now, close the screen, and let the outbox worker deliver it a few seconds later
+     * (with auto-retry) unless the user undoes it. The row survives the app being killed.
      */
     fun send(to: String, cc: String, bcc: String, subject: String, body: String) {
         if (_state.value is ComposeState.Sending) return
@@ -250,6 +251,12 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 val attachments = _attachments.value
                 val replyTo = inReplyTo
                 val refs = references
+                // Persist the send held for the undo window; the worker delivers it after.
+                val id = repo.enqueueSend(
+                    credentials, recipients, subject, textBody, replyTo, refs,
+                    attachments, htmlBody, identity?.name, identity?.email, ccList, bccList,
+                    holdMs = SendOutbox.HOLD_MS,
+                )
                 // Keep the raw draft so undoing the send can reopen compose with it intact.
                 val draft = SendOutbox.ComposeDraft(
                     to = to, cc = cc, bcc = bcc, subject = subject, body = body,
@@ -257,14 +264,14 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     fromIdentityEmail = identity?.email,
                     attachments = attachments, inReplyTo = replyTo, references = refs,
                 )
-                outbox.enqueue(
-                    label = getApplication<Application>().getString(R.string.status_message_sent),
+                val app = getApplication<Application>()
+                outbox.hold(
+                    label = app.getString(R.string.status_message_sent),
                     draft = draft,
                 ) {
-                    repo.send(
-                        credentials, recipients, subject, textBody, replyTo, refs,
-                        attachments, htmlBody, identity?.name, identity?.email, ccList, bccList,
-                    )
+                    // Undo within the window: drop the queued row so nothing is sent.
+                    Outbox.cancel(app, id)
+                    repo.deleteOutbox(id)
                 }
                 _state.value = ComposeState.Done
             } catch (t: Throwable) {

@@ -29,6 +29,8 @@ object DataFactory {
                 client, database.emailDao(), database.emailBodyDao(), database.mailboxDao(), imapService,
                 database.scheduledSendDao(), database.snoozedDao(), database.recentContactDao(),
                 accountStore,
+                outboxDao = database.outboxDao(),
+                outboxFilesDir = java.io.File(appContext.filesDir, "outbox"),
             ),
             storageRepository = StorageRepository(
                 appContext, database.emailDao(), database.emailBodyDao(), database.mailboxDao(),

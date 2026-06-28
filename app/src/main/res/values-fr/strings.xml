@@ -467,6 +467,19 @@
     <string name="scheduled_empty">Aucun message programmé.</string>
     <string name="scheduled_cancel">Annuler l\'envoi programmé</string>
     <string name="scheduled_send_at">Envoi %1$s</string>
+    <!-- Outbox (persistent send queue) -->
+    <string name="inbox_outbox">Boîte d\'envoi</string>
+    <string name="outbox_title">Boîte d\'envoi</string>
+    <string name="outbox_empty">Boîte d\'envoi vide</string>
+    <string name="outbox_empty_body">Les messages envoyés patientent ici jusqu\'à leur remise.</string>
+    <string name="outbox_state_waiting">En attente d\'envoi</string>
+    <string name="outbox_state_sending">Envoi…</string>
+    <string name="outbox_state_failed">Échec : %1$s</string>
+    <string name="outbox_state_failed_unknown">envoi impossible</string>
+    <string name="outbox_retry">Réessayer</string>
+    <string name="outbox_edit">Modifier</string>
+    <string name="outbox_delete">Supprimer</string>
+    <string name="outbox_banner_failed">Certains messages ne sont pas partis. Touchez pour vérifier.</string>
     <string name="settings_conversation_section">Conversations</string>
     <string name="settings_conversation_title">Affichage par conversation</string>
     <string name="settings_conversation_subtitle">Regrouper les messages d\'un même fil dans une seule ligne, avec un compteur.</string>

@@ -45,6 +45,7 @@ import app.sterna.ui.connect.ConnectScreen
 import app.sterna.ui.inbox.InboxScreen
 import app.sterna.ui.inbox.InboxViewModel
 import app.sterna.ui.message.MessageScreen
+import app.sterna.ui.outbox.OutboxScreen
 import app.sterna.ui.scheduled.ScheduledSendsScreen
 import app.sterna.ui.search.SearchScreen
 import app.sterna.ui.onboarding.WelcomeScreen
@@ -220,6 +221,7 @@ private fun MainNavHost(
                 onOpenSettings = { if (entry.lifecycleIsResumed()) nav.navigate("settings") },
                 onOpenSearch = { if (entry.lifecycleIsResumed()) nav.navigate("search") },
                 onOpenScheduled = { if (entry.lifecycleIsResumed()) nav.navigate("scheduled") },
+                onOpenOutbox = { if (entry.lifecycleIsResumed()) nav.navigate("outbox") },
                 accounts = accounts,
                 currentAccountId = currentAccountId,
                 onSwitchAccount = onSwitchAccount,
@@ -314,6 +316,12 @@ private fun MainNavHost(
         }
         composable("scheduled") { entry ->
             ScheduledSendsScreen(onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() })
+        }
+        composable("outbox") { entry ->
+            OutboxScreen(
+                onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
+                onEditDraft = { if (entry.lifecycleIsResumed()) nav.navigate("compose?restore=true") },
+            )
         }
     }
 }

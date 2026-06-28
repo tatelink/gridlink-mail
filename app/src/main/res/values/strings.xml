@@ -87,6 +87,19 @@
     <string name="scheduled_empty">No scheduled messages.</string>
     <string name="scheduled_cancel">Cancel scheduled send</string>
     <string name="scheduled_send_at">Sends %1$s</string>
+    <!-- Outbox (persistent send queue) -->
+    <string name="inbox_outbox">Outbox</string>
+    <string name="outbox_title">Outbox</string>
+    <string name="outbox_empty">Outbox empty</string>
+    <string name="outbox_empty_body">Messages you send wait here until they\'re delivered.</string>
+    <string name="outbox_state_waiting">Waiting to send</string>
+    <string name="outbox_state_sending">Sending…</string>
+    <string name="outbox_state_failed">Failed: %1$s</string>
+    <string name="outbox_state_failed_unknown">couldn\'t send</string>
+    <string name="outbox_retry">Retry</string>
+    <string name="outbox_edit">Edit</string>
+    <string name="outbox_delete">Delete</string>
+    <string name="outbox_banner_failed">Some messages didn\'t send. Tap to review.</string>
     <string name="inbox_compose">Compose</string>
     <string name="inbox_no_results">No results</string>
     <string name="inbox_load_more_failed">Couldn\'t load more</string>

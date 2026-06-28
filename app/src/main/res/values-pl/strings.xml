@@ -467,6 +467,19 @@
     <string name="scheduled_empty">Brak zaplanowanych wiadomości.</string>
     <string name="scheduled_cancel">Anuluj zaplanowane wysłanie</string>
     <string name="scheduled_send_at">Wysyłka %1$s</string>
+    <!-- Outbox (persistent send queue) -->
+    <string name="inbox_outbox">Skrzynka nadawcza</string>
+    <string name="outbox_title">Skrzynka nadawcza</string>
+    <string name="outbox_empty">Skrzynka nadawcza pusta</string>
+    <string name="outbox_empty_body">Wysyłane wiadomości czekają tutaj do dostarczenia.</string>
+    <string name="outbox_state_waiting">Oczekuje na wysłanie</string>
+    <string name="outbox_state_sending">Wysyłanie…</string>
+    <string name="outbox_state_failed">Niepowodzenie: %1$s</string>
+    <string name="outbox_state_failed_unknown">nie udało się wysłać</string>
+    <string name="outbox_retry">Ponów</string>
+    <string name="outbox_edit">Edytuj</string>
+    <string name="outbox_delete">Usuń</string>
+    <string name="outbox_banner_failed">Niektóre wiadomości nie zostały wysłane. Dotknij, aby sprawdzić.</string>
     <string name="settings_conversation_section">Konwersacje</string>
     <string name="settings_conversation_title">Widok konwersacji</string>
     <string name="settings_conversation_subtitle">Grupuj wiadomości z tego samego wątku w jeden wiersz, z licznikiem.</string>

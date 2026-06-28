@@ -60,7 +60,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val subject = original.subject.orEmpty().let {
             if (it.startsWith("Re:", ignoreCase = true)) it else "Re: $it"
         }
-        repo.send(
+        repo.enqueueSend(
             credentials = credentials,
             to = listOf(to),
             subject = subject,

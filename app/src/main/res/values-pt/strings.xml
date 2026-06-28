@@ -467,6 +467,19 @@
     <string name="scheduled_empty">Nenhuma mensagem agendada.</string>
     <string name="scheduled_cancel">Cancelar envio agendado</string>
     <string name="scheduled_send_at">Envia %1$s</string>
+    <!-- Outbox (persistent send queue) -->
+    <string name="inbox_outbox">Caixa de saída</string>
+    <string name="outbox_title">Caixa de saída</string>
+    <string name="outbox_empty">Caixa de saída vazia</string>
+    <string name="outbox_empty_body">As mensagens enviadas aguardam aqui até serem entregues.</string>
+    <string name="outbox_state_waiting">A aguardar envio</string>
+    <string name="outbox_state_sending">A enviar…</string>
+    <string name="outbox_state_failed">Falhou: %1$s</string>
+    <string name="outbox_state_failed_unknown">não foi possível enviar</string>
+    <string name="outbox_retry">Tentar de novo</string>
+    <string name="outbox_edit">Editar</string>
+    <string name="outbox_delete">Eliminar</string>
+    <string name="outbox_banner_failed">Algumas mensagens não foram enviadas. Toque para rever.</string>
     <string name="settings_conversation_section">Conversas</string>
     <string name="settings_conversation_title">Vista de conversa</string>
     <string name="settings_conversation_subtitle">Agrupar mensagens da mesma conversa numa linha, com uma contagem.</string>

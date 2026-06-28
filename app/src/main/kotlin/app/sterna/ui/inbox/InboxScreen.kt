@@ -70,7 +70,10 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -88,6 +91,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -182,6 +186,7 @@ fun InboxScreen(
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenScheduled: () -> Unit,
+    onOpenOutbox: () -> Unit,
     accounts: List<app.sterna.core.data.account.StoredAccount>,
     currentAccountId: String,
     onSwitchAccount: (String) -> Unit,
@@ -208,7 +213,8 @@ fun InboxScreen(
     val pendingPurge by viewModel.pendingPurge.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
-    val outboxFailure by viewModel.outboxFailure.collectAsStateWithLifecycle()
+    val outboxCount by viewModel.outboxCount.collectAsStateWithLifecycle()
+    val outboxHasFailures by viewModel.outboxHasFailures.collectAsStateWithLifecycle()
     val highlightId by viewModel.highlightId.collectAsStateWithLifecycle()
     // Promote the just-opened row's highlight as this screen starts coming back (ON_START,
     // i.e. during the return transition) rather than after it settles (ON_RESUME) — so the
@@ -418,11 +424,8 @@ fun InboxScreen(
             onReopenDraft() // bring the held draft back to compose instead of dropping it
         }
     }
-    LaunchedEffect(outboxFailure) {
-        val msg = outboxFailure ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(context.getString(R.string.inbox_send_failed, msg))
-        viewModel.consumeSendFailure()
-    }
+    // A send that failed past its retries is no longer a transient snackbar: it stays in the
+    // outbox and is surfaced by the badge + failure banner below.
     // Empty-trash hold-back: offer Undo until the purge fires (pending clears → dismiss).
     LaunchedEffect(pendingPurge) {
         val label = pendingPurge ?: return@LaunchedEffect
@@ -883,10 +886,42 @@ fun InboxScreen(
                             }
                             var overflowOpen by remember { mutableStateOf(false) }
                             IconButton(onClick = { overflowOpen = true }) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
+                                BadgedBox(
+                                    badge = {
+                                        // Discreet dot when the outbox has pending or failed items;
+                                        // error-tinted if any failed, otherwise the neutral accent.
+                                        if (outboxCount > 0) {
+                                            Badge(
+                                                containerColor = if (outboxHasFailures) {
+                                                    MaterialTheme.colorScheme.error
+                                                } else {
+                                                    MaterialTheme.colorScheme.primary
+                                                },
+                                            )
+                                        }
+                                    },
+                                ) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
+                                }
                             }
                             val isTrash = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
                             DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, shape = MaterialTheme.shapes.medium) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.inbox_outbox)) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
+                                    trailingIcon = {
+                                        if (outboxCount > 0) {
+                                            Badge(
+                                                containerColor = if (outboxHasFailures) {
+                                                    MaterialTheme.colorScheme.error
+                                                } else {
+                                                    MaterialTheme.colorScheme.primary
+                                                },
+                                            ) { Text(outboxCount.toString()) }
+                                        }
+                                    },
+                                    onClick = { overflowOpen = false; onOpenOutbox() },
+                                )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.inbox_select_all)) },
                                     leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
@@ -1020,10 +1055,15 @@ fun InboxScreen(
             }
 
             val refreshState = rememberPullToRefreshState()
+            Column(Modifier.fillMaxSize().padding(padding)) {
+            // A calm, tappable line when a send has permanently failed: route to the outbox.
+            if (outboxHasFailures) {
+                OutboxFailureBanner(onClick = onOpenOutbox)
+            }
             PullToRefreshBox(
                 isRefreshing = ui.refreshing,
                 onRefresh = viewModel::refresh,
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize().weight(1f),
                 state = refreshState,
                 indicator = {
                     TernRefreshIndicator(
@@ -1176,6 +1216,7 @@ fun InboxScreen(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -1662,4 +1703,26 @@ fun mailboxDisplayName(role: String?, name: String): String = when (role) {
     "flagged" -> stringResource(R.string.folder_flagged)
     "important" -> stringResource(R.string.folder_important)
     else -> name
+}
+
+/** A discreet, tappable banner shown above the list when a send has permanently failed. */
+@Composable
+private fun OutboxFailureBanner(onClick: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.Warning, contentDescription = null)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                stringResource(R.string.outbox_banner_failed),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
 }

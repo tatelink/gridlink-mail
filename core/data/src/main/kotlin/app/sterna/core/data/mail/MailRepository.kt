@@ -18,6 +18,11 @@ import app.sterna.core.data.filter.SieveCodec
 import app.sterna.core.data.db.EmailDao
 import app.sterna.core.data.db.EmailBodyDao
 import app.sterna.core.data.db.EmailBodyEntity
+import app.sterna.core.data.db.OutboxAttachment
+import app.sterna.core.data.db.OutboxAttachments
+import app.sterna.core.data.db.OutboxDao
+import app.sterna.core.data.db.OutboxEntity
+import app.sterna.core.data.db.OutboxState
 import app.sterna.core.data.db.ScheduledSendDao
 import app.sterna.core.data.db.ScheduledSendEntity
 import app.sterna.core.data.db.SnoozedDao
@@ -248,8 +253,16 @@ class MailRepository(
     private val snoozedDao: SnoozedDao,
     private val recentContactDao: RecentContactDao,
     private val accountStore: AccountStore,
+    private val outboxDao: OutboxDao,
+    private val outboxFilesDir: java.io.File,
     private val oauthClient: OAuthClient = OAuthClient(),
 ) {
+    /**
+     * Schedules the WorkManager job that delivers an outbox item. Set by the app layer at
+     * startup (the data module can't reference the worker), so [enqueueSend] can arm delivery
+     * from any caller, including ones inside this module (e.g. an RSVP reply).
+     */
+    var outboxScheduler: OutboxScheduler? = null
     private class Context(
         val credentials: AccountCredentials,
         val session: JmapSession,
@@ -1510,8 +1523,17 @@ class MailRepository(
         )
     }
 
-    /** Compose and send an email (text, plus an optional HTML body) from the account's identity. */
-    suspend fun send(
+    // ---- outbox (persistent send queue) ----
+
+    /**
+     * Queue a message in the persistent outbox and arm its delivery worker. This is the single
+     * downstream send path: a failure (no network, server down) leaves the row in the outbox to
+     * auto-retry, instead of losing the mail. With [holdMs] > 0 the item is HELD for that long
+     * (the undo window), then becomes QUEUED. IMAP attachments (staged as temp files by compose)
+     * are copied into a persistent per-item dir so a deferred retry can still read them; JMAP
+     * attachments keep only their server blob id. Returns the new row id.
+     */
+    suspend fun enqueueSend(
         credentials: AccountCredentials,
         to: List<String>,
         subject: String,
@@ -1524,31 +1546,187 @@ class MailRepository(
         fromEmail: String? = null,
         cc: List<String> = emptyList(),
         bcc: List<String> = emptyList(),
-    ) {
+        holdMs: Long = 0,
+    ): Long {
+        val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
+        require(recipients.isNotEmpty()) { "Add at least one recipient." }
         val ccTrimmed = cc.map { it.trim() }.filter { it.isNotEmpty() }
         val bccTrimmed = bcc.map { it.trim() }.filter { it.isNotEmpty() }
-        runCatching {
-            rememberRecipients(to.map { it.trim() }.filter { it.isNotEmpty() } + ccTrimmed + bccTrimmed)
+        runCatching { rememberRecipients(recipients + ccTrimmed + bccTrimmed) }
+
+        val now = System.currentTimeMillis()
+        val held = holdMs > 0
+        val id = outboxDao.insert(
+            OutboxEntity(
+                accountId = credentials.id,
+                recipients = recipients.joinToString(","),
+                cc = ccTrimmed.joinToString(",").ifBlank { null },
+                bcc = bccTrimmed.joinToString(",").ifBlank { null },
+                subject = subject,
+                textBody = body,
+                htmlBody = htmlBody,
+                fromName = fromName,
+                fromEmail = fromEmail,
+                inReplyTo = inReplyTo.joinToString(" ").ifBlank { null },
+                references = references.joinToString(" ").ifBlank { null },
+                attachmentsJson = "[]",
+                createdAtMillis = now,
+                notBeforeMillis = now + holdMs,
+                state = if (held) OutboxState.HELD else OutboxState.QUEUED,
+            ),
+        )
+        // Make attachments durable now that we have the item id to key the persistent dir.
+        val durable = persistAttachments(id, attachments)
+        outboxDao.byId(id)?.let { outboxDao.update(it.copy(attachmentsJson = OutboxAttachments.encode(durable))) }
+        outboxScheduler?.schedule(id, holdMs)
+        return id
+    }
+
+    /** Copy IMAP attachment bytes into a persistent per-item dir; keep JMAP blob ids as-is. */
+    private fun persistAttachments(id: Long, attachments: List<EmailBodyPart>): List<OutboxAttachment> {
+        if (attachments.isEmpty()) return emptyList()
+        val dir = java.io.File(outboxFilesDir, id.toString()).apply { mkdirs() }
+        return attachments.mapNotNull { part ->
+            when {
+                part.blobId != null -> OutboxAttachment(
+                    kind = OutboxAttachments.KIND_JMAP_BLOB,
+                    blobId = part.blobId, type = part.type, name = part.name, size = part.size,
+                )
+                part.partId != null -> {
+                    val sourcePath = part.partId!!
+                    val bytes = runCatching { java.io.File(sourcePath).readBytes() }.getOrNull()
+                        ?: return@mapNotNull null
+                    val safe = (part.name ?: "attachment").replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    val dest = java.io.File(dir, safe).apply { writeBytes(bytes) }
+                    OutboxAttachment(
+                        kind = OutboxAttachments.KIND_IMAP_FILE,
+                        path = dest.absolutePath, type = part.type, name = part.name, size = bytes.size.toLong(),
+                    )
+                }
+                else -> null
+            }
         }
+    }
+
+    /** All outbox items, newest send order last. */
+    fun outboxFlow(): Flow<List<OutboxEntity>> = outboxDao.observeAll()
+
+    /** Count of pending/failed items for the discreet badge (excludes the silent undo window). */
+    fun outboxActiveCount(): Flow<Int> = outboxDao.observeActiveCount()
+
+    suspend fun outboxItem(id: Long): OutboxEntity? = outboxDao.byId(id)
+
+    /** Items still in flight, to re-arm their workers at startup (a WorkManager safety net). */
+    suspend fun unfinishedOutbox(): List<OutboxEntity> = outboxDao.unfinished()
+
+    suspend fun updateOutboxState(id: Long, state: OutboxState, attemptCount: Int, lastError: String?) {
+        outboxDao.updateState(id, state, attemptCount, lastError, System.currentTimeMillis())
+    }
+
+    /** Remove an item (sent, cancelled or deleted) and clean up its persistent attachment dir. */
+    suspend fun deleteOutbox(id: Long) {
+        outboxDao.delete(id)
+        runCatching { java.io.File(outboxFilesDir, id.toString()).deleteRecursively() }
+    }
+
+    /** Re-queue a failed item for an immediate retry. */
+    suspend fun retryOutbox(id: Long) {
+        val item = outboxDao.byId(id) ?: return
+        val now = System.currentTimeMillis()
+        outboxDao.update(item.copy(state = OutboxState.QUEUED, attemptCount = 0, lastError = null, notBeforeMillis = now))
+        outboxScheduler?.schedule(id, 0)
+    }
+
+    /**
+     * Fields needed to reopen a queued/failed item in compose for editing. IMAP attachments are
+     * re-staged into the cache so they behave like freshly attached files (and the durable copy is
+     * dropped with the row); JMAP attachments reuse their server blob id.
+     */
+    data class OutboxDraft(
+        val to: String,
+        val cc: String,
+        val bcc: String,
+        val subject: String,
+        val body: String,
+        val fromAccountId: String?,
+        val fromEmail: String?,
+        val attachments: List<EmailBodyPart>,
+        val inReplyTo: List<String>,
+        val references: List<String>,
+    )
+
+    /** Take an item out of the outbox for editing: build its draft, then delete the row + files. */
+    suspend fun takeOutboxForEdit(id: Long, stagingDir: java.io.File): OutboxDraft? {
+        val item = outboxDao.byId(id) ?: return null
+        val parts = OutboxAttachments.decode(item.attachmentsJson).mapNotNull { a ->
+            when (a.kind) {
+                OutboxAttachments.KIND_JMAP_BLOB -> EmailBodyPart(
+                    blobId = a.blobId, type = a.type, size = a.size, name = a.name, disposition = "attachment",
+                )
+                OutboxAttachments.KIND_IMAP_FILE -> {
+                    val bytes = runCatching { java.io.File(a.path!!).readBytes() }.getOrNull() ?: return@mapNotNull null
+                    stagingDir.mkdirs()
+                    val safe = (a.name ?: "attachment").replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    val staged = java.io.File(stagingDir, "${System.nanoTime()}-$safe").apply { writeBytes(bytes) }
+                    EmailBodyPart(
+                        partId = staged.absolutePath, type = a.type, size = bytes.size.toLong(),
+                        name = a.name, disposition = "attachment",
+                    )
+                }
+                else -> null
+            }
+        }
+        val draft = OutboxDraft(
+            to = item.recipients.split(",").joinToString(", ") { it.trim() },
+            cc = item.cc?.split(",")?.joinToString(", ") { it.trim() }.orEmpty(),
+            bcc = item.bcc?.split(",")?.joinToString(", ") { it.trim() }.orEmpty(),
+            subject = item.subject,
+            body = item.textBody,
+            fromAccountId = item.accountId,
+            fromEmail = item.fromEmail,
+            attachments = parts,
+            inReplyTo = item.inReplyTo?.split(" ")?.filter { it.isNotBlank() } ?: emptyList(),
+            references = item.references?.split(" ")?.filter { it.isNotBlank() } ?: emptyList(),
+        )
+        deleteOutbox(id)
+        return draft
+    }
+
+    /** Actually deliver one outbox item (no queue indirection); exceptions propagate to the worker. */
+    suspend fun performSend(credentials: AccountCredentials, item: OutboxEntity) {
+        val to = item.recipients.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        val subject = item.subject
+        val body = item.textBody
+        val htmlBody = item.htmlBody
+        val fromName = item.fromName
+        val fromEmail = item.fromEmail
+        val inReplyTo = item.inReplyTo?.split(" ")?.filter { it.isNotBlank() } ?: emptyList()
+        val references = item.references?.split(" ")?.filter { it.isNotBlank() } ?: emptyList()
+        val ccTrimmed = item.cc?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+        val bccTrimmed = item.bcc?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+        val stored = OutboxAttachments.decode(item.attachmentsJson)
+
         if (credentials.protocol == MailProtocol.IMAP) {
-            val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
+            val recipients = to
             require(recipients.isNotEmpty()) { "Add at least one recipient." }
-            // IMAP attachments are staged as temp files (partId = path) by compose.
-            val outAttachments = attachments.mapNotNull { part ->
-                val path = part.partId ?: return@mapNotNull null
+            // Durable per-item files (partId path) staged at enqueue; read them back for the MIME.
+            val outAttachments = stored.mapNotNull { a ->
+                val path = a.path ?: return@mapNotNull null
                 val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull() ?: return@mapNotNull null
-                OutgoingAttachment(part.name ?: "attachment", part.type ?: "application/octet-stream", bytes)
+                OutgoingAttachment(a.name ?: "attachment", a.type ?: "application/octet-stream", bytes)
             }
             val message = outgoing(
                 credentials, recipients, subject, body, inReplyTo, references, htmlBody,
                 fromName, fromEmail, ccTrimmed, bccTrimmed,
             ).copy(attachments = outAttachments)
             imap.send(credentials, message, mailboxDao.idForRole("sent"))
-            attachments.forEach { it.partId?.let { p -> runCatching { java.io.File(p).delete() } } }
             return
         }
+        val attachments = stored.map { a ->
+            EmailBodyPart(blobId = a.blobId, type = a.type, size = a.size, name = a.name, disposition = "attachment")
+        }
         val ctx = connect(credentials)
-        val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
+        val recipients = to.map { EmailAddress(email = it) }
         require(recipients.isNotEmpty()) { "Add at least one recipient." }
         val ccAddrs = ccTrimmed.map { EmailAddress(email = it) }
         val bccAddrs = bccTrimmed.map { EmailAddress(email = it) }
@@ -1594,9 +1772,10 @@ class MailRepository(
     /**
      * Send an iTIP REPLY to a calendar invite: a short text/plain note plus [replyIcs] as a
      * text/calendar attachment, addressed to [organizerEmail], from this account's identity.
-     * Reuses the normal [send] path — JMAP uploads the blob, IMAP stages a temp file — so there
-     * is no separate sender. The decisive REPLY signal is the in-body METHOD:REPLY line, so the
-     * reply is valid even when a protocol can't carry the Content-Type method parameter.
+     * Routes through the persistent outbox like every other send — JMAP uploads the blob, IMAP
+     * stages a file — so delivery and retry happen in the background. The decisive REPLY signal is
+     * the in-body METHOD:REPLY line, so the reply is valid even when a protocol can't carry the
+     * Content-Type method parameter.
      */
     suspend fun sendCalendarReply(
         credentials: AccountCredentials,
@@ -1607,8 +1786,8 @@ class MailRepository(
     ) {
         require(organizerEmail.isNotBlank()) { "The invite has no organizer to reply to." }
         val attachment = if (credentials.protocol == MailProtocol.IMAP) {
-            // No blob store for IMAP — stage the bytes as a temp file the SMTP send reads, and
-            // pass the method parameter verbatim in the Content-Type (OutgoingMime echoes it).
+            // No blob store for IMAP — stage the bytes as a temp file enqueueSend copies into the
+            // item's durable dir, and pass the method parameter verbatim (OutgoingMime echoes it).
             val file = java.io.File.createTempFile("sterna-reply", ".ics").apply { writeBytes(replyIcs) }
             EmailBodyPart(
                 partId = file.absolutePath,
@@ -1620,7 +1799,7 @@ class MailRepository(
         } else {
             uploadAttachment(credentials, replyIcs, "text/calendar", "invite.ics")
         }
-        send(
+        enqueueSend(
             credentials = credentials,
             to = listOf(organizerEmail),
             subject = subject,

@@ -10,11 +10,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * App-scoped hold-back for outgoing mail (Undo-send). A queued send is held for a
- * few seconds — surfaced as a cancellable "Undo" affordance in the UI — then run on
- * the app scope, so it survives the compose screen closing. A send that fails after
- * the window is reported via [failure]. If undone, the original draft is handed back
- * via [restored] so compose can reopen with it intact rather than dropping the message.
+ * UI façade for the undo-send window over the persistent outbox. The send itself is now a queued
+ * outbox row delivered by [OutboxWorker] (so it survives the app being killed); this only drives
+ * the cancellable "Sent · Undo" snackbar for a few seconds. If the user undoes in time, [undo]
+ * runs the supplied cancel action (drop the queued row) and hands the draft back via [restored]
+ * so compose can reopen with it intact rather than dropping the message.
  */
 class SendOutbox(private val scope: CoroutineScope) {
     data class Pending(val token: Long, val label: String)
@@ -36,51 +36,56 @@ class SendOutbox(private val scope: CoroutineScope) {
     private val _pending = MutableStateFlow<Pending?>(null)
     val pending: StateFlow<Pending?> = _pending.asStateFlow()
 
-    private val _failure = MutableStateFlow<String?>(null)
-    val failure: StateFlow<String?> = _failure.asStateFlow()
-
     private val _restored = MutableStateFlow<ComposeDraft?>(null)
     /** A draft handed back when the user undoes a send, for compose to reopen with. */
     val restored: StateFlow<ComposeDraft?> = _restored.asStateFlow()
 
     private var lastJob: Job? = null
     private var heldDraft: ComposeDraft? = null
+    private var heldUndo: (suspend () -> Unit)? = null
     private var counter = 0L
 
-    /** Hold [send] for [holdMs] (cancellable via [undo]), then run it; keep [draft] for undo. */
-    fun enqueue(label: String, draft: ComposeDraft, holdMs: Long = HOLD_MS, send: suspend () -> Unit) {
+    /**
+     * Show the undo affordance for [holdMs] (matching the queued item's hold window). After it
+     * elapses the snackbar clears and the worker sends; [onUndo] cancels the queued send if the
+     * user taps Undo first, and [draft] is kept so compose can reopen.
+     */
+    fun hold(label: String, draft: ComposeDraft, holdMs: Long = HOLD_MS, onUndo: suspend () -> Unit) {
         val token = ++counter
         _pending.value = Pending(token, label)
         heldDraft = draft
+        heldUndo = onUndo
         lastJob = scope.launch {
-            delay(holdMs) // cancelled by undo() → send never runs
+            delay(holdMs)
             if (_pending.value?.token == token) {
                 _pending.value = null
                 heldDraft = null
-            }
-            runCatching { send() }.onFailure {
-                _failure.value = it.message ?: it.javaClass.simpleName
+                heldUndo = null
             }
         }
     }
 
-    /** Cancel the pending send and hand its draft back so compose can reopen with it. */
+    /** Cancel the held send (drop the queued row) and hand its draft back to reopen compose. */
     fun undo() {
         lastJob?.cancel()
         _pending.value = null
+        val undoAction = heldUndo
+        heldUndo = null
         heldDraft?.let { _restored.value = it }
         heldDraft = null
+        if (undoAction != null) scope.launch { undoAction() }
+    }
+
+    /** Hand a draft to compose to reopen with (e.g. when editing a queued/failed outbox item). */
+    fun reopen(draft: ComposeDraft) {
+        _restored.value = draft
     }
 
     fun consumeRestored() {
         _restored.value = null
     }
 
-    fun consumeFailure() {
-        _failure.value = null
-    }
-
-    private companion object {
+    companion object {
         const val HOLD_MS = 5_000L
     }
 }
