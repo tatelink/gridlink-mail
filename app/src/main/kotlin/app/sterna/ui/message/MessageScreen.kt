@@ -4,6 +4,10 @@ import app.sterna.appLocale
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.opengl.EGL14
+import android.opengl.EGLConfig
+import android.opengl.GLES20
+import android.os.Build
 import android.provider.CalendarContract
 import android.view.MotionEvent
 import android.view.View
@@ -105,6 +109,17 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+
+/**
+ * TEST BUILD ONLY — set back to false before integrating.
+ *
+ * When true, [WebViewLayerGuard.useSoftwareLayer] returns true unconditionally, so every device
+ * takes the software-layer + internal-scroll body path. This lets the software path be exercised
+ * on a modern device (e.g. a Pixel, which never hits the GPU-functor SIGSEGV) without needing the
+ * actual S7. Flip to true to test, then back to false before merging — when false the normal
+ * pre-seed + crash-sentinel logic decides the layer per device.
+ */
+private const val FORCE_SOFTWARE_LAYER = false
 
 /**
  * The reading view. A [HorizontalPager] lets the user swipe left/right between the entries
@@ -525,75 +540,110 @@ private fun ConversationBody(
     onReply: (mode: String) -> Unit,
 ) {
     val msg = messages.firstOrNull() ?: return
-    // Reveal the Reply/Forward bar only once the body has rendered at its final height. Until the
-    // WebView reports its height the layout can't tell a long mail from a short one, so the bar
-    // would flash at the bottom and then jump to the end of the content once it lays out. A null
-    // body has nothing to render, so it's ready immediately.
+    val context = LocalContext.current
+    // Reveal/show the Reply/Forward bar only once the body has rendered at its final height. Until
+    // the WebView reports its height the layout can't tell a long mail from a short one, so the bar
+    // would flash at the bottom and then jump once it lays out. A null body is ready immediately.
     var bodyReady by remember(msg.id) { mutableStateOf(msg.body == null) }
+    // Which compositing path this device uses for the body. On the software layer the body scrolls
+    // INTERNALLY (capped bitmap), and the internal→outer-scroll hand-off the reveal-on-scroll bar
+    // relied on is unreliable there — so we PIN the bar at the bottom instead (always visible, no
+    // hand-off). The hardware/full-height path keeps the reveal-on-scroll bar (works perfectly).
+    val softwarePath = remember(context) { FORCE_SOFTWARE_LAYER || WebViewLayerGuard.useSoftwareLayer(context) }
+    // The body card, identical for both paths (rendered once, revealed when laid out).
+    val bodyCard: @Composable () -> Unit = {
+        MessageCard(
+            msg = msg,
+            blockRemote = blockRemote,
+            stripTracking = stripTracking,
+            confirmLinks = confirmLinks,
+            attachmentStatus = attachmentStatus,
+            onOpenAttachment = onOpenAttachment,
+            calendar = calendar,
+            onRespondToInvite = onRespondToInvite,
+            textZoom = textZoom,
+            onBodyReady = { bodyReady = true },
+        )
+    }
     // A plain scrolling Column (not a LazyColumn): the body's WebView stays alive instead of
     // reloading on every scroll. The reader is a single message.
-    BoxWithConstraints(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface),
-    ) {
-        // Force the scrolling content to be at least the visible height: with SpaceBetween this
-        // pins the Reply/Forward bar to the bottom of the screen for a short mail (no scroll), and
-        // lets it sit right after the body for a long mail (revealed by scrolling to the end).
-        val minContentHeight = maxHeight
+    if (softwarePath) {
+        // Software layer: the bar is pinned at the bottom, OUTSIDE the scroll region, so its
+        // visibility never depends on the fragile internal→outer scroll hand-off. The body (header
+        // + internally-scrolling WebView) takes the remaining height and scrolls there.
         Column(
             Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surface),
         ) {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = minContentHeight),
-                verticalArrangement = Arrangement.SpaceBetween,
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
             ) {
-                MessageCard(
-                    msg = msg,
-                    blockRemote = blockRemote,
-                    stripTracking = stripTracking,
-                    confirmLinks = confirmLinks,
-                    attachmentStatus = attachmentStatus,
-                    onOpenAttachment = onOpenAttachment,
-                    calendar = calendar,
-                    onRespondToInvite = onRespondToInvite,
-                    textZoom = textZoom,
-                    onBodyReady = { bodyReady = true },
-                )
-                // Reply / Forward sit at the end of the content: bottom of the screen when the mail
-                // is short, just after the body when it overflows. Shown only once the body has
-                // rendered (bodyReady), so the bar doesn't flash at the bottom of an HTML mail
-                // before its true height is known.
-                if (bodyReady) Column(Modifier.fillMaxWidth()) {
-                    HorizontalDivider()
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Button(
-                            onClick = { onReply("reply") },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text(stringResource(R.string.message_reply))
-                        }
-                        OutlinedButton(
-                            onClick = { onReply("forward") },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text(stringResource(R.string.message_forward))
-                        }
-                    }
+                bodyCard()
+            }
+            if (bodyReady) ReplyForwardBar(onReply)
+        }
+    } else {
+        BoxWithConstraints(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surface),
+        ) {
+            // Force the scrolling content to be at least the visible height: with SpaceBetween this
+            // pins the bar to the bottom of the screen for a short mail (no scroll), and lets it sit
+            // right after the body for a long mail (revealed by scrolling to the end).
+            val minContentHeight = maxHeight
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = minContentHeight),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    bodyCard()
+                    // Reply / Forward sit at the end of the content: bottom of the screen when the
+                    // mail is short, just after the body when it overflows. Shown only once the body
+                    // has rendered (bodyReady), so it doesn't flash before its true height is known.
+                    if (bodyReady) ReplyForwardBar(onReply)
                 }
+            }
+        }
+    }
+}
+
+/** The Reply / Forward action bar: a divider above a full-width Reply button + Forward button. */
+@Composable
+private fun ReplyForwardBar(onReply: (mode: String) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        HorizontalDivider()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(
+                onClick = { onReply("reply") },
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.message_reply))
+            }
+            OutlinedButton(
+                onClick = { onReply("forward") },
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.message_forward))
             }
         }
     }
@@ -1021,14 +1071,32 @@ private object WebViewLayerGuard {
     private const val KEY_FORCE_SOFTWARE = "force_software"
     private const val KEY_RENDER_PENDING = "render_pending"
     private const val KEY_HARDWARE_PROVEN = "hardware_proven"
+    // Goal 2: a one-time pre-seed that latches known-risky old GPUs onto the software layer BEFORE
+    // their first hardware draw, so they never take the one-time SIGSEGV. KEY_PRESEED_DONE makes it
+    // run exactly once; KEY_GL_RENDERER caches the offscreen GL_RENDERER probe so it's never redone.
+    private const val KEY_PRESEED_DONE = "preseed_done"
+    private const val KEY_GL_RENDERER = "gl_renderer"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /** True if this device must use the software layer. Also latches it if the last hardware draw crashed. */
     fun useSoftwareLayer(context: Context): Boolean {
+        // Goal 3 test override: force every device onto the software path (no prefs touched, so
+        // flipping the flag back leaves no latched state behind).
+        if (FORCE_SOFTWARE_LAYER) return true
         val p = prefs(context)
         if (p.getBoolean(KEY_FORCE_SOFTWARE, false)) return true
+        // Goal 2: before this device's first hardware draw, conservatively pre-seed the software
+        // layer for known-risky old GPUs (S7-class Exynos/Mali-T) so they never crash even once.
+        // Runs once and latches; the sentinel below stays the catch-all for everything unknown.
+        if (!p.getBoolean(KEY_PRESEED_DONE, false)) {
+            val risky = isRiskyOldGpu(context, p)
+            val e = p.edit().putBoolean(KEY_PRESEED_DONE, true)
+            if (risky) e.putBoolean(KEY_FORCE_SOFTWARE, true)
+            e.commit()
+            if (risky) return true
+        }
         // A pending flag with no "proven" marker means the device's first hardware body draw never
         // reported a safe finish — it took the app down (the GPU-functor SIGSEGV). Latch software.
         if (!p.getBoolean(KEY_HARDWARE_PROVEN, false) && p.getBoolean(KEY_RENDER_PENDING, false)) {
@@ -1036,6 +1104,96 @@ private object WebViewLayerGuard {
             return true
         }
         return false
+    }
+
+    /**
+     * Conservative pre-seed test for a GPU known to SIGSEGV on the WebView hardware functor. A false
+     * positive only costs a modern device the full-height benefit (the software path still renders
+     * correctly); a false negative is caught by the crash sentinel (one crash, then heal). So we err
+     * towards flagging. The GL_RENDERER probe is the most reliable signal for the actual GPU; cheap
+     * Build heuristics are the fallback when the probe can't run.
+     */
+    private fun isRiskyOldGpu(context: Context, p: android.content.SharedPreferences): Boolean {
+        // Cheap Build signals first: old Exynos SoCs (the S7's Exynos 8890 and the 74xx/75xx/54xx
+        // generations) all shipped the crash-prone Mali-T (Midgard) GPU.
+        if (buildSignalsRiskyOldExynos()) return true
+        // GL_RENDERER probe (cached): the authoritative signal for the real GPU. Old Mali-T (e.g.
+        // the S7's Mali-T880) is the family that dereferences a null SkSurface in the WebView functor.
+        val renderer = cachedGlRenderer(context, p)?.lowercase()
+        return renderer != null && (renderer.contains("mali-t") || renderer.contains("mali t"))
+    }
+
+    /** True for SoC identifiers of old Exynos parts (S7 Exynos 8890 and older) that paired a Mali-T GPU. */
+    private fun buildSignalsRiskyOldExynos(): Boolean {
+        val oldExynos = listOf(
+            "exynos8890", "universal8890", // Galaxy S7 / S7 edge (Mali-T880)
+            "exynos7420", "universal7420", // S6 (Mali-T760)
+            "exynos7580", "universal7580", // A-series (Mali-T720)
+            "exynos5433", "universal5433", // Note 4 (Mali-T760)
+            "exynos5420", "universal5420", "exynos5410", "universal5410", // Note 3 / S4 (Mali-T6xx)
+        )
+        val hw = Build.HARDWARE.lowercase()
+        val board = Build.BOARD.lowercase()
+        if (oldExynos.any { hw.contains(it) || board.contains(it) }) return true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val soc = (Build.SOC_MODEL ?: "").lowercase()
+            if (oldExynos.any { soc.contains(it) }) return true
+        }
+        return false
+    }
+
+    /** The GL_RENDERER string, probed once via a tiny offscreen EGL context and cached in prefs. */
+    private fun cachedGlRenderer(context: Context, p: android.content.SharedPreferences): String? {
+        if (p.contains(KEY_GL_RENDERER)) return p.getString(KEY_GL_RENDERER, null)?.takeIf { it.isNotEmpty() }
+        val renderer = probeGlRenderer()
+        // Cache the empty string on failure so the probe is attempted at most once per install.
+        p.edit().putString(KEY_GL_RENDERER, renderer ?: "").commit()
+        return renderer
+    }
+
+    /**
+     * Read GL_RENDERER from a 1x1 offscreen EGL14 pbuffer context. Fully torn down in `finally`;
+     * any failure returns null (the caller then leans on Build heuristics + the crash sentinel).
+     */
+    private fun probeGlRenderer(): String? {
+        var display = EGL14.EGL_NO_DISPLAY
+        var ctx = EGL14.EGL_NO_CONTEXT
+        var surface = EGL14.EGL_NO_SURFACE
+        try {
+            display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+            if (display == EGL14.EGL_NO_DISPLAY) return null
+            val ver = IntArray(2)
+            if (!EGL14.eglInitialize(display, ver, 0, ver, 1)) {
+                display = EGL14.EGL_NO_DISPLAY // nothing to terminate
+                return null
+            }
+            val cfgAttribs = intArrayOf(
+                EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+                EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
+                EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
+                EGL14.EGL_NONE,
+            )
+            val cfgs = arrayOfNulls<EGLConfig>(1)
+            val nCfg = IntArray(1)
+            if (!EGL14.eglChooseConfig(display, cfgAttribs, 0, cfgs, 0, 1, nCfg, 0) || nCfg[0] <= 0) return null
+            val ctxAttribs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
+            ctx = EGL14.eglCreateContext(display, cfgs[0], EGL14.EGL_NO_CONTEXT, ctxAttribs, 0)
+            if (ctx == EGL14.EGL_NO_CONTEXT) return null
+            val pbAttribs = intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE)
+            surface = EGL14.eglCreatePbufferSurface(display, cfgs[0], pbAttribs, 0)
+            if (surface == EGL14.EGL_NO_SURFACE) return null
+            if (!EGL14.eglMakeCurrent(display, surface, surface, ctx)) return null
+            return GLES20.glGetString(GLES20.GL_RENDERER)
+        } catch (t: Throwable) {
+            return null
+        } finally {
+            if (display != EGL14.EGL_NO_DISPLAY) {
+                EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+                if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
+                if (ctx != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, ctx)
+                EGL14.eglTerminate(display)
+            }
+        }
     }
 
     /** Arm the sentinel before a device's first-ever hardware body draw (no-op once proven). */
@@ -1048,6 +1206,93 @@ private object WebViewLayerGuard {
     /** A hardware body has safely drawn: clear the sentinel and never arm again on this device. */
     fun markProven(context: Context) {
         prefs(context).edit().putBoolean(KEY_HARDWARE_PROVEN, true).putBoolean(KEY_RENDER_PENDING, false).commit()
+    }
+}
+
+/**
+ * The message-body WebView.
+ *
+ * On the HARDWARE layer (the modern/common path) [bodyScrollAuthority] is left false and this
+ * behaves exactly like a plain [WebView]: the body is sized to its full content height and stacks
+ * in the reader's outer Compose scroll, the pager owns horizontal swipes — nothing here intervenes.
+ *
+ * On the SOFTWARE layer a body taller than the bitmap cap is pinned shorter than its content and
+ * scrolls INTERNALLY. That made the reader two competing vertical scrollers (the outer Compose
+ * `verticalScroll` column and the WebView). With [bodyScrollAuthority] set, this view becomes the
+ * single authority for vertical body scrolling:
+ *  - It claims the gesture on DOWN so the outer column can't steal a vertical drag mid-stroke
+ *    (the dead-stop where a long newsletter couldn't be dragged to its end).
+ *  - A horizontal drag is released immediately so the reading view's `HorizontalPager` still
+ *    swipes between messages.
+ *  - A vertical drag stays here while the body can still scroll that way, and is released to the
+ *    outer column only at the true top/bottom, so the header and the reveal-on-scroll
+ *    Reply/Forward bar still scroll into view (clean nested-scroll hand-off at the edges).
+ *  - [computeVerticalScrollRange] is stabilised to the largest content height ever measured (plus
+ *    a small bottom slack), so `canScrollVertically` keeps the gesture here through the load-time
+ *    height wobble instead of clamping at a transient short bottom — the body always scrolls to its
+ *    real end, the last line clears, and the edge hand-off fires once that end is reached.
+ */
+private class BodyWebView(context: Context) : WebView(context) {
+    /** Set true only for a body taller than the software-layer cap (one that scrolls internally). */
+    var bodyScrollAuthority = false
+
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private val displayDensity = resources.displayMetrics.density
+    // A little extra range past the measured content. WebView.contentHeight under-reports the true
+    // rendered height by a hair, so without this the stabilised range is a touch short and the last
+    // half-line is cropped (unreachable). The slack lets the body scroll fully to its end AND makes
+    // canScrollVertically(down) reach false decisively at the bottom, so the edge hand-off fires.
+    private val bottomSlackPx = (24f * displayDensity).toInt()
+    private var maxRangePx = 0
+    private var downX = 0f
+    private var downY = 0f
+    private var lastY = 0f
+    private var axisDecided = false
+    private var verticalLock = false
+
+    override fun computeVerticalScrollRange(): Int {
+        if (!bodyScrollAuthority) return super.computeVerticalScrollRange()
+        // Stabilise to the tallest content height ever measured: the native range oscillates while
+        // the body's nested tables and inline images lay out, and a transient short reading would
+        // clamp the scroll before the end. Plus the bottom slack so the true last line is reachable.
+        val live = (contentHeight * displayDensity).toInt()
+        if (live > maxRangePx) maxRangePx = live
+        return maxOf(super.computeVerticalScrollRange(), maxRangePx) + bottomSlackPx
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (bodyScrollAuthority) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x; downY = event.y; lastY = event.y
+                    axisDecided = false; verticalLock = false
+                    // Own the gesture up front so the outer scroll can't steal a vertical drag
+                    // mid-stroke; released below for a horizontal swipe or at a scroll edge.
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!axisDecided) {
+                        val dx = kotlin.math.abs(event.x - downX)
+                        val dy = kotlin.math.abs(event.y - downY)
+                        if (dx > touchSlop || dy > touchSlop) {
+                            axisDecided = true
+                            verticalLock = dy >= dx
+                            // Horizontal → hand the whole gesture to the pager.
+                            if (!verticalLock) parent?.requestDisallowInterceptTouchEvent(false)
+                        }
+                    }
+                    if (axisDecided && verticalLock && event.y != lastY) {
+                        // Finger up (y decreasing) scrolls content down → check the bottom edge.
+                        val dir = if (event.y < lastY) 1 else -1
+                        // Keep scrolling here while the body can still move that way; at the true
+                        // edge release so the outer column reveals the header / Reply-Forward bar.
+                        parent?.requestDisallowInterceptTouchEvent(canScrollVertically(dir))
+                    }
+                    lastY = event.y
+                }
+            }
+        }
+        return super.onTouchEvent(event)
     }
 }
 
@@ -1089,41 +1334,12 @@ private fun EmailWebView(
         val widthPx = context.resources.displayMetrics.widthPixels.coerceAtLeast(1)
         (maxBytes / 4 / widthPx).coerceAtLeast(1)
     }
-    val touchSlop = remember(context) { ViewConfiguration.get(context).scaledTouchSlop }
     // A body taller than the software-layer cap is pinned shorter than its content and scrolls
-    // INSIDE the WebView. A plain requestDisallowInterceptTouchEvent(true) on every touch (the
-    // old behaviour) claimed the whole gesture for the WebView — which also swallowed horizontal
-    // drags, so the reading view's HorizontalPager could no longer swipe between list entries on
-    // any long mail (the 1.0.10 swipe-paging regression). Decide per gesture by its dominant axis:
-    // a vertical drag stays in the WebView (scrolls the clipped body), a horizontal drag bubbles
-    // up so the pager pages to the previous/next message. Only installed on scrollable bodies;
-    // short ones never scroll internally and keep the default (outer column scrolls, pager pages).
-    val pagerAwareTouchListener = remember {
-        object : View.OnTouchListener {
-            private var downX = 0f
-            private var downY = 0f
-            private var decided = false
-            override fun onTouch(v: View, e: MotionEvent): Boolean {
-                when (e.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        downX = e.x; downY = e.y; decided = false
-                        // Until the direction is known, let the pager observe the gesture.
-                        v.parent?.requestDisallowInterceptTouchEvent(false)
-                    }
-                    MotionEvent.ACTION_MOVE -> if (!decided) {
-                        val dx = kotlin.math.abs(e.x - downX)
-                        val dy = kotlin.math.abs(e.y - downY)
-                        if (dx > touchSlop || dy > touchSlop) {
-                            decided = true
-                            // Vertical → keep it in the WebView; horizontal → release to the pager.
-                            v.parent?.requestDisallowInterceptTouchEvent(dy >= dx)
-                        }
-                    }
-                }
-                return false
-            }
-        }
-    }
+    // INSIDE the WebView. The direction-aware gesture routing (vertical drag scrolls the clipped
+    // body and only hands off to the outer column at the true top/bottom; horizontal drag goes to
+    // the pager so swipe-between-messages still works) lives in [BodyWebView], enabled per body via
+    // `bodyScrollAuthority` below. Short bodies and the hardware-layer (full-height) path leave it
+    // off and keep the default (outer column owns vertical scroll, pager owns horizontal swipe).
     val client = remember { BlockingWebViewClient() }
     client.blockRemote = blockRemote
     client.stripTracking = stripTracking
@@ -1147,7 +1363,7 @@ private fun EmailWebView(
     AndroidView(
         modifier = modifier.height(if (ready) with(density) { pinnedHeightPx.toDp() } else 1.dp),
         factory = { ctx ->
-            WebView(ctx).apply {
+            BodyWebView(ctx).apply {
                 // Compositing path. The hardware-accelerated GLFunctor lets the WebView tile its
                 // own paint (full-height bodies, no bitmap cap), but on devices whose HWUI/GPU
                 // blobs are mismatched (e.g. older hardware running a newer custom ROM, which
@@ -1181,17 +1397,17 @@ private fun EmailWebView(
             // Match the WebView's own background to the theme so it doesn't flash white.
             webView.setBackgroundColor(backgroundColor)
             webView.settings.textZoom = textZoom
-            // A body taller than the software-layer cap is pinned shorter than its content, so
-            // it must scroll internally. Enable its scrollbar and install the direction-aware
-            // touch listener (see [pagerAwareTouchListener]): vertical drags scroll the clipped
-            // body, horizontal drags are released so the reading view's pager can swipe between
-            // list entries. Short bodies stack at full height and never scroll internally, so they
-            // keep the default (outer column owns vertical scroll, pager owns horizontal swipe).
-            // Internal scroll only exists on the software layer (capped bitmap). On the hardware
-            // layer the body is full-height in the outer scroll, so it never scrolls internally.
+            // A body taller than the software-layer cap is pinned shorter than its content, so it
+            // must scroll internally. Enable its scrollbar and make it the body scroll authority
+            // (see [BodyWebView]): vertical drags scroll the clipped body and only hand off to the
+            // outer column at the true top/bottom; horizontal drags are released so the reading
+            // view's pager can swipe between list entries. Internal scroll only exists on the
+            // software layer (capped bitmap). On the hardware layer the body is full-height in the
+            // outer scroll, so it never scrolls internally and the authority stays off — that path
+            // keeps the default (outer column owns vertical scroll, pager owns horizontal swipe).
             val scrollable = useSoftwareLayer && heightPx > maxLayerHeightPx
             webView.isVerticalScrollBarEnabled = scrollable
-            webView.setOnTouchListener(if (scrollable) pagerAwareTouchListener else null)
+            webView.bodyScrollAuthority = scrollable
             // update() runs on every recomposition; only (re)load when the document
             // actually changed, otherwise expanding one card reloads (and flickers)
             // every other open body in the conversation. blockRemote is part of the
