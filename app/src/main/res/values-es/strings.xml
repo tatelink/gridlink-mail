@@ -345,6 +345,7 @@
     <string name="connect_bad_credentials">Correo o contraseña incorrectos.</string>
     <string name="connect_provider_preset">Configuración rápida</string>
     <string name="connect_provider_app_password_note">Algunos proveedores (Gmail, Yahoo, iCloud…) necesitan una contraseña específica de la aplicación, no la habitual.</string>
+    <string name="connect_app_password_help">Cómo crear una contraseña de aplicación</string>
     <string name="connect_imap_host_placeholder">imap.example.com</string>
     <string name="connect_smtp_host_placeholder">smtp.example.com</string>
     <string name="connect_password_show">Mostrar contraseña</string>

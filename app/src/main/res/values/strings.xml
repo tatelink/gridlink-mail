@@ -418,6 +418,7 @@
     <string name="connect_bad_credentials">Wrong email or password.</string>
     <string name="connect_provider_preset">Quick setup</string>
     <string name="connect_provider_app_password_note">Some providers (Gmail, Yahoo, iCloud…) need an app-specific password, not your normal one.</string>
+    <string name="connect_app_password_help">How to create an app password</string>
     <string name="connect_imap_host_placeholder">imap.example.com</string>
     <string name="connect_smtp_host_placeholder">smtp.example.com</string>
     <string name="connect_password_show">Show password</string>

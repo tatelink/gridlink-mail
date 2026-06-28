@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
@@ -21,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AssistChip
@@ -100,6 +102,10 @@ fun ConnectScreen(
     var smtpPort by rememberSaveable { mutableStateOf("465") }
     var smtpSecurity by rememberSaveable { mutableStateOf(ConnectionSecurity.TLS) }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
+    // The app-password help page for the selected preset (Gmail…), or null when the
+    // provider doesn't need one (or signs in by OAuth).
+    var appPasswordUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
 
     val ready = if (oauthSelected) {
         // Outlook (OAuth): only the email is needed; "Connect" launches the browser flow.
@@ -193,6 +199,7 @@ fun ConnectScreen(
                                     // Just select Outlook (collapse the server fields); the
                                     // "Connect" button launches the OAuth/browser flow.
                                     oauthSelected = true
+                                    appPasswordUrl = null
                                 } else {
                                     oauthSelected = false
                                     imapHost = provider.imapHost
@@ -201,6 +208,7 @@ fun ConnectScreen(
                                     smtpHost = provider.smtpHost
                                     smtpPort = provider.smtpPort
                                     smtpSecurity = provider.smtpSecurity
+                                    appPasswordUrl = provider.appPasswordUrl
                                 }
                             },
                             label = { Text(provider.name) },
@@ -215,6 +223,24 @@ fun ConnectScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // Selected preset needs an app-specific password (Gmail…): one tap to
+                    // the provider's page to create one, since their normal password is refused.
+                    appPasswordUrl?.let { url ->
+                        TextButton(
+                            onClick = {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                            },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.OpenInNew,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(R.string.connect_app_password_help))
+                        }
+                    }
 
                     Text(stringResource(R.string.connect_incoming_imap), style = MaterialTheme.typography.labelLarge)
                     HostPortRow(
@@ -395,10 +421,12 @@ private data class MailProvider(
     val smtpSecurity: ConnectionSecurity,
     /** When true the chip starts the OAuth sign-in flow instead of filling host/port. */
     val oauth: Boolean = false,
+    /** Page where the user creates an app-specific password (their normal one is refused). */
+    val appPasswordUrl: String? = null,
 )
 
 private val MAIL_PROVIDERS = listOf(
-    MailProvider("Gmail", "imap.gmail.com", "993", ConnectionSecurity.TLS, "smtp.gmail.com", "465", ConnectionSecurity.TLS),
+    MailProvider("Gmail", "imap.gmail.com", "993", ConnectionSecurity.TLS, "smtp.gmail.com", "465", ConnectionSecurity.TLS, appPasswordUrl = "https://myaccount.google.com/apppasswords"),
     // Outlook authenticates over IMAP/SMTP with OAuth (XOAUTH2) — Microsoft has disabled
     // password IMAP — so this chip launches the OAuth flow rather than filling host/port.
     MailProvider("Outlook", "outlook.office365.com", "993", ConnectionSecurity.TLS, "smtp.office365.com", "587", ConnectionSecurity.STARTTLS, oauth = true),
