@@ -1,5 +1,6 @@
 package app.sterna.ui.compose
 
+import android.Manifest
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -46,6 +48,7 @@ import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -78,6 +81,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sterna.R
+import app.sterna.contacts.AndroidContacts
+import app.sterna.ui.FORCE_ONBOARDING_PREVIEW
 import app.sterna.ui.rememberMotionEnabled
 import app.sterna.ui.components.drawTern
 import app.sterna.core.data.db.ContactRow
@@ -106,6 +111,71 @@ fun ComposeScreen(
     }
 
     LaunchedEffect(Unit) { viewModel.prepare(replyTo, mode, accountId, restore) }
+
+    // --- Contacts permission priming (offered once, on first compose) ---
+    val contactsPrimed by viewModel.contactsPrimed.collectAsStateWithLifecycle()
+    val contactSuggestionsOn by viewModel.contactSuggestionsEnabled.collectAsStateWithLifecycle()
+    val contactsPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> viewModel.setContactSuggestions(granted) }
+    var showContactsPriming by remember { mutableStateOf(false) }
+    var primingHandled by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(contactsPrimed, contactSuggestionsOn) {
+        if (primingHandled) return@LaunchedEffect
+        // Real gate: suggestions off AND permission not granted AND not yet primed. The preview
+        // flag forces the sheet regardless (still wired to the real permission launcher).
+        val gateOpen = !contactSuggestionsOn && !AndroidContacts.hasPermission(context) && !contactsPrimed
+        if (FORCE_ONBOARDING_PREVIEW || gateOpen) {
+            showContactsPriming = true
+            primingHandled = true
+        }
+    }
+    if (showContactsPriming) {
+        // Both "Not now" and a swipe-dismiss mark it primed, so it is never offered again. The
+        // toggle still lives in Settings > Privacy.
+        val dismissPriming = {
+            showContactsPriming = false
+            viewModel.markContactsPrimed()
+        }
+        ModalBottomSheet(onDismissRequest = dismissPriming) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    stringResource(R.string.compose_contacts_priming_title),
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Text(
+                    stringResource(R.string.compose_contacts_priming_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    TextButton(onClick = dismissPriming) {
+                        Text(stringResource(R.string.compose_contacts_priming_not_now))
+                    }
+                    Button(onClick = {
+                        showContactsPriming = false
+                        viewModel.markContactsPrimed()
+                        if (AndroidContacts.hasPermission(context)) {
+                            viewModel.setContactSuggestions(true)
+                        } else {
+                            contactsPermission.launch(Manifest.permission.READ_CONTACTS)
+                        }
+                    }) {
+                        Text(stringResource(R.string.compose_contacts_priming_enable))
+                    }
+                }
+            }
+        }
+    }
 
     // "Takes flight": when the message is queued (Done), play a brief lift-off — the
     // content rises and fades, a tern arcs off-screen — then navigate back. The send

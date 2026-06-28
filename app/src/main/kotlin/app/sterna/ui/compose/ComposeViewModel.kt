@@ -81,6 +81,26 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private val contactsEnabled =
         settings.contactSuggestions.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    /** Whether device-contact recipient suggestions are enabled (drives the priming gate). */
+    val contactSuggestionsEnabled = contactsEnabled
+
+    /**
+     * Whether the contacts-permission priming has already been offered. Initial value true so the
+     * priming sheet never flashes before DataStore has loaded; it opens only once the real value
+     * (false) has emitted.
+     */
+    val contactsPrimed = settings.hasPrimedContacts.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    /** Remember that the priming has been offered, so it is never shown again. */
+    fun markContactsPrimed() {
+        viewModelScope.launch { settings.setHasPrimedContacts(true) }
+    }
+
+    /** Enable (or disable) device-contact suggestions — the same setting as Settings > Privacy. */
+    fun setContactSuggestions(enabled: Boolean) {
+        viewModelScope.launch { settings.setContactSuggestions(enabled) }
+    }
+
     /** Recipient autocomplete suggestions for the field currently being typed. */
     private val _suggestions = MutableStateFlow<List<ContactRow>>(emptyList())
     val suggestions: StateFlow<List<ContactRow>> = _suggestions.asStateFlow()

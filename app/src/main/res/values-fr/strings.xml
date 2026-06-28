@@ -501,4 +501,16 @@
     <string name="empty_unread_action">Tout afficher</string>
     <string name="inbox_empty_trash">Vider la corbeille</string>
     <string name="status_trash_emptied">Corbeille vidée</string>
+
+    <!-- Onboarding: privacy welcome + contacts priming -->
+    <string name="welcome_body">Sans pub, sans pistage, sans services Google. Sur le serveur de votre choix.</string>
+    <string name="welcome_screen2_title">Ce qui est à vous le reste.</string>
+    <string name="welcome_screen2_body">Sterna Mail ne collecte aucune télémétrie. Vos contacts restent sur cet appareil et ne sont lus que si vous l\'autorisez.</string>
+    <string name="welcome_next">Suivant</string>
+    <string name="welcome_get_started">Commencer</string>
+    <string name="welcome_skip">Ignorer</string>
+    <string name="compose_contacts_priming_title">Suggérer depuis vos contacts ?</string>
+    <string name="compose_contacts_priming_body">Compléter les destinataires depuis les contacts de cet appareil. Sterna Mail les lit uniquement sur l\'appareil et ne les envoie jamais.</string>
+    <string name="compose_contacts_priming_enable">Activer</string>
+    <string name="compose_contacts_priming_not_now">Pas maintenant</string>
 </resources>

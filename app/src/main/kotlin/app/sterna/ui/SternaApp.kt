@@ -18,7 +18,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -44,9 +47,22 @@ import app.sterna.ui.inbox.InboxViewModel
 import app.sterna.ui.message.MessageScreen
 import app.sterna.ui.scheduled.ScheduledSendsScreen
 import app.sterna.ui.search.SearchScreen
+import app.sterna.ui.onboarding.WelcomeScreen
 import app.sterna.ui.settings.SettingsScreen
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+/**
+ * TEST BUILD ONLY. Set back to false before integrating. When true, the privacy welcome
+ * and the contacts priming appear on every launch/compose regardless of their real gating,
+ * so they can be seen on a device that already has an account (without uninstalling). The
+ * real gating logic below is untouched; this flag only bypasses it for the preview build.
+ */
+const val FORCE_ONBOARDING_PREVIEW = false
 
 /** Top-level route: no account, or signed in to a specific account. */
 sealed interface RootState {
@@ -57,9 +73,19 @@ sealed interface RootState {
 
 class RootViewModel(application: Application) : AndroidViewModel(application) {
     private val accountStore = application.container.accountStore
+    private val settings = application.container.settingsRepository
 
     private val _state = MutableStateFlow<RootState>(RootState.Loading)
     val state = _state.asStateFlow()
+
+    // null while the flag is still loading from DataStore, so first launch shows the welcome
+    // (not a flash of the connect screen) and a returning user never flashes the welcome.
+    val hasSeenWelcome: kotlinx.coroutines.flow.StateFlow<Boolean?> =
+        settings.hasSeenWelcome.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun markWelcomeSeen() {
+        viewModelScope.launch { settings.setHasSeenWelcome(true) }
+    }
 
     init {
         refresh()
@@ -88,15 +114,34 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
 fun SternaApp(viewModel: RootViewModel = viewModel()) {
     RequestNotificationPermission()
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val hasSeenWelcome by viewModel.hasSeenWelcome.collectAsStateWithLifecycle()
     val appLock = (LocalContext.current.applicationContext as Application).container.appLock
     val locked by appLock.locked.collectAsStateWithLifecycle()
+
+    // Preview-only gate: force the welcome at startup regardless of RootState/hasSeenWelcome,
+    // then fall through to the NORMAL routing (an authenticated user proceeds to their inbox,
+    // they are NOT dropped into the connect screen). Flip FORCE_ONBOARDING_PREVIEW to false to
+    // fully restore the real first-launch gating below.
+    var previewWelcomeDone by rememberSaveable { mutableStateOf(false) }
+    if (FORCE_ONBOARDING_PREVIEW && !previewWelcomeDone) {
+        WelcomeScreen(onDone = { previewWelcomeDone = true })
+        return
+    }
 
     Box(Modifier.fillMaxSize()) {
         when (val s = state) {
             RootState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                 CircularProgressIndicator()
             }
-            RootState.NeedAccount -> ConnectScreen(onConnected = viewModel::refresh, firstRun = true)
+            // First genuine launch (no account yet): show the privacy welcome once, then the
+            // connect flow. While the flag is still loading (null) show a brief spinner so we
+            // neither flash the connect screen on first launch nor the welcome for a returning
+            // (signed-out) user who has already seen it.
+            RootState.NeedAccount -> when (hasSeenWelcome) {
+                null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                false -> WelcomeScreen(onDone = viewModel::markWelcomeSeen)
+                true -> ConnectScreen(onConnected = viewModel::refresh, firstRun = true)
+            }
             // No key(accountId) here: switching account updates currentAccountId in place so
             // the inbox re-points (InboxScreen reacts via onAccountChanged) WITHOUT recreating
             // the screen — which lets the drawer's account carousel stay open across a switch.

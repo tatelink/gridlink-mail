@@ -502,4 +502,16 @@
     <string name="empty_unread_action">Alles tonen</string>
     <string name="inbox_empty_trash">Prullenbak legen</string>
     <string name="status_trash_emptied">Prullenbak geleegd</string>
+
+    <!-- Onboarding: privacy welcome + contacts priming -->
+    <string name="welcome_body">Geen advertenties, geen tracking, geen Google-diensten. Op de server die jij kiest.</string>
+    <string name="welcome_screen2_title">Wat van jou is, blijft van jou.</string>
+    <string name="welcome_screen2_body">Sterna Mail verzamelt geen telemetrie. Je contacten blijven op dit apparaat en worden alleen gelezen als jij het toestaat.</string>
+    <string name="welcome_next">Volgende</string>
+    <string name="welcome_get_started">Aan de slag</string>
+    <string name="welcome_skip">Overslaan</string>
+    <string name="compose_contacts_priming_title">Voorstellen uit je contacten?</string>
+    <string name="compose_contacts_priming_body">Ontvangers aanvullen uit de contacten van dit apparaat. Sterna Mail leest ze alleen op het apparaat en uploadt ze nooit.</string>
+    <string name="compose_contacts_priming_enable">Inschakelen</string>
+    <string name="compose_contacts_priming_not_now">Niet nu</string>
 </resources>

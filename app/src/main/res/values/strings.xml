@@ -504,4 +504,16 @@
     <string name="notif_delete">Delete</string>
     <string name="notif_reply">Reply</string>
     <string name="notif_reply_hint">Reply…</string>
+
+    <!-- Onboarding: privacy welcome + contacts priming -->
+    <string name="welcome_body">No ads, no tracking, no Google services. On the server you choose.</string>
+    <string name="welcome_screen2_title">Yours stays yours.</string>
+    <string name="welcome_screen2_body">Sterna Mail collects no telemetry. Your contacts stay on this device, read only if you allow it.</string>
+    <string name="welcome_next">Next</string>
+    <string name="welcome_get_started">Get started</string>
+    <string name="welcome_skip">Skip</string>
+    <string name="compose_contacts_priming_title">Suggest from your contacts?</string>
+    <string name="compose_contacts_priming_body">Autocomplete recipients from this device\'s contacts. Sterna Mail reads them on-device only, never uploads them.</string>
+    <string name="compose_contacts_priming_enable">Enable</string>
+    <string name="compose_contacts_priming_not_now">Not now</string>
 </resources>

@@ -121,6 +121,20 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_CONTACT_SUGGESTIONS] = enabled }
     }
 
+    /** Whether the first-launch privacy welcome has been shown (shown once, before adding an account). */
+    val hasSeenWelcome: Flow<Boolean> = dataStore.data.map { it[KEY_HAS_SEEN_WELCOME] ?: false }
+
+    suspend fun setHasSeenWelcome(seen: Boolean) {
+        dataStore.edit { it[KEY_HAS_SEEN_WELCOME] = seen }
+    }
+
+    /** Whether the contacts-permission priming has already been offered at compose (shown once). */
+    val hasPrimedContacts: Flow<Boolean> = dataStore.data.map { it[KEY_HAS_PRIMED_CONTACTS] ?: false }
+
+    suspend fun setHasPrimedContacts(primed: Boolean) {
+        dataStore.edit { it[KEY_HAS_PRIMED_CONTACTS] = primed }
+    }
+
     /** Whether to remove tracking query params (utm_*, fbclid, …) from tapped links (on by default). */
     val stripTrackingParams: Flow<Boolean> = dataStore.data.map { it[KEY_STRIP_TRACKING] ?: true }
 
@@ -246,6 +260,8 @@ class SettingsRepository(context: Context) {
         private val KEY_CONVERSATION_VIEW = booleanPreferencesKey("conversation_view")
         private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
+        private val KEY_HAS_SEEN_WELCOME = booleanPreferencesKey("has_seen_welcome")
+        private val KEY_HAS_PRIMED_CONTACTS = booleanPreferencesKey("has_primed_contacts")
         private val KEY_STRIP_TRACKING = booleanPreferencesKey("strip_tracking_params")
         private val KEY_CONFIRM_LINKS = booleanPreferencesKey("confirm_links")
         private val KEY_IMAGE_ALLOWLIST = stringSetPreferencesKey("image_allowlist")

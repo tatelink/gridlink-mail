@@ -500,4 +500,16 @@
     <string name="empty_unread_action">Показать все</string>
     <string name="inbox_empty_trash">Очистить корзину</string>
     <string name="status_trash_emptied">Корзина очищена</string>
+
+    <!-- Onboarding: privacy welcome + contacts priming -->
+    <string name="welcome_body">Без рекламы, слежки и сервисов Google. На том сервере, который выберете вы.</string>
+    <string name="welcome_screen2_title">Ваше остаётся вашим.</string>
+    <string name="welcome_screen2_body">Sterna Mail не собирает телеметрию. Ваши контакты остаются на этом устройстве и читаются только с вашего разрешения.</string>
+    <string name="welcome_next">Далее</string>
+    <string name="welcome_get_started">Начать</string>
+    <string name="welcome_skip">Пропустить</string>
+    <string name="compose_contacts_priming_title">Подсказывать из ваших контактов?</string>
+    <string name="compose_contacts_priming_body">Автодополнять получателей из контактов этого устройства. Sterna Mail читает их только на устройстве и никогда не отправляет.</string>
+    <string name="compose_contacts_priming_enable">Включить</string>
+    <string name="compose_contacts_priming_not_now">Не сейчас</string>
 </resources>

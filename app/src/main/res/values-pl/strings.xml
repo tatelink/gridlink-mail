@@ -499,4 +499,16 @@
     <string name="empty_unread_action">Pokaż wszystkie</string>
     <string name="inbox_empty_trash">Opróżnij kosz</string>
     <string name="status_trash_emptied">Kosz opróżniony</string>
+
+    <!-- Onboarding: privacy welcome + contacts priming -->
+    <string name="welcome_body">Żadnych reklam, żadnego śledzenia, żadnych usług Google. Na serwerze, który wybierzesz.</string>
+    <string name="welcome_screen2_title">Twoje zostaje Twoje.</string>
+    <string name="welcome_screen2_body">Sterna Mail nie zbiera telemetrii. Twoje kontakty pozostają na tym urządzeniu i są odczytywane tylko za Twoją zgodą.</string>
+    <string name="welcome_next">Dalej</string>
+    <string name="welcome_get_started">Zaczynamy</string>
+    <string name="welcome_skip">Pomiń</string>
+    <string name="compose_contacts_priming_title">Sugerować z Twoich kontaktów?</string>
+    <string name="compose_contacts_priming_body">Uzupełniaj odbiorców z kontaktów tego urządzenia. Sterna Mail odczytuje je tylko na urządzeniu i nigdy ich nie przesyła.</string>
+    <string name="compose_contacts_priming_enable">Włącz</string>
+    <string name="compose_contacts_priming_not_now">Nie teraz</string>
 </resources>
