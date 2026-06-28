@@ -14,6 +14,7 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -516,53 +517,73 @@ private fun ConversationBody(
     onReply: (mode: String) -> Unit,
 ) {
     val msg = messages.firstOrNull() ?: return
+    // Reveal the Reply/Forward bar only once the body has rendered at its final height. Until the
+    // WebView reports its height the layout can't tell a long mail from a short one, so the bar
+    // would flash at the bottom and then jump to the end of the content once it lays out. A null
+    // body has nothing to render, so it's ready immediately.
+    var bodyReady by remember(msg.id) { mutableStateOf(msg.body == null) }
     // A plain scrolling Column (not a LazyColumn): the body's WebView stays alive instead of
     // reloading on every scroll. The reader is a single message.
-    Column(
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface),
     ) {
+        // Force the scrolling content to be at least the visible height: with SpaceBetween this
+        // pins the Reply/Forward bar to the bottom of the screen for a short mail (no scroll), and
+        // lets it sit right after the body for a long mail (revealed by scrolling to the end).
+        val minContentHeight = maxHeight
         Column(
             Modifier
-                .weight(1f)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState()),
         ) {
-            MessageCard(
-                msg = msg,
-                blockRemote = blockRemote,
-                stripTracking = stripTracking,
-                confirmLinks = confirmLinks,
-                attachmentStatus = attachmentStatus,
-                onOpenAttachment = onOpenAttachment,
-                textZoom = textZoom,
-            )
-        }
-        // Reply / Forward pinned at the bottom so they sit in the same place whether the mail is
-        // short or long, instead of floating mid-screen right under a short message.
-        HorizontalDivider()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Button(
-                onClick = { onReply("reply") },
-                modifier = Modifier.weight(1f),
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = minContentHeight),
+                verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.message_reply))
-            }
-            OutlinedButton(
-                onClick = { onReply("forward") },
-                modifier = Modifier.weight(1f),
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.message_forward))
+                MessageCard(
+                    msg = msg,
+                    blockRemote = blockRemote,
+                    stripTracking = stripTracking,
+                    confirmLinks = confirmLinks,
+                    attachmentStatus = attachmentStatus,
+                    onOpenAttachment = onOpenAttachment,
+                    textZoom = textZoom,
+                    onBodyReady = { bodyReady = true },
+                )
+                // Reply / Forward sit at the end of the content: bottom of the screen when the mail
+                // is short, just after the body when it overflows. Shown only once the body has
+                // rendered (bodyReady), so the bar doesn't flash at the bottom of an HTML mail
+                // before its true height is known.
+                if (bodyReady) Column(Modifier.fillMaxWidth()) {
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Button(
+                            onClick = { onReply("reply") },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.message_reply))
+                        }
+                        OutlinedButton(
+                            onClick = { onReply("forward") },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.message_forward))
+                        }
+                    }
+                }
             }
         }
     }
@@ -578,6 +599,7 @@ private fun MessageCard(
     attachmentStatus: String?,
     onOpenAttachment: (EmailBodyPart, String) -> Unit,
     textZoom: Int,
+    onBodyReady: () -> Unit = {},
 ) {
     val sender = msg.header.from.firstOrNull()
     val unread = !msg.header.isSeen
@@ -658,7 +680,7 @@ private fun MessageCard(
                         confirmLinks = confirmLinks,
                         backgroundColor = scheme.surface.toArgb(),
                         textZoom = textZoom,
-                        onReady = { bodyReady = true },
+                        onReady = { bodyReady = true; onBodyReady() },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
