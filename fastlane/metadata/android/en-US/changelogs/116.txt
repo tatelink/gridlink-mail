@@ -1,0 +1,3 @@
+New: calendar invites now appear as an event card. Add the event to your calendar in one tap, or reply Accept, Decline or Maybe straight from the email.
+
+Also: a quick guide to set up a Gmail app password, a clearer first-run welcome, and in a long message the Reply and Forward buttons step aside until you reach the end.
