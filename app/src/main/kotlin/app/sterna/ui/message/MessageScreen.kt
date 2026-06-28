@@ -997,6 +997,60 @@ private fun formatSize(bytes: Long): String = when {
     else -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
 }
 
+/**
+ * Decides how the body WebView is composited, and self-heals devices whose GPU-functor path
+ * SIGSEGVs (e.g. the Samsung S7 test device: older hardware on a newer custom ROM that reports a
+ * modern API level, so it can't be gated by version).
+ *
+ * Modern devices render hardware-accelerated ([View.LAYER_TYPE_NONE]): the WebView tiles its own
+ * paint, so a full-height newsletter draws with no offscreen bitmap and no size cap — it simply
+ * stacks in the reader's outer scroll. Crash-prone devices fall back to the software layer (a single
+ * capped bitmap), keeping the older pinned + internal-scroll path.
+ *
+ * Detection is a persisted sentinel (synchronous [android.content.SharedPreferences.Editor.commit],
+ * so it survives a process-killing SIGSEGV):
+ *  - the FIRST time a device ever draws a body hardware-accelerated, [armIfUnproven] sets a "render
+ *    pending" flag right before the draw;
+ *  - once that body has safely drawn, [markProven] clears it and latches the device as "hardware
+ *    proven", so no later render ever arms the sentinel again (zero false-positive risk afterwards);
+ *  - if the process dies mid-draw, the flag is still set at next launch, so [useSoftwareLayer]
+ *    latches the software layer permanently. The S7 thus crashes at most once, then stays safe.
+ */
+private object WebViewLayerGuard {
+    private const val PREFS = "webview_layer_guard"
+    private const val KEY_FORCE_SOFTWARE = "force_software"
+    private const val KEY_RENDER_PENDING = "render_pending"
+    private const val KEY_HARDWARE_PROVEN = "hardware_proven"
+
+    private fun prefs(context: Context) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /** True if this device must use the software layer. Also latches it if the last hardware draw crashed. */
+    fun useSoftwareLayer(context: Context): Boolean {
+        val p = prefs(context)
+        if (p.getBoolean(KEY_FORCE_SOFTWARE, false)) return true
+        // A pending flag with no "proven" marker means the device's first hardware body draw never
+        // reported a safe finish — it took the app down (the GPU-functor SIGSEGV). Latch software.
+        if (!p.getBoolean(KEY_HARDWARE_PROVEN, false) && p.getBoolean(KEY_RENDER_PENDING, false)) {
+            p.edit().putBoolean(KEY_FORCE_SOFTWARE, true).putBoolean(KEY_RENDER_PENDING, false).commit()
+            return true
+        }
+        return false
+    }
+
+    /** Arm the sentinel before a device's first-ever hardware body draw (no-op once proven). */
+    fun armIfUnproven(context: Context) {
+        val p = prefs(context)
+        if (p.getBoolean(KEY_HARDWARE_PROVEN, false)) return
+        p.edit().putBoolean(KEY_RENDER_PENDING, true).commit()
+    }
+
+    /** A hardware body has safely drawn: clear the sentinel and never arm again on this device. */
+    fun markProven(context: Context) {
+        prefs(context).edit().putBoolean(KEY_HARDWARE_PROVEN, true).putBoolean(KEY_RENDER_PENDING, false).commit()
+    }
+}
+
 @Composable
 private fun EmailWebView(
     html: String,
@@ -1019,13 +1073,17 @@ private fun EmailWebView(
     // keeps it invisible and shows a spinner); once known we pin the final height and the
     // parent reveals it — a single clean appearance, no reflow.
     var heightPx by remember { mutableIntStateOf(0) }
-    // Upper bound on the pinned body height. The WebView renders in a software layer (see
-    // factory — it sidesteps a GPU-functor SIGSEGV on devices with mismatched HWUI/GPU
-    // drivers), and a software layer is a single ARGB_8888 bitmap whose size is capped by the
-    // view drawing-cache limit (~one screen). A taller bitmap is silently dropped ("WebView
-    // not displayed because it is too large to fit into a software layer"), leaving the body
-    // blank. So we pin at most this many pixels; a taller body scrolls inside the WebView
-    // instead of stacking at full height (see `scrollable` handling in update()).
+    // Compositing mode for this device, decided once. Modern devices render hardware-accelerated
+    // (LAYER_TYPE_NONE) so a full-height body stacks in the outer scroll with no bitmap-size cap;
+    // crash-prone devices (S7-class GPU-functor SIGSEGV) latch the software layer and keep the
+    // pinned + internal-scroll fallback. See [WebViewLayerGuard] for the self-healing sentinel.
+    val useSoftwareLayer = remember(context) { WebViewLayerGuard.useSoftwareLayer(context) }
+    // Upper bound on the pinned body height, ONLY relevant on the software layer: that layer is a
+    // single ARGB_8888 bitmap whose size is capped by the view drawing-cache limit (~one screen).
+    // A taller bitmap is silently dropped ("WebView not displayed because it is too large to fit
+    // into a software layer"), leaving the body blank. So on the software layer we pin at most this
+    // many pixels and a taller body scrolls inside the WebView (see `scrollable` in update()). On
+    // the hardware layer there is no such cap, so the body is rendered at its full height.
     val maxLayerHeightPx = remember(context) {
         val maxBytes = ViewConfiguration.get(context).scaledMaximumDrawingCacheSize
         val widthPx = context.resources.displayMetrics.widthPixels.coerceAtLeast(1)
@@ -1072,20 +1130,33 @@ private fun EmailWebView(
     client.onOpenUrl = { uri -> if (confirmLinks) pendingLink = uri else openExternally(context, uri) }
     client.onContentHeight = { heightPx = it }
     val ready = heightPx > 0
-    val pinnedHeightPx = heightPx.coerceAtMost(maxLayerHeightPx)
+    // Hardware layer: render the whole body (it stacks in the outer scroll). Software layer: pin to
+    // the bitmap cap and let the overflow scroll internally.
+    val pinnedHeightPx = if (useSoftwareLayer) heightPx.coerceAtMost(maxLayerHeightPx) else heightPx
     LaunchedEffect(ready) { if (ready) onReady() }
+    // On the hardware layer, once the body has been revealed at full height and a few frames have
+    // safely drawn, latch the device as "hardware proven" so the crash sentinel never arms again.
+    // The delay outlives the first full-height frame: an S7-class functor would already have
+    // SIGSEGV'd the process before this runs, leaving the sentinel set for next-launch detection.
+    LaunchedEffect(ready, useSoftwareLayer) {
+        if (ready && !useSoftwareLayer) {
+            delay(500)
+            WebViewLayerGuard.markProven(context)
+        }
+    }
     AndroidView(
         modifier = modifier.height(if (ready) with(density) { pinnedHeightPx.toDp() } else 1.dp),
         factory = { ctx ->
             WebView(ctx).apply {
-                // Render in a software layer rather than the hardware-accelerated GLFunctor
-                // path. On devices whose HWUI/GPU blobs are mismatched (e.g. older hardware
-                // running a newer custom ROM, which reports a modern API level so we can't
-                // gate by version), the accelerated WebView functor dereferences a null
-                // SkSurface in RenderThread and the whole app SIGSEGVs the instant a mail
-                // body is drawn. Software layer sidesteps that functor; for a static,
-                // JS-disabled email body the rendering cost is negligible.
-                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                // Compositing path. The hardware-accelerated GLFunctor lets the WebView tile its
+                // own paint (full-height bodies, no bitmap cap), but on devices whose HWUI/GPU
+                // blobs are mismatched (e.g. older hardware running a newer custom ROM, which
+                // reports a modern API level so we can't gate by version) that functor
+                // dereferences a null SkSurface in RenderThread and the whole app SIGSEGVs the
+                // instant a mail body is drawn. Such devices are latched onto the software layer
+                // by [WebViewLayerGuard] (which sidesteps the functor) and stay there; for a
+                // static, JS-disabled email body the software rendering cost is negligible.
+                setLayerType(if (useSoftwareLayer) View.LAYER_TYPE_SOFTWARE else View.LAYER_TYPE_NONE, null)
                 settings.javaScriptEnabled = false
                 settings.loadWithOverviewMode = true
                 settings.useWideViewPort = true
@@ -1116,7 +1187,9 @@ private fun EmailWebView(
             // body, horizontal drags are released so the reading view's pager can swipe between
             // list entries. Short bodies stack at full height and never scroll internally, so they
             // keep the default (outer column owns vertical scroll, pager owns horizontal swipe).
-            val scrollable = heightPx > maxLayerHeightPx
+            // Internal scroll only exists on the software layer (capped bitmap). On the hardware
+            // layer the body is full-height in the outer scroll, so it never scrolls internally.
+            val scrollable = useSoftwareLayer && heightPx > maxLayerHeightPx
             webView.isVerticalScrollBarEnabled = scrollable
             webView.setOnTouchListener(if (scrollable) pagerAwareTouchListener else null)
             // update() runs on every recomposition; only (re)load when the document
@@ -1127,6 +1200,10 @@ private fun EmailWebView(
             val loadKey = Pair(blockRemote, html)
             if (webView.tag != loadKey) {
                 webView.tag = loadKey
+                // Arm the crash sentinel right before a hardware-accelerated draw on a device that
+                // hasn't yet proven the functor is safe. If this draw SIGSEGVs, the flag survives to
+                // the next launch and the device latches the software layer. No-op once proven.
+                if (!useSoftwareLayer) WebViewLayerGuard.armIfUnproven(context)
                 webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
             }
         },
@@ -1182,21 +1259,28 @@ private class BlockingWebViewClient : WebViewClient() {
         // and revealed a single time — never half-laid-out, never resized in view. Caps at
         // ~1s so a pathological page still reveals.
         var last = -1
+        var maxSeen = 0
         fun poll(triesLeft: Int) {
             if (wv.parent == null) return // detached (recycled/closed) — stop
             val px = (wv.contentHeight * wv.resources.displayMetrics.density).toInt()
+            if (px > maxSeen) maxSeen = px
             if (px > 0 && px == last) {
                 onContentHeight(px)
                 return
             }
             if (triesLeft <= 0) {
-                if (px > 0) onContentHeight(px)
+                // Some bodies (deeply nested tables + inline images) never settle — contentHeight
+                // oscillates between several values in a relayout loop. Reporting the LAST reading
+                // could pin a too-short height and cut off the tail; report the TALLEST seen so the
+                // whole body fits (full-height on the hardware layer; correctly scrollable on the
+                // software one). A little trailing slack is harmless; lost content is not.
+                if (maxSeen > 0) onContentHeight(maxSeen)
                 return
             }
             last = px
             wv.postDelayed({ poll(triesLeft - 1) }, 32)
         }
-        wv.post { last = -1; poll(30) }
+        wv.post { last = -1; maxSeen = 0; poll(30) }
     }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
