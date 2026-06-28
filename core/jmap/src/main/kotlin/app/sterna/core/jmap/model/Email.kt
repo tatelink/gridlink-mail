@@ -91,10 +91,22 @@ data class Email(
     fun inlineImageParts(): List<EmailBodyPart> =
         attachments.filter { it.blobId != null && !it.cid.isNullOrBlank() && it.type?.startsWith("image/") == true }
 
-    /** Attachments shown as downloadable files (everything that isn't an inline image). */
+    /**
+     * Calendar invite parts (text/calendar, e.g. a meeting REQUEST) that can be fetched —
+     * JMAP parts carry a blobId, IMAP parts a partId. Surfaced as an event preview card,
+     * not as a plain attachment row (see [fileAttachmentParts]).
+     */
+    fun calendarParts(): List<EmailBodyPart> =
+        attachments.filter {
+            it.type?.startsWith("text/calendar") == true && (it.blobId != null || it.partId != null)
+        }
+
+    /** Attachments shown as downloadable files (everything that isn't an inline image or invite). */
     fun fileAttachmentParts(): List<EmailBodyPart> {
         val inlineBlobs = inlineImageParts().mapNotNull { it.blobId }.toSet()
         return attachments.filter { part ->
+            // A calendar invite shows only as the event card, never also as a redundant file row.
+            if (part.type?.startsWith("text/calendar") == true) return@filter false
             // JMAP parts carry a blobId; IMAP parts a partId (the MIME section).
             (part.blobId != null && part.blobId !in inlineBlobs) || (part.blobId == null && part.partId != null)
         }

@@ -120,6 +120,18 @@
     <string name="message_attachments">Вложения (%1$d)</string>
     <string name="message_attachment_fallback">вложение</string>
     <string name="message_to">Кому: %1$s</string>
+    <!-- Calendar invite -->
+    <string name="calendar_invite">Приглашение в календарь</string>
+    <string name="calendar_event_untitled">Событие без названия</string>
+    <string name="calendar_cancelled">Отменено</string>
+    <string name="calendar_where">Где: %1$s</string>
+    <string name="calendar_organizer">Организатор: %1$s</string>
+    <string name="calendar_guests">Гостей: %1$d</string>
+    <string name="calendar_repeats">Повторяется</string>
+    <string name="calendar_add">Добавить в календарь</string>
+    <string name="calendar_open_invitation">Открыть приглашение</string>
+    <string name="calendar_invite_unparsed">Не удалось прочитать это приглашение.</string>
+    <string name="calendar_no_app">Приложение календаря не найдено.</string>
     <string name="snooze_in_1_hour">Через 1 час</string>
     <string name="snooze_this_evening">Сегодня вечером, 18:00</string>
     <string name="snooze_tomorrow">Завтра, 8:00</string>

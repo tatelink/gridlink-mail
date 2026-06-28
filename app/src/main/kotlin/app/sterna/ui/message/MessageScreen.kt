@@ -4,6 +4,7 @@ import app.sterna.appLocale
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.CalendarContract
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.automirrored.filled.ReplyAll
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.MoreVert
@@ -92,6 +94,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.DisposableEffect
 import androidx.paging.compose.collectAsLazyPagingItems
 import app.sterna.R
+import app.sterna.core.data.calendar.ParsedEvent
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.ui.components.Monogram
@@ -308,6 +311,7 @@ private fun MessageContent(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
+    val calendar by viewModel.calendar.collectAsStateWithLifecycle()
     val inJunk by viewModel.inJunk.collectAsStateWithLifecycle()
     val stripTracking by viewModel.stripTracking.collectAsStateWithLifecycle()
     val confirmLinks by viewModel.confirmLinks.collectAsStateWithLifecycle()
@@ -497,6 +501,7 @@ private fun MessageContent(
                     confirmLinks = confirmLinks,
                     attachmentStatus = attachmentStatus,
                     onOpenAttachment = viewModel::openAttachment,
+                    calendar = calendar,
                     textZoom = messageTextSize.zoom,
                     onReply = { mode -> onReply(mode, replyTargetId, accountId) },
                 )
@@ -513,6 +518,7 @@ private fun ConversationBody(
     confirmLinks: Boolean,
     attachmentStatus: String?,
     onOpenAttachment: (EmailBodyPart, String) -> Unit,
+    calendar: CalendarInvite?,
     textZoom: Int,
     onReply: (mode: String) -> Unit,
 ) {
@@ -551,6 +557,7 @@ private fun ConversationBody(
                     confirmLinks = confirmLinks,
                     attachmentStatus = attachmentStatus,
                     onOpenAttachment = onOpenAttachment,
+                    calendar = calendar,
                     textZoom = textZoom,
                     onBodyReady = { bodyReady = true },
                 )
@@ -598,6 +605,7 @@ private fun MessageCard(
     confirmLinks: Boolean,
     attachmentStatus: String?,
     onOpenAttachment: (EmailBodyPart, String) -> Unit,
+    calendar: CalendarInvite?,
     textZoom: Int,
     onBodyReady: () -> Unit = {},
 ) {
@@ -662,6 +670,13 @@ private fun MessageCard(
                     if (attachments.isNotEmpty()) {
                         HorizontalDivider()
                         AttachmentSection(attachments, attachmentStatus) { part -> onOpenAttachment(part, msg.id) }
+                    }
+                    // A calendar invite renders as an event preview card above the body.
+                    if (calendar != null && full.calendarParts().isNotEmpty()) {
+                        HorizontalDivider()
+                        CalendarEventCard(calendar) {
+                            calendar.part?.let { onOpenAttachment(it, calendar.ownerId ?: msg.id) }
+                        }
                     }
                     HorizontalDivider()
                     val scheme = MaterialTheme.colorScheme
@@ -752,6 +767,154 @@ private fun AttachmentSection(
             )
         }
     }
+}
+
+/**
+ * An event preview for a calendar invite (text/calendar part), shown above the body. While the
+ * .ics downloads it shows a compact placeholder; on success it shows the parsed event with an
+ * "Add to calendar" action (an ACTION_INSERT intent, no permission). If the invite can't be
+ * parsed or there is no calendar app, it degrades to "Open invitation" (the raw .ics opened
+ * by whatever app handles it).
+ */
+@Composable
+private fun CalendarEventCard(
+    invite: CalendarInvite,
+    onOpenInvitation: () -> Unit,
+) {
+    val context = LocalContext.current
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.Event,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(end = 8.dp).size(20.dp),
+            )
+            Text(
+                text = stringResource(R.string.calendar_invite),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (invite.loading) {
+                Spacer(Modifier.width(8.dp))
+                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+            }
+        }
+        val event = invite.event
+        when {
+            invite.loading -> Unit // the placeholder above (label + spinner) is enough
+            event != null -> {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = event.title ?: stringResource(R.string.calendar_event_untitled),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                if (event.cancelled) {
+                    Text(
+                        text = stringResource(R.string.calendar_cancelled),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Text(
+                    text = formatEventWhen(event),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                event.location?.let {
+                    Text(
+                        text = stringResource(R.string.calendar_where, it),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                event.organizer?.let {
+                    Text(
+                        text = stringResource(R.string.calendar_organizer, it),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (event.attendeeCount > 0) {
+                    Text(
+                        text = stringResource(R.string.calendar_guests, event.attendeeCount),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (event.recurs) {
+                    Text(
+                        text = stringResource(R.string.calendar_repeats),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Button(onClick = {
+                    if (!addToCalendar(context, event)) {
+                        // No event editor on the device — fall back to opening the raw invite.
+                        Toast.makeText(context, R.string.calendar_no_app, Toast.LENGTH_SHORT).show()
+                        onOpenInvitation()
+                    }
+                }) {
+                    Icon(Icons.Filled.Event, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.calendar_add))
+                }
+            }
+            else -> {
+                // Couldn't parse the .ics: let the user hand it to their calendar app directly.
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = stringResource(R.string.calendar_invite_unparsed),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (invite.part != null) {
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(onClick = onOpenInvitation) {
+                        Text(stringResource(R.string.calendar_open_invitation))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Fire an ACTION_INSERT calendar intent prefilled with [event]; false if no app can handle it. */
+private fun addToCalendar(context: Context, event: ParsedEvent): Boolean = try {
+    val intent = Intent(Intent.ACTION_INSERT)
+        .setData(CalendarContract.Events.CONTENT_URI)
+        .putExtra(CalendarContract.Events.TITLE, event.title)
+        .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, event.startMillis)
+        .putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, event.allDay)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    event.endMillis?.let { intent.putExtra(CalendarContract.EXTRA_EVENT_END_TIME, it) }
+    event.location?.let { intent.putExtra(CalendarContract.Events.EVENT_LOCATION, it) }
+    event.description?.let { intent.putExtra(CalendarContract.Events.DESCRIPTION, it) }
+    context.startActivity(intent)
+    true
+} catch (e: Exception) {
+    false
+}
+
+private val eventDateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy, HH:mm z", appLocale)
+private val eventDateFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy", appLocale)
+private val eventTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", appLocale)
+
+/** "When" line for the event card: date for all-day, else start–end in the device zone. */
+private fun formatEventWhen(event: ParsedEvent): String {
+    val zone = ZoneId.systemDefault()
+    val start = Instant.ofEpochMilli(event.startMillis).atZone(zone)
+    if (event.allDay) return start.format(eventDateFormatter)
+    val startStr = start.format(eventDateTimeFormatter)
+    val end = event.endMillis?.let { Instant.ofEpochMilli(it).atZone(zone) } ?: return startStr
+    val endStr = if (start.toLocalDate() == end.toLocalDate()) {
+        end.format(eventTimeFormatter)
+    } else {
+        end.format(eventDateTimeFormatter)
+    }
+    return "$startStr – $endStr"
 }
 
 private fun formatSize(bytes: Long): String = when {

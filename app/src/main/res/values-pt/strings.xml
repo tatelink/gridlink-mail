@@ -120,6 +120,18 @@
     <string name="message_attachments">Anexos (%1$d)</string>
     <string name="message_attachment_fallback">anexo</string>
     <string name="message_to">Para: %1$s</string>
+    <!-- Calendar invite -->
+    <string name="calendar_invite">Convite de calendário</string>
+    <string name="calendar_event_untitled">Evento sem título</string>
+    <string name="calendar_cancelled">Cancelado</string>
+    <string name="calendar_where">Onde: %1$s</string>
+    <string name="calendar_organizer">Organizador: %1$s</string>
+    <string name="calendar_guests">%1$d convidados</string>
+    <string name="calendar_repeats">Repete-se</string>
+    <string name="calendar_add">Adicionar ao calendário</string>
+    <string name="calendar_open_invitation">Abrir convite</string>
+    <string name="calendar_invite_unparsed">Não foi possível ler este convite.</string>
+    <string name="calendar_no_app">Nenhuma app de calendário encontrada.</string>
     <string name="snooze_in_1_hour">Em 1 hora</string>
     <string name="snooze_this_evening">Hoje à noite, 18h</string>
     <string name="snooze_tomorrow">Amanhã, 8h</string>

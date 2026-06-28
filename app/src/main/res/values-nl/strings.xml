@@ -120,6 +120,18 @@
     <string name="message_attachments">Bijlagen (%1$d)</string>
     <string name="message_attachment_fallback">bijlage</string>
     <string name="message_to">Aan: %1$s</string>
+    <!-- Calendar invite -->
+    <string name="calendar_invite">Agenda-uitnodiging</string>
+    <string name="calendar_event_untitled">Naamloze afspraak</string>
+    <string name="calendar_cancelled">Geannuleerd</string>
+    <string name="calendar_where">Waar: %1$s</string>
+    <string name="calendar_organizer">Organisator: %1$s</string>
+    <string name="calendar_guests">%1$d gasten</string>
+    <string name="calendar_repeats">Herhaalt</string>
+    <string name="calendar_add">Aan agenda toevoegen</string>
+    <string name="calendar_open_invitation">Uitnodiging openen</string>
+    <string name="calendar_invite_unparsed">Kan deze uitnodiging niet lezen.</string>
+    <string name="calendar_no_app">Geen agenda-app gevonden.</string>
     <string name="snooze_in_1_hour">Over 1 uur</string>
     <string name="snooze_this_evening">Vanavond, 18:00</string>
     <string name="snooze_tomorrow">Morgen, 08:00</string>

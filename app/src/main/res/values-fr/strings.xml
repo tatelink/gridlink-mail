@@ -120,6 +120,18 @@
     <string name="message_attachments">Pièces jointes (%1$d)</string>
     <string name="message_attachment_fallback">pièce jointe</string>
     <string name="message_to">À : %1$s</string>
+    <!-- Calendar invite -->
+    <string name="calendar_invite">Invitation d\'agenda</string>
+    <string name="calendar_event_untitled">Événement sans titre</string>
+    <string name="calendar_cancelled">Annulé</string>
+    <string name="calendar_where">Où : %1$s</string>
+    <string name="calendar_organizer">Organisateur : %1$s</string>
+    <string name="calendar_guests">%1$d invités</string>
+    <string name="calendar_repeats">Récurrent</string>
+    <string name="calendar_add">Ajouter à l\'agenda</string>
+    <string name="calendar_open_invitation">Ouvrir l\'invitation</string>
+    <string name="calendar_invite_unparsed">Impossible de lire cette invitation.</string>
+    <string name="calendar_no_app">Aucune app d\'agenda trouvée.</string>
     <string name="snooze_in_1_hour">Dans 1 heure</string>
     <string name="snooze_this_evening">Ce soir, 18 h</string>
     <string name="snooze_tomorrow">Demain, 8 h</string>

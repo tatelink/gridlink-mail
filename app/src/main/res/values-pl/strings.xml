@@ -120,6 +120,18 @@
     <string name="message_attachments">Załączniki (%1$d)</string>
     <string name="message_attachment_fallback">załącznik</string>
     <string name="message_to">Do: %1$s</string>
+    <!-- Calendar invite -->
+    <string name="calendar_invite">Zaproszenie do kalendarza</string>
+    <string name="calendar_event_untitled">Wydarzenie bez tytułu</string>
+    <string name="calendar_cancelled">Anulowano</string>
+    <string name="calendar_where">Gdzie: %1$s</string>
+    <string name="calendar_organizer">Organizator: %1$s</string>
+    <string name="calendar_guests">Goście: %1$d</string>
+    <string name="calendar_repeats">Powtarza się</string>
+    <string name="calendar_add">Dodaj do kalendarza</string>
+    <string name="calendar_open_invitation">Otwórz zaproszenie</string>
+    <string name="calendar_invite_unparsed">Nie można odczytać tego zaproszenia.</string>
+    <string name="calendar_no_app">Nie znaleziono aplikacji kalendarza.</string>
     <string name="snooze_in_1_hour">Za 1 godzinę</string>
     <string name="snooze_this_evening">Dziś wieczorem, 18:00</string>
     <string name="snooze_tomorrow">Jutro, 8:00</string>

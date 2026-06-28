@@ -163,6 +163,18 @@
     <string name="message_attachments">Attachments (%1$d)</string>
     <string name="message_attachment_fallback">attachment</string>
     <string name="message_to">To: %1$s</string>
+    <!-- Calendar invite -->
+    <string name="calendar_invite">Calendar invite</string>
+    <string name="calendar_event_untitled">Untitled event</string>
+    <string name="calendar_cancelled">Cancelled</string>
+    <string name="calendar_where">Where: %1$s</string>
+    <string name="calendar_organizer">Organizer: %1$s</string>
+    <string name="calendar_guests">%1$d guests</string>
+    <string name="calendar_repeats">Repeats</string>
+    <string name="calendar_add">Add to calendar</string>
+    <string name="calendar_open_invitation">Open invitation</string>
+    <string name="calendar_invite_unparsed">Couldn\'t read this invite.</string>
+    <string name="calendar_no_app">No calendar app found.</string>
     <string name="snooze_in_1_hour">In 1 hour</string>
     <string name="snooze_this_evening">This evening, 6 PM</string>
     <string name="snooze_tomorrow">Tomorrow, 8 AM</string>

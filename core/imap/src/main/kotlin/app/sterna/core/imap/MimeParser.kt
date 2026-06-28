@@ -77,6 +77,13 @@ object MimeParser {
             }
             mime == "text/html" -> decode(body, cte, charsetOf(contentType)) to null
             mime == "text/plain" -> null to decode(body, cte, charsetOf(contentType))
+            // A calendar invite (text/calendar, e.g. METHOD:REQUEST) is usually an inline
+            // part with no filename/disposition, so it would otherwise be lost here. Capture
+            // it as a downloadable part (named invite.ics) so the reader can fetch + preview it.
+            mime.startsWith("text/calendar") -> {
+                attachments.add(MimeAttachment(section, filename ?: "invite.ics", mime, body.length, cte))
+                null to null
+            }
             else -> null to null
         }
     }

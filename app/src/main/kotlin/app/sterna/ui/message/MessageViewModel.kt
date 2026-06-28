@@ -9,6 +9,8 @@ import app.sterna.container
 import app.sterna.R
 import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.calendar.ICalendar
+import app.sterna.core.data.calendar.ParsedEvent
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
@@ -34,6 +36,19 @@ data class ThreadMessage(
     val header: Email,
     val body: Email? = null,
     val inlineImages: Map<String, String> = emptyMap(),
+)
+
+/**
+ * Download/parse state for a calendar invite on the open message. [event] is the parsed
+ * event when reading succeeded; [failed] is true if the .ics couldn't be fetched or parsed
+ * (the card then offers to open the raw invitation). [part] / [ownerId] drive that fallback.
+ */
+data class CalendarInvite(
+    val loading: Boolean = false,
+    val event: ParsedEvent? = null,
+    val failed: Boolean = false,
+    val part: EmailBodyPart? = null,
+    val ownerId: String? = null,
 )
 
 /** A copy with the $seen keyword set, so a just-opened/expanded message renders as read. */
@@ -90,6 +105,13 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val _attachmentStatus = MutableStateFlow<String?>(null)
     val attachmentStatus = _attachmentStatus.asStateFlow()
 
+    /** The opened message's calendar invite (if any): download/parse state for the event card. */
+    private val _calendar = MutableStateFlow<CalendarInvite?>(null)
+    val calendar = _calendar.asStateFlow()
+
+    /** Guards against re-downloading the invite on every recomposition of the same message. */
+    private var calendarLoadedFor: String? = null
+
     private fun updateMessage(id: String, transform: (ThreadMessage) -> ThreadMessage) {
         _messages.value = _messages.value.map { if (it.id == id) transform(it) else it }
     }
@@ -123,6 +145,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _state.value = MessageState.Loading
         _messages.value = emptyList()
         _inJunk.value = false
+        _calendar.value = null
+        calendarLoadedFor = null
         viewModelScope.launch {
             // Paint the cached header (sender/subject/preview) immediately so the screen shows
             // the tapped message at once; the body fills in when the fetch returns. Header-only
@@ -157,6 +181,9 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                     ),
                 )
                 _inJunk.value = repo.mailboxRole(anchor.mailboxId ?: listEmail?.mailboxId) == "junk"
+                // A calendar invite (text/calendar part) is fetched + parsed off the body so the
+                // reader can show an event card above it.
+                loadCalendarFor(_messages.value.first())
                 // If the page already settled before the body arrived, read it now.
                 maybeMarkRead()
                 // The reader shows the single opened message; the conversation (the rest of the
@@ -216,6 +243,39 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             } catch (t: Throwable) {
                 _attachmentStatus.value =
                     app.getString(R.string.status_open_attachment_failed, t.message ?: "error")
+            }
+        }
+    }
+
+    /**
+     * Download and parse the message's calendar invite (text/calendar part), if any, into the
+     * event model exposed via [calendar]. Reuses the existing attachment download path; decodes
+     * with the part charset (UTF-8 default). A download/parse miss flips [CalendarInvite.failed]
+     * so the card can still offer to open the raw invitation.
+     */
+    private fun loadCalendarFor(msg: ThreadMessage) {
+        val part = msg.body?.calendarParts()?.firstOrNull() ?: return
+        if (calendarLoadedFor == msg.id) return
+        calendarLoadedFor = msg.id
+        _calendar.value = CalendarInvite(loading = true, part = part, ownerId = msg.id)
+        viewModelScope.launch {
+            try {
+                val credentials = credentials()
+                    ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
+                val bytes = repo.downloadAttachment(credentials, part, msg.id)
+                val charset = runCatching {
+                    java.nio.charset.Charset.forName(part.charset ?: "UTF-8")
+                }.getOrDefault(Charsets.UTF_8)
+                val event = ICalendar.parse(String(bytes, charset))
+                _calendar.value = CalendarInvite(
+                    loading = false,
+                    event = event,
+                    failed = event == null,
+                    part = part,
+                    ownerId = msg.id,
+                )
+            } catch (t: Throwable) {
+                _calendar.value = CalendarInvite(loading = false, failed = true, part = part, ownerId = msg.id)
             }
         }
     }
