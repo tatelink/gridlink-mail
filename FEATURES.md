@@ -31,7 +31,7 @@ The categories further down list the full feature set; this is the order of work
   icon actions, auto-focused To, expandable Cc/Bcc (rich-text editor dropped —
   low value on mobile)
 - ✅ Recipient autocomplete: recent/cached contacts + opt-in device contacts; recipients show as chips (removable), with email-format validation — invalid addresses are flagged and block sending
-- ✅ Undo send (hold-back window); 💡 full Outbox + retry
+- ✅ Undo send (hold-back window); ✅ full Outbox + retry (persistent queue, survives app death, auto-retries on network return)
 - ✅ Schedule send (quick presets; persisted + fired by WorkManager, survives app close)
 - ✅ Snooze a message until later
 
@@ -107,7 +107,12 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Attachments: pick & send, view/download/open incoming (JMAP blobs / IMAP multipart MIME + BODY-section fetch)
 - ✅ Inline images (`cid:`) rendered in the body (downloaded as data URIs)
 - 💡 Rich-text editor plus plain-text mode
-- ✅ Undo send (hold-back window) — held in an app-scoped outbox; 💡 full Outbox/retry
+- ✅ Undo send (hold-back window) — held in an app-scoped outbox; ✅ full Outbox — a
+  Room-backed send queue that survives app death and auto-retries with exponential
+  backoff when the network returns; every send path (compose, reply/forward, RSVP,
+  scheduled, notification quick-reply) routes through it. A dedicated Outbox screen
+  (inbox overflow) lists waiting/sending/failed items with retry / edit / delete, with a
+  discreet inbox badge. IMAP attachments are persisted so a deferred retry keeps them
 - ✅ Schedule send — quick presets; persisted in Room, fired by WorkManager (survives app close); v1 carries no attachments. A "Scheduled" screen (inbox ⋮ → Scheduled messages) lists pending sends and cancels them
 - ✅ "Forgot attachment?" reminder — sending a message that mentions an attachment (in any of the 9 UI languages) with none added prompts to confirm
 - ✅ Multiple sending identities per account (name + address), **each with its own
