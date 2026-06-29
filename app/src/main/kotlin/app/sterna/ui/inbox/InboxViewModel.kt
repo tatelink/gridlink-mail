@@ -145,6 +145,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         val sort: SortOrder,
         val unreadOnly: Boolean,
         val conversationView: Boolean,
+        // The active account, so switching accounts re-subscribes the pager even when the
+        // new inbox shares the old one's mailbox id (JMAP servers number mailboxes per
+        // account, so two accounts' inboxes often collide on the same id, e.g. "a").
+        val accountId: String? = null,
     )
 
     /** A just-performed swipe action that can be undone (move the message back). */
@@ -278,6 +282,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val selection = MutableStateFlow<Sel>(Sel.Folder(store.inboxMailboxId()))
+    private val currentAccountId = MutableStateFlow(store.currentId())
     private val unifiedInboxIds = MutableStateFlow(store.allInboxMailboxIds())
     private val meta = MutableStateFlow(
         Meta(store.accountLabel(), store.inboxMailboxName(), store.unreadCount()),
@@ -310,7 +315,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         combine(selection, unifiedInboxIds, settings.sortOrder, unreadOnly, settings.conversationView) {
                 sel, uids, sort, unread, conversation ->
             PageKey(sel, uids, sort, unread, conversation)
-        }.flatMapLatest { key ->
+        }.combine(currentAccountId) { key, accountId -> key.copy(accountId = accountId) }
+        .flatMapLatest { key ->
             when (val sel = key.sel) {
                 is Sel.Folder -> {
                     val id = sel.id
@@ -390,6 +396,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun onAccountChanged() {
         collapseThreads()
+        currentAccountId.value = store.currentId()
         selection.value = Sel.Folder(store.inboxMailboxId())
         unifiedInboxIds.value = store.allInboxMailboxIds()
         meta.value = Meta(store.accountLabel(), store.inboxMailboxName(), store.unreadCount())
