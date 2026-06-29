@@ -14,8 +14,8 @@ android {
         applicationId = "app.sterna"
         minSdk = 26
         targetSdk = 36
-        versionCode = 118
-        versionName = "1.0.17"
+        versionCode = 119
+        versionName = "1.0.18"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -64,8 +64,9 @@ android {
             isMinifyEnabled = !noR8
             isShrinkResources = !noR8
             // Prefer the real release key; fall back to the debug key when absent.
-            signingConfig = signingConfigs.findByName("release")
-                ?: signingConfigs.findByName("debugSigned")
+            // Keep on ONE line: F-Droid's reproducible-build signing strip is line-based,
+            // so a multi-line `?:` would be left orphaned and break the build.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.findByName("debugSigned")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
