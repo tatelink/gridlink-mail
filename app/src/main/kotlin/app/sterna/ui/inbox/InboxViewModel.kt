@@ -790,8 +790,14 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 searchState.value = searchState.value.copy(results = local)
             }
             delay(SEARCH_DEBOUNCE_MS)
-            val credentials = store.load()
-            val results = credentials?.let { runCatching { repo.search(it, SearchQuery(text = query)) }.getOrNull() }
+            // In the unified view, search every account (not just the active one); a
+            // single folder selection stays scoped to its account. Results are tagged
+            // with their accountId by the repository so they open in the right account.
+            val accounts = when (selection.value) {
+                Sel.Unified -> store.allCredentials()
+                is Sel.Folder -> listOfNotNull(store.load())
+            }
+            val results = runCatching { repo.search(accounts, SearchQuery(text = query)) }.getOrNull()
             // Ignore if the query changed while we were searching.
             if (searchState.value.query == query) {
                 searchState.value = searchState.value.copy(

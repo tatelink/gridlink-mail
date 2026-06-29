@@ -34,9 +34,12 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         _state.value = SearchState.Searching
         viewModelScope.launch {
             try {
-                val credentials = store.load()
-                    ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
-                _state.value = SearchState.Results(query.text.trim(), repo.search(credentials, query))
+                // Global search screen: span every account, not just the active one.
+                val accounts = store.allCredentials()
+                if (accounts.isEmpty()) {
+                    error(getApplication<Application>().getString(R.string.status_no_saved_account))
+                }
+                _state.value = SearchState.Results(query.text.trim(), repo.search(accounts, query))
             } catch (t: Throwable) {
                 _state.value = SearchState.Error(t.message ?: t.javaClass.simpleName)
             }

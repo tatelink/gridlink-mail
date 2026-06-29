@@ -60,6 +60,9 @@ import app.sterna.core.jmap.model.VacationResponse
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -1322,6 +1325,34 @@ class MailRepository(
         }
         val ctx = connect(credentials)
         return client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth)
+    }
+
+    /**
+     * Unified search across several accounts (the unified-inbox / dedicated-search case).
+     * Each account's [search] runs in parallel; every hit is tagged with its local
+     * accountId so results open in the right account and show the right account colour.
+     * Per-account failures are skipped so one unreachable account doesn't sink the search.
+     * Results are merged, de-duplicated, sorted newest-first and capped at [limit].
+     */
+    suspend fun search(accounts: List<AccountCredentials>, query: SearchQuery, limit: Int = 50): List<Email> {
+        if (query.isEmpty() || accounts.isEmpty()) return emptyList()
+        if (accounts.size == 1) {
+            val only = accounts.first()
+            return search(only, query, limit).map { it.copy(accountId = only.id) }
+        }
+        val perAccount = coroutineScope {
+            accounts.map { credentials ->
+                async {
+                    runCatching { search(credentials, query, limit).map { it.copy(accountId = credentials.id) } }
+                        .getOrDefault(emptyList())
+                }
+            }.awaitAll()
+        }
+        return perAccount.flatten()
+            // receivedAt is an ISO-8601 UTC string, so lexicographic sort == chronological.
+            .distinctBy { it.accountId to it.id }
+            .sortedByDescending { it.receivedAt ?: "" }
+            .take(limit)
     }
 
     /** Fetch an email (with body) without marking it read — used to build replies/forwards. */
