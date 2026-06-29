@@ -1042,8 +1042,7 @@ class MailRepository(
     suspend fun archive(credentials: AccountCredentials, emailId: String) {
         if (credentials.protocol == MailProtocol.IMAP) {
             imapTarget(emailId)?.let { (mb, uid) ->
-                val dest = mailboxDao.idForRole("archive")
-                    ?: mailboxDao.idForRole("all")
+                val dest = imapRoleFolder(credentials, "archive", "all")
                     ?: run { imap.createFolder(credentials, "Archive"); "Archive" }
                 if (mb == dest) return // already in the archive/all folder — nothing to do
                 imap.move(credentials, mb, uid, dest)?.let { lastImapMove[emailId] = ImapLoc(dest, it) }
@@ -1099,8 +1098,21 @@ class MailRepository(
      * spam / Not spam) targets the right folder instead of silently no-op'ing.
      */
     private suspend fun roleMailboxId(credentials: AccountCredentials, role: String): String? =
-        if (credentials.protocol == MailProtocol.IMAP) mailboxDao.idForRole(role)
+        if (credentials.protocol == MailProtocol.IMAP) imapRoleFolder(credentials, role)
         else connect(credentials).rolesToMailboxId[role]
+
+    /**
+     * The folder for the first matching [roles] in a SPECIFIC IMAP account, by listing
+     * that account's folders. Mirrors the JMAP path (its own connection context): the
+     * global mailbox cache holds only the last-synced account, so it's wrong for a
+     * non-current account in the unified inbox (e.g. archiving a Gmail message while a
+     * JMAP account is active would otherwise target the JMAP folder and fail "No folder").
+     */
+    private suspend fun imapRoleFolder(credentials: AccountCredentials, vararg roles: String): String? {
+        val folders = imap.listMailboxes(credentials)
+        for (role in roles) folders.firstOrNull { it.role == role }?.let { return it.id }
+        return null
+    }
 
     // ---- recipient suggestions ----
 
@@ -1269,7 +1281,7 @@ class MailRepository(
     suspend fun delete(credentials: AccountCredentials, emailId: String) {
         if (credentials.protocol == MailProtocol.IMAP) {
             imapTarget(emailId)?.let { (mb, uid) ->
-                val trash = mailboxDao.idForRole("trash")
+                val trash = imapRoleFolder(credentials, "trash")
                 if (trash != null) {
                     imap.move(credentials, mb, uid, trash)?.let { lastImapMove[emailId] = ImapLoc(trash, it) }
                 } else {

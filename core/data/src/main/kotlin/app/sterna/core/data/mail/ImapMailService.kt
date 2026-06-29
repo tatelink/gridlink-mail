@@ -128,6 +128,26 @@ class ImapMailService(
         withSession(credentials) { it.listFolders() }
     }
 
+    /**
+     * List a SPECIFIC account's folders (role + path), without fetching any messages.
+     * Used to resolve a role's folder for the message's own account — the global mailbox
+     * cache only holds the last-synced account, so it's wrong for a non-current account
+     * in the unified inbox.
+     */
+    suspend fun listMailboxes(credentials: AccountCredentials): List<MailboxEntity> =
+        withSession(credentials) { session ->
+            session.listFolders().mapIndexed { index, folder ->
+                MailboxEntity(
+                    id = folder.path,
+                    name = folder.name,
+                    role = folder.role,
+                    sortOrder = rolePriority(folder.role) * 1000 + index,
+                    totalEmails = 0,
+                    unreadEmails = 0,
+                )
+            }
+        }
+
     /** Connect, list folders, and fetch the newest [limit] of the target folder. */
     suspend fun loadFolder(
         credentials: AccountCredentials,
