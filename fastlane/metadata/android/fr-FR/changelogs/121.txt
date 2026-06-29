@@ -1,0 +1,1 @@
+Boîte unifiée : la recherche couvre désormais tous vos comptes, et archiver ou supprimer un message d'un autre compte fonctionne correctement. Correction de la boîte de réception qui ne se rafraîchissait pas au changement de compte. Les e-mails en texte brut conservent leurs paragraphes et leurs retours à la ligne.

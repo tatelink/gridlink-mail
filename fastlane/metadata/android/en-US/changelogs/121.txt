@@ -1,0 +1,1 @@
+Unified inbox: search now covers all your accounts, and archiving or deleting a message from another account works correctly. Fixed the inbox not refreshing when switching between accounts. Plain-text emails now keep their paragraphs and line breaks.
