@@ -1555,7 +1555,7 @@ private fun buildHtmlDocument(
 ): String {
     val htmlContent = email.htmlContent()
     var inner = htmlContent
-        ?: email.textContent()?.let { "<pre class=\"plain\">${escapeHtml(it)}</pre>" }
+        ?: email.textContent()?.let { "<pre class=\"plain\">${escapeHtml(reflowFormatFlowed(it))}</pre>" }
         ?: "<p>${escapeHtml(email.preview ?: "(no content)")}</p>"
     // Embed inline images: replace cid: references with their data URIs.
     inlineImages.forEach { (cid, dataUri) ->
@@ -1641,6 +1641,30 @@ private fun escapeHtml(text: String): String = text
     .replace("&", "&amp;")
     .replace("<", "&lt;")
     .replace(">", "&gt;")
+
+/**
+ * Reflow RFC 3676 `format=flowed` plain text: join soft-wrapped lines (those ending in a
+ * space) into one logical line, keeping hard breaks and blank lines so the `<pre>` render
+ * wraps at the viewport instead of showing the sender's ~72-char line breaks (issue #4).
+ *
+ * JMAP exposes the body as `text/plain` without the `format` parameter, so we key off the
+ * soft-break convention itself: a trailing space before the newline. Non-flowed text has no
+ * such trailing spaces, so it passes through unchanged (hard line breaks preserved). A single
+ * leading space is space-stuffing (protects lines starting with space/`>`/`From `) and is
+ * removed; the signature separator `-- ` is a hard break despite its trailing space.
+ */
+internal fun reflowFormatFlowed(text: String): String {
+    val lines = text.split("\n")
+    val sb = StringBuilder()
+    for ((i, raw) in lines.withIndex()) {
+        var line = raw.removeSuffix("\r")
+        if (line.startsWith(" ")) line = line.substring(1) // undo space-stuffing
+        sb.append(line)
+        val soft = line.endsWith(" ") && line != "-- "
+        if (!soft && i != lines.lastIndex) sb.append('\n')
+    }
+    return sb.toString()
+}
 
 private val fullFormatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", appLocale)
 

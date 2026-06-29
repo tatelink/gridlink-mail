@@ -79,9 +79,18 @@ data class Email(
     /** Whether the message is flagged/starred ($flagged keyword). */
     val isFlagged: Boolean get() = keywords["\$flagged"] == true
 
-    /** The HTML body content, if the message has one. */
+    /**
+     * The HTML body content, if the message has a genuine `text/html` part.
+     *
+     * JMAP servers (per RFC 8621 §4.1.4) fill `htmlBody` with the `text/plain` part when a
+     * message has no HTML version, so `htmlBody.first()` can be plain text. Treating that as
+     * HTML renders it in normal flow and collapses the paragraph breaks (issue #4). Only
+     * return a part that is actually `text/html`; otherwise the caller falls back to
+     * [textContent], which is rendered in a `<pre>` that preserves line breaks.
+     */
     fun htmlContent(): String? =
-        htmlBody.firstOrNull()?.partId?.let { bodyValues[it]?.value }
+        htmlBody.firstOrNull { it.type.equals("text/html", ignoreCase = true) }
+            ?.partId?.let { bodyValues[it]?.value }
 
     /** The plain-text body content, if present. */
     fun textContent(): String? =
