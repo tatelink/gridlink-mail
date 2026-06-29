@@ -128,6 +128,11 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     // Threading headers for a reply (empty for new/forward).
     private var inReplyTo: List<String> = emptyList()
     private var references: List<String> = emptyList()
+    /**
+     * For a forward: the original carried verbatim to send time, appended below the user's note in
+     * both the text and html alternatives so its formatting survives. Null for new/reply/replyAll.
+     */
+    private var forwarded: ForwardedBlocks? = null
     /** Account to send from: the replied-to message's account (unified inbox), else current. */
     private var accountId: String? = null
 
@@ -151,25 +156,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 val bytes = withContext(Dispatchers.IO) {
                     resolver.openInputStream(uri)?.use { it.readBytes() }
                 } ?: error(getApplication<Application>().getString(R.string.status_read_file_failed))
-                val part = if (credentials.protocol == MailProtocol.IMAP) {
-                    // No blob store for IMAP — stage the bytes as a temp file the
-                    // SMTP send reads to build the multipart MIME.
-                    val safe = (name ?: "attachment").replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    val file = withContext(Dispatchers.IO) {
-                        File(app.cacheDir, "outgoing").apply { mkdirs() }
-                            .let { File(it, "${System.nanoTime()}-$safe") }
-                            .apply { writeBytes(bytes) }
-                    }
-                    EmailBodyPart(
-                        partId = file.absolutePath,
-                        type = type,
-                        size = bytes.size.toLong(),
-                        name = name,
-                        disposition = "attachment",
-                    )
-                } else {
-                    repo.uploadAttachment(credentials, bytes, type, name)
-                }
+                val part = stageOutgoing(credentials, bytes, type, name, disposition = "attachment", cid = null)
                 _attachments.value = _attachments.value + part
                 _attachmentStatus.value = null
             } catch (t: Throwable) {
@@ -206,6 +193,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 _attachments.value = d.attachments
                 inReplyTo = d.inReplyTo
                 references = d.references
+                // Reopening an undone forward: restore the carried original so it is still sent.
+                if (d.forwardedText != null && d.forwardedHtml != null) {
+                    forwarded = ForwardedBlocks(d.forwardedText, d.forwardedHtml)
+                }
                 val match = options.firstOrNull {
                     it.accountId == d.fromAccountId && it.identity.email == d.fromIdentityEmail
                 } ?: options.firstOrNull { it.accountId == d.fromAccountId }
@@ -221,7 +212,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 val credentials = credentials() ?: return@launch
                 val original = repo.fetchEmail(credentials, replyToId)
                 _prefill.value = buildPrefill(original, mode, credentials.username)
-                if (mode != "forward") {
+                if (mode == "forward") {
+                    // Carry the original to send time instead of flattening it into the editor.
+                    forwarded = buildForwarded(credentials, original)
+                } else {
                     inReplyTo = original.messageId
                     references = original.references + original.messageId
                 }
@@ -247,7 +241,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 val ccList = parseAddrs(cc)
                 val bccList = parseAddrs(bcc)
                 val identity = selectedIdentity()
-                val (textBody, htmlBody) = bodiesWithSignature(body, identity?.signature.orEmpty())
+                val (textBody, htmlBody) = bodiesForSend(body, identity?.signature.orEmpty())
                 val attachments = _attachments.value
                 val replyTo = inReplyTo
                 val refs = references
@@ -263,6 +257,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     fromAccountId = _selectedFrom.value?.accountId,
                     fromIdentityEmail = identity?.email,
                     attachments = attachments, inReplyTo = replyTo, references = refs,
+                    forwardedText = forwarded?.text, forwardedHtml = forwarded?.html,
                 )
                 val app = getApplication<Application>()
                 outbox.hold(
@@ -293,7 +288,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 val recipients = parseAddrs(to)
                 require(recipients.isNotEmpty()) { getApplication<Application>().getString(R.string.status_add_recipient) }
                 val identity = selectedIdentity()
-                val (textBody, htmlBody) = bodiesWithSignature(body, identity?.signature.orEmpty())
+                val (textBody, htmlBody) = bodiesForSend(body, identity?.signature.orEmpty())
                 val id = repo.insertScheduledSend(
                     ScheduledSendEntity(
                         accountId = credentials.id,
@@ -333,6 +328,18 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         val textBody = "$userBody\n\n-- \n$textSig"
         val htmlBody = "${htmlify(userBody)}<br><br>-- <br>$htmlSig"
         return textBody to htmlBody
+    }
+
+    /**
+     * The outgoing (text, html) bodies: the user's note + signature, then — for a forward — the
+     * carried original appended below, identically, to both alternatives. The editable body no
+     * longer holds the original, so there is no duplication. Returns the same pair as
+     * [bodiesWithSignature] when this is not a forward.
+     */
+    private fun bodiesForSend(userBody: String, signature: String): Pair<String, String?> {
+        val (text, html) = bodiesWithSignature(userBody, signature)
+        val fwd = forwarded ?: return text to html
+        return "$text\n\n${fwd.text}" to "${html ?: htmlify(userBody)}<br><br>${fwd.html}"
     }
 
     private fun looksLikeHtml(s: String): Boolean = Regex("<[a-zA-Z/!]").containsMatchIn(s)
@@ -411,7 +418,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         "forward" -> DraftFields(
             to = "",
             subject = withPrefix(original.subject, "Fwd:"),
-            body = forwardBody(original),
+            // The editable body starts empty (just the user's note); the original is carried
+            // separately to send time so its formatting survives. See [buildForwarded].
+            body = "",
         )
         "replyAll" -> DraftFields(
             to = replyAllRecipients(original, self),
@@ -448,10 +457,80 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         return "\n\nOn ${o.receivedAt.orEmpty()}, $sender wrote:\n$quoted"
     }
 
-    private fun forwardBody(o: Email): String {
-        val from = o.from.joinToString { it.display() }
-        val text = originalPlainText(o)
-        return "\n\n---------- Forwarded message ----------\n" +
-            "From: $from\nSubject: ${o.subject.orEmpty()}\n\n$text"
+    /**
+     * Prebuild the forwarded-original blocks (text + cleaned html) carried to send time, and
+     * re-stage the original's inline images and file attachments as outgoing parts so the recipient
+     * receives them. Inline images keep their Content-ID (so the forwarded HTML's `<img cid:>` still
+     * resolves); a cid whose image fails to download is neutralised to "[image]" rather than broken.
+     */
+    private suspend fun buildForwarded(credentials: AccountCredentials, o: Email): ForwardedBlocks {
+        val carriedCids = mutableSetOf<String>()
+        val staged = mutableListOf<EmailBodyPart>()
+
+        for (part in o.inlineImageParts()) {
+            val cid = part.cid?.trim()?.trim('<', '>')?.takeIf { it.isNotBlank() } ?: continue
+            val outPart = runCatching {
+                val bytes = repo.downloadAttachment(credentials, part, o.id)
+                stageOutgoing(credentials, bytes, part.type, part.name, disposition = "inline", cid = cid)
+            }.getOrNull()
+            // Carry the image only if it staged; otherwise its cid stays out of [carriedCids] so
+            // cleanForwardedHtml neutralises that specific image.
+            if (outPart != null) {
+                staged += outPart
+                carriedCids += cid
+            }
+        }
+        for (part in o.fileAttachmentParts()) {
+            runCatching {
+                val bytes = repo.downloadAttachment(credentials, part, o.id)
+                stageOutgoing(credentials, bytes, part.type, part.name, disposition = "attachment", cid = null)
+            }.getOrNull()?.let { staged += it }
+        }
+        if (staged.isNotEmpty()) _attachments.value = _attachments.value + staged
+
+        return buildForwardedBlocks(
+            from = o.from.joinToString { it.display() },
+            subject = o.subject.orEmpty(),
+            date = o.receivedAt.orEmpty(),
+            to = o.to.joinToString { it.display() },
+            originalText = originalPlainText(o),
+            originalHtml = o.htmlContent()?.takeIf { it.isNotBlank() },
+            carriedCids = carriedCids,
+        )
+    }
+
+    /**
+     * Stage outgoing-attachment bytes the same way for a picked file or a carried forward part:
+     * IMAP writes a cache temp file (read back to build the MIME), JMAP uploads a blob. [disposition]
+     * is "inline" with a [cid] for a carried inline image, else "attachment".
+     */
+    private suspend fun stageOutgoing(
+        credentials: AccountCredentials,
+        bytes: ByteArray,
+        type: String?,
+        name: String?,
+        disposition: String,
+        cid: String?,
+    ): EmailBodyPart {
+        val app = getApplication<Application>()
+        return if (credentials.protocol == MailProtocol.IMAP) {
+            // No blob store for IMAP — stage the bytes as a temp file the SMTP send reads.
+            val safe = (name ?: "attachment").replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val file = withContext(Dispatchers.IO) {
+                File(app.cacheDir, "outgoing").apply { mkdirs() }
+                    .let { File(it, "${System.nanoTime()}-$safe") }
+                    .apply { writeBytes(bytes) }
+            }
+            EmailBodyPart(
+                partId = file.absolutePath,
+                type = type,
+                size = bytes.size.toLong(),
+                name = name,
+                disposition = disposition,
+                cid = cid,
+            )
+        } else {
+            repo.uploadAttachment(credentials, bytes, type, name, disposition, cid)
+        }
     }
 }

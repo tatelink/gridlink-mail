@@ -34,4 +34,131 @@ class ComposeTextTest {
             "Re: Project Phoenix review",
         ).forEach { assertFalse("should not flag: $it", mentionsAttachment(it)) }
     }
+
+    // --- Forwarding an HTML email while preserving its formatting ---
+
+    private val sampleHtml = """
+        <html><head><style>p{color:red}</style></head>
+        <body>
+          <p>Hello <strong>bold</strong> and <a href="https://example.com">link</a>.</p>
+          <ul><li>one</li><li>two</li></ul>
+          <script>alert('x')</script>
+          <img src="cid:logo123@mail" alt="logo">
+        </body></html>
+    """.trimIndent()
+
+    @Test fun forwardedHtmlPreservesOriginalFormatting() {
+        val blocks = buildForwardedBlocks(
+            from = "Alice <alice@example.com>", subject = "Quarterly report",
+            date = "Mon, 1 Jun 2026 10:00:00 +0000", to = "Bob <bob@example.com>",
+            originalText = "Hello bold and link.", originalHtml = sampleHtml,
+        )
+        assertTrue("strong kept", blocks.html.contains("<strong>bold</strong>"))
+        assertTrue("list kept", blocks.html.contains("<li>one</li>") && blocks.html.contains("<li>two</li>"))
+        assertTrue("link kept", blocks.html.contains("<a href=\"https://example.com\">link</a>"))
+    }
+
+    @Test fun forwardedHeaderPresentInBothOutputs() {
+        val blocks = buildForwardedBlocks(
+            from = "Alice <alice@example.com>", subject = "Quarterly report",
+            date = "Mon, 1 Jun 2026 10:00:00 +0000", to = "Bob <bob@example.com>",
+            originalText = "body", originalHtml = sampleHtml,
+        )
+        listOf(blocks.text, blocks.html).forEach { out ->
+            assertTrue("forward header: $out", out.contains("Forwarded message"))
+            assertTrue("From present: $out", out.contains("Alice <alice@example.com>") ||
+                out.contains("Alice &lt;alice@example.com&gt;"))
+            assertTrue("Subject present: $out", out.contains("Quarterly report"))
+        }
+    }
+
+    @Test fun forwardedHtmlStripsScriptAndStyle() {
+        val cleaned = cleanForwardedHtml(sampleHtml)
+        assertFalse("no <script>", cleaned.contains("<script", ignoreCase = true))
+        assertFalse("no alert body", cleaned.contains("alert('x')"))
+        assertFalse("no <style>", cleaned.contains("<style", ignoreCase = true))
+        assertFalse("no head", cleaned.contains("<head", ignoreCase = true))
+    }
+
+    @Test fun forwardedHtmlNeutralizesUncarriedCidImagesAsFallback() {
+        // No image was carried (empty carriedCids) → the cid image is neutralised, not left broken.
+        val cleaned = cleanForwardedHtml(sampleHtml)
+        assertFalse("no cid src", cleaned.contains("cid:", ignoreCase = true))
+        assertFalse("no leftover img tag", cleaned.contains("<img", ignoreCase = true))
+        assertTrue("placeholder present", cleaned.contains("[image]"))
+    }
+
+    @Test fun forwardedHtmlKeepsCarriedCidImage() {
+        // The image IS being re-attached (cid in carriedCids) → keep the <img src="cid:..."> intact.
+        val cleaned = cleanForwardedHtml(sampleHtml, carriedCids = setOf("logo123@mail"))
+        assertTrue("img kept", cleaned.contains("src=\"cid:logo123@mail\"", ignoreCase = true) ||
+            cleaned.contains("cid:logo123@mail"))
+        assertTrue("img tag kept", cleaned.contains("<img", ignoreCase = true))
+        assertFalse("no placeholder", cleaned.contains("[image]"))
+    }
+
+    @Test fun carriedCidNormalisesAngleBrackets() {
+        // The original src has no brackets; carriedCids supplied them — they must still match.
+        val cleaned = cleanForwardedHtml(sampleHtml, carriedCids = setOf("<logo123@mail>"))
+        assertTrue("img kept despite bracket mismatch", cleaned.contains("cid:logo123@mail"))
+        assertFalse("no placeholder", cleaned.contains("[image]"))
+    }
+
+    @Test fun mixOfCarriedAndUncarriedCidImages() {
+        val html = "<img src=\"cid:keep@x\"><img src=\"cid:drop@y\">"
+        val cleaned = cleanForwardedHtml(html, carriedCids = setOf("keep@x"))
+        assertTrue("carried kept", cleaned.contains("cid:keep@x"))
+        assertFalse("uncarried dropped", cleaned.contains("cid:drop@y"))
+        assertTrue("placeholder for the dropped one", cleaned.contains("[image]"))
+    }
+
+    @Test fun buildForwardedKeepsCarriedInlineImage() {
+        val blocks = buildForwardedBlocks(
+            from = "Alice", subject = "S", date = "d", to = "Bob",
+            originalText = "t", originalHtml = sampleHtml,
+            carriedCids = setOf("logo123@mail"),
+        )
+        assertTrue("carried img survives in html block", blocks.html.contains("cid:logo123@mail"))
+    }
+
+    @Test fun cidImageNeutralizedRegardlessOfAttributeOrderAndQuoting() {
+        val variants = listOf(
+            "<IMG alt='x' SRC=cid:abc>",
+            "<img\n  src = \"cid:abc@host\" width=10>",
+            "<img class='c' src='cid:zzz'/>",
+        )
+        variants.forEach { v ->
+            val cleaned = cleanForwardedHtml("<p>before</p>$v<p>after</p>")
+            assertFalse("cid removed in: $v", cleaned.contains("cid:", ignoreCase = true))
+            assertTrue("structure kept around: $v", cleaned.contains("before") && cleaned.contains("after"))
+        }
+    }
+
+    @Test fun remoteImagesAndStructureSurviveCleaning() {
+        val html = "<p>x</p><img src=\"https://example.com/a.png\"><div>y</div>"
+        val cleaned = cleanForwardedHtml(html)
+        assertTrue("http img kept", cleaned.contains("src=\"https://example.com/a.png\""))
+        assertTrue("div kept", cleaned.contains("<div>y</div>"))
+    }
+
+    @Test fun plainTextOriginalStillForwards() {
+        val blocks = buildForwardedBlocks(
+            from = "Alice", subject = "Notes", date = "today", to = "Bob",
+            originalText = "line one\nline two", originalHtml = null,
+        )
+        assertTrue("text carries original", blocks.text.contains("line one\nline two"))
+        // No HTML part: the plain text is escaped into the html alternative with <br> breaks.
+        assertTrue("html carries original", blocks.html.contains("line one<br>line two"))
+        assertTrue("header in text", blocks.text.contains("Forwarded message"))
+        assertTrue("header in html", blocks.html.contains("Forwarded message"))
+    }
+
+    @Test fun htmlEscapingProtectsAgainstTagInjectionInHeader() {
+        val blocks = buildForwardedBlocks(
+            from = "<script>evil</script>", subject = "a & b < c", date = "d", to = "e",
+            originalText = "t", originalHtml = null,
+        )
+        assertFalse("from escaped in html", blocks.html.contains("<script>evil"))
+        assertTrue("ampersand escaped", blocks.html.contains("a &amp; b &lt; c"))
+    }
 }

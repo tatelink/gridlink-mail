@@ -31,6 +31,9 @@ class SendOutbox(private val scope: CoroutineScope) {
         val attachments: List<EmailBodyPart>,
         val inReplyTo: List<String>,
         val references: List<String>,
+        /** For an undone forward: the carried original (text + html) so resending keeps it. */
+        val forwardedText: String? = null,
+        val forwardedHtml: String? = null,
     )
 
     private val _pending = MutableStateFlow<Pending?>(null)

@@ -52,4 +52,72 @@ class OutgoingMimeTest {
         assertEquals("From: alice@example.com", mime.lineSequence().first { it.startsWith("From:") })
         assertTrue(mime.contains("To: bob@example.com"))
     }
+
+    private fun htmlMsg(attachments: List<OutgoingAttachment>) = OutgoingMessage(
+        from = "alice@example.com",
+        to = listOf("bob@example.com"),
+        subject = "Hi",
+        body = "hello",
+        html = "<p>hi <img src=\"cid:logo@x\"></p>",
+        messageId = "id-1@example.com",
+        dateMillis = 0L,
+        attachments = attachments,
+    )
+
+    private val image = OutgoingAttachment(
+        name = "logo.png", type = "image/png", bytes = byteArrayOf(1, 2, 3),
+        cid = "logo@x", inline = true,
+    )
+    private val file = OutgoingAttachment(
+        name = "doc.pdf", type = "application/pdf", bytes = byteArrayOf(4, 5, 6),
+    )
+
+    @Test
+    fun noAttachmentsStaysSinglePart() {
+        val mime = OutgoingMime.build(htmlMsg(emptyList()))
+        assertFalse("no multipart", mime.contains("multipart/"))
+        assertTrue("html content type", mime.contains("Content-Type: text/html; charset=utf-8"))
+    }
+
+    @Test
+    fun fileOnlyStaysMultipartMixedWithoutRelatedOrContentId() {
+        val mime = OutgoingMime.build(htmlMsg(listOf(file)))
+        assertTrue("mixed", mime.contains("Content-Type: multipart/mixed;"))
+        assertFalse("no related", mime.contains("multipart/related"))
+        assertFalse("no Content-ID", mime.contains("Content-ID:"))
+        assertTrue("file attachment", mime.contains("Content-Disposition: attachment; filename=\"doc.pdf\""))
+    }
+
+    @Test
+    fun inlineOnlyEmitsMultipartRelatedWithContentIdAndInlineDisposition() {
+        val mime = OutgoingMime.build(htmlMsg(listOf(image)))
+        assertTrue("related is the top-level body", mime.contains("Content-Type: multipart/related;"))
+        assertFalse("no mixed wrapper", mime.contains("multipart/mixed"))
+        assertTrue("html part present", mime.contains("Content-Type: text/html; charset=utf-8"))
+        assertTrue("Content-ID with angle brackets", mime.contains("Content-ID: <logo@x>"))
+        assertTrue("inline disposition", mime.contains("Content-Disposition: inline; filename=\"logo.png\""))
+        assertTrue("image content type", mime.contains("Content-Type: image/png; name=\"logo.png\""))
+    }
+
+    @Test
+    fun inlineAndFileWrapRelatedInsideMixed() {
+        val mime = OutgoingMime.build(htmlMsg(listOf(image, file)))
+        assertTrue("mixed wrapper", mime.contains("Content-Type: multipart/mixed;"))
+        assertTrue("related nested", mime.contains("Content-Type: multipart/related;"))
+        assertTrue("inline image kept", mime.contains("Content-ID: <logo@x>"))
+        assertTrue("inline disposition", mime.contains("Content-Disposition: inline; filename=\"logo.png\""))
+        assertTrue("file attachment kept", mime.contains("Content-Disposition: attachment; filename=\"doc.pdf\""))
+        // The related entity opens before the file attachment part (nesting order).
+        assertTrue(
+            "related precedes file",
+            mime.indexOf("multipart/related") < mime.indexOf("filename=\"doc.pdf\""),
+        )
+    }
+
+    @Test
+    fun inlineImageCannotInjectHeadersViaCid() {
+        val evil = image.copy(cid = "logo@x\r\nBcc: victim@evil.com")
+        val mime = OutgoingMime.build(htmlMsg(listOf(evil)))
+        assertFalse("CRLF in cid stripped", mime.contains("\nBcc:"))
+    }
 }

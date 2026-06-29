@@ -11,6 +11,8 @@ data class MimeAttachment(
     val size: Int,
     /** Content-Transfer-Encoding (base64 / quoted-printable / 7bit…). */
     val encoding: String,
+    /** Content-ID (angle brackets stripped) when the part is an inline image referenced by `cid:`. */
+    val cid: String? = null,
 )
 
 /** The displayable body of a message plus any file attachments. */
@@ -69,10 +71,18 @@ object MimeParser {
         }
 
         val section = prefix.ifEmpty { "1" }
+        val cid = headers["content-id"]?.trim()?.trim('<', '>')?.takeIf { it.isNotBlank() }
         val isAttachment = !filename.isNullOrBlank() || disposition.lowercase().contains("attachment")
+        // An inline image with no filename/attachment disposition (referenced only by Content-ID)
+        // would otherwise be dropped; keep it as a fetchable part so it can render / be forwarded.
+        val isInlineImage = cid != null && mime.startsWith("image/")
         return when {
             isAttachment -> {
-                attachments.add(MimeAttachment(section, filename ?: "attachment", mime, body.length, cte))
+                attachments.add(MimeAttachment(section, filename ?: "attachment", mime, body.length, cte, cid))
+                null to null
+            }
+            isInlineImage -> {
+                attachments.add(MimeAttachment(section, filename ?: "image", mime, body.length, cte, cid))
                 null to null
             }
             mime == "text/html" -> decode(body, cte, charsetOf(contentType)) to null

@@ -63,6 +63,28 @@ class MimeParserTest {
     }
 
     @Test
+    fun capturesInlineImageContentId() {
+        val imgB64 = Base64.getEncoder().encodeToString("PNG".toByteArray())
+        val raw = buildString {
+            append("Content-Type: multipart/related; boundary=\"R\"\r\n\r\n")
+            append("--R\r\n")
+            append("Content-Type: text/html\r\n\r\n<p><img src=\"cid:logo@x\"></p>\r\n")
+            append("--R\r\n")
+            append("Content-Type: image/png\r\n")
+            append("Content-Transfer-Encoding: base64\r\n")
+            append("Content-ID: <logo@x>\r\n")
+            append("Content-Disposition: inline\r\n\r\n")
+            append("$imgB64\r\n")
+            append("--R--\r\n")
+        }
+        val body = MimeParser.parseBody(raw)
+        assertEquals(1, body.attachments.size)
+        val att = body.attachments.first()
+        assertEquals("logo@x", att.cid) // angle brackets stripped
+        assertEquals("image/png", att.type)
+    }
+
+    @Test
     fun decodeBytesRoundTripsBase64() {
         val original = byteArrayOf(1, 2, 3, 65, 66, 67)
         val encoded = Base64.getEncoder().encodeToString(original)

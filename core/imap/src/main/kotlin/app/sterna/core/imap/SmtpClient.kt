@@ -14,11 +14,15 @@ import javax.net.ssl.SSLSocketFactory
 
 class SmtpException(message: String) : Exception(message)
 
-/** A file attachment to include in an outgoing message. */
+/** A file or inline attachment to include in an outgoing message. */
 data class OutgoingAttachment(
     val name: String,
     val type: String,
     val bytes: ByteArray,
+    /** Content-ID (no angle brackets) for an inline part referenced by `cid:` in the HTML body. */
+    val cid: String? = null,
+    /** When true the part is emitted inline (multipart/related) rather than as a file attachment. */
+    val inline: Boolean = false,
 )
 
 /** A message to submit over SMTP. Addresses are bare "name <addr>" or "addr" strings. */
@@ -166,32 +170,97 @@ object OutgoingMime {
             append("MIME-Version: 1.0\r\n")
             val bodyContent = m.html ?: m.body
             val bodyType = if (m.html != null) "text/html" else "text/plain"
-            if (m.attachments.isEmpty()) {
-                append("Content-Type: $bodyType; charset=utf-8\r\n")
-                append("Content-Transfer-Encoding: base64\r\n")
-                append("\r\n")
-                append(base64(bodyContent.toByteArray(Charsets.UTF_8)))
-            } else {
-                val boundary = "----sterna_${m.messageId.filter { it.isLetterOrDigit() }.take(24)}"
-                append("Content-Type: multipart/mixed; boundary=\"$boundary\"\r\n\r\n")
-                append("--$boundary\r\n")
-                append("Content-Type: $bodyType; charset=utf-8\r\n")
-                append("Content-Transfer-Encoding: base64\r\n\r\n")
-                append(base64(bodyContent.toByteArray(Charsets.UTF_8)))
-                append("\r\n")
-                for (att in m.attachments) {
-                    val safeName = headerSafe(att.name).replace("\"", "")
-                    val safeType = headerSafe(att.type).replace("\"", "")
-                    append("--$boundary\r\n")
-                    append("Content-Type: $safeType; name=\"$safeName\"\r\n")
+            val inlineParts = m.attachments.filter { it.inline }
+            val fileParts = m.attachments.filter { !it.inline }
+            when {
+                // Plain body, nothing carried — single part (unchanged).
+                inlineParts.isEmpty() && fileParts.isEmpty() -> {
+                    append("Content-Type: $bodyType; charset=utf-8\r\n")
                     append("Content-Transfer-Encoding: base64\r\n")
-                    append("Content-Disposition: attachment; filename=\"$safeName\"\r\n\r\n")
-                    append(base64(att.bytes))
                     append("\r\n")
+                    append(base64(bodyContent.toByteArray(Charsets.UTF_8)))
                 }
-                append("--$boundary--\r\n")
+                // File attachments only — multipart/mixed (unchanged).
+                inlineParts.isEmpty() -> {
+                    val boundary = boundary(m, "mixed")
+                    append("Content-Type: multipart/mixed; boundary=\"$boundary\"\r\n\r\n")
+                    append("--$boundary\r\n")
+                    appendBodyPart(bodyType, bodyContent)
+                    for (att in fileParts) {
+                        append("--$boundary\r\n")
+                        appendAttachmentPart(att)
+                    }
+                    append("--$boundary--\r\n")
+                }
+                // Inline images, no files — the message body is a multipart/related.
+                fileParts.isEmpty() -> {
+                    val related = boundary(m, "related")
+                    append("Content-Type: multipart/related; type=\"$bodyType\"; boundary=\"$related\"\r\n\r\n")
+                    appendRelatedParts(related, bodyType, bodyContent, inlineParts)
+                }
+                // Inline images AND files — multipart/mixed( multipart/related(html, images), files ).
+                else -> {
+                    val mixed = boundary(m, "mixed")
+                    val related = boundary(m, "related")
+                    append("Content-Type: multipart/mixed; boundary=\"$mixed\"\r\n\r\n")
+                    append("--$mixed\r\n")
+                    append("Content-Type: multipart/related; type=\"$bodyType\"; boundary=\"$related\"\r\n\r\n")
+                    appendRelatedParts(related, bodyType, bodyContent, inlineParts)
+                    for (att in fileParts) {
+                        append("--$mixed\r\n")
+                        appendAttachmentPart(att)
+                    }
+                    append("--$mixed--\r\n")
+                }
             }
         }
+    }
+
+    /** Unique-per-message boundary, tagged so a nested mixed/related pair never collide. */
+    private fun boundary(m: OutgoingMessage, tag: String): String =
+        "----sterna_${tag}_${m.messageId.filter { it.isLetterOrDigit() }.take(24)}"
+
+    /** The text/html (or text/plain) body part of a multipart entity. */
+    private fun StringBuilder.appendBodyPart(bodyType: String, bodyContent: String) {
+        append("Content-Type: $bodyType; charset=utf-8\r\n")
+        append("Content-Transfer-Encoding: base64\r\n\r\n")
+        append(base64(bodyContent.toByteArray(Charsets.UTF_8)))
+        append("\r\n")
+    }
+
+    /** A file attachment part (Content-Disposition: attachment). */
+    private fun StringBuilder.appendAttachmentPart(att: OutgoingAttachment) {
+        val safeName = headerSafe(att.name).replace("\"", "")
+        val safeType = headerSafe(att.type).replace("\"", "")
+        append("Content-Type: $safeType; name=\"$safeName\"\r\n")
+        append("Content-Transfer-Encoding: base64\r\n")
+        append("Content-Disposition: attachment; filename=\"$safeName\"\r\n\r\n")
+        append(base64(att.bytes))
+        append("\r\n")
+    }
+
+    /** The body part plus each inline image (Content-ID + Content-Disposition: inline) of a related entity. */
+    private fun StringBuilder.appendRelatedParts(
+        related: String,
+        bodyType: String,
+        bodyContent: String,
+        inlineParts: List<OutgoingAttachment>,
+    ) {
+        append("--$related\r\n")
+        appendBodyPart(bodyType, bodyContent)
+        for (att in inlineParts) {
+            val safeName = headerSafe(att.name).replace("\"", "")
+            val safeType = headerSafe(att.type).replace("\"", "")
+            val safeCid = headerSafe(att.cid ?: "").trim().trim('<', '>').replace("\"", "")
+            append("--$related\r\n")
+            append("Content-Type: $safeType; name=\"$safeName\"\r\n")
+            append("Content-Transfer-Encoding: base64\r\n")
+            append("Content-ID: <$safeCid>\r\n")
+            append("Content-Disposition: inline; filename=\"$safeName\"\r\n\r\n")
+            append(base64(att.bytes))
+            append("\r\n")
+        }
+        append("--$related--\r\n")
     }
 
     private fun base64(bytes: ByteArray): String =

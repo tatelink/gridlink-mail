@@ -1002,7 +1002,13 @@ class JmapClient internal constructor(
                                                 put("blobId", att.blobId)
                                                 put("type", att.type ?: "application/octet-stream")
                                                 att.name?.let { put("name", it) }
-                                                put("disposition", "attachment")
+                                                // Inline (cid) images keep their Content-ID + inline
+                                                // disposition so the server assembles multipart/related
+                                                // and the htmlBody's `cid:` refs resolve.
+                                                put("disposition", att.disposition ?: "attachment")
+                                                att.cid?.trim()?.trim('<', '>')
+                                                    ?.takeIf { it.isNotBlank() }
+                                                    ?.let { put("cid", it) }
                                                 if (att.size > 0) put("size", att.size)
                                             }
                                         }

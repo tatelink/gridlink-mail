@@ -19,6 +19,10 @@ data class OutboxAttachment(
     val type: String? = null,
     val name: String? = null,
     val size: Long = 0,
+    /** Content-ID (no angle brackets) for an inline part carried by a forward; null for a file. */
+    val cid: String? = null,
+    /** "inline" for a cid image, else "attachment" (default for older persisted rows). */
+    val disposition: String? = null,
 )
 
 /** (De)serialises the outbox attachment list stored in [OutboxEntity.attachmentsJson]. */

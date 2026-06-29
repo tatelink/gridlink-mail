@@ -861,12 +861,14 @@ class MailRepository(
     /** Attach a parsed [MimeBody] to a cached [Email] so the message view can render it. */
     private fun Email.withBody(body: MimeBody): Email {
         val attachments = body.attachments.map {
+            val isInlineImage = !it.cid.isNullOrBlank() && it.type.startsWith("image/")
             EmailBodyPart(
                 partId = it.section,
                 name = it.name,
                 type = it.type,
                 size = it.size.toLong(),
-                disposition = "attachment",
+                cid = it.cid,
+                disposition = if (isInlineImage) "inline" else "attachment",
                 encoding = it.encoding,
             )
         }
@@ -1591,16 +1593,19 @@ class MailRepository(
                 part.blobId != null -> OutboxAttachment(
                     kind = OutboxAttachments.KIND_JMAP_BLOB,
                     blobId = part.blobId, type = part.type, name = part.name, size = part.size,
+                    cid = part.cid, disposition = part.disposition,
                 )
                 part.partId != null -> {
                     val sourcePath = part.partId!!
                     val bytes = runCatching { java.io.File(sourcePath).readBytes() }.getOrNull()
                         ?: return@mapNotNull null
                     val safe = (part.name ?: "attachment").replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    val dest = java.io.File(dir, safe).apply { writeBytes(bytes) }
+                    // Keep the staged name unique so two inline images sharing a name don't collide.
+                    val dest = java.io.File(dir, "${System.nanoTime()}-$safe").apply { writeBytes(bytes) }
                     OutboxAttachment(
                         kind = OutboxAttachments.KIND_IMAP_FILE,
                         path = dest.absolutePath, type = part.type, name = part.name, size = bytes.size.toLong(),
+                        cid = part.cid, disposition = part.disposition,
                     )
                 }
                 else -> null
@@ -1713,7 +1718,11 @@ class MailRepository(
             val outAttachments = stored.mapNotNull { a ->
                 val path = a.path ?: return@mapNotNull null
                 val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull() ?: return@mapNotNull null
-                OutgoingAttachment(a.name ?: "attachment", a.type ?: "application/octet-stream", bytes)
+                val inline = a.disposition.equals("inline", ignoreCase = true) && !a.cid.isNullOrBlank()
+                OutgoingAttachment(
+                    a.name ?: "attachment", a.type ?: "application/octet-stream", bytes,
+                    cid = a.cid, inline = inline,
+                )
             }
             val message = outgoing(
                 credentials, recipients, subject, body, inReplyTo, references, htmlBody,
@@ -1723,7 +1732,10 @@ class MailRepository(
             return
         }
         val attachments = stored.map { a ->
-            EmailBodyPart(blobId = a.blobId, type = a.type, size = a.size, name = a.name, disposition = "attachment")
+            EmailBodyPart(
+                blobId = a.blobId, type = a.type, size = a.size, name = a.name,
+                disposition = a.disposition ?: "attachment", cid = a.cid,
+            )
         }
         val ctx = connect(credentials)
         val recipients = to.map { EmailAddress(email = it) }
@@ -1845,6 +1857,8 @@ class MailRepository(
         bytes: ByteArray,
         type: String?,
         name: String?,
+        disposition: String = "attachment",
+        cid: String? = null,
     ): EmailBodyPart {
         val ctx = connect(credentials)
         val blob = client.uploadBlob(ctx.session, ctx.accountId, bytes, type, ctx.auth)
@@ -1853,7 +1867,8 @@ class MailRepository(
             type = blob.type,
             size = blob.size,
             name = name,
-            disposition = "attachment",
+            disposition = disposition,
+            cid = cid,
         )
     }
 

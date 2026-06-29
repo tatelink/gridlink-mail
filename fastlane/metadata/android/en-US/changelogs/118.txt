@@ -1,0 +1,1 @@
+Forwarding now keeps the original's formatting. Forward an HTML email and the recipient sees it laid out as you did, with its inline images and file attachments carried along, instead of everything being flattened to plain text.
