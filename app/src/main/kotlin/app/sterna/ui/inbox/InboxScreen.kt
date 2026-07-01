@@ -489,6 +489,8 @@ fun InboxScreen(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
+              // Scroll the whole drawer so long folder lists (and Settings below them) stay reachable (#7).
+              Column(Modifier.verticalScroll(rememberScrollState())) {
                 val currentAccount = accounts.firstOrNull { it.id == currentAccountId }
                 val currentLabel = currentAccount?.label()
                     ?: ui.accountName.ifBlank { stringResource(R.string.inbox_app_name) }
@@ -701,6 +703,7 @@ fun InboxScreen(
                     },
                     modifier = Modifier.padding(horizontal = 12.dp),
                 )
+              }
             }
         },
     ) {

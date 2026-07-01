@@ -1,0 +1,1 @@
+Fixed: the folder drawer now scrolls, so long folder lists and the Settings entry below them stay reachable.
