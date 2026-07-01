@@ -1,0 +1,1 @@
+Vue d'un e-mail : défilement bien plus fluide (corrige les saccades que certains appareils avaient sur les e-mails longs ou riches, dues à un basculement erroné vers un rendu plus lent), et le balayage gauche/droite entre messages fonctionne aussi sur le corps de l'e-mail.
