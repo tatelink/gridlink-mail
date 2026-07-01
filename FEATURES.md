@@ -69,7 +69,9 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Reply-all / mass-send guard — sending to 5+ recipients (To+Cc+Bcc) asks for confirmation, with the count
 - ✅ Sign-out asks for confirmation before removing an account and clearing its cache
 - ✅ Inbox list and message view (HTML in a WebView, remote content blocked;
-  dark mode: theme colours for plain text, CSS invert for rich HTML)
+  dark mode: theme colours for plain text, CSS invert for rich HTML); plain-text
+  bodies preserve paragraphs and unwrap `format=flowed` soft line breaks (RFC 3676)
+  so they read as written instead of one run-on block or mid-sentence wraps
 - ✅ Offline reading (Room cache)
 - ✅ Mark read/unread, flag/star, archive, delete *(M3; JMAP + IMAP)*
 - ✅ Unread shown by bold text (not a status dot)
@@ -91,8 +93,8 @@ The categories further down list the full feature set; this is the order of work
 ## Organisation & search
 
 - ✅ Mailbox listing
-- ✅ Server-side search — inline on the mailbox (search-as-you-type; JMAP query / IMAP SEARCH, with instant local-cache results); the search field names its scope (current folder, or "All inboxes")
-- ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account; JMAP + IMAP)
+- ✅ Server-side search — inline on the mailbox (search-as-you-type; JMAP query / IMAP SEARCH, with instant local-cache results); the search field names its scope (current folder, or "All inboxes"). In the unified inbox the search fans out to **every** account in parallel (not just the active one), merges + de-duplicates the results, and each result row carries its account name/address chip like the unified list
+- ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account; JMAP + IMAP) — switching the active account refreshes the list; archive/delete from the unified inbox resolve the target folder on each message's own account
 - ✅ Richer search filters (from, subject, has-attachment, date) — advanced panel in Search, JMAP Email/query AND filter; 💡 `SearchSnippet` highlights
 - ✅ Auto-create an Archive folder on first archive (when the account has none)
 - ✅ Folder management — create / rename / delete custom folders from the drawer, including nested subfolders (JMAP parentId / IMAP path), shown as a collapsible tree; 💡 subscribe + per-folder settings, drag-to-reorder
