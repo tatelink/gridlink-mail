@@ -12,6 +12,8 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -314,6 +316,11 @@ private fun MainNavHost(
             arguments = listOf(
                 navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
+            // Settings slides in from the right over the inbox, and back out to the right on Back.
+            // A slide (opaque) rather than the default cross-fade avoids the bare-window-background
+            // flash that made animations unusable elsewhere in this NavHost.
+            enterTransition = { slideInHorizontally(tween(300)) { it } },
+            popExitTransition = { slideOutHorizontally(tween(300)) { it } },
         ) { entry ->
             SettingsScreen(
                 onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },

@@ -95,8 +95,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.content.Context
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -137,14 +138,18 @@ fun SettingsScreen(
     LaunchedEffect(initialAccountId) {
         if (initialAccountId != null) nav.navigate("account/$initialAccountId")
     }
-    // Instant (no animated) transitions inside Settings: hub↔detail switches immediately, so
-    // a fast double-back (e.g. right after changing the theme, whose recomposition disturbs an
-    // in-flight transition) can't be swallowed mid-animation — which left a blank start frame.
+    // Horizontal push between hub and detail screens (standard master/detail motion): a detail
+    // slides in from the right and the hub slides out to the left; Back reverses it. The slides are
+    // OPAQUE and fully tile the viewport at every frame, so a fast double-back (e.g. right after a
+    // theme change, whose recomposition disturbs an in-flight transition) can never expose a blank
+    // window-background frame — the failure mode that made the old cross-fade unusable here.
     NavHost(
         navController = nav,
         startDestination = "hub",
-        enterTransition = { EnterTransition.None },
-        exitTransition = { ExitTransition.None },
+        enterTransition = { slideInHorizontally(tween(300)) { it } },
+        exitTransition = { slideOutHorizontally(tween(300)) { -it } },
+        popEnterTransition = { slideInHorizontally(tween(300)) { -it } },
+        popExitTransition = { slideOutHorizontally(tween(300)) { it } },
     ) {
         composable("hub") {
             val accounts by accountsViewModel.accounts.collectAsStateWithLifecycle()
