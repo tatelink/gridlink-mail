@@ -156,8 +156,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * Writes a JSON snapshot of the app's preferences (not accounts/credentials)
-     * to [uri]. [onResult] is invoked on the main thread with success/failure.
+     * Writes a JSON snapshot of the app's preferences and account configuration
+     * (never credentials) to [uri]. [onResult] is invoked on the main thread with
+     * success/failure.
      */
     fun exportSettings(uri: Uri, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
@@ -165,6 +166,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 val backup = settings.snapshotBackup().copy(
                     pushAllAccounts = store.pushAllAccounts(),
                     language = currentAppLanguage().tag,
+                    accounts = store.accountsForBackup(),
                 )
                 val text = SettingsBackupCodec.encode(backup)
                 withContext(Dispatchers.IO) {
@@ -178,11 +180,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * Reads a backup file from [uri] and applies it. [onResult] reports success;
-     * [onLanguageChanged] fires (with the new language) only when the language
+     * Reads a backup file from [uri] and applies it. [onResult] reports success plus how many
+     * accounts were newly added (0 if none/failure) — imported accounts have no password and must
+     * be signed into. [onLanguageChanged] fires (with the new language) only when the language
      * differs, so the caller can recreate the activity to load the new strings.
      */
-    fun importSettings(uri: Uri, onResult: (Boolean) -> Unit, onLanguageChanged: (AppLanguage) -> Unit) {
+    fun importSettings(
+        uri: Uri,
+        onResult: (ok: Boolean, accountsAdded: Int) -> Unit,
+        onLanguageChanged: (AppLanguage) -> Unit,
+    ) {
         viewModelScope.launch {
             val backup: SettingsBackup? = runCatching {
                 val text = withContext(Dispatchers.IO) {
@@ -192,14 +199,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 }
                 SettingsBackupCodec.decode(text)
             }.getOrNull()
-            if (backup == null) {
-                onResult(false)
+            // Reject a file that isn't parseable, or that parses but carries no recognizable backup
+            // fields (an unrelated JSON) — the caller shows an error and stays on its menu.
+            if (backup == null || !backup.isPlausible()) {
+                onResult(false, 0)
                 return@launch
             }
             settings.restoreBackup(backup)
             backup.pushAllAccounts?.let { setPushAllAccounts(it) }
             _pushAllAccounts.value = store.pushAllAccounts()
-            onResult(true)
+            val accountsAdded = backup.accounts?.let { store.importAccounts(it) } ?: 0
+            onResult(true, accountsAdded)
             backup.language?.let { tag ->
                 val target = AppLanguage.entries.firstOrNull { it.tag == tag } ?: AppLanguage.SYSTEM
                 if (target != currentAppLanguage()) onLanguageChanged(target)

@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import app.sterna.R
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.account.AuthType
 import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.account.MailProtocol
+import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.mail.OAuthProvider
 import app.sterna.core.jmap.DeviceAuthorization
@@ -45,6 +47,10 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
 
     private val _state = MutableStateFlow<ConnectState>(ConnectState.Idle)
     val state: StateFlow<ConnectState> = _state.asStateFlow()
+
+    private val _importSignIn = MutableStateFlow<ImportSignIn>(ImportSignIn.None)
+    /** Drives the per-account password prompt shown after a settings import (see [beginImportSignIn]). */
+    val importSignIn: StateFlow<ImportSignIn> = _importSignIn.asStateFlow()
 
     private var oauthJob: Job? = null
 
@@ -196,6 +202,112 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             }
         }
     }
+
+    // ---- post-import per-account sign-in ----
+
+    /** One imported account still awaiting its password. */
+    data class PendingAccount(val id: String, val label: String, val email: String)
+
+    /** State of the "sign in to your imported accounts" step. */
+    sealed interface ImportSignIn {
+        data object None : ImportSignIn
+        /** [remaining] head is the account being asked for; [index]/[total] drive the progress line. */
+        data class Prompt(
+            val remaining: List<PendingAccount>,
+            val total: Int,
+            val index: Int,
+            val verifying: Boolean = false,
+            val error: String? = null,
+        ) : ImportSignIn
+        data object Done : ImportSignIn
+    }
+
+    /**
+     * Start prompting for the password of every freshly imported account — those with a
+     * password/basic auth but no stored credential yet. OAuth accounts are skipped (they need a
+     * browser re-auth, not a password). When the queue empties the screen enters the app.
+     */
+    fun beginImportSignIn() {
+        val pending = pendingAccounts()
+        _importSignIn.value =
+            if (pending.isEmpty()) ImportSignIn.Done
+            else ImportSignIn.Prompt(pending, total = pending.size, index = 1)
+    }
+
+    /**
+     * Re-enter the password prompts for any still-unauthenticated imported account — e.g. the app
+     * was killed mid-sign-in and relaunched. Does nothing when there are none (so a genuine first
+     * run just shows the add-account form). Never overrides an in-progress prompt.
+     */
+    fun resumeImportSignIn() {
+        if (_importSignIn.value is ImportSignIn.Prompt) return
+        val pending = pendingAccounts()
+        if (pending.isNotEmpty()) {
+            _importSignIn.value = ImportSignIn.Prompt(pending, total = pending.size, index = 1)
+        }
+    }
+
+    /** Imported accounts still awaiting a password: basic-auth, no stored credential. */
+    private fun pendingAccounts(): List<PendingAccount> =
+        container.accountStore.accounts()
+            .filter { it.authType == AuthType.BASIC && container.accountStore.credentials(it.id) == null }
+            .map { PendingAccount(it.id, it.label(), it.username) }
+
+    /** Verify the current imported account with [password]; on success save it and advance. */
+    fun submitImportPassword(password: String) {
+        val state = _importSignIn.value as? ImportSignIn.Prompt ?: return
+        if (state.verifying || password.isBlank()) return
+        val current = state.remaining.firstOrNull() ?: return
+        val account = container.accountStore.account(current.id) ?: return advanceImport(state)
+        _importSignIn.value = state.copy(verifying = true, error = null)
+        viewModelScope.launch {
+            container.mailRepository.testConnection(credentialsFor(account, password)).fold(
+                onSuccess = {
+                    container.accountStore.updatePassword(current.id, password)
+                    (currentPrompt())?.let { advanceImport(it) }
+                },
+                onFailure = { e ->
+                    currentPrompt()?.let {
+                        _importSignIn.value = it.copy(
+                            verifying = false,
+                            error = e.message ?: string(R.string.connect_bad_credentials),
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    /** Leave the current account unsigned (it stays inert, sign in later in Settings) and advance. */
+    fun skipCurrentImport() {
+        val state = _importSignIn.value as? ImportSignIn.Prompt ?: return
+        if (state.verifying) return
+        advanceImport(state)
+    }
+
+    private fun currentPrompt() = _importSignIn.value as? ImportSignIn.Prompt
+
+    private fun advanceImport(state: ImportSignIn.Prompt) {
+        val rest = state.remaining.drop(1)
+        _importSignIn.value = when {
+            rest.isNotEmpty() -> ImportSignIn.Prompt(rest, total = state.total, index = state.index + 1)
+            // Queue done. Enter the app only if at least one account is now signed in; if the user
+            // skipped every one, drop back to the add-account form rather than a login-less inbox.
+            container.accountStore.accounts().any { container.accountStore.credentials(it.id) != null } ->
+                ImportSignIn.Done
+            else -> ImportSignIn.None
+        }
+    }
+
+    private fun credentialsFor(a: StoredAccount, password: String) = AccountCredentials(
+        server = a.server,
+        username = a.username,
+        password = password,
+        id = a.id,
+        protocol = a.protocol,
+        imap = if (a.protocol == MailProtocol.IMAP) MailEndpoint(a.imapHost, a.imapPort, a.imapSecurity) else null,
+        smtp = if (a.protocol == MailProtocol.IMAP) MailEndpoint(a.smtpHost, a.smtpPort, a.smtpSecurity) else null,
+    )
 
     /** Cancel an in-progress device flow and return to the form. */
     fun cancelOAuth() {

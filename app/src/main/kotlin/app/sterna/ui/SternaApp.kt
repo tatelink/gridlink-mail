@@ -97,8 +97,13 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
     fun accounts(): List<StoredAccount> = accountStore.accounts()
 
     fun refresh() {
-        val current = accountStore.currentId()
+        // Only an account with a stored credential counts as authenticated. Freshly imported,
+        // password-less accounts don't: the user must still sign into them, so we route to the
+        // connect flow (which resumes the per-account password prompts) instead of a broken inbox.
+        val current = accountStore.currentId()?.takeIf { accountStore.credentials(it) != null }
+            ?: accountStore.accounts().firstOrNull { accountStore.credentials(it.id) != null }?.id
         if (current != null) {
+            if (accountStore.currentId() != current) accountStore.setCurrent(current)
             PushService.start(getApplication())
             _state.value = RootState.Authenticated(current)
         } else {

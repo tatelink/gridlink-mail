@@ -82,6 +82,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sterna.R
 import app.sterna.contacts.AndroidContacts
+import app.sterna.util.isValidEmail
 import app.sterna.ui.FORCE_ONBOARDING_PREVIEW
 import app.sterna.ui.rememberMotionEnabled
 import app.sterna.ui.components.drawTern
@@ -562,9 +563,6 @@ private const val MANY_RECIPIENTS = 5
 /** Split a recipient string into trimmed, non-empty address tokens. */
 private fun recipientTokens(value: String): List<String> =
     value.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
-
-private val EMAIL_REGEX = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
-private fun isValidEmail(address: String): Boolean = EMAIL_REGEX.matches(address.trim())
 
 /**
  * A recipient line that shows committed addresses as chips (invalid ones flagged in

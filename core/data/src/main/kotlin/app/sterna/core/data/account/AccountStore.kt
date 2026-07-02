@@ -315,6 +315,55 @@ class AccountStore(context: Context) {
 
     fun allCredentials(): List<AccountCredentials> = accounts().mapNotNull { credentials(it.id) }
 
+    // ---- backup export / import (configuration only, never secrets) ----
+
+    /**
+     * Accounts as a secret-free snapshot for a settings backup: the encrypted password/refresh
+     * token slot is never touched, and the short-lived OAuth access token plus device/sync state
+     * (inbox id/name, unread) are cleared so the file carries only portable configuration.
+     */
+    fun accountsForBackup(): List<StoredAccount> = accounts().map {
+        it.copy(
+            oauthAccessToken = "",
+            oauthAccessExpiresAt = 0,
+            inboxId = null,
+            inboxName = "Inbox",
+            unread = 0,
+        )
+    }
+
+    /**
+     * Merge backed-up account configuration in. Each incoming account is added ONLY if no existing
+     * account already has the same protocol + server + username (case-insensitive), gets a fresh id,
+     * and is stored WITHOUT a password — so [credentials] returns null and the account stays inert
+     * until the user signs in. Returns how many were actually added; makes the first added account
+     * current only when there were no accounts before. Never overwrites an existing account.
+     */
+    fun importAccounts(incoming: List<StoredAccount>): Int {
+        val existing = accounts()
+        fun key(a: StoredAccount) =
+            Triple(a.protocol, a.server.trim().lowercase(), a.username.trim().lowercase())
+        val seen = existing.map(::key).toMutableSet()
+        val added = mutableListOf<StoredAccount>()
+        for (a in incoming) {
+            val k = key(a)
+            if (a.server.isBlank() || a.username.isBlank() || k in seen) continue
+            seen += k
+            added += a.copy(
+                id = UUID.randomUUID().toString(),
+                oauthAccessToken = "",
+                oauthAccessExpiresAt = 0,
+                inboxId = null,
+                inboxName = "Inbox",
+                unread = 0,
+            )
+        }
+        if (added.isEmpty()) return 0
+        saveAccounts(existing + added)
+        if (existing.isEmpty()) prefs.edit().putString(KEY_CURRENT, added.first().id).apply()
+        return added.size
+    }
+
     // [accountName] is the server-derived name; it is intentionally NOT written back
     // here so a user-chosen display name (set at add time / in account settings) is
     // never clobbered by a sync. A blank name falls back to the address via label().

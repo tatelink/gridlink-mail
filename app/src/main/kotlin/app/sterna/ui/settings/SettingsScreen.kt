@@ -222,7 +222,11 @@ fun SettingsScreen(
             StorageScreen(onBack = { nav.popBackStack() })
         }
         composable("backup") {
-            BackupScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
+            BackupScreen(
+                viewModel = viewModel,
+                onAccountsImported = { accountsViewModel.refresh(); onAccountsChanged() },
+                onBack = { nav.popBackStack() },
+            )
         }
     }
 }
@@ -533,7 +537,11 @@ private fun TimePickerRow(label: String, minutes: Int, onChange: (Int) -> Unit) 
 }
 
 @Composable
-private fun BackupScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
+private fun BackupScreen(
+    viewModel: SettingsViewModel,
+    onAccountsImported: () -> Unit,
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
     var message by remember { mutableStateOf<String?>(null) }
 
@@ -554,10 +562,15 @@ private fun BackupScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
         if (uri != null) {
             viewModel.importSettings(
                 uri,
-                onResult = { ok ->
+                onResult = { ok, accountsAdded ->
                     message = context.getString(
-                        if (ok) R.string.settings_backup_imported else R.string.settings_backup_failed,
+                        when {
+                            !ok -> R.string.settings_backup_failed
+                            accountsAdded > 0 -> R.string.settings_backup_imported_accounts
+                            else -> R.string.settings_backup_imported
+                        },
                     )
+                    if (ok && accountsAdded > 0) onAccountsImported()
                 },
                 onLanguageChanged = { applyAppLanguage(it) },
             )

@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AssistChip
@@ -33,6 +34,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -42,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,8 +65,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.autofill.AutofillType
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import app.sterna.R
 import app.sterna.ui.components.autofill
+import app.sterna.ui.settings.SettingsViewModel
+import app.sterna.ui.settings.applyAppLanguage
+import app.sterna.util.isValidEmail
 import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailProtocol
 
@@ -75,10 +83,18 @@ fun ConnectScreen(
     viewModel: ConnectViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val importSignIn by viewModel.importSignIn.collectAsStateWithLifecycle()
 
     LaunchedEffect(state) {
         if (state is ConnectState.Connected) onConnected()
     }
+    // After importing accounts, we sign into each one first; only then enter the app.
+    LaunchedEffect(importSignIn) {
+        if (importSignIn is ConnectViewModel.ImportSignIn.Done) onConnected()
+    }
+    // Resume the per-account password prompts if we arrive here with imported, still-unauthenticated
+    // accounts (e.g. the app was killed mid-sign-in) so the user finishes signing in, not a dead inbox.
+    LaunchedEffect(Unit) { viewModel.resumeImportSignIn() }
 
     var protocol by rememberSaveable { mutableStateOf(MailProtocol.JMAP) }
     var server by rememberSaveable { mutableStateOf("") }
@@ -107,6 +123,31 @@ fun ConnectScreen(
     var appPasswordUrl by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
+    // First-run only: import a settings backup here, since Settings is unreachable before an
+    // account exists. A backup that carries account configuration recreates those accounts
+    // (without passwords) and drops the user straight into the app to sign in; a preferences-only
+    // backup just applies the preferences and leaves the user on this screen to add an account.
+    val settingsViewModel: SettingsViewModel = viewModel()
+    var importMessage by remember { mutableStateOf<String?>(null) }
+    val importSettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            settingsViewModel.importSettings(
+                uri,
+                onResult = { ok, accountsAdded ->
+                    when {
+                        ok && accountsAdded > 0 -> viewModel.beginImportSignIn()
+                        else -> importMessage = context.getString(
+                            if (ok) R.string.connect_import_no_accounts else R.string.connect_import_invalid,
+                        )
+                    }
+                },
+                onLanguageChanged = { applyAppLanguage(it) },
+            )
+        }
+    }
+
     val ready = if (oauthSelected) {
         // Outlook (OAuth): only the email is needed; "Connect" launches the browser flow.
         username.isNotBlank()
@@ -134,6 +175,14 @@ fun ConnectScreen(
                 DeviceApprovalPanel(awaiting, onCancel = viewModel::cancelOAuth)
                 return@Column
             }
+            (importSignIn as? ConnectViewModel.ImportSignIn.Prompt)?.let { prompt ->
+                ImportSignInPanel(
+                    prompt = prompt,
+                    onSubmit = viewModel::submitImportPassword,
+                    onSkip = viewModel::skipCurrentImport,
+                )
+                return@Column
+            }
             if (firstRun) {
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -145,6 +194,26 @@ fun ConnectScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.height(4.dp))
+                OutlinedButton(
+                    onClick = {
+                        importSettingsLauncher.launch(
+                            arrayOf("application/json", "application/octet-stream", "text/plain"),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.connect_import_settings))
+                }
+                importMessage?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
             Text(stringResource(R.string.connect_protocol), style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -269,11 +338,20 @@ fun ConnectScreen(
                 keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
                 modifier = Modifier.fillMaxWidth(),
             )
+            // Flag an obviously malformed email (missing @ or a too-short/absent extension) as the
+            // user types, without hard-blocking: some IMAP servers accept a non-email username.
+            val emailLooksInvalid = username.isNotBlank() && !isValidEmail(username)
             OutlinedTextField(
                 value = username,
                 onValueChange = { username = it },
                 label = { Text(stringResource(R.string.connect_email_username)) },
                 singleLine = true,
+                isError = emailLooksInvalid,
+                supportingText = if (emailLooksInvalid) {
+                    { Text(stringResource(R.string.connect_email_invalid)) }
+                } else {
+                    null
+                },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
                 keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
                 modifier = Modifier.fillMaxWidth().autofill(
@@ -407,6 +485,83 @@ private fun DeviceApprovalPanel(state: ConnectState.AwaitingApproval, onCancel: 
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         CircularProgressIndicator(modifier = Modifier.height(20.dp).width(20.dp))
         TextButton(onClick = onCancel) { Text(stringResource(R.string.connect_oauth_cancel)) }
+    }
+}
+
+/**
+ * Post-import step: ask for the current imported account's password, verify it against the server,
+ * and save it. Shown one account at a time until the queue empties (then the screen enters the app).
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun ImportSignInPanel(
+    prompt: ConnectViewModel.ImportSignIn.Prompt,
+    onSubmit: (String) -> Unit,
+    onSkip: () -> Unit,
+) {
+    val current = prompt.remaining.first()
+    var password by rememberSaveable(current.id) { mutableStateOf("") }
+    var passwordVisible by rememberSaveable(current.id) { mutableStateOf(false) }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        stringResource(R.string.connect_import_signin_title),
+        style = MaterialTheme.typography.headlineSmall,
+    )
+    Text(
+        stringResource(R.string.connect_import_signin_progress, prompt.index, prompt.total),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    // Read-only email field: shows which account this is AND gives password managers a username
+    // node so they match the right credential (matching is by username + domain, not the password
+    // field alone). The account is fixed, so an autofilled username is ignored.
+    OutlinedTextField(
+        value = current.email,
+        onValueChange = {},
+        readOnly = true,
+        label = { Text(stringResource(R.string.connect_email_username)) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().autofill(
+            listOf(AutofillType.EmailAddress, AutofillType.Username),
+        ) {},
+    )
+    OutlinedTextField(
+        value = password,
+        onValueChange = { password = it },
+        label = { Text(stringResource(R.string.connect_password)) },
+        singleLine = true,
+        isError = prompt.error != null,
+        enabled = !prompt.verifying,
+        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = {
+            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                Icon(
+                    if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                    contentDescription = null,
+                )
+            }
+        },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { if (password.isNotBlank()) onSubmit(password) }),
+        // Autofill hint so password managers (Bitwarden…) recognise and fill this field.
+        modifier = Modifier.fillMaxWidth().autofill(listOf(AutofillType.Password)) { password = it },
+    )
+    prompt.error?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+    Button(
+        onClick = { onSubmit(password) },
+        enabled = password.isNotBlank() && !prompt.verifying,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        if (prompt.verifying) {
+            CircularProgressIndicator(modifier = Modifier.height(20.dp).width(20.dp))
+        } else {
+            Text(stringResource(R.string.connect_import_signin_button))
+        }
+    }
+    TextButton(onClick = onSkip, enabled = !prompt.verifying) {
+        Text(stringResource(R.string.connect_import_signin_skip))
     }
 }
 
