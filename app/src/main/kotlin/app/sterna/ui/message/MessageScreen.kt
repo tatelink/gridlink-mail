@@ -611,8 +611,8 @@ private fun ConversationBody(
                 val topSpacerCssPx = (headerHeightPx / density.density).roundToInt()
                 // Bottom spacer is a real DOCUMENT element (scrollable content), NOT WebView view
                 // padding: view padding with clipToPadding CLIPS the last lines instead of letting them
-                // scroll above it, so the bar covered the end. The spacer is coloured (buildHtmlDocument)
-                // so it doesn't invert to white in dark mode.
+                // scroll above it, so the bar covered the end. In dark mode the spacer is transparent
+                // (buildHtmlDocument) so it shows the native surface and doesn't invert to an off-black box.
                 val bottomSpacerCssPx = (bottomInsetPx / density.density).roundToInt()
                 val html = remember(full, msg.inlineImages, emailTheme, topSpacerCssPx, bottomSpacerCssPx) {
                     buildHtmlDocument(full, msg.inlineImages, emailTheme, topSpacerCssPx, bottomSpacerCssPx)
@@ -1661,9 +1661,11 @@ private fun buildHtmlDocument(
               img, picture, video, svg, iframe { filter: invert(1) hue-rotate(180deg); }
               img { max-width: 100%; height: auto; }
               a { color: #0b57d0; }
-              /* Bottom spacer reserving room for the overlaying Reply/Forward bar. White here so the
-                 root invert turns it (near-)black, matching the inverted light content below the body. */
-              .s-end { background: #ffffff; }
+              /* Bottom spacer reserving room for the overlaying Reply/Forward bar. Transparent so it
+                 shows the WebView's native surface (same trick as the page background above): a fixed
+                 colour would invert to pure black (#fff -> #000), which doesn't match the app's dark
+                 surface and left a visibly-off rectangle at the end of the mail. */
+              .s-end { background: transparent; }
             </style></head><body>$inner</body></html>
         """.trimIndent()
     }
