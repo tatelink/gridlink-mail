@@ -440,6 +440,14 @@ private fun MessageContent(
                                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null) },
                                     onClick = { menuOpen = false; onReply("forward", replyTargetId, accountId) },
                                 )
+                                val flagged = loaded.email.isFlagged
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(stringResource(if (flagged) R.string.message_unflag else R.string.message_flag))
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Star, contentDescription = null) },
+                                    onClick = { menuOpen = false; viewModel.toggleFlag() },
+                                )
                                 // Image controls: one-time show only while still blocked,
                                 // plus the per-sender allowlist toggle.
                                 if (!showRemote || senderEmail != null) HorizontalDivider()
@@ -1933,7 +1941,8 @@ private fun formatWith(iso: String?, formatter: DateTimeFormatter): String {
 }
 
 /** Snooze presets → (label, epoch-millis), computed in the device's time zone. */
-private fun snoozePresets(context: android.content.Context): List<Pair<String, Long>> {
+/** Snooze presets (label → epoch-millis). Shared by the message view and the inbox selection menu. */
+internal fun snoozePresets(context: android.content.Context): List<Pair<String, Long>> {
     val zone = java.time.ZoneId.systemDefault()
     val now = java.time.ZonedDateTime.now(zone)
     fun at(day: java.time.ZonedDateTime, hour: Int) =

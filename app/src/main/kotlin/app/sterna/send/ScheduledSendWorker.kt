@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import app.sterna.container
+import app.sterna.push.Notifications
 
 /**
  * Fires a message scheduled for a future time. WorkManager persists and fires this (surviving app
@@ -39,7 +40,15 @@ class ScheduledSendWorker(context: Context, params: WorkerParameters) : Coroutin
             repo.deleteScheduledSend(id)
             Result.success()
         } catch (_: Throwable) {
-            if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.success()
+            if (runAttemptCount < MAX_ATTEMPTS) {
+                Result.retry()
+            } else {
+                // Give up after retries — but notify instead of dropping it silently, and clear the
+                // now-overdue scheduled row so it doesn't linger.
+                Notifications.notifySendFailed(applicationContext, row.subject)
+                repo.deleteScheduledSend(id)
+                Result.success()
+            }
         }
     }
 

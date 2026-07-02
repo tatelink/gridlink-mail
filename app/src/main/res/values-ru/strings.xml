@@ -21,6 +21,7 @@
     <string name="compose_attachment_fallback">вложение</string>
     <string name="compose_body_placeholder">Напишите письмо</string>
     <string name="compose_could_not_send">Не удалось отправить: %1$s</string>
+    <string name="compose_prefill_failed">Не удалось загрузить исходное сообщение.</string>
     <string name="compose_scheduled_toast">Запланировано — %1$s</string>
     <string name="compose_discard_title">Удалить сообщение?</string>
     <string name="compose_discard_message">Вы не сохранили изменения.</string>
@@ -44,9 +45,7 @@
     <string name="inbox_delete">Удалить</string>
     <string name="inbox_undo">Отменить</string>
     <string name="inbox_message_sent">Письмо отправлено</string>
-    <string name="inbox_send_failed">Не удалось отправить: %1$s</string>
     <string name="inbox_app_name">Sterna Mail</string>
-    <string name="inbox_switch_to_account">Перейти к %1$s</string>
     <string name="inbox_switch_account">Сменить аккаунт</string>
     <string name="inbox_all_inboxes">Все входящие</string>
     <string name="inbox_all_inboxes_unread">Все входящие  (%1$d)</string>
@@ -60,7 +59,6 @@
     <string name="inbox_unarchive">Извлечь из архива</string>
     <string name="inbox_archive">Архивировать</string>
     <string name="inbox_close_search">Закрыть поиск</string>
-    <string name="inbox_search_mail">Поиск в почте</string>
     <string name="inbox_clear">Очистить</string>
     <string name="inbox_menu">Меню</string>
     <string name="inbox_unread_only">Только непрочитанные</string>
@@ -73,8 +71,6 @@
     <string name="inbox_no_results">Ничего не найдено</string>
     <string name="inbox_load_more_failed">Не удалось загрузить ещё</string>
     <string name="inbox_retry">Повторить</string>
-    <string name="inbox_load_failed">Не удалось загрузить почту:\n%1$s</string>
-    <string name="inbox_no_messages">Нет писем</string>
     <string name="inbox_sort_newest_first">Сначала новые</string>
     <string name="inbox_sort_oldest_first">Сначала старые</string>
     <string name="inbox_sort_subject">Тема</string>
@@ -114,12 +110,10 @@
     <string name="message_snooze">Отложить…</string>
     <string name="message_load_error">Не удалось загрузить письмо:\n%1$s</string>
     <string name="message_retry">Повторить</string>
-    <string name="message_thread_more">Ещё %1$d в этой переписке</string>
     <string name="message_unknown_sender">(отправитель неизвестен)</string>
     <string name="message_no_subject">(без темы)</string>
     <string name="message_attachments">Вложения (%1$d)</string>
     <string name="message_attachment_fallback">вложение</string>
-    <string name="message_to">Кому: %1$s</string>
     <string name="message_participants_title">Участники</string>
     <string name="participants_from">От</string>
     <string name="participants_to">Кому</string>
@@ -297,7 +291,6 @@
     <string name="settings_app_lock_unavailable">Сначала настройте отпечаток пальца, разблокировку по лицу или блокировку экрана в настройках устройства.</string>
     <string name="settings_links_section">Ссылки</string>
     <string name="settings_image_allowlist_section">Удалённые изображения</string>
-    <string name="settings_image_allowlist_count">Отправителей с автопоказом изображений: %1$d</string>
     <string name="settings_image_allowlist_clear">Очистить</string>
     <string name="settings_strip_tracking_title">Удалять параметры отслеживания</string>
     <string name="settings_strip_tracking_subtitle">Удалять трекеры (utm_*, fbclid, gclid…) из ссылок перед их открытием, чтобы отправители не могли узнать, когда вы переходите по ссылке.</string>
@@ -389,7 +382,6 @@
     <string name="connect_password_show">Показать пароль</string>
     <string name="connect_password_hide">Скрыть пароль</string>
     <string name="connect_oauth_button">Войти через OAuth (без пароля)</string>
-    <string name="connect_outlook_signin">Продолжить с Outlook</string>
     <string name="connect_outlook_added">Учётная запись Outlook добавлена</string>
     <string name="connect_oauth_provider_unconfigured">Вход через Outlook пока недоступен в этой сборке.</string>
     <string name="connect_oauth_need_email">Сначала введите адрес электронной почты Outlook.</string>
@@ -461,6 +453,7 @@
 
     <!-- Notifications -->
     <string name="notif_channel_mail">Новые письма</string>
+    <string name="notif_send_failed_title">Сообщение не отправлено</string>
     <string name="notif_channel_sync">Синхронизация почты</string>
     <string name="notif_channel_sync_desc">Поддерживает активное подключение к почтовому серверу для мгновенного получения писем.</string>
     <string name="notif_watching">В полёте, высматриваю новые письма</string>
@@ -499,7 +492,6 @@
     <string name="compose_many_recipients_title">Отправить многим адресатам?</string>
     <string name="compose_many_recipients_message">Это сообщение получат %1$d адресатов.</string>
     <string name="compose_many_recipients_send">Отправить всем</string>
-    <string name="inbox_empty_subtitle">Здесь пока ничего нет. Новые письма появятся автоматически.</string>
     <string name="settings_image_allowlist_empty">Пока ни для одного отправителя не настроен постоянный показ изображений.</string>
     <string name="settings_image_allowlist_add">Добавить отправителя…</string>
     <string name="settings_image_allowlist_remove">Удалить отправителя</string>

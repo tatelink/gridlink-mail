@@ -7,6 +7,7 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import app.sterna.container
 import app.sterna.R
+import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.db.OutboxState
 import app.sterna.core.data.mail.InboxRow
@@ -738,6 +739,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Move the selection to [targetMailboxId] (used for unarchive → Inbox and move-to-folder). */
     fun moveSelectedTo(targetMailboxId: String) = bulk { c, id -> repo.moveToMailbox(c, id, targetMailboxId) }
+
+    fun reportSpamSelected() = bulk { c, id -> repo.reportSpam(c, id) }
+    fun notSpamSelected() = bulk { c, id -> repo.notSpam(c, id) }
+
+    /** Snooze the whole selection until [until] (hidden now, returns to the inbox then). */
+    fun snoozeSelected(until: Long) = bulk { c, id ->
+        repo.snooze(id, c.id, until)
+        Snoozes.enqueue(getApplication(), id, c.id, until)
+    }
 
     // ---- folder management ----
 

@@ -21,6 +21,7 @@
     <string name="compose_attachment_fallback">bijlage</string>
     <string name="compose_body_placeholder">E-mail opstellen</string>
     <string name="compose_could_not_send">Kon niet verzenden: %1$s</string>
+    <string name="compose_prefill_failed">Kon het oorspronkelijke bericht niet laden.</string>
     <string name="compose_scheduled_toast">Gepland — %1$s</string>
     <string name="compose_discard_title">Bericht verwijderen?</string>
     <string name="compose_discard_message">Je hebt je wijzigingen niet opgeslagen.</string>
@@ -44,9 +45,7 @@
     <string name="inbox_delete">Verwijderen</string>
     <string name="inbox_undo">Ongedaan maken</string>
     <string name="inbox_message_sent">Bericht verzonden</string>
-    <string name="inbox_send_failed">Kon niet verzenden: %1$s</string>
     <string name="inbox_app_name">Sterna Mail</string>
-    <string name="inbox_switch_to_account">Wisselen naar %1$s</string>
     <string name="inbox_switch_account">Account wisselen</string>
     <string name="inbox_all_inboxes">Alle postvakken IN</string>
     <string name="inbox_all_inboxes_unread">Alle postvakken IN  (%1$d)</string>
@@ -60,7 +59,6 @@
     <string name="inbox_unarchive">Uit archief halen</string>
     <string name="inbox_archive">Archiveren</string>
     <string name="inbox_close_search">Zoeken sluiten</string>
-    <string name="inbox_search_mail">E-mail doorzoeken</string>
     <string name="inbox_clear">Wissen</string>
     <string name="inbox_menu">Menu</string>
     <string name="inbox_unread_only">Alleen ongelezen</string>
@@ -73,8 +71,6 @@
     <string name="inbox_no_results">Geen resultaten</string>
     <string name="inbox_load_more_failed">Kon niet meer laden</string>
     <string name="inbox_retry">Opnieuw proberen</string>
-    <string name="inbox_load_failed">Kon e-mail niet laden:\n%1$s</string>
-    <string name="inbox_no_messages">Geen berichten</string>
     <string name="inbox_sort_newest_first">Nieuwste eerst</string>
     <string name="inbox_sort_oldest_first">Oudste eerst</string>
     <string name="inbox_sort_subject">Onderwerp</string>
@@ -114,12 +110,10 @@
     <string name="message_snooze">Snoozen…</string>
     <string name="message_load_error">Kon bericht niet laden:\n%1$s</string>
     <string name="message_retry">Opnieuw proberen</string>
-    <string name="message_thread_more">%1$d meer in dit gesprek</string>
     <string name="message_unknown_sender">(onbekende afzender)</string>
     <string name="message_no_subject">(geen onderwerp)</string>
     <string name="message_attachments">Bijlagen (%1$d)</string>
     <string name="message_attachment_fallback">bijlage</string>
-    <string name="message_to">Aan: %1$s</string>
     <string name="message_participants_title">Deelnemers</string>
     <string name="participants_from">Van</string>
     <string name="participants_to">Aan</string>
@@ -297,7 +291,6 @@
     <string name="settings_app_lock_unavailable">Stel eerst een vingerafdruk, gezichtsontgrendeling of schermvergrendeling in bij je apparaatinstellingen.</string>
     <string name="settings_links_section">Links</string>
     <string name="settings_image_allowlist_section">Externe afbeeldingen</string>
-    <string name="settings_image_allowlist_count">Afzenders waarvan afbeeldingen altijd worden getoond: %1$d</string>
     <string name="settings_image_allowlist_clear">Wissen</string>
     <string name="settings_strip_tracking_title">Trackingparameters verwijderen</string>
     <string name="settings_strip_tracking_subtitle">Verwijder trackers (utm_*, fbclid, gclid…) uit links voordat je ze opent, zodat afzenders niet kunnen zien wanneer je klikt.</string>
@@ -389,7 +382,6 @@
     <string name="connect_password_show">Wachtwoord tonen</string>
     <string name="connect_password_hide">Wachtwoord verbergen</string>
     <string name="connect_oauth_button">Inloggen met OAuth (geen wachtwoord)</string>
-    <string name="connect_outlook_signin">Doorgaan met Outlook</string>
     <string name="connect_outlook_added">Outlook-account toegevoegd</string>
     <string name="connect_oauth_provider_unconfigured">Aanmelden met Outlook is nog niet beschikbaar in deze versie.</string>
     <string name="connect_oauth_need_email">Voer eerst je Outlook-e-mailadres in.</string>
@@ -461,6 +453,7 @@
 
     <!-- Notifications -->
     <string name="notif_channel_mail">Nieuwe e-mail</string>
+    <string name="notif_send_failed_title">Bericht niet verzonden</string>
     <string name="notif_channel_sync">E-mailsynchronisatie</string>
     <string name="notif_channel_sync_desc">Houdt een actieve verbinding met je mailserver voor directe e-mail.</string>
     <string name="notif_watching">In vlucht, speurend naar nieuwe post</string>
@@ -501,7 +494,6 @@
     <string name="compose_many_recipients_title">Naar veel mensen verzenden?</string>
     <string name="compose_many_recipients_message">Dit bericht gaat naar %1$d ontvangers.</string>
     <string name="compose_many_recipients_send">Naar iedereen verzenden</string>
-    <string name="inbox_empty_subtitle">Hier is nog niets. Nieuwe e-mail verschijnt automatisch.</string>
     <string name="settings_image_allowlist_empty">Er zijn nog geen afzenders ingesteld om afbeeldingen altijd te tonen.</string>
     <string name="settings_image_allowlist_add">Afzender toevoegen…</string>
     <string name="settings_image_allowlist_remove">Afzender verwijderen</string>

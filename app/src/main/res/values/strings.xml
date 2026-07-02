@@ -21,6 +21,7 @@
     <string name="compose_attachment_fallback">attachment</string>
     <string name="compose_body_placeholder">Compose email</string>
     <string name="compose_could_not_send">Could not send: %1$s</string>
+    <string name="compose_prefill_failed">Couldn\'t load the original message.</string>
     <string name="compose_scheduled_toast">Scheduled — %1$s</string>
     <string name="compose_discard_title">Discard message?</string>
     <string name="compose_discard_message">You haven\'t saved your changes.</string>
@@ -55,9 +56,7 @@
     <string name="inbox_delete">Delete</string>
     <string name="inbox_undo">Undo</string>
     <string name="inbox_message_sent">Message sent</string>
-    <string name="inbox_send_failed">Couldn\'t send: %1$s</string>
     <string name="inbox_app_name">Sterna Mail</string>
-    <string name="inbox_switch_to_account">Switch to %1$s</string>
     <string name="inbox_switch_account">Switch account</string>
     <string name="inbox_all_inboxes">All inboxes</string>
     <string name="inbox_all_inboxes_unread">All inboxes  (%1$d)</string>
@@ -71,7 +70,6 @@
     <string name="inbox_unarchive">Unarchive</string>
     <string name="inbox_archive">Archive</string>
     <string name="inbox_close_search">Close search</string>
-    <string name="inbox_search_mail">Search mail</string>
     <string name="inbox_search_in">Search %1$s</string>
     <string name="inbox_clear">Clear</string>
     <string name="inbox_menu">Menu</string>
@@ -104,9 +102,6 @@
     <string name="inbox_no_results">No results</string>
     <string name="inbox_load_more_failed">Couldn\'t load more</string>
     <string name="inbox_retry">Retry</string>
-    <string name="inbox_load_failed">Could not load mail:\n%1$s</string>
-    <string name="inbox_no_messages">No messages</string>
-    <string name="inbox_empty_subtitle">Nothing here yet. New mail will show up automatically.</string>
     <!-- Empty states (calm, lightly coastal voice) -->
     <string name="empty_inbox_title">All caught up</string>
     <string name="empty_inbox_body">Nothing in flight. New mail will land here.</string>
@@ -170,12 +165,10 @@
     <string name="message_snooze">Snooze…</string>
     <string name="message_load_error">Could not load message:\n%1$s</string>
     <string name="message_retry">Retry</string>
-    <string name="message_thread_more">%1$d more in this conversation</string>
     <string name="message_unknown_sender">(unknown sender)</string>
     <string name="message_no_subject">(no subject)</string>
     <string name="message_attachments">Attachments (%1$d)</string>
     <string name="message_attachment_fallback">attachment</string>
-    <string name="message_to">To: %1$s</string>
     <!-- Participants panel (tap the sender in the email view) -->
     <string name="message_participants_title">Participants</string>
     <string name="participants_from">From</string>
@@ -368,7 +361,6 @@
     <string name="settings_app_lock_subtitle">Require your fingerprint, face, or screen PIN to open Sterna Mail.</string>
     <string name="settings_app_lock_unavailable">Set up a fingerprint, face unlock, or screen lock in your device settings first.</string>
     <string name="settings_image_allowlist_section">Remote images</string>
-    <string name="settings_image_allowlist_count">Senders set to always show images: %1$d</string>
     <string name="settings_image_allowlist_clear">Clear all</string>
     <string name="settings_image_allowlist_empty">No senders are set to always show images yet.</string>
     <string name="settings_image_allowlist_add">Add sender…</string>
@@ -484,7 +476,6 @@
     <string name="connect_password_show">Show password</string>
     <string name="connect_password_hide">Hide password</string>
     <string name="connect_oauth_button">Sign in with OAuth (no password)</string>
-    <string name="connect_outlook_signin">Continue with Outlook</string>
     <string name="connect_outlook_added">Outlook account added</string>
     <string name="connect_oauth_provider_unconfigured">Outlook sign-in isn\'t available in this build yet.</string>
     <string name="connect_oauth_need_email">Enter your Outlook email address first.</string>
@@ -557,6 +548,7 @@
 
     <!-- Notifications -->
     <string name="notif_channel_mail">New mail</string>
+    <string name="notif_send_failed_title">Message not sent</string>
     <string name="notif_channel_sync">Mail sync</string>
     <string name="notif_channel_sync_desc">Keeps a live connection to your mail server for instant mail.</string>
     <string name="notif_watching">In flight, watching for new mail</string>

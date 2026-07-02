@@ -21,6 +21,7 @@
     <string name="compose_attachment_fallback">Anhang</string>
     <string name="compose_body_placeholder">E-Mail verfassen</string>
     <string name="compose_could_not_send">Senden fehlgeschlagen: %1$s</string>
+    <string name="compose_prefill_failed">Ursprüngliche Nachricht konnte nicht geladen werden.</string>
     <string name="compose_scheduled_toast">Geplant — %1$s</string>
     <string name="compose_discard_title">Nachricht verwerfen?</string>
     <string name="compose_discard_message">Du hast deine Änderungen nicht gespeichert.</string>
@@ -44,9 +45,7 @@
     <string name="inbox_delete">Löschen</string>
     <string name="inbox_undo">Rückgängig</string>
     <string name="inbox_message_sent">Nachricht gesendet</string>
-    <string name="inbox_send_failed">Senden fehlgeschlagen: %1$s</string>
     <string name="inbox_app_name">Sterna Mail</string>
-    <string name="inbox_switch_to_account">Zu %1$s wechseln</string>
     <string name="inbox_switch_account">Konto wechseln</string>
     <string name="inbox_all_inboxes">Alle Posteingänge</string>
     <string name="inbox_all_inboxes_unread">Alle Posteingänge  (%1$d)</string>
@@ -60,7 +59,6 @@
     <string name="inbox_unarchive">Aus Archiv holen</string>
     <string name="inbox_archive">Archivieren</string>
     <string name="inbox_close_search">Suche schließen</string>
-    <string name="inbox_search_mail">E-Mails durchsuchen</string>
     <string name="inbox_clear">Löschen</string>
     <string name="inbox_menu">Menü</string>
     <string name="inbox_unread_only">Nur ungelesene</string>
@@ -73,8 +71,6 @@
     <string name="inbox_no_results">Keine Ergebnisse</string>
     <string name="inbox_load_more_failed">Weitere konnten nicht geladen werden</string>
     <string name="inbox_retry">Erneut versuchen</string>
-    <string name="inbox_load_failed">E-Mails konnten nicht geladen werden:\n%1$s</string>
-    <string name="inbox_no_messages">Keine Nachrichten</string>
     <string name="inbox_sort_newest_first">Neueste zuerst</string>
     <string name="inbox_sort_oldest_first">Älteste zuerst</string>
     <string name="inbox_sort_subject">Betreff</string>
@@ -114,12 +110,10 @@
     <string name="message_snooze">Zurückstellen…</string>
     <string name="message_load_error">Nachricht konnte nicht geladen werden:\n%1$s</string>
     <string name="message_retry">Erneut versuchen</string>
-    <string name="message_thread_more">%1$d weitere in dieser Unterhaltung</string>
     <string name="message_unknown_sender">(unbekannter Absender)</string>
     <string name="message_no_subject">(kein Betreff)</string>
     <string name="message_attachments">Anhänge (%1$d)</string>
     <string name="message_attachment_fallback">Anhang</string>
-    <string name="message_to">An: %1$s</string>
     <string name="message_participants_title">Teilnehmer</string>
     <string name="participants_from">Von</string>
     <string name="participants_to">An</string>
@@ -297,7 +291,6 @@
     <string name="settings_app_lock_unavailable">Richte zuerst einen Fingerabdruck, die Gesichtsentsperrung oder eine Bildschirmsperre in den Geräteeinstellungen ein.</string>
     <string name="settings_links_section">Links</string>
     <string name="settings_image_allowlist_section">Externe Bilder</string>
-    <string name="settings_image_allowlist_count">Absender, deren Bilder immer angezeigt werden: %1$d</string>
     <string name="settings_image_allowlist_clear">Leeren</string>
     <string name="settings_strip_tracking_title">Tracking-Parameter entfernen</string>
     <string name="settings_strip_tracking_subtitle">Tracker (utm_*, fbclid, gclid…) aus Links entfernen, bevor sie geöffnet werden, damit Absender nicht erkennen können, wann du klickst.</string>
@@ -389,7 +382,6 @@
     <string name="connect_password_show">Passwort anzeigen</string>
     <string name="connect_password_hide">Passwort ausblenden</string>
     <string name="connect_oauth_button">Mit OAuth anmelden (ohne Passwort)</string>
-    <string name="connect_outlook_signin">Mit Outlook fortfahren</string>
     <string name="connect_outlook_added">Outlook-Konto hinzugefügt</string>
     <string name="connect_oauth_provider_unconfigured">Die Outlook-Anmeldung ist in dieser Version noch nicht verfügbar.</string>
     <string name="connect_oauth_need_email">Gib zuerst deine Outlook-E-Mail-Adresse ein.</string>
@@ -461,6 +453,7 @@
 
     <!-- Notifications -->
     <string name="notif_channel_mail">Neue E-Mails</string>
+    <string name="notif_send_failed_title">Nachricht nicht gesendet</string>
     <string name="notif_channel_sync">E-Mail-Synchronisierung</string>
     <string name="notif_channel_sync_desc">Hält eine aktive Verbindung zu deinem Mailserver für sofortige E-Mails aufrecht.</string>
     <string name="notif_watching">Im Flug, Ausschau nach neuer Post</string>
@@ -498,7 +491,6 @@
     <string name="compose_many_recipients_title">An viele Personen senden?</string>
     <string name="compose_many_recipients_message">Diese Nachricht geht an %1$d Empfänger.</string>
     <string name="compose_many_recipients_send">An alle senden</string>
-    <string name="inbox_empty_subtitle">Hier ist noch nichts. Neue E-Mails erscheinen automatisch.</string>
     <string name="settings_image_allowlist_empty">Für noch keinen Absender werden Bilder immer angezeigt.</string>
     <string name="settings_image_allowlist_add">Absender hinzufügen…</string>
     <string name="settings_image_allowlist_remove">Absender entfernen</string>

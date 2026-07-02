@@ -39,6 +39,32 @@ object Notifications {
         )
     }
 
+    /**
+     * A one-off notification that a scheduled/queued message couldn't be sent after retries, so a
+     * permanent failure isn't dropped silently. Tapping it opens the app.
+     */
+    fun notifySendFailed(context: Context, subject: String) {
+        ensureChannels(context)
+        val open = PendingIntent.getActivity(
+            context,
+            "sendfail".hashCode(),
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val text = subject.ifBlank { context.getString(R.string.message_no_subject) }
+        val notification = NotificationCompat.Builder(context, CHANNEL_MAIL)
+            .setSmallIcon(R.drawable.ic_stat_mail)
+            .setContentTitle(context.getString(R.string.notif_send_failed_title))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .build()
+        context.getSystemService(NotificationManager::class.java)
+            .notify(("sendfail:$subject").hashCode(), notification)
+    }
+
     /** The ongoing notification required for the foreground service. */
     fun serviceNotification(context: Context): Notification =
         NotificationCompat.Builder(context, CHANNEL_SERVICE)

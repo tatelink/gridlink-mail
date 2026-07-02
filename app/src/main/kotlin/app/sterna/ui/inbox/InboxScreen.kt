@@ -78,6 +78,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import app.sterna.ui.message.snoozePresets
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -763,6 +764,44 @@ fun InboxScreen(
                             }
                             IconButton(onClick = { viewModel.deleteSelected() }) {
                                 Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.inbox_delete))
+                            }
+                            // Overflow: snooze + report/not-spam for the whole selection.
+                            var selMenu by remember { mutableStateOf(false) }
+                            var selSnooze by remember { mutableStateOf(false) }
+                            val selContext = LocalContext.current
+                            IconButton(onClick = { selMenu = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
+                            }
+                            DropdownMenu(
+                                expanded = selMenu,
+                                onDismissRequest = { selMenu = false; selSnooze = false },
+                                shape = MaterialTheme.shapes.medium,
+                            ) {
+                                if (selSnooze) {
+                                    snoozePresets(selContext).forEach { (label, until) ->
+                                        DropdownMenuItem(
+                                            text = { Text(label) },
+                                            onClick = { selMenu = false; selSnooze = false; viewModel.snoozeSelected(until) },
+                                        )
+                                    }
+                                } else {
+                                    val inJunk = currentRole == "junk"
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(stringResource(if (inJunk) R.string.message_not_spam else R.string.message_report_spam))
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
+                                        onClick = {
+                                            selMenu = false
+                                            if (inJunk) viewModel.notSpamSelected() else viewModel.reportSpamSelected()
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.message_snooze)) },
+                                        leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                                        onClick = { selSnooze = true },
+                                    )
+                                }
                             }
                         },
                     )

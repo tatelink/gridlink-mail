@@ -21,6 +21,7 @@
     <string name="compose_attachment_fallback">załącznik</string>
     <string name="compose_body_placeholder">Napisz wiadomość</string>
     <string name="compose_could_not_send">Nie udało się wysłać: %1$s</string>
+    <string name="compose_prefill_failed">Nie udało się wczytać oryginalnej wiadomości.</string>
     <string name="compose_scheduled_toast">Zaplanowano — %1$s</string>
     <string name="compose_discard_title">Odrzucić wiadomość?</string>
     <string name="compose_discard_message">Nie zapisano wprowadzonych zmian.</string>
@@ -44,9 +45,7 @@
     <string name="inbox_delete">Usuń</string>
     <string name="inbox_undo">Cofnij</string>
     <string name="inbox_message_sent">Wiadomość wysłana</string>
-    <string name="inbox_send_failed">Nie udało się wysłać: %1$s</string>
     <string name="inbox_app_name">Sterna Mail</string>
-    <string name="inbox_switch_to_account">Przełącz na %1$s</string>
     <string name="inbox_switch_account">Zmień konto</string>
     <string name="inbox_all_inboxes">Wszystkie skrzynki odbiorcze</string>
     <string name="inbox_all_inboxes_unread">Wszystkie skrzynki odbiorcze  (%1$d)</string>
@@ -60,7 +59,6 @@
     <string name="inbox_unarchive">Cofnij archiwizację</string>
     <string name="inbox_archive">Archiwizuj</string>
     <string name="inbox_close_search">Zamknij wyszukiwanie</string>
-    <string name="inbox_search_mail">Szukaj w wiadomościach</string>
     <string name="inbox_clear">Wyczyść</string>
     <string name="inbox_menu">Menu</string>
     <string name="inbox_unread_only">Tylko nieprzeczytane</string>
@@ -73,8 +71,6 @@
     <string name="inbox_no_results">Brak wyników</string>
     <string name="inbox_load_more_failed">Nie udało się załadować więcej</string>
     <string name="inbox_retry">Ponów</string>
-    <string name="inbox_load_failed">Nie udało się załadować wiadomości:\n%1$s</string>
-    <string name="inbox_no_messages">Brak wiadomości</string>
     <string name="inbox_sort_newest_first">Najpierw najnowsze</string>
     <string name="inbox_sort_oldest_first">Najpierw najstarsze</string>
     <string name="inbox_sort_subject">Temat</string>
@@ -114,12 +110,10 @@
     <string name="message_snooze">Odłóż…</string>
     <string name="message_load_error">Nie udało się załadować wiadomości:\n%1$s</string>
     <string name="message_retry">Ponów</string>
-    <string name="message_thread_more">jeszcze %1$d w tej rozmowie</string>
     <string name="message_unknown_sender">(nieznany nadawca)</string>
     <string name="message_no_subject">(bez tematu)</string>
     <string name="message_attachments">Załączniki (%1$d)</string>
     <string name="message_attachment_fallback">załącznik</string>
-    <string name="message_to">Do: %1$s</string>
     <string name="message_participants_title">Uczestnicy</string>
     <string name="participants_from">Od</string>
     <string name="participants_to">Do</string>
@@ -297,7 +291,6 @@
     <string name="settings_app_lock_unavailable">Najpierw skonfiguruj odcisk palca, rozpoznawanie twarzy lub blokadę ekranu w ustawieniach urządzenia.</string>
     <string name="settings_links_section">Linki</string>
     <string name="settings_image_allowlist_section">Obrazy zdalne</string>
-    <string name="settings_image_allowlist_count">Nadawcy z zawsze pokazywanymi obrazami: %1$d</string>
     <string name="settings_image_allowlist_clear">Wyczyść</string>
     <string name="settings_strip_tracking_title">Usuwaj parametry śledzące</string>
     <string name="settings_strip_tracking_subtitle">Usuwaj elementy śledzące (utm_*, fbclid, gclid…) z linków przed ich otwarciem, aby nadawcy nie wiedzieli, kiedy w nie klikasz.</string>
@@ -389,7 +382,6 @@
     <string name="connect_password_show">Pokaż hasło</string>
     <string name="connect_password_hide">Ukryj hasło</string>
     <string name="connect_oauth_button">Zaloguj się przez OAuth (bez hasła)</string>
-    <string name="connect_outlook_signin">Kontynuuj z Outlookiem</string>
     <string name="connect_outlook_added">Dodano konto Outlook</string>
     <string name="connect_oauth_provider_unconfigured">Logowanie przez Outlook nie jest jeszcze dostępne w tej wersji.</string>
     <string name="connect_oauth_need_email">Najpierw wpisz swój adres e-mail Outlook.</string>
@@ -461,6 +453,7 @@
 
     <!-- Notifications -->
     <string name="notif_channel_mail">Nowe wiadomości</string>
+    <string name="notif_send_failed_title">Nie wysłano wiadomości</string>
     <string name="notif_channel_sync">Synchronizacja poczty</string>
     <string name="notif_channel_sync_desc">Utrzymuje aktywne połączenie z serwerem poczty dla natychmiastowego odbioru wiadomości.</string>
     <string name="notif_watching">W locie, wypatruję nowych wiadomości</string>
@@ -498,7 +491,6 @@
     <string name="compose_many_recipients_title">Wysłać do wielu osób?</string>
     <string name="compose_many_recipients_message">Ta wiadomość zostanie wysłana do %1$d odbiorców.</string>
     <string name="compose_many_recipients_send">Wyślij do wszystkich</string>
-    <string name="inbox_empty_subtitle">Na razie nic tu nie ma. Nowe wiadomości pojawią się automatycznie.</string>
     <string name="settings_image_allowlist_empty">Żaden nadawca nie ma jeszcze ustawionego zawsze pokazywania obrazów.</string>
     <string name="settings_image_allowlist_add">Dodaj nadawcę…</string>
     <string name="settings_image_allowlist_remove">Usuń nadawcę</string>

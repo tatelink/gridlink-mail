@@ -235,7 +235,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     references = original.references + original.messageId
                 }
             } catch (_: Throwable) {
-                // Leave fields blank if the original can't be loaded.
+                // The original couldn't be loaded: leave the fields blank, but tell the user so a
+                // reply/forward that lost its recipient and quoted text isn't a silent surprise.
+                _attachmentStatus.value =
+                    getApplication<Application>().getString(R.string.compose_prefill_failed)
             }
         }
     }
