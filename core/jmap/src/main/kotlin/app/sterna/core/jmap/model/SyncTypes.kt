@@ -17,6 +17,17 @@ data class EmailPage(
 )
 
 /**
+ * One page of the search-index crawl. [queryCount] is how many ids `Email/query` returned at this
+ * position (drives pagination); it can exceed `emails.size` when `Email/get` omits ids
+ * (`maxObjectsInGet`, or messages moved/removed between the query and the get). Terminating on
+ * [queryCount] instead of `emails.size` keeps the crawl from abandoning the oldest mail.
+ */
+data class CrawlPage(
+    val emails: List<Email>,
+    val queryCount: Int,
+)
+
+/**
  * Result of Email/queryChanges. [calculated] is false when the server returned
  * cannotCalculateChanges/tooManyChanges and the caller must fall back to a full query.
  */

@@ -1120,9 +1120,19 @@ fun InboxScreen(
                 when {
                     searchActive -> when {
                         ui.searchResults.isNotEmpty() ->
-                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                                itemsIndexed(ui.searchResults, key = { _, it -> it.id }) { index, email ->
-                                    emailRow(InboxRow(email, threadCount = 1, unread = !email.isSeen), Modifier.animateItem(), false, index, true)
+                            Column(Modifier.fillMaxSize()) {
+                                Text(
+                                    text = stringResource(R.string.search_result_count, ui.searchResults.size),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                                )
+                                LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
+                                    itemsIndexed(ui.searchResults, key = { _, it -> it.id }) { index, email ->
+                                        emailRow(InboxRow(email, threadCount = 1, unread = !email.isSeen), Modifier.animateItem(), false, index, true)
+                                    }
                                 }
                             }
                         ui.searchLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))

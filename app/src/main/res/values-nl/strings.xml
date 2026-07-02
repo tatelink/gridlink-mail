@@ -415,6 +415,7 @@
     <string name="search_failed">Zoeken mislukt: %1$s</string>
     <string name="search_no_results">Geen resultaten voor \"%1$s\".</string>
     <string name="search_no_results_generic">Geen overeenkomende berichten.</string>
+    <string name="search_result_count">%1$d resultaten</string>
     <string name="search_advanced_toggle">Geavanceerde filters</string>
     <string name="search_from">Van</string>
     <string name="search_subject">Onderwerp</string>

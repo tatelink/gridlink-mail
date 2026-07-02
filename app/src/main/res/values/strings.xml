@@ -509,6 +509,7 @@
     <string name="search_failed">Search failed: %1$s</string>
     <string name="search_no_results">No results for \"%1$s\".</string>
     <string name="search_no_results_generic">No matching messages.</string>
+    <string name="search_result_count">%1$d results</string>
     <string name="search_advanced_toggle">Advanced filters</string>
     <string name="search_from">From</string>
     <string name="search_subject">Subject</string>

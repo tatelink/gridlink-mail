@@ -415,6 +415,7 @@
     <string name="search_failed">Suche fehlgeschlagen: %1$s</string>
     <string name="search_no_results">Keine Ergebnisse für \"%1$s\".</string>
     <string name="search_no_results_generic">Keine passenden Nachrichten.</string>
+    <string name="search_result_count">%1$d Ergebnisse</string>
     <string name="search_advanced_toggle">Erweiterte Filter</string>
     <string name="search_from">Von</string>
     <string name="search_subject">Betreff</string>

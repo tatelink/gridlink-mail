@@ -1,5 +1,6 @@
 package app.sterna.core.jmap
 
+import app.sterna.core.jmap.model.CrawlPage
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
@@ -408,6 +409,80 @@ class JmapClient internal constructor(
                 throw JmapException("Search failed: HTTP ${response.code} ${response.message}")
             }
             decodeList(body, "Email/get", Email.serializer())
+        }
+    }
+
+    /**
+     * Crawl message headers (no filter) for the local search index: `Email/query` the whole account
+     * newest-first from [position], then `Email/get` the lightweight header fields for those ids.
+     * Bodies are not fetched here. Returns up to [limit] emails (fewer at the end of the mailbox).
+     */
+    suspend fun crawlHeaders(
+        session: JmapSession,
+        accountId: String,
+        position: Int,
+        limit: Int,
+        auth: JmapAuth,
+    ): CrawlPage = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/query")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("sort") {
+                            addJsonObject {
+                                put("property", "receivedAt")
+                                put("isAscending", false)
+                            }
+                        }
+                        put("position", position)
+                        put("limit", limit)
+                    }
+                    add("q0")
+                }
+                addJsonArray {
+                    add("Email/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("#ids") {
+                            put("resultOf", "q0")
+                            put("name", "Email/query")
+                            put("path", "/ids")
+                        }
+                        putJsonArray("properties") {
+                            // Headers only — responses stay tiny so the crawl reaches even years-old
+                            // mail fast. Body search is served by the server's own full-text index.
+                            listOf(
+                                "id", "threadId", "subject", "preview", "receivedAt",
+                                "from", "hasAttachment", "keywords", "mailboxIds",
+                            ).forEach { add(it) }
+                        }
+                    }
+                    add("g0")
+                }
+            }
+        }
+        val request = Request.Builder()
+            .url(session.apiUrl)
+            .header("Authorization", auth.authorizationHeader())
+            .header("Accept", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw JmapException("Index crawl failed: HTTP ${response.code} ${response.message}")
+            }
+            val queryCount = methodResponseArgs(body, "Email/query")["ids"]?.jsonArray?.size ?: 0
+            CrawlPage(
+                emails = decodeList(body, "Email/get", Email.serializer()),
+                queryCount = queryCount,
+            )
         }
     }
 

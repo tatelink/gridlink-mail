@@ -76,6 +76,12 @@ private data class SearchUi(
     val loading: Boolean = false,
 )
 
+/** Typing pause before the (unioned-in) server full-text search fires; local FTS has no debounce. */
+private const val SERVER_SEARCH_DEBOUNCE_MS = 350L
+
+/** Max hits requested from the server search (per query). */
+private const val SERVER_SEARCH_LIMIT = 200
+
 /** The actions bound to the two swipe directions (from Settings → Reading). */
 data class SwipeConfig(val right: SwipeAction, val left: SwipeAction)
 
@@ -293,6 +299,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val mailboxes = repo.observeMailboxes()
     private val searchState = MutableStateFlow(SearchUi())
     private var searchJob: Job? = null
+
+    /** Seeds the local full-text index from cache when a search opens; the first query joins it. */
+    private var indexJob: Job? = null
+
+    /** Background crawl of the whole mailbox into the index; re-runs the query when it completes. */
+    private var crawlJob: Job? = null
 
     /** Transient view filter: show only unread on the current view. */
     private val unreadOnly = MutableStateFlow(false)
@@ -791,6 +803,33 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun setSearchActive(active: Boolean) {
         searchJob?.cancel()
         searchState.value = if (active) SearchUi(active = true) else SearchUi()
+        if (!active) {
+            // Deliberately DON'T cancel the crawl: on a large mailbox it needs to run to completion,
+            // and it is throttled + idempotent. Killing it on close (then hitting the throttle on
+            // reopen) is exactly what froze coverage partway. Only the live query stops here.
+            return
+        }
+        // Instant coverage floor from the cache (the first query awaits this), then crawl the whole
+        // mailbox's headers into the index in the background. The crawl walks newest→oldest, so merge
+        // the current query's local hits in after EACH page: older mail appears progressively and a
+        // stalled/slow page can't hide it. Merges only ever ADD, so nothing flickers away.
+        indexJob = viewModelScope.launch { runCatching { repo.seedIndexFromCache() } }
+        // Guard against a second concurrent crawl if search is reopened while one is still running.
+        if (crawlJob?.isActive == true) return
+        crawlJob = viewModelScope.launch {
+            val refresh: suspend () -> Unit = {
+                searchState.value.query.takeIf { it.isNotBlank() }?.let { q ->
+                    val local = runCatching { repo.searchIndex(q) }.getOrNull()
+                    if (local != null && searchState.value.query == q) {
+                        searchState.value = searchState.value.copy(
+                            results = mergeHits(searchState.value.results.orEmpty(), local),
+                        )
+                    }
+                }
+            }
+            searchAccounts().forEach { runCatching { repo.syncSearchIndex(it, onPage = refresh) } }
+            refresh()
+        }
     }
 
     fun setSearchQuery(query: String) {
@@ -801,36 +840,47 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
         searchState.value = searchState.value.copy(query = query, loading = true)
         searchJob = viewModelScope.launch {
-            // Instant feedback from the local cache while the server search runs.
-            val local = runCatching { repo.searchCache(currentMailboxIds(), query) }.getOrNull()
-            if (searchState.value.query == query && local != null) {
-                searchState.value = searchState.value.copy(results = local)
-            }
-            delay(SEARCH_DEBOUNCE_MS)
-            // In the unified view, search every account (not just the active one); a
-            // single folder selection stays scoped to its account. Results are tagged
-            // with their accountId by the repository so they open in the right account.
-            val accounts = when (selection.value) {
-                Sel.Unified -> store.allCredentials()
-                is Sel.Folder -> listOfNotNull(store.load())
-            }
-            val results = runCatching { repo.search(accounts, SearchQuery(text = query)) }.getOrNull()
-            // Ignore if the query changed while we were searching.
+            // 1) Local FTS first: instant on every keystroke, offline, accent-folded, prefix-matched
+            //    ("eco*" finds écologie/écologique/…), over the header index of the whole mailbox.
+            indexJob?.join()
+            val local = runCatching { repo.searchIndex(query) }.getOrNull().orEmpty()
+            if (searchState.value.query != query) return@launch
+            searchState.value = searchState.value.copy(results = local, loading = true)
+            // 2) Server full-text after a short typing pause: the server's own index sees everything
+            //    (message bodies, the whole archive) in ~a second — no client-side re-indexing needed.
+            //    UNION only: server hits can add to what's shown, never remove it; cancellation (new
+            //    keystroke) plus the current-query check discard stale responses, so results can't
+            //    flicker away or depend on typing speed.
+            delay(SERVER_SEARCH_DEBOUNCE_MS)
+            val server = runCatching {
+                repo.search(searchAccounts(), SearchQuery(text = query), SERVER_SEARCH_LIMIT)
+            }.getOrNull().orEmpty()
             if (searchState.value.query == query) {
                 searchState.value = searchState.value.copy(
-                    results = results ?: searchState.value.results,
+                    results = mergeHits(searchState.value.results.orEmpty(), server),
                     loading = false,
                 )
             }
         }
     }
 
+    /** The accounts the current view searches over (unified inbox → all, single folder → current). */
+    private fun searchAccounts(): List<AccountCredentials> = when (selection.value) {
+        Sel.Unified -> store.allCredentials()
+        is Sel.Folder -> listOfNotNull(store.load())
+    }
+
+    /** Union of two hit lists (by account+id), newest first. */
+    private fun mergeHits(a: List<Email>, b: List<Email>): List<Email> =
+        (a + b).distinctBy { it.accountId to it.id }
+            // receivedAt is an ISO-8601 UTC string, so lexicographic sort == chronological.
+            .sortedByDescending { it.receivedAt ?: "" }
+
     private data class Meta(val accountName: String, val mailboxName: String, val unread: Int)
     private data class Status(val refreshing: Boolean, val error: String?)
 
     private companion object {
         const val UNIFIED_LABEL = "All inboxes"
-        const val SEARCH_DEBOUNCE_MS = 300L
         const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
         const val PURGE_HOLD_BACK_MS = 5_000L
     }

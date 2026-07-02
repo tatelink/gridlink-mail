@@ -415,6 +415,7 @@
     <string name="search_failed">Wyszukiwanie nie powiodło się: %1$s</string>
     <string name="search_no_results">Brak wyników dla \"%1$s\".</string>
     <string name="search_no_results_generic">Brak pasujących wiadomości.</string>
+    <string name="search_result_count">%1$d wyników</string>
     <string name="search_advanced_toggle">Filtry zaawansowane</string>
     <string name="search_from">Od</string>
     <string name="search_subject">Temat</string>

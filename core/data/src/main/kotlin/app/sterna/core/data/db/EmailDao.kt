@@ -117,14 +117,6 @@ interface EmailDao {
     )
     suspend fun cachedThreadEmailsAllFolders(accountId: String, threadKey: String): List<EmailEntity>
 
-    /** Instant local search over the cache for the given mailboxes, newest first. */
-    @Query(
-        "SELECT * FROM emails WHERE mailboxId IN (:mailboxIds) AND " +
-            "(subject LIKE :like OR preview LIKE :like OR fromName LIKE :like OR fromEmail LIKE :like) " +
-            "ORDER BY sortKey DESC LIMIT 100",
-    )
-    suspend fun searchCache(mailboxIds: List<String>, like: String): List<EmailEntity>
-
     /** Cached-message count per account, for the storage usage breakdown. */
     @Query("SELECT accountId, COUNT(*) AS messageCount FROM emails GROUP BY accountId")
     suspend fun countsByAccount(): List<AccountMessageCount>

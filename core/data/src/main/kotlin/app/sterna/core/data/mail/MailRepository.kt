@@ -16,6 +16,7 @@ import app.sterna.core.data.account.OAuthCredentials
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.filter.SieveCodec
 import app.sterna.core.data.db.EmailDao
+import app.sterna.core.data.db.EmailFtsDao
 import app.sterna.core.data.db.EmailBodyDao
 import app.sterna.core.data.db.EmailBodyEntity
 import app.sterna.core.data.db.OutboxAttachment
@@ -57,6 +58,7 @@ import app.sterna.core.jmap.model.JmapSession
 import app.sterna.core.jmap.model.Quota
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.core.jmap.model.VacationResponse
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -88,6 +90,18 @@ private const val PREFETCH_COUNT = 20
 
 /** Max cached message bodies kept per account (LRU); bounds on-device storage. */
 private const val BODY_CACHE_CAP = 100
+
+/** Max full-text search matches returned to the UI. */
+private const val LOCAL_SEARCH_LIMIT = 100
+
+// Header crawl: tiny responses, so use the max page (maxObjectsInGet=500) and a high backstop —
+// headers are ~200 B in FTS, so even 200k rows is cheap and covers years-old mail. The pass stops
+// naturally when the query is exhausted.
+private const val HEADER_PAGE = 500
+private const val HEADER_MAX = 200_000
+private const val INDEX_TTL_MS = 10 * 60 * 1000L
+/** Give up a crawl pass after this many consecutive page failures (vs. skipping isolated bad pages). */
+private const val MAX_CRAWL_ERRORS = 3
 
 /**
  * Build the dynamic ORDER BY / WHERE for the paged list. Favourites (flagged)
@@ -249,6 +263,7 @@ data class MessageBody(val email: Email, val inlineImages: Map<String, String>)
 class MailRepository(
     private val client: JmapClient,
     private val emailDao: EmailDao,
+    private val emailFtsDao: EmailFtsDao,
     private val emailBodyDao: EmailBodyDao,
     private val mailboxDao: MailboxDao,
     private val imap: ImapMailService,
@@ -540,11 +555,82 @@ class MailRepository(
     suspend fun cachedEmailsByIds(ids: Collection<String>): List<Email> =
         if (ids.isEmpty()) emptyList() else emailDao.emailsByIds(ids.toList()).map { it.toEmail() }
 
-    /** Instant local search over the cache (used before the server search returns). */
-    suspend fun searchCache(mailboxIds: List<String>, query: String): List<Email> {
-        if (mailboxIds.isEmpty() || query.isBlank()) return emptyList()
-        val like = "%${query.trim()}%"
-        return emailDao.searchCache(mailboxIds, like).map { it.toEmail() }
+    /**
+     * Instant coverage floor for the search index: re-seed the rows that are in the display cache
+     * (recent window), without clearing crawled-only rows. Called when a search session opens; the
+     * full whole-mailbox crawl ([syncSearchIndex]) runs separately in the background.
+     */
+    suspend fun seedIndexFromCache() = emailFtsDao.seedFromEmails()
+
+    /** Per-account throttle for the (network) index crawl. */
+    private val lastIndexAt = mutableMapOf<String, Long>()
+
+    /**
+     * Crawl the whole mailbox's HEADERS into the local search index so as-you-type search covers all
+     * mail's subject/sender instantly and offline. Headers only: responses stay tiny, so even a
+     * years-deep archive is covered in seconds. Body matches are NOT indexed locally — the live
+     * search unions in the server's own full-text results for those (the server already has the
+     * complete index; re-downloading bodies to rebuild it client-side was IMAP-style waste).
+     * JMAP only (IMAP is best-effort via the cache seed). Throttled per account by [INDEX_TTL_MS]
+     * unless [force]. Upserts so it is idempotent.
+     */
+    suspend fun syncSearchIndex(
+        credentials: AccountCredentials,
+        force: Boolean = false,
+        onPage: (suspend () -> Unit)? = null,
+    ) {
+        if (credentials.protocol == MailProtocol.IMAP) return
+        val now = System.currentTimeMillis()
+        if (!force && now - (lastIndexAt[credentials.id] ?: 0L) < INDEX_TTL_MS) return
+        val ctx = runCatching { connect(credentials) }.getOrNull() ?: return
+        var position = 0
+        var failed = false
+        var consecutiveErrors = 0
+        while (position < HEADER_MAX) {
+            val page = try {
+                client.crawlHeaders(ctx.session, ctx.accountId, position, HEADER_PAGE, ctx.auth)
+            } catch (e: CancellationException) {
+                throw e // search closed / VM cleared: bail WITHOUT stamping so we resume next time
+            } catch (e: Exception) {
+                // A page error must NOT hide every older mail behind it: skip the page and keep
+                // crawling; give up only after repeated failures.
+                failed = true
+                if (++consecutiveErrors >= MAX_CRAWL_ERRORS) break
+                position += HEADER_PAGE
+                continue
+            }
+            consecutiveErrors = 0
+            // Drive pagination by how many ids Email/query returned, NOT by Email/get's object count:
+            // the get can omit ids (maxObjectsInGet, moved/removed mail) and a short get must not stop
+            // the walk — otherwise the crawl abandons the oldest mail (indexed last).
+            if (page.queryCount == 0) break
+            if (page.emails.isNotEmpty()) {
+                emailFtsDao.upsert(page.emails.map { it.toFts(credentials.id) })
+                onPage?.invoke()
+            }
+            if (page.queryCount < HEADER_PAGE) break
+            position += page.queryCount
+        }
+        // Only throttle once the crawl finished cleanly; a partial/failed run must stay retryable so
+        // coverage isn't frozen where an interrupted crawl happened to stop.
+        if (!failed) lastIndexAt[credentials.id] = now
+    }
+
+    /**
+     * Local full-text search over [syncSearchIndex]'s index: accent-folded, PREFIX-matched
+     * ("eco*"), so it is instant, offline and monotonic as the user types (unlike the server's
+     * stemmed full-text). Returns newest-first, capped at [limit]. Blank/empty query → no results.
+     */
+    suspend fun searchIndex(query: String, limit: Int = LOCAL_SEARCH_LIMIT): List<Email> {
+        val match = ftsMatch(query) ?: return emptyList()
+        return emailFtsDao.search(match, limit).map { it.toEmail() }
+    }
+
+    /** Build an FTS4 MATCH expression: each word becomes a prefix term, AND-combined ("eco* log*"). */
+    private fun ftsMatch(query: String): String? {
+        val tokens = query.split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotBlank() }
+        if (tokens.isEmpty()) return null
+        return tokens.joinToString(" ") { "$it*" }
     }
 
     /**
