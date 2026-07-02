@@ -9,6 +9,7 @@ import android.opengl.EGLConfig
 import android.opengl.GLES20
 import android.os.Build
 import android.provider.CalendarContract
+import android.provider.ContactsContract
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -17,6 +18,8 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,14 +43,17 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Forward
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.ReplyAll
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Report
@@ -59,6 +65,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -80,9 +87,11 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
 import android.widget.Toast
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -101,6 +110,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import app.sterna.R
 import app.sterna.core.data.calendar.ParsedEvent
 import app.sterna.core.jmap.model.Email
+import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.ui.components.Monogram
 import app.sterna.util.LinkCleaner
@@ -147,6 +157,7 @@ fun MessageScreen(
     searchResults: List<Email>?,
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+    onComposeTo: (address: String) -> Unit,
 ) {
     when {
         listSource != null -> {
@@ -177,6 +188,7 @@ fun MessageScreen(
                     entryAt = { i -> if (i < items.itemCount) items[i]?.email?.let { it.id to it.accountId } else null },
                     onBack = onBack,
                     onReply = onReply,
+                    onComposeTo = onComposeTo,
                 )
             }
         }
@@ -190,6 +202,7 @@ fun MessageScreen(
                 entryAt = { i -> searchResults.getOrNull(i)?.let { it.id to it.accountId } },
                 onBack = onBack,
                 onReply = onReply,
+                onComposeTo = onComposeTo,
             )
         }
         // No list context: a lone message (e.g. opened from global search).
@@ -199,6 +212,7 @@ fun MessageScreen(
             entryAt = { anchorEmailId to anchorAccountId },
             onBack = onBack,
             onReply = onReply,
+            onComposeTo = onComposeTo,
         )
     }
 }
@@ -211,6 +225,7 @@ private fun MessagePager(
     entryAt: (Int) -> Pair<String, String?>?,
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+    onComposeTo: (address: String) -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage.coerceIn(0, (pageCount - 1).coerceAtLeast(0))) { pageCount }
     HorizontalPager(
@@ -233,6 +248,7 @@ private fun MessagePager(
                 active = pagerState.settledPage == page,
                 onBack = onBack,
                 onReply = onReply,
+                onComposeTo = onComposeTo,
             )
         }
     }
@@ -245,6 +261,7 @@ private fun MessagePage(
     active: Boolean,
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+    onComposeTo: (address: String) -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as Application
     // Each page needs its own MessageViewModel (the pager composes several at once). A
@@ -263,6 +280,7 @@ private fun MessagePage(
         accountId = accountId,
         onBack = onBack,
         onReply = onReply,
+        onComposeTo = onComposeTo,
     )
 }
 
@@ -324,6 +342,7 @@ private fun MessageContent(
     accountId: String?,
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+    onComposeTo: (address: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
@@ -522,6 +541,7 @@ private fun MessageContent(
                     onRespondToInvite = viewModel::respondToInvite,
                     textZoom = messageTextSize.zoom,
                     onReply = { mode -> onReply(mode, replyTargetId, accountId) },
+                    onComposeTo = onComposeTo,
                 )
             }
         }
@@ -540,6 +560,7 @@ private fun ConversationBody(
     onRespondToInvite: (String) -> Unit,
     textZoom: Int,
     onReply: (mode: String) -> Unit,
+    onComposeTo: (address: String) -> Unit,
 ) {
     val msg = messages.firstOrNull() ?: return
     val full = msg.body
@@ -644,7 +665,7 @@ private fun ConversationBody(
                 .onSizeChanged { headerHeightPx = it.height }
                 .background(MaterialTheme.colorScheme.surface),
         ) {
-            MessageHeader(msg, full, attachmentStatus, onOpenAttachment, calendar, onRespondToInvite)
+            MessageHeader(msg, full, attachmentStatus, onOpenAttachment, calendar, onRespondToInvite, onComposeTo)
         }
         // Spinner until the body has laid out (cached/prefetched mail beats the 500ms, so none flashes).
         if (full != null && !bodyReady && spinnerDue) {
@@ -714,13 +735,18 @@ private fun MessageHeader(
     onOpenAttachment: (EmailBodyPart, String) -> Unit,
     calendar: CalendarInvite?,
     onRespondToInvite: (String) -> Unit,
+    onComposeTo: (address: String) -> Unit,
 ) {
     val sender = msg.header.from.firstOrNull()
     val unread = !msg.header.isSeen
+    // Tapping the sender opens a panel with every participant (From / To / Cc) and per-contact
+    // actions. To/Cc live on the full body, so they populate once it has loaded.
+    var showParticipants by remember(msg.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .clickable { showParticipants = true }
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -780,6 +806,163 @@ private fun MessageHeader(
         }
         HorizontalDivider()
     }
+    if (showParticipants) {
+        ParticipantsSheet(
+            from = msg.header.from,
+            to = full?.to ?: emptyList(),
+            cc = full?.cc ?: emptyList(),
+            onComposeTo = { address -> showParticipants = false; onComposeTo(address) },
+            onDismiss = { showParticipants = false },
+        )
+    }
+}
+
+/**
+ * Slide-up panel listing every participant of the open message, grouped From / To / Cc, each with
+ * their full address and actions (add to contacts, write to, copy address, copy name + address).
+ * Opened by tapping the sender in [MessageHeader]. To/Cc come from the full body, so they are empty
+ * until it has loaded.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ParticipantsSheet(
+    from: List<EmailAddress>,
+    to: List<EmailAddress>,
+    cc: List<EmailAddress>,
+    onComposeTo: (address: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 24.dp),
+        ) {
+            Text(
+                stringResource(R.string.message_participants_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+            ParticipantGroup(R.string.participants_from, from, onComposeTo)
+            ParticipantGroup(R.string.participants_to, to, onComposeTo)
+            ParticipantGroup(R.string.participants_cc, cc, onComposeTo)
+        }
+    }
+}
+
+/** One labelled block (From / To / Cc) in [ParticipantsSheet]; renders nothing when [people] empty. */
+@Composable
+private fun ParticipantGroup(
+    titleRes: Int,
+    people: List<EmailAddress>,
+    onComposeTo: (address: String) -> Unit,
+) {
+    if (people.isEmpty()) return
+    HorizontalDivider()
+    Text(
+        stringResource(titleRes),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+    )
+    people.forEach { addr -> ParticipantRow(addr, onComposeTo) }
+}
+
+/** A single participant: avatar, name + address, add-to-contacts icon, and an overflow menu. */
+@Composable
+private fun ParticipantRow(
+    addr: EmailAddress,
+    onComposeTo: (address: String) -> Unit,
+) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val copiedMsg = stringResource(R.string.status_address_copied)
+    val hasName = !addr.name.isNullOrBlank()
+    var menuOpen by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Monogram(seed = addr.email, label = addr.display())
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                addr.display(),
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (hasName) {
+                Text(
+                    addr.email,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        IconButton(onClick = { addToContacts(context, addr) }) {
+            Icon(
+                Icons.Filled.PersonAdd,
+                contentDescription = stringResource(R.string.participant_add_to_contacts),
+            )
+        }
+        IconButton(onClick = { menuOpen = true }) {
+            Icon(
+                Icons.Filled.MoreVert,
+                contentDescription = stringResource(R.string.a11y_participant_more),
+            )
+        }
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+            shape = MaterialTheme.shapes.medium,
+        ) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.participant_compose)) },
+                leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
+                onClick = { menuOpen = false; onComposeTo(addr.email) },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.participant_copy_address)) },
+                leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    clipboard.setText(AnnotatedString(addr.email))
+                    Toast.makeText(context, copiedMsg, Toast.LENGTH_SHORT).show()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.participant_copy_name_address)) },
+                leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    val text = if (hasName) "${addr.name} <${addr.email}>" else addr.email
+                    clipboard.setText(AnnotatedString(text))
+                    Toast.makeText(context, copiedMsg, Toast.LENGTH_SHORT).show()
+                },
+            )
+        }
+    }
+}
+
+/** Fire an ACTION_INSERT contacts intent prefilled with [addr]; false if no app can handle it. */
+private fun addToContacts(context: Context, addr: EmailAddress): Boolean = try {
+    val intent = Intent(ContactsContract.Intents.Insert.ACTION)
+        .setType(ContactsContract.RawContacts.CONTENT_TYPE)
+        .putExtra(ContactsContract.Intents.Insert.EMAIL, addr.email)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    addr.name?.takeIf { it.isNotBlank() }?.let {
+        intent.putExtra(ContactsContract.Intents.Insert.NAME, it)
+    }
+    context.startActivity(intent)
+    true
+} catch (e: Exception) {
+    false
 }
 
 @Composable

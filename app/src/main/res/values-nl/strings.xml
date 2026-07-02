@@ -120,6 +120,16 @@
     <string name="message_attachments">Bijlagen (%1$d)</string>
     <string name="message_attachment_fallback">bijlage</string>
     <string name="message_to">Aan: %1$s</string>
+    <string name="message_participants_title">Deelnemers</string>
+    <string name="participants_from">Van</string>
+    <string name="participants_to">Aan</string>
+    <string name="participants_cc">Cc</string>
+    <string name="participant_add_to_contacts">Aan contacten toevoegen</string>
+    <string name="participant_compose">Naar dit contact schrijven</string>
+    <string name="participant_copy_address">Adres kopiëren</string>
+    <string name="participant_copy_name_address">Naam en adres kopiëren</string>
+    <string name="a11y_participant_more">Meer acties</string>
+    <string name="status_address_copied">Adres gekopieerd</string>
     <!-- Calendar invite -->
     <string name="calendar_invite">Agenda-uitnodiging</string>
     <string name="calendar_event_untitled">Naamloze afspraak</string>

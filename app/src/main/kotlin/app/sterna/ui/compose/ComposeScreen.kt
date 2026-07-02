@@ -96,6 +96,7 @@ fun ComposeScreen(
     mode: String? = null,
     accountId: String? = null,
     restore: Boolean = false,
+    to: String? = null,
     viewModel: ComposeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -110,7 +111,7 @@ fun ComposeScreen(
         uri?.let(viewModel::attach)
     }
 
-    LaunchedEffect(Unit) { viewModel.prepare(replyTo, mode, accountId, restore) }
+    LaunchedEffect(Unit) { viewModel.prepare(replyTo, mode, accountId, restore, to) }
 
     // --- Contacts permission priming (offered once, on first compose) ---
     val contactsPrimed by viewModel.contactsPrimed.collectAsStateWithLifecycle()

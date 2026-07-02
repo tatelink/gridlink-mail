@@ -170,8 +170,17 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         _attachments.value = _attachments.value.filterNot { it == part }
     }
 
-    /** Build initial fields when opening as a reply/reply-all/forward of [replyToId]. */
-    fun prepare(replyToId: String?, mode: String?, accountId: String? = null, restore: Boolean = false) {
+    /**
+     * Build initial fields when opening as a reply/reply-all/forward of [replyToId], or, when [to]
+     * is given (from the participant panel's "write to"), as a fresh mail pre-addressed to it.
+     */
+    fun prepare(
+        replyToId: String?,
+        mode: String?,
+        accountId: String? = null,
+        restore: Boolean = false,
+        to: String? = null,
+    ) {
         if (prepared) return
         prepared = true
         this.accountId = accountId
@@ -203,6 +212,12 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 if (match != null) _selectedFrom.value = match
             }
             outbox.consumeRestored()
+            return
+        }
+
+        // A fresh mail pre-addressed to a participant (no original to fetch).
+        if (!to.isNullOrBlank()) {
+            _prefill.value = DraftFields(to = to, subject = "", body = "")
             return
         }
 

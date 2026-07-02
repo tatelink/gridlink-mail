@@ -120,6 +120,16 @@
     <string name="message_attachments">Adjuntos (%1$d)</string>
     <string name="message_attachment_fallback">adjunto</string>
     <string name="message_to">Para: %1$s</string>
+    <string name="message_participants_title">Participantes</string>
+    <string name="participants_from">De</string>
+    <string name="participants_to">Para</string>
+    <string name="participants_cc">Cc</string>
+    <string name="participant_add_to_contacts">Añadir a contactos</string>
+    <string name="participant_compose">Escribir a este contacto</string>
+    <string name="participant_copy_address">Copiar dirección</string>
+    <string name="participant_copy_name_address">Copiar nombre y dirección</string>
+    <string name="a11y_participant_more">Más acciones</string>
+    <string name="status_address_copied">Dirección copiada</string>
     <!-- Calendar invite -->
     <string name="calendar_invite">Invitación de calendario</string>
     <string name="calendar_event_untitled">Evento sin título</string>
