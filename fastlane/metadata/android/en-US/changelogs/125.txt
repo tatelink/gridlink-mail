@@ -1,0 +1,1 @@
+Settings now slide in and animate as you move through them. Backup and restore now also carry your account setup (never your passwords): after importing, you sign in to each account, and you can import a backup right from the first setup screen. The connect screen also flags a mistyped email address.
