@@ -1,0 +1,1 @@
+Search was rebuilt. It is now instant as you type and covers your whole mailbox, including messages that are years old and in every folder, not just what was recently loaded. It ignores accents on subjects and senders, so "ecole" finds "École", and it searches message contents through your server as well. The results now show a count at the top.

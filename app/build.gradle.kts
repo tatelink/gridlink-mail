@@ -14,8 +14,8 @@ android {
         applicationId = "app.sterna"
         minSdk = 26
         targetSdk = 36
-        versionCode = 125
-        versionName = "1.0.24"
+        versionCode = 126
+        versionName = "1.0.25"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
