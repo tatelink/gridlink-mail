@@ -36,6 +36,9 @@ data class SettingsBackup(
     val pushAllAccounts: Boolean? = null,
     /** App-locale language tag ("" = follow system). */
     val language: String? = null,
+    val conversationView: Boolean? = null,
+    /** [MessageTextSize] name. */
+    val messageTextSize: String? = null,
     /**
      * Account configuration WITHOUT any secret: server, username, protocol, IMAP/SMTP
      * endpoints, identities, signature, colour, sync window, notification opt-out. The
@@ -54,7 +57,8 @@ data class SettingsBackup(
             swipeRight != null || swipeLeft != null || sortOrder != null || contactSuggestions != null ||
             stripTracking != null || confirmLinks != null || imageAllowlist != null ||
             quietHoursEnabled != null || quietHoursStart != null || quietHoursEnd != null ||
-            pushAllAccounts != null || language != null || accounts != null
+            pushAllAccounts != null || language != null || conversationView != null ||
+            messageTextSize != null || accounts != null
 }
 
 /** JSON (de)serialization for [SettingsBackup] export/import files. */

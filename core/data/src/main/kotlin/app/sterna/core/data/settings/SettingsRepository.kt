@@ -186,6 +186,8 @@ class SettingsRepository(context: Context) {
         quietHoursEnabled = quietHoursEnabled.first(),
         quietHoursStart = quietHoursStart.first(),
         quietHoursEnd = quietHoursEnd.first(),
+        conversationView = conversationView.first(),
+        messageTextSize = messageTextSize.first().name,
     )
 
     /** Applies the DataStore-backed fields of [backup]; unknown enum values are skipped. */
@@ -204,6 +206,8 @@ class SettingsRepository(context: Context) {
         backup.quietHoursEnabled?.let { setQuietHoursEnabled(it) }
         backup.quietHoursStart?.let { setQuietHoursStart(it) }
         backup.quietHoursEnd?.let { setQuietHoursEnd(it) }
+        backup.conversationView?.let { setConversationView(it) }
+        backup.messageTextSize?.let { v -> runCatching { MessageTextSize.valueOf(v) }.getOrNull()?.let { setMessageTextSize(it) } }
     }
 
     /**

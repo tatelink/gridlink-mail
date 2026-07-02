@@ -322,15 +322,20 @@ class AccountStore(context: Context) {
      * token slot is never touched, and the short-lived OAuth access token plus device/sync state
      * (inbox id/name, unread) are cleared so the file carries only portable configuration.
      */
-    fun accountsForBackup(): List<StoredAccount> = accounts().map {
-        it.copy(
-            oauthAccessToken = "",
-            oauthAccessExpiresAt = 0,
-            inboxId = null,
-            inboxName = "Inbox",
-            unread = 0,
-        )
-    }
+    // OAuth accounts are excluded: their only secret (the refresh token) can't be exported, and
+    // there is no password prompt to revive them on restore, so a backed-up OAuth account would be
+    // permanently inert. The user re-adds those via the normal OAuth sign-in on the new device.
+    fun accountsForBackup(): List<StoredAccount> = accounts()
+        .filter { it.authType == AuthType.BASIC }
+        .map {
+            it.copy(
+                oauthAccessToken = "",
+                oauthAccessExpiresAt = 0,
+                inboxId = null,
+                inboxName = "Inbox",
+                unread = 0,
+            )
+        }
 
     /**
      * Merge backed-up account configuration in. Each incoming account is added ONLY if no existing

@@ -746,7 +746,9 @@ private fun MessageHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { showParticipants = true }
+                .clickable(onClickLabel = stringResource(R.string.message_participants_title)) {
+                    showParticipants = true
+                }
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -878,6 +880,7 @@ private fun ParticipantRow(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val copiedMsg = stringResource(R.string.status_address_copied)
+    val noContactsAppMsg = stringResource(R.string.participant_no_contacts_app)
     val hasName = !addr.name.isNullOrBlank()
     var menuOpen by remember { mutableStateOf(false) }
     Row(
@@ -905,7 +908,11 @@ private fun ParticipantRow(
                 )
             }
         }
-        IconButton(onClick = { addToContacts(context, addr) }) {
+        IconButton(onClick = {
+            if (!addToContacts(context, addr)) {
+                Toast.makeText(context, noContactsAppMsg, Toast.LENGTH_SHORT).show()
+            }
+        }) {
             Icon(
                 Icons.Filled.PersonAdd,
                 contentDescription = stringResource(R.string.participant_add_to_contacts),

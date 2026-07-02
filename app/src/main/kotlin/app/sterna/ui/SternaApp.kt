@@ -313,7 +313,11 @@ private fun MainNavHost(
         composable("search") { entry ->
             SearchScreen(
                 onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
-                onOpenEmail = { id -> if (entry.lifecycleIsResumed()) nav.navigate("message/${Uri.encode(id)}?accountId=") },
+                onOpenEmail = { id, accountId ->
+                    if (entry.lifecycleIsResumed()) {
+                        nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}")
+                    }
+                },
             )
         }
         composable(

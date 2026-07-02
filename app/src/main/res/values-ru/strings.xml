@@ -130,6 +130,7 @@
     <string name="participant_copy_name_address">Копировать имя и адрес</string>
     <string name="a11y_participant_more">Другие действия</string>
     <string name="status_address_copied">Адрес скопирован</string>
+    <string name="participant_no_contacts_app">Нет приложения для добавления контактов.</string>
     <!-- Calendar invite -->
     <string name="calendar_invite">Приглашение в календарь</string>
     <string name="calendar_event_untitled">Событие без названия</string>

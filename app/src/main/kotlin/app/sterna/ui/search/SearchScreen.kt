@@ -64,7 +64,7 @@ private const val DAY_MS = 24L * 60 * 60 * 1000
 @Composable
 fun SearchScreen(
     onBack: () -> Unit,
-    onOpenEmail: (String) -> Unit,
+    onOpenEmail: (id: String, accountId: String?) -> Unit,
     viewModel: SearchViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -189,7 +189,7 @@ fun SearchScreen(
                     } else {
                         LazyColumn(Modifier.fillMaxSize()) {
                             items(s.emails, key = { it.id }) { email ->
-                                EmailListItem(email = email, onClick = { onOpenEmail(email.id) })
+                                EmailListItem(email = email, onClick = { onOpenEmail(email.id, email.accountId) })
                                 HorizontalDivider()
                             }
                         }
