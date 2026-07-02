@@ -1,0 +1,1 @@
+Email view: tap the sender to see everyone on the message (From, To, Cc) with their full addresses, and add them to contacts, write to them, or copy their address. Also fixes a faint rectangle that could appear at the end of HTML emails in dark mode.

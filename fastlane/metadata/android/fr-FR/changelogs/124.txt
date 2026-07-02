@@ -1,0 +1,1 @@
+Vue d'un e-mail : appuyez sur l'expéditeur pour voir tous les participants (De, À, Cc) avec leurs adresses complètes, et les ajouter aux contacts, leur écrire ou copier leur adresse. Corrige aussi un léger rectangle qui pouvait apparaître à la fin des e-mails HTML en mode sombre.
