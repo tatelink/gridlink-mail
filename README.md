@@ -145,6 +145,10 @@ Sterna is free and open, and always will be. If it's useful to you and you'd lik
 to help fuel its development, you can **[buy me a coffee on Ko-fi](https://ko-fi.com/emoncode)**.
 Entirely optional — thank you for even considering it. 💚
 
+## 🙏 Acknowledgements
+
+Sterna's interface is freely inspired by **[K-9 Mail](https://github.com/thunderbird/thunderbird-android)** (now Thunderbird for Android), the venerable open-source Android mail client. Many of its interaction patterns — the way you swipe, triage, and read your mail — are the fruit of years of work by the K-9 community, and Sterna is better for standing on their shoulders. Heartfelt thanks to the K-9 / Thunderbird for Android developers for building, and freely sharing, such a fine app. 💚
+
 ## 📄 License
 
 [GNU General Public License v3.0](LICENSE).
