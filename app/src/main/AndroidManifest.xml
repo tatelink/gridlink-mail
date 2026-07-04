@@ -8,6 +8,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!-- Package visibility (Android 11+): let Sterna see and bind the OpenKeychain
+         OpenPGP provider for message encryption/signing. -->
+    <queries>
+        <package android:name="org.sufficientlysecure.keychain" />
+        <package android:name="org.sufficientlysecure.keychain.debug" />
+        <intent>
+            <action android:name="org.openintents.openpgp.IOpenPgpService2" />
+        </intent>
+    </queries>
+
     <application
         android:name=".SternaApplication"
         android:allowBackup="false"

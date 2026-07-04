@@ -31,6 +31,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Draw
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material3.LocalContentColor
+import app.sterna.core.data.pgp.PgpMode
+import app.sterna.pgp.rememberPgpInteractionLauncher
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Save
@@ -50,6 +56,9 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -107,9 +116,38 @@ fun ComposeScreen(
     val fromOptions by viewModel.fromOptions.collectAsStateWithLifecycle()
     val selectedFrom by viewModel.selectedFrom.collectAsStateWithLifecycle()
     val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
+    val pgpAvailable by viewModel.pgpAvailable.collectAsStateWithLifecycle()
+    val pgpMode by viewModel.pgpMode.collectAsStateWithLifecycle()
+    val recipientKeys by viewModel.recipientKeys.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let(viewModel::attach)
+    }
+    // OpenKeychain's passphrase/key dialog round-trip during a PGP send.
+    val pgpLauncher = rememberPgpInteractionLauncher { data -> viewModel.retryPgpSend(data) }
+    LaunchedEffect(state) {
+        (state as? ComposeState.PgpInteraction)?.let { pgpLauncher(it.pendingIntent) }
+    }
+    // Plain-language feedback each time the user cycles the lock toggle, so the
+    // icon states (off / sign / encrypt) aren't a mystery to newcomers.
+    val snackbarHostState = remember { SnackbarHostState() }
+    var pgpModeSeen by remember { mutableStateOf<PgpMode?>(null) }
+    LaunchedEffect(pgpMode) {
+        // Skip the very first emission (initial state), announce only real changes.
+        if (pgpModeSeen != null && pgpModeSeen != pgpMode) {
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(
+                message = context.getString(
+                    when (pgpMode) {
+                        PgpMode.OFF -> R.string.compose_pgp_snack_off
+                        PgpMode.SIGN -> R.string.compose_pgp_snack_sign
+                        PgpMode.ENCRYPT -> R.string.compose_pgp_snack_encrypt
+                    },
+                ),
+                duration = SnackbarDuration.Short,
+            )
+        }
+        pgpModeSeen = pgpMode
     }
 
     LaunchedEffect(Unit) { viewModel.prepare(replyTo, mode, accountId, restore, to) }
@@ -250,7 +288,10 @@ fun ComposeScreen(
     val recipientCount = listOf(to, cc, bcc).sumOf { field -> field.split(',', ';').count { it.isNotBlank() } }
     // Can send only with at least one To recipient and every entered address valid.
     val allRecipients = listOf(to, cc, bcc).flatMap { recipientTokens(it) }
-    val canSend = recipientTokens(to).isNotEmpty() && allRecipients.all(::isValidEmail)
+    // When encrypting, every recipient must have a resolvable key (false = known-missing;
+    // absent = not yet checked, allowed — the send resolves keys and reports precisely).
+    val keysReady = pgpMode != PgpMode.ENCRYPT || allRecipients.none { recipientKeys[it] == false }
+    val canSend = recipientTokens(to).isNotEmpty() && allRecipients.all(::isValidEmail) && keysReady
     val sendNow = { viewModel.send(to, cc, bcc, subject, body) }
     val proceedAfterAttachment = {
         if (recipientCount >= MANY_RECIPIENTS) showManyRecipients = true else sendNow()
@@ -324,6 +365,7 @@ fun ComposeScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -335,16 +377,45 @@ fun ComposeScreen(
                     }
                 },
                 actions = {
+                    // OpenPGP lock toggle: OFF → sign → encrypt. Only when the account is set up.
+                    if (pgpAvailable) {
+                        val encrypting = pgpMode == PgpMode.ENCRYPT
+                        IconButton(onClick = viewModel::cyclePgpMode, enabled = !sending) {
+                            Icon(
+                                imageVector = when (pgpMode) {
+                                    PgpMode.OFF -> Icons.Filled.LockOpen
+                                    PgpMode.SIGN -> Icons.Filled.Draw
+                                    PgpMode.ENCRYPT -> Icons.Filled.Lock
+                                },
+                                contentDescription = stringResource(
+                                    when (pgpMode) {
+                                        PgpMode.OFF -> R.string.compose_pgp_off
+                                        PgpMode.SIGN -> R.string.compose_pgp_sign
+                                        PgpMode.ENCRYPT -> R.string.compose_pgp_encrypt
+                                    },
+                                ),
+                                tint = if (pgpMode == PgpMode.OFF) {
+                                    LocalContentColor.current
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
+                            )
+                        }
+                    }
+                    // Attachments are allowed in every mode (they ride inside the encrypted entity).
                     IconButton(onClick = { picker.launch("*/*") }, enabled = !sending) {
                         Icon(Icons.Filled.AttachFile, contentDescription = stringResource(R.string.compose_attach))
                     }
-                    IconButton(
-                        onClick = { viewModel.saveDraft(to, cc, bcc, subject, body) },
-                        enabled = !sending,
-                    ) {
-                        Icon(Icons.Filled.Save, contentDescription = stringResource(R.string.compose_save_draft))
-                    }
-                    Box {
+                    // Encrypting can't carry plaintext to the server: no draft, no schedule.
+                    val encryptingNow = pgpMode == PgpMode.ENCRYPT
+                    if (!encryptingNow) {
+                        IconButton(
+                            onClick = { viewModel.saveDraft(to, cc, bcc, subject, body) },
+                            enabled = !sending,
+                        ) {
+                            Icon(Icons.Filled.Save, contentDescription = stringResource(R.string.compose_save_draft))
+                        }
+                        Box {
                         var scheduleMenu by remember { mutableStateOf(false) }
                         IconButton(
                             onClick = { scheduleMenu = true },
@@ -367,6 +438,7 @@ fun ComposeScreen(
                                     },
                                 )
                             }
+                        }
                         }
                     }
                     IconButton(
@@ -423,6 +495,13 @@ fun ComposeScreen(
                 FieldDivider()
             }
 
+            // Keep per-recipient key availability current while encrypting.
+            LaunchedEffect(pgpMode, to, cc, bcc) {
+                viewModel.updateRecipientKeys(to, cc, bcc)
+            }
+            val missingKeyFor: (String) -> Boolean = { addr ->
+                pgpMode == PgpMode.ENCRYPT && recipientKeys[addr] == false
+            }
             RecipientChipsField(
                 label = stringResource(R.string.compose_to),
                 value = to,
@@ -431,6 +510,7 @@ fun ComposeScreen(
                 onSuggest = viewModel::suggest,
                 onClearSuggestions = viewModel::clearSuggestions,
                 focusRequester = toFocus,
+                missingKey = missingKeyFor,
                 trailing = {
                     IconButton(onClick = { expanded = !expanded }) {
                         Icon(
@@ -445,14 +525,22 @@ fun ComposeScreen(
             if (expanded) {
                 RecipientChipsField(
                     stringResource(R.string.compose_cc), cc, { cc = it }, suggestions,
-                    viewModel::suggest, viewModel::clearSuggestions,
+                    viewModel::suggest, viewModel::clearSuggestions, missingKey = missingKeyFor,
                 )
                 RecipientChipsField(
                     stringResource(R.string.compose_bcc), bcc, { bcc = it }, suggestions,
-                    viewModel::suggest, viewModel::clearSuggestions,
+                    viewModel::suggest, viewModel::clearSuggestions, missingKey = missingKeyFor,
                 )
             }
             ComposeField(stringResource(R.string.compose_subject), subject, { subject = it })
+            if (pgpMode == PgpMode.ENCRYPT) {
+                Text(
+                    stringResource(R.string.compose_pgp_subject_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
 
             attachments.forEach { att ->
                 Row(
@@ -583,6 +671,8 @@ private fun RecipientChipsField(
     onClearSuggestions: () -> Unit,
     focusRequester: FocusRequester? = null,
     trailing: (@Composable () -> Unit)? = null,
+    /** When encrypting, flags a recipient with no available public key. */
+    missingKey: (String) -> Boolean = { false },
 ) {
     val cut = value.lastIndexOfAny(charArrayOf(',', ';'))
     val chips = recipientTokens(if (cut >= 0) value.substring(0, cut) else "")
@@ -599,7 +689,8 @@ private fun RecipientChipsField(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 chips.forEachIndexed { index, chip ->
-                    val valid = isValidEmail(chip)
+                    // Invalid address OR (while encrypting) no key for it → flagged.
+                    val valid = isValidEmail(chip) && !missingKey(chip)
                     InputChip(
                         selected = false,
                         onClick = {},

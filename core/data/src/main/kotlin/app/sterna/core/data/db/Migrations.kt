@@ -39,3 +39,14 @@ val MIGRATION_9_10 = object : Migration(9, 10) {
         db.execSQL(OUTBOX_CREATE_SQL)
     }
 }
+
+/**
+ * Additive 11→12: OpenPGP columns on `outbox` (mode + path of the pre-built
+ * PGP/MIME entity file). Outbox rows are user data — never rebuilt destructively.
+ */
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `outbox` ADD COLUMN `pgpMode` TEXT")
+        db.execSQL("ALTER TABLE `outbox` ADD COLUMN `pgpEntityPath` TEXT")
+    }
+}

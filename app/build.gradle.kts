@@ -14,8 +14,8 @@ android {
         applicationId = "app.sterna"
         minSdk = 26
         targetSdk = 36
-        versionCode = 126
-        versionName = "1.0.25"
+        versionCode = 127
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -91,6 +91,7 @@ android {
 dependencies {
     implementation(project(":core:jmap"))
     implementation(project(":core:data"))
+    implementation(project(":libs:openpgp-api"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.work.runtime.ktx)

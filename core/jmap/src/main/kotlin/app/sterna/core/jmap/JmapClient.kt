@@ -506,7 +506,7 @@ class JmapClient internal constructor(
                         putJsonArray("ids") { add(emailId) }
                         putJsonArray("properties") {
                             listOf(
-                                "id", "threadId", "subject", "preview", "receivedAt",
+                                "id", "blobId", "threadId", "subject", "preview", "receivedAt",
                                 "from", "to", "cc", "messageId", "references",
                                 "hasAttachment", "keywords",
                                 "htmlBody", "textBody", "attachments", "bodyValues",
@@ -560,7 +560,7 @@ class JmapClient internal constructor(
                         putJsonArray("ids") { ids.forEach { add(it) } }
                         putJsonArray("properties") {
                             listOf(
-                                "id", "threadId", "subject", "preview", "receivedAt",
+                                "id", "blobId", "threadId", "subject", "preview", "receivedAt",
                                 "from", "to", "cc", "messageId", "references",
                                 "hasAttachment", "keywords",
                                 "htmlBody", "textBody", "attachments", "bodyValues",
@@ -1144,6 +1144,90 @@ class JmapClient internal constructor(
             val emailArgs = methodResponseArgs(body, "Email/set")
             (emailArgs["notCreated"] as? JsonObject)?.get("draft")?.let {
                 throw JmapException("Could not create the message: $it")
+            }
+            val subArgs = methodResponseArgs(body, "EmailSubmission/set")
+            (subArgs["notCreated"] as? JsonObject)?.get("sub")?.let {
+                throw JmapException("Could not send the message: $it")
+            }
+            Unit
+        }
+    }
+
+    /**
+     * Send a message whose raw RFC 5322 bytes were built CLIENT-side (PGP/MIME:
+     * multipart/signed or multipart/encrypted — the structured Email/set body
+     * assembly cannot carry the protocol=/micalg= parameters). Uploads the raw
+     * message as a blob, then one request: Email/import into Drafts +
+     * EmailSubmission/set referencing it, moving it to Sent on success.
+     * Verified working against Stalwart.
+     */
+    suspend fun importAndSendEmail(
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+        identityId: String,
+        rawMessage: ByteArray,
+        draftMailboxId: String,
+        sentMailboxId: String,
+    ) = withContext(Dispatchers.IO) {
+        val blobId = uploadBlob(session, accountId, rawMessage, "message/rfc822", auth).blobId
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+                add(Jmap.SUBMISSION_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/import")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("emails") {
+                            putJsonObject("draft") {
+                                put("blobId", blobId)
+                                putJsonObject("mailboxIds") { put(draftMailboxId, true) }
+                                putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
+                            }
+                        }
+                    }
+                    add("i0")
+                }
+                addJsonArray {
+                    add("EmailSubmission/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("create") {
+                            putJsonObject("sub") {
+                                put("emailId", "#draft")
+                                put("identityId", identityId)
+                            }
+                        }
+                        putJsonObject("onSuccessUpdateEmail") {
+                            putJsonObject("#sub") {
+                                put("mailboxIds/$sentMailboxId", true)
+                                put("mailboxIds/$draftMailboxId", JsonNull)
+                                put("keywords/\$draft", JsonNull)
+                            }
+                        }
+                    }
+                    add("s0")
+                }
+            }
+        }
+        val request = Request.Builder()
+            .url(session.apiUrl)
+            .header("Authorization", auth.authorizationHeader())
+            .header("Accept", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw JmapException("Send failed: HTTP ${response.code} ${response.message}")
+            }
+            val importArgs = methodResponseArgs(body, "Email/import")
+            (importArgs["notCreated"] as? JsonObject)?.get("draft")?.let {
+                throw JmapException("Could not import the message: $it")
             }
             val subArgs = methodResponseArgs(body, "EmailSubmission/set")
             (subArgs["notCreated"] as? JsonObject)?.get("sub")?.let {

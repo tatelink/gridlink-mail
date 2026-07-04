@@ -98,6 +98,19 @@ Out of scope:
 - With **app lock** enabled, the window is marked `FLAG_SECURE`, keeping message content
   and the credential-entry screen out of the recents thumbnail and screenshots.
 
+### OpenPGP (end-to-end encryption)
+
+- OpenPGP is delegated to the **OpenKeychain** app over the standard `openpgp-api`
+  bound-service interface: private keys and passphrases live in OpenKeychain and never
+  enter Sterna's process. Reading decrypts + verifies; composing signs and/or encrypts
+  as PGP/MIME (RFC 3156), on both JMAP and IMAP/SMTP.
+- **Decrypted content is never persisted**: plaintext of an encrypted message is held in
+  an in-memory cache only, never written to the Room body cache and never added to the
+  local search index (which indexes headers only). An encrypted message in the outbox
+  stores only its ciphertext entity; the plaintext body is cleared at rest.
+- The message **subject is not encrypted** (sent in the clear, matching common OpenPGP
+  practice); protected headers are out of scope for now.
+
 ### Android platform surface
 
 - The only exported component is the launcher `MainActivity`, which reads no untrusted

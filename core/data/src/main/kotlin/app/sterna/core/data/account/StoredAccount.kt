@@ -37,6 +37,10 @@ data class StoredAccount(
     val smtpHost: String = "",
     val smtpPort: Int = 587,
     val smtpSecurity: ConnectionSecurity = ConnectionSecurity.STARTTLS,
+    // OpenPGP (via the OpenKeychain provider). The key id is not a secret.
+    val pgpEnabled: Boolean = false,
+    val pgpSignKeyId: Long = 0L,
+    val pgpEncryptByDefault: Boolean = false,
 ) {
     /** Best label for the account in UI. */
     fun label(): String = accountName.ifBlank { username }

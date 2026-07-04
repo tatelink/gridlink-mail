@@ -257,6 +257,23 @@ class AccountStore(context: Context) {
         saveAccounts(accounts().map { if (it.id == id) it.copy(notificationsEnabled = enabled) else it })
     }
 
+    /** Persist the account's OpenPGP settings. No-op if the id is unknown. */
+    fun setPgp(id: String, enabled: Boolean, signKeyId: Long, encryptByDefault: Boolean) {
+        saveAccounts(
+            accounts().map {
+                if (it.id == id) {
+                    it.copy(
+                        pgpEnabled = enabled,
+                        pgpSignKeyId = signKeyId,
+                        pgpEncryptByDefault = encryptByDefault,
+                    )
+                } else {
+                    it
+                }
+            },
+        )
+    }
+
     /** Remove an account; if it was current, fall back to another (or none). */
     fun remove(id: String) {
         prefs.edit().remove(passwordKey(id)).apply()

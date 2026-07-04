@@ -43,6 +43,14 @@ data class OutgoingMessage(
     /** Epoch millis for the Date header. */
     val dateMillis: Long,
     val attachments: List<OutgoingAttachment> = emptyList(),
+    /**
+     * A complete pre-built MIME entity (its own Content-Type headers + body) that
+     * REPLACES the normal body/attachments — used for PGP/MIME, where the payload
+     * (multipart/signed or multipart/encrypted, attachments already inside) was
+     * assembled and signed/encrypted upstream. [body]/[html]/[attachments] are
+     * ignored when set.
+     */
+    val pgpEntity: String? = null,
 )
 
 /** Minimal SMTP submission client (EHLO, optional STARTTLS, AUTH, MAIL/RCPT/DATA). */
@@ -168,6 +176,22 @@ object OutgoingMime {
             m.inReplyTo?.let { append("In-Reply-To: <${headerSafe(it.trim('<', '>'))}>\r\n") }
             m.references?.let { append("References: ${headerSafe(it)}\r\n") }
             append("MIME-Version: 1.0\r\n")
+            // A pre-built (PGP/MIME) entity replaces the whole body construction.
+            if (m.pgpEntity != null) {
+                append(m.pgpEntity)
+            } else {
+                append(buildBodyEntity(m))
+            }
+        }
+    }
+
+    /**
+     * The message's MIME entity WITHOUT the top-level message headers: starts at
+     * its own Content-Type line. Split out so the PGP path can build the exact
+     * inner entity to sign/encrypt with the same code that normal sends use.
+     */
+    fun buildBodyEntity(m: OutgoingMessage): String {
+        return buildString {
             val bodyContent = m.html ?: m.body
             val bodyType = if (m.html != null) "text/html" else "text/plain"
             val inlineParts = m.attachments.filter { it.inline }

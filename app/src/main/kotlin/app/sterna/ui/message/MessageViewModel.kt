@@ -1,8 +1,12 @@
 package app.sterna.ui.message
 
 import android.app.Application
+import android.app.PendingIntent
 import android.content.Intent
 import androidx.core.content.FileProvider
+import app.sterna.core.data.mail.MessageCrypto
+import app.sterna.core.data.pgp.PgpResult
+import app.sterna.core.imap.CryptoKind
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sterna.container
@@ -60,6 +64,24 @@ sealed interface InviteResponse {
     /** Reply sent; [partstat] is ACCEPTED / DECLINED / TENTATIVE. */
     data class Sent(val partstat: String) : InviteResponse
     data object Failed : InviteResponse
+}
+
+/** OpenPGP state of the opened message, driving the status card + header badges. */
+sealed interface CryptoUiState {
+    /** Ordinary mail — no crypto UI at all. */
+    data object None : CryptoUiState
+
+    /** Crypto detected; [decrypting] while a decrypt/verify call is in flight. */
+    data class Locked(val kind: CryptoKind, val decrypting: Boolean = false) : CryptoUiState
+
+    /** The provider needs the user (passphrase/key); launch [pendingIntent] to continue. */
+    data class NeedsInteraction(val pendingIntent: PendingIntent) : CryptoUiState
+
+    /** Decrypted and/or verified. */
+    data class Decrypted(val result: MessageCrypto.Decrypted) : CryptoUiState
+
+    /** Decrypt/verify failed; null message = no OpenPGP provider installed. */
+    data class Failed(val message: String?) : CryptoUiState
 }
 
 /** A copy with the $seen keyword set, so a just-opened/expanded message renders as read. */
@@ -131,6 +153,16 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val _inJunk = MutableStateFlow(false)
     val inJunk = _inJunk.asStateFlow()
 
+    /** OpenPGP state of the opened message (status card + header badges). */
+    private val _crypto = MutableStateFlow<CryptoUiState>(CryptoUiState.None)
+    val crypto = _crypto.asStateFlow()
+
+    /** One automatic decrypt attempt per opened message (when the page settles). */
+    private var autoDecryptTried = false
+
+    /** The detected crypto kind, kept so a cancelled unlock returns to Locked. */
+    private var lockedKind: CryptoKind? = null
+
     private var loadedId: String? = null
     /** Owning account when opened from the unified inbox; null = current account. */
     private var accountId: String? = null
@@ -158,6 +190,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _inJunk.value = false
         _calendar.value = null
         calendarLoadedFor = null
+        _crypto.value = CryptoUiState.None
+        autoDecryptTried = false
         viewModelScope.launch {
             // Paint the cached header (sender/subject/preview) immediately so the screen shows
             // the tapped message at once; the body fills in when the fetch returns. Header-only
@@ -192,6 +226,18 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                     ),
                 )
                 _inJunk.value = repo.mailboxRole(anchor.mailboxId ?: listEmail?.mailboxId) == "junk"
+                // OpenPGP: reflect the crypto state; a decrypt is attempted once the
+                // page settles in front of the user (see onActiveChanged), not while
+                // the pager pre-composes neighbours.
+                when (val c = opened.crypto) {
+                    is MessageCrypto.Locked -> {
+                        lockedKind = c.kind
+                        _crypto.value = CryptoUiState.Locked(c.kind)
+                        maybeAutoDecrypt()
+                    }
+                    is MessageCrypto.Decrypted -> _crypto.value = CryptoUiState.Decrypted(c)
+                    null -> {}
+                }
                 // A calendar invite (text/calendar part) is fetched + parsed off the body so the
                 // reader can show an event card above it.
                 loadCalendarFor(_messages.value.first())
@@ -214,7 +260,64 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
      */
     fun onActiveChanged(isActive: Boolean) {
         active = isActive
-        if (isActive) maybeMarkRead()
+        if (isActive) {
+            maybeMarkRead()
+            maybeAutoDecrypt()
+        }
+    }
+
+    /**
+     * Kick off one silent decrypt attempt when the page is settled and the message
+     * is crypto-locked. With OpenKeychain's passphrase cached this resolves without
+     * any UI; otherwise the state becomes [CryptoUiState.NeedsInteraction] and the
+     * user unlocks explicitly from the status card.
+     */
+    private fun maybeAutoDecrypt() {
+        if (!active || autoDecryptTried) return
+        if (_crypto.value !is CryptoUiState.Locked) return
+        autoDecryptTried = true
+        decrypt()
+    }
+
+    /**
+     * Decrypt/verify the opened message. [interactionResult] is the data Intent
+     * from the provider's PendingIntent round-trip when retrying after
+     * [CryptoUiState.NeedsInteraction].
+     */
+    fun decrypt(interactionResult: Intent? = null) {
+        val emailId = loadedId ?: return
+        (_crypto.value as? CryptoUiState.Locked)?.let { _crypto.value = it.copy(decrypting = true) }
+        viewModelScope.launch {
+            val credentials = credentials() ?: return@launch
+            when (val result = repo.decryptMessage(credentials, emailId, interactionResult)) {
+                is PgpResult.Success -> {
+                    val opened = result.value
+                    val display = anchorDisplay(opened.email)
+                    _messages.value = listOf(
+                        ThreadMessage(
+                            id = opened.email.id,
+                            header = display,
+                            body = display,
+                            inlineImages = opened.inlineImages,
+                        ),
+                    )
+                    _state.value = MessageState.Loaded(display)
+                    _crypto.value = when (val c = opened.crypto) {
+                        is MessageCrypto.Decrypted -> CryptoUiState.Decrypted(c)
+                        else -> CryptoUiState.None
+                    }
+                }
+                is PgpResult.UserInteractionRequired ->
+                    _crypto.value = CryptoUiState.NeedsInteraction(result.pendingIntent)
+                is PgpResult.Error -> _crypto.value = CryptoUiState.Failed(result.message)
+                PgpResult.NotAvailable -> _crypto.value = CryptoUiState.Failed(null)
+            }
+        }
+    }
+
+    /** The user dismissed the provider's dialog: back to an unlockable state. */
+    fun cancelDecrypt() {
+        _crypto.value = CryptoUiState.Locked(lockedKind ?: CryptoKind.PGP_ENCRYPTED)
     }
 
     /** Mark the anchor read (once) when this page is both settled and loaded. */

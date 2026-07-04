@@ -1,6 +1,8 @@
 package app.sterna.ui.settings
 
 import android.app.Application
+import android.app.PendingIntent
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sterna.container
@@ -11,6 +13,7 @@ import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.account.SyncWindow
+import app.sterna.core.data.pgp.PgpResult
 import app.sterna.push.PushService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +24,7 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     private val store = application.container.accountStore
     private val storage = application.container.storageRepository
     private val mail = application.container.mailRepository
+    private val pgp = application.container.pgpEngine
 
     private val _accounts = MutableStateFlow(store.accounts())
     val accounts = _accounts.asStateFlow()
@@ -151,6 +155,63 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         )
         if (identities != null) store.setIdentities(id, identities)
         if (password.isNotBlank()) store.updatePassword(id, password)
+        refresh()
+    }
+
+    // --- OpenPGP (OpenKeychain) ---
+
+    /** Whether an OpenPGP provider is installed and bindable. */
+    private val _pgpAvailable = MutableStateFlow(false)
+    val pgpAvailable = _pgpAvailable.asStateFlow()
+
+    /** Sign-key chooser round-trip state for the account detail screen. */
+    sealed interface PgpSetup {
+        data object Idle : PgpSetup
+        data class NeedsInteraction(val pendingIntent: PendingIntent) : PgpSetup
+        data class Failed(val message: String?) : PgpSetup
+    }
+
+    private val _pgpSetup = MutableStateFlow<PgpSetup>(PgpSetup.Idle)
+    val pgpSetup = _pgpSetup.asStateFlow()
+
+    fun refreshPgpAvailable() {
+        viewModelScope.launch { _pgpAvailable.value = pgp.isAvailable() }
+    }
+
+    fun clearPgpSetup() { _pgpSetup.value = PgpSetup.Idle }
+
+    /**
+     * Open the provider's sign-key chooser for this account (hinted with its
+     * address). On success the key is persisted and PGP enabled; a
+     * [PgpSetup.NeedsInteraction] state asks the UI to run the pending intent
+     * and call back with its result Intent.
+     */
+    fun choosePgpKey(accountId: String, interactionResult: Intent? = null) {
+        val account = store.account(accountId) ?: return
+        viewModelScope.launch {
+            when (val result = pgp.getSignKeyId(account.username, interactionResult)) {
+                is PgpResult.Success -> {
+                    store.setPgp(
+                        accountId,
+                        enabled = true,
+                        signKeyId = result.value,
+                        encryptByDefault = account.pgpEncryptByDefault,
+                    )
+                    refresh()
+                    _pgpSetup.value = PgpSetup.Idle
+                }
+                is PgpResult.UserInteractionRequired ->
+                    _pgpSetup.value = PgpSetup.NeedsInteraction(result.pendingIntent)
+                is PgpResult.Error -> _pgpSetup.value = PgpSetup.Failed(result.message)
+                PgpResult.NotAvailable -> _pgpSetup.value = PgpSetup.Failed(null)
+            }
+        }
+    }
+
+    /** Toggle PGP off (keeps the chosen key), or update encrypt-by-default. */
+    fun setPgp(accountId: String, enabled: Boolean, encryptByDefault: Boolean) {
+        val account = store.account(accountId) ?: return
+        store.setPgp(accountId, enabled, account.pgpSignKeyId, encryptByDefault)
         refresh()
     }
 

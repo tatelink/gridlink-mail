@@ -33,6 +33,7 @@ import app.sterna.core.data.db.RecentContactDao
 import app.sterna.core.data.db.RecentContactEntity
 import app.sterna.core.data.db.EmailEntity
 import app.sterna.core.data.db.MailboxDao
+import app.sterna.core.data.pgp.PgpEngine
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.jmap.BasicAuth
 import app.sterna.core.jmap.BearerAuth
@@ -45,10 +46,17 @@ import app.sterna.core.jmap.Jmap
 import app.sterna.core.jmap.JmapAuth
 import app.sterna.core.jmap.JmapClient
 import app.sterna.core.jmap.JmapException
+import app.sterna.core.imap.CryptoEnvelope
+import app.sterna.core.imap.CryptoKind
 import app.sterna.core.imap.MimeBody
 import app.sterna.core.imap.MimeParser
 import app.sterna.core.imap.OutgoingAttachment
 import app.sterna.core.imap.OutgoingMessage
+import app.sterna.core.imap.OutgoingMime
+import app.sterna.core.data.pgp.PgpDecrypted
+import app.sterna.core.data.pgp.PgpMode
+import app.sterna.core.data.pgp.PgpResult
+import app.sterna.core.data.pgp.PgpSignatureState
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
@@ -258,7 +266,26 @@ sealed interface VacationState {
  * mailbox-role map is cached in memory so actions don't re-discover them.
  */
 /** A message body ready to render: the full [Email] plus its inline images (cid → data: URI). */
-data class MessageBody(val email: Email, val inlineImages: Map<String, String>)
+data class MessageBody(
+    val email: Email,
+    val inlineImages: Map<String, String>,
+    /** OpenPGP state, or null for ordinary mail. */
+    val crypto: MessageCrypto? = null,
+)
+
+/** OpenPGP state of an opened message. */
+sealed interface MessageCrypto {
+    /** Crypto content detected but not yet decrypted/verified. */
+    data class Locked(val kind: CryptoKind) : MessageCrypto
+
+    /** Decrypted and/or signature-verified; plaintext lives only in memory. */
+    data class Decrypted(
+        val signature: PgpSignatureState,
+        val signatureUserId: String?,
+        val signatureKeyId: Long,
+        val wasEncrypted: Boolean,
+    ) : MessageCrypto
+}
 
 class MailRepository(
     private val client: JmapClient,
@@ -274,6 +301,8 @@ class MailRepository(
     private val outboxDao: OutboxDao,
     private val outboxFilesDir: java.io.File,
     private val oauthClient: OAuthClient = OAuthClient(),
+    /** OpenPGP operations (null = no provider wired; all PGP features disabled). */
+    private val pgpEngine: PgpEngine? = null,
 ) {
     /**
      * Schedules the WorkManager job that delivers an outbox item. Set by the app layer at
@@ -964,13 +993,15 @@ class MailRepository(
         val html = body.html
         val text = body.text
         return when {
+            // The type MUST be set: htmlContent() only returns a part typed text/html
+            // (issue #4 hardening), so a type-less part renders as an empty body.
             !html.isNullOrBlank() -> copy(
-                htmlBody = listOf(EmailBodyPart(partId = "html")),
+                htmlBody = listOf(EmailBodyPart(partId = "html", type = "text/html")),
                 bodyValues = mapOf("html" to EmailBodyValue(value = html)),
                 attachments = attachments,
             )
             !text.isNullOrBlank() -> copy(
-                textBody = listOf(EmailBodyPart(partId = "text")),
+                textBody = listOf(EmailBodyPart(partId = "text", type = "text/plain")),
                 bodyValues = mapOf("text" to EmailBodyValue(value = text)),
                 attachments = attachments,
             )
@@ -988,15 +1019,200 @@ class MailRepository(
      * read separately, so flicking past a message does not read it.
      */
     suspend fun openMessage(credentials: AccountCredentials, emailId: String, markRead: Boolean = true): MessageBody {
+        // A message decrypted earlier this process renders instantly (memory only,
+        // never persisted — see decryptMessage).
+        decryptedCache.get(emailId)?.let { entry ->
+            if (markRead) bgScope.launch { runCatching { setRead(credentials, emailId, true) } }
+            return entry.body
+        }
         cachedMessage(emailId)?.let { cached ->
             // Mark read out of band — the body is already in hand, don't make the user wait.
             if (markRead) bgScope.launch { runCatching { setRead(credentials, emailId, true) } }
+            // A prefetched body can hold ciphertext (crypto is only detected on open):
+            // route it to the decrypt flow instead of rendering armor.
+            cryptoKindOf(cached.email)?.let { kind ->
+                return cached.copy(crypto = MessageCrypto.Locked(kind))
+            }
             return ensureInlineImages(credentials, emailId, cached)
         }
         val email = openEmail(credentials, emailId, markRead) // network fetch
+        cryptoKindOf(email)?.let { kind ->
+            // Never persist crypto message bodies — the plaintext (once decrypted)
+            // must not land in the Room cache, and the ciphertext body is useless.
+            return MessageBody(email, emptyMap(), crypto = MessageCrypto.Locked(kind))
+        }
         val inline = fetchInlineImages(credentials, email, emailId)
         persistBody(credentials.id, emailId, email, inline)
         return MessageBody(email, inline)
+    }
+
+    // ---- OpenPGP read path -------------------------------------------------------------------
+
+    /** Decrypted message bodies + their raw decrypted MIME entity, memory only, small LRU. */
+    private class DecryptedEntry(val body: MessageBody, val decryptedEntity: String?)
+
+    private val decryptedCache = android.util.LruCache<String, DecryptedEntry>(8)
+
+    /** Raw sources of crypto messages being decrypted (avoids refetching on interaction retries). */
+    private val rawSourceCache = android.util.LruCache<String, String>(4)
+
+    /**
+     * Structural check for OpenPGP content on an already-fetched [Email]. Both
+     * protocols surface the PGP/MIME control parts as typed attachment parts
+     * (JMAP natively; IMAP via MimeParser), and inline armor shows in the text.
+     */
+    private fun cryptoKindOf(email: Email): CryptoKind? {
+        val parts = email.attachments
+        if (parts.any { it.type == "application/pgp-encrypted" }) return CryptoKind.PGP_ENCRYPTED
+        if (parts.any { it.type == "application/pgp-signature" }) return CryptoKind.PGP_SIGNED
+        val text = email.textContent().orEmpty()
+        if (text.contains("-----BEGIN PGP MESSAGE-----") ||
+            text.contains("-----BEGIN PGP SIGNED MESSAGE-----")
+        ) {
+            return CryptoKind.PGP_INLINE
+        }
+        return null
+    }
+
+    /** The exact raw RFC 5322 source of a message (IMAP fetch or JMAP blob download). */
+    private suspend fun fetchRawSource(
+        credentials: AccountCredentials,
+        email: Email,
+        emailId: String,
+    ): String {
+        rawSourceCache.get(emailId)?.let { return it }
+        val raw = if (credentials.protocol == MailProtocol.IMAP) {
+            val mailboxId = emailDao.mailboxOf(emailId) ?: email.mailboxId
+                ?: error("Unknown mailbox for message.")
+            val uid = ImapMailService.uidOf(emailId) ?: error("Not an IMAP message.")
+            imap.fetchSource(credentials, mailboxId, uid)
+        } else {
+            val blobId = email.blobId ?: error("Message has no blob id.")
+            val ctx = connect(credentials)
+            client.downloadBlob(ctx.session, ctx.accountId, blobId, "message/rfc822", "message.eml", ctx.auth)
+                .toString(Charsets.UTF_8)
+        }
+        rawSourceCache.put(emailId, raw)
+        return raw
+    }
+
+    /**
+     * Decrypt and/or verify an OpenPGP message via the wired [PgpEngine]. On
+     * success the rendered body (plus signature state) is returned and kept in a
+     * small in-memory cache — nothing decrypted is ever persisted. A
+     * [PgpResult.UserInteractionRequired] asks the caller to run the provider's
+     * PendingIntent and retry with its result Intent.
+     */
+    suspend fun decryptMessage(
+        credentials: AccountCredentials,
+        emailId: String,
+        interactionResult: android.content.Intent? = null,
+    ): PgpResult<MessageBody> {
+        val pgp = pgpEngine ?: return PgpResult.NotAvailable
+        decryptedCache.get(emailId)?.let { return PgpResult.Success(it.body) }
+        val email = runCatching { openEmail(credentials, emailId, markRead = false) }
+            .getOrElse { return PgpResult.Error(it.message ?: "Cannot fetch message") }
+        val raw = runCatching { fetchRawSource(credentials, email, emailId) }
+            .getOrElse { return PgpResult.Error(it.message ?: "Cannot fetch message source") }
+        val envelope = MimeParser.detectCrypto(raw)
+            ?: return PgpResult.Error("No OpenPGP content found")
+        val sender = email.from.firstOrNull()?.email
+
+        val result = when (envelope.kind) {
+            CryptoKind.PGP_ENCRYPTED, CryptoKind.PGP_INLINE -> pgp.decryptVerify(
+                envelope.encryptedArmor!!.toByteArray(Charsets.UTF_8),
+                senderAddress = sender,
+                interactionResult = interactionResult,
+            )
+            CryptoKind.PGP_SIGNED -> pgp.decryptVerify(
+                canonicalizeCrlf(envelope.signedEntityRaw!!).toByteArray(Charsets.UTF_8),
+                senderAddress = sender,
+                detachedSignature = envelope.signatureArmor!!.toByteArray(Charsets.UTF_8),
+                interactionResult = interactionResult,
+            )
+        }
+        return when (result) {
+            is PgpResult.Success -> {
+                val entry = buildDecrypted(email, envelope, result.value)
+                decryptedCache.put(emailId, entry)
+                rawSourceCache.remove(emailId)
+                PgpResult.Success(entry.body)
+            }
+            is PgpResult.UserInteractionRequired -> result
+            is PgpResult.Error -> result
+            PgpResult.NotAvailable -> PgpResult.NotAvailable
+        }
+    }
+
+    /** RFC 3156: signatures are computed over the entity with CRLF line endings. */
+    private fun canonicalizeCrlf(entity: String): String =
+        entity.replace("\r\n", "\n").replace("\n", "\r\n")
+
+    /** Assemble the rendered [MessageBody] for a successful decrypt/verify. */
+    private fun buildDecrypted(
+        email: Email,
+        envelope: CryptoEnvelope,
+        decrypted: PgpDecrypted,
+    ): DecryptedEntry {
+        val crypto = MessageCrypto.Decrypted(
+            signature = decrypted.signature,
+            signatureUserId = decrypted.signatureUserId,
+            signatureKeyId = decrypted.signatureKeyId,
+            wasEncrypted = decrypted.wasEncrypted || envelope.kind == CryptoKind.PGP_ENCRYPTED,
+        )
+        return when (envelope.kind) {
+            CryptoKind.PGP_ENCRYPTED -> {
+                // The plaintext is a full MIME entity: parse it, mark its parts as
+                // "pgp:" sections so attachment downloads slice from the decrypted
+                // entity in memory, and resolve inline images locally.
+                val entity = decrypted.plaintext.toString(Charsets.UTF_8)
+                val body = MimeParser.parseBody(entity)
+                val display = email.withBody(body).run {
+                    copy(
+                        attachments = attachments.map { part ->
+                            part.copy(partId = part.partId?.let { "pgp:$it" })
+                        },
+                        // The armor octet-stream/version parts of the outer message
+                        // are irrelevant once decrypted.
+                        hasAttachment = body.attachments.any { it.cid == null },
+                    )
+                }
+                val inline = display.inlineImageParts().mapNotNull { part ->
+                    val section = part.partId?.removePrefix("pgp:") ?: return@mapNotNull null
+                    val cid = part.cid?.trim()?.trim('<', '>')?.takeIf { it.isNotEmpty() }
+                        ?: return@mapNotNull null
+                    val (cte, encoded) = MimeParser.partAt(entity, section) ?: return@mapNotNull null
+                    val bytes = MimeParser.decodeBytes(encoded, cte)
+                    val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    cid to "data:${part.type ?: "image/jpeg"};base64,$base64"
+                }.toMap()
+                DecryptedEntry(MessageBody(display, inline, crypto), entity)
+            }
+            CryptoKind.PGP_INLINE -> {
+                val text = decrypted.plaintext.toString(Charsets.UTF_8)
+                val display = email.copy(
+                    htmlBody = emptyList(),
+                    textBody = listOf(EmailBodyPart(partId = "text")),
+                    bodyValues = mapOf("text" to EmailBodyValue(value = text)),
+                )
+                DecryptedEntry(MessageBody(display, emptyMap(), crypto), null)
+            }
+            CryptoKind.PGP_SIGNED -> {
+                // Content was already readable; only the verification state is new.
+                DecryptedEntry(MessageBody(email, emptyMap(), crypto), null)
+            }
+        }
+    }
+
+    /** Serve an attachment that lives inside a decrypted entity ("pgp:<section>"). */
+    private fun pgpAttachmentBytes(emailId: String, part: EmailBodyPart): ByteArray {
+        val section = part.partId?.removePrefix("pgp:")
+            ?: error("Not a decrypted attachment part.")
+        val entity = decryptedCache.get(emailId)?.decryptedEntity
+            ?: error("Message is no longer decrypted — reopen it first.")
+        val (cte, encoded) = MimeParser.partAt(entity, section)
+            ?: error("Attachment not found in the decrypted message.")
+        return MimeParser.decodeBytes(encoded, cte)
     }
 
     /** The cached body for [emailId], or null if not yet fetched/prefetched. No network. */
@@ -1678,6 +1894,8 @@ class MailRepository(
         cc: List<String> = emptyList(),
         bcc: List<String> = emptyList(),
         holdMs: Long = 0,
+        pgpMode: PgpMode? = null,
+        pgpEntity: String? = null,
     ): Long {
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
         require(recipients.isNotEmpty()) { "Add at least one recipient." }
@@ -1685,6 +1903,10 @@ class MailRepository(
         val bccTrimmed = bcc.map { it.trim() }.filter { it.isNotEmpty() }
         runCatching { rememberRecipients(recipients + ccTrimmed + bccTrimmed) }
 
+        // An encrypted payload replaces the plaintext everywhere at rest: the row
+        // keeps headers only, the PGP/MIME entity (ciphertext) goes to a file, and
+        // the attachments already live INSIDE the entity.
+        val encrypted = pgpMode == PgpMode.ENCRYPT && pgpEntity != null
         val now = System.currentTimeMillis()
         val held = holdMs > 0
         val id = outboxDao.insert(
@@ -1694,8 +1916,8 @@ class MailRepository(
                 cc = ccTrimmed.joinToString(",").ifBlank { null },
                 bcc = bccTrimmed.joinToString(",").ifBlank { null },
                 subject = subject,
-                textBody = body,
-                htmlBody = htmlBody,
+                textBody = if (encrypted) "" else body,
+                htmlBody = if (encrypted) null else htmlBody,
                 fromName = fromName,
                 fromEmail = fromEmail,
                 inReplyTo = inReplyTo.joinToString(" ").ifBlank { null },
@@ -1704,11 +1926,18 @@ class MailRepository(
                 createdAtMillis = now,
                 notBeforeMillis = now + holdMs,
                 state = if (held) OutboxState.HELD else OutboxState.QUEUED,
+                pgpMode = pgpMode?.takeIf { it != PgpMode.OFF }?.name,
             ),
         )
-        // Make attachments durable now that we have the item id to key the persistent dir.
-        val durable = persistAttachments(id, attachments)
-        outboxDao.byId(id)?.let { outboxDao.update(it.copy(attachmentsJson = OutboxAttachments.encode(durable))) }
+        if (pgpEntity != null && pgpMode != null && pgpMode != PgpMode.OFF) {
+            val dir = java.io.File(outboxFilesDir, id.toString()).apply { mkdirs() }
+            val entityFile = java.io.File(dir, "pgp-entity.mime").apply { writeText(pgpEntity) }
+            outboxDao.byId(id)?.let { outboxDao.update(it.copy(pgpEntityPath = entityFile.absolutePath)) }
+        } else {
+            // Make attachments durable now that we have the item id to key the persistent dir.
+            val durable = persistAttachments(id, attachments)
+            outboxDao.byId(id)?.let { outboxDao.update(it.copy(attachmentsJson = OutboxAttachments.encode(durable))) }
+        }
         outboxScheduler?.schedule(id, holdMs)
         return id
     }
@@ -1840,6 +2069,13 @@ class MailRepository(
         val bccTrimmed = item.bcc?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
         val stored = OutboxAttachments.decode(item.attachmentsJson)
 
+        // PGP/MIME items carry a pre-built entity (signed at compose time, so no
+        // provider interaction is needed here in the background worker).
+        val pgpEntity = item.pgpEntityPath?.let { path ->
+            runCatching { java.io.File(path).readText() }.getOrNull()
+                ?: error("The encrypted message payload is missing.")
+        }
+
         if (credentials.protocol == MailProtocol.IMAP) {
             val recipients = to
             require(recipients.isNotEmpty()) { "Add at least one recipient." }
@@ -1856,7 +2092,10 @@ class MailRepository(
             val message = outgoing(
                 credentials, recipients, subject, body, inReplyTo, references, htmlBody,
                 fromName, fromEmail, ccTrimmed, bccTrimmed,
-            ).copy(attachments = outAttachments)
+            ).copy(
+                attachments = if (pgpEntity != null) emptyList() else outAttachments,
+                pgpEntity = pgpEntity,
+            )
             imap.send(credentials, message, mailboxDao.idForRole("sent"))
             return
         }
@@ -1884,6 +2123,29 @@ class MailRepository(
             ?: ctx.rolesToMailboxId["sent"]
             ?: error("This account has no Drafts or Sent folder.")
         val sentId = ctx.rolesToMailboxId["sent"] ?: draftsId
+
+        if (pgpEntity != null) {
+            // PGP/MIME must reach the wire byte-exact (protocol=/micalg= params,
+            // signed bytes), so the FULL raw message is built client-side with the
+            // same builder the SMTP path uses, then imported + submitted verbatim.
+            val raw = OutgoingMime.build(
+                outgoing(
+                    credentials, to, subject, "", inReplyTo, references, null,
+                    from.name ?: fromName, from.email, ccTrimmed, bccTrimmed,
+                ).copy(pgpEntity = pgpEntity),
+            )
+            client.importAndSendEmail(
+                session = ctx.session,
+                accountId = ctx.accountId,
+                auth = ctx.auth,
+                identityId = identity.id,
+                rawMessage = raw.toByteArray(Charsets.UTF_8),
+                draftMailboxId = draftsId,
+                sentMailboxId = sentId,
+            )
+            runCatching { syncMailbox(ctx.session, ctx.accountId, ctx.auth, sentId, PAGE_SIZE, credentials.id) }
+            return
+        }
 
         client.sendEmail(
             session = ctx.session,
@@ -1970,6 +2232,9 @@ class MailRepository(
         part: EmailBodyPart,
         emailId: String,
     ): ByteArray {
+        // Attachments inside a decrypted OpenPGP message are sliced from the
+        // in-memory decrypted entity — they have no fetchable server section.
+        if (part.partId?.startsWith("pgp:") == true) return pgpAttachmentBytes(emailId, part)
         if (credentials.protocol == MailProtocol.IMAP) {
             val (mb, uid) = imapTarget(emailId) ?: error("Couldn't locate the message.")
             val section = part.partId ?: error("Attachment has no section.")

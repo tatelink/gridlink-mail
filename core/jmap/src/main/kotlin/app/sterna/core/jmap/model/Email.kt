@@ -49,6 +49,11 @@ data class Email(
      * actions back to the right account.
      */
     val accountId: String? = null,
+    /**
+     * Blob id of the whole raw RFC 5322 message, requested by the body-fetch calls.
+     * Lets the reader download the exact source, e.g. to decrypt/verify OpenPGP mail.
+     */
+    val blobId: String? = null,
     /** Source mailbox, populated from the local cache; lets a swipe action be undone (moved back). */
     val mailboxId: String? = null,
     /**
@@ -122,6 +127,13 @@ data class Email(
         return attachments.filter { part ->
             // A calendar invite shows only as the event card, never also as a redundant file row.
             if (part.type?.startsWith("text/calendar") == true) return@filter false
+            // PGP/MIME control parts (version blob, detached signature) are protocol
+            // plumbing surfaced via the crypto badge, not user files.
+            if (part.type == "application/pgp-encrypted" ||
+                part.type == "application/pgp-signature"
+            ) {
+                return@filter false
+            }
             // An inline image renders in the body, never also as a redundant file row.
             if (part in inline) return@filter false
             // JMAP parts carry a blobId; IMAP parts a partId (the MIME section).

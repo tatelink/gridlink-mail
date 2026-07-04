@@ -36,7 +36,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Snooze a message until later
 
 **Tier 3 — privacy & JMAP-native power**
-- 💡 OpenPGP (via OpenKeychain)
+- ✅ OpenPGP (via OpenKeychain) — read + send, both protocols
 - ✅ ⭐ Vacation responder (JMAP `VacationResponse`)
 - ✅ Tracking-param stripping (utm_*, fbclid, gclid… removed from tapped links); ✅ per-sender image allowlist; ✅ link confirmation
 - ✅ Server-side Sieve filters/rules (form-based rule builder); ✅ server `Quota` display
@@ -156,7 +156,11 @@ The categories further down list the full feature set; this is the order of work
 
 ## Encryption
 
-- 💡 OpenPGP via OpenKeychain
+- ✅ OpenPGP via OpenKeychain: read (decrypt + verify signatures) and send
+  (sign and/or encrypt, PGP/MIME) on both JMAP and IMAP/SMTP. Per-account setup
+  in Settings; a lock toggle in the composer. Decrypted content is never written
+  to disk (not cached, not search-indexed); the message subject is not encrypted.
+  User guide: [ENCRYPTION.md](ENCRYPTION.md).
 - 💡 S/MIME (longer-term)
 
 ## UX & accessibility

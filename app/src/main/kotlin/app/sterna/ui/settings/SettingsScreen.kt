@@ -2,7 +2,11 @@ package app.sterna.ui.settings
 
 import app.sterna.contacts.AndroidContacts
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import app.sterna.core.data.account.StoredAccount
+import app.sterna.pgp.rememberPgpInteractionLauncher
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -1227,6 +1231,9 @@ private fun AccountDetailScreen(
                     },
                 )
             }
+            SettingsSection(stringResource(R.string.settings_pgp_section)) {
+                PgpAccountSection(accountId = accountId, account = account, viewModel = viewModel)
+            }
             SettingsSection(stringResource(R.string.settings_storage_section)) {
                 StorageStatRow(stringResource(R.string.settings_cached_messages), "$cacheCount")
                 OutlinedButton(
@@ -1343,6 +1350,113 @@ private fun AccountDetailScreen(
         }
     }
 }
+
+/**
+ * Per-account OpenPGP configuration backed by the OpenKeychain provider. When
+ * no provider is installed, degrades to an explainer + an F-Droid install link.
+ */
+@Composable
+private fun PgpAccountSection(
+    accountId: String,
+    account: StoredAccount,
+    viewModel: AccountsViewModel,
+) {
+    val context = LocalContext.current
+    val pgpAvailable by viewModel.pgpAvailable.collectAsStateWithLifecycle()
+    val pgpSetup by viewModel.pgpSetup.collectAsStateWithLifecycle()
+    // Observe the LIVE account so the switches/key reflect changes made by the
+    // async key chooser and setPgp; the passed-in [account] is a one-shot snapshot.
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val liveAccount = accounts.firstOrNull { it.id == accountId } ?: account
+    LaunchedEffect(accountId) { viewModel.refreshPgpAvailable() }
+
+    // OpenKeychain's key chooser / permission dialog round-trip.
+    val interactionLauncher = rememberPgpInteractionLauncher { data ->
+        if (data != null) viewModel.choosePgpKey(accountId, data) else viewModel.clearPgpSetup()
+    }
+    LaunchedEffect(pgpSetup) {
+        (pgpSetup as? AccountsViewModel.PgpSetup.NeedsInteraction)?.let {
+            viewModel.clearPgpSetup()
+            interactionLauncher(it.pendingIntent)
+        }
+    }
+
+    if (!pgpAvailable) {
+        Text(
+            stringResource(R.string.settings_pgp_missing_help),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        OutlinedButton(
+            onClick = {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(OPENKEYCHAIN_FDROID_URL)),
+                )
+            },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text(stringResource(R.string.settings_pgp_install))
+        }
+        return
+    }
+
+    SettingSwitch(
+        title = stringResource(R.string.settings_pgp_enable_title),
+        subtitle = stringResource(R.string.settings_pgp_enable_subtitle),
+        checked = liveAccount.pgpEnabled,
+        onCheckedChange = { enabled ->
+            if (enabled && liveAccount.pgpSignKeyId == 0L) {
+                // First enable: pick the signing key (enables on success).
+                viewModel.choosePgpKey(accountId)
+            } else {
+                viewModel.setPgp(accountId, enabled, liveAccount.pgpEncryptByDefault)
+            }
+        },
+    )
+    if (liveAccount.pgpEnabled) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.settings_pgp_key_title),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    text = if (liveAccount.pgpSignKeyId != 0L) {
+                        "0x%016X".format(liveAccount.pgpSignKeyId)
+                    } else {
+                        stringResource(R.string.settings_pgp_key_none)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            OutlinedButton(onClick = { viewModel.choosePgpKey(accountId) }) {
+                Text(stringResource(R.string.settings_pgp_choose_key))
+            }
+        }
+        SettingSwitch(
+            title = stringResource(R.string.settings_pgp_encrypt_default_title),
+            subtitle = stringResource(R.string.settings_pgp_encrypt_default_subtitle),
+            checked = liveAccount.pgpEncryptByDefault,
+            onCheckedChange = { viewModel.setPgp(accountId, true, it) },
+        )
+    }
+    (pgpSetup as? AccountsViewModel.PgpSetup.Failed)?.let { failed ->
+        Text(
+            failed.message ?: stringResource(R.string.settings_pgp_error),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+    }
+}
+
+private const val OPENKEYCHAIN_FDROID_URL =
+    "https://f-droid.org/packages/org.sufficientlysecure.keychain/"
 
 private fun securityLabel(context: Context, security: ConnectionSecurity): String = when (security) {
     ConnectionSecurity.TLS -> context.getString(R.string.settings_security_tls)

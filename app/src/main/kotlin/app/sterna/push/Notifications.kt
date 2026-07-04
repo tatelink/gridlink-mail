@@ -91,7 +91,7 @@ object Notifications {
             .setSmallIcon(R.drawable.ic_stat_mail)
             .setContentTitle(sender)
             .setContentText(subject)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(email.preview ?: subject))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(notifPreview(context, email) ?: subject))
             .setAutoCancel(true)
             .setContentIntent(pending)
             .setCategory(NotificationCompat.CATEGORY_EMAIL)
@@ -102,6 +102,19 @@ object Notifications {
             .addAction(simpleAction(context, context.getString(R.string.notif_delete), NotificationActionReceiver.ACTION_DELETE, email.id, accountId, notifId))
             .build()
         context.getSystemService(NotificationManager::class.java).notify(notifId, notification)
+    }
+
+    /**
+     * The notification preview line. An encrypted message's server preview is PGP
+     * armor (or empty) — substitute a neutral placeholder instead of ciphertext.
+     */
+    private fun notifPreview(context: Context, email: Email): String? {
+        val preview = email.preview ?: return null
+        return if (preview.contains("-----BEGIN PGP MESSAGE-----")) {
+            context.getString(R.string.notif_pgp_encrypted)
+        } else {
+            preview
+        }
     }
 
     /**

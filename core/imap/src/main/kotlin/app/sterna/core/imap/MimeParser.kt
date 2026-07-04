@@ -22,6 +22,27 @@ data class MimeBody(
     val attachments: List<MimeAttachment> = emptyList(),
 )
 
+/** How a message carries OpenPGP content. */
+enum class CryptoKind { PGP_ENCRYPTED, PGP_SIGNED, PGP_INLINE }
+
+/**
+ * The OpenPGP-relevant pieces of a raw message, extracted without any crypto:
+ * what to decrypt (armor) or verify (exact signed bytes + detached signature).
+ */
+data class CryptoEnvelope(
+    val kind: CryptoKind,
+    /** ASCII-armored ciphertext (multipart/encrypted part 2, or the inline block). */
+    val encryptedArmor: String? = null,
+    /**
+     * The signed MIME entity of a multipart/signed, as a VERBATIM substring of the
+     * raw source (headers included, boundaries excluded). Signature verification is
+     * byte-exact, so this is never re-flowed or re-encoded.
+     */
+    val signedEntityRaw: String? = null,
+    /** ASCII-armored detached signature (application/pgp-signature part). */
+    val signatureArmor: String? = null,
+)
+
 /**
  * Minimal MIME parser: extracts the best body (text/html → text/plain, decoding
  * transfer-encoding + charset) and lists file attachments with their IMAP body
@@ -94,8 +115,157 @@ object MimeParser {
                 attachments.add(MimeAttachment(section, filename ?: "invite.ics", mime, body.length, cte))
                 null to null
             }
+            // PGP/MIME control parts (version / detached signature) have no filename, so they
+            // would otherwise vanish. Keep them as typed parts: the reader uses their presence
+            // to detect crypto messages uniformly across IMAP and JMAP (they are filtered out
+            // of the visible attachment list).
+            mime == "application/pgp-encrypted" || mime == "application/pgp-signature" -> {
+                attachments.add(
+                    MimeAttachment(section, filename ?: mime.substringAfter('/'), mime, body.length, cte),
+                )
+                null to null
+            }
             else -> null to null
         }
+    }
+
+    /**
+     * The still-transfer-encoded body + Content-Transfer-Encoding of the part at
+     * [section] ("1", "2.1", …) inside a raw MIME entity — the same section paths
+     * [parseBody] assigns. Used to pull attachments out of a decrypted entity.
+     */
+    fun partAt(raw: String, section: String): Pair<String, String>? {
+        var current = raw
+        val indices = section.split('.').map { it.toIntOrNull() ?: return null }
+        for ((i, idx) in indices.withIndex()) {
+            val (headerText, body) = splitHeaders(current)
+            val contentType = parseHeaders(headerText)["content-type"] ?: "text/plain"
+            val mime = contentType.substringBefore(';').trim().lowercase()
+            if (mime.startsWith("multipart/")) {
+                val boundary = paramOf(contentType, "boundary") ?: return null
+                current = splitMultipart(body, boundary).getOrNull(idx - 1) ?: return null
+            } else {
+                // Leaf part: only addressable as the final ".1".
+                if (idx != 1 || i != indices.lastIndex) return null
+            }
+        }
+        val (headerText, body) = splitHeaders(current)
+        val cte = parseHeaders(headerText)["content-transfer-encoding"]
+            ?.substringBefore(';')?.trim()?.lowercase() ?: "7bit"
+        return cte to body
+    }
+
+    /**
+     * Detect OpenPGP content in a raw RFC 5322 message (RFC 3156 PGP/MIME, plus
+     * legacy inline armor in a plain-text body). Returns null for ordinary mail.
+     */
+    fun detectCrypto(raw: String): CryptoEnvelope? {
+        val (headerText, body) = splitHeaders(raw)
+        val headers = parseHeaders(headerText)
+        val contentType = headers["content-type"] ?: "text/plain"
+        val mime = contentType.substringBefore(';').trim().lowercase()
+        val protocol = paramOf(contentType, "protocol")?.lowercase()
+        val boundary = paramOf(contentType, "boundary")
+
+        if (mime == "multipart/encrypted" && boundary != null) {
+            val parts = splitMultipart(body, boundary)
+            val hasVersionPart = protocol == "application/pgp-encrypted" ||
+                parts.any { partMime(it) == "application/pgp-encrypted" }
+            if (hasVersionPart) {
+                // The ciphertext part: application/octet-stream per RFC 3156 §4,
+                // falling back to the second part for lax producers.
+                val cipherPart = parts.firstOrNull { partMime(it) == "application/octet-stream" }
+                    ?: parts.getOrNull(1)
+                val armor = cipherPart?.let { decodedPartBody(it) }?.takeIf {
+                    it.contains("-----BEGIN PGP MESSAGE-----")
+                } ?: return null
+                return CryptoEnvelope(CryptoKind.PGP_ENCRYPTED, encryptedArmor = armor)
+            }
+        }
+
+        if (mime == "multipart/signed" && boundary != null) {
+            val looksPgp = protocol == "application/pgp-signature" ||
+                splitMultipart(body, boundary).any { partMime(it) == "application/pgp-signature" }
+            if (looksPgp) {
+                val signedRaw = rawFirstPart(body, boundary) ?: return null
+                val sigPart = splitMultipart(body, boundary)
+                    .firstOrNull { partMime(it) == "application/pgp-signature" } ?: return null
+                val sigArmor = decodedPartBody(sigPart).takeIf {
+                    it.contains("-----BEGIN PGP SIGNATURE-----")
+                } ?: return null
+                return CryptoEnvelope(
+                    CryptoKind.PGP_SIGNED,
+                    signedEntityRaw = signedRaw,
+                    signatureArmor = sigArmor,
+                )
+            }
+        }
+
+        // Legacy inline PGP: an armored block inside the displayable text body.
+        val text = parseBody(raw).text ?: return null
+        val armor = extractInlineArmor(text) ?: return null
+        return CryptoEnvelope(CryptoKind.PGP_INLINE, encryptedArmor = armor)
+    }
+
+    /** The lowercased content type of a multipart child (its own headers). */
+    private fun partMime(part: String): String {
+        val (headerText, _) = splitHeaders(part)
+        val ct = parseHeaders(headerText)["content-type"] ?: "text/plain"
+        return ct.substringBefore(';').trim().lowercase()
+    }
+
+    /** A multipart child's body decoded per its Content-Transfer-Encoding (as text). */
+    private fun decodedPartBody(part: String): String {
+        val (headerText, body) = splitHeaders(part)
+        val headers = parseHeaders(headerText)
+        val cte = headers["content-transfer-encoding"]?.substringBefore(';')?.trim()?.lowercase() ?: "7bit"
+        return decode(body, cte, Charsets.UTF_8)
+    }
+
+    /**
+     * The first part of a multipart body as a VERBATIM substring: from just after
+     * the line break that ends the opening boundary line to just before the line
+     * break that precedes the next boundary delimiter (both owned by the boundary
+     * per RFC 2046 §5.1.1). No trimming or re-encoding — verification needs the
+     * exact bytes the signer hashed.
+     */
+    private fun rawFirstPart(body: String, boundary: String): String? {
+        val delimiter = "--$boundary"
+        var open = body.indexOf(delimiter)
+        while (open > 0 && body[open - 1] != '\n') {
+            open = body.indexOf(delimiter, open + 1)
+            if (open < 0) return null
+        }
+        if (open < 0) return null
+        var start = open + delimiter.length
+        // Skip to the end of the boundary line (tolerating trailing whitespace).
+        while (start < body.length && body[start] != '\n') start++
+        if (start >= body.length) return null
+        start++
+        var close = body.indexOf("\n$delimiter", start - 1)
+        // The first candidate may be the opening boundary itself; move past it.
+        while (close >= 0 && close < start) close = body.indexOf("\n$delimiter", close + 1)
+        if (close < 0) return null
+        // The CRLF (or LF) before the closing delimiter belongs to the boundary.
+        var end = close
+        if (end > start && body[end - 1] == '\r') end--
+        return if (end > start) body.substring(start, end) else null
+    }
+
+    /** The first complete armored PGP block in [text], or null. */
+    private fun extractInlineArmor(text: String): String? {
+        for (kind in listOf("MESSAGE", "SIGNED MESSAGE")) {
+            val begin = "-----BEGIN PGP $kind-----"
+            val start = text.indexOf(begin)
+            if (start < 0) continue
+            // A cleartext-signed block ends with the signature's END line.
+            val endMarker =
+                if (kind == "SIGNED MESSAGE") "-----END PGP SIGNATURE-----" else "-----END PGP MESSAGE-----"
+            val end = text.indexOf(endMarker, start)
+            if (end < 0) continue
+            return text.substring(start, end + endMarker.length)
+        }
+        return null
     }
 
     /** Decode a fetched part body (BODY[section]) to raw bytes using its transfer-encoding. */

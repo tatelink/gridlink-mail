@@ -9,6 +9,7 @@ import app.sterna.core.data.mail.OutboxScheduler
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.storage.StorageRepository
 import app.sterna.core.jmap.JmapClient
+import app.sterna.pgp.OpenKeychainPgpEngine
 import app.sterna.security.AppLock
 import app.sterna.send.Outbox
 import app.sterna.send.SendOutbox
@@ -23,7 +24,11 @@ class AppContainer(context: Context) {
     val accountStore: AccountStore = AccountStore(context.applicationContext)
     val settingsRepository: SettingsRepository = SettingsRepository(context.applicationContext)
     private val jmapClient: JmapClient = JmapClient()
-    private val dataLayer = DataFactory.create(context.applicationContext, jmapClient, accountStore)
+
+    /** OpenPGP via the OpenKeychain provider (binds lazily; harmless when not installed). */
+    val pgpEngine: OpenKeychainPgpEngine = OpenKeychainPgpEngine(context.applicationContext)
+    private val dataLayer =
+        DataFactory.create(context.applicationContext, jmapClient, accountStore, pgpEngine)
     val mailRepository: MailRepository = dataLayer.mailRepository
     val storageRepository: StorageRepository = dataLayer.storageRepository
     val appLock: AppLock = AppLock(accountStore)

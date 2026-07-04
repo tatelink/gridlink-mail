@@ -107,6 +107,12 @@ let autodiscovery find the server for you.
 - Per-account colour, sync window, and notification toggle; encrypted credential
   storage (AndroidKeyStore); app lock (biometric / PIN)
 
+**🔒 Encryption**
+- **OpenPGP** (via [OpenKeychain](https://f-droid.org/packages/org.sufficientlysecure.keychain/)):
+  read and send signed and/or encrypted mail (PGP/MIME) on both JMAP and
+  IMAP/SMTP. Decrypted content is never written to disk. See the
+  [encryption guide](ENCRYPTION.md) to get started.
+
 **🔔 Notifications & server power**
 - Push for new mail with **no Google / FCM** (JMAP EventSource or IMAP IDLE),
   grouped per account, with quiet hours
@@ -120,7 +126,7 @@ let autodiscovery find the server for you.
 
 The full, tracked feature set lives in [FEATURES.md](FEATURES.md).
 
-**🛠️ Planned:** encrypted email (OpenPGP), home-screen widgets, and more.
+**🛠️ Planned:** home-screen widgets, S/MIME, and more.
 
 ## 🌍 Languages
 

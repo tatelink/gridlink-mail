@@ -47,4 +47,12 @@ data class OutboxEntity(
     val attemptCount: Int = 0,
     val lastError: String? = null,
     val lastAttemptMillis: Long? = null,
+    /** OpenPGP mode ("SIGN"/"ENCRYPT") when the payload is PGP/MIME; null otherwise. */
+    val pgpMode: String? = null,
+    /**
+     * File holding the pre-built PGP/MIME entity (ciphertext or signed — safe at
+     * rest). For ENCRYPT items textBody/htmlBody/attachmentsJson are emptied: the
+     * outbox never stores plaintext of an encrypted message.
+     */
+    val pgpEntityPath: String? = null,
 )

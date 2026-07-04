@@ -1,6 +1,11 @@
 package app.sterna.ui.message
 
 import app.sterna.appLocale
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.VerifiedUser
+import app.sterna.core.data.pgp.PgpSignatureState
+import app.sterna.core.imap.CryptoKind
+import app.sterna.pgp.rememberPgpInteractionLauncher
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -349,6 +354,11 @@ private fun MessageContent(
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     val calendar by viewModel.calendar.collectAsStateWithLifecycle()
     val inJunk by viewModel.inJunk.collectAsStateWithLifecycle()
+    val crypto by viewModel.crypto.collectAsStateWithLifecycle()
+    // OpenKeychain's passphrase/key dialogs round-trip through this launcher.
+    val pgpLauncher = rememberPgpInteractionLauncher { data ->
+        if (data != null) viewModel.decrypt(data) else viewModel.cancelDecrypt()
+    }
     val stripTracking by viewModel.stripTracking.collectAsStateWithLifecycle()
     val confirmLinks by viewModel.confirmLinks.collectAsStateWithLifecycle()
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
@@ -550,6 +560,13 @@ private fun MessageContent(
                     textZoom = messageTextSize.zoom,
                     onReply = { mode -> onReply(mode, replyTargetId, accountId) },
                     onComposeTo = onComposeTo,
+                    crypto = crypto,
+                    onCryptoAction = {
+                        when (val c = crypto) {
+                            is CryptoUiState.NeedsInteraction -> pgpLauncher(c.pendingIntent)
+                            else -> viewModel.decrypt()
+                        }
+                    },
                 )
             }
         }
@@ -569,6 +586,8 @@ private fun ConversationBody(
     textZoom: Int,
     onReply: (mode: String) -> Unit,
     onComposeTo: (address: String) -> Unit,
+    crypto: CryptoUiState = CryptoUiState.None,
+    onCryptoAction: () -> Unit = {},
 ) {
     val msg = messages.firstOrNull() ?: return
     val full = msg.body
@@ -673,7 +692,10 @@ private fun ConversationBody(
                 .onSizeChanged { headerHeightPx = it.height }
                 .background(MaterialTheme.colorScheme.surface),
         ) {
-            MessageHeader(msg, full, attachmentStatus, onOpenAttachment, calendar, onRespondToInvite, onComposeTo)
+            MessageHeader(
+                msg, full, attachmentStatus, onOpenAttachment, calendar, onRespondToInvite,
+                onComposeTo, crypto, onCryptoAction,
+            )
         }
         // Spinner until the body has laid out (cached/prefetched mail beats the 500ms, so none flashes).
         if (full != null && !bodyReady && spinnerDue) {
@@ -744,6 +766,8 @@ private fun MessageHeader(
     calendar: CalendarInvite?,
     onRespondToInvite: (String) -> Unit,
     onComposeTo: (address: String) -> Unit,
+    crypto: CryptoUiState = CryptoUiState.None,
+    onCryptoAction: () -> Unit = {},
 ) {
     val sender = msg.header.from.firstOrNull()
     val unread = !msg.header.isSeen
@@ -776,6 +800,32 @@ private fun MessageHeader(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            // OpenPGP badges: a lock when the message is/was encrypted, a seal for the
+            // signature state (colored by verdict). Mirrors the star/paperclip style.
+            if (crypto != CryptoUiState.None) {
+                val decrypted = (crypto as? CryptoUiState.Decrypted)?.result
+                val encrypted = decrypted?.wasEncrypted
+                    ?: (crypto !is CryptoUiState.Decrypted) // locked/failed = still sealed
+                if (encrypted) {
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        Icons.Filled.Lock,
+                        contentDescription = stringResource(R.string.a11y_pgp_encrypted),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                val sig = decrypted?.signature
+                if (sig != null && sig != PgpSignatureState.NONE) {
+                    Spacer(Modifier.width(6.dp))
+                    Icon(
+                        Icons.Filled.VerifiedUser,
+                        contentDescription = stringResource(R.string.a11y_pgp_signature),
+                        tint = signatureTint(sig),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
             // Flagged star and an attachment paperclip, mirroring the message-list row.
             if (msg.header.isFlagged) {
                 Spacer(Modifier.width(8.dp))
@@ -795,6 +845,11 @@ private fun MessageHeader(
                     modifier = Modifier.size(18.dp),
                 )
             }
+        }
+        // OpenPGP status card: locked/unlock prompt, progress, verdict, or failure.
+        if (crypto != CryptoUiState.None) {
+            HorizontalDivider()
+            PgpStatusCard(crypto, onCryptoAction)
         }
         if (full != null) {
             val attachments = full.fileAttachmentParts()
@@ -1033,6 +1088,150 @@ private fun AttachmentSection(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
+        }
+    }
+}
+
+/** Badge tint for an OpenPGP signature verdict. */
+@Composable
+private fun signatureTint(state: PgpSignatureState): androidx.compose.ui.graphics.Color =
+    when (state) {
+        PgpSignatureState.VALID_CONFIRMED -> MaterialTheme.colorScheme.primary
+        PgpSignatureState.VALID_UNCONFIRMED,
+        PgpSignatureState.SENDER_MISMATCH,
+        -> MaterialTheme.colorScheme.tertiary
+        PgpSignatureState.KEY_MISSING -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.error
+    }
+
+/** One-line human verdict for an OpenPGP signature. */
+@Composable
+private fun signatureSummary(sig: PgpSignatureState, signer: String?): String? = when (sig) {
+    PgpSignatureState.NONE -> null
+    PgpSignatureState.VALID_CONFIRMED ->
+        stringResource(R.string.message_pgp_sig_valid, signer ?: "?")
+    PgpSignatureState.VALID_UNCONFIRMED ->
+        stringResource(R.string.message_pgp_sig_unconfirmed, signer ?: "?")
+    PgpSignatureState.KEY_MISSING -> stringResource(R.string.message_pgp_sig_missing_key)
+    PgpSignatureState.INVALID -> stringResource(R.string.message_pgp_sig_invalid)
+    PgpSignatureState.KEY_REVOKED -> stringResource(R.string.message_pgp_sig_revoked)
+    PgpSignatureState.KEY_EXPIRED -> stringResource(R.string.message_pgp_sig_expired)
+    PgpSignatureState.INSECURE -> stringResource(R.string.message_pgp_sig_insecure)
+    PgpSignatureState.SENDER_MISMATCH -> stringResource(R.string.message_pgp_sig_mismatch)
+}
+
+/**
+ * The OpenPGP status strip above the body: unlock prompt / progress while
+ * decrypting, then the verdict (encrypted + signature summary), or the failure
+ * with a retry. Compact — one row plus an optional action button.
+ */
+@Composable
+private fun PgpStatusCard(crypto: CryptoUiState, onAction: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        when (crypto) {
+            is CryptoUiState.Locked -> {
+                Icon(
+                    Icons.Filled.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = stringResource(
+                        if (crypto.kind == CryptoKind.PGP_SIGNED) {
+                            R.string.message_pgp_signed_title
+                        } else {
+                            R.string.message_pgp_encrypted_title
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                if (crypto.decrypting) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    OutlinedButton(onClick = onAction) {
+                        Text(
+                            stringResource(
+                                if (crypto.kind == CryptoKind.PGP_SIGNED) {
+                                    R.string.message_pgp_verify
+                                } else {
+                                    R.string.message_pgp_unlock
+                                },
+                            ),
+                        )
+                    }
+                }
+            }
+            is CryptoUiState.NeedsInteraction -> {
+                Icon(
+                    Icons.Filled.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = stringResource(R.string.message_pgp_encrypted_title),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(onClick = onAction) {
+                    Text(stringResource(R.string.message_pgp_unlock))
+                }
+            }
+            is CryptoUiState.Decrypted -> {
+                val sig = crypto.result.signature
+                Icon(
+                    if (crypto.result.wasEncrypted) Icons.Filled.Lock else Icons.Filled.VerifiedUser,
+                    contentDescription = null,
+                    tint = if (crypto.result.wasEncrypted) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        signatureTint(sig)
+                    },
+                    modifier = Modifier.size(20.dp),
+                )
+                Column(Modifier.weight(1f)) {
+                    if (crypto.result.wasEncrypted) {
+                        Text(
+                            text = stringResource(R.string.message_pgp_decrypted),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    signatureSummary(sig, crypto.result.signatureUserId)?.let { summary ->
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = signatureTint(sig),
+                        )
+                    }
+                }
+            }
+            is CryptoUiState.Failed -> {
+                Icon(
+                    Icons.Filled.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = crypto.message
+                        ?: stringResource(R.string.message_pgp_no_provider),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f),
+                )
+                if (crypto.message != null) {
+                    OutlinedButton(onClick = onAction) {
+                        Text(stringResource(R.string.message_retry))
+                    }
+                }
+            }
+            CryptoUiState.None -> Unit
         }
     }
 }
