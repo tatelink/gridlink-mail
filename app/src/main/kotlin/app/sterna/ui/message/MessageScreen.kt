@@ -167,8 +167,17 @@ fun MessageScreen(
     when {
         listSource != null -> {
             val items = listSource.collectAsLazyPagingItems()
-            val count = items.itemCount
-            if (count == 0) {
+            // The pager pages over a STICKY merge of the live flow, not the live flow itself:
+            // rows removed while reading (marked read under the unread filter, triaged from
+            // another device, …) keep their slot for the whole reading session. Following the
+            // live removals would re-bind the settled page to the next row — under the unread
+            // filter that meant read-on-settle removed the row, the next unread slid in, got
+            // marked read too, and cascaded through every unread message. New rows (fresh mail,
+            // older mail paged in) still merge in at their live position.
+            val liveEntries = items.itemSnapshotList.items.map { it.email.id to it.email.accountId }
+            var entries by remember { mutableStateOf(listOf<Pair<String, String?>>()) }
+            entries = MessagePaging.mergeEntries(entries, liveEntries) { it.first }
+            if (entries.isEmpty()) {
                 // The shared paged flow replays its cached pages within a frame or two; show a
                 // brief loader until the entry list is known so the pager opens on the right page.
                 MessageLoadingScaffold(onBack)
@@ -176,21 +185,21 @@ fun MessageScreen(
                 // Resolve the opening page once: by the anchor's id when it's in the loaded
                 // window (robust to the list having shifted), else the tapped index.
                 val initialPage = remember {
-                    MessagePaging.resolveInitialPage(
-                        items.itemSnapshotList.items.map { it.email.id },
-                        anchorEmailId,
-                        initialIndex,
-                    )
+                    MessagePaging.resolveInitialPage(entries.map { it.first }, anchorEmailId, initialIndex)
                 }
+                val liveIndexById = liveEntries.withIndex().associate { (i, e) -> e.first to i }
                 MessagePager(
-                    pageCount = count,
+                    pageCount = entries.size,
                     initialPage = initialPage,
                     // Indexing the paged items near the end triggers paging (incl. the
-                    // RemoteMediator's server fetch), so older entries swipe in as on scroll.
-                    // Bounds-guard: a triage action (not-spam/archive/delete) removes the open
-                    // message, shrinking the paged list while the pager still asks for the old
-                    // index — an unguarded items[i] then throws IndexOutOfBounds and crashes.
-                    entryAt = { i -> if (i < items.itemCount) items[i]?.email?.let { it.id to it.accountId } else null },
+                    // RemoteMediator's server fetch), so older entries swipe in as on scroll;
+                    // the entry's index in the LIVE list can trail its sticky index once rows
+                    // have been removed, hence the id→live-index lookup.
+                    entryAt = { i ->
+                        entries.getOrNull(i)?.also { entry ->
+                            liveIndexById[entry.first]?.let { liveIndex -> items[liveIndex] }
+                        }
+                    },
                     onBack = onBack,
                     onReply = onReply,
                     onComposeTo = onComposeTo,
@@ -236,8 +245,8 @@ private fun MessagePager(
     HorizontalPager(
         state = pagerState,
         modifier = Modifier.fillMaxSize(),
-        // Key by entry id so a row read/removed elsewhere re-binds the right page; warm one
-        // neighbour each side so a swipe reveals the adjacent body without a load flash.
+        // Key by entry id so pages keep their identity when rows are inserted around them;
+        // warm one neighbour each side so a swipe reveals the adjacent body without a flash.
         key = { i -> entryAt(i)?.first ?: "page-$i" },
         beyondViewportPageCount = 1,
     ) { page ->
