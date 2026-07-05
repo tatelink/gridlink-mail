@@ -1,0 +1,1 @@
+Correctif : avec le filtre non lus actif, ouvrir un message enchaînait tous les messages non lus et les marquait comme lus. Seul le message ouvert est désormais marqué lu.
