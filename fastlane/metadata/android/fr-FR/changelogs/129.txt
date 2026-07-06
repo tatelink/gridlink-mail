@@ -1,0 +1,1 @@
+Correctif : les messages d'une conversation dépliée gardaient leur point « non lu » après lecture. La multi-sélection gère désormais les conversations : les messages dépliés sont sélectionnables et sélectionner une conversation sélectionne tous ses messages.
