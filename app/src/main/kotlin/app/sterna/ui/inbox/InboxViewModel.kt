@@ -288,6 +288,50 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Optimistically rewrite the seen keyword on any expanded-conversation members among [ids].
+     * The expanded members are a cache snapshot (see [_threadMembers]), so every read/unread
+     * mutation must also be written back here or the unfolded rows keep a stale unread dot.
+     */
+    private fun patchThreadMembersSeen(ids: Set<String>, seen: Boolean) {
+        if (_threadMembers.value.isEmpty()) return
+        _threadMembers.value = _threadMembers.value.mapValues { (_, members) ->
+            members.map { m ->
+                if (m.id !in ids) m
+                else m.copy(
+                    keywords = m.keywords.toMutableMap().apply {
+                        if (seen) put("\$seen", true) else remove("\$seen")
+                    },
+                )
+            }
+        }
+    }
+
+    /** Drop several messages from the expanded-conversation snapshot (bulk removals). */
+    private fun dropThreadMembers(ids: Set<String>) {
+        if (_threadMembers.value.isEmpty()) return
+        _threadMembers.value = _threadMembers.value
+            .mapValues { (_, members) -> members.filterNot { it.id in ids } }
+            .filterValues { it.isNotEmpty() }
+    }
+
+    /**
+     * Re-sync the expanded conversations' member snapshot with the cache. Covers changes made
+     * outside this ViewModel — chiefly the reader marking a child read — which otherwise leave
+     * a stale unread dot on the unfolded row when the user comes back to the list.
+     */
+    fun refreshThreadMembers() {
+        val snapshot = _threadMembers.value
+        if (snapshot.isEmpty()) return
+        viewModelScope.launch {
+            val ids = snapshot.values.flatten().mapTo(mutableSetOf()) { it.id }
+            val fresh = repo.cachedEmailsByIds(ids).associateBy { it.id }
+            _threadMembers.value = _threadMembers.value.mapValues { (_, members) ->
+                members.map { m -> fresh[m.id]?.let { f -> m.copy(keywords = f.keywords) } ?: m }
+            }
+        }
+    }
+
     private val selection = MutableStateFlow<Sel>(Sel.Folder(store.inboxMailboxId()))
     private val currentAccountId = MutableStateFlow(store.currentId())
     private val unifiedInboxIds = MutableStateFlow(store.allInboxMailboxIds())
@@ -490,9 +534,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Swipe action: toggle read/unread (cache update drives the list). */
     fun toggleRead(email: Email) {
+        val targetSeen = !email.isSeen
+        patchThreadMembersSeen(setOf(email.id), targetSeen)
         viewModelScope.launch {
             val credentials = credentialsFor(email) ?: return@launch
-            runCatching { repo.setRead(credentials, email.id, !email.isSeen) }
+            runCatching { repo.setRead(credentials, email.id, targetSeen) }
         }
     }
 
@@ -519,6 +565,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val members = threadMessages(rep)
             val targetSeen = members.any { !it.isSeen }
+            patchThreadMembersSeen(members.mapTo(mutableSetOf()) { it.id }, targetSeen)
             members.forEach { m ->
                 val credentials = credentialsFor(m) ?: return@forEach
                 runCatching { repo.setRead(credentials, m.id, targetSeen) }
@@ -692,6 +739,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun markAllRead() {
         viewModelScope.launch {
             val unread = repo.cachedEmailsForMailboxes(currentMailboxIds()).filter { !it.isSeen }
+            patchThreadMembersSeen(unread.mapTo(mutableSetOf()) { it.id }, true)
             unread.forEach { email ->
                 val credentials = credentialsFor(email) ?: return@forEach
                 runCatching { repo.setRead(credentials, email.id, true) }
@@ -716,6 +764,30 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         if (next.isEmpty()) _selectionActive.value = false
     }
 
+    /**
+     * Enter selection mode from a collapsed conversation row: like the whole-thread swipe,
+     * the selection covers every cached member of the thread, not just the representative —
+     * so the later bulk action treats the row the way it reads (one conversation).
+     */
+    fun enterSelectionThread(rep: Email) {
+        _selectionActive.value = true
+        _selectedIds.value = setOf(rep.id)
+        viewModelScope.launch {
+            _selectedIds.value = _selectedIds.value + threadMessages(rep).map { it.id }
+        }
+    }
+
+    /** Toggle a collapsed conversation row in/out of the selection — all members at once. */
+    fun toggleSelectThread(rep: Email) {
+        viewModelScope.launch {
+            val ids = threadMessages(rep).mapTo(mutableSetOf()) { it.id } + rep.id
+            val current = _selectedIds.value
+            val next = if (rep.id in current) current - ids else current + ids
+            _selectedIds.value = next
+            if (next.isEmpty()) _selectionActive.value = false
+        }
+    }
+
     fun selectAll() {
         _selectionActive.value = true
         viewModelScope.launch {
@@ -732,6 +804,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private fun bulk(clearAfter: Boolean = true, op: suspend (AccountCredentials, String) -> Unit) {
         val ids = _selectedIds.value
         if (clearAfter) clearSelection()
+        // Every bulk op removes its messages from the current view; expanded-conversation
+        // members live in a static snapshot, so drop them there too or the rows linger.
+        dropThreadMembers(ids)
         viewModelScope.launch {
             var failed = 0
             repo.cachedEmailsByIds(ids).forEach { email ->
@@ -785,6 +860,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val emails = repo.cachedEmailsByIds(ids)
             val targetSeen = !emails.all { it.isSeen }
+            patchThreadMembersSeen(emails.mapTo(mutableSetOf()) { it.id }, targetSeen)
             emails.forEach { email ->
                 val credentials = credentialsFor(email) ?: return@forEach
                 runCatching { repo.setRead(credentials, email.id, targetSeen) }

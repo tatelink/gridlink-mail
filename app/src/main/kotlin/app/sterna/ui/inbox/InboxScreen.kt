@@ -245,6 +245,11 @@ fun InboxScreen(
         }
     }
 
+    // Expanded-conversation members are a static snapshot in the ViewModel; re-sync it with
+    // the cache each time the inbox (re)enters composition, so a child read in the reader
+    // loses its unread dot on return. First-ever composition is a no-op (nothing expanded).
+    LaunchedEffect(Unit) { viewModel.refreshThreadMembers() }
+
     // Surface transient action errors (e.g. "no Archive folder") in a snackbar.
     LaunchedEffect(message) {
         val m = message ?: return@LaunchedEffect
@@ -1046,13 +1051,16 @@ fun InboxScreen(
                     },
                     onClick = {
                         if (selectionActive) {
-                            viewModel.toggleSelect(email.id)
+                            // A collapsed conversation selects/deselects all its members at once.
+                            if (expandable) viewModel.toggleSelectThread(email) else viewModel.toggleSelect(email.id)
                         } else {
                             viewModel.onEmailOpened(email.id)
                             onOpenEmail(email.id, email.accountId, entryIndex, fromSearch)
                         }
                     },
-                    onLongClick = { viewModel.enterSelection(email.id) },
+                    onLongClick = {
+                        if (expandable) viewModel.enterSelectionThread(email) else viewModel.enterSelection(email.id)
+                    },
                     onToggleFavourite = {
                         val favouriting = !email.isFlagged
                         viewModel.toggleFlag(email)
@@ -1084,12 +1092,16 @@ fun InboxScreen(
                         leftAction = swipe.left,
                         unarchiveContext = isUnarchiveContext(ui),
                         highlightId = highlightId,
+                        selectionActive = selectionActive,
+                        selectedIds = selectedIds,
                         onOpenChild = { child ->
                             viewModel.onEmailOpened(child.id)
                             onOpenThreadMessage(child.id, child.accountId)
                         },
                         onSwipeChild = { action, child -> performSwipe(action, child, viewModel, ui) },
                         onToggleChildFavourite = { child -> viewModel.toggleChildFlag(child) },
+                        onEnterSelectionChild = { child -> viewModel.enterSelection(child.id) },
+                        onToggleSelectChild = { child -> viewModel.toggleSelect(child.id) },
                         onHighlightShown = viewModel::clearHighlight,
                     )
                 }
@@ -1620,9 +1632,13 @@ private fun ThreadChildren(
     leftAction: SwipeAction,
     unarchiveContext: Boolean,
     highlightId: String?,
+    selectionActive: Boolean,
+    selectedIds: Set<String>,
     onOpenChild: (Email) -> Unit,
     onSwipeChild: (SwipeAction, Email) -> Unit,
     onToggleChildFavourite: (Email) -> Unit,
+    onEnterSelectionChild: (Email) -> Unit,
+    onToggleSelectChild: (Email) -> Unit,
     onHighlightShown: () -> Unit,
 ) {
     val motionOn = rememberMotionEnabled()
@@ -1646,12 +1662,15 @@ private fun ThreadChildren(
                             leftAction = leftAction,
                             unarchiveContext = unarchiveContext,
                             onSwipe = { action -> onSwipeChild(action, child) },
-                            onClick = { onOpenChild(child) },
+                            // Children join multi-select like top-level rows: long-press enters
+                            // selection on this one message, a tap in selection mode toggles it.
+                            onClick = { if (selectionActive) onToggleSelectChild(child) else onOpenChild(child) },
+                            onLongClick = { onEnterSelectionChild(child) },
                             // Children carry the same favourite star and attachment indicator as
                             // top-level rows, so the unfolded preview matches the collapsed one.
                             onToggleFavourite = { onToggleChildFavourite(child) },
-                            selected = false,
-                            gesturesEnabled = true,
+                            selected = child.id in selectedIds,
+                            gesturesEnabled = !selectionActive,
                             unread = !child.isSeen,
                             threadCount = 1,
                             highlighted = child.id == highlightId,
