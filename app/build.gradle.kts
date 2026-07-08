@@ -14,9 +14,19 @@ android {
         applicationId = "app.sterna"
         minSdk = 26
         targetSdk = 36
-        versionCode = 129
-        versionName = "1.1.2"
+        versionCode = 130
+        versionName = "1.1.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Reproducible builds: the compiled ART baseline profile (assets/dexopt/baseline.prof)
+    // is not byte-identical across build environments even when classes.dex is — F-Droid's
+    // rebuild of 1.1.2 differed only there. Don't package it at all, per
+    // https://f-droid.org/docs/Reproducible_Builds/. Release APKs must also be built from a
+    // clean tree (clean --no-build-cache): incremental Kotlin/Compose compilation emits
+    // slightly different bytecode than a from-scratch build.
+    tasks.whenTaskAdded {
+        if (name.contains("ArtProfile")) enabled = false
     }
 
     // No Google dependency-metadata blob in the APK/AAB (required by IzzyOnDroid/F-Droid).
