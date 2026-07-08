@@ -14,8 +14,8 @@ android {
         applicationId = "app.sterna"
         minSdk = 26
         targetSdk = 36
-        versionCode = 130
-        versionName = "1.1.3"
+        versionCode = 131
+        versionName = "1.1.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -73,6 +73,13 @@ android {
             val noR8 = providers.gradleProperty("noR8").isPresent
             isMinifyEnabled = !noR8
             isShrinkResources = !noR8
+            // Reproducible builds: don't embed META-INF/version-control-info.textproto —
+            // its content depends on whether AGP can read git in the build environment
+            // (F-Droid's rebuild of 1.1.3 differed only there: NO_VALID_GIT_FOUND vs
+            // our embedded revision).
+            vcsInfo {
+                include = false
+            }
             // Prefer the real release key; fall back to the debug key when absent.
             // Keep on ONE line: F-Droid's reproducible-build signing strip is line-based,
             // so a multi-line `?:` would be left orphaned and break the build.

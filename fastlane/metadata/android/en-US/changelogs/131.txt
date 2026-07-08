@@ -1,0 +1,1 @@
+Technical release: removes environment-dependent metadata from the APK, completing byte-for-byte reproducible builds for F-Droid verification. No functional changes.
