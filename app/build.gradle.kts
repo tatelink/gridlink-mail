@@ -14,8 +14,8 @@ android {
         applicationId = "app.sterna"
         minSdk = 26
         targetSdk = 36
-        versionCode = 132
-        versionName = "1.1.5"
+        versionCode = 133
+        versionName = "1.1.6"
         // Shown on the Settings About row. Bump alongside versionCode/versionName at each
         // release (a static literal, so builds stay reproducible — never derive from clock).
         buildConfigField("String", "VERSION_DATE", "\"2026-07-15\"")
