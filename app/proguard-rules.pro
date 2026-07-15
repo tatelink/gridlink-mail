@@ -33,3 +33,10 @@
     *** Companion;
     kotlinx.serialization.KSerializer serializer(...);
 }
+
+# The OpenPGP provider (OpenKeychain) sends its result Parcelables across the binder under
+# their original class names, and unmarshalling looks them up BY NAME in our classloader —
+# so the vendored openpgp-api classes must keep their names verbatim. Without this, every
+# minified release crashed with BadParcelableException/ClassNotFoundException
+# (OpenPgpSignatureResult) the moment a signed or encrypted mail was verified (Codeberg #14).
+-keep class org.openintents.openpgp.** { *; }

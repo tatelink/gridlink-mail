@@ -289,7 +289,17 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         (_crypto.value as? CryptoUiState.Locked)?.let { _crypto.value = it.copy(decrypting = true) }
         viewModelScope.launch {
             val credentials = credentials() ?: return@launch
-            when (val result = repo.decryptMessage(credentials, emailId, interactionResult)) {
+            // Fail into the status card, never crash: decryptMessage returns PgpResult.Error for
+            // the failures it anticipates, but an exception ESCAPING it (provider IPC death,
+            // parcel mismatch from a foreign OpenKeychain build, OOM on a huge raw source) used
+            // to propagate out of this coroutine and take the app down — Codeberg #14, a signed
+            // Proton message. Mirror load()'s catch.
+            val result = try {
+                repo.decryptMessage(credentials, emailId, interactionResult)
+            } catch (t: Throwable) {
+                PgpResult.Error(t.message ?: t.javaClass.simpleName)
+            }
+            when (result) {
                 is PgpResult.Success -> {
                     val opened = result.value
                     val display = anchorDisplay(opened.email)

@@ -1118,26 +1118,34 @@ class MailRepository(
             .getOrElse { return PgpResult.Error(it.message ?: "Cannot fetch message") }
         val raw = runCatching { fetchRawSource(credentials, email, emailId) }
             .getOrElse { return PgpResult.Error(it.message ?: "Cannot fetch message source") }
-        val envelope = MimeParser.detectCrypto(raw)
+        val envelope = runCatching { MimeParser.detectCrypto(raw) }
+            .getOrElse { return PgpResult.Error(it.message ?: "Cannot parse message structure") }
             ?: return PgpResult.Error("No OpenPGP content found")
         val sender = email.from.firstOrNull()?.email
 
-        val result = when (envelope.kind) {
-            CryptoKind.PGP_ENCRYPTED, CryptoKind.PGP_INLINE -> pgp.decryptVerify(
-                envelope.encryptedArmor!!.toByteArray(Charsets.UTF_8),
-                senderAddress = sender,
-                interactionResult = interactionResult,
-            )
-            CryptoKind.PGP_SIGNED -> pgp.decryptVerify(
-                canonicalizeCrlf(envelope.signedEntityRaw!!).toByteArray(Charsets.UTF_8),
-                senderAddress = sender,
-                detachedSignature = envelope.signatureArmor!!.toByteArray(Charsets.UTF_8),
-                interactionResult = interactionResult,
-            )
-        }
+        // Everything from here talks to the provider and rebuilds the body; contain any
+        // escaping exception as an Error so the reader shows the status card instead of
+        // crashing (Codeberg #14 — the caller's auto-verify coroutine is also guarded now,
+        // but the repository should not throw for anticipated-failure territory either).
+        val result = runCatching {
+            when (envelope.kind) {
+                CryptoKind.PGP_ENCRYPTED, CryptoKind.PGP_INLINE -> pgp.decryptVerify(
+                    envelope.encryptedArmor!!.toByteArray(Charsets.UTF_8),
+                    senderAddress = sender,
+                    interactionResult = interactionResult,
+                )
+                CryptoKind.PGP_SIGNED -> pgp.decryptVerify(
+                    canonicalizeCrlf(envelope.signedEntityRaw!!).toByteArray(Charsets.UTF_8),
+                    senderAddress = sender,
+                    detachedSignature = envelope.signatureArmor!!.toByteArray(Charsets.UTF_8),
+                    interactionResult = interactionResult,
+                )
+            }
+        }.getOrElse { return PgpResult.Error(it.message ?: it.javaClass.simpleName) }
         return when (result) {
             is PgpResult.Success -> {
-                val entry = buildDecrypted(email, envelope, result.value)
+                val entry = runCatching { buildDecrypted(email, envelope, result.value) }
+                    .getOrElse { return PgpResult.Error(it.message ?: "Cannot rebuild decrypted body") }
                 decryptedCache.put(emailId, entry)
                 rawSourceCache.remove(emailId)
                 PgpResult.Success(entry.body)

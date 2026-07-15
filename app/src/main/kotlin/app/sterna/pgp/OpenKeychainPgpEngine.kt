@@ -82,7 +82,15 @@ class OpenKeychainPgpEngine(context: Context) : PgpEngine {
         val service = service() ?: return@withContext null
         val api = OpenPgpApi(appContext, service)
         val out = if (collectOutput) ByteArrayOutputStream() else null
-        val result = api.executeApi(intent, input?.let { ByteArrayInputStream(it) }, out)
+        // The provider is a foreign process reached over binder: it can die mid-call
+        // (DeadObjectException) or hand back parcels this app's version can't unmarshal.
+        // Treat any of that as "provider unavailable" rather than letting it throw into
+        // the caller's coroutine (Codeberg #14).
+        val result = try {
+            api.executeApi(intent, input?.let { ByteArrayInputStream(it) }, out)
+        } catch (t: Throwable) {
+            return@withContext null
+        }
         result to out?.toByteArray()
     }
 
