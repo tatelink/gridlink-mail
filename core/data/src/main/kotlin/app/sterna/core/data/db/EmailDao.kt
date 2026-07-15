@@ -51,6 +51,9 @@ interface EmailDao {
     @Query("SELECT mailboxId FROM emails WHERE id = :id LIMIT 1")
     suspend fun mailboxOf(id: String): String?
 
+    @Query("SELECT seen FROM emails WHERE id = :id LIMIT 1")
+    suspend fun seenOf(id: String): Boolean?
+
     /** Merged view across several mailboxes (the unified inbox), newest first. */
     @Query("SELECT * FROM emails WHERE mailboxId IN (:mailboxIds) ORDER BY sortKey DESC")
     fun observeByMailboxes(mailboxIds: List<String>): Flow<List<EmailEntity>>

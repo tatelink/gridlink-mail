@@ -7,6 +7,7 @@ import app.sterna.core.data.mail.ImapMailService
 import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.mail.OAuthTokenRefresher
 import app.sterna.core.data.pgp.PgpEngine
+import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.storage.StorageRepository
 import app.sterna.core.imap.ImapClient
 import app.sterna.core.imap.SmtpClient
@@ -26,6 +27,7 @@ object DataFactory {
         client: JmapClient,
         accountStore: AccountStore,
         pgpEngine: PgpEngine? = null,
+        settings: SettingsRepository? = null,
     ): DataLayer {
         val appContext = context.applicationContext
         val database = SternaDatabase.build(appContext)
@@ -39,6 +41,7 @@ object DataFactory {
                 outboxDao = database.outboxDao(),
                 outboxFilesDir = java.io.File(appContext.filesDir, "outbox"),
                 pgpEngine = pgpEngine,
+                settings = settings,
             ),
             storageRepository = StorageRepository(
                 appContext, database.emailDao(), database.emailFtsDao(), database.emailBodyDao(),

@@ -1,5 +1,6 @@
 package app.sterna.ui.settings
 
+import app.sterna.BuildConfig
 import app.sterna.contacts.AndroidContacts
 import android.Manifest
 import android.content.Intent
@@ -13,6 +14,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -281,8 +285,38 @@ private fun SettingsHub(
                 SettingsCategoryRow(Icons.Filled.BeachAccess, stringResource(R.string.settings_vacation_title), stringResource(R.string.settings_vacation_summary), onOpenVacation)
                 SettingsCategoryRow(Icons.Filled.FilterAlt, stringResource(R.string.settings_filters_title), stringResource(R.string.settings_filters_summary), onOpenFilters)
             }
+            SettingsSection(stringResource(R.string.settings_about_section)) {
+                val context = LocalContext.current
+                SettingsCategoryRow(
+                    Icons.Filled.Info,
+                    stringResource(R.string.settings_about_version),
+                    "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${BuildConfig.VERSION_DATE}",
+                ) { openUrl(context, "$REPO_URL/releases") }
+                SettingsCategoryRow(
+                    Icons.Filled.Code,
+                    stringResource(R.string.settings_about_source),
+                    REPO_URL.removePrefix("https://"),
+                ) { openUrl(context, REPO_URL) }
+                SettingsCategoryRow(
+                    Icons.Filled.Description,
+                    stringResource(R.string.settings_about_license),
+                    "GPL-3.0-only",
+                ) { openUrl(context, "$REPO_URL/src/branch/main/LICENSE") }
+                SettingsCategoryRow(
+                    Icons.Filled.Person,
+                    stringResource(R.string.settings_about_author),
+                    "emon",
+                ) { openUrl(context, "https://codeberg.org/emon") }
+            }
         }
     }
+}
+
+/** Where Sterna Mail lives; the About section links here (repo, releases, license). */
+private const val REPO_URL = "https://codeberg.org/emon/sterna-mail"
+
+private fun openUrl(context: android.content.Context, url: String) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 }
 
 @Composable
@@ -392,6 +426,7 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val swipeLeft by viewModel.swipeLeft.collectAsStateWithLifecycle()
     val conversationView by viewModel.conversationView.collectAsStateWithLifecycle()
     val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
+    val markReadOnDelete by viewModel.markReadOnDelete.collectAsStateWithLifecycle()
     val options = listOf(
         SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
     )
@@ -418,6 +453,12 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     selected = messageTextSize,
                     optionLabel = { textSizeLabel(context, it) },
                     onSelect = viewModel::setMessageTextSize,
+                )
+                SettingSwitch(
+                    title = stringResource(R.string.settings_mark_read_on_delete_title),
+                    subtitle = stringResource(R.string.settings_mark_read_on_delete_subtitle),
+                    checked = markReadOnDelete,
+                    onCheckedChange = viewModel::setMarkReadOnDelete,
                 )
             }
             SettingsSection(stringResource(R.string.settings_swipe_actions_section)) {

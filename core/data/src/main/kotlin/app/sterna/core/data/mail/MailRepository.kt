@@ -34,6 +34,7 @@ import app.sterna.core.data.db.RecentContactEntity
 import app.sterna.core.data.db.EmailEntity
 import app.sterna.core.data.db.MailboxDao
 import app.sterna.core.data.pgp.PgpEngine
+import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.jmap.BasicAuth
 import app.sterna.core.jmap.BearerAuth
@@ -75,6 +76,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.MapSerializer
@@ -303,6 +305,8 @@ class MailRepository(
     private val oauthClient: OAuthClient = OAuthClient(),
     /** OpenPGP operations (null = no provider wired; all PGP features disabled). */
     private val pgpEngine: PgpEngine? = null,
+    /** App settings (null in tests): consulted for behavior toggles like mark-read-on-delete. */
+    private val settings: SettingsRepository? = null,
 ) {
     /**
      * Schedules the WorkManager job that delivers an outbox item. Set by the app layer at
@@ -1581,6 +1585,12 @@ class MailRepository(
 
     /** Move to Trash (or destroy if there is none) and drop from the local list. */
     suspend fun delete(credentials: AccountCredentials, emailId: String) {
+        // Opt-in: flag the message read on its way out, so Trash doesn't accumulate unread
+        // badges. Best-effort BEFORE the move (the id changes with an IMAP move); a failure
+        // must never block the deletion itself.
+        if (settings?.markReadOnDelete?.first() == true && emailDao.seenOf(emailId) == false) {
+            runCatching { setRead(credentials, emailId, true) }
+        }
         if (credentials.protocol == MailProtocol.IMAP) {
             imapTarget(emailId)?.let { (mb, uid) ->
                 val trash = imapRoleFolder(credentials, "trash")

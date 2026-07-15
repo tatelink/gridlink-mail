@@ -604,4 +604,11 @@
     <string name="compose_contacts_priming_body">Автодополнять получателей из контактов этого устройства. Sterna Mail читает их только на устройстве и никогда не отправляет.</string>
     <string name="compose_contacts_priming_enable">Включить</string>
     <string name="compose_contacts_priming_not_now">Не сейчас</string>
+    <string name="settings_mark_read_on_delete_title">Отмечать прочитанным при удалении</string>
+    <string name="settings_mark_read_on_delete_subtitle">Удалённые письма не остаются непрочитанными в корзине</string>
+    <string name="settings_about_section">О приложении</string>
+    <string name="settings_about_version">Версия</string>
+    <string name="settings_about_source">Исходный код</string>
+    <string name="settings_about_license">Лицензия</string>
+    <string name="settings_about_author">Автор</string>
 </resources>

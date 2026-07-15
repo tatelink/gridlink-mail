@@ -606,4 +606,11 @@
     <string name="compose_contacts_priming_body">Ontvangers aanvullen uit de contacten van dit apparaat. Sterna Mail leest ze alleen op het apparaat en uploadt ze nooit.</string>
     <string name="compose_contacts_priming_enable">Inschakelen</string>
     <string name="compose_contacts_priming_not_now">Niet nu</string>
+    <string name="settings_mark_read_on_delete_title">Als gelezen markeren bij verwijderen</string>
+    <string name="settings_mark_read_on_delete_subtitle">Verwijderde berichten blijven niet ongelezen in de prullenbak</string>
+    <string name="settings_about_section">Over</string>
+    <string name="settings_about_version">Versie</string>
+    <string name="settings_about_source">Broncode</string>
+    <string name="settings_about_license">Licentie</string>
+    <string name="settings_about_author">Auteur</string>
 </resources>

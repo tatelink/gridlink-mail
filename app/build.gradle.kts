@@ -16,6 +16,9 @@ android {
         targetSdk = 36
         versionCode = 131
         versionName = "1.1.4"
+        // Shown on the Settings About row. Bump alongside versionCode/versionName at each
+        // release (a static literal, so builds stay reproducible — never derive from clock).
+        buildConfigField("String", "VERSION_DATE", "\"2026-07-08\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -102,6 +105,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

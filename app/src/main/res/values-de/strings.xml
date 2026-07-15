@@ -603,4 +603,11 @@
     <string name="compose_contacts_priming_body">Empfänger aus den Kontakten dieses Geräts vervollständigen. Sterna Mail liest sie nur auf dem Gerät und lädt sie nie hoch.</string>
     <string name="compose_contacts_priming_enable">Aktivieren</string>
     <string name="compose_contacts_priming_not_now">Jetzt nicht</string>
+    <string name="settings_mark_read_on_delete_title">Beim Löschen als gelesen markieren</string>
+    <string name="settings_mark_read_on_delete_subtitle">Gelöschte Nachrichten bleiben im Papierkorb nicht ungelesen</string>
+    <string name="settings_about_section">Über</string>
+    <string name="settings_about_version">Version</string>
+    <string name="settings_about_source">Quellcode</string>
+    <string name="settings_about_license">Lizenz</string>
+    <string name="settings_about_author">Autor</string>
 </resources>

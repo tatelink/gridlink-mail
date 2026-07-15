@@ -603,4 +603,11 @@
     <string name="compose_contacts_priming_body">Autocompletar destinatarios desde los contactos de este dispositivo. Sterna Mail los lee solo en el dispositivo y nunca los sube.</string>
     <string name="compose_contacts_priming_enable">Activar</string>
     <string name="compose_contacts_priming_not_now">Ahora no</string>
+    <string name="settings_mark_read_on_delete_title">Marcar como leído al eliminar</string>
+    <string name="settings_mark_read_on_delete_subtitle">Los mensajes eliminados no quedan sin leer en la papelera</string>
+    <string name="settings_about_section">Acerca de</string>
+    <string name="settings_about_version">Versión</string>
+    <string name="settings_about_source">Código fuente</string>
+    <string name="settings_about_license">Licencia</string>
+    <string name="settings_about_author">Autor</string>
 </resources>

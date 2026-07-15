@@ -104,6 +104,14 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_CONVERSATION_VIEW] = enabled }
     }
 
+    /** Mark a message as read when deleting it, so Trash doesn't accumulate unread
+     *  badges (off by default — deletion doesn't touch flags unless opted in). */
+    val markReadOnDelete: Flow<Boolean> = dataStore.data.map { it[KEY_MARK_READ_ON_DELETE] ?: false }
+
+    suspend fun setMarkReadOnDelete(enabled: Boolean) {
+        dataStore.edit { it[KEY_MARK_READ_ON_DELETE] = enabled }
+    }
+
     /** Reading text size for the message body. */
     val messageTextSize: Flow<MessageTextSize> = dataStore.data.map { prefs ->
         prefs[KEY_MESSAGE_TEXT_SIZE]?.let { runCatching { MessageTextSize.valueOf(it) }.getOrNull() }
@@ -188,6 +196,7 @@ class SettingsRepository(context: Context) {
         quietHoursEnd = quietHoursEnd.first(),
         conversationView = conversationView.first(),
         messageTextSize = messageTextSize.first().name,
+        markReadOnDelete = markReadOnDelete.first(),
     )
 
     /** Applies the DataStore-backed fields of [backup]; unknown enum values are skipped. */
@@ -208,6 +217,7 @@ class SettingsRepository(context: Context) {
         backup.quietHoursEnd?.let { setQuietHoursEnd(it) }
         backup.conversationView?.let { setConversationView(it) }
         backup.messageTextSize?.let { v -> runCatching { MessageTextSize.valueOf(v) }.getOrNull()?.let { setMessageTextSize(it) } }
+        backup.markReadOnDelete?.let { setMarkReadOnDelete(it) }
     }
 
     /**
@@ -262,6 +272,7 @@ class SettingsRepository(context: Context) {
         private val KEY_SWIPE_LEFT = stringPreferencesKey("swipe_left")
         private val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
         private val KEY_CONVERSATION_VIEW = booleanPreferencesKey("conversation_view")
+        private val KEY_MARK_READ_ON_DELETE = booleanPreferencesKey("mark_read_on_delete")
         private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         private val KEY_HAS_SEEN_WELCOME = booleanPreferencesKey("has_seen_welcome")

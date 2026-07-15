@@ -605,4 +605,11 @@
     <string name="compose_contacts_priming_body">Compléter les destinataires depuis les contacts de cet appareil. Sterna Mail les lit uniquement sur l\'appareil et ne les envoie jamais.</string>
     <string name="compose_contacts_priming_enable">Activer</string>
     <string name="compose_contacts_priming_not_now">Pas maintenant</string>
+    <string name="settings_mark_read_on_delete_title">Marquer comme lu à la suppression</string>
+    <string name="settings_mark_read_on_delete_subtitle">Les messages supprimés ne restent pas non lus dans la corbeille</string>
+    <string name="settings_about_section">À propos</string>
+    <string name="settings_about_version">Version</string>
+    <string name="settings_about_source">Code source</string>
+    <string name="settings_about_license">Licence</string>
+    <string name="settings_about_author">Auteur</string>
 </resources>

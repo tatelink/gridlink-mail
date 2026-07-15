@@ -609,4 +609,11 @@
     <string name="compose_contacts_priming_body">Autocomplete recipients from this device\'s contacts. Sterna Mail reads them on-device only, never uploads them.</string>
     <string name="compose_contacts_priming_enable">Enable</string>
     <string name="compose_contacts_priming_not_now">Not now</string>
+    <string name="settings_mark_read_on_delete_title">Mark as read when deleting</string>
+    <string name="settings_mark_read_on_delete_subtitle">Deleted messages don’t stay unread in Trash</string>
+    <string name="settings_about_section">About</string>
+    <string name="settings_about_version">Version</string>
+    <string name="settings_about_source">Source code</string>
+    <string name="settings_about_license">License</string>
+    <string name="settings_about_author">Author</string>
 </resources>

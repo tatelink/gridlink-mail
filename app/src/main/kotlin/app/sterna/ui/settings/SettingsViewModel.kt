@@ -262,6 +262,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setConversationView(enabled) }
     }
 
+    val markReadOnDelete = settings.markReadOnDelete.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
+    fun setMarkReadOnDelete(enabled: Boolean) {
+        viewModelScope.launch { settings.setMarkReadOnDelete(enabled) }
+    }
+
     val messageTextSize = settings.messageTextSize.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
