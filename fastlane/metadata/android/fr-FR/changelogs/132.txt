@@ -1,0 +1,3 @@
+Corrections : plantage au retour vers la liste sur certains appareils (rendu OpenGL), plantage à la suppression depuis la lecture, écran de démarrage clair quand le système est en thème sombre.
+
+Nouveau : section À propos dans les réglages, et option pour marquer les messages comme lus à la suppression.

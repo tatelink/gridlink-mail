@@ -1,0 +1,3 @@
+Fixes: crash when returning to the list on some devices (OpenGL-rendered), crash when deleting a message from the reading view, bright splash screen when the system is in dark mode.
+
+New: About section in Settings, and an option to mark messages as read when deleting them.
