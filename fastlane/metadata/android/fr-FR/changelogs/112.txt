@@ -1,4 +1,1 @@
-Correction d'un plantage qui fermait l'application dès l'ouverture d'un message
-sur certains appareils (constaté sur des téléphones anciens et des ROM
-personnalisées). Le corps des messages s'affiche désormais correctement, les
-messages très longs défilant à l'intérieur de leur carte.
+Correction d'un plantage qui fermait l'application dès l'ouverture d'un message sur certains appareils (constaté sur des téléphones anciens et des ROM personnalisées). Le corps des messages s'affiche désormais correctement, les messages très longs défilant à l'intérieur de leur carte.

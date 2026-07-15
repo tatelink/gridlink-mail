@@ -1,3 +1,1 @@
-Fix: Gmail accounts no longer show an empty "[Gmail]" container in the folder
-list. Non-selectable container folders are now hidden, so Sent, Drafts, Trash and
-Spam appear directly instead of nested one level down.
+Fix: Gmail accounts no longer show an empty "[Gmail]" container in the folder list. Non-selectable container folders are now hidden, so Sent, Drafts, Trash and Spam appear directly instead of nested one level down.

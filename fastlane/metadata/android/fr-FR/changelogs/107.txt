@@ -1,7 +1,4 @@
-L'ouverture d'un message est désormais instantanée : les corps des mails sont
-mis en cache et préchargés, ils s'affichent immédiatement au lieu d'attendre le
-réseau, avec une animation d'ouverture plus douce.
+L'ouverture d'un message est désormais instantanée : les corps des mails sont mis en cache et préchargés, ils s'affichent immédiatement au lieu d'attendre le réseau, avec une animation d'ouverture plus douce.
 
 * Navigation : les transitions du menu et du tiroir sont maintenant instantanées.
-* Correction : les mails HTML qui définissent leur propre style sombre ne
-  s'affichent plus de travers dans le thème sombre.
+* Correction : les mails HTML qui définissent leur propre style sombre ne s'affichent plus de travers dans le thème sombre.

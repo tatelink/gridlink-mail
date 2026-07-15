@@ -1,6 +1,3 @@
 Sterna Mail 1.0 — our first public release. 🐦
 
-A private, native email app for JMAP and IMAP/SMTP: unified inbox across
-accounts, offline reading, conversation threads, powerful search, compose
-with schedule & undo send, push notifications with no Google services, and
-remote tracking content blocked by default. No ads, no tracking, open source.
+A private, native email app for JMAP and IMAP/SMTP: unified inbox across accounts, offline reading, conversation threads, powerful search, compose with schedule & undo send, push notifications with no Google services, and remote tracking content blocked by default. No ads, no tracking, open source.

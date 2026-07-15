@@ -1,7 +1,4 @@
-Reading a message is tidier: a Reply button in the toolbar (it replies to the
-latest message in the thread), Reply / Forward buttons at the foot of single
-emails, and a streamlined overflow menu.
+Reading a message is tidier: a Reply button in the toolbar (it replies to the latest message in the thread), Reply / Forward buttons at the foot of single emails, and a streamlined overflow menu.
 
 * Fix: "Show images" now actually loads the blocked remote images.
-* Dark theme: HTML emails render dark instead of a glaring white block, matching
-  the app background.
+* Dark theme: HTML emails render dark instead of a glaring white block, matching the app background.

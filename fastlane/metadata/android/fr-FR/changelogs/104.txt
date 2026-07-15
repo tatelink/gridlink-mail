@@ -1,8 +1,4 @@
-Connectez-vous à Outlook / Microsoft via OAuth (XOAUTH2) — sans mot de passe ni
-mot de passe d'application. Choisissez le fournisseur Outlook sur l'écran de
-connexion et autorisez dans votre navigateur.
+Connectez-vous à Outlook / Microsoft via OAuth (XOAUTH2) — sans mot de passe ni mot de passe d'application. Choisissez le fournisseur Outlook sur l'écran de connexion et autorisez dans votre navigateur.
 
-* Correction : changer de compte n'affiche plus les messages d'un autre compte,
-  et ne se bloque plus quand deux comptes sont sur le même serveur.
-* Réglages d'identité et de compte plus nets : boutons d'action pleine largeur
-  et cohérents.
+* Correction : changer de compte n'affiche plus les messages d'un autre compte, et ne se bloque plus quand deux comptes sont sur le même serveur.
+* Réglages d'identité et de compte plus nets : boutons d'action pleine largeur et cohérents.
