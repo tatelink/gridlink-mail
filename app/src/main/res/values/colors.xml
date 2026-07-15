@@ -2,7 +2,11 @@
     <!-- Pre-Compose window background, matching the Arctic (light) surface so launch
          shows the brand colour instead of a white flash. Compose drives all in-app colour. -->
     <color name="sterna_window_background">#F7F8FA</color>
-    <!-- Splash background: light grey, matching the adaptive launcher icon (kept light
-         in both themes so it stays consistent with the dark-tern-on-light-grey mark). -->
+    <!-- Splash background. Follows day/night (Codeberg #9: an always-light splash is a
+         flashbang on a dark-themed device); the night variant matches the dark window
+         background so the splash hands off seamlessly. -->
     <color name="sterna_splash_background">#F4F6F8</color>
+    <!-- Splash tern silhouette: dark teal on the light field, soft teal (the dark-mode
+         primary) on the dark one. -->
+    <color name="sterna_splash_tern">#17414C</color>
 </resources>
