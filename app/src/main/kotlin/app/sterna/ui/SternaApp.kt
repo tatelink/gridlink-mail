@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,7 +48,9 @@ import app.sterna.ui.compose.ComposeScreen
 import app.sterna.ui.connect.ConnectScreen
 import app.sterna.ui.inbox.InboxScreen
 import app.sterna.ui.inbox.InboxViewModel
+import app.sterna.ui.message.LocalNavTransitionActive
 import app.sterna.ui.message.MessageScreen
+import app.sterna.ui.message.NavFadeGuard
 import app.sterna.ui.outbox.OutboxScreen
 import app.sterna.ui.scheduled.ScheduledSendsScreen
 import app.sterna.ui.search.SearchScreen
@@ -196,6 +200,11 @@ private fun MainNavHost(
     onAccountsChanged: () -> Unit,
 ) {
     val nav = rememberNavController()
+    // Devices that SIGSEGV'd inside a message fade (the #10 GL-functor bug) have the fade
+    // latched off by the crash sentinel — they navigate instantly instead of crashing.
+    // Read once per process: the latch only changes via a process death.
+    val navContext = LocalContext.current
+    val messageFadeDisabled = remember { NavFadeGuard.fadeDisabled(navContext) }
     // Instant transitions between menus/screens by default: navigation-compose's default
     // animated cross-fade gets stuck (showing the bare window background) on rapid back/forth
     // navigation. The message route opts back into the soft fade below — the one place an
@@ -246,9 +255,10 @@ private fun MainNavHost(
                 navArgument("src") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
             // Opening and closing a message keep a soft cross-fade (matching the previous
-            // default), while the rest of the app navigates instantly.
-            enterTransition = { fadeIn(tween(700)) },
-            popExitTransition = { fadeOut(tween(700)) },
+            // default), while the rest of the app navigates instantly — except on devices the
+            // [NavFadeGuard] sentinel has latched after a fade-window crash (Codeberg #10).
+            enterTransition = { if (messageFadeDisabled) EnterTransition.None else fadeIn(tween(700)) },
+            popExitTransition = { if (messageFadeDisabled) ExitTransition.None else fadeOut(tween(700)) },
         ) { entry ->
             val emailId = Uri.decode(entry.arguments?.getString("emailId").orEmpty())
             val accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null }
@@ -264,29 +274,39 @@ private fun MainNavHost(
             } else {
                 null
             }
-            MessageScreen(
-                anchorEmailId = emailId,
-                anchorAccountId = accountId,
-                initialIndex = index,
-                listSource = listSource,
-                searchResults = searchResults,
-                // Guard both actions on the message entry being resumed: during its fade-out
-                // pop the screen is still composed and its Back arrow still tappable, so an
-                // unguarded onBack would popBackStack a second time and empty the stack
-                // (the white-screen freeze). A reply navigate is gated for the same reason.
-                onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
-                onReply = { mode, replyToId, replyAccountId ->
-                    if (entry.lifecycleIsResumed()) {
-                        val accountArg = replyAccountId?.let { "&accountId=${Uri.encode(it)}" }.orEmpty()
-                        nav.navigate("compose?replyTo=${Uri.encode(replyToId)}&mode=$mode$accountArg")
-                    }
-                },
-                onComposeTo = { address ->
-                    if (entry.lifecycleIsResumed()) {
-                        nav.navigate("compose?to=${Uri.encode(address)}")
-                    }
-                },
-            )
+            // The fades above composite this whole destination through an offscreen graphics
+            // layer while they run; the reader's body WebView must not draw its hardware GL
+            // functor into that layer (null-SkSurface SIGSEGV on many HWUI builds — Codeberg
+            // #10), so it is told when a transition is running and parks on a software layer
+            // for the duration. True during the enter fade, the pop-exit fade, and the
+            // pop-return fade from compose.
+            val navTransitionActive = transition.currentState != EnterExitState.Visible ||
+                transition.targetState != EnterExitState.Visible
+            CompositionLocalProvider(LocalNavTransitionActive provides navTransitionActive) {
+                MessageScreen(
+                    anchorEmailId = emailId,
+                    anchorAccountId = accountId,
+                    initialIndex = index,
+                    listSource = listSource,
+                    searchResults = searchResults,
+                    // Guard both actions on the message entry being resumed: during its fade-out
+                    // pop the screen is still composed and its Back arrow still tappable, so an
+                    // unguarded onBack would popBackStack a second time and empty the stack
+                    // (the white-screen freeze). A reply navigate is gated for the same reason.
+                    onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
+                    onReply = { mode, replyToId, replyAccountId ->
+                        if (entry.lifecycleIsResumed()) {
+                            val accountArg = replyAccountId?.let { "&accountId=${Uri.encode(it)}" }.orEmpty()
+                            nav.navigate("compose?replyTo=${Uri.encode(replyToId)}&mode=$mode$accountArg")
+                        }
+                    },
+                    onComposeTo = { address ->
+                        if (entry.lifecycleIsResumed()) {
+                            nav.navigate("compose?to=${Uri.encode(address)}")
+                        }
+                    },
+                )
+            }
         }
         composable(
             route = "compose?replyTo={replyTo}&mode={mode}&accountId={accountId}&restore={restore}&to={to}",

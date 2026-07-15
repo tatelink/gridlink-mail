@@ -22,6 +22,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -80,6 +81,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -137,6 +139,23 @@ import java.time.format.DateTimeFormatter
  * pre-seed + crash-sentinel logic decides the layer per device.
  */
 private const val FORCE_SOFTWARE_LAYER = false
+
+/**
+ * True while the nav destination hosting the reading view is animating (the message route's
+ * enter/pop-exit fade), provided by the NavHost. A running fade composites the whole destination
+ * through an offscreen graphics layer; on the GL HWUI pipeline, drawing the body WebView's
+ * hardware functor into that layer can hit an unguarded null SkSurface in AOSP's
+ * GLFunctorDrawable (unfixed from Android 11 through current main) — a hard SIGSEGV on every
+ * back press (Codeberg #10: OnePlus 5T, Xperia 1 II, Pixel 4; Vulkan-pipeline devices like the
+ * Pixel 7 are structurally immune). Two defenses hang off this signal:
+ *  - [NavFadeGuard] arms a persisted crash sentinel exactly while a live hardware body is
+ *    exposed to a fade; a process death in that window disables the fade on that device forever;
+ *  - [WebViewLayerGuard.markProven] is deferred until no fade runs, so a fade-window crash is
+ *    never misattributed to the steady-state functor (which is fine on these devices).
+ * The [WebViewLayerGuard] sentinel alone can't catch this crash — it fires after a body has
+ * already drawn safely, so the device is long latched "proven".
+ */
+val LocalNavTransitionActive = compositionLocalOf { false }
 
 /**
  * The reading view. A [HorizontalPager] lets the user swipe left/right between the entries
@@ -197,7 +216,15 @@ fun MessageScreen(
                     // have been removed, hence the id→live-index lookup.
                     entryAt = { i ->
                         entries.getOrNull(i)?.also { entry ->
-                            liveIndexById[entry.first]?.let { liveIndex -> items[liveIndex] }
+                            // Touching the paging item triggers page loads near the end. Guard the
+                            // index against the LIVE count: deleting from the reader invalidates
+                            // the paged flow, and the pager's item provider re-runs this lambda
+                            // during drainChanges — before recomposition rebuilds liveIndexById —
+                            // while the presenter is transiently EMPTY (Codeberg #13: reader
+                            // delete threw Index: 0, Size: 0 here).
+                            liveIndexById[entry.first]
+                                ?.takeIf { it < items.itemCount }
+                                ?.let { liveIndex -> items[liveIndex] }
                         }
                     },
                     onBack = onBack,
@@ -1668,6 +1695,102 @@ private object WebViewLayerGuard {
 }
 
 /**
+ * Crash sentinel for the message route's nav fade (Codeberg #10). On the GL HWUI pipeline,
+ * compositing a hardware WebView through the fade's offscreen layer can SIGSEGV in AOSP's
+ * GLFunctorDrawable (unguarded null SkSurface on the empty-clip saveLayer path — present,
+ * unfixed, from Android 11 through current main; the Vulkan pipeline has no such path). The
+ * [FrameLayout] wrap around [BodyWebView] steers healthy geometry away from that path; this
+ * sentinel is the safety net for devices where it still lines up badly.
+ *
+ * Protocol (same commit()-survives-SIGSEGV pattern as [WebViewLayerGuard]):
+ *  - [arm]/[disarm] bracket the exact exposure window — a laid-out hardware body composed while
+ *    a message-route fade runs (≤ 700 ms, foreground, actively rendering). Ref-counted: the
+ *    pager can have up to three bodies composed at once.
+ *  - [onActivityStop]/[onActivityStart] clear the flag while the activity is stopped: frames
+ *    stop, the functor cannot draw, so a background kill (LMK, swipe-away) never counts.
+ *  - [fadeDisabled] reconciles at startup: a leftover armed flag means the process died inside
+ *    an exposure window — latch the fade OFF for this device, permanently. Threshold is a
+ *    single crash: the window is so tight that false positives are freak coincidences, and
+ *    their cost is only a cosmetic fade, while a second guaranteed native crash is far worse.
+ *  - The latch records [Build.FINGERPRINT]: a ROM update (the bug is ROM-side) re-probes once —
+ *    at worst one more crash on a still-broken ROM, at best the fade comes back after a fix.
+ */
+internal object NavFadeGuard {
+    private const val PREFS = "webview_layer_guard" // shared file, namespaced keys
+    private const val KEY_FADE_DISABLED = "fade_disabled"
+    private const val KEY_FADE_ARMED = "fade_armed"
+    private const val KEY_FADE_LATCH_FP = "fade_latch_fp"
+
+    @Volatile private var latched = false
+    private var initialized = false
+    private var refCount = 0
+    private var stopped = false
+    private var diskArmed = false
+
+    private fun prefs(context: Context) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /** Read once per process at NavHost composition (the latch only ever changes via a process
+     *  death, so per-process freshness is exactly right). Also performs startup reconciliation. */
+    @Synchronized
+    fun fadeDisabled(context: Context): Boolean {
+        if (initialized) return latched
+        initialized = true
+        val p = prefs(context)
+        if (p.getBoolean(KEY_FADE_ARMED, false)) {
+            // The previous process died while a hardware body was exposed to a running fade:
+            // that is the #10 SIGSEGV (or a freak coincidence we accept). Latch the fade off.
+            p.edit()
+                .putBoolean(KEY_FADE_ARMED, false)
+                .putBoolean(KEY_FADE_DISABLED, true)
+                .putString(KEY_FADE_LATCH_FP, Build.FINGERPRINT)
+                .commit()
+        }
+        latched = p.getBoolean(KEY_FADE_DISABLED, false)
+        if (latched && p.getString(KEY_FADE_LATCH_FP, null) != Build.FINGERPRINT) {
+            // ROM changed since the latch: re-probe the fade once on the new build.
+            p.edit().remove(KEY_FADE_DISABLED).remove(KEY_FADE_LATCH_FP).commit()
+            latched = false
+        }
+        return latched
+    }
+
+    @Synchronized
+    fun arm(context: Context) {
+        refCount++
+        sync(context)
+    }
+
+    @Synchronized
+    fun disarm(context: Context) {
+        refCount--
+        sync(context)
+    }
+
+    @Synchronized
+    fun onActivityStop(context: Context) {
+        stopped = true
+        sync(context)
+    }
+
+    @Synchronized
+    fun onActivityStart(context: Context) {
+        stopped = false
+        sync(context)
+    }
+
+    private fun sync(context: Context) {
+        val want = refCount > 0 && !stopped && !latched
+        if (want == diskArmed) return
+        diskArmed = want
+        // Synchronous commit: runs on the UI thread during applyChanges, i.e. strictly before
+        // the frame in which the fade's offscreen layer is first rendered — the flag is on disk
+        // before the RenderThread can possibly SIGSEGV.
+        prefs(context).edit().putBoolean(KEY_FADE_ARMED, want).commit()
+    }
+}
+
+/**
  * The message-body WebView. It fills the viewport and OWNS its vertical scroll, so Blink culls
  * offscreen content (the email-view jank fix, Codeberg #5). There is no competing outer Compose
  * vertical scroll, so vertical drags stay here while horizontal swipes reach the reading view's
@@ -1752,6 +1875,7 @@ private fun EmailWebView(
     // The WebView fills the viewport (≈ one screen), so it stays within the software layer's ARGB_8888
     // bitmap cap with no extra clamping. See [WebViewLayerGuard] for the self-healing sentinel.
     val useSoftwareLayer = remember(context) { WebViewLayerGuard.useSoftwareLayer(context) }
+    val navTransitionActive = LocalNavTransitionActive.current
     val client = remember { BlockingWebViewClient() }
     client.blockRemote = blockRemote
     client.stripTracking = stripTracking
@@ -1770,17 +1894,30 @@ private fun EmailWebView(
     // On the hardware layer, once the body has drawn safely, latch the device as "hardware proven" so
     // the crash sentinel never arms again. The delay outlives the first frame: an S7-class functor
     // would already have SIGSEGV'd the process before this runs, leaving the sentinel set for
-    // next-launch detection.
-    LaunchedEffect(ready, useSoftwareLayer) {
-        if (ready && !useSoftwareLayer) {
+    // next-launch detection. Gated on the nav fade being over, so a fade-window crash (the #10
+    // offscreen-layer bug, [NavFadeGuard]'s territory) is never counted as steady-state proof.
+    LaunchedEffect(ready, useSoftwareLayer, navTransitionActive) {
+        if (ready && !useSoftwareLayer && !navTransitionActive) {
             delay(500)
             WebViewLayerGuard.markProven(context)
         }
     }
+    // Arm the fade-crash sentinel exactly while a laid-out hardware body is exposed to a running
+    // nav fade — the only window where the #10 SIGSEGV can strike. DisposableEffect covers every
+    // exit uniformly: fade completes (key flips → restart → disarm), destination disposed after a
+    // pop (onDispose), fade cancelled, page recycled. Only a process death leaves the flag set.
+    // The commit() runs on the UI thread during applyChanges, strictly before the frame in which
+    // the fade's offscreen layer is first rendered. Software-layer devices never arm: they have
+    // no GL functor, and their fade has always been safe.
+    val fadeExposure = ready && !useSoftwareLayer && navTransitionActive
+    DisposableEffect(fadeExposure) {
+        if (fadeExposure) NavFadeGuard.arm(context)
+        onDispose { if (fadeExposure) NavFadeGuard.disarm(context) }
+    }
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
-            BodyWebView(ctx).apply {
+            val webView = BodyWebView(ctx).apply {
                 // Compositing path. The hardware-accelerated GLFunctor lets the WebView tile its
                 // own paint (full-height bodies, no bitmap cap), but on devices whose HWUI/GPU
                 // blobs are mismatched (e.g. older hardware running a newer custom ROM, which
@@ -1809,8 +1946,26 @@ private fun EmailWebView(
                 settings.displayZoomControls = false
                 webViewClient = client
             }
+            // The WebView is deliberately NOT the AndroidView root: an intermediate FrameLayout
+            // changes the clip geometry HWUI hands the GL functor when the nav fade composites
+            // this subtree into its offscreen layer, steering it away from the empty-clip
+            // "unclipped saveLayer" path whose unguarded null SkSurface SIGSEGVs GL-pipeline
+            // devices (Codeberg #10; AOSP GLFunctorDrawable bug, unfixed since Android 11).
+            // Same shape as react-native-webview's shipped fix for the identical crash. The
+            // [NavFadeGuard] sentinel remains the safety net for devices where the geometry
+            // still lines up badly.
+            FrameLayout(ctx).apply {
+                addView(
+                    webView,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+            }
         },
-        update = { webView ->
+        update = { frame ->
+            val webView = frame.getChildAt(0) as BodyWebView
             // Match the WebView's own background to the theme so it doesn't flash white.
             webView.setBackgroundColor(backgroundColor)
             webView.settings.textZoom = textZoom

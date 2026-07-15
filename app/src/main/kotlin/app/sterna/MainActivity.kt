@@ -12,6 +12,7 @@ import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.data.settings.PreviewLines
 import app.sterna.core.data.settings.ThemeMode
 import app.sterna.ui.SternaApp
+import app.sterna.ui.message.NavFadeGuard
 import app.sterna.ui.components.LocalListDensity
 import app.sterna.ui.components.LocalPreviewLines
 import app.sterna.ui.theme.SternaTheme
@@ -40,11 +41,15 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         application.container.appLock.onAppBackgrounded(System.currentTimeMillis())
+        // Stopped activity → no frames → the reader's GL functor cannot draw, so a process
+        // kill while backgrounded (LMK, swipe-away) must not count as a fade-window crash.
+        NavFadeGuard.onActivityStop(this)
     }
 
     override fun onStart() {
         super.onStart()
         application.container.appLock.onAppForegrounded(System.currentTimeMillis())
+        NavFadeGuard.onActivityStart(this)
         applySecureFlag()
     }
 
