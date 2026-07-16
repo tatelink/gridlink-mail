@@ -6,7 +6,7 @@
     <!-- Optional: recipient autocomplete from device contacts (off by default; opt-in in Settings). -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <!-- Package visibility (Android 11+): let Sterna see and bind the OpenKeychain
          OpenPGP provider for message encryption/signing. -->
@@ -58,10 +58,18 @@
             </intent-filter>
         </activity>
 
+        <!-- specialUse (not dataSync): Android 15+ budgets dataSync FGS and then blocks
+             background restarts, which silently killed push on newer devices (#11). The
+             persistent user-initiated email-push connection is the canonical specialUse
+             case (no Google/FCM alternative exists for self-hosted JMAP/IMAP servers). -->
         <service
             android:name=".push.PushService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Realtime new-mail push over the user's own mail-server connections (JMAP EventSource / IMAP IDLE); no FCM/Google alternative exists for self-hosted servers." />
+        </service>
 
         <!-- Lets AppCompat persist the in-app language choice on Android 12 and below
              (on Android 13+ the platform stores it). See AppCompatDelegate.setApplicationLocales. -->

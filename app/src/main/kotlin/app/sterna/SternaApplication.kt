@@ -42,6 +42,10 @@ class AppContainer(context: Context) {
 
     init {
         val appContext = context.applicationContext
+        // Fallback new-mail poll: keeps notifications flowing when live push is killed
+        // (Android 15+ FGS policies, OEM battery managers — Codeberg #11). Periodic work
+        // persists across reboots; a healthy push makes each run a no-op.
+        app.sterna.push.MailFetchWorker.ensureScheduled(appContext)
         // Let the data layer arm the delivery worker from any send call site (compose, RSVP, …).
         mailRepository.outboxScheduler = OutboxScheduler { id, delay -> Outbox.enqueue(appContext, id, delay) }
         // Re-arm any send left mid-flight (WorkManager persists jobs, but re-checking is a safety net).

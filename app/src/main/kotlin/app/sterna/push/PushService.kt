@@ -9,20 +9,15 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import app.sterna.R
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
-import app.sterna.core.data.settings.SettingsRepository
-import app.sterna.core.jmap.model.Email
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.Closeable
-import java.util.Calendar
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -35,20 +30,32 @@ import java.util.concurrent.ConcurrentHashMap
 class PushService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val connections = ConcurrentHashMap<String, Closeable>()
-    private val baselines = ConcurrentHashMap<String, Set<String>>()
 
     @Volatile
     private var generation = 0
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         Notifications.ensureChannels(this)
+        // specialUse, not dataSync: Android 15+ budgets dataSync foreground services
+        // (~6h/24h, then a forced stop with background restarts blocked), which silently
+        // killed push on newer devices (Codeberg #11). A persistent email-push connection
+        // is exactly what specialUse exists for (same choice as K-9/Thunderbird); the
+        // subtype declaration lives on the <service> entry in the manifest.
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         } else {
             0
         }
         ServiceCompat.startForeground(this, Notifications.SERVICE_ID, Notifications.serviceNotification(this), type)
+    }
+
+    /** Android 15+ FGS timeout (belt: specialUse should never receive one). Stop gracefully
+     *  instead of taking the system's ANR/kill; [MailFetchWorker] keeps mail flowing. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "Foreground service timed out (type $fgsType); stopping, fallback poll takes over")
+        stopSelf()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -78,11 +85,11 @@ class PushService : Service() {
         val repo = application.container.mailRepository
         runCatching {
             val (_, emails) = repo.refreshAccountInbox(credentials)
-            if (resetBaseline || baselines[credentials.id] == null) {
-                baselines[credentials.id] = emails.map { it.id }.toSet()
+            if (resetBaseline || !NewMailNotifier.hasBaseline(this, credentials.id)) {
+                NewMailNotifier.seed(this, credentials.id, emails)
             } else {
                 // Reconnected after a drop — notify for anything that arrived meanwhile.
-                notifyNew(credentials, emails)
+                NewMailNotifier.notifyDiff(this, credentials, emails)
             }
             connections[credentials.id] = repo.openAccountPush(
                 credentials,
@@ -110,47 +117,14 @@ class PushService : Service() {
         val repo = application.container.mailRepository
         runCatching {
             val (_, emails) = repo.refreshAccountInbox(credentials)
-            notifyNew(credentials, emails)
+            NewMailNotifier.notifyDiff(this, credentials, emails)
         }.onFailure { Log.e(TAG, "onAccountChanged failed", it) }
-    }
-
-    /** Post notifications for inbox messages not seen before, then advance the baseline. */
-    private suspend fun notifyNew(credentials: AccountCredentials, emails: List<Email>) {
-        val known = baselines[credentials.id].orEmpty()
-        val newMail = emails.filter { it.id !in known && !it.isSeen }
-        Log.i(TAG, "account ${credentials.id}: ${emails.size} total, ${newMail.size} new unseen")
-        if (newMail.isNotEmpty()) {
-            val silent = quietHoursActive()
-            newMail.forEach { Notifications.notifyNewMail(this, it, credentials.id, silent) }
-            // A group summary requires 2+ children to be shown by the system.
-            if (newMail.size >= 2) {
-                val lines = newMail.map { mail ->
-                    val sender = mail.from.firstOrNull()?.display() ?: getString(R.string.notif_new_message)
-                    val subject = mail.subject?.takeIf { it.isNotBlank() } ?: getString(R.string.message_no_subject)
-                    getString(R.string.notif_group_line, sender, subject)
-                }
-                Notifications.notifyGroupSummary(this, credentials.id, credentials.username, newMail.size, lines, silent)
-            }
-        }
-        baselines[credentials.id] = emails.map { it.id }.toSet()
-    }
-
-    /** Whether new mail should be posted silently right now (quiet-hours window). */
-    private suspend fun quietHoursActive(): Boolean {
-        val settings = application.container.settingsRepository
-        if (!settings.quietHoursEnabled.first()) return false
-        val now = Calendar.getInstance()
-        val minutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
-        return SettingsRepository.isWithinQuietHours(
-            minutes,
-            settings.quietHoursStart.first(),
-            settings.quietHoursEnd.first(),
-        )
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        isRunning = false
         connections.values.forEach { runCatching { it.close() } }
         scope.cancel()
         super.onDestroy()
@@ -159,6 +133,11 @@ class PushService : Service() {
     companion object {
         private const val TAG = "PushService"
         private const val RECONNECT_DELAY_MS = 5_000L
+
+        /** Whether the live push service is up — the fallback poll no-ops while it is. */
+        @Volatile
+        var isRunning = false
+            private set
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, PushService::class.java))
