@@ -257,6 +257,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         accountId: String? = null,
         restore: Boolean = false,
         to: String? = null,
+        cc: String? = null,
+        bcc: String? = null,
+        subject: String? = null,
+        body: String? = null,
     ) {
         if (prepared) return
         prepared = true
@@ -293,9 +297,19 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             return
         }
 
-        // A fresh mail pre-addressed to a participant (no original to fetch).
-        if (!to.isNullOrBlank()) {
-            _prefill.value = DraftFields(to = to, subject = "", body = "")
+        // A fresh mail pre-addressed to a participant, or prefilled from a mailto: link
+        // (Codeberg #15) — no original to fetch.
+        if (!to.isNullOrBlank() || !cc.isNullOrBlank() || !bcc.isNullOrBlank() ||
+            !subject.isNullOrBlank() || !body.isNullOrBlank()
+        ) {
+            _prefill.value = DraftFields(
+                to = to.orEmpty(),
+                cc = cc.orEmpty(),
+                bcc = bcc.orEmpty(),
+                subject = subject.orEmpty(),
+                body = body.orEmpty(),
+                expand = !cc.isNullOrBlank() || !bcc.isNullOrBlank(),
+            )
             return
         }
 

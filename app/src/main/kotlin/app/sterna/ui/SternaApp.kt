@@ -40,6 +40,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import app.sterna.MailtoDraft
 import app.sterna.container
 import app.sterna.core.data.account.StoredAccount
 import app.sterna.push.PushService
@@ -123,7 +124,11 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
 }
 
 @Composable
-fun SternaApp(viewModel: RootViewModel = viewModel()) {
+fun SternaApp(
+    pendingMailto: MailtoDraft? = null,
+    onMailtoConsumed: () -> Unit = {},
+    viewModel: RootViewModel = viewModel(),
+) {
     RequestNotificationPermission()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val hasSeenWelcome by viewModel.hasSeenWelcome.collectAsStateWithLifecycle()
@@ -162,6 +167,8 @@ fun SternaApp(viewModel: RootViewModel = viewModel()) {
                 currentAccountId = s.accountId,
                 onSwitchAccount = viewModel::switchAccount,
                 onAccountsChanged = viewModel::refresh,
+                pendingMailto = pendingMailto,
+                onMailtoConsumed = onMailtoConsumed,
             )
         }
         if (locked) LockScreen(onUnlocked = appLock::unlock)
@@ -198,8 +205,20 @@ private fun MainNavHost(
     currentAccountId: String,
     onSwitchAccount: (String) -> Unit,
     onAccountsChanged: () -> Unit,
+    pendingMailto: MailtoDraft? = null,
+    onMailtoConsumed: () -> Unit = {},
 ) {
     val nav = rememberNavController()
+    // A tapped mailto: link opens the compose screen prefilled with the parsed fields
+    // (Codeberg #15). Consumed immediately so recompositions can't re-navigate.
+    LaunchedEffect(pendingMailto) {
+        val m = pendingMailto ?: return@LaunchedEffect
+        onMailtoConsumed()
+        nav.navigate(
+            "compose?to=${Uri.encode(m.to)}&cc=${Uri.encode(m.cc)}&bcc=${Uri.encode(m.bcc)}" +
+                "&subject=${Uri.encode(m.subject)}&body=${Uri.encode(m.body)}",
+        )
+    }
     // Devices that SIGSEGV'd inside a message fade (the #10 GL-functor bug) have the fade
     // latched off by the crash sentinel — they navigate instantly instead of crashing.
     // Read once per process: the latch only changes via a process death.
@@ -309,13 +328,19 @@ private fun MainNavHost(
             }
         }
         composable(
-            route = "compose?replyTo={replyTo}&mode={mode}&accountId={accountId}&restore={restore}&to={to}",
+            route = "compose?replyTo={replyTo}&mode={mode}&accountId={accountId}&restore={restore}" +
+                "&to={to}&cc={cc}&bcc={bcc}&subject={subject}&body={body}",
             arguments = listOf(
                 navArgument("replyTo") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("mode") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("restore") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("to") { type = NavType.StringType; nullable = true; defaultValue = null },
+                // mailto: prefills (Codeberg #15).
+                navArgument("cc") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("bcc") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("subject") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("body") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
             ComposeScreen(
@@ -328,6 +353,10 @@ private fun MainNavHost(
                 accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null },
                 restore = entry.arguments?.getString("restore") == "true",
                 to = entry.arguments?.getString("to")?.let { Uri.decode(it) }?.ifBlank { null },
+                cc = entry.arguments?.getString("cc")?.let { Uri.decode(it) }?.ifBlank { null },
+                bcc = entry.arguments?.getString("bcc")?.let { Uri.decode(it) }?.ifBlank { null },
+                subject = entry.arguments?.getString("subject")?.let { Uri.decode(it) }?.ifBlank { null },
+                body = entry.arguments?.getString("body")?.let { Uri.decode(it) }?.ifBlank { null },
             )
         }
         composable("search") { entry ->

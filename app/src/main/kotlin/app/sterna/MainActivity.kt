@@ -1,5 +1,7 @@
 package app.sterna
 
+import android.content.Intent
+import android.net.MailTo
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
@@ -18,9 +20,15 @@ import app.sterna.ui.components.LocalPreviewLines
 import app.sterna.ui.theme.SternaTheme
 
 class MainActivity : AppCompatActivity() {
+    /** A mailto: link waiting to open the compose screen (Codeberg #15). Set from the launch
+     *  intent or [onNewIntent] (the activity is singleTask, so an external link re-enters the
+     *  running instance), consumed by the NavHost once it has navigated. */
+    private val pendingMailto = androidx.compose.runtime.mutableStateOf<MailtoDraft?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        pendingMailto.value = parseMailto(intent)
         val settings = application.container.settingsRepository
         setContent {
             val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
@@ -32,10 +40,35 @@ class MainActivity : AppCompatActivity() {
                     LocalListDensity provides density,
                     LocalPreviewLines provides previewLines,
                 ) {
-                    SternaApp()
+                    SternaApp(
+                        pendingMailto = pendingMailto.value,
+                        onMailtoConsumed = { pendingMailto.value = null },
+                    )
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        parseMailto(intent)?.let { pendingMailto.value = it }
+    }
+
+    /** RFC 6068 mailto: parsing — addresses plus the optional subject/body/cc/bcc fields. */
+    private fun parseMailto(intent: Intent?): MailtoDraft? {
+        val data = intent?.data ?: return null
+        if (!"mailto".equals(data.scheme, ignoreCase = true)) return null
+        return runCatching {
+            val m = MailTo.parse(data.toString())
+            MailtoDraft(
+                to = m.to.orEmpty(),
+                cc = m.cc.orEmpty(),
+                bcc = m.headers?.get("bcc").orEmpty(),
+                subject = m.subject.orEmpty(),
+                body = m.body.orEmpty(),
+            )
+        }.getOrNull()
     }
 
     override fun onStop() {
@@ -66,3 +99,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 }
+
+/** Prefill fields parsed from a mailto: link, handed to the compose screen (Codeberg #15). */
+data class MailtoDraft(
+    val to: String,
+    val cc: String,
+    val bcc: String,
+    val subject: String,
+    val body: String,
+)
