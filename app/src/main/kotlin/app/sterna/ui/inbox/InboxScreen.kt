@@ -110,6 +110,10 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.DrawerValue
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.key
@@ -120,7 +124,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -1364,6 +1371,13 @@ private fun SwipeableEmailRow(
     val offsetX = remember { Animatable(0f) }
     var rowWidth by remember { mutableIntStateOf(0) }
 
+    // The drag handler below lives in a pointerInput block that only restarts when the
+    // configured actions change — it must NOT capture onSwipe directly. The paged row
+    // re-binds with fresh state after each action (read toggled, flag flipped), and a
+    // stale capture kept dispatching the previous state's action: a second "toggle read"
+    // swipe re-applied the same state and visibly did nothing.
+    val currentOnSwipe by rememberUpdatedState(onSwipe)
+
     // Staggered first-screen entry (fade + slight rise), cascaded by row index. Plays
     // at most once per row; rows recycled in during scroll arrive with animateEntry
     // false and so snap straight to rest.
@@ -1438,9 +1452,9 @@ private fun SwipeableEmailRow(
                         val fraction = offsetX.value / width
                         when {
                             fraction >= SWIPE_COMMIT_FRACTION && rightAction != SwipeAction.NONE ->
-                                commitSwipe(rightAction, 1, width, motionOn, offsetX, lift, onSwipe) { flyDir = it }
+                                commitSwipe(rightAction, 1, width, motionOn, offsetX, lift, { currentOnSwipe(it) }) { flyDir = it }
                             -fraction >= SWIPE_COMMIT_FRACTION && leftAction != SwipeAction.NONE ->
-                                commitSwipe(leftAction, -1, width, motionOn, offsetX, lift, onSwipe) { flyDir = it }
+                                commitSwipe(leftAction, -1, width, motionOn, offsetX, lift, { currentOnSwipe(it) }) { flyDir = it }
                             else -> launch { offsetX.animateTo(0f) }
                         }
                     }
@@ -1465,13 +1479,45 @@ private fun SwipeableEmailRow(
                 isFlag -> MaterialTheme.colorScheme.onTertiaryContainer
                 else -> MaterialTheme.colorScheme.onSecondaryContainer
             }
+            // Commit-threshold feedback: the reveal stays neutral while the swipe is short
+            // of committing, then snaps to the action colour with a label pop and a haptic
+            // tick the moment releasing would trigger the action — so mid-swipe ambiguity
+            // ("is this far enough?") never arises. Crossing back mutes it again.
+            val armed = rowWidth > 0 && abs(offsetX.value) / rowWidth >= SWIPE_COMMIT_FRACTION
+            val bg by animateColorAsState(
+                targetValue = if (armed) color else MaterialTheme.colorScheme.surfaceContainerHigh,
+                animationSpec = if (motionOn) tween(120) else snap(),
+                label = "swipeRevealBg",
+            )
+            val fg by animateColorAsState(
+                targetValue = if (armed) onColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                animationSpec = if (motionOn) tween(120) else snap(),
+                label = "swipeRevealFg",
+            )
+            val labelScale by animateFloatAsState(
+                targetValue = if (armed) 1.12f else 1f,
+                animationSpec = if (motionOn) spring() else snap(),
+                label = "swipeRevealScale",
+            )
+            val haptics = LocalHapticFeedback.current
+            LaunchedEffect(armed) {
+                if (armed) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
             Box(
-                Modifier.matchParentSize().background(color).padding(horizontal = 24.dp),
+                Modifier.matchParentSize().background(bg).padding(horizontal = 24.dp),
                 contentAlignment = if (draggingRight) Alignment.CenterStart else Alignment.CenterEnd,
             ) {
                 val labelRes = swipeActionLabel(action, email, unarchiveContext)
                 if (labelRes != 0) {
-                    Text(stringResource(labelRes), color = onColor, style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        stringResource(labelRes),
+                        color = fg,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = labelScale
+                            scaleY = labelScale
+                        },
+                    )
                 }
             }
         }
