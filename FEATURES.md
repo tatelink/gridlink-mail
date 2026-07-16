@@ -146,6 +146,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Notification quick actions: reply (inline), mark read, delete
 - ✅ Push reconnects automatically when the connection drops (catches missed mail)
 - ✅ Bundled/grouped notifications per account — individual new-mail notifications collapse under a per-account summary
+- 🔜 Push/notifications beyond the Inbox (issue #16) — watch Sieve-filtered folders too: JMAP account-wide changes filtered on a watched-folder set; IMAP non-Inbox folders via the periodic fallback poll (IDLE is single-folder)
 - ✅ Quiet hours — a nightly window (Settings → Notifications) during which new mail still arrives but silently (no sound/vibration/heads-up)
 
 ## Privacy & security
