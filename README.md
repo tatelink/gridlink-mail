@@ -12,6 +12,7 @@
 
 <p align="center">
   <a href="https://codeberg.org/emon/sterna-mail/actions"><img alt="CI" src="https://codeberg.org/emon/sterna-mail/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://f-droid.org/packages/app.sterna/"><img alt="F-Droid" src="https://img.shields.io/f-droid/v/app.sterna?logo=fdroid&color=1976D2"></a>
   <a href="https://codeberg.org/emon/sterna-mail/releases/latest"><img alt="Latest release" src="https://img.shields.io/badge/download-latest%20APK-2F5E59"></a>
   <a href="LICENSE"><img alt="License: GPLv3" src="https://img.shields.io/badge/license-GPLv3-blue"></a>
   <a href="https://ko-fi.com/emoncode"><img alt="Support on Ko-fi" src="https://img.shields.io/badge/Ko--fi-support-FF6A4D?logo=ko-fi&logoColor=white"></a>
@@ -26,11 +27,11 @@ mail, on the server *you* choose.
 > every single year. We liked the idea of mail that travels light and always finds
 > its way home._
 
-> **Status: 1.0, and shipping.** Sterna is a complete, daily-drivable email
+> **Status: 1.1, and shipping.** Sterna is a complete, daily-drivable email
 > client: read, organise, search, write, schedule, and send mail (with
 > attachments) over JMAP or IMAP/SMTP, across multiple accounts, fully
-> offline-capable, with push notifications and remote content blocked by default.
-> Hit a rough edge? Please tell us about it!
+> offline-capable, with OpenPGP encryption, push notifications, and remote
+> content blocked by default. Hit a rough edge? Please tell us about it!
 
 ## 📸 A look
 
@@ -43,16 +44,20 @@ coral touch — the tern's beak. 🪸*
 
 ## 📲 Download & install
 
-There's no app-store listing yet, but you can grab the **latest APK** today:
+**The easy way — [get it on F-Droid](https://f-droid.org/packages/app.sterna/)** 🎉
+Install it from the F-Droid app (or its website) and updates arrive automatically.
+
+Prefer a direct download? Grab the **latest APK** yourself:
 
 1. **[⬇️ Download the latest APK](https://codeberg.org/emon/sterna-mail/releases/latest)** (under *Assets*).
 2. Open the downloaded `.apk` on your phone. Android will ask whether to **allow
    installing apps from this source** — accept it for your browser or file manager.
-3. Tap **Install**, then open Sterna and add your account. 🎉
+3. Tap **Install**, then open Sterna and add your account.
 
-> ℹ️ Releases are signed with Sterna's **own key**, the same one the future
-> [F-Droid](https://f-droid.org/) build will use, so updates install cleanly over
-> each other. No Google account or app store needed, ever.
+> ℹ️ Sterna's builds are **reproducible**, and F-Droid verifies them: the APK it
+> distributes is byte-for-byte the one released here, signed with Sterna's own
+> key — so the two install sources update cleanly over each other. No Google
+> account or app store needed, ever.
 
 Prefer to build it yourself? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -99,6 +104,8 @@ let autodiscovery find the server for you.
   identities each with its own signature, attachments, and drafts
 - Undo send, schedule send (with a screen to view/cancel pending sends), and
   "forgot attachment?" / large-recipient-list reminders
+- Opens `mailto:` links from any app or browser, prefilled (addresses, subject,
+  body, cc/bcc)
 
 **🔑 Accounts & setup**
 - Add an account with just email + password (`/.well-known/jmap` autodiscovery),

@@ -11,7 +11,7 @@ build — several things that are hard over IMAP are nearly free in JMAP.
 **Status key**
 
 - ✅ **Done** — shipped.
-- 🔜 **Planned** — on the ARCHITECTURE.md roadmap (milestone noted).
+- 🔜 **Planned** — next up, not yet built.
 - 💡 **Proposed** — not yet scheduled.
 - ⭐ **JMAP-native** — RFC 8620/8621 gives this almost for free.
 
@@ -35,7 +35,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Schedule send (quick presets; persisted + fired by WorkManager, survives app close)
 - ✅ Snooze a message until later
 
-**Tier 3 — privacy & JMAP-native power**
+**Tier 3 — privacy & JMAP-native power** *(done)*
 - ✅ OpenPGP (via OpenKeychain) — read + send, both protocols
 - ✅ ⭐ Vacation responder (JMAP `VacationResponse`)
 - ✅ Tracking-param stripping (utm_*, fbclid, gclid… removed from tapped links); ✅ per-sender image allowlist; ✅ link confirmation
@@ -61,7 +61,7 @@ The categories further down list the full feature set; this is the order of work
   so the cache, paging, and entire UI are protocol-agnostic.
   - ✅ One pooled connection per account, reused across calls (no reconnect per page).
   - ✅ IDLE push (new-mail notifications) via a dedicated IDLE connection.
-  - 💡 IMAP gaps: inline `cid:` images, CONDSTORE incremental sync.
+  - 💡 IMAP gap: CONDSTORE incremental sync.
 
 ## Reading & triage
 
@@ -74,6 +74,7 @@ The categories further down list the full feature set; this is the order of work
   so they read as written instead of one run-on block or mid-sentence wraps
 - ✅ Offline reading (Room cache)
 - ✅ Mark read/unread, flag/star, archive, delete *(M3; JMAP + IMAP)*
+- ✅ Optional "mark as read when deleting" (Settings → Reading), so deleted mail doesn't sit unread in Trash
 - ✅ Unread shown by bold text (not a status dot)
 - ✅ Folder navigation drawer; view any mailbox *(M3)*
 - ✅ ⭐ Conversation threading — JMAP native `Thread` objects. The list collapses a thread into one row with a message-count badge (Settings → Reading → Conversation view, on by default; toggle off for a flat list); opening a row shows the thread view. Grouping is done in SQL (representative = latest message, unread if any in the thread)
@@ -104,6 +105,7 @@ The categories further down list the full feature set; this is the order of work
 ## Composing & sending
 
 - ✅ Compose and send (JMAP `EmailSubmission/set`, or SMTP submit + APPEND-to-Sent for IMAP)
+- ✅ Opens `mailto:` links (registered as an email app, from browsers and other apps); the link's addresses, subject, body, cc and bcc prefill compose
 - ✅ Reply / reply-all / forward with quoting (threaded via `inReplyTo`/`references`)
 - ✅ Save drafts (JMAP, or IMAP APPEND to Drafts); closing compose with unsaved edits prompts to save the draft, discard, or keep editing (intercepts the Close button and system back)
 - ✅ Attachments: pick & send, view/download/open incoming (JMAP blobs / IMAP multipart MIME + BODY-section fetch)
@@ -151,7 +153,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Remote image / tracking-pixel blocking by default
 - ✅ App lock — biometric / face, with screen PIN/pattern/password fallback
 - ✅ Per-sender "always load images" allowlist (add from a message's ⋮ menu, or add/remove individual senders + clear all in Settings → Privacy)
-- 💡 Visible no-telemetry stance
+- ✅ Visible no-telemetry stance — [PRIVACY.md](PRIVACY.md) + the README privacy section
 - ✅ Strip tracking parameters from tapped links (Settings → Privacy, on by default); ✅ confirm before opening external links (Settings → Privacy → Links, opt-in; dialog shows the destination)
 
 ## Encryption
@@ -177,6 +179,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Row preview length (subject only / 1 / 3 / 5 lines)
 - ✅ Message text size (small / normal / large / huge) — scales the message-body WebView (Settings → Reading → Message)
 - ✅ Compact inbox top bar showing folder + account
+- ✅ About section in Settings — version (with release date), source code, license and author links
 - 💡 Home-screen widget(s) (unread count / inbox)
 - ✅ Accessibility pass (v1): screen-reader labels for icon-only controls (e.g. the favourite star reads "Add/Remove from favourites" instead of the ★ glyph), decorative icons left unlabelled to avoid double-announcement, and text scales with the system font size (Compose sp); 💡 fuller TalkBack audit, large-touch-target review
 
