@@ -1,0 +1,3 @@
+New: Sterna opens mailto: links (and can be chosen as the system's email app), prefilling addresses, subject, body, cc and bcc.
+
+Improved: inbox swipes now clearly show when they will trigger (color, scale and a haptic tick at the threshold), and re-swiping read/unread on the same message works reliably.
