@@ -11,6 +11,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.account.MailProtocol
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -60,22 +61,29 @@ class PushService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val gen = ++generation
-        scope.launch { reconnectAll(gen) }
+        // resetBaseline only for user-initiated arms (app open, settings toggles): the
+        // user sees the inbox, so its backlog stays silent. Background re-arms (transport
+        // callbacks, STICKY restarts: null intent) must DIFF instead — mail that arrived
+        // during the gap still gets announced.
+        val reset = intent?.getBooleanExtra(EXTRA_RESET_BASELINE, false) ?: false
+        scope.launch { reconnectAll(gen, reset) }
         return START_STICKY
     }
 
-    private suspend fun reconnectAll(gen: Int) {
+    private suspend fun reconnectAll(gen: Int, resetBaseline: Boolean) {
         connections.values.forEach { runCatching { it.close() } }
         connections.clear()
         val store = application.container.accountStore
+        val up = application.container.unifiedPushManager
         val watched = if (store.pushAllAccounts()) store.allCredentials() else listOfNotNull(store.load())
-        // Honour the per-account notification opt-out.
-        val accounts = watched.filter { store.notificationsEnabled(it.id) }
+        // Honour the per-account notification opt-out; UnifiedPush-active accounts are
+        // served by their endpoint (issue #17) and hold no direct connection here.
+        val accounts = watched.filter { store.notificationsEnabled(it.id) && !up.isActive(it.id) }
         if (accounts.isEmpty()) {
             stopSelf()
             return
         }
-        accounts.forEach { watch(it, gen, resetBaseline = true) }
+        accounts.forEach { watch(it, gen, resetBaseline) }
         Log.i(TAG, "Watching ${accounts.size} account(s) for new mail")
     }
 
@@ -84,13 +92,9 @@ class PushService : Service() {
         if (gen != generation) return
         val repo = application.container.mailRepository
         runCatching {
-            val (_, emails) = repo.refreshAccountInbox(credentials)
-            if (resetBaseline || !NewMailNotifier.hasBaseline(this, credentials.id)) {
-                NewMailNotifier.seed(this, credentials.id, emails)
-            } else {
-                // Reconnected after a drop — notify for anything that arrived meanwhile.
-                NewMailNotifier.notifyDiff(this, credentials, emails)
-            }
+            // Refresh + notify across the watched folders; on a reconnect (resetBaseline
+            // false) this announces anything that arrived during the gap.
+            FetchAndNotify.run(this, credentials, resetBaselines = resetBaseline)
             connections[credentials.id] = repo.openAccountPush(
                 credentials,
                 onChanged = { if (gen == generation) scope.launch { onAccountChanged(credentials) } },
@@ -114,10 +118,15 @@ class PushService : Service() {
     }
 
     private suspend fun onAccountChanged(credentials: AccountCredentials) {
-        val repo = application.container.mailRepository
         runCatching {
-            val (_, emails) = repo.refreshAccountInbox(credentials)
-            NewMailNotifier.notifyDiff(this, credentials, emails)
+            // JMAP's StateChange has no per-mailbox granularity → re-sync the whole watched
+            // set (cheap per-folder deltas). IMAP IDLE only ever signals the INBOX, so the
+            // watched extras stay with MailFetchWorker there.
+            FetchAndNotify.run(
+                this,
+                credentials,
+                includeExtras = credentials.protocol != MailProtocol.IMAP,
+            )
         }.onFailure { Log.e(TAG, "onAccountChanged failed", it) }
     }
 
@@ -133,14 +142,17 @@ class PushService : Service() {
     companion object {
         private const val TAG = "PushService"
         private const val RECONNECT_DELAY_MS = 5_000L
+        private const val EXTRA_RESET_BASELINE = "resetBaseline"
 
         /** Whether the live push service is up — the fallback poll no-ops while it is. */
         @Volatile
         var isRunning = false
             private set
 
-        fun start(context: Context) {
-            ContextCompat.startForegroundService(context, Intent(context, PushService::class.java))
+        fun start(context: Context, resetBaseline: Boolean) {
+            val intent = Intent(context, PushService::class.java)
+                .putExtra(EXTRA_RESET_BASELINE, resetBaseline)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun stop(context: Context) {

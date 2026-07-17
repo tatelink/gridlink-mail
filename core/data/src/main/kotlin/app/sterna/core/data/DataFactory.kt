@@ -6,6 +6,7 @@ import app.sterna.core.data.db.SternaDatabase
 import app.sterna.core.data.mail.ImapMailService
 import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.mail.OAuthTokenRefresher
+import app.sterna.core.data.mail.SyncStateStore
 import app.sterna.core.data.pgp.PgpEngine
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.storage.StorageRepository
@@ -42,6 +43,7 @@ object DataFactory {
                 outboxFilesDir = java.io.File(appContext.filesDir, "outbox"),
                 pgpEngine = pgpEngine,
                 settings = settings,
+                syncStateStore = SyncStateStore(appContext),
             ),
             storageRepository = StorageRepository(
                 appContext, database.emailDao(), database.emailFtsDao(), database.emailBodyDao(),

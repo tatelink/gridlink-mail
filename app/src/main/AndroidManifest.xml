@@ -71,6 +71,17 @@
                 android:value="Realtime new-mail push over the user's own mail-server connections (JMAP EventSource / IMAP IDLE); no FCM/Google alternative exists for self-hosted servers." />
         </service>
 
+        <!-- UnifiedPush events from the distributor (issue #17): endpoint updates,
+             PushVerification and StateChange payloads. The connector decrypts WebPush
+             before delivery. Inert unless a distributor app is installed. -->
+        <service
+            android:name=".push.UnifiedPushReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Lets AppCompat persist the in-app language choice on Android 12 and below
              (on Android 13+ the platform stores it). See AppCompatDelegate.setApplicationLocales. -->
         <service

@@ -7,6 +7,9 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import app.sterna.container
 import app.sterna.R
+import app.sterna.folders.FolderDeleteWorker
+import app.sterna.push.NewMailNotifier
+import app.sterna.push.PushController
 import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.db.OutboxState
@@ -457,6 +460,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         selection.value = Sel.Folder(store.inboxMailboxId())
         unifiedInboxIds.value = store.allInboxMailboxIds()
         meta.value = Meta(store.accountLabel(), store.inboxMailboxName(), store.unreadCount())
+        refreshWatchedFolders()
         refresh()
     }
 
@@ -839,8 +843,105 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     // ---- folder management ----
 
     fun createFolder(name: String, parentId: String? = null) = folderOp { c -> repo.createFolder(c, name, parentId) }
-    fun renameFolder(mailboxId: String, newName: String) = folderOp { c -> repo.renameFolder(c, mailboxId, newName) }
-    fun deleteFolder(mailboxId: String) = folderOp { c -> repo.deleteFolder(c, mailboxId) }
+
+    fun renameFolder(mailboxId: String, newName: String) = folderOp { c ->
+        val newId = repo.renameFolder(c, mailboxId, newName)
+        // IMAP ids are paths: the repo re-keyed the watch flags; follow with the baseline.
+        if (newId != mailboxId) NewMailNotifier.rename(getApplication(), c.id, mailboxId, newId)
+        refreshWatchedFolders()
+    }
+
+    /**
+     * Subfolders (recursive) of a folder, from the cached drawer list — JMAP `parentId`
+     * or the IMAP path prefix, mirroring the drawer's own tree building.
+     */
+    fun subfolderIdsOf(mailboxId: String): List<String> {
+        val all = state.value.mailboxes
+        val result = mutableListOf<String>()
+        fun childrenOf(id: String): List<Mailbox> = all.filter { m ->
+            if (m.id == id) return@filter false
+            if (m.parentId != null) return@filter m.parentId == id
+            val delim = when {
+                m.id.contains('/') -> "/"
+                m.id.contains('.') -> "."
+                else -> return@filter false
+            }
+            m.id.substringBeforeLast(delim, "") == id
+        }
+        fun visit(id: String) {
+            childrenOf(id).forEach { child ->
+                if (result.add(child.id)) visit(child.id)
+            }
+        }
+        visit(mailboxId)
+        return result
+    }
+
+    private var folderDeleteJob: Job? = null
+    private var pendingDeleteMailboxId: String? = null
+    private val _pendingFolderDelete = MutableStateFlow<String?>(null)
+
+    /** Snackbar label while a folder delete waits out its undo window; null = none. */
+    val pendingFolderDelete: StateFlow<String?> = _pendingFolderDelete.asStateFlow()
+
+    /**
+     * Delete a folder (and its subfolders) with an undo window: the folder leaves the
+     * drawer immediately, and the server delete is PERSISTED WorkManager work with an
+     * initial delay — it survives this ViewModel and the process, so a confirmed delete
+     * can no longer be silently dropped. The coroutine below only times the snackbar.
+     */
+    fun deleteFolder(mailboxId: String, folderName: String) {
+        val credentials = store.load() ?: return
+        val ids = listOf(mailboxId) + subfolderIdsOf(mailboxId)
+        viewModelScope.launch { repo.hideMailboxesLocally(ids) }
+        _pendingFolderDelete.value =
+            getApplication<Application>().getString(R.string.inbox_folder_deleted, folderName)
+        FolderDeleteWorker.schedule(getApplication(), credentials.id, mailboxId, PURGE_HOLD_BACK_MS)
+        pendingDeleteMailboxId = mailboxId
+        folderDeleteJob?.cancel()
+        folderDeleteJob = viewModelScope.launch {
+            delay(PURGE_HOLD_BACK_MS)
+            if (pendingDeleteMailboxId == mailboxId) {
+                pendingDeleteMailboxId = null
+                _pendingFolderDelete.value = null
+                refreshWatchedFolders()
+            }
+        }
+    }
+
+    /** Cancel a held-back folder delete (nothing was destroyed yet) and restore the drawer. */
+    fun undoDeleteFolder() {
+        pendingDeleteMailboxId?.let { FolderDeleteWorker.cancel(getApplication(), it) }
+        pendingDeleteMailboxId = null
+        folderDeleteJob?.cancel()
+        folderDeleteJob = null
+        _pendingFolderDelete.value = null
+        refresh()
+    }
+
+    // ---- folder watch (multi-folder push, issue #16) ----
+
+    // Initialised inline, NOT from the init block: init runs before this declaration's
+    // initialiser, so touching the flow there would NPE during ViewModel construction.
+    private val _watchedFolders =
+        MutableStateFlow(store.currentId()?.let { store.watchedFolders(it) } ?: emptySet())
+
+    /** Folders watched for new mail on the current account (the inbox is always watched). */
+    val watchedFolders: StateFlow<Set<String>> = _watchedFolders
+
+    private fun refreshWatchedFolders() {
+        _watchedFolders.value = store.currentId()?.let { store.watchedFolders(it) } ?: emptySet()
+    }
+
+    /** Toggle new-mail notifications for one folder, then re-arm push to pick it up. */
+    fun setFolderWatched(mailboxId: String, watched: Boolean) {
+        val accountId = store.currentId() ?: return
+        store.setFolderWatched(accountId, mailboxId, watched)
+        // Dropping the baseline means a later re-watch reseeds silently (no stale diff).
+        if (!watched) NewMailNotifier.clear(getApplication(), accountId, mailboxId)
+        refreshWatchedFolders()
+        PushController.apply(getApplication(), userInitiated = true)
+    }
 
     private fun folderOp(op: suspend (AccountCredentials) -> Unit) {
         viewModelScope.launch {

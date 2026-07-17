@@ -64,6 +64,7 @@ import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailBodyValue
 import app.sterna.core.jmap.model.Mailbox
 import app.sterna.core.jmap.model.JmapSession
+import app.sterna.core.jmap.model.PushSubscription
 import app.sterna.core.jmap.model.Quota
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.core.jmap.model.VacationResponse
@@ -244,6 +245,14 @@ data class AccountInboxMeta(
     val unreadCount: Int,
 )
 
+/** One watched folder refreshed during a push fan-out (multi-folder push, issue #16). */
+data class FolderRefresh(
+    val mailboxId: String,
+    val name: String,
+    val role: String?,
+    val emails: List<Email>,
+)
+
 /** Outcome of loading an account's server-side filter rules. */
 sealed interface FilterRulesState {
     /** No Sieve support (IMAP account, or capability absent). */
@@ -307,6 +316,8 @@ class MailRepository(
     private val pgpEngine: PgpEngine? = null,
     /** App settings (null in tests): consulted for behavior toggles like mark-read-on-delete. */
     private val settings: SettingsRepository? = null,
+    /** Persisted sync cursors (null in tests): deltas survive process death (issue #17). */
+    private val syncStateStore: SyncStateStore? = null,
 ) {
     /**
      * Schedules the WorkManager job that delivers an outbox item. Set by the app layer at
@@ -343,9 +354,29 @@ class MailRepository(
     private class ImapLoc(val mailboxId: String, val uid: Long)
     private val lastImapMove = java.util.concurrent.ConcurrentHashMap<String, ImapLoc>()
 
-    /** Per-mailbox JMAP state for incremental sync (in-memory; cold start does a full query). */
+    /**
+     * Per-mailbox JMAP state for incremental sync. In-memory map with write-through to
+     * [syncStateStore] (when wired) so cursors survive process death — vital once pushes
+     * wake a dead process (issue #17); a cold start then still runs a cheap delta.
+     */
     private data class SyncState(val queryState: String, val emailState: String)
     private val syncStates = java.util.concurrent.ConcurrentHashMap<String, SyncState>()
+
+    private fun putSyncState(key: String, state: SyncState) {
+        syncStates[key] = state
+        syncStateStore?.save(key, state.queryState, state.emailState)
+    }
+
+    private fun dropSyncState(key: String) {
+        syncStates.remove(key)
+        syncStateStore?.remove(key)
+    }
+
+    private fun loadSyncState(key: String): SyncState? =
+        syncStates[key]
+            ?: syncStateStore?.load(key)
+                ?.let { (queryState, emailState) -> SyncState(queryState, emailState) }
+                ?.also { syncStates[key] = it }
 
     /**
      * After a local mutation (flag/move/delete) the server returns the new `Email/set`
@@ -358,7 +389,7 @@ class MailRepository(
         val s = newState ?: return
         mailboxIds.filterNotNull().distinct().forEach { mb ->
             val k = syncKey(accountId, mb)
-            syncStates[k]?.let { syncStates[k] = it.copy(emailState = s) }
+            loadSyncState(k)?.let { putSyncState(k, it.copy(emailState = s)) }
         }
     }
 
@@ -403,7 +434,7 @@ class MailRepository(
         localAccountId: String,
     ) {
         val key = syncKey(localAccountId, mailboxId)
-        val stored = syncStates[key]
+        val stored = loadSyncState(key)
         if (stored != null) {
             val queryChanges = client.emailQueryChanges(session, accountId, mailboxId, stored.queryState, MAX_CHANGES, auth)
             val changes = client.emailChanges(session, accountId, stored.emailState, MAX_CHANGES, auth)
@@ -428,7 +459,7 @@ class MailRepository(
                     val fetched = client.getEmailsByIds(session, accountId, toFetch, auth)
                     emailDao.upsertAll(fetched.map { it.toEntity(localAccountId, mailboxId) })
                 }
-                syncStates[key] = SyncState(queryChanges.newQueryState!!, changes.newState!!)
+                putSyncState(key, SyncState(queryChanges.newQueryState!!, changes.newState!!))
                 android.util.Log.i("MailSync", "incremental $mailboxId: +${toFetch.size} -${toRemove.size}")
                 return
             }
@@ -440,9 +471,9 @@ class MailRepository(
         val queryState = page.queryState
         val emailState = page.emailState
         if (queryState != null && emailState != null) {
-            syncStates[key] = SyncState(queryState, emailState)
+            putSyncState(key, SyncState(queryState, emailState))
         } else {
-            syncStates.remove(key)
+            dropSyncState(key)
         }
     }
 
@@ -1375,19 +1406,31 @@ class MailRepository(
 
     /** Move a message to an arbitrary mailbox (e.g. unarchive → Inbox, or move-to-folder). */
     suspend fun moveToMailbox(credentials: AccountCredentials, emailId: String, targetMailboxId: String) {
+        // Captured before the local row is dropped, to nudge the drawer's cached counts.
+        val moved = emailDao.emailsByIds(listOf(emailId)).firstOrNull()
         if (credentials.protocol == MailProtocol.IMAP) {
             imapTarget(emailId)?.let { (mb, uid) ->
                 if (mb == targetMailboxId) return@let
                 imap.move(credentials, mb, uid, targetMailboxId)?.let { lastImapMove[emailId] = ImapLoc(targetMailboxId, it) }
             }
             emailDao.deleteById(emailId)
+            adjustCountsForMove(moved, targetMailboxId)
             return
         }
         val ctx = connect(credentials)
         val mb = emailDao.mailboxOf(emailId)
         val newState = client.move(ctx.session, ctx.accountId, emailId, targetMailboxId, ctx.auth)
         emailDao.deleteById(emailId)
+        adjustCountsForMove(moved, targetMailboxId)
         advanceEmailState(newState, credentials.id, mb)
+    }
+
+    /** Keep the drawer's cached folder counters fresh after a local move (sync corrects drift). */
+    private suspend fun adjustCountsForMove(moved: EmailEntity?, targetMailboxId: String) {
+        if (moved == null || moved.mailboxId == targetMailboxId) return
+        val unread = if (moved.seen) 0 else 1
+        mailboxDao.adjustCounts(moved.mailboxId, totalDelta = -1, unreadDelta = -unread)
+        mailboxDao.adjustCounts(targetMailboxId, totalDelta = 1, unreadDelta = unread)
     }
 
     /** The cached role of a mailbox (e.g. "junk", "inbox"), or null. */
@@ -1487,31 +1530,70 @@ class MailRepository(
         refreshMailboxes(credentials)
     }
 
-    /** Rename a folder (keeping its place in the hierarchy for IMAP), then refresh. */
-    suspend fun renameFolder(credentials: AccountCredentials, mailboxId: String, newName: String) {
+    /**
+     * Rename a folder (keeping its place in the hierarchy for IMAP), then refresh.
+     * Returns the folder's id after the rename — IMAP ids are paths, so the id changes
+     * there and watch flags are re-keyed to follow it (issue #16); JMAP ids are stable.
+     */
+    suspend fun renameFolder(credentials: AccountCredentials, mailboxId: String, newName: String): String {
         if (credentials.protocol == MailProtocol.IMAP) {
-            val delim = if (mailboxId.contains('/')) "/" else if (mailboxId.contains('.')) "." else "/"
+            val delim = imap.listImapFolders(credentials).firstOrNull { it.path == mailboxId }?.delimiter
+                ?: if (mailboxId.contains('/')) "/" else if (mailboxId.contains('.')) "." else "/"
             val parent = mailboxId.substringBeforeLast(delim, "")
             val newPath = if (parent.isEmpty()) newName.trim() else "$parent$delim${newName.trim()}"
             imap.renameFolder(credentials, mailboxId, newPath)
-        } else {
-            val ctx = connect(credentials)
-            client.renameMailbox(ctx.session, ctx.accountId, mailboxId, newName.trim(), ctx.auth)
+            accountStore.replaceWatchedFolder(credentials.id, mailboxId, newPath, delim)
+            refreshMailboxes(credentials)
+            return newPath
         }
+        val ctx = connect(credentials)
+        client.renameMailbox(ctx.session, ctx.accountId, mailboxId, newName.trim(), ctx.auth)
         refreshMailboxes(credentials)
+        return mailboxId
     }
 
-    /** Delete a folder (and its cached messages), then refresh. */
-    suspend fun deleteFolder(credentials: AccountCredentials, mailboxId: String) {
+    /**
+     * Delete a folder AND its subfolders (deepest first — servers refuse to destroy a
+     * parent that still has children), plus their cached messages and watch flags.
+     * Returns every deleted folder id so the caller can clean per-folder state.
+     */
+    suspend fun deleteFolder(credentials: AccountCredentials, mailboxId: String): List<String> {
+        val targets: List<String>
         if (credentials.protocol == MailProtocol.IMAP) {
-            imap.deleteFolder(credentials, mailboxId)
+            val folders = imap.listImapFolders(credentials)
+            // The folder's OWN delimiter from LIST: guessing from other folder names
+            // breaks on servers whose names legitimately contain '/' or '.'.
+            val delim = folders.firstOrNull { it.path == mailboxId }?.delimiter ?: "/"
+            targets = folders.map { it.path }
+                .filter { it == mailboxId || it.startsWith(mailboxId + delim) }
+                .sortedByDescending { it.length }
+                .ifEmpty { listOf(mailboxId) } // already gone server-side: still clean up locally
+            targets.forEach { runCatching { imap.deleteFolder(credentials, it) } }
         } else {
             val ctx = connect(credentials)
-            client.deleteMailbox(ctx.session, ctx.accountId, mailboxId, ctx.auth)
+            val childrenOf = client.getMailboxes(ctx.session, ctx.accountId, ctx.auth).groupBy { it.parentId }
+            val ordered = mutableListOf<String>()
+            fun visit(id: String) { // post-order: children before their parent
+                childrenOf[id].orEmpty().forEach { visit(it.id) }
+                ordered += id
+            }
+            visit(mailboxId)
+            targets = ordered
+            targets.forEach { client.deleteMailbox(ctx.session, ctx.accountId, it, ctx.auth) }
         }
-        emailDao.replaceMailbox(credentials.id, mailboxId, emptyList())
+        targets.forEach {
+            accountStore.setFolderWatched(credentials.id, it, watched = false)
+            emailDao.replaceMailbox(credentials.id, it, emptyList())
+        }
         refreshMailboxes(credentials)
+        return targets
     }
+
+    /**
+     * Drop folders from the local cache only (drawer disappearance while a folder
+     * delete waits out its undo window); any refresh restores them.
+     */
+    suspend fun hideMailboxesLocally(mailboxIds: List<String>) = mailboxDao.deleteByIds(mailboxIds)
 
     /** Re-fetch the folder list into the cache (after a create/rename/delete). */
     private suspend fun refreshMailboxes(credentials: AccountCredentials) {
@@ -1750,6 +1832,7 @@ class MailRepository(
      */
     fun resetSyncState() {
         syncStates.clear()
+        syncStateStore?.clear()
         context = null
     }
 
@@ -1777,21 +1860,88 @@ class MailRepository(
     }
 
     /**
-     * Refresh a specific account's inbox into the cache and return (mailboxId, emails).
+     * Refresh the account's inbox (unless [includeInbox] is false) plus the watched
+     * folders in [extraFolderIds] into the cache (multi-folder push, issue #16).
      * Independent of the current-account context, so it is safe for background push.
+     * Watched ids no longer on the server are omitted from the result and reported
+     * via [onMissing] so the caller can prune the stale watch flag.
      */
-    suspend fun refreshAccountInbox(credentials: AccountCredentials, limit: Int = 50): Pair<String, List<Email>> {
+    suspend fun refreshAccountFolders(
+        credentials: AccountCredentials,
+        extraFolderIds: Set<String>,
+        includeInbox: Boolean = true,
+        limit: Int = 50,
+        onMissing: (String) -> Unit = {},
+    ): List<FolderRefresh> {
         if (credentials.protocol == MailProtocol.IMAP) {
-            val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = limit)
-            emailDao.upsertAll(load.messages)
-            return load.targetMailboxId to load.messages.map { it.toEmail() }
+            val (loads, missing) = imap.loadWatchedFolders(credentials, extraFolderIds, includeInbox, limit)
+            missing.forEach(onMissing)
+            loads.forEach { emailDao.upsertAll(it.messages) }
+            return loads.map { load ->
+                FolderRefresh(load.mailboxId, load.name, load.role, load.messages.map { it.toEmail() })
+            }
         }
         val resolved = resolve(credentials)
         val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
             ?: resolved.mailboxes.firstOrNull()
             ?: error("No mailboxes found.")
-        syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit, credentials.id)
-        return inbox.id to emailDao.getByMailbox(credentials.id, inbox.id).map { it.toEmail() }
+        val byId = resolved.mailboxes.associateBy { it.id }
+        val targets = buildList {
+            if (includeInbox) add(inbox)
+            extraFolderIds.forEach { id ->
+                val mailbox = byId[id]
+                when {
+                    mailbox == null -> onMissing(id)
+                    mailbox.id != inbox.id -> add(mailbox)
+                }
+            }
+        }
+        return targets.map { mailbox ->
+            syncMailbox(resolved.session, resolved.accountId, resolved.auth, mailbox.id, limit, credentials.id)
+            FolderRefresh(
+                mailboxId = mailbox.id,
+                name = mailbox.name,
+                role = mailbox.role,
+                emails = emailDao.getByMailbox(credentials.id, mailbox.id).map { it.toEmail() },
+            )
+        }
+    }
+
+    // ---- JMAP PushSubscription (issue #17) ---------------------------------------------
+    // Session-level, context-free (fresh session per call — these operations are rare).
+
+    /** Create a subscription pointing at a UnifiedPush endpoint; returns it with id/expires. */
+    suspend fun createPushSubscription(credentials: AccountCredentials, subscription: PushSubscription): PushSubscription {
+        val auth = jmapAuth(credentials)
+        val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
+        return client.createPushSubscription(session, auth, subscription)
+    }
+
+    /** Confirm the PushVerification round-trip (do this promptly — servers time it out). */
+    suspend fun verifyPushSubscription(credentials: AccountCredentials, subscriptionId: String, verificationCode: String) {
+        val auth = jmapAuth(credentials)
+        val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
+        client.verifyPushSubscription(session, auth, subscriptionId, verificationCode)
+    }
+
+    /** Push the expiry out; returns the (possibly server-capped) applied UTCDate. */
+    suspend fun renewPushSubscription(credentials: AccountCredentials, subscriptionId: String, expires: String): String {
+        val auth = jmapAuth(credentials)
+        val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
+        return client.updatePushSubscriptionExpires(session, auth, subscriptionId, expires)
+    }
+
+    /** Destroy a subscription (sign-out / endpoint rotation); already-gone is success. */
+    suspend fun destroyPushSubscription(credentials: AccountCredentials, subscriptionId: String) {
+        val auth = jmapAuth(credentials)
+        val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
+        client.destroyPushSubscription(session, auth, subscriptionId)
+    }
+
+    /** The server's VAPID key (RFC 9749) when advertised; null otherwise (e.g. Stalwart). */
+    suspend fun pushVapidKey(credentials: AccountCredentials): String? {
+        val auth = jmapAuth(credentials)
+        return client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth).vapidPublicKey()
     }
 
     /**

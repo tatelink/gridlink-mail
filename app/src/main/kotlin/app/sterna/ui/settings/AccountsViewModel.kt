@@ -14,7 +14,8 @@ import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.account.SyncWindow
 import app.sterna.core.data.pgp.PgpResult
-import app.sterna.push.PushService
+import app.sterna.push.NewMailNotifier
+import app.sterna.push.PushController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -109,8 +110,13 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     /** Enable/disable new-mail notifications for an account; re-arm push to apply. */
     fun setNotificationsEnabled(id: String, enabled: Boolean) {
         store.setNotificationsEnabled(id, enabled)
+        if (enabled) {
+            // The account's baselines froze while it was excluded from every diff pass;
+            // drop them so re-enabling reseeds silently instead of bursting weeks of mail.
+            NewMailNotifier.clear(getApplication(), id)
+        }
         refresh()
-        PushService.start(getApplication())
+        PushController.apply(getApplication(), userInitiated = true)
     }
 
     /** Load this account's cached-message count into [cacheCount]. */
@@ -217,12 +223,18 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
 
     /** Sign out and purge that account's cached mail + the attachment cache. */
     fun signOut(id: String) {
+        // UnifiedPush teardown needs the credentials, so it runs before removal.
+        store.allCredentials().firstOrNull { it.id == id }?.let {
+            getApplication<Application>().container.unifiedPushManager.teardown(it)
+        }
         store.remove(id)
+        NewMailNotifier.clear(getApplication(), id)
         refresh()
         mail.resetSyncState()
         viewModelScope.launch {
             mail.disconnectImap(id)
             storage.purgeAccount(id)
         }
+        PushController.apply(getApplication(), userInitiated = true)
     }
 }

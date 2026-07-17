@@ -13,7 +13,9 @@ import app.sterna.core.data.settings.SettingsBackupCodec
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.settings.SwipeAction
 import app.sterna.core.data.settings.ThemeMode
-import app.sterna.push.PushService
+import app.sterna.core.data.settings.DeliveryMode
+import app.sterna.push.NewMailNotifier
+import app.sterna.push.PushController
 import app.sterna.security.canAuthenticate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -118,11 +120,33 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setImageAllowed(sender, allowed) }
     }
 
+    /** New-mail delivery: Instant / Battery saver (issue #17, the ONE outcome setting). */
+    val deliveryMode = settings.deliveryMode.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = DeliveryMode.INSTANT,
+    )
+
+    fun setDeliveryMode(mode: DeliveryMode) {
+        viewModelScope.launch {
+            settings.setDeliveryMode(mode)
+            // Re-arm with the new outcome (stops or restarts the foreground service).
+            PushController.apply(getApplication(), userInitiated = true)
+        }
+    }
+
     fun setPushAllAccounts(value: Boolean) {
         store.setPushAllAccounts(value)
         _pushAllAccounts.value = value
+        if (value) {
+            // Accounts (re)entering the watched scope kept frozen baselines while out of
+            // it; diffing those would burst stale notifications — drop them so the first
+            // pass reseeds silently.
+            store.allCredentials().filter { it.id != store.currentId() }
+                .forEach { NewMailNotifier.clear(getApplication(), it.id) }
+        }
         // Reconnect push with the new scope.
-        PushService.start(getApplication())
+        PushController.apply(getApplication(), userInitiated = true)
     }
 
     val quietHoursEnabled = settings.quietHoursEnabled.stateIn(

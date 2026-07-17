@@ -10,6 +10,8 @@ import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.storage.StorageRepository
 import app.sterna.core.jmap.JmapClient
 import app.sterna.pgp.OpenKeychainPgpEngine
+import app.sterna.push.UnifiedPushManager
+import app.sterna.push.UnifiedPushStateStore
 import app.sterna.security.AppLock
 import app.sterna.send.Outbox
 import app.sterna.send.SendOutbox
@@ -33,6 +35,14 @@ class AppContainer(context: Context) {
     val storageRepository: StorageRepository = dataLayer.storageRepository
     val appLock: AppLock = AppLock(accountStore)
 
+    /** UnifiedPush transport state machine (issue #17); inert without a distributor. */
+    val unifiedPushManager: UnifiedPushManager = UnifiedPushManager(
+        context.applicationContext,
+        accountStore,
+        mailRepository,
+        UnifiedPushStateStore(context.applicationContext),
+    )
+
     /** App-lifetime scope for work that must outlive a screen (e.g. Undo-send hold-back). */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val sendOutbox: SendOutbox = SendOutbox(appScope)
@@ -46,6 +56,12 @@ class AppContainer(context: Context) {
         // (Android 15+ FGS policies, OEM battery managers — Codeberg #11). Periodic work
         // persists across reboots; a healthy push makes each run a no-op.
         app.sterna.push.MailFetchWorker.ensureScheduled(appContext)
+        // A UnifiedPush transport change (verified, failed, unregistered) re-evaluates
+        // which accounts still need a direct connection.
+        unifiedPushManager.onTransportStateChanged = {
+            // Background trigger: diff, never reseed (gap mail must still notify).
+            app.sterna.push.PushController.apply(appContext, userInitiated = false)
+        }
         // Let the data layer arm the delivery worker from any send call site (compose, RSVP, …).
         mailRepository.outboxScheduler = OutboxScheduler { id, delay -> Outbox.enqueue(appContext, id, delay) }
         // Re-arm any send left mid-flight (WorkManager persists jobs, but re-checking is a safety net).

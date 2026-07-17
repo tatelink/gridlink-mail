@@ -31,6 +31,15 @@ enum class SortOrder { DATE_DESC, DATE_ASC, SUBJECT, SENDER, UNREAD_FIRST }
 /** Reading text size for the message body (WebView text zoom, in percent). */
 enum class MessageTextSize(val zoom: Int) { SMALL(85), NORMAL(100), LARGE(125), HUGE(150) }
 
+/**
+ * How new mail reaches the device (issue #17, outcome-framed — never a transport
+ * choice): INSTANT keeps live push (UnifiedPush, or a direct connection when
+ * needed); BATTERY_SAVER drops every connection Sterna holds and relies on the
+ * 30-minute periodic check — UnifiedPush subscriptions stay active either way,
+ * they cost the app nothing.
+ */
+enum class DeliveryMode { INSTANT, BATTERY_SAVER }
+
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 /**
@@ -178,6 +187,16 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_IMAGE_ALLOWLIST] = cleaned }
     }
 
+    /** New-mail delivery mode; INSTANT (today's behavior) by default. */
+    val deliveryMode: Flow<DeliveryMode> = dataStore.data.map { prefs ->
+        prefs[KEY_DELIVERY_MODE]?.let { runCatching { DeliveryMode.valueOf(it) }.getOrNull() }
+            ?: DeliveryMode.INSTANT
+    }
+
+    suspend fun setDeliveryMode(mode: DeliveryMode) {
+        dataStore.edit { it[KEY_DELIVERY_MODE] = mode.name }
+    }
+
     /** Captures every DataStore-backed preference into a portable [SettingsBackup]. */
     suspend fun snapshotBackup(): SettingsBackup = SettingsBackup(
         themeMode = themeMode.first().name,
@@ -197,6 +216,7 @@ class SettingsRepository(context: Context) {
         conversationView = conversationView.first(),
         messageTextSize = messageTextSize.first().name,
         markReadOnDelete = markReadOnDelete.first(),
+        deliveryMode = deliveryMode.first().name,
     )
 
     /** Applies the DataStore-backed fields of [backup]; unknown enum values are skipped. */
@@ -218,6 +238,7 @@ class SettingsRepository(context: Context) {
         backup.conversationView?.let { setConversationView(it) }
         backup.messageTextSize?.let { v -> runCatching { MessageTextSize.valueOf(v) }.getOrNull()?.let { setMessageTextSize(it) } }
         backup.markReadOnDelete?.let { setMarkReadOnDelete(it) }
+        backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
     }
 
     /**
@@ -280,6 +301,7 @@ class SettingsRepository(context: Context) {
         private val KEY_STRIP_TRACKING = booleanPreferencesKey("strip_tracking_params")
         private val KEY_CONFIRM_LINKS = booleanPreferencesKey("confirm_links")
         private val KEY_IMAGE_ALLOWLIST = stringSetPreferencesKey("image_allowlist")
+        private val KEY_DELIVERY_MODE = stringPreferencesKey("delivery_mode")
         private val KEY_QUIET_ENABLED = booleanPreferencesKey("quiet_hours_enabled")
         private val KEY_QUIET_START = intPreferencesKey("quiet_hours_start")
         private val KEY_QUIET_END = intPreferencesKey("quiet_hours_end")

@@ -10,6 +10,7 @@ import app.sterna.core.jmap.model.EmailQueryChangesResult
 import app.sterna.core.jmap.model.Identity
 import app.sterna.core.jmap.model.JmapSession
 import app.sterna.core.jmap.model.Mailbox
+import app.sterna.core.jmap.model.PushSubscription
 import app.sterna.core.jmap.model.StateChange
 import app.sterna.core.jmap.model.Quota
 import app.sterna.core.jmap.model.SearchQuery
@@ -1333,6 +1334,158 @@ class JmapClient internal constructor(
 
     /** Epoch-millis as a JMAP UTCDate (e.g. "2026-06-23T00:00:00Z"). */
     private fun utcDate(millis: Long): String = java.time.Instant.ofEpochMilli(millis).toString()
+
+    // ---- PushSubscription (RFC 8620 §7.2) ----------------------------------------------
+    // Session-level: subscriptions belong to the credential, not to an account, so these
+    // calls carry NO accountId and only need the core capability.
+
+    /** All push subscriptions this credential holds on the server. */
+    suspend fun getPushSubscriptions(session: JmapSession, auth: JmapAuth): List<PushSubscription> =
+        withContext(Dispatchers.IO) {
+            val payload = buildJsonObject {
+                putJsonArray("using") { add(Jmap.CORE_CAPABILITY) }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("PushSubscription/get")
+                        addJsonObject { put("ids", JsonNull) }
+                        add("c0")
+                    }
+                }
+            }
+            decodeList(postJmap(session, auth, payload), "PushSubscription/get", PushSubscription.serializer())
+        }
+
+    /**
+     * Create a push subscription pointing at [subscription].url (the UnifiedPush
+     * endpoint). Returns it with the server-assigned id and the (possibly capped)
+     * expires. The server then POSTs a PushVerification to the endpoint; confirm it
+     * with [verifyPushSubscription] before any StateChange flows.
+     */
+    suspend fun createPushSubscription(
+        session: JmapSession,
+        auth: JmapAuth,
+        subscription: PushSubscription,
+    ): PushSubscription = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") { add(Jmap.CORE_CAPABILITY) }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("PushSubscription/set")
+                    addJsonObject {
+                        putJsonObject("create") {
+                            // Built by hand: server-set fields (id) must be absent, not null.
+                            putJsonObject("sub") {
+                                put("deviceClientId", subscription.deviceClientId)
+                                put("url", subscription.url)
+                                subscription.keys?.let { keys ->
+                                    putJsonObject("keys") {
+                                        put("p256dh", keys.p256dh)
+                                        put("auth", keys.auth)
+                                    }
+                                }
+                                subscription.expires?.let { put("expires", it) }
+                                subscription.types?.let { types ->
+                                    putJsonArray("types") { types.forEach { add(it) } }
+                                }
+                            }
+                        }
+                    }
+                    add("c0")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "PushSubscription/set")
+        val created = args["created"]?.jsonObject?.get("sub")?.jsonObject
+            ?: throw JmapException(
+                "Couldn't create the push subscription" +
+                    (args["notCreated"]?.jsonObject?.get("sub")?.let { ": $it" } ?: ""),
+            )
+        subscription.copy(
+            id = created["id"]?.jsonPrimitive?.contentOrNull ?: subscription.id,
+            expires = created["expires"]?.jsonPrimitive?.contentOrNull ?: subscription.expires,
+        )
+    }
+
+    /** Confirm a subscription with the verificationCode received through the endpoint. */
+    suspend fun verifyPushSubscription(
+        session: JmapSession,
+        auth: JmapAuth,
+        subscriptionId: String,
+        verificationCode: String,
+    ): Unit = withContext(Dispatchers.IO) {
+        val args = updatePushSubscription(session, auth, subscriptionId) {
+            put("verificationCode", verificationCode)
+        }
+        if (args["updated"]?.jsonObject?.containsKey(subscriptionId) != true) {
+            throw JmapException("Couldn't verify the push subscription")
+        }
+    }
+
+    /**
+     * Push the subscription's expiry out to [expires] (UTCDate). Returns the value the
+     * server applied, which it MAY have capped below the request (RFC 8620 §7.2).
+     */
+    suspend fun updatePushSubscriptionExpires(
+        session: JmapSession,
+        auth: JmapAuth,
+        subscriptionId: String,
+        expires: String,
+    ): String = withContext(Dispatchers.IO) {
+        val args = updatePushSubscription(session, auth, subscriptionId) { put("expires", expires) }
+        val updated = args["updated"]?.jsonObject
+        if (updated?.containsKey(subscriptionId) != true) {
+            throw JmapException("Couldn't renew the push subscription")
+        }
+        // A non-null updated value carries the properties the server changed differently.
+        updated[subscriptionId]?.let { it as? JsonObject }
+            ?.get("expires")?.jsonPrimitive?.contentOrNull
+            ?: expires
+    }
+
+    /** Destroy a subscription (sign-out / endpoint rotation). Already-gone is success. */
+    suspend fun destroyPushSubscription(
+        session: JmapSession,
+        auth: JmapAuth,
+        subscriptionId: String,
+    ): Unit = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") { add(Jmap.CORE_CAPABILITY) }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("PushSubscription/set")
+                    addJsonObject { putJsonArray("destroy") { add(subscriptionId) } }
+                    add("c0")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "PushSubscription/set")
+        val destroyed = args["destroyed"]?.jsonArray?.any { it.jsonPrimitive.content == subscriptionId } == true
+        val notFound = args["notDestroyed"]?.jsonObject?.get(subscriptionId)
+            ?.jsonObject?.get("type")?.jsonPrimitive?.contentOrNull == "notFound"
+        if (!destroyed && !notFound) throw JmapException("Couldn't delete the push subscription")
+    }
+
+    /** Shared PushSubscription/set update envelope; returns the method response args. */
+    private suspend fun updatePushSubscription(
+        session: JmapSession,
+        auth: JmapAuth,
+        subscriptionId: String,
+        patch: JsonObjectBuilder.() -> Unit,
+    ): JsonObject {
+        val payload = buildJsonObject {
+            putJsonArray("using") { add(Jmap.CORE_CAPABILITY) }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("PushSubscription/set")
+                    addJsonObject {
+                        putJsonObject("update") { putJsonObject(subscriptionId, patch) }
+                    }
+                    add("c0")
+                }
+            }
+        }
+        return methodResponseArgs(postJmap(session, auth, payload), "PushSubscription/set")
+    }
 
     /**
      * Open a long-lived JMAP push connection (EventSource/SSE, RFC 8620 §7.3),

@@ -64,6 +64,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.role
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.material3.Button
@@ -80,6 +81,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -120,6 +122,10 @@ import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.data.settings.PreviewLines
 import app.sterna.core.data.settings.SwipeAction
 import app.sterna.core.data.settings.ThemeMode
+import app.sterna.core.data.settings.DeliveryMode
+import app.sterna.push.PushController
+import app.sterna.push.PushStatus
+import app.sterna.ui.appLabelOf
 import app.sterna.R
 import app.sterna.ui.connect.ConnectScreen
 import java.time.Instant
@@ -499,6 +505,7 @@ private fun textSizeLabel(context: Context, size: MessageTextSize): String = whe
 @Composable
 private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val pushAll by viewModel.pushAllAccounts.collectAsStateWithLifecycle()
+    val deliveryMode by viewModel.deliveryMode.collectAsStateWithLifecycle()
     val quietEnabled by viewModel.quietHoursEnabled.collectAsStateWithLifecycle()
     val quietStart by viewModel.quietHoursStart.collectAsStateWithLifecycle()
     val quietEnd by viewModel.quietHoursEnd.collectAsStateWithLifecycle()
@@ -506,6 +513,20 @@ private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
+            SettingsSection(stringResource(R.string.settings_delivery_section)) {
+                DeliveryModeOption(
+                    title = stringResource(R.string.settings_delivery_instant),
+                    subtitle = stringResource(R.string.settings_delivery_instant_desc),
+                    selected = deliveryMode == DeliveryMode.INSTANT,
+                    onClick = { viewModel.setDeliveryMode(DeliveryMode.INSTANT) },
+                )
+                DeliveryModeOption(
+                    title = stringResource(R.string.settings_delivery_saver),
+                    subtitle = stringResource(R.string.settings_delivery_saver_desc),
+                    selected = deliveryMode == DeliveryMode.BATTERY_SAVER,
+                    onClick = { viewModel.setDeliveryMode(DeliveryMode.BATTERY_SAVER) },
+                )
+            }
             SettingsSection(stringResource(R.string.settings_new_mail_section)) {
                 SettingSwitch(
                     title = stringResource(R.string.settings_push_all_title),
@@ -1102,6 +1123,23 @@ private fun AccountDetailScreen(
                         viewModel.setNotificationsEnabled(accountId, it)
                     },
                 )
+                // Read-only delivery status (issue #17) — transparency, never a control.
+                if (notificationsEnabled) {
+                    val appContext = LocalContext.current
+                    val statusText = when (val s = PushController.statusFor(appContext, accountId)) {
+                        is PushStatus.ViaUnifiedPush ->
+                            stringResource(R.string.settings_push_status_up, appLabelOf(appContext, s.distributorPackage))
+                        PushStatus.Direct -> stringResource(R.string.settings_push_status_direct)
+                        PushStatus.Connecting -> stringResource(R.string.settings_push_status_connecting)
+                        PushStatus.Periodic -> stringResource(R.string.settings_push_status_periodic)
+                    }
+                    Text(
+                        statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
             }
             SettingsSection(stringResource(R.string.settings_server_settings_section)) {
                 if (isImap) {
@@ -1724,4 +1762,32 @@ internal fun DetailScaffold(
         },
         content = content,
     )
+}
+
+/** One outcome-framed delivery choice (radio + explanation), issue #17. */
+@Composable
+private fun DeliveryModeOption(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(16.dp))
+        Column {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
