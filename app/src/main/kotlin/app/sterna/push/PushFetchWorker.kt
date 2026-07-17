@@ -24,11 +24,12 @@ class PushFetchWorker(context: Context, params: WorkerParameters) : CoroutineWor
 
     override suspend fun doWork(): Result {
         val accountId = inputData.getString(KEY_ACCOUNT_ID) ?: return Result.success()
+        val reset = inputData.getBoolean(KEY_RESET_INBOX, false)
         val store = (applicationContext as Application).container.accountStore
         val credentials = store.allCredentials().firstOrNull { it.id == accountId }
             ?: return Result.success()
         if (!store.notificationsEnabled(accountId)) return Result.success()
-        return runCatching { FetchAndNotify.run(applicationContext, credentials) }
+        return runCatching { FetchAndNotify.run(applicationContext, credentials, resetBaselines = reset) }
             .fold(
                 { Result.success() },
                 {
@@ -41,14 +42,15 @@ class PushFetchWorker(context: Context, params: WorkerParameters) : CoroutineWor
     companion object {
         private const val TAG = "PushFetchWorker"
         private const val KEY_ACCOUNT_ID = "accountId"
+        private const val KEY_RESET_INBOX = "resetInbox"
         private const val MAX_ATTEMPTS = 3
 
         /** Unique per account, KEEP: one queued fetch covers coalesced pushes. */
-        fun enqueue(context: Context, accountId: String) {
+        fun enqueue(context: Context, accountId: String, resetInbox: Boolean = false) {
             val request = OneTimeWorkRequestBuilder<PushFetchWorker>()
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setInputData(workDataOf(KEY_ACCOUNT_ID to accountId))
+                .setInputData(workDataOf(KEY_ACCOUNT_ID to accountId, KEY_RESET_INBOX to resetInbox))
                 .build()
             WorkManager.getInstance(context)
                 .enqueueUniqueWork("push-fetch-$accountId", ExistingWorkPolicy.KEEP, request)

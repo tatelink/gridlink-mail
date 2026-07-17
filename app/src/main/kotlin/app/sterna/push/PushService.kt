@@ -61,11 +61,16 @@ class PushService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val gen = ++generation
-        scope.launch { reconnectAll(gen) }
+        // resetBaseline only for user-initiated arms (app open, settings toggles): the
+        // user sees the inbox, so its backlog stays silent. Background re-arms (transport
+        // callbacks, STICKY restarts: null intent) must DIFF instead — mail that arrived
+        // during the gap still gets announced.
+        val reset = intent?.getBooleanExtra(EXTRA_RESET_BASELINE, false) ?: false
+        scope.launch { reconnectAll(gen, reset) }
         return START_STICKY
     }
 
-    private suspend fun reconnectAll(gen: Int) {
+    private suspend fun reconnectAll(gen: Int, resetBaseline: Boolean) {
         connections.values.forEach { runCatching { it.close() } }
         connections.clear()
         val store = application.container.accountStore
@@ -78,7 +83,7 @@ class PushService : Service() {
             stopSelf()
             return
         }
-        accounts.forEach { watch(it, gen, resetBaseline = true) }
+        accounts.forEach { watch(it, gen, resetBaseline) }
         Log.i(TAG, "Watching ${accounts.size} account(s) for new mail")
     }
 
@@ -137,14 +142,17 @@ class PushService : Service() {
     companion object {
         private const val TAG = "PushService"
         private const val RECONNECT_DELAY_MS = 5_000L
+        private const val EXTRA_RESET_BASELINE = "resetBaseline"
 
         /** Whether the live push service is up — the fallback poll no-ops while it is. */
         @Volatile
         var isRunning = false
             private set
 
-        fun start(context: Context) {
-            ContextCompat.startForegroundService(context, Intent(context, PushService::class.java))
+        fun start(context: Context, resetBaseline: Boolean) {
+            val intent = Intent(context, PushService::class.java)
+                .putExtra(EXTRA_RESET_BASELINE, resetBaseline)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun stop(context: Context) {

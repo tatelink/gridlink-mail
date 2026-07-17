@@ -110,8 +110,13 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     /** Enable/disable new-mail notifications for an account; re-arm push to apply. */
     fun setNotificationsEnabled(id: String, enabled: Boolean) {
         store.setNotificationsEnabled(id, enabled)
+        if (enabled) {
+            // The account's baselines froze while it was excluded from every diff pass;
+            // drop them so re-enabling reseeds silently instead of bursting weeks of mail.
+            NewMailNotifier.clear(getApplication(), id)
+        }
         refresh()
-        PushController.apply(getApplication())
+        PushController.apply(getApplication(), userInitiated = true)
     }
 
     /** Load this account's cached-message count into [cacheCount]. */
@@ -230,6 +235,6 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
             mail.disconnectImap(id)
             storage.purgeAccount(id)
         }
-        PushController.apply(getApplication())
+        PushController.apply(getApplication(), userInitiated = true)
     }
 }

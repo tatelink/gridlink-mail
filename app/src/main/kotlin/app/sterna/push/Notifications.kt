@@ -120,6 +120,34 @@ object Notifications {
     }
 
     /**
+     * Rebuild the account's group summary from the currently ACTIVE child
+     * notifications, so successive per-folder diff passes accumulate instead of the
+     * last one overwriting the account's count and lines.
+     */
+    fun updateGroupSummary(context: Context, accountId: String, accountLabel: String, silent: Boolean) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val group = GROUP_PREFIX + accountId
+        val summaryId = ("summary:" + accountId).hashCode()
+        val children = manager.activeNotifications.filter { sbn ->
+            sbn.id != summaryId && sbn.notification.group == group &&
+                (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) == 0
+        }.sortedByDescending { it.postTime }
+        if (children.size < 2) {
+            // The system shows a lone child by itself; drop any stale summary.
+            manager.cancel(summaryId)
+            return
+        }
+        val lines = children.map { sbn ->
+            val sender = sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+                ?: context.getString(R.string.notif_new_message)
+            val subject = sbn.notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+                ?: context.getString(R.string.message_no_subject)
+            context.getString(R.string.notif_group_line, sender, subject)
+        }
+        notifyGroupSummary(context, accountId, accountLabel, children.size, lines, silent)
+    }
+
+    /**
      * Posts the per-account group summary that bundles the account's individual
      * new-mail notifications (Android collapses them under one expandable entry).
      * [lines] are "sender — subject" strings for the latest batch.

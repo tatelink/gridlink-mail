@@ -14,6 +14,7 @@ import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.settings.SwipeAction
 import app.sterna.core.data.settings.ThemeMode
 import app.sterna.core.data.settings.DeliveryMode
+import app.sterna.push.NewMailNotifier
 import app.sterna.push.PushController
 import app.sterna.security.canAuthenticate
 import kotlinx.coroutines.Dispatchers
@@ -130,15 +131,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             settings.setDeliveryMode(mode)
             // Re-arm with the new outcome (stops or restarts the foreground service).
-            PushController.apply(getApplication())
+            PushController.apply(getApplication(), userInitiated = true)
         }
     }
 
     fun setPushAllAccounts(value: Boolean) {
         store.setPushAllAccounts(value)
         _pushAllAccounts.value = value
+        if (value) {
+            // Accounts (re)entering the watched scope kept frozen baselines while out of
+            // it; diffing those would burst stale notifications — drop them so the first
+            // pass reseeds silently.
+            store.allCredentials().filter { it.id != store.currentId() }
+                .forEach { NewMailNotifier.clear(getApplication(), it.id) }
+        }
         // Reconnect push with the new scope.
-        PushController.apply(getApplication())
+        PushController.apply(getApplication(), userInitiated = true)
     }
 
     val quietHoursEnabled = settings.quietHoursEnabled.stateIn(

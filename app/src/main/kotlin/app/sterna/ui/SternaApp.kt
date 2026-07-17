@@ -111,10 +111,10 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
             ?: accountStore.accounts().firstOrNull { accountStore.credentials(it.id) != null }?.id
         if (current != null) {
             if (accountStore.currentId() != current) accountStore.setCurrent(current)
-            PushController.apply(getApplication())
+            PushController.apply(getApplication(), userInitiated = true)
             _state.value = RootState.Authenticated(current)
         } else {
-            PushController.apply(getApplication())
+            PushController.apply(getApplication(), userInitiated = true)
             _state.value = RootState.NeedAccount
         }
     }

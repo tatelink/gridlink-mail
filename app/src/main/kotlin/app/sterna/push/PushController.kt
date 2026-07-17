@@ -77,8 +77,13 @@ object PushController {
         }
     }
 
-    /** Recompute every account's transport and (re)arm the machinery accordingly. */
-    fun apply(context: Context) {
+    /**
+     * Recompute every account's transport and (re)arm the machinery accordingly.
+     * [userInitiated] true only for direct user actions (app open, settings toggles):
+     * it silently reseeds the INBOX baselines. Background triggers (transport
+     * callbacks, workers) pass false so gap mail is diffed and announced.
+     */
+    fun apply(context: Context, userInitiated: Boolean) {
         val appContext = context.applicationContext as Application
         val container = appContext.container
         val store = container.accountStore
@@ -100,10 +105,11 @@ object PushController {
         }
         if (direct.isEmpty()) {
             PushService.stop(appContext)
-            // No foreground service: catch up + seed baselines through the worker path.
-            accounts.forEach { PushFetchWorker.enqueue(appContext, it.id) }
+            // No foreground service: catch up through the worker path. On a user-initiated
+            // arm the inbox reseeds silently (it is on screen); background arms diff.
+            accounts.forEach { PushFetchWorker.enqueue(appContext, it.id, resetInbox = userInitiated) }
         } else {
-            PushService.start(appContext)
+            PushService.start(appContext, resetBaseline = userInitiated)
         }
     }
 }

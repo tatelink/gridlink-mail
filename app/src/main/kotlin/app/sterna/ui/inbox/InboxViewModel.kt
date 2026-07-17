@@ -7,6 +7,7 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import app.sterna.container
 import app.sterna.R
+import app.sterna.folders.FolderDeleteWorker
 import app.sterna.push.NewMailNotifier
 import app.sterna.push.PushController
 import app.sterna.snooze.Snoozes
@@ -877,7 +878,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private var folderDeleteJob: Job? = null
-    private var pendingFolderDeleteAction: (suspend () -> Unit)? = null
+    private var pendingDeleteMailboxId: String? = null
     private val _pendingFolderDelete = MutableStateFlow<String?>(null)
 
     /** Snackbar label while a folder delete waits out its undo window; null = none. */
@@ -885,52 +886,37 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Delete a folder (and its subfolders) with an undo window: the folder leaves the
-     * drawer immediately, but the server delete is held back a few seconds — same
-     * pattern as [emptyTrash]. Scheduling a second delete flushes the first.
+     * drawer immediately, and the server delete is PERSISTED WorkManager work with an
+     * initial delay — it survives this ViewModel and the process, so a confirmed delete
+     * can no longer be silently dropped. The coroutine below only times the snackbar.
      */
     fun deleteFolder(mailboxId: String, folderName: String) {
         val credentials = store.load() ?: return
-        flushPendingFolderDelete()
         val ids = listOf(mailboxId) + subfolderIdsOf(mailboxId)
         viewModelScope.launch { repo.hideMailboxesLocally(ids) }
         _pendingFolderDelete.value =
             getApplication<Application>().getString(R.string.inbox_folder_deleted, folderName)
-        val action: suspend () -> Unit = {
-            runCatching {
-                val deleted = repo.deleteFolder(credentials, mailboxId)
-                deleted.forEach { NewMailNotifier.clear(getApplication(), credentials.id, it) }
-                refreshWatchedFolders()
-            }.onFailure {
-                _message.value = it.message ?: getApplication<Application>().getString(R.string.status_folder_op_failed)
-                refresh() // delete failed — bring the folder back
-            }
-        }
-        pendingFolderDeleteAction = action
+        FolderDeleteWorker.schedule(getApplication(), credentials.id, mailboxId, PURGE_HOLD_BACK_MS)
+        pendingDeleteMailboxId = mailboxId
+        folderDeleteJob?.cancel()
         folderDeleteJob = viewModelScope.launch {
             delay(PURGE_HOLD_BACK_MS)
-            _pendingFolderDelete.value = null
-            pendingFolderDeleteAction = null
-            action()
+            if (pendingDeleteMailboxId == mailboxId) {
+                pendingDeleteMailboxId = null
+                _pendingFolderDelete.value = null
+                refreshWatchedFolders()
+            }
         }
     }
 
     /** Cancel a held-back folder delete (nothing was destroyed yet) and restore the drawer. */
     fun undoDeleteFolder() {
+        pendingDeleteMailboxId?.let { FolderDeleteWorker.cancel(getApplication(), it) }
+        pendingDeleteMailboxId = null
         folderDeleteJob?.cancel()
         folderDeleteJob = null
-        pendingFolderDeleteAction = null
         _pendingFolderDelete.value = null
         refresh()
-    }
-
-    /** Run a previously scheduled folder delete NOW (a new one is about to replace it). */
-    private fun flushPendingFolderDelete() {
-        val action = pendingFolderDeleteAction ?: return
-        folderDeleteJob?.cancel()
-        folderDeleteJob = null
-        pendingFolderDeleteAction = null
-        _pendingFolderDelete.value = null
-        viewModelScope.launch { action() }
     }
 
     // ---- folder watch (multi-folder push, issue #16) ----
@@ -954,7 +940,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         // Dropping the baseline means a later re-watch reseeds silently (no stale diff).
         if (!watched) NewMailNotifier.clear(getApplication(), accountId, mailboxId)
         refreshWatchedFolders()
-        PushController.apply(getApplication())
+        PushController.apply(getApplication(), userInitiated = true)
     }
 
     private fun folderOp(op: suspend (AccountCredentials) -> Unit) {

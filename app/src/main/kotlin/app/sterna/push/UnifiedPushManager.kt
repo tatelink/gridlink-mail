@@ -279,7 +279,12 @@ class UnifiedPushManager(
 
     fun onUnregistered(accountId: String) {
         Log.i(TAG, "UnifiedPush unregistered for $accountId")
-        store.load(accountId)?.let { store.save(accountId, it.copy(status = UpStatus.NONE)) }
+        // FAILED, not NONE: NONE re-registers instantly through the transport callback,
+        // which ping-pongs against a distributor that keeps answering with unregister
+        // (e.g. the user revoked Sterna inside it). FAILED rides the retry cooldown.
+        store.load(accountId)?.let {
+            store.save(accountId, it.copy(status = UpStatus.FAILED, statusSinceMillis = System.currentTimeMillis()))
+        }
         onTransportStateChanged?.invoke()
     }
 

@@ -105,6 +105,10 @@ class ImapMailService(
         return ImapIdleConnection(imapClient, config(endpoint, credentials), "INBOX", onChanged, onClosed)
     }
 
+    /** Raw folder list (paths + the server's REAL hierarchy delimiter from LIST). */
+    suspend fun listImapFolders(credentials: AccountCredentials) =
+        withSession(credentials) { it.listFolders() }
+
     /** Close and forget an account's pooled connection (e.g. on sign-out). */
     suspend fun disconnect(accountId: String) {
         val pooled = pool.remove(accountId) ?: return

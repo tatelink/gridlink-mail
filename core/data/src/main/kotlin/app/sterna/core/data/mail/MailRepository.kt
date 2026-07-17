@@ -1537,7 +1537,8 @@ class MailRepository(
      */
     suspend fun renameFolder(credentials: AccountCredentials, mailboxId: String, newName: String): String {
         if (credentials.protocol == MailProtocol.IMAP) {
-            val delim = if (mailboxId.contains('/')) "/" else if (mailboxId.contains('.')) "." else "/"
+            val delim = imap.listImapFolders(credentials).firstOrNull { it.path == mailboxId }?.delimiter
+                ?: if (mailboxId.contains('/')) "/" else if (mailboxId.contains('.')) "." else "/"
             val parent = mailboxId.substringBeforeLast(delim, "")
             val newPath = if (parent.isEmpty()) newName.trim() else "$parent$delim${newName.trim()}"
             imap.renameFolder(credentials, mailboxId, newPath)
@@ -1559,11 +1560,15 @@ class MailRepository(
     suspend fun deleteFolder(credentials: AccountCredentials, mailboxId: String): List<String> {
         val targets: List<String>
         if (credentials.protocol == MailProtocol.IMAP) {
-            val all = imap.listMailboxes(credentials).map { it.id }
-            val delim = if (all.any { it.contains('/') }) "/" else "."
-            targets = all.filter { it == mailboxId || it.startsWith(mailboxId + delim) }
+            val folders = imap.listImapFolders(credentials)
+            // The folder's OWN delimiter from LIST: guessing from other folder names
+            // breaks on servers whose names legitimately contain '/' or '.'.
+            val delim = folders.firstOrNull { it.path == mailboxId }?.delimiter ?: "/"
+            targets = folders.map { it.path }
+                .filter { it == mailboxId || it.startsWith(mailboxId + delim) }
                 .sortedByDescending { it.length }
-            targets.forEach { imap.deleteFolder(credentials, it) }
+                .ifEmpty { listOf(mailboxId) } // already gone server-side: still clean up locally
+            targets.forEach { runCatching { imap.deleteFolder(credentials, it) } }
         } else {
             val ctx = connect(credentials)
             val childrenOf = client.getMailboxes(ctx.session, ctx.accountId, ctx.auth).groupBy { it.parentId }

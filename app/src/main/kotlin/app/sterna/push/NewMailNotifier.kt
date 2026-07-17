@@ -2,7 +2,6 @@ package app.sterna.push
 
 import android.app.Application
 import android.content.Context
-import app.sterna.R
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.settings.SettingsRepository
@@ -62,14 +61,24 @@ object NewMailNotifier {
         prefs(context).edit().remove(key(accountId, mailboxId)).apply()
     }
 
-    /** Re-key a folder's baseline after an IMAP rename (ids are folder paths there). */
+    /**
+     * Re-key baselines after an IMAP rename (ids are folder paths there) — the folder
+     * itself AND its subfolders, whose paths changed too (both common delimiters are
+     * matched; a false positive merely re-keys a baseline to an unused key, which the
+     * next pass reseeds silently).
+     */
     fun rename(context: Context, accountId: String, oldMailboxId: String, newMailboxId: String) {
         val prefs = prefs(context)
-        val old = prefs.getStringSet(key(accountId, oldMailboxId), null) ?: return
-        prefs.edit()
-            .putStringSet(key(accountId, newMailboxId), old)
-            .remove(key(accountId, oldMailboxId))
-            .apply()
+        val oldKey = key(accountId, oldMailboxId)
+        val newKey = key(accountId, newMailboxId)
+        val edit = prefs.edit()
+        prefs.all.keys
+            .filter { it == oldKey || it.startsWith("$oldKey/") || it.startsWith("$oldKey.") }
+            .forEach { k ->
+                prefs.getStringSet(k, null)?.let { edit.putStringSet(newKey + k.removePrefix(oldKey), it) }
+                edit.remove(k)
+            }
+        edit.apply()
     }
 
     /**
@@ -88,19 +97,9 @@ object NewMailNotifier {
         if (newMail.isNotEmpty()) {
             val silent = quietHoursActive(context)
             newMail.forEach { Notifications.notifyNewMail(context, it, credentials.id, silent, folderName) }
-            // A group summary requires 2+ children to be shown by the system.
-            if (newMail.size >= 2) {
-                val lines = newMail.map { mail ->
-                    val sender = mail.from.firstOrNull()?.display()
-                        ?: context.getString(R.string.notif_new_message)
-                    val subject = mail.subject?.takeIf { it.isNotBlank() }
-                        ?: context.getString(R.string.message_no_subject)
-                    context.getString(R.string.notif_group_line, sender, subject)
-                }
-                Notifications.notifyGroupSummary(
-                    context, credentials.id, credentials.username, newMail.size, lines, silent,
-                )
-            }
+            // Rebuilt from ALL active children so successive per-folder passes accumulate
+            // instead of the last folder overwriting the whole account's summary.
+            Notifications.updateGroupSummary(context, credentials.id, credentials.username, silent)
         }
         seed(context, credentials.id, mailboxId, emails)
     }

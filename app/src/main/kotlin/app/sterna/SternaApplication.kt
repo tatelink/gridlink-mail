@@ -59,7 +59,8 @@ class AppContainer(context: Context) {
         // A UnifiedPush transport change (verified, failed, unregistered) re-evaluates
         // which accounts still need a direct connection.
         unifiedPushManager.onTransportStateChanged = {
-            app.sterna.push.PushController.apply(appContext)
+            // Background trigger: diff, never reseed (gap mail must still notify).
+            app.sterna.push.PushController.apply(appContext, userInitiated = false)
         }
         // Let the data layer arm the delivery worker from any send call site (compose, RSVP, …).
         mailRepository.outboxScheduler = OutboxScheduler { id, delay -> Outbox.enqueue(appContext, id, delay) }
