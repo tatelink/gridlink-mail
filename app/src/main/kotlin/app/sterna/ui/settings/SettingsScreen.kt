@@ -120,6 +120,9 @@ import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.data.settings.PreviewLines
 import app.sterna.core.data.settings.SwipeAction
 import app.sterna.core.data.settings.ThemeMode
+import app.sterna.push.PushController
+import app.sterna.push.PushStatus
+import app.sterna.ui.appLabelOf
 import app.sterna.R
 import app.sterna.ui.connect.ConnectScreen
 import java.time.Instant
@@ -1102,6 +1105,23 @@ private fun AccountDetailScreen(
                         viewModel.setNotificationsEnabled(accountId, it)
                     },
                 )
+                // Read-only delivery status (issue #17) — transparency, never a control.
+                if (notificationsEnabled) {
+                    val appContext = LocalContext.current
+                    val statusText = when (val s = PushController.statusFor(appContext, accountId)) {
+                        is PushStatus.ViaUnifiedPush ->
+                            stringResource(R.string.settings_push_status_up, appLabelOf(appContext, s.distributorPackage))
+                        PushStatus.Direct -> stringResource(R.string.settings_push_status_direct)
+                        PushStatus.Connecting -> stringResource(R.string.settings_push_status_connecting)
+                        PushStatus.Periodic -> stringResource(R.string.settings_push_status_periodic)
+                    }
+                    Text(
+                        statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
             }
             SettingsSection(stringResource(R.string.settings_server_settings_section)) {
                 if (isImap) {

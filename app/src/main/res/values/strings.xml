@@ -63,6 +63,11 @@
     <string name="inbox_folder_unread">%1$s  (%2$d)</string>
     <string name="inbox_folder_options">Folder options</string>
     <string name="inbox_folder_watch">Notify about new mail</string>
+    <string name="settings_push_status_up">Push: UnifiedPush (%1$s)</string>
+    <string name="settings_push_status_direct">Push: direct connection</string>
+    <string name="settings_push_status_connecting">Push: connecting…</string>
+    <string name="settings_push_status_periodic">Checked every 30 minutes</string>
+    <string name="up_picker_title">Deliver notifications through</string>
     <string name="inbox_delete_folder_recursive_title">Also delete subfolders?</string>
     <string name="inbox_delete_folder_recursive_body">\"%1$s\" contains subfolders. They will all be deleted, along with their messages.</string>
     <string name="inbox_folder_deleted">Folder \"%1$s\" deleted</string>

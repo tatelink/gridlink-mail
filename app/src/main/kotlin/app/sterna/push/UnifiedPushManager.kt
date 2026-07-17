@@ -84,6 +84,11 @@ class UnifiedPushManager(
         onTransportStateChanged?.invoke()
     }
 
+    /** Dialog dismissed without a choice: stay on direct connections (re-asked next apply). */
+    fun dismissDistributorChoice() {
+        _needsDistributorChoice.value = false
+    }
+
     fun isActive(accountId: String): Boolean = store.load(accountId)?.status == UpStatus.ACTIVE
 
     /**
@@ -117,6 +122,9 @@ class UnifiedPushManager(
     /** Saved distributor's package name while this account rides UnifiedPush (status line). */
     fun distributorLabel(): String? = UnifiedPush.getAckDistributor(context)
         ?: UnifiedPush.getSavedDistributor(context)
+
+    /** Installed distributor package names, for the picker dialog. */
+    fun distributors(): List<String> = UnifiedPush.getDistributors(context)
 
     /**
      * Drive the account towards ACTIVE: register when NONE/FAILED, re-register when a

@@ -52,6 +52,11 @@
     <string name="inbox_folder_unread">%1$s  (%2$d)</string>
     <string name="inbox_folder_options">Opções da pasta</string>
     <string name="inbox_folder_watch">Notificar novas mensagens</string>
+    <string name="settings_push_status_up">Push: UnifiedPush (%1$s)</string>
+    <string name="settings_push_status_direct">Push: ligação direta</string>
+    <string name="settings_push_status_connecting">Push: a ligar…</string>
+    <string name="settings_push_status_periodic">Verificação a cada 30 minutos</string>
+    <string name="up_picker_title">Entregar as notificações através de</string>
     <string name="inbox_delete_folder_recursive_title">Eliminar também as subpastas?</string>
     <string name="inbox_delete_folder_recursive_body">"%1$s" contém subpastas. Serão todas eliminadas, juntamente com as suas mensagens.</string>
     <string name="inbox_folder_deleted">Pasta "%1$s" eliminada</string>

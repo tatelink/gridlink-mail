@@ -9,6 +9,21 @@ import app.sterna.core.data.account.MailProtocol
 /** How one account's new mail arrives. */
 enum class Transport { UNIFIED_PUSH, EVENT_SOURCE, IMAP_IDLE }
 
+/** Read-only per-account delivery status, for the account detail screen (UX rule 3). */
+sealed interface PushStatus {
+    /** Instant via UnifiedPush; [distributorPackage] resolves to an app label in UI. */
+    data class ViaUnifiedPush(val distributorPackage: String?) : PushStatus
+
+    /** Instant via a direct connection we hold (JMAP EventSource or IMAP IDLE). */
+    data object Direct : PushStatus
+
+    /** UnifiedPush bring-up in flight; the direct connection still covers the account. */
+    data object Connecting : PushStatus
+
+    /** No live connection right now — the periodic worker checks every ~30 minutes. */
+    data object Periodic : PushStatus
+}
+
 /**
  * Single decision point for push transports (issue #17). Every place that used to
  * start/stop [PushService] calls [apply] instead: it kicks the UnifiedPush state
@@ -26,6 +41,20 @@ object PushController {
             credentials.protocol == MailProtocol.JMAP && up.isActive(credentials.id) -> Transport.UNIFIED_PUSH
             credentials.protocol == MailProtocol.JMAP -> Transport.EVENT_SOURCE
             else -> Transport.IMAP_IDLE
+        }
+    }
+
+    /** The read-only status line for one account (hidden by UI when notifications are off). */
+    fun statusFor(context: Context, accountId: String): PushStatus {
+        val container = (context.applicationContext as Application).container
+        val store = container.accountStore
+        val up = container.unifiedPushManager
+        return when {
+            up.isActive(accountId) -> PushStatus.ViaUnifiedPush(up.distributorLabel())
+            up.isPending(accountId) -> PushStatus.Connecting
+            (store.pushAllAccounts() || store.currentId() == accountId) && PushService.isRunning ->
+                PushStatus.Direct
+            else -> PushStatus.Periodic
         }
     }
 

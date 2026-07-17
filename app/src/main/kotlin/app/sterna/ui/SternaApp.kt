@@ -40,6 +40,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.compose.ui.res.stringResource
+import app.sterna.R
 import app.sterna.MailtoDraft
 import app.sterna.container
 import app.sterna.core.data.account.StoredAccount
@@ -172,6 +174,7 @@ fun SternaApp(
             )
         }
         if (locked) LockScreen(onUnlocked = appLock::unlock)
+        DistributorPickerDialog()
     }
 }
 
@@ -396,4 +399,45 @@ private fun MainNavHost(
             )
         }
     }
+}
+
+/**
+ * UnifiedPush distributor picker (issue #17): shown ONLY when several distributors
+ * are installed and none has been chosen yet (UX rule — one installed is used
+ * silently, none means nothing happens; no settings entry, no transport wording).
+ */
+@Composable
+private fun DistributorPickerDialog() {
+    val context = LocalContext.current
+    val manager = (context.applicationContext as Application).container.unifiedPushManager
+    val needsChoice by manager.needsDistributorChoice.collectAsStateWithLifecycle()
+    if (!needsChoice) return
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { manager.dismissDistributorChoice() },
+        title = { androidx.compose.material3.Text(stringResource(R.string.up_picker_title)) },
+        text = {
+            androidx.compose.foundation.layout.Column {
+                manager.distributors().forEach { pkg ->
+                    androidx.compose.material3.TextButton(onClick = { manager.distributorChosen(pkg) }) {
+                        androidx.compose.material3.Text(appLabelOf(context, pkg))
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = { manager.dismissDistributorChoice() }) {
+                androidx.compose.material3.Text(stringResource(R.string.inbox_cancel))
+            }
+        },
+    )
+}
+
+/** Best-effort human app label for a package (falls back to the package name). */
+internal fun appLabelOf(context: android.content.Context, packageName: String?): String {
+    packageName ?: return "UnifiedPush"
+    return runCatching {
+        val pm = context.packageManager
+        pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
+    }.getOrDefault(packageName)
 }
