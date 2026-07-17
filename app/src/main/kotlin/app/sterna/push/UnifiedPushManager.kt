@@ -131,13 +131,22 @@ class UnifiedPushManager(
      * pending state went stale (lazy watchdog — no timers). No-op for IMAP accounts and
      * whenever no distributor is usable.
      */
+    // Synchronized: apply() runs from several call sites in quick succession (account
+    // switch, transport callbacks) — without it the load/save race registers many times.
+    @Synchronized
     fun ensureRegistered(credentials: AccountCredentials) {
         if (credentials.protocol != MailProtocol.JMAP) return
         if (!ensureDistributor()) return
         val state = store.getOrCreate(credentials.id)
+        val now = System.currentTimeMillis()
         val stalePending = (state.status == UpStatus.REGISTERING || state.status == UpStatus.VERIFYING) &&
-            System.currentTimeMillis() - state.statusSinceMillis >= PENDING_GRACE_MS
-        if (state.status == UpStatus.NONE || state.status == UpStatus.FAILED || stalePending) {
+            now - state.statusSinceMillis >= PENDING_GRACE_MS
+        // FAILED retries only after a cooldown. Critical: a failure invokes
+        // onTransportStateChanged → apply() → back here — without the cooldown that is
+        // a tight register/fail loop hammering the mail server (self-inflicted 429s).
+        val failedRetryDue = state.status == UpStatus.FAILED &&
+            now - state.statusSinceMillis >= FAILED_RETRY_MS
+        if (state.status == UpStatus.NONE || failedRetryDue || stalePending) {
             store.save(credentials.id, state.copy(status = UpStatus.REGISTERING, statusSinceMillis = System.currentTimeMillis()))
             scope.launch {
                 // VAPID (RFC 9749) when the server advertises it; Stalwart doesn't yet.
@@ -152,6 +161,13 @@ class UnifiedPushManager(
         val credentials = credentialsFor(accountId) ?: return unregisterOrphan(accountId)
         scope.launch {
             val prev = store.getOrCreate(accountId)
+            // The connector redelivers the endpoint on every register — if it hasn't
+            // changed and a subscription is already in flight or live, nothing to do.
+            if (prev.endpoint == endpoint.url && prev.subscriptionId != null &&
+                (prev.status == UpStatus.VERIFYING || prev.status == UpStatus.ACTIVE)
+            ) {
+                return@launch
+            }
             if (prev.subscriptionId != null && prev.endpoint != endpoint.url) {
                 // Endpoint rotation: the old subscription points nowhere — drop it.
                 runCatching { repo.destroyPushSubscription(credentials, prev.subscriptionId) }
@@ -299,5 +315,8 @@ class UnifiedPushManager(
 
         /** How long REGISTERING/VERIFYING counts as in-flight before the watchdog retries. */
         private const val PENDING_GRACE_MS = 2 * 60 * 1000L
+
+        /** Cooldown before a FAILED account may re-register (worker cycles retry for us). */
+        private const val FAILED_RETRY_MS = 15 * 60 * 1000L
     }
 }

@@ -1396,7 +1396,10 @@ class JmapClient internal constructor(
         }
         val args = methodResponseArgs(postJmap(session, auth, payload), "PushSubscription/set")
         val created = args["created"]?.jsonObject?.get("sub")?.jsonObject
-            ?: throw JmapException("Couldn't create the push subscription")
+            ?: throw JmapException(
+                "Couldn't create the push subscription" +
+                    (args["notCreated"]?.jsonObject?.get("sub")?.let { ": $it" } ?: ""),
+            )
         subscription.copy(
             id = created["id"]?.jsonPrimitive?.contentOrNull ?: subscription.id,
             expires = created["expires"]?.jsonPrimitive?.contentOrNull ?: subscription.expires,
