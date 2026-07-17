@@ -1383,19 +1383,31 @@ class MailRepository(
 
     /** Move a message to an arbitrary mailbox (e.g. unarchive → Inbox, or move-to-folder). */
     suspend fun moveToMailbox(credentials: AccountCredentials, emailId: String, targetMailboxId: String) {
+        // Captured before the local row is dropped, to nudge the drawer's cached counts.
+        val moved = emailDao.emailsByIds(listOf(emailId)).firstOrNull()
         if (credentials.protocol == MailProtocol.IMAP) {
             imapTarget(emailId)?.let { (mb, uid) ->
                 if (mb == targetMailboxId) return@let
                 imap.move(credentials, mb, uid, targetMailboxId)?.let { lastImapMove[emailId] = ImapLoc(targetMailboxId, it) }
             }
             emailDao.deleteById(emailId)
+            adjustCountsForMove(moved, targetMailboxId)
             return
         }
         val ctx = connect(credentials)
         val mb = emailDao.mailboxOf(emailId)
         val newState = client.move(ctx.session, ctx.accountId, emailId, targetMailboxId, ctx.auth)
         emailDao.deleteById(emailId)
+        adjustCountsForMove(moved, targetMailboxId)
         advanceEmailState(newState, credentials.id, mb)
+    }
+
+    /** Keep the drawer's cached folder counters fresh after a local move (sync corrects drift). */
+    private suspend fun adjustCountsForMove(moved: EmailEntity?, targetMailboxId: String) {
+        if (moved == null || moved.mailboxId == targetMailboxId) return
+        val unread = if (moved.seen) 0 else 1
+        mailboxDao.adjustCounts(moved.mailboxId, totalDelta = -1, unreadDelta = -unread)
+        mailboxDao.adjustCounts(targetMailboxId, totalDelta = 1, unreadDelta = unread)
     }
 
     /** The cached role of a mailbox (e.g. "junk", "inbox"), or null. */
@@ -1516,18 +1528,44 @@ class MailRepository(
         return mailboxId
     }
 
-    /** Delete a folder (and its cached messages + watch flag), then refresh. */
-    suspend fun deleteFolder(credentials: AccountCredentials, mailboxId: String) {
+    /**
+     * Delete a folder AND its subfolders (deepest first — servers refuse to destroy a
+     * parent that still has children), plus their cached messages and watch flags.
+     * Returns every deleted folder id so the caller can clean per-folder state.
+     */
+    suspend fun deleteFolder(credentials: AccountCredentials, mailboxId: String): List<String> {
+        val targets: List<String>
         if (credentials.protocol == MailProtocol.IMAP) {
-            imap.deleteFolder(credentials, mailboxId)
+            val all = imap.listMailboxes(credentials).map { it.id }
+            val delim = if (all.any { it.contains('/') }) "/" else "."
+            targets = all.filter { it == mailboxId || it.startsWith(mailboxId + delim) }
+                .sortedByDescending { it.length }
+            targets.forEach { imap.deleteFolder(credentials, it) }
         } else {
             val ctx = connect(credentials)
-            client.deleteMailbox(ctx.session, ctx.accountId, mailboxId, ctx.auth)
+            val childrenOf = client.getMailboxes(ctx.session, ctx.accountId, ctx.auth).groupBy { it.parentId }
+            val ordered = mutableListOf<String>()
+            fun visit(id: String) { // post-order: children before their parent
+                childrenOf[id].orEmpty().forEach { visit(it.id) }
+                ordered += id
+            }
+            visit(mailboxId)
+            targets = ordered
+            targets.forEach { client.deleteMailbox(ctx.session, ctx.accountId, it, ctx.auth) }
         }
-        accountStore.setFolderWatched(credentials.id, mailboxId, watched = false)
-        emailDao.replaceMailbox(credentials.id, mailboxId, emptyList())
+        targets.forEach {
+            accountStore.setFolderWatched(credentials.id, it, watched = false)
+            emailDao.replaceMailbox(credentials.id, it, emptyList())
+        }
         refreshMailboxes(credentials)
+        return targets
     }
+
+    /**
+     * Drop folders from the local cache only (drawer disappearance while a folder
+     * delete waits out its undo window); any refresh restores them.
+     */
+    suspend fun hideMailboxesLocally(mailboxIds: List<String>) = mailboxDao.deleteByIds(mailboxIds)
 
     /** Re-fetch the folder list into the cache (after a create/rename/delete). */
     private suspend fun refreshMailboxes(credentials: AccountCredentials) {

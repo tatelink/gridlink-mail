@@ -52,6 +52,9 @@
     <string name="inbox_folder_unread">%1$s  (%2$d)</string>
     <string name="inbox_folder_options">Opciones de la carpeta</string>
     <string name="inbox_folder_watch">Notificar los correos nuevos</string>
+    <string name="inbox_delete_folder_recursive_title">¿Eliminar también las subcarpetas?</string>
+    <string name="inbox_delete_folder_recursive_body">«%1$s» contiene subcarpetas. Se eliminarán todas junto con sus mensajes.</string>
+    <string name="inbox_folder_deleted">Carpeta «%1$s» eliminada</string>
     <string name="inbox_settings">Ajustes</string>
     <string name="inbox_cancel_selection">Cancelar selección</string>
     <string name="inbox_selected_count">%1$d seleccionados</string>

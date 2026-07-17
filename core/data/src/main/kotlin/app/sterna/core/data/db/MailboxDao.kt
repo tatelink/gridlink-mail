@@ -36,6 +36,17 @@ interface MailboxDao {
     @Query("SELECT role FROM mailboxes WHERE id = :id LIMIT 1")
     suspend fun roleForId(id: String): String?
 
+    /** Nudge a folder's cached counters after a local move; the next sync corrects drift. */
+    @Query(
+        "UPDATE mailboxes SET totalEmails = MAX(0, totalEmails + :totalDelta), " +
+            "unreadEmails = MAX(0, unreadEmails + :unreadDelta) WHERE id = :id",
+    )
+    suspend fun adjustCounts(id: String, totalDelta: Int, unreadDelta: Int)
+
+    /** Drop folders from the cache (drawer) — e.g. while a folder delete awaits its undo window. */
+    @Query("DELETE FROM mailboxes WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
+
     @Transaction
     suspend fun replaceAll(mailboxes: List<MailboxEntity>) {
         upsertAll(mailboxes)

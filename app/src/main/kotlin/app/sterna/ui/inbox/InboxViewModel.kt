@@ -850,10 +850,87 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         refreshWatchedFolders()
     }
 
-    fun deleteFolder(mailboxId: String) = folderOp { c ->
-        repo.deleteFolder(c, mailboxId)
-        NewMailNotifier.clear(getApplication(), c.id, mailboxId)
-        refreshWatchedFolders()
+    /**
+     * Subfolders (recursive) of a folder, from the cached drawer list — JMAP `parentId`
+     * or the IMAP path prefix, mirroring the drawer's own tree building.
+     */
+    fun subfolderIdsOf(mailboxId: String): List<String> {
+        val all = state.value.mailboxes
+        val result = mutableListOf<String>()
+        fun childrenOf(id: String): List<Mailbox> = all.filter { m ->
+            if (m.id == id) return@filter false
+            if (m.parentId != null) return@filter m.parentId == id
+            val delim = when {
+                m.id.contains('/') -> "/"
+                m.id.contains('.') -> "."
+                else -> return@filter false
+            }
+            m.id.substringBeforeLast(delim, "") == id
+        }
+        fun visit(id: String) {
+            childrenOf(id).forEach { child ->
+                if (result.add(child.id)) visit(child.id)
+            }
+        }
+        visit(mailboxId)
+        return result
+    }
+
+    private var folderDeleteJob: Job? = null
+    private var pendingFolderDeleteAction: (suspend () -> Unit)? = null
+    private val _pendingFolderDelete = MutableStateFlow<String?>(null)
+
+    /** Snackbar label while a folder delete waits out its undo window; null = none. */
+    val pendingFolderDelete: StateFlow<String?> = _pendingFolderDelete.asStateFlow()
+
+    /**
+     * Delete a folder (and its subfolders) with an undo window: the folder leaves the
+     * drawer immediately, but the server delete is held back a few seconds — same
+     * pattern as [emptyTrash]. Scheduling a second delete flushes the first.
+     */
+    fun deleteFolder(mailboxId: String, folderName: String) {
+        val credentials = store.load() ?: return
+        flushPendingFolderDelete()
+        val ids = listOf(mailboxId) + subfolderIdsOf(mailboxId)
+        viewModelScope.launch { repo.hideMailboxesLocally(ids) }
+        _pendingFolderDelete.value =
+            getApplication<Application>().getString(R.string.inbox_folder_deleted, folderName)
+        val action: suspend () -> Unit = {
+            runCatching {
+                val deleted = repo.deleteFolder(credentials, mailboxId)
+                deleted.forEach { NewMailNotifier.clear(getApplication(), credentials.id, it) }
+                refreshWatchedFolders()
+            }.onFailure {
+                _message.value = it.message ?: getApplication<Application>().getString(R.string.status_folder_op_failed)
+                refresh() // delete failed — bring the folder back
+            }
+        }
+        pendingFolderDeleteAction = action
+        folderDeleteJob = viewModelScope.launch {
+            delay(PURGE_HOLD_BACK_MS)
+            _pendingFolderDelete.value = null
+            pendingFolderDeleteAction = null
+            action()
+        }
+    }
+
+    /** Cancel a held-back folder delete (nothing was destroyed yet) and restore the drawer. */
+    fun undoDeleteFolder() {
+        folderDeleteJob?.cancel()
+        folderDeleteJob = null
+        pendingFolderDeleteAction = null
+        _pendingFolderDelete.value = null
+        refresh()
+    }
+
+    /** Run a previously scheduled folder delete NOW (a new one is about to replace it). */
+    private fun flushPendingFolderDelete() {
+        val action = pendingFolderDeleteAction ?: return
+        folderDeleteJob?.cancel()
+        folderDeleteJob = null
+        pendingFolderDeleteAction = null
+        _pendingFolderDelete.value = null
+        viewModelScope.launch { action() }
     }
 
     // ---- folder watch (multi-folder push, issue #16) ----

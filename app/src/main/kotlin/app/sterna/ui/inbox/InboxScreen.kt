@@ -221,12 +221,14 @@ fun InboxScreen(
     var showCreateFolder by remember { mutableStateOf(false) }
     var folderToRename by remember { mutableStateOf<Mailbox?>(null) }
     var folderToDelete by remember { mutableStateOf<Mailbox?>(null) }
+    var folderToDeleteRecursive by remember { mutableStateOf<Mailbox?>(null) }
     var folderToAddChild by remember { mutableStateOf<Mailbox?>(null) }
     // Folder ids whose children are hidden; empty = everything expanded.
     var collapsedFolders by remember { mutableStateOf(emptySet<String>()) }
     val undo by viewModel.undo.collectAsStateWithLifecycle()
     val watchedFolders by viewModel.watchedFolders.collectAsStateWithLifecycle()
     val pendingPurge by viewModel.pendingPurge.collectAsStateWithLifecycle()
+    val pendingFolderDelete by viewModel.pendingFolderDelete.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
     val outboxCount by viewModel.outboxCount.collectAsStateWithLifecycle()
@@ -402,18 +404,43 @@ fun InboxScreen(
         )
     }
 
-    // Delete folder.
+    // Delete folder. A folder with subfolders gets a second, recursive-delete warning.
     folderToDelete?.let { folder ->
         AlertDialog(
             onDismissRequest = { folderToDelete = null },
             title = { Text(stringResource(R.string.inbox_delete_folder_title)) },
             text = { Text(stringResource(R.string.inbox_delete_folder_body, folder.name)) },
             confirmButton = {
-                TextButton(onClick = { viewModel.deleteFolder(folder.id); folderToDelete = null }) {
+                TextButton(onClick = {
+                    if (viewModel.subfolderIdsOf(folder.id).isNotEmpty()) {
+                        folderToDeleteRecursive = folder
+                    } else {
+                        viewModel.deleteFolder(folder.id, folder.name)
+                    }
+                    folderToDelete = null
+                }) {
                     Text(stringResource(R.string.inbox_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = { TextButton(onClick = { folderToDelete = null }) { Text(stringResource(R.string.inbox_cancel)) } },
+        )
+    }
+
+    // Second confirmation: the folder has subfolders, which go down with it.
+    folderToDeleteRecursive?.let { folder ->
+        AlertDialog(
+            onDismissRequest = { folderToDeleteRecursive = null },
+            title = { Text(stringResource(R.string.inbox_delete_folder_recursive_title)) },
+            text = { Text(stringResource(R.string.inbox_delete_folder_recursive_body, folder.name)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteFolder(folder.id, folder.name)
+                    folderToDeleteRecursive = null
+                }) {
+                    Text(stringResource(R.string.inbox_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { folderToDeleteRecursive = null }) { Text(stringResource(R.string.inbox_cancel)) } },
         )
     }
 
@@ -456,6 +483,16 @@ fun InboxScreen(
             duration = SnackbarDuration.Indefinite,
         )
         if (result == SnackbarResult.ActionPerformed) viewModel.undoEmptyTrash()
+    }
+    // Folder-delete hold-back: same pattern (pending clears when the delete fires).
+    LaunchedEffect(pendingFolderDelete) {
+        val label = pendingFolderDelete ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = label,
+            actionLabel = undoLabel,
+            duration = SnackbarDuration.Indefinite,
+        )
+        if (result == SnackbarResult.ActionPerformed) viewModel.undoDeleteFolder()
     }
     val scope = rememberCoroutineScope()
     // Make sure the drawer is shut whenever the inbox returns to the foreground. A drawer item
