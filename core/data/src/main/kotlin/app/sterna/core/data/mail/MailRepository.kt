@@ -244,6 +244,14 @@ data class AccountInboxMeta(
     val unreadCount: Int,
 )
 
+/** One watched folder refreshed during a push fan-out (multi-folder push, issue #16). */
+data class FolderRefresh(
+    val mailboxId: String,
+    val name: String,
+    val role: String?,
+    val emails: List<Email>,
+)
+
 /** Outcome of loading an account's server-side filter rules. */
 sealed interface FilterRulesState {
     /** No Sieve support (IMAP account, or capability absent). */
@@ -1792,6 +1800,54 @@ class MailRepository(
             ?: error("No mailboxes found.")
         syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit, credentials.id)
         return inbox.id to emailDao.getByMailbox(credentials.id, inbox.id).map { it.toEmail() }
+    }
+
+    /**
+     * Refresh the account's inbox (unless [includeInbox] is false) plus the watched
+     * folders in [extraFolderIds] into the cache (multi-folder push, issue #16).
+     * Independent of the current-account context, so it is safe for background push.
+     * Watched ids no longer on the server are omitted from the result and reported
+     * via [onMissing] so the caller can prune the stale watch flag.
+     */
+    suspend fun refreshAccountFolders(
+        credentials: AccountCredentials,
+        extraFolderIds: Set<String>,
+        includeInbox: Boolean = true,
+        limit: Int = 50,
+        onMissing: (String) -> Unit = {},
+    ): List<FolderRefresh> {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val (loads, missing) = imap.loadWatchedFolders(credentials, extraFolderIds, includeInbox, limit)
+            missing.forEach(onMissing)
+            loads.forEach { emailDao.upsertAll(it.messages) }
+            return loads.map { load ->
+                FolderRefresh(load.mailboxId, load.name, load.role, load.messages.map { it.toEmail() })
+            }
+        }
+        val resolved = resolve(credentials)
+        val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
+            ?: resolved.mailboxes.firstOrNull()
+            ?: error("No mailboxes found.")
+        val byId = resolved.mailboxes.associateBy { it.id }
+        val targets = buildList {
+            if (includeInbox) add(inbox)
+            extraFolderIds.forEach { id ->
+                val mailbox = byId[id]
+                when {
+                    mailbox == null -> onMissing(id)
+                    mailbox.id != inbox.id -> add(mailbox)
+                }
+            }
+        }
+        return targets.map { mailbox ->
+            syncMailbox(resolved.session, resolved.accountId, resolved.auth, mailbox.id, limit, credentials.id)
+            FolderRefresh(
+                mailboxId = mailbox.id,
+                name = mailbox.name,
+                role = mailbox.role,
+                emails = emailDao.getByMailbox(credentials.id, mailbox.id).map { it.toEmail() },
+            )
+        }
     }
 
     /**

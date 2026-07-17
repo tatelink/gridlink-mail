@@ -32,6 +32,14 @@ data class ImapFolderLoad(
     val messages: List<EmailEntity>,
 )
 
+/** One watched folder's fetched page (multi-folder push, issue #16). */
+data class ImapWatchedLoad(
+    val mailboxId: String,
+    val name: String,
+    val role: String?,
+    val messages: List<EmailEntity>,
+)
+
 /**
  * IMAP read+write path, parallel to the JMAP path in [MailRepository]. Maps IMAP
  * folders/messages onto the same Room entities so the cache, paging, and UI are
@@ -183,6 +191,39 @@ class ImapMailService(
             accountName = credentials.username,
             messages = messages,
         )
+    }
+
+    /**
+     * Fetch the newest [limit] messages of the inbox (unless [includeInbox] is false) plus
+     * each watched folder in [extraPaths], on one session (multi-folder push, issue #16).
+     * Watched paths no longer on the server come back in the second component so the
+     * caller can prune the stale watch flags.
+     */
+    suspend fun loadWatchedFolders(
+        credentials: AccountCredentials,
+        extraPaths: Set<String>,
+        includeInbox: Boolean,
+        limit: Int,
+    ): Pair<List<ImapWatchedLoad>, Set<String>> = withSession(credentials) { session ->
+        val folders = session.listFolders()
+        val inbox = folders.firstOrNull { it.role == "inbox" }
+            ?: folders.firstOrNull { it.path.equals("INBOX", ignoreCase = true) }
+            ?: folders.first()
+        val targets = buildList {
+            if (includeInbox) add(inbox)
+            extraPaths.forEach { path ->
+                val folder = folders.firstOrNull { it.path == path }
+                if (folder != null && folder.path != inbox.path) add(folder)
+            }
+        }
+        val missing = extraPaths.filterTo(mutableSetOf()) { path -> folders.none { it.path == path } }
+        val loads = targets.map { folder ->
+            val status = session.select(folder.path)
+            val messages = session.fetchPage(status.exists, offset = 0, limit = limit)
+                .map { it.toEntity(credentials.id, folder.path) }
+            ImapWatchedLoad(folder.path, folder.name, folder.role, messages)
+        }
+        loads to missing
     }
 
     /** Fetch the page of messages just older than the [offset] newest, for paging. */
