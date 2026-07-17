@@ -18,7 +18,11 @@ object FetchAndNotify {
      *   the worker then only needs the watched extras).
      * @param includeExtras false to refresh the inbox alone (an IMAP IDLE event — IDLE
      *   only ever signals the INBOX; watched extras belong to the periodic worker).
-     * @param resetBaselines true to reseed every folder silently (service (re)start).
+     * @param resetBaselines true to reseed the INBOX baseline silently (service
+     *   (re)start: the user is opening the app and sees the inbox, so announcing its
+     *   backlog would be noise). Watched extras always diff — the user does NOT see
+     *   a Sieve folder at app-open, so mail that arrived while push was down must
+     *   still notify (issue #16).
      */
     suspend fun run(
         context: Context,
@@ -44,8 +48,9 @@ object FetchAndNotify {
         val inboxId = if (includeInbox) refreshes.firstOrNull()?.mailboxId else null
         if (inboxId != null) NewMailNotifier.migrateLegacyBaseline(context, credentials.id, inboxId)
         refreshes.forEach { folder ->
-            val folderName = if (folder.mailboxId == inboxId) null else folder.name
-            if (resetBaselines || !NewMailNotifier.hasBaseline(context, credentials.id, folder.mailboxId)) {
+            val isInbox = folder.mailboxId == inboxId
+            val folderName = if (isInbox) null else folder.name
+            if ((resetBaselines && isInbox) || !NewMailNotifier.hasBaseline(context, credentials.id, folder.mailboxId)) {
                 // First sight of a folder (or an explicit reset): seed silently instead of
                 // flooding notifications for its whole existing content.
                 NewMailNotifier.seed(context, credentials.id, folder.mailboxId, folder.emails)
