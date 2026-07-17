@@ -315,6 +315,8 @@ class MailRepository(
     private val pgpEngine: PgpEngine? = null,
     /** App settings (null in tests): consulted for behavior toggles like mark-read-on-delete. */
     private val settings: SettingsRepository? = null,
+    /** Persisted sync cursors (null in tests): deltas survive process death (issue #17). */
+    private val syncStateStore: SyncStateStore? = null,
 ) {
     /**
      * Schedules the WorkManager job that delivers an outbox item. Set by the app layer at
@@ -351,9 +353,29 @@ class MailRepository(
     private class ImapLoc(val mailboxId: String, val uid: Long)
     private val lastImapMove = java.util.concurrent.ConcurrentHashMap<String, ImapLoc>()
 
-    /** Per-mailbox JMAP state for incremental sync (in-memory; cold start does a full query). */
+    /**
+     * Per-mailbox JMAP state for incremental sync. In-memory map with write-through to
+     * [syncStateStore] (when wired) so cursors survive process death — vital once pushes
+     * wake a dead process (issue #17); a cold start then still runs a cheap delta.
+     */
     private data class SyncState(val queryState: String, val emailState: String)
     private val syncStates = java.util.concurrent.ConcurrentHashMap<String, SyncState>()
+
+    private fun putSyncState(key: String, state: SyncState) {
+        syncStates[key] = state
+        syncStateStore?.save(key, state.queryState, state.emailState)
+    }
+
+    private fun dropSyncState(key: String) {
+        syncStates.remove(key)
+        syncStateStore?.remove(key)
+    }
+
+    private fun loadSyncState(key: String): SyncState? =
+        syncStates[key]
+            ?: syncStateStore?.load(key)
+                ?.let { (queryState, emailState) -> SyncState(queryState, emailState) }
+                ?.also { syncStates[key] = it }
 
     /**
      * After a local mutation (flag/move/delete) the server returns the new `Email/set`
@@ -366,7 +388,7 @@ class MailRepository(
         val s = newState ?: return
         mailboxIds.filterNotNull().distinct().forEach { mb ->
             val k = syncKey(accountId, mb)
-            syncStates[k]?.let { syncStates[k] = it.copy(emailState = s) }
+            loadSyncState(k)?.let { putSyncState(k, it.copy(emailState = s)) }
         }
     }
 
@@ -411,7 +433,7 @@ class MailRepository(
         localAccountId: String,
     ) {
         val key = syncKey(localAccountId, mailboxId)
-        val stored = syncStates[key]
+        val stored = loadSyncState(key)
         if (stored != null) {
             val queryChanges = client.emailQueryChanges(session, accountId, mailboxId, stored.queryState, MAX_CHANGES, auth)
             val changes = client.emailChanges(session, accountId, stored.emailState, MAX_CHANGES, auth)
@@ -436,7 +458,7 @@ class MailRepository(
                     val fetched = client.getEmailsByIds(session, accountId, toFetch, auth)
                     emailDao.upsertAll(fetched.map { it.toEntity(localAccountId, mailboxId) })
                 }
-                syncStates[key] = SyncState(queryChanges.newQueryState!!, changes.newState!!)
+                putSyncState(key, SyncState(queryChanges.newQueryState!!, changes.newState!!))
                 android.util.Log.i("MailSync", "incremental $mailboxId: +${toFetch.size} -${toRemove.size}")
                 return
             }
@@ -448,9 +470,9 @@ class MailRepository(
         val queryState = page.queryState
         val emailState = page.emailState
         if (queryState != null && emailState != null) {
-            syncStates[key] = SyncState(queryState, emailState)
+            putSyncState(key, SyncState(queryState, emailState))
         } else {
-            syncStates.remove(key)
+            dropSyncState(key)
         }
     }
 
@@ -1804,6 +1826,7 @@ class MailRepository(
      */
     fun resetSyncState() {
         syncStates.clear()
+        syncStateStore?.clear()
         context = null
     }
 
