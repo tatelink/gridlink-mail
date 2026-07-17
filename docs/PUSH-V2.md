@@ -315,9 +315,12 @@ present. **Without a distributor, behavior is byte-identical to Phase A.**
 
 ## B1. Dependency & manifest
 
-- `org.unifiedpush.android:connector:3.3.3` (Maven Central, **Apache-2.0**, no
+- `org.unifiedpush.android:connector:3.1.2` (Maven Central, **Apache-2.0**, no
   Google dependencies — satisfies the FOSS-only rule). App module only. The
-  `embedded-fcm-distributor` artifact is explicitly **not** added.
+  `embedded-fcm-distributor` artifact is explicitly **not** added. (Pinned to
+  3.1.2, not the latest 3.3.x: 3.2.0+ is built with Kotlin 2.2/2.3 whose metadata
+  the project's Kotlin 2.1 toolchain can't read — bump alongside the Kotlin
+  upgrade. See `libs.versions.toml`.)
 - The connector does all the WebPush cryptography: it generates the P-256
   keypair + auth secret per registration (`PushEndpoint.pubKeySet` →
   `p256dh` / `auth`) and **decrypts** incoming RFC 8188/8291 payloads —
@@ -638,7 +641,7 @@ with register+create attempts at double-digit Hz.
    folder per event).
 2. **Expedited-work quotas** under heavy push volume: degrades to regular work
    via the compat policy — delivery slightly delayed, never lost.
-3. **Connector 3.x API drift**: pinned to 3.3.3; all connector calls are
+3. **Connector 3.x API drift**: pinned to 3.1.2; all connector calls are
    isolated inside `UnifiedPushManager` so surface changes localize.
 4. **Stalwart's ~1-min verification window** vs slow distributor delivery:
    mitigated by keeping the EventSource open until `ACTIVE`; a missed
