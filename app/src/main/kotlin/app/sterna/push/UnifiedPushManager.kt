@@ -86,6 +86,27 @@ class UnifiedPushManager(
 
     fun isActive(accountId: String): Boolean = store.load(accountId)?.status == UpStatus.ACTIVE
 
+    /**
+     * Reality check before transport decisions: the saved distributor was uninstalled
+     * (or unsaved) while accounts were riding it — mark them FAILED so their direct
+     * connections resume. Called by the controller/worker themselves, hence no
+     * [onTransportStateChanged] here.
+     */
+    fun reconcileDistributorPresence() {
+        val saved = UnifiedPush.getAckDistributor(context) ?: UnifiedPush.getSavedDistributor(context)
+        if (saved != null && saved in UnifiedPush.getDistributors(context)) return
+        accountStore.allCredentials().forEach { credentials ->
+            store.load(credentials.id)
+                ?.takeIf { it.status != UpStatus.NONE && it.status != UpStatus.FAILED }
+                ?.let {
+                    store.save(
+                        credentials.id,
+                        it.copy(status = UpStatus.FAILED, statusSinceMillis = System.currentTimeMillis()),
+                    )
+                }
+        }
+    }
+
     /** Registration/verification in flight and not stale — the EventSource stays up meanwhile. */
     fun isPending(accountId: String): Boolean {
         val state = store.load(accountId) ?: return false

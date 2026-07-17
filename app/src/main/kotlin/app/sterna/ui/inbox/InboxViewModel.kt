@@ -8,7 +8,7 @@ import androidx.paging.cachedIn
 import app.sterna.container
 import app.sterna.R
 import app.sterna.push.NewMailNotifier
-import app.sterna.push.PushService
+import app.sterna.push.PushController
 import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.db.OutboxState
@@ -954,7 +954,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         // Dropping the baseline means a later re-watch reseeds silently (no stale diff).
         if (!watched) NewMailNotifier.clear(getApplication(), accountId, mailboxId)
         refreshWatchedFolders()
-        PushService.start(getApplication())
+        PushController.apply(getApplication())
     }
 
     private fun folderOp(op: suspend (AccountCredentials) -> Unit) {

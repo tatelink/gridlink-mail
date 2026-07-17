@@ -43,7 +43,7 @@ import androidx.navigation.navArgument
 import app.sterna.MailtoDraft
 import app.sterna.container
 import app.sterna.core.data.account.StoredAccount
-import app.sterna.push.PushService
+import app.sterna.push.PushController
 import app.sterna.security.LockScreen
 import app.sterna.ui.compose.ComposeScreen
 import app.sterna.ui.connect.ConnectScreen
@@ -109,10 +109,10 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
             ?: accountStore.accounts().firstOrNull { accountStore.credentials(it.id) != null }?.id
         if (current != null) {
             if (accountStore.currentId() != current) accountStore.setCurrent(current)
-            PushService.start(getApplication())
+            PushController.apply(getApplication())
             _state.value = RootState.Authenticated(current)
         } else {
-            PushService.stop(getApplication())
+            PushController.apply(getApplication())
             _state.value = RootState.NeedAccount
         }
     }

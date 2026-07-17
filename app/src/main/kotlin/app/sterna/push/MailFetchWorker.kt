@@ -33,11 +33,17 @@ class MailFetchWorker(context: Context, params: WorkerParameters) : CoroutineWor
         val store = container.accountStore
         val watched = if (store.pushAllAccounts()) store.allCredentials() else listOfNotNull(store.load())
         val accounts = watched.filter { store.notificationsEnabled(it.id) }
-        // Coverage matrix (issue #16): a live JMAP push covers the account's whole watched
-        // set, but IMAP IDLE only ever watches the INBOX — its watched extras are polled
-        // here even while push runs. With push down, everything is polled.
+        // Coverage matrix (issues #16/#17): a UnifiedPush-active account is covered
+        // entirely by its endpoint; a live JMAP EventSource covers the whole watched
+        // set; IMAP IDLE only ever watches the INBOX — its watched extras are polled
+        // here even while push runs. With everything down, everything is polled.
+        val up = container.unifiedPushManager
+        up.reconcileDistributorPresence()
         val pushLive = PushService.isRunning
         for (credentials in accounts) {
+            runCatching { up.renewIfNeeded(credentials) }
+                .onFailure { Log.w(TAG, "UnifiedPush renew check failed for ${credentials.id}", it) }
+            if (up.isActive(credentials.id)) continue
             if (pushLive && credentials.protocol != MailProtocol.IMAP) continue
             if (pushLive && store.watchedFolders(credentials.id).isEmpty()) continue
             runCatching {

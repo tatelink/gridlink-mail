@@ -69,9 +69,11 @@ class PushService : Service() {
         connections.values.forEach { runCatching { it.close() } }
         connections.clear()
         val store = application.container.accountStore
+        val up = application.container.unifiedPushManager
         val watched = if (store.pushAllAccounts()) store.allCredentials() else listOfNotNull(store.load())
-        // Honour the per-account notification opt-out.
-        val accounts = watched.filter { store.notificationsEnabled(it.id) }
+        // Honour the per-account notification opt-out; UnifiedPush-active accounts are
+        // served by their endpoint (issue #17) and hold no direct connection here.
+        val accounts = watched.filter { store.notificationsEnabled(it.id) && !up.isActive(it.id) }
         if (accounts.isEmpty()) {
             stopSelf()
             return

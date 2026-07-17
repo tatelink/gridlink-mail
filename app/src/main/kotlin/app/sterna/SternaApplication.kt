@@ -56,6 +56,11 @@ class AppContainer(context: Context) {
         // (Android 15+ FGS policies, OEM battery managers — Codeberg #11). Periodic work
         // persists across reboots; a healthy push makes each run a no-op.
         app.sterna.push.MailFetchWorker.ensureScheduled(appContext)
+        // A UnifiedPush transport change (verified, failed, unregistered) re-evaluates
+        // which accounts still need a direct connection.
+        unifiedPushManager.onTransportStateChanged = {
+            app.sterna.push.PushController.apply(appContext)
+        }
         // Let the data layer arm the delivery worker from any send call site (compose, RSVP, …).
         mailRepository.outboxScheduler = OutboxScheduler { id, delay -> Outbox.enqueue(appContext, id, delay) }
         // Re-arm any send left mid-flight (WorkManager persists jobs, but re-checking is a safety net).

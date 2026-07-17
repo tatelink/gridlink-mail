@@ -13,7 +13,7 @@ import app.sterna.core.data.settings.SettingsBackupCodec
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.settings.SwipeAction
 import app.sterna.core.data.settings.ThemeMode
-import app.sterna.push.PushService
+import app.sterna.push.PushController
 import app.sterna.security.canAuthenticate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,7 +122,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         store.setPushAllAccounts(value)
         _pushAllAccounts.value = value
         // Reconnect push with the new scope.
-        PushService.start(getApplication())
+        PushController.apply(getApplication())
     }
 
     val quietHoursEnabled = settings.quietHoursEnabled.stateIn(
