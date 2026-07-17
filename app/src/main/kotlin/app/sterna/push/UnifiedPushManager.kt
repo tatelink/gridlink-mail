@@ -302,7 +302,12 @@ class UnifiedPushManager(
     private fun credentialsFor(accountId: String): AccountCredentials? =
         accountStore.allCredentials().firstOrNull { it.id == accountId }
 
-    /** Re-encode any base64 variant (url-safe or standard, padded or not) as base64url without padding. */
+    /**
+     * Re-encode any base64 variant (url-safe or standard, padded or not) as base64url
+     * WITH padding: Stalwart's decoder (rust base64 URL_SAFE engine) requires canonical
+     * padding and rejects the RFC 7515-style unpadded form outright; padded input is
+     * accepted by lenient decoders elsewhere.
+     */
     private fun base64Url(value: String): String {
         val bytes = try {
             android.util.Base64.decode(value, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
@@ -311,7 +316,7 @@ class UnifiedPushManager(
         }
         return android.util.Base64.encodeToString(
             bytes,
-            android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP,
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP,
         )
     }
 
