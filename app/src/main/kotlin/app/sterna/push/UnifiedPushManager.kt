@@ -212,10 +212,13 @@ class UnifiedPushManager(
         }
     }
 
-    /** A payload arrived through the endpoint (connector-decrypted). */
+    /** A payload arrived through the endpoint (connector-decrypted, or plaintext). */
     fun onMessage(accountId: String, message: PushMessage) {
         val text = message.content.toString(Charsets.UTF_8)
-        when (val payload = if (message.decrypted) PushMessagePayload.parse(text) else null) {
+        // Parse regardless of message.decrypted: Stalwart POSTs the PushVerification in
+        // PLAINTEXT, which the connector flags undecrypted but still hands over. Valid
+        // JSON parses either way; encrypted-garbage parses to null → bare wake signal.
+        when (val payload = PushMessagePayload.parse(text)) {
             is PushMessagePayload.Verification -> {
                 val credentials = credentialsFor(accountId) ?: return unregisterOrphan(accountId)
                 scope.launch {
