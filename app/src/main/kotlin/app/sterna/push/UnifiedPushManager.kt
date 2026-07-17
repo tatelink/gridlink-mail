@@ -245,7 +245,10 @@ class UnifiedPushManager(
             // The subscription is per-credential, so any StateChange concerns this account.
             is PushMessagePayload.Change -> PushFetchWorker.enqueue(context, accountId)
             // Unknown/undecrypted payload: treat as a bare wake signal — still fetch.
-            null -> PushFetchWorker.enqueue(context, accountId)
+            null -> {
+                Log.d(TAG, "Unparsed push payload (${message.content.size}B, decrypted=${message.decrypted}): ${text.take(80)}")
+                PushFetchWorker.enqueue(context, accountId)
+            }
         }
     }
 
