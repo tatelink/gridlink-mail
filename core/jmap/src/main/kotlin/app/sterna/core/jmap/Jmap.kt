@@ -11,6 +11,9 @@ object Jmap {
     const val QUOTA_CAPABILITY = "urn:ietf:params:jmap:quota"
     const val SIEVE_CAPABILITY = "urn:ietf:params:jmap:sieve"
 
+    /** VAPID for JMAP WebPush (RFC 9749); advertises the server's application key. */
+    const val WEBPUSH_VAPID_CAPABILITY = "urn:ietf:params:jmap:webpush-vapid"
+
     /** Well-known path for JMAP autodiscovery (RFC 8620 §2.2). */
     const val WELL_KNOWN_PATH = "/.well-known/jmap"
 
