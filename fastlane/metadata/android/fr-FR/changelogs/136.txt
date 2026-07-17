@@ -1,0 +1,5 @@
+Nouveau : prise en charge d'UnifiedPush. Avec une app UnifiedPush installée (ntfy, NextPush), les comptes JMAP reçoivent les nouveaux messages par ce biais, sans que Sterna garde une connexion ouverte ni n'affiche de notification permanente. Sans une telle app, rien ne change.
+
+Nouveau : surveiller des dossiers autres que la boîte de réception. Activez « Notifier les nouveaux messages » pour n'importe quel dossier (y compris ceux filtrés par Sieve) depuis son menu dans le tiroir.
+
+Nouveau : un réglage unique « Réception des nouveaux messages : Instantanée / Économie de batterie », et une ligne par compte indiquant le mode de réception.

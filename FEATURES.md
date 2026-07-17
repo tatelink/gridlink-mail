@@ -146,8 +146,8 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Notification quick actions: reply (inline), mark read, delete
 - ✅ Push reconnects automatically when the connection drops (catches missed mail)
 - ✅ Bundled/grouped notifications per account — individual new-mail notifications collapse under a per-account summary
-- 🔜 Push/notifications beyond the Inbox (issue #16) — watch Sieve-filtered folders too: JMAP account-wide changes filtered on a watched-folder set; IMAP non-Inbox folders via the periodic fallback poll (IDLE is single-folder)
-- 🔜 UnifiedPush transport (issue #17, designed together with #16) — JMAP `PushSubscription` to a UnifiedPush endpoint removes the persistent connection (and its permanent notification) for JMAP accounts; IMAP keeps direct IDLE or the periodic poll. UX rule: the transport is picked automatically, the only user-facing setting is outcome-framed (instant vs battery-saver delivery); a distributor picker appears only when several are installed
+- ✅ Push/notifications beyond the Inbox (issue #16) — per-folder watch switch in the drawer (Sieve-filtered folders included): JMAP account-wide changes filtered on the watched set; IMAP non-Inbox folders via the periodic poll (IDLE is single-folder)
+- ✅ ⭐ UnifiedPush transport (issue #17) — JMAP `PushSubscription` to a UnifiedPush endpoint (ntfy, NextPush…) removes the persistent connection and its permanent notification for JMAP accounts; IMAP keeps direct IDLE or the periodic poll. The transport is picked automatically per account; the only user-facing setting is outcome-framed ("New mail delivery: Instant / Battery saver"); a read-only per-account status line shows what's in use; a distributor picker appears only when several are installed
 - ✅ Quiet hours — a nightly window (Settings → Notifications) during which new mail still arrives but silently (no sound/vibration/heads-up)
 
 ## Privacy & security

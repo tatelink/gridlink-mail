@@ -1,0 +1,5 @@
+New: UnifiedPush support. With a UnifiedPush app installed (ntfy, NextPush), JMAP accounts receive new mail through it, so Sterna keeps no connection open and shows no permanent notification. Without one, nothing changes.
+
+New: watch folders beyond the Inbox. Turn on "Notify about new mail" for any folder (Sieve-filtered folders included) from its menu in the drawer.
+
+New: a single "New mail delivery: Instant / Battery saver" setting, and a per-account line showing how push is delivered.
