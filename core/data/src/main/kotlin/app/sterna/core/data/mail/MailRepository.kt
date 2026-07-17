@@ -1495,21 +1495,28 @@ class MailRepository(
         refreshMailboxes(credentials)
     }
 
-    /** Rename a folder (keeping its place in the hierarchy for IMAP), then refresh. */
-    suspend fun renameFolder(credentials: AccountCredentials, mailboxId: String, newName: String) {
+    /**
+     * Rename a folder (keeping its place in the hierarchy for IMAP), then refresh.
+     * Returns the folder's id after the rename — IMAP ids are paths, so the id changes
+     * there and watch flags are re-keyed to follow it (issue #16); JMAP ids are stable.
+     */
+    suspend fun renameFolder(credentials: AccountCredentials, mailboxId: String, newName: String): String {
         if (credentials.protocol == MailProtocol.IMAP) {
             val delim = if (mailboxId.contains('/')) "/" else if (mailboxId.contains('.')) "." else "/"
             val parent = mailboxId.substringBeforeLast(delim, "")
             val newPath = if (parent.isEmpty()) newName.trim() else "$parent$delim${newName.trim()}"
             imap.renameFolder(credentials, mailboxId, newPath)
-        } else {
-            val ctx = connect(credentials)
-            client.renameMailbox(ctx.session, ctx.accountId, mailboxId, newName.trim(), ctx.auth)
+            accountStore.replaceWatchedFolder(credentials.id, mailboxId, newPath, delim)
+            refreshMailboxes(credentials)
+            return newPath
         }
+        val ctx = connect(credentials)
+        client.renameMailbox(ctx.session, ctx.accountId, mailboxId, newName.trim(), ctx.auth)
         refreshMailboxes(credentials)
+        return mailboxId
     }
 
-    /** Delete a folder (and its cached messages), then refresh. */
+    /** Delete a folder (and its cached messages + watch flag), then refresh. */
     suspend fun deleteFolder(credentials: AccountCredentials, mailboxId: String) {
         if (credentials.protocol == MailProtocol.IMAP) {
             imap.deleteFolder(credentials, mailboxId)
@@ -1517,6 +1524,7 @@ class MailRepository(
             val ctx = connect(credentials)
             client.deleteMailbox(ctx.session, ctx.accountId, mailboxId, ctx.auth)
         }
+        accountStore.setFolderWatched(credentials.id, mailboxId, watched = false)
         emailDao.replaceMailbox(credentials.id, mailboxId, emptyList())
         refreshMailboxes(credentials)
     }

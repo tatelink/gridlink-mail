@@ -75,6 +75,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -181,6 +182,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
+/**
+ * Folder roles whose drawer row shows no overflow menu: the inbox is always watched
+ * (issue #16), and notifying about one's own sent/drafts/trash/junk would be noise.
+ */
+private val watchMenuHiddenRoles = setOf("inbox", "sent", "drafts", "trash", "junk")
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InboxScreen(
@@ -218,6 +225,7 @@ fun InboxScreen(
     // Folder ids whose children are hidden; empty = everything expanded.
     var collapsedFolders by remember { mutableStateOf(emptySet<String>()) }
     val undo by viewModel.undo.collectAsStateWithLifecycle()
+    val watchedFolders by viewModel.watchedFolders.collectAsStateWithLifecycle()
     val pendingPurge by viewModel.pendingPurge.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
@@ -663,8 +671,10 @@ fun InboxScreen(
                             }
                         },
                         label = { Text(label) },
-                        // Only user-created folders (no special-use role) can be managed.
-                        badge = if (mailbox.role == null) {
+                        // The inbox is always watched (no menu); notifying about one's own
+                        // sent/drafts/trash/junk would be noise (issue #16). Management
+                        // actions stay limited to user-created folders (no role).
+                        badge = if (mailbox.role !in watchMenuHiddenRoles) {
                             {
                                 Box {
                                     var folderMenu by remember { mutableStateOf(false) }
@@ -672,18 +682,26 @@ fun InboxScreen(
                                         Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_folder_options))
                                     }
                                     DropdownMenu(folderMenu, onDismissRequest = { folderMenu = false }, shape = MaterialTheme.shapes.medium) {
+                                        val watched = mailbox.id in watchedFolders
                                         DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.inbox_new_subfolder)) },
-                                            onClick = { folderMenu = false; folderToAddChild = mailbox },
+                                            text = { Text(stringResource(R.string.inbox_folder_watch)) },
+                                            trailingIcon = { Checkbox(checked = watched, onCheckedChange = null) },
+                                            onClick = { folderMenu = false; viewModel.setFolderWatched(mailbox.id, !watched) },
                                         )
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.inbox_rename)) },
-                                            onClick = { folderMenu = false; folderToRename = mailbox },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.inbox_delete)) },
-                                            onClick = { folderMenu = false; folderToDelete = mailbox },
-                                        )
+                                        if (mailbox.role == null) {
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.inbox_new_subfolder)) },
+                                                onClick = { folderMenu = false; folderToAddChild = mailbox },
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.inbox_rename)) },
+                                                onClick = { folderMenu = false; folderToRename = mailbox },
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.inbox_delete)) },
+                                                onClick = { folderMenu = false; folderToDelete = mailbox },
+                                            )
+                                        }
                                     }
                                 }
                             }

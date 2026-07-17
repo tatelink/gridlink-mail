@@ -51,6 +51,7 @@
     <string name="inbox_all_inboxes_unread">Alle postvakken IN  (%1$d)</string>
     <string name="inbox_folder_unread">%1$s  (%2$d)</string>
     <string name="inbox_folder_options">Mapopties</string>
+    <string name="inbox_folder_watch">Melden bij nieuwe e-mail</string>
     <string name="inbox_settings">Instellingen</string>
     <string name="inbox_cancel_selection">Selectie annuleren</string>
     <string name="inbox_selected_count">%1$d geselecteerd</string>

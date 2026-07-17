@@ -14,6 +14,7 @@ import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.account.SyncWindow
 import app.sterna.core.data.pgp.PgpResult
+import app.sterna.push.NewMailNotifier
 import app.sterna.push.PushService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -218,6 +219,7 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     /** Sign out and purge that account's cached mail + the attachment cache. */
     fun signOut(id: String) {
         store.remove(id)
+        NewMailNotifier.clear(getApplication(), id)
         refresh()
         mail.resetSyncState()
         viewModelScope.launch {

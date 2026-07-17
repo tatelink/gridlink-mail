@@ -7,6 +7,8 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import app.sterna.container
 import app.sterna.R
+import app.sterna.push.NewMailNotifier
+import app.sterna.push.PushService
 import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.db.OutboxState
@@ -438,6 +440,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         refresh()
+        refreshWatchedFolders()
         // Recompute the read/unread toggle state whenever the selection set changes.
         viewModelScope.launch {
             _selectedIds.collect { refreshSelectionReadState(it) }
@@ -457,6 +460,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         selection.value = Sel.Folder(store.inboxMailboxId())
         unifiedInboxIds.value = store.allInboxMailboxIds()
         meta.value = Meta(store.accountLabel(), store.inboxMailboxName(), store.unreadCount())
+        refreshWatchedFolders()
         refresh()
     }
 
@@ -839,8 +843,40 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     // ---- folder management ----
 
     fun createFolder(name: String, parentId: String? = null) = folderOp { c -> repo.createFolder(c, name, parentId) }
-    fun renameFolder(mailboxId: String, newName: String) = folderOp { c -> repo.renameFolder(c, mailboxId, newName) }
-    fun deleteFolder(mailboxId: String) = folderOp { c -> repo.deleteFolder(c, mailboxId) }
+
+    fun renameFolder(mailboxId: String, newName: String) = folderOp { c ->
+        val newId = repo.renameFolder(c, mailboxId, newName)
+        // IMAP ids are paths: the repo re-keyed the watch flags; follow with the baseline.
+        if (newId != mailboxId) NewMailNotifier.rename(getApplication(), c.id, mailboxId, newId)
+        refreshWatchedFolders()
+    }
+
+    fun deleteFolder(mailboxId: String) = folderOp { c ->
+        repo.deleteFolder(c, mailboxId)
+        NewMailNotifier.clear(getApplication(), c.id, mailboxId)
+        refreshWatchedFolders()
+    }
+
+    // ---- folder watch (multi-folder push, issue #16) ----
+
+    private val _watchedFolders = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Folders watched for new mail on the current account (the inbox is always watched). */
+    val watchedFolders: StateFlow<Set<String>> = _watchedFolders
+
+    private fun refreshWatchedFolders() {
+        _watchedFolders.value = store.currentId()?.let { store.watchedFolders(it) } ?: emptySet()
+    }
+
+    /** Toggle new-mail notifications for one folder, then re-arm push to pick it up. */
+    fun setFolderWatched(mailboxId: String, watched: Boolean) {
+        val accountId = store.currentId() ?: return
+        store.setFolderWatched(accountId, mailboxId, watched)
+        // Dropping the baseline means a later re-watch reseeds silently (no stale diff).
+        if (!watched) NewMailNotifier.clear(getApplication(), accountId, mailboxId)
+        refreshWatchedFolders()
+        PushService.start(getApplication())
+    }
 
     private fun folderOp(op: suspend (AccountCredentials) -> Unit) {
         viewModelScope.launch {
