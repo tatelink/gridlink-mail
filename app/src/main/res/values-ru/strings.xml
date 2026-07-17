@@ -52,6 +52,11 @@
     <string name="inbox_folder_unread">%1$s  (%2$d)</string>
     <string name="inbox_folder_options">Параметры папки</string>
     <string name="inbox_folder_watch">Уведомлять о новых письмах</string>
+    <string name="settings_delivery_section">Доставка новых писем</string>
+    <string name="settings_delivery_instant">Мгновенно</string>
+    <string name="settings_delivery_instant_desc">Письма приходят сразу по получении. Может держать фоновое подключение.</string>
+    <string name="settings_delivery_saver">Экономия батареи</string>
+    <string name="settings_delivery_saver_desc">Проверка почты каждые 30 минут. Без фонового подключения.</string>
     <string name="settings_push_status_up">Push: UnifiedPush (%1$s)</string>
     <string name="settings_push_status_direct">Push: прямое подключение</string>
     <string name="settings_push_status_connecting">Push: подключение…</string>

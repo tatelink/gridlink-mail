@@ -13,6 +13,7 @@ import app.sterna.core.data.settings.SettingsBackupCodec
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.settings.SwipeAction
 import app.sterna.core.data.settings.ThemeMode
+import app.sterna.core.data.settings.DeliveryMode
 import app.sterna.push.PushController
 import app.sterna.security.canAuthenticate
 import kotlinx.coroutines.Dispatchers
@@ -116,6 +117,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setImageAllowed(sender: String, allowed: Boolean) {
         viewModelScope.launch { settings.setImageAllowed(sender, allowed) }
+    }
+
+    /** New-mail delivery: Instant / Battery saver (issue #17, the ONE outcome setting). */
+    val deliveryMode = settings.deliveryMode.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = DeliveryMode.INSTANT,
+    )
+
+    fun setDeliveryMode(mode: DeliveryMode) {
+        viewModelScope.launch {
+            settings.setDeliveryMode(mode)
+            // Re-arm with the new outcome (stops or restarts the foreground service).
+            PushController.apply(getApplication())
+        }
     }
 
     fun setPushAllAccounts(value: Boolean) {

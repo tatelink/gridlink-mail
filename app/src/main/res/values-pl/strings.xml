@@ -52,6 +52,11 @@
     <string name="inbox_folder_unread">%1$s  (%2$d)</string>
     <string name="inbox_folder_options">Opcje folderu</string>
     <string name="inbox_folder_watch">Powiadamiaj o nowych wiadomościach</string>
+    <string name="settings_delivery_section">Dostarczanie nowych wiadomości</string>
+    <string name="settings_delivery_instant">Natychmiast</string>
+    <string name="settings_delivery_instant_desc">Poczta przychodzi od razu po dotarciu. Może utrzymywać połączenie w tle.</string>
+    <string name="settings_delivery_saver">Oszczędzanie baterii</string>
+    <string name="settings_delivery_saver_desc">Sprawdza pocztę co 30 minut. Bez połączenia w tle.</string>
     <string name="settings_push_status_up">Push: UnifiedPush (%1$s)</string>
     <string name="settings_push_status_direct">Push: połączenie bezpośrednie</string>
     <string name="settings_push_status_connecting">Push: łączenie…</string>

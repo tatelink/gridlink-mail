@@ -52,6 +52,11 @@
     <string name="inbox_folder_unread">%1$s  (%2$d)</string>
     <string name="inbox_folder_options">Mapopties</string>
     <string name="inbox_folder_watch">Melden bij nieuwe e-mail</string>
+    <string name="settings_delivery_section">Bezorging van nieuwe e-mail</string>
+    <string name="settings_delivery_instant">Direct</string>
+    <string name="settings_delivery_instant_desc">E-mail komt binnen zodra die arriveert. Kan een achtergrondverbinding openhouden.</string>
+    <string name="settings_delivery_saver">Batterijbesparing</string>
+    <string name="settings_delivery_saver_desc">Controleert elke 30 minuten op e-mail. Geen achtergrondverbinding.</string>
     <string name="settings_push_status_up">Push: UnifiedPush (%1$s)</string>
     <string name="settings_push_status_direct">Push: directe verbinding</string>
     <string name="settings_push_status_connecting">Push: verbinden…</string>
