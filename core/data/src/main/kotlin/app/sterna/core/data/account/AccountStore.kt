@@ -257,6 +257,49 @@ class AccountStore(context: Context) {
         saveAccounts(accounts().map { if (it.id == id) it.copy(notificationsEnabled = enabled) else it })
     }
 
+    /** Extra folders watched for new mail (beyond the Inbox, which is always watched). */
+    fun watchedFolders(id: String): Set<String> = account(id)?.watchedFolders ?: emptySet()
+
+    /** Add/remove a folder from the account's watched set. No-op if the id is unknown. */
+    fun setFolderWatched(id: String, folderId: String, watched: Boolean) {
+        saveAccounts(
+            accounts().map {
+                if (it.id == id) {
+                    it.copy(
+                        watchedFolders = if (watched) it.watchedFolders + folderId else it.watchedFolders - folderId,
+                    )
+                } else {
+                    it
+                }
+            },
+        )
+    }
+
+    /**
+     * Re-key a watched folder after an IMAP rename (ids are folder paths there).
+     * Also rewrites watched children of [oldId] (path prefix). No-op for JMAP ids,
+     * which are stable across renames.
+     */
+    fun replaceWatchedFolder(id: String, oldId: String, newId: String, delimiter: String = "/") {
+        saveAccounts(
+            accounts().map { account ->
+                if (account.id == id) {
+                    account.copy(
+                        watchedFolders = account.watchedFolders.map { folder ->
+                            when {
+                                folder == oldId -> newId
+                                folder.startsWith(oldId + delimiter) -> newId + folder.removePrefix(oldId)
+                                else -> folder
+                            }
+                        }.toSet(),
+                    )
+                } else {
+                    account
+                }
+            },
+        )
+    }
+
     /** Persist the account's OpenPGP settings. No-op if the id is unknown. */
     fun setPgp(id: String, enabled: Boolean, signKeyId: Long, encryptByDefault: Boolean) {
         saveAccounts(

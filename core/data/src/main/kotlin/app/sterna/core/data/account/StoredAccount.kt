@@ -15,6 +15,11 @@ data class StoredAccount(
     val syncWindow: SyncWindow = SyncWindow.DAYS_90,
     /** Whether new-mail notifications fire for this account (per-account opt-out). */
     val notificationsEnabled: Boolean = true,
+    /**
+     * Extra folders watched for new mail, by mailbox id (JMAP id / IMAP path).
+     * The Inbox is always watched and never stored here; empty = inbox only.
+     */
+    val watchedFolders: Set<String> = emptySet(),
     /** User-chosen accent colour (ARGB); null = auto (derived from the address). */
     val color: Int? = null,
     /** Legacy account-level signature; seeds the default identity when none are set. */
