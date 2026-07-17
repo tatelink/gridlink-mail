@@ -162,14 +162,18 @@ class UnifiedPushManager(
         scope.launch {
             val prev = store.getOrCreate(accountId)
             // The connector redelivers the endpoint on every register — if it hasn't
-            // changed and a subscription is already in flight or live, nothing to do.
+            // changed and a subscription is live or FRESHLY awaiting verification,
+            // nothing to do. A stale VERIFYING must fall through and recreate: its
+            // server-side verification window has lapsed.
+            val pendingFresh = prev.status == UpStatus.VERIFYING &&
+                System.currentTimeMillis() - prev.statusSinceMillis < PENDING_GRACE_MS
             if (prev.endpoint == endpoint.url && prev.subscriptionId != null &&
-                (prev.status == UpStatus.VERIFYING || prev.status == UpStatus.ACTIVE)
+                (pendingFresh || prev.status == UpStatus.ACTIVE)
             ) {
                 return@launch
             }
-            if (prev.subscriptionId != null && prev.endpoint != endpoint.url) {
-                // Endpoint rotation: the old subscription points nowhere — drop it.
+            if (prev.subscriptionId != null) {
+                // Rotation or a lapsed verification: the old subscription is dead — drop it.
                 runCatching { repo.destroyPushSubscription(credentials, prev.subscriptionId) }
             }
             val keys = endpoint.pubKeySet
