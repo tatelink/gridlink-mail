@@ -11,6 +11,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.account.MailProtocol
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -84,13 +85,9 @@ class PushService : Service() {
         if (gen != generation) return
         val repo = application.container.mailRepository
         runCatching {
-            val (_, emails) = repo.refreshAccountInbox(credentials)
-            if (resetBaseline || !NewMailNotifier.hasBaseline(this, credentials.id)) {
-                NewMailNotifier.seed(this, credentials.id, emails)
-            } else {
-                // Reconnected after a drop — notify for anything that arrived meanwhile.
-                NewMailNotifier.notifyDiff(this, credentials, emails)
-            }
+            // Refresh + notify across the watched folders; on a reconnect (resetBaseline
+            // false) this announces anything that arrived during the gap.
+            FetchAndNotify.run(this, credentials, resetBaselines = resetBaseline)
             connections[credentials.id] = repo.openAccountPush(
                 credentials,
                 onChanged = { if (gen == generation) scope.launch { onAccountChanged(credentials) } },
@@ -114,10 +111,15 @@ class PushService : Service() {
     }
 
     private suspend fun onAccountChanged(credentials: AccountCredentials) {
-        val repo = application.container.mailRepository
         runCatching {
-            val (_, emails) = repo.refreshAccountInbox(credentials)
-            NewMailNotifier.notifyDiff(this, credentials, emails)
+            // JMAP's StateChange has no per-mailbox granularity → re-sync the whole watched
+            // set (cheap per-folder deltas). IMAP IDLE only ever signals the INBOX, so the
+            // watched extras stay with MailFetchWorker there.
+            FetchAndNotify.run(
+                this,
+                credentials,
+                includeExtras = credentials.protocol != MailProtocol.IMAP,
+            )
         }.onFailure { Log.e(TAG, "onAccountChanged failed", it) }
     }
 

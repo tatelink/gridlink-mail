@@ -75,7 +75,8 @@ object Notifications {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-    fun notifyNewMail(context: Context, email: Email, accountId: String, silent: Boolean = false) {
+    /** [folderName] marks non-inbox mail (multi-folder watch, issue #16); null for the inbox. */
+    fun notifyNewMail(context: Context, email: Email, accountId: String, silent: Boolean = false, folderName: String? = null) {
         val sender = email.from.firstOrNull()?.display() ?: context.getString(R.string.notif_new_message)
         val subject = email.subject?.takeIf { it.isNotBlank() } ?: context.getString(R.string.message_no_subject)
         val notifId = email.id.hashCode()
@@ -97,6 +98,7 @@ object Notifications {
             .setCategory(NotificationCompat.CATEGORY_EMAIL)
             .setGroup(GROUP_PREFIX + accountId)
             .setSilent(silent)
+            .apply { if (folderName != null) setSubText(folderName) }
             .addAction(replyAction(context, email.id, accountId, notifId))
             .addAction(simpleAction(context, context.getString(R.string.notif_mark_read), NotificationActionReceiver.ACTION_MARK_READ, email.id, accountId, notifId))
             .addAction(simpleAction(context, context.getString(R.string.notif_delete), NotificationActionReceiver.ACTION_DELETE, email.id, accountId, notifId))

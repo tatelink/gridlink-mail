@@ -1785,24 +1785,6 @@ class MailRepository(
     }
 
     /**
-     * Refresh a specific account's inbox into the cache and return (mailboxId, emails).
-     * Independent of the current-account context, so it is safe for background push.
-     */
-    suspend fun refreshAccountInbox(credentials: AccountCredentials, limit: Int = 50): Pair<String, List<Email>> {
-        if (credentials.protocol == MailProtocol.IMAP) {
-            val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = limit)
-            emailDao.upsertAll(load.messages)
-            return load.targetMailboxId to load.messages.map { it.toEmail() }
-        }
-        val resolved = resolve(credentials)
-        val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
-            ?: resolved.mailboxes.firstOrNull()
-            ?: error("No mailboxes found.")
-        syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit, credentials.id)
-        return inbox.id to emailDao.getByMailbox(credentials.id, inbox.id).map { it.toEmail() }
-    }
-
-    /**
      * Refresh the account's inbox (unless [includeInbox] is false) plus the watched
      * folders in [extraFolderIds] into the cache (multi-folder push, issue #16).
      * Independent of the current-account context, so it is safe for background push.
