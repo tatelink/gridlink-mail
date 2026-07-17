@@ -11,6 +11,43 @@ shippable and device-testable; `main` stays releasable throughout.
 - **Phase C** — the single "New mail delivery: Instant / Battery saver" setting,
   which also becomes the designated periodic mode for IMAP.
 
+## New mail delivery: Instant vs Battery saver (user-facing behavior)
+
+Sterna picks the best delivery mechanism for each account automatically. The
+setting only chooses the outcome you want; you never have to configure a transport.
+
+**Instant (default).** Mail is announced the moment the server receives it.
+
+- JMAP account with a UnifiedPush app installed (ntfy, NextPush): your mail server
+  pushes notifications through your UnifiedPush app. Sterna itself keeps no network
+  connection open and shows no permanent notification; mail arrives instantly even
+  when Sterna is closed.
+- JMAP account without a UnifiedPush app: Sterna keeps its own connection to the
+  server open (a foreground service with a permanent notification), and mail
+  arrives instantly.
+- IMAP account: Sterna keeps an IMAP IDLE connection open for the Inbox (same
+  foreground service). Inbox mail is instant. Watched folders other than the Inbox
+  are covered by the periodic check below, because IMAP IDLE can only watch a
+  single folder.
+
+In every case, a background check runs about every 30 minutes as a safety net, so
+if the live channel dies silently (battery managers, network changes, a push
+server outage), mail is at most half an hour late instead of never arriving.
+
+**Battery saver.** Sterna never keeps a connection open: no foreground service, no
+permanent notification.
+
+- JMAP account with UnifiedPush: nothing changes, mail is still instant.
+  UnifiedPush costs Sterna nothing, since your UnifiedPush app holds the one shared
+  connection anyway.
+- JMAP account without UnifiedPush, and IMAP accounts: new mail is picked up by the
+  periodic background check, so notifications can arrive up to about 30 minutes
+  after the mail does.
+
+You can always see what an account is actually using in Settings, Accounts, under
+the notifications switch: "Push: UnifiedPush (ntfy)", "Push: direct connection", or
+"Checked every 30 minutes". Changing the setting takes effect immediately.
+
 ## UX ground rules (decided, non-negotiable)
 
 These frame every choice below. The guiding principle: **expose outcomes, never
