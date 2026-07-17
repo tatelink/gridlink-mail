@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.unifiedpush.android.connector.FailedReason
 import org.unifiedpush.android.connector.UnifiedPush
+import org.unifiedpush.android.connector.keys.DefaultKeyManager
 import org.unifiedpush.android.connector.data.PushEndpoint
 import org.unifiedpush.android.connector.data.PushMessage
 import java.time.Instant
@@ -216,13 +217,9 @@ class UnifiedPushManager(
         }
     }
 
-    /** A payload arrived through the endpoint (connector-decrypted, or plaintext). */
+    /** A payload arrived through the endpoint (connector-decrypted, or Stalwart-quirky). */
     fun onMessage(accountId: String, message: PushMessage) {
-        val text = message.content.toString(Charsets.UTF_8)
-        // Parse regardless of message.decrypted: Stalwart POSTs the PushVerification in
-        // PLAINTEXT, which the connector flags undecrypted but still hands over. Valid
-        // JSON parses either way; encrypted-garbage parses to null → bare wake signal.
-        when (val payload = PushMessagePayload.parse(text)) {
+        when (val payload = decodePayload(accountId, message)) {
             is PushMessagePayload.Verification -> {
                 val credentials = credentialsFor(accountId) ?: return unregisterOrphan(accountId)
                 scope.launch {
@@ -244,12 +241,35 @@ class UnifiedPushManager(
             }
             // The subscription is per-credential, so any StateChange concerns this account.
             is PushMessagePayload.Change -> PushFetchWorker.enqueue(context, accountId)
-            // Unknown/undecrypted payload: treat as a bare wake signal — still fetch.
+            // Unknown/undecryptable payload: treat as a bare wake signal — still fetch.
             null -> {
-                Log.d(TAG, "Unparsed push payload (${message.content.size}B, decrypted=${message.decrypted}): ${text.take(80)}")
+                Log.d(TAG, "Unparsed push payload (${message.content.size}B, decrypted=${message.decrypted})")
                 PushFetchWorker.enqueue(context, accountId)
             }
         }
+    }
+
+    /**
+     * Extract the JMAP payload from a push delivery. Straight parse first (the
+     * connector already decrypted, or the server pushed plaintext). Stalwart then
+     * needs a second step: it base64url-encodes the whole aes128gcm blob instead of
+     * POSTing raw octets (RFC 8030), so the connector never recognizes it as
+     * encrypted — decode it ourselves and decrypt through the connector's key
+     * manager (its keys, its API).
+     */
+    private fun decodePayload(accountId: String, message: PushMessage): PushMessagePayload? {
+        val text = message.content.toString(Charsets.UTF_8)
+        PushMessagePayload.parse(text)?.let { return it }
+        if (message.decrypted) return null
+        return runCatching {
+            val binary = android.util.Base64.decode(
+                text.trim(),
+                android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP,
+            )
+            DefaultKeyManager(context).decrypt(accountId, binary)
+                ?.toString(Charsets.UTF_8)
+                ?.let { PushMessagePayload.parse(it) }
+        }.getOrNull()
     }
 
     fun onRegistrationFailed(accountId: String, reason: FailedReason) {
