@@ -440,7 +440,6 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         refresh()
-        refreshWatchedFolders()
         // Recompute the read/unread toggle state whenever the selection set changes.
         viewModelScope.launch {
             _selectedIds.collect { refreshSelectionReadState(it) }
@@ -859,7 +858,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     // ---- folder watch (multi-folder push, issue #16) ----
 
-    private val _watchedFolders = MutableStateFlow<Set<String>>(emptySet())
+    // Initialised inline, NOT from the init block: init runs before this declaration's
+    // initialiser, so touching the flow there would NPE during ViewModel construction.
+    private val _watchedFolders =
+        MutableStateFlow(store.currentId()?.let { store.watchedFolders(it) } ?: emptySet())
 
     /** Folders watched for new mail on the current account (the inbox is always watched). */
     val watchedFolders: StateFlow<Set<String>> = _watchedFolders
