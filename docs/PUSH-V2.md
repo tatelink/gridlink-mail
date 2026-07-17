@@ -571,6 +571,28 @@ reboot in battery saver → no FGS after first app open, worker alive.
 
 ---
 
+# Phase B field notes — Stalwart interop quirks (found on-device, 2026-07-17)
+
+Both worked around in `UnifiedPushManager`; both worth reporting upstream:
+
+1. **Keys decode requires canonical padding.** Stalwart parses `keys` with rust
+   base64's `URL_SAFE` engine (`crates/jmap/src/push/set.rs`), which rejects the
+   unpadded RFC 7515-style base64url the WebPush ecosystem uses. Sterna re-encodes
+   the connector's keys as padded base64url before `PushSubscription/set`.
+2. **Push bodies are base64url text, not octets.** Stalwart ece-encrypts the
+   payload, then base64url-encodes the whole aes128gcm blob and POSTs that string
+   (`crates/services/src/state_manager/http.rs`), where RFC 8030 expects raw
+   octets. The connector therefore never recognizes the body as encrypted and
+   delivers it verbatim (`decrypted=false`). On parse failure of an undecrypted
+   delivery, Sterna base64url-decodes and decrypts through the connector's
+   `DefaultKeyManager`, then parses. This covers PushVerification and StateChange
+   alike; a still-unreadable payload degrades to a bare wake-and-fetch.
+
+Also learned the hard way (now encoded in the state machine): a failed
+create/verify must NOT retrigger registration through the transport-changed
+callback — without the 15-min FAILED cooldown the loop hammered the mail server
+with register+create attempts at double-digit Hz.
+
 # Risks
 
 1. **StateChange → whole-watched-set resync** amplifies traffic on chatty JMAP
