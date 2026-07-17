@@ -64,6 +64,7 @@ import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailBodyValue
 import app.sterna.core.jmap.model.Mailbox
 import app.sterna.core.jmap.model.JmapSession
+import app.sterna.core.jmap.model.PushSubscription
 import app.sterna.core.jmap.model.Quota
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.core.jmap.model.VacationResponse
@@ -1899,6 +1900,43 @@ class MailRepository(
                 emails = emailDao.getByMailbox(credentials.id, mailbox.id).map { it.toEmail() },
             )
         }
+    }
+
+    // ---- JMAP PushSubscription (issue #17) ---------------------------------------------
+    // Session-level, context-free (fresh session per call — these operations are rare).
+
+    /** Create a subscription pointing at a UnifiedPush endpoint; returns it with id/expires. */
+    suspend fun createPushSubscription(credentials: AccountCredentials, subscription: PushSubscription): PushSubscription {
+        val auth = jmapAuth(credentials)
+        val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
+        return client.createPushSubscription(session, auth, subscription)
+    }
+
+    /** Confirm the PushVerification round-trip (do this promptly — servers time it out). */
+    suspend fun verifyPushSubscription(credentials: AccountCredentials, subscriptionId: String, verificationCode: String) {
+        val auth = jmapAuth(credentials)
+        val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
+        client.verifyPushSubscription(session, auth, subscriptionId, verificationCode)
+    }
+
+    /** Push the expiry out; returns the (possibly server-capped) applied UTCDate. */
+    suspend fun renewPushSubscription(credentials: AccountCredentials, subscriptionId: String, expires: String): String {
+        val auth = jmapAuth(credentials)
+        val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
+        return client.updatePushSubscriptionExpires(session, auth, subscriptionId, expires)
+    }
+
+    /** Destroy a subscription (sign-out / endpoint rotation); already-gone is success. */
+    suspend fun destroyPushSubscription(credentials: AccountCredentials, subscriptionId: String) {
+        val auth = jmapAuth(credentials)
+        val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
+        client.destroyPushSubscription(session, auth, subscriptionId)
+    }
+
+    /** The server's VAPID key (RFC 9749) when advertised; null otherwise (e.g. Stalwart). */
+    suspend fun pushVapidKey(credentials: AccountCredentials): String? {
+        val auth = jmapAuth(credentials)
+        return client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth).vapidPublicKey()
     }
 
     /**

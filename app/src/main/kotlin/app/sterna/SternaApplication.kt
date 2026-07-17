@@ -10,6 +10,8 @@ import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.storage.StorageRepository
 import app.sterna.core.jmap.JmapClient
 import app.sterna.pgp.OpenKeychainPgpEngine
+import app.sterna.push.UnifiedPushManager
+import app.sterna.push.UnifiedPushStateStore
 import app.sterna.security.AppLock
 import app.sterna.send.Outbox
 import app.sterna.send.SendOutbox
@@ -32,6 +34,14 @@ class AppContainer(context: Context) {
     val mailRepository: MailRepository = dataLayer.mailRepository
     val storageRepository: StorageRepository = dataLayer.storageRepository
     val appLock: AppLock = AppLock(accountStore)
+
+    /** UnifiedPush transport state machine (issue #17); inert without a distributor. */
+    val unifiedPushManager: UnifiedPushManager = UnifiedPushManager(
+        context.applicationContext,
+        accountStore,
+        mailRepository,
+        UnifiedPushStateStore(context.applicationContext),
+    )
 
     /** App-lifetime scope for work that must outlive a screen (e.g. Undo-send hold-back). */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
