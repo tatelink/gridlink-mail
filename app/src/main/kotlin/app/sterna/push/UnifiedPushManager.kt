@@ -185,7 +185,10 @@ class UnifiedPushManager(
                     PushSubscription(
                         deviceClientId = prev.deviceClientId,
                         url = endpoint.url,
-                        keys = PushKeys(p256dh = keys.pubKey, auth = keys.auth),
+                        // RFC 8291 wants base64url; the connector's encoding varies by
+                        // version, and Stalwart rejects the standard alphabet outright
+                        // ("Failed to decode keys") — normalize before sending.
+                        keys = PushKeys(p256dh = base64Url(keys.pubKey), auth = base64Url(keys.auth)),
                         expires = utc(System.currentTimeMillis() + EXPIRES_MS),
                         types = listOf("Email"),
                     ),
@@ -298,6 +301,19 @@ class UnifiedPushManager(
 
     private fun credentialsFor(accountId: String): AccountCredentials? =
         accountStore.allCredentials().firstOrNull { it.id == accountId }
+
+    /** Re-encode any base64 variant (url-safe or standard, padded or not) as base64url without padding. */
+    private fun base64Url(value: String): String {
+        val bytes = try {
+            android.util.Base64.decode(value, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
+        } catch (_: IllegalArgumentException) {
+            android.util.Base64.decode(value, android.util.Base64.NO_WRAP)
+        }
+        return android.util.Base64.encodeToString(
+            bytes,
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP,
+        )
+    }
 
     private fun utc(millis: Long): String = Instant.ofEpochMilli(millis).toString()
 
