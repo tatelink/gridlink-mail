@@ -487,6 +487,9 @@ fun InboxScreen(
     // Folder-delete hold-back: same pattern (pending clears when the delete fires).
     LaunchedEffect(pendingFolderDelete) {
         val label = pendingFolderDelete ?: return@LaunchedEffect
+        // The delete is triggered from the drawer, which would cover the snackbar —
+        // close it so the Undo is actually visible during its window.
+        if (drawerState.isOpen) drawerState.close()
         val result = snackbarHostState.showSnackbar(
             message = label,
             actionLabel = undoLabel,
