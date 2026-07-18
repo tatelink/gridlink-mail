@@ -25,10 +25,15 @@ class MainActivity : AppCompatActivity() {
      *  running instance), consumed by the NavHost once it has navigated. */
     private val pendingMailto = androidx.compose.runtime.mutableStateOf<MailtoDraft?>(null)
 
+    /** A new-mail notification tap waiting to open that message (Codeberg #17 follow-up). Same
+     *  singleTask/onNewIntent plumbing as [pendingMailto]. */
+    private val pendingEmailOpen = androidx.compose.runtime.mutableStateOf<EmailOpenTarget?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         pendingMailto.value = parseMailto(intent)
+        pendingEmailOpen.value = parseEmailOpen(intent)
         val settings = application.container.settingsRepository
         setContent {
             val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
@@ -43,6 +48,8 @@ class MainActivity : AppCompatActivity() {
                     SternaApp(
                         pendingMailto = pendingMailto.value,
                         onMailtoConsumed = { pendingMailto.value = null },
+                        pendingEmailOpen = pendingEmailOpen.value,
+                        onEmailOpenConsumed = { pendingEmailOpen.value = null },
                     )
                 }
             }
@@ -53,6 +60,13 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         parseMailto(intent)?.let { pendingMailto.value = it }
+        parseEmailOpen(intent)?.let { pendingEmailOpen.value = it }
+    }
+
+    /** The message a tapped new-mail notification wants to open, or null. */
+    private fun parseEmailOpen(intent: Intent?): EmailOpenTarget? {
+        val emailId = intent?.getStringExtra(EXTRA_OPEN_EMAIL_ID) ?: return null
+        return EmailOpenTarget(emailId, intent.getStringExtra(EXTRA_OPEN_ACCOUNT_ID)?.ifBlank { null })
     }
 
     /** RFC 6068 mailto: parsing — addresses plus the optional subject/body/cc/bcc fields. */
@@ -98,6 +112,11 @@ class MainActivity : AppCompatActivity() {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
     }
+
+    companion object {
+        const val EXTRA_OPEN_EMAIL_ID = "app.sterna.OPEN_EMAIL_ID"
+        const val EXTRA_OPEN_ACCOUNT_ID = "app.sterna.OPEN_ACCOUNT_ID"
+    }
 }
 
 /** Prefill fields parsed from a mailto: link, handed to the compose screen (Codeberg #15). */
@@ -107,4 +126,10 @@ data class MailtoDraft(
     val bcc: String,
     val subject: String,
     val body: String,
+)
+
+/** The message a tapped new-mail notification should open (Codeberg #17 follow-up). */
+data class EmailOpenTarget(
+    val emailId: String,
+    val accountId: String?,
 )

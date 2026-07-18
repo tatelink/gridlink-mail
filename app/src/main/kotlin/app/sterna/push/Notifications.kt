@@ -80,8 +80,12 @@ object Notifications {
         val sender = email.from.firstOrNull()?.display() ?: context.getString(R.string.notif_new_message)
         val subject = email.subject?.takeIf { it.isNotBlank() } ?: context.getString(R.string.message_no_subject)
         val notifId = email.id.hashCode()
+        // Carry the message identity so a tap opens THAT email, not just the inbox — even when
+        // the app is already running (singleTask → onNewIntent routes it). Codeberg #17 follow-up.
         val intent = Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra(MainActivity.EXTRA_OPEN_EMAIL_ID, email.id)
+            .putExtra(MainActivity.EXTRA_OPEN_ACCOUNT_ID, accountId)
         val pending = PendingIntent.getActivity(
             context,
             notifId,

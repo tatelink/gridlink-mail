@@ -42,6 +42,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.compose.ui.res.stringResource
 import app.sterna.R
+import app.sterna.EmailOpenTarget
 import app.sterna.MailtoDraft
 import app.sterna.container
 import app.sterna.core.data.account.StoredAccount
@@ -129,6 +130,8 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
 fun SternaApp(
     pendingMailto: MailtoDraft? = null,
     onMailtoConsumed: () -> Unit = {},
+    pendingEmailOpen: EmailOpenTarget? = null,
+    onEmailOpenConsumed: () -> Unit = {},
     viewModel: RootViewModel = viewModel(),
 ) {
     RequestNotificationPermission()
@@ -171,6 +174,8 @@ fun SternaApp(
                 onAccountsChanged = viewModel::refresh,
                 pendingMailto = pendingMailto,
                 onMailtoConsumed = onMailtoConsumed,
+                pendingEmailOpen = pendingEmailOpen,
+                onEmailOpenConsumed = onEmailOpenConsumed,
             )
         }
         if (locked) LockScreen(onUnlocked = appLock::unlock)
@@ -210,6 +215,8 @@ private fun MainNavHost(
     onAccountsChanged: () -> Unit,
     pendingMailto: MailtoDraft? = null,
     onMailtoConsumed: () -> Unit = {},
+    pendingEmailOpen: EmailOpenTarget? = null,
+    onEmailOpenConsumed: () -> Unit = {},
 ) {
     val nav = rememberNavController()
     // A tapped mailto: link opens the compose screen prefilled with the parsed fields
@@ -220,6 +227,15 @@ private fun MainNavHost(
         nav.navigate(
             "compose?to=${Uri.encode(m.to)}&cc=${Uri.encode(m.cc)}&bcc=${Uri.encode(m.bcc)}" +
                 "&subject=${Uri.encode(m.subject)}&body=${Uri.encode(m.body)}",
+        )
+    }
+    // A tapped new-mail notification opens that specific message, standalone (no list paging),
+    // even when the app was already running (Codeberg #17 follow-up). Same consume-once pattern.
+    LaunchedEffect(pendingEmailOpen) {
+        val target = pendingEmailOpen ?: return@LaunchedEffect
+        onEmailOpenConsumed()
+        nav.navigate(
+            "message/${Uri.encode(target.emailId)}?accountId=${Uri.encode(target.accountId.orEmpty())}",
         )
     }
     // Devices that SIGSEGV'd inside a message fade (the #10 GL-functor bug) have the fade
@@ -417,9 +433,16 @@ private fun DistributorPickerDialog() {
         title = { androidx.compose.material3.Text(stringResource(R.string.up_picker_title)) },
         text = {
             androidx.compose.foundation.layout.Column {
-                manager.distributors().forEach { pkg ->
+                val distributors = manager.distributors()
+                // When two distributors share an app label (e.g. a system "ntfy" and the user's
+                // own "ntfy" install — Codeberg #17), the plain label is ambiguous. Append the
+                // package name only for the colliding ones, so a single distributor stays clean.
+                val labelCounts = distributors.groupingBy { appLabelOf(context, it) }.eachCount()
+                distributors.forEach { pkg ->
+                    val label = appLabelOf(context, pkg)
+                    val shown = if ((labelCounts[label] ?: 0) > 1) "$label ($pkg)" else label
                     androidx.compose.material3.TextButton(onClick = { manager.distributorChosen(pkg) }) {
-                        androidx.compose.material3.Text(appLabelOf(context, pkg))
+                        androidx.compose.material3.Text(shown)
                     }
                 }
             }
