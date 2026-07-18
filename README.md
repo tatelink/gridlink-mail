@@ -13,6 +13,7 @@
 <p align="center">
   <a href="https://codeberg.org/emon/sterna-mail/actions"><img alt="CI" src="https://codeberg.org/emon/sterna-mail/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://f-droid.org/packages/app.sterna/"><img alt="F-Droid" src="https://img.shields.io/f-droid/v/app.sterna?logo=fdroid&color=1976D2"></a>
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22app.sterna%22%2C%22url%22%3A%22https%3A%2F%2Fcodeberg.org%2Femon%2Fsterna-mail%22%2C%22author%22%3A%22emon%22%2C%22name%22%3A%22Sterna%20Mail%22%7D"><img alt="Obtainium" src="https://img.shields.io/badge/Obtainium-add-43A047"></a>
   <a href="https://codeberg.org/emon/sterna-mail/releases/latest"><img alt="Latest release" src="https://img.shields.io/badge/download-latest%20APK-2F5E59"></a>
   <a href="LICENSE"><img alt="License: GPLv3" src="https://img.shields.io/badge/license-GPLv3-blue"></a>
   <a href="https://ko-fi.com/emoncode"><img alt="Support on Ko-fi" src="https://img.shields.io/badge/Ko--fi-support-FF6A4D?logo=ko-fi&logoColor=white"></a>
@@ -46,6 +47,9 @@ coral touch — the tern's beak. 🪸*
 
 **The easy way — [get it on F-Droid](https://f-droid.org/packages/app.sterna/)** 🎉
 Install it from the F-Droid app (or its website) and updates arrive automatically.
+
+Using [Obtainium](https://github.com/ImranR98/Obtainium)? [Add Sterna in one tap](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22app.sterna%22%2C%22url%22%3A%22https%3A%2F%2Fcodeberg.org%2Femon%2Fsterna-mail%22%2C%22author%22%3A%22emon%22%2C%22name%22%3A%22Sterna%20Mail%22%7D)
+and it tracks your Codeberg releases, updating as soon as a new one lands.
 
 Prefer a direct download? Grab the **latest APK** yourself:
 
