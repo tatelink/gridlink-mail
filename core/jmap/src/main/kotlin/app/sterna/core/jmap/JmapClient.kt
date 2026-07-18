@@ -27,6 +27,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.putJsonObject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -1532,7 +1533,7 @@ class JmapClient internal constructor(
         session: JmapSession,
         auth: JmapAuth,
         args: JsonObjectBuilder.() -> Unit,
-    ): JsonObject = withContext(Dispatchers.IO) {
+    ): JsonObject {
         val payload = buildJsonObject {
             putJsonArray("using") {
                 add(Jmap.CORE_CAPABILITY)
@@ -1546,34 +1547,43 @@ class JmapClient internal constructor(
                 }
             }
         }
-        val request = Request.Builder()
-            .url(session.apiUrl)
-            .header("Authorization", auth.authorizationHeader())
-            .header("Accept", "application/json")
-            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw JmapException("Email/set failed: HTTP ${response.code} ${response.message}")
-            }
-            methodResponseArgs(response.body?.string().orEmpty(), "Email/set")
-        }
+        return methodResponseArgs(postWithRetry(session.apiUrl, auth.authorizationHeader(), payload), "Email/set")
     }
 
     /** POST a JMAP request body and return the response text, throwing on HTTP failure. */
-    private fun postJmap(session: JmapSession, auth: JmapAuth, payload: JsonObject): String {
-        val request = Request.Builder()
-            .url(session.apiUrl)
-            .header("Authorization", auth.authorizationHeader())
-            .header("Accept", "application/json")
-            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-        httpClient.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw JmapException("JMAP request failed: HTTP ${response.code} ${response.message}")
+    private suspend fun postJmap(session: JmapSession, auth: JmapAuth, payload: JsonObject): String =
+        postWithRetry(session.apiUrl, auth.authorizationHeader(), payload)
+
+    /**
+     * POST a JMAP request, retrying on the server's transient request-level limit
+     * (`urn:ietf:params:jmap:error:limit`, HTTP 400) or a 429. Stalwart caps concurrent
+     * requests per account (`maxConcurrentRequests`), so a bulk action firing many requests
+     * while push/sync traffic is in flight can be rejected even though each request is valid;
+     * the in-flight slots free up within milliseconds, so a short backoff lets it through
+     * (RFC 8620 §3.6.1 sanctions retrying `error:limit`). Non-limit failures throw immediately.
+     */
+    private suspend fun postWithRetry(url: String, authHeader: String, payload: JsonObject): String {
+        var attempt = 0
+        while (true) {
+            val request = Request.Builder()
+                .url(url)
+                .header("Authorization", authHeader)
+                .header("Accept", "application/json")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            val (code, message, body) = withContext(Dispatchers.IO) {
+                httpClient.newCall(request).execute().use { r ->
+                    Triple(r.code, r.message, r.body?.string().orEmpty())
+                }
             }
-            return body
+            if (code in 200..299) return body
+            val transient = code == 429 || (code == 400 && body.contains(JMAP_ERROR_LIMIT))
+            if (transient && attempt < LIMIT_RETRY_MAX) {
+                attempt++
+                delay(LIMIT_RETRY_BASE_MS * attempt)
+                continue
+            }
+            throw JmapException("JMAP request failed: HTTP $code $message body=${body.take(400)}")
         }
     }
 
@@ -1615,6 +1625,13 @@ class JmapClient internal constructor(
     companion object {
         /** How often the server should ping the EventSource connection, in seconds. */
         private const val PING_SECONDS = 90L
+
+        /** RFC 8620 §3.6.1 request-level limit error (e.g. Stalwart's maxConcurrentRequests). */
+        private const val JMAP_ERROR_LIMIT = "urn:ietf:params:jmap:error:limit"
+
+        /** Retries for the transient limit/429 error, with a linear backoff step. */
+        private const val LIMIT_RETRY_MAX = 4
+        private const val LIMIT_RETRY_BASE_MS = 120L
 
         /**
          * Defensively upgrade the session-advertised URLs from http:// to https:// when the

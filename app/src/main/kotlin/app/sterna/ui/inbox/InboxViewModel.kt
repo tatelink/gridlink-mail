@@ -816,8 +816,18 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             repo.cachedEmailsByIds(ids).forEach { email ->
                 val credentials = credentialsFor(email)
                 if (credentials == null) { failed++; return@forEach }
-                runCatching { op(credentials, email.id) }.onFailure { failed++ }
+                runCatching { op(credentials, email.id) }.onFailure {
+                    failed++
+                    android.util.Log.w("SternaBulk", "bulk op failed for ${email.id}", it)
+                }
             }
+            // A large selection can empty the whole loaded window of a huge folder. The rows
+            // are gone locally, but an incremental refresh re-fetches nothing (the tens of
+            // thousands of untouched server messages aren't "changes"), so the folder would
+            // show its empty state until it is left and re-entered. Drop the sync cursors and
+            // re-query so a full page repopulates the window from the server.
+            repo.resetSyncState()
+            refresh()
             // Don't fail silently: if nothing (or only some) went through, tell the user.
             if (failed > 0) {
                 _message.value = getApplication<Application>().getString(R.string.status_action_failed)
