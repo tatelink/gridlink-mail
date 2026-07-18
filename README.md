@@ -152,6 +152,11 @@ and [CONTRIBUTING.md](CONTRIBUTING.md). The planned and shipped feature set is
 tracked in [FEATURES.md](FEATURES.md). Contributions, bug reports and ideas are
 very welcome. 🙌
 
+Sterna Mail is built by its author with the help of AI coding assistants, a tool
+in the workflow like an IDE or a compiler. All code is reviewed, tested and
+maintained by me, and I am responsible for it. The source is GPLv3 and open to
+inspection, issues and contributions.
+
 ## ☕ Support
 
 Sterna is free and open, and always will be. If it's useful to you and you'd like
