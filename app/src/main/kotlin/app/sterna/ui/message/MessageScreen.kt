@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
@@ -181,6 +182,7 @@ fun MessageScreen(
     searchResults: List<Email>?,
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+    onDelete: (Email) -> Unit,
     onComposeTo: (address: String) -> Unit,
 ) {
     when {
@@ -229,6 +231,7 @@ fun MessageScreen(
                     },
                     onBack = onBack,
                     onReply = onReply,
+                    onDelete = onDelete,
                     onComposeTo = onComposeTo,
                 )
             }
@@ -243,6 +246,7 @@ fun MessageScreen(
                 entryAt = { i -> searchResults.getOrNull(i)?.let { it.id to it.accountId } },
                 onBack = onBack,
                 onReply = onReply,
+                onDelete = onDelete,
                 onComposeTo = onComposeTo,
             )
         }
@@ -253,6 +257,7 @@ fun MessageScreen(
             entryAt = { anchorEmailId to anchorAccountId },
             onBack = onBack,
             onReply = onReply,
+            onDelete = onDelete,
             onComposeTo = onComposeTo,
         )
     }
@@ -266,6 +271,7 @@ private fun MessagePager(
     entryAt: (Int) -> Pair<String, String?>?,
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+    onDelete: (Email) -> Unit,
     onComposeTo: (address: String) -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage.coerceIn(0, (pageCount - 1).coerceAtLeast(0))) { pageCount }
@@ -289,6 +295,7 @@ private fun MessagePager(
                 active = pagerState.settledPage == page,
                 onBack = onBack,
                 onReply = onReply,
+                onDelete = onDelete,
                 onComposeTo = onComposeTo,
             )
         }
@@ -302,6 +309,7 @@ private fun MessagePage(
     active: Boolean,
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+    onDelete: (Email) -> Unit,
     onComposeTo: (address: String) -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as Application
@@ -321,6 +329,7 @@ private fun MessagePage(
         accountId = accountId,
         onBack = onBack,
         onReply = onReply,
+        onDelete = onDelete,
         onComposeTo = onComposeTo,
     )
 }
@@ -383,6 +392,7 @@ private fun MessageContent(
     accountId: String?,
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+    onDelete: (Email) -> Unit,
     onComposeTo: (address: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -438,10 +448,22 @@ private fun MessageContent(
                                 contentDescription = stringResource(R.string.message_mark_unread),
                             )
                         }
-                        IconButton(onClick = { viewModel.delete(onBack) }) {
+                        // Delete routes through the inbox's held-back delete (Undo shows on the
+                        // list) so the reader behaves like swipe/bulk; in Trash it destroys, so
+                        // the icon reads "delete forever" (Codeberg #23).
+                        val inTrash by viewModel.inTrash.collectAsStateWithLifecycle()
+                        val resolvedMailbox by viewModel.mailboxId.collectAsStateWithLifecycle()
+                        IconButton(onClick = {
+                            // The displayed email can carry a null mailboxId (the body fetch drops
+                            // it), which would misroute the delete and lose Undo — pass the folder
+                            // the VM resolved (Codeberg #23).
+                            onDelete(loaded.email.copy(mailboxId = resolvedMailbox ?: loaded.email.mailboxId))
+                        }) {
                             Icon(
-                                Icons.Filled.Delete,
-                                contentDescription = stringResource(R.string.message_delete),
+                                if (inTrash) Icons.Filled.DeleteForever else Icons.Filled.Delete,
+                                contentDescription = stringResource(
+                                    if (inTrash) R.string.inbox_delete_forever else R.string.message_delete,
+                                ),
                             )
                         }
                         IconButton(onClick = { onReply("reply", replyTargetId, accountId) }) {

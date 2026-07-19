@@ -181,6 +181,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 
 /**
@@ -446,6 +447,10 @@ fun InboxScreen(
         )
     }
 
+    // Bumped by an Undo that restores a message, to reveal it if it lands back at the very top
+    // of the list (LazyColumn otherwise anchors to the old first row, hiding it — Codeberg #23).
+    var revealTopSignal by remember { mutableIntStateOf(0) }
+
     // Show an Undo snackbar whenever a swipe deletes/archives a message.
     LaunchedEffect(undo) {
         val action = undo ?: return@LaunchedEffect
@@ -457,7 +462,10 @@ fun InboxScreen(
             // so the Undo bar never went away. Auto-dismiss after a short window.
             duration = SnackbarDuration.Short,
         )
-        if (result == SnackbarResult.ActionPerformed) viewModel.undo() else viewModel.clearUndo()
+        if (result == SnackbarResult.ActionPerformed) {
+            viewModel.undo()
+            revealTopSignal++
+        } else viewModel.clearUndo()
     }
 
     // Undo-send: while a message is held in the outbox, offer an Undo. The snackbar is
@@ -484,7 +492,10 @@ fun InboxScreen(
             actionLabel = undoLabel,
             duration = SnackbarDuration.Indefinite,
         )
-        if (result == SnackbarResult.ActionPerformed) viewModel.undoEmptyTrash()
+        if (result == SnackbarResult.ActionPerformed) {
+            viewModel.undoEmptyTrash()
+            revealTopSignal++
+        }
     }
     // Permanent (Trash) delete hold-back: the destroy is deferred behind this Undo, so
     // deleting from Trash is undoable too (Codeberg #23). Pending clears when it fires.
@@ -495,7 +506,10 @@ fun InboxScreen(
             actionLabel = undoLabel,
             duration = SnackbarDuration.Indefinite,
         )
-        if (result == SnackbarResult.ActionPerformed) viewModel.undoDelete()
+        if (result == SnackbarResult.ActionPerformed) {
+            viewModel.undoDelete()
+            revealTopSignal++
+        }
     }
     // Folder-delete hold-back: same pattern (pending clears when the delete fires).
     LaunchedEffect(pendingFolderDelete) {
@@ -529,6 +543,18 @@ fun InboxScreen(
     // full-width second line at the top, then collapse into a compact bar on scroll.
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val fabExpanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
+
+    // When an Undo restores a message that belongs at the top, wait for the row to repopulate
+    // (item count grows again) and pin the list to the top — otherwise LazyColumn keeps the
+    // old anchor and the restored message sits just above the viewport, invisible (Codeberg #23).
+    LaunchedEffect(revealTopSignal) {
+        if (revealTopSignal == 0 || listState.firstVisibleItemIndex != 0) return@LaunchedEffect
+        val before = listState.layoutInfo.totalItemsCount
+        withTimeoutOrNull(3_000) {
+            snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > before }
+        }
+        listState.animateScrollToItem(0)
+    }
 
     // Opening a *different* folder starts at the top of that folder's list. Returning to the
     // same folder (e.g. from a message) must keep the scroll position the user left — so the

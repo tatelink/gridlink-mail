@@ -153,6 +153,15 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val _inJunk = MutableStateFlow(false)
     val inJunk = _inJunk.asStateFlow()
 
+    /** True when the open message sits in Trash, so the reader's delete destroys (Codeberg #23). */
+    private val _inTrash = MutableStateFlow(false)
+    val inTrash = _inTrash.asStateFlow()
+
+    /** The folder the open message is filed under, resolved reliably (the body fetch can drop it).
+     *  Handed to the inbox's delete so it can tell move-to-Trash from a permanent destroy (#23). */
+    private val _mailboxId = MutableStateFlow<String?>(null)
+    val mailboxId = _mailboxId.asStateFlow()
+
     /** OpenPGP state of the opened message (status card + header badges). */
     private val _crypto = MutableStateFlow<CryptoUiState>(CryptoUiState.None)
     val crypto = _crypto.asStateFlow()
@@ -188,6 +197,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _state.value = MessageState.Loading
         _messages.value = emptyList()
         _inJunk.value = false
+        _inTrash.value = false
+        _mailboxId.value = null
         _calendar.value = null
         calendarLoadedFor = null
         _crypto.value = CryptoUiState.None
@@ -204,6 +215,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 _messages.value = listOf(ThreadMessage(id = cached.id, header = cached))
                 _state.value = MessageState.Loaded(cached)
                 _inJunk.value = repo.mailboxRole(cached.mailboxId) == "junk"
+                _inTrash.value = repo.mailboxRole(cached.mailboxId) == "trash"
+                _mailboxId.value = cached.mailboxId
             }
             try {
                 val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
@@ -226,6 +239,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                     ),
                 )
                 _inJunk.value = repo.mailboxRole(anchor.mailboxId ?: listEmail?.mailboxId) == "junk"
+                _inTrash.value = repo.mailboxRole(anchor.mailboxId ?: listEmail?.mailboxId) == "trash"
+                _mailboxId.value = anchor.mailboxId ?: listEmail?.mailboxId
                 // OpenPGP: reflect the crypto state; a decrypt is attempted once the
                 // page settles in front of the user (see onActiveChanged), not while
                 // the pager pre-composes neighbours.

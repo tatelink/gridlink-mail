@@ -332,6 +332,15 @@ private fun MainNavHost(
                     // unguarded onBack would popBackStack a second time and empty the stack
                     // (the white-screen freeze). A reply navigate is gated for the same reason.
                     onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
+                    // Delete via the shared inbox VM so the reader reuses the same held-back
+                    // destroy + Undo as swipe/bulk (the snackbar shows on the list). Same
+                    // instance the inbox screen observes (both viewModel(inboxEntry)) — #23.
+                    onDelete = { email ->
+                        if (entry.lifecycleIsResumed()) {
+                            inboxViewModel.delete(email)
+                            nav.popBackStack()
+                        }
+                    },
                     onReply = { mode, replyToId, replyAccountId ->
                         if (entry.lifecycleIsResumed()) {
                             val accountArg = replyAccountId?.let { "&accountId=${Uri.encode(it)}" }.orEmpty()
