@@ -48,6 +48,14 @@ data class OAuthTokens(
     @SerialName("scope") val scope: String? = null,
 )
 
+/** A parsed OAuth error response (RFC 6749 §5.2). [aadstsCode] is the first AADSTS code
+ *  found in [description], when present (Microsoft), e.g. "AADSTS650051". */
+data class OAuthError(
+    val error: String,
+    val description: String = "",
+    val aadstsCode: String? = null,
+)
+
 /** One device-token poll outcome (RFC 8628 §3.5). */
 sealed interface DeviceTokenResult {
     data class Success(val tokens: OAuthTokens) : DeviceTokenResult
@@ -55,8 +63,13 @@ sealed interface DeviceTokenResult {
     data object Pending : DeviceTokenResult
     /** `slow_down` — poll less often (increase the interval by 5s, per RFC). */
     data object SlowDown : DeviceTokenResult
-    /** Terminal failure: `expired_token`, `access_denied`, or an HTTP/transport error. */
-    data class Failed(val error: String) : DeviceTokenResult
+    /** Terminal failure: `expired_token`, `access_denied`, or an HTTP/transport error.
+     *  [description] and [aadstsCode] carry the server's `error_description` detail when present. */
+    data class Failed(
+        val error: String,
+        val description: String = "",
+        val aadstsCode: String? = null,
+    ) : DeviceTokenResult
 }
 
 /**
@@ -127,10 +140,15 @@ class OAuthClient internal constructor(
                 if (response.isSuccessful) {
                     DeviceTokenResult.Success(json.decodeFromString<OAuthTokens>(body))
                 } else {
-                    when (val error = parseError(body)) {
+                    val parsed = parseError(body)
+                    when (parsed?.error) {
                         "authorization_pending" -> DeviceTokenResult.Pending
                         "slow_down" -> DeviceTokenResult.SlowDown
-                        else -> DeviceTokenResult.Failed(error ?: "HTTP ${response.code}")
+                        else -> DeviceTokenResult.Failed(
+                            error = parsed?.error ?: "http_${response.code}",
+                            description = parsed?.description.orEmpty(),
+                            aadstsCode = parsed?.aadstsCode,
+                        )
                     }
                 }
             }
@@ -158,7 +176,14 @@ class OAuthClient internal constructor(
         }
     }
 
-    private fun parseError(body: String): String? = runCatching {
-        json.parseToJsonElement(body).jsonObject["error"]?.jsonPrimitive?.content
+    internal fun parseError(body: String): OAuthError? = runCatching {
+        val obj = json.parseToJsonElement(body).jsonObject
+        val error = obj["error"]?.jsonPrimitive?.content ?: return@runCatching null
+        val description = obj["error_description"]?.jsonPrimitive?.content.orEmpty()
+        OAuthError(error, description, AADSTS_REGEX.find(description)?.value)
     }.getOrNull()
+
+    private companion object {
+        private val AADSTS_REGEX = Regex("AADSTS\\d+")
+    }
 }

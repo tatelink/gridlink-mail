@@ -11,6 +11,7 @@ import androidx.paging.map
 import androidx.sqlite.db.SimpleSQLiteQuery
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.account.AccountStore
+import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.OAuthCredentials
 import app.sterna.core.data.filter.FilterRule
@@ -903,6 +904,38 @@ class MailRepository(
         val credentials = accountStore.credentials(id) ?: error("Account could not be loaded after creation.")
         val meta = refresh(credentials)
         accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
+    }
+
+    /** Complete OAuth sign-in for an already-imported (inert) account [accountId] using freshly
+     *  granted [tokens] against [provider]. Validates via IMAP XOAUTH2 first; on success attaches the
+     *  tokens to the existing account and primes its inbox. Throws (account left inert) on failure. */
+    suspend fun signInImportedOAuth(accountId: String, provider: OAuthProvider, tokens: OAuthTokens) {
+        val account = accountStore.account(accountId) ?: error("Account not found.")
+        val expiresAt = System.currentTimeMillis() + tokens.expiresIn * 1000
+        val username = emailFromIdToken(tokens.idToken) ?: account.username
+        val probe = AccountCredentials(
+            server = "", username = username, password = "",
+            protocol = MailProtocol.IMAP,
+            imap = MailEndpoint(account.imapHost, account.imapPort, account.imapSecurity),
+            smtp = MailEndpoint(account.smtpHost, account.smtpPort, account.smtpSecurity),
+            oauth = OAuthCredentials(
+                accessToken = tokens.accessToken,
+                refreshToken = tokens.refreshToken.orEmpty(),
+                accessExpiresAtMillis = expiresAt,
+                tokenEndpoint = provider.metadata.tokenEndpoint,
+                clientId = provider.clientId,
+            ),
+        )
+        try { imap.testConnection(probe) } finally { runCatching { imap.disconnect("") } }
+        accountStore.attachOAuth(
+            id = accountId, username = username,
+            accessToken = tokens.accessToken, refreshToken = tokens.refreshToken.orEmpty(),
+            accessExpiresAtMillis = expiresAt, tokenEndpoint = provider.metadata.tokenEndpoint,
+            clientId = provider.clientId,
+        )
+        val credentials = accountStore.credentials(accountId) ?: error("Account could not be loaded.")
+        val meta = refresh(credentials)
+        accountStore.saveInboxMetaFor(accountId, meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
     }
 
     /** The signed-in address from an OIDC id_token (`preferred_username`/`email`), or null. */

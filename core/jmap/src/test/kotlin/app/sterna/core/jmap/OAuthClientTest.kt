@@ -5,6 +5,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -71,6 +72,43 @@ class OAuthClientTest {
         val denied = client.pollDeviceToken(metadata(), "DC", "sterna")
         assertTrue(denied is DeviceTokenResult.Failed)
         assertEquals("access_denied", (denied as DeviceTokenResult.Failed).error)
+    }
+
+    @Test fun parseError_extractsErrorDescriptionAndAadsts() {
+        val parsed = client.parseError(
+            """{"error":"invalid_grant","error_description":"AADSTS90094: The grant requires admin permission."}""",
+        )
+        assertEquals("invalid_grant", parsed?.error)
+        assertTrue(parsed?.description?.contains("admin permission") == true)
+        assertEquals("AADSTS90094", parsed?.aadstsCode)
+    }
+
+    @Test fun parseError_noAadstsWhenAbsent() {
+        val parsed = client.parseError(
+            """{"error":"expired_token","error_description":"The code expired."}""",
+        )
+        assertEquals("expired_token", parsed?.error)
+        assertNull(parsed?.aadstsCode)
+        assertTrue(parsed?.description?.isNotEmpty() == true)
+    }
+
+    @Test fun parseError_returnsNullForNonError() {
+        assertNull(client.parseError("""{"foo":"bar"}"""))
+        assertNull(client.parseError("not json"))
+    }
+
+    @Test fun pollDeviceToken_failedCarriesDescriptionAndAadsts() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(400).setBody(
+                """{"error":"authorization_declined","error_description":"AADSTS650051: app not approved."}""",
+            ),
+        )
+        val result = client.pollDeviceToken(metadata(), "DC", "sterna")
+        assertTrue(result is DeviceTokenResult.Failed)
+        result as DeviceTokenResult.Failed
+        assertEquals("authorization_declined", result.error)
+        assertEquals("AADSTS650051", result.aadstsCode)
+        assertTrue(result.description.contains("not approved"))
     }
 
     @Test fun refresh_exchangesRefreshTokenForAccessToken() = runBlocking {

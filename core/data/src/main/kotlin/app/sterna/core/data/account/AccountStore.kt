@@ -406,13 +406,15 @@ class AccountStore(context: Context) {
      */
     fun importAccounts(incoming: List<StoredAccount>): Int {
         val existing = accounts()
+        // IMAP accounts carry a blank server (the endpoint is the IMAP host); JMAP keys on server.
+        fun endpoint(a: StoredAccount) = if (a.protocol == MailProtocol.IMAP) a.imapHost else a.server
         fun key(a: StoredAccount) =
-            Triple(a.protocol, a.server.trim().lowercase(), a.username.trim().lowercase())
+            Triple(a.protocol, endpoint(a).trim().lowercase(), a.username.trim().lowercase())
         val seen = existing.map(::key).toMutableSet()
         val added = mutableListOf<StoredAccount>()
         for (a in incoming) {
             val k = key(a)
-            if (a.server.isBlank() || a.username.isBlank() || k in seen) continue
+            if (endpoint(a).isBlank() || a.username.isBlank() || k in seen) continue
             seen += k
             added += a.copy(
                 id = UUID.randomUUID().toString(),
@@ -427,6 +429,51 @@ class AccountStore(context: Context) {
         saveAccounts(existing + added)
         if (existing.isEmpty()) prefs.edit().putString(KEY_CURRENT, added.first().id).apply()
         return added.size
+    }
+
+    /** Attach freshly granted OAuth material to an existing (imported, inert) account, making it
+     *  live: the refresh token goes into the encrypted slot, the access token is cached. Optionally
+     *  corrects the username to the provider's canonical address. Returns false for an unknown id. */
+    fun attachOAuth(
+        id: String,
+        username: String? = null,
+        accessToken: String,
+        refreshToken: String,
+        accessExpiresAtMillis: Long,
+        tokenEndpoint: String,
+        clientId: String,
+    ): Boolean {
+        if (accounts().none { it.id == id }) return false
+        writePassword(id, refreshToken)
+        saveAccounts(
+            accounts().map {
+                if (it.id == id) it.copy(
+                    authType = AuthType.OAUTH,
+                    username = username?.trim().takeUnless { u -> u.isNullOrBlank() } ?: it.username,
+                    oauthAccessToken = accessToken,
+                    oauthAccessExpiresAt = accessExpiresAtMillis,
+                    oauthTokenEndpoint = tokenEndpoint,
+                    oauthClientId = clientId,
+                ) else it
+            },
+        )
+        return true
+    }
+
+    /** Switch an account to password (BASIC) auth, dropping any OAuth material and its stored slot,
+     *  so it stays inert until a password is entered. Used for the OAuth→app-password fallback. */
+    fun convertToBasicAuth(id: String) {
+        if (accounts().none { it.id == id }) return
+        prefs.edit().remove(passwordKey(id)).apply()
+        saveAccounts(
+            accounts().map {
+                if (it.id == id) it.copy(
+                    authType = AuthType.BASIC,
+                    oauthAccessToken = "", oauthAccessExpiresAt = 0,
+                    oauthTokenEndpoint = "", oauthClientId = "",
+                ) else it
+            },
+        )
     }
 
     // [accountName] is the server-derived name; it is intentionally NOT written back

@@ -198,6 +198,7 @@
     <string name="settings_backup_explainer">Salve as preferências do aplicativo (aparência, leitura, notificações, privacidade, idioma) e a configuração das suas contas em um arquivo, ou restaure-as a partir de um. As senhas nunca são incluídas, portanto as contas importadas precisam entrar novamente.</string>
     <string name="settings_backup_export">Exportar configurações…</string>
     <string name="settings_backup_import">Importar configurações…</string>
+    <string name="settings_backup_import_k9">Importar do K-9 ou Thunderbird</string>
     <string name="settings_backup_exported">Configurações exportadas</string>
     <string name="settings_backup_imported">Configurações importadas</string>
     <string name="settings_backup_imported_accounts">Importado. As novas contas precisam de uma senha: abra cada uma em Contas para entrar.</string>
@@ -449,6 +450,14 @@
     <string name="connect_oauth_copy_code">Copiar código</string>
     <string name="connect_oauth_code_copied">Código copiado</string>
     <string name="connect_oauth_cancel">Cancelar</string>
+    <string name="connect_import_signin_microsoft">Iniciar sessão com a Microsoft</string>
+    <string name="connect_import_oauth_explainer">Esta conta inicia sessão com a Microsoft. Inicie sessão uma vez para a ativar. A sua palavra-passe nunca é guardada no ficheiro.</string>
+    <string name="connect_import_oauth_unsupported">Esta conta usa início de sessão OAuth para um servidor onde o Sterna não consegue iniciar sessão automaticamente. Use antes uma palavra-passe de aplicação, ou ignore-a.</string>
+    <string name="connect_import_use_app_password">Usar antes uma palavra-passe de aplicação</string>
+    <string name="connect_import_app_password_note">Algumas contas Microsoft permitem uma palavra-passe de aplicação; muitas contas profissionais ou escolares desativam-na.</string>
+    <string name="connect_oauth_declined">Recusou o início de sessão. Tente novamente.</string>
+    <string name="connect_oauth_admin_consent">O administrador da sua organização tem de aprovar o Sterna para o início de sessão da Microsoft, ou pode iniciar sessão com uma palavra-passe de aplicação.</string>
+    <string name="connect_oauth_error_code">A Microsoft recusou o início de sessão (%1$s). Tente novamente ou use uma palavra-passe de aplicação.</string>
     <string name="connect_incoming_imap">Entrada (IMAP)</string>
     <string name="connect_outgoing_smtp">Saída (SMTP)</string>
     <string name="connect_account_name_optional">Nome da conta (opcional)</string>
@@ -562,6 +571,9 @@
     <string name="connect_import_invalid">Esse arquivo não é um backup válido do Sterna.</string>
     <string name="connect_import_settings">Importar configurações de um backup</string>
     <string name="connect_import_no_accounts">Configurações importadas. O backup não tinha contas, adicione uma abaixo.</string>
+    <string name="connect_import_k9">Importar do K-9 ou Thunderbird</string>
+    <string name="connect_import_k9_none">Nenhuma conta importável foi encontrada nesse ficheiro.</string>
+    <string name="connect_import_k9_summary">%1$d conta(s) importada(s), %2$d ignorada(s) (POP3 ou não suportadas).</string>
     <string name="settings_test_connection">Testar ligação</string>
     <string name="settings_test_connecting">A testar…</string>
     <string name="settings_test_ok">Ligação estabelecida com sucesso.</string>

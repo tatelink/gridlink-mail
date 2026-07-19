@@ -198,6 +198,7 @@
     <string name="settings_backup_explainer">Sla je app-voorkeuren (weergave, lezen, meldingen, privacy, taal) en je accountconfiguratie op in een bestand of herstel ze ervan. Wachtwoorden worden nooit meegenomen, dus bij geïmporteerde accounts moet je opnieuw inloggen.</string>
     <string name="settings_backup_export">Instellingen exporteren…</string>
     <string name="settings_backup_import">Instellingen importeren…</string>
+    <string name="settings_backup_import_k9">Importeren uit K-9 of Thunderbird</string>
     <string name="settings_backup_exported">Instellingen geëxporteerd</string>
     <string name="settings_backup_imported">Instellingen geïmporteerd</string>
     <string name="settings_backup_imported_accounts">Geïmporteerd. Nieuwe accounts hebben een wachtwoord nodig: open elk onder Accounts om in te loggen.</string>
@@ -449,6 +450,14 @@
     <string name="connect_oauth_copy_code">Code kopiëren</string>
     <string name="connect_oauth_code_copied">Code gekopieerd</string>
     <string name="connect_oauth_cancel">Annuleren</string>
+    <string name="connect_import_signin_microsoft">Aanmelden met Microsoft</string>
+    <string name="connect_import_oauth_explainer">Dit account meldt zich aan met Microsoft. Meld je één keer aan om het te activeren. Je wachtwoord wordt nooit in het bestand opgeslagen.</string>
+    <string name="connect_import_oauth_unsupported">Dit account gebruikt OAuth-aanmelding voor een server waar Sterna niet automatisch bij kan aanmelden. Gebruik in plaats daarvan een app-wachtwoord, of sla het over.</string>
+    <string name="connect_import_use_app_password">Gebruik in plaats daarvan een app-wachtwoord</string>
+    <string name="connect_import_app_password_note">Sommige Microsoft-accounts staan een app-wachtwoord toe; veel zakelijke of schoolaccounts schakelen het uit.</string>
+    <string name="connect_oauth_declined">Je hebt de aanmelding geweigerd. Probeer het opnieuw.</string>
+    <string name="connect_oauth_admin_consent">De beheerder van je organisatie moet Sterna goedkeuren voor aanmelding met Microsoft, of je kunt je aanmelden met een app-wachtwoord.</string>
+    <string name="connect_oauth_error_code">Microsoft heeft de aanmelding geweigerd (%1$s). Probeer het opnieuw of gebruik een app-wachtwoord.</string>
     <string name="connect_incoming_imap">Inkomend (IMAP)</string>
     <string name="connect_outgoing_smtp">Uitgaand (SMTP)</string>
     <string name="connect_account_name_optional">Accountnaam (optioneel)</string>
@@ -565,6 +574,9 @@
     <string name="connect_import_invalid">Dat bestand is geen geldige Sterna-back-up.</string>
     <string name="connect_import_settings">Instellingen uit een back-up importeren</string>
     <string name="connect_import_no_accounts">Instellingen geïmporteerd. De back-up had geen accounts, voeg er hieronder een toe.</string>
+    <string name="connect_import_k9">Importeren uit K-9 of Thunderbird</string>
+    <string name="connect_import_k9_none">Er zijn geen importeerbare accounts in dat bestand gevonden.</string>
+    <string name="connect_import_k9_summary">%1$d account(s) geïmporteerd, %2$d overgeslagen (POP3 of niet ondersteund).</string>
     <string name="settings_test_connection">Verbinding testen</string>
     <string name="settings_test_connecting">Testen…</string>
     <string name="settings_test_ok">Verbinding geslaagd.</string>

@@ -53,6 +53,7 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     val importSignIn: StateFlow<ImportSignIn> = _importSignIn.asStateFlow()
 
     private var oauthJob: Job? = null
+    private var importOAuthJob: Job? = null
 
     init {
         observeOutlookSignIn()
@@ -205,27 +206,40 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
 
     // ---- post-import per-account sign-in ----
 
-    /** One imported account still awaiting its password. */
-    data class PendingAccount(val id: String, val label: String, val email: String)
+    /** One imported account still awaiting sign-in. [provider] is set only for OAUTH accounts on a
+     *  known provider (Microsoft); null means basic-auth or an unknown XOAUTH2 server. */
+    data class PendingAccount(
+        val id: String,
+        val label: String,
+        val email: String,
+        val authType: AuthType,
+        val provider: OAuthProvider?,
+    )
 
     /** State of the "sign in to your imported accounts" step. */
     sealed interface ImportSignIn {
         data object None : ImportSignIn
-        /** [remaining] head is the account being asked for; [index]/[total] drive the progress line. */
         data class Prompt(
             val remaining: List<PendingAccount>,
             val total: Int,
             val index: Int,
             val verifying: Boolean = false,
             val error: String? = null,
+            /** Non-null while the head OAuth account is awaiting browser approval (device flow). */
+            val approval: Approval? = null,
+            /** After a failed/declined OAuth sign-in, offer switching this account to an app password. */
+            val offerAppPasswordFallback: Boolean = false,
+            /** Render a password field for the head account even though it imported as OAuth (fallback chosen). */
+            val forcePassword: Boolean = false,
         ) : ImportSignIn
         data object Done : ImportSignIn
+        data class Approval(val userCode: String, val verificationUri: String, val verificationUriComplete: String?)
     }
 
     /**
-     * Start prompting for the password of every freshly imported account — those with a
-     * password/basic auth but no stored credential yet. OAuth accounts are skipped (they need a
-     * browser re-auth, not a password). When the queue empties the screen enters the app.
+     * Start prompting for the sign-in of every freshly imported account still lacking a stored
+     * credential. Basic-auth accounts ask for a password; OAuth accounts (Microsoft) are driven by
+     * a browser sign-in. When the queue empties the screen enters the app.
      */
     fun beginImportSignIn() {
         val pending = pendingAccounts()
@@ -235,9 +249,9 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Re-enter the password prompts for any still-unauthenticated imported account — e.g. the app
-     * was killed mid-sign-in and relaunched. Does nothing when there are none (so a genuine first
-     * run just shows the add-account form). Never overrides an in-progress prompt.
+     * Re-enter the sign-in prompts for any still-unauthenticated imported account (basic-auth or
+     * OAuth) — e.g. the app was killed mid-sign-in and relaunched. Does nothing when there are none
+     * (so a genuine first run just shows the add-account form). Never overrides an in-progress prompt.
      */
     fun resumeImportSignIn() {
         if (_importSignIn.value is ImportSignIn.Prompt) return
@@ -247,11 +261,17 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** Imported accounts still awaiting a password: basic-auth, no stored credential. */
+    /** Imported accounts still awaiting sign-in: inert (no stored secret), any auth type. */
     private fun pendingAccounts(): List<PendingAccount> =
         container.accountStore.accounts()
-            .filter { it.authType == AuthType.BASIC && container.accountStore.credentials(it.id) == null }
-            .map { PendingAccount(it.id, it.label(), it.username) }
+            .filter { container.accountStore.credentials(it.id) == null }
+            .map { a ->
+                PendingAccount(
+                    id = a.id, label = a.label(), email = a.username,
+                    authType = a.authType,
+                    provider = if (a.authType == AuthType.OAUTH) OAuthProvider.forImapHost(a.imapHost) else null,
+                )
+            }
 
     /** Verify the current imported account with [password]; on success save it and advance. */
     fun submitImportPassword(password: String) {
@@ -267,10 +287,13 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                     (currentPrompt())?.let { advanceImport(it) }
                 },
                 onFailure = { e ->
+                    val msg = e.message ?: string(R.string.connect_bad_credentials)
+                    val authRejected = msg.contains("LOGIN", true) || msg.contains("AUTHENTICATE", true) || msg.contains("credential", true)
                     currentPrompt()?.let {
                         _importSignIn.value = it.copy(
                             verifying = false,
-                            error = e.message ?: string(R.string.connect_bad_credentials),
+                            error = if (authRejected) msg + " " + string(R.string.connect_provider_app_password_note) else msg,
+                            offerAppPasswordFallback = authRejected,
                         )
                     }
                 },
@@ -278,10 +301,121 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /** Launch the Microsoft device flow for the head OAuth account and drive it to completion. */
+    fun startImportOAuth() {
+        val state = currentPrompt() ?: return
+        val head = state.remaining.firstOrNull() ?: return
+        val provider = head.provider ?: return
+        if (state.verifying || state.approval != null) return
+        _importSignIn.value = state.copy(verifying = true, error = null, offerAppPasswordFallback = false)
+        importOAuthJob = viewModelScope.launch {
+            val device = runCatching { container.mailRepository.startProviderDeviceAuth(provider) }.getOrNull()
+            if (device == null) {
+                currentPrompt()?.let {
+                    _importSignIn.value = it.copy(
+                        verifying = false, error = string(R.string.connect_oauth_failed),
+                        offerAppPasswordFallback = true,
+                    )
+                }
+                return@launch
+            }
+            currentPrompt()?.let {
+                _importSignIn.value = it.copy(
+                    verifying = false,
+                    approval = ImportSignIn.Approval(device.userCode, device.verificationUri, device.verificationUriComplete),
+                )
+            }
+            pollImportOAuth(head.id, provider, device)
+        }
+    }
+
+    private suspend fun pollImportOAuth(accountId: String, provider: OAuthProvider, device: DeviceAuthorization) {
+        var interval = device.interval.coerceAtLeast(1).toLong()
+        val deadline = System.currentTimeMillis() + device.expiresIn * 1000L
+        while (System.currentTimeMillis() < deadline) {
+            delay(interval * 1000)
+            when (val r = container.mailRepository.pollProviderToken(provider, device.deviceCode)) {
+                is DeviceTokenResult.Success -> {
+                    val cur = currentPrompt() ?: return
+                    _importSignIn.value = cur.copy(approval = null, verifying = true, error = null)
+                    runCatching { container.mailRepository.signInImportedOAuth(accountId, provider, r.tokens) }.fold(
+                        onSuccess = { currentPrompt()?.let { advanceImport(it) } },
+                        onFailure = { e ->
+                            currentPrompt()?.let {
+                                _importSignIn.value = it.copy(
+                                    verifying = false,
+                                    error = e.message ?: string(R.string.connect_oauth_failed),
+                                    offerAppPasswordFallback = true,
+                                )
+                            }
+                        },
+                    )
+                    return
+                }
+                DeviceTokenResult.Pending -> Unit
+                DeviceTokenResult.SlowDown -> interval += 5
+                is DeviceTokenResult.Failed -> {
+                    currentPrompt()?.let {
+                        _importSignIn.value = it.copy(
+                            approval = null, verifying = false,
+                            error = oauthFailureMessage(r), offerAppPasswordFallback = true,
+                        )
+                    }
+                    return
+                }
+            }
+        }
+        currentPrompt()?.let {
+            _importSignIn.value = it.copy(
+                approval = null, verifying = false,
+                error = string(R.string.connect_oauth_expired), offerAppPasswordFallback = true,
+            )
+        }
+    }
+
+    /** Map a device-flow failure to a specific, actionable message (WS-D). */
+    private fun oauthFailureMessage(f: DeviceTokenResult.Failed): String {
+        val aadsts = f.aadstsCode
+        val desc = f.description
+        return when {
+            f.error == "authorization_declined" || f.error == "access_denied" -> string(R.string.connect_oauth_declined)
+            f.error == "expired_token" -> string(R.string.connect_oauth_expired)
+            // Unverified-publisher / admin-consent / app-not-approved refusals → the org must approve, or use an app password.
+            aadsts == "AADSTS650051" || aadsts == "AADSTS90094" || aadsts == "AADSTS65001" ||
+                desc.contains("admin", true) || desc.contains("consent", true) ||
+                desc.contains("verified publisher", true) || desc.contains("not been approved", true) ->
+                string(R.string.connect_oauth_admin_consent)
+            aadsts != null -> string(R.string.connect_oauth_error_code, aadsts)
+            desc.isNotBlank() -> desc
+            else -> string(R.string.connect_oauth_denied)
+        }
+    }
+
+    /** Cancel an in-progress import device flow; the account stays inert and retryable. */
+    fun cancelImportOAuth() {
+        importOAuthJob?.cancel()
+        importOAuthJob = null
+        currentPrompt()?.let { _importSignIn.value = it.copy(approval = null, verifying = false) }
+    }
+
+    /** Fallback: switch the head account to manual app-password auth and show a password field for it. */
+    fun switchImportToAppPassword() {
+        importOAuthJob?.cancel(); importOAuthJob = null
+        val state = currentPrompt() ?: return
+        val head = state.remaining.firstOrNull() ?: return
+        container.accountStore.convertToBasicAuth(head.id)
+        _importSignIn.value = state.copy(
+            remaining = listOf(head.copy(authType = AuthType.BASIC, provider = null)) + state.remaining.drop(1),
+            forcePassword = true, offerAppPasswordFallback = false,
+            approval = null, error = null, verifying = false,
+        )
+    }
+
     /** Leave the current account unsigned (it stays inert, sign in later in Settings) and advance. */
     fun skipCurrentImport() {
         val state = _importSignIn.value as? ImportSignIn.Prompt ?: return
         if (state.verifying) return
+        importOAuthJob?.cancel(); importOAuthJob = null
         advanceImport(state)
     }
 
@@ -322,6 +456,7 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         _state.value is ConnectState.AwaitingApproval
 
     private fun string(resId: Int) = getApplication<Application>().getString(resId)
+    private fun string(resId: Int, vararg args: Any) = getApplication<Application>().getString(resId, *args)
 
     /** Validate against [server], persist on success. Runs in the caller's coroutine. */
     private suspend fun finishJmapConnect(server: String, username: String, password: String, accountName: String) {

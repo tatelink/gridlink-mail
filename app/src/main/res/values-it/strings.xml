@@ -198,6 +198,7 @@
     <string name="settings_backup_explainer">Salva le preferenze dell\'app (aspetto, lettura, notifiche, privacy, lingua) e la configurazione dei tuoi account in un file, oppure ripristinale da uno. Le password non sono mai incluse, quindi devi accedere di nuovo agli account importati.</string>
     <string name="settings_backup_export">Esporta impostazioni…</string>
     <string name="settings_backup_import">Importa impostazioni…</string>
+    <string name="settings_backup_import_k9">Importa da K-9 o Thunderbird</string>
     <string name="settings_backup_exported">Impostazioni esportate</string>
     <string name="settings_backup_imported">Impostazioni importate</string>
     <string name="settings_backup_imported_accounts">Importato. I nuovi account richiedono una password: aprine ciascuno in Account per accedere.</string>
@@ -449,6 +450,14 @@
     <string name="connect_oauth_copy_code">Copia codice</string>
     <string name="connect_oauth_code_copied">Codice copiato</string>
     <string name="connect_oauth_cancel">Annulla</string>
+    <string name="connect_import_signin_microsoft">Accedi con Microsoft</string>
+    <string name="connect_import_oauth_explainer">Questo account accede con Microsoft. Accedi una volta per attivarlo. La tua password non viene mai salvata nel file.</string>
+    <string name="connect_import_oauth_unsupported">Questo account usa l\'accesso OAuth per un server a cui Sterna non può accedere automaticamente. Usa invece una password per app, oppure ignoralo.</string>
+    <string name="connect_import_use_app_password">Usa invece una password per app</string>
+    <string name="connect_import_app_password_note">Alcuni account Microsoft consentono una password per app; molti account aziendali o scolastici la disattivano.</string>
+    <string name="connect_oauth_declined">Hai rifiutato l\'accesso. Riprova.</string>
+    <string name="connect_oauth_admin_consent">L\'amministratore della tua organizzazione deve approvare Sterna per l\'accesso Microsoft, oppure puoi accedere con una password per app.</string>
+    <string name="connect_oauth_error_code">Microsoft ha rifiutato l\'accesso (%1$s). Riprova oppure usa una password per app.</string>
     <string name="connect_incoming_imap">In entrata (IMAP)</string>
     <string name="connect_outgoing_smtp">In uscita (SMTP)</string>
     <string name="connect_account_name_optional">Nome account (facoltativo)</string>
@@ -562,6 +571,9 @@
     <string name="connect_import_invalid">Questo file non è un backup di Sterna valido.</string>
     <string name="connect_import_settings">Importa le impostazioni da un backup</string>
     <string name="connect_import_no_accounts">Impostazioni importate. Il backup non aveva account, aggiungine uno qui sotto.</string>
+    <string name="connect_import_k9">Importa da K-9 o Thunderbird</string>
+    <string name="connect_import_k9_none">Nessun account importabile trovato in quel file.</string>
+    <string name="connect_import_k9_summary">%1$d account importati, %2$d ignorati (POP3 o non supportati).</string>
     <string name="settings_test_connection">Prova connessione</string>
     <string name="settings_test_connecting">Verifica in corso…</string>
     <string name="settings_test_ok">Connessione riuscita.</string>

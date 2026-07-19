@@ -198,6 +198,7 @@
     <string name="settings_backup_explainer">Сохраните настройки приложения (внешний вид, чтение, уведомления, конфиденциальность, язык) и настройку учётных записей в файл или восстановите их из него. Пароли никогда не включаются, поэтому в импортированные учётные записи нужно войти заново.</string>
     <string name="settings_backup_export">Экспортировать настройки…</string>
     <string name="settings_backup_import">Импортировать настройки…</string>
+    <string name="settings_backup_import_k9">Импорт из K-9 или Thunderbird</string>
     <string name="settings_backup_exported">Настройки экспортированы</string>
     <string name="settings_backup_imported">Настройки импортированы</string>
     <string name="settings_backup_imported_accounts">Импортировано. Новым учётным записям нужен пароль — откройте каждую в разделе «Учётные записи», чтобы войти.</string>
@@ -449,6 +450,14 @@
     <string name="connect_oauth_copy_code">Скопировать код</string>
     <string name="connect_oauth_code_copied">Код скопирован</string>
     <string name="connect_oauth_cancel">Отмена</string>
+    <string name="connect_import_signin_microsoft">Войти через Microsoft</string>
+    <string name="connect_import_oauth_explainer">Эта учётная запись входит через Microsoft. Войдите один раз, чтобы активировать её. Ваш пароль никогда не сохраняется в файле.</string>
+    <string name="connect_import_oauth_unsupported">Эта учётная запись использует вход OAuth для сервера, к которому Sterna не может подключиться автоматически. Используйте пароль приложения или пропустите её.</string>
+    <string name="connect_import_use_app_password">Использовать пароль приложения</string>
+    <string name="connect_import_app_password_note">Некоторые учётные записи Microsoft допускают пароль приложения; многие рабочие или учебные записи его отключают.</string>
+    <string name="connect_oauth_declined">Вы отклонили вход. Попробуйте снова.</string>
+    <string name="connect_oauth_admin_consent">Администратор вашей организации должен одобрить Sterna для входа через Microsoft, либо вы можете войти с паролем приложения.</string>
+    <string name="connect_oauth_error_code">Microsoft отклонил вход (%1$s). Попробуйте снова или используйте пароль приложения.</string>
     <string name="connect_incoming_imap">Входящий (IMAP)</string>
     <string name="connect_outgoing_smtp">Исходящий (SMTP)</string>
     <string name="connect_account_name_optional">Имя аккаунта (необязательно)</string>
@@ -563,6 +572,9 @@
     <string name="connect_import_invalid">Этот файл не является допустимой резервной копией Sterna.</string>
     <string name="connect_import_settings">Импортировать настройки из резервной копии</string>
     <string name="connect_import_no_accounts">Настройки импортированы. В копии не было учётных записей — добавьте её ниже.</string>
+    <string name="connect_import_k9">Импорт из K-9 или Thunderbird</string>
+    <string name="connect_import_k9_none">В этом файле не найдено учётных записей для импорта.</string>
+    <string name="connect_import_k9_summary">Импортировано учётных записей: %1$d, пропущено: %2$d (POP3 или не поддерживается).</string>
     <string name="settings_test_connection">Проверить подключение</string>
     <string name="settings_test_connecting">Проверка…</string>
     <string name="settings_test_ok">Подключение успешно.</string>

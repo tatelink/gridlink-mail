@@ -198,6 +198,7 @@
     <string name="settings_backup_explainer">Speichern Sie Ihre App-Einstellungen (Darstellung, Lesen, Benachrichtigungen, Datenschutz, Sprache) und Ihre Kontoeinrichtung in einer Datei oder stellen Sie sie daraus wieder her. Passwörter sind nie enthalten, daher müssen importierte Konten erneut angemeldet werden.</string>
     <string name="settings_backup_export">Einstellungen exportieren…</string>
     <string name="settings_backup_import">Einstellungen importieren…</string>
+    <string name="settings_backup_import_k9">Aus K-9 oder Thunderbird importieren</string>
     <string name="settings_backup_exported">Einstellungen exportiert</string>
     <string name="settings_backup_imported">Einstellungen importiert</string>
     <string name="settings_backup_imported_accounts">Importiert. Neue Konten brauchen ein Passwort – öffnen Sie jedes unter Konten, um sich anzumelden.</string>
@@ -449,6 +450,14 @@
     <string name="connect_oauth_copy_code">Code kopieren</string>
     <string name="connect_oauth_code_copied">Code kopiert</string>
     <string name="connect_oauth_cancel">Abbrechen</string>
+    <string name="connect_import_signin_microsoft">Mit Microsoft anmelden</string>
+    <string name="connect_import_oauth_explainer">Dieses Konto meldet sich mit Microsoft an. Melden Sie sich einmal an, um es zu aktivieren. Ihr Passwort wird nie in der Datei gespeichert.</string>
+    <string name="connect_import_oauth_unsupported">Dieses Konto verwendet die OAuth-Anmeldung für einen Server, bei dem sich Sterna nicht automatisch anmelden kann. Verwenden Sie stattdessen ein App-Passwort oder überspringen Sie es.</string>
+    <string name="connect_import_use_app_password">Stattdessen ein App-Passwort verwenden</string>
+    <string name="connect_import_app_password_note">Einige Microsoft-Konten erlauben ein App-Passwort; viele Geschäfts- oder Schulkonten deaktivieren es.</string>
+    <string name="connect_oauth_declined">Sie haben die Anmeldung abgelehnt. Versuchen Sie es erneut.</string>
+    <string name="connect_oauth_admin_consent">Der Administrator Ihrer Organisation muss Sterna für die Microsoft-Anmeldung genehmigen, oder Sie können sich mit einem App-Passwort anmelden.</string>
+    <string name="connect_oauth_error_code">Microsoft hat die Anmeldung abgelehnt (%1$s). Versuchen Sie es erneut oder verwenden Sie ein App-Passwort.</string>
     <string name="connect_incoming_imap">Eingehend (IMAP)</string>
     <string name="connect_outgoing_smtp">Ausgehend (SMTP)</string>
     <string name="connect_account_name_optional">Kontoname (optional)</string>
@@ -562,6 +571,9 @@
     <string name="connect_import_invalid">Diese Datei ist keine gültige Sterna-Sicherung.</string>
     <string name="connect_import_settings">Einstellungen aus einer Sicherung importieren</string>
     <string name="connect_import_no_accounts">Einstellungen importiert. Die Sicherung enthielt keine Konten – fügen Sie unten eines hinzu.</string>
+    <string name="connect_import_k9">Aus K-9 oder Thunderbird importieren</string>
+    <string name="connect_import_k9_none">In dieser Datei wurden keine importierbaren Konten gefunden.</string>
+    <string name="connect_import_k9_summary">%1$d Konto/Konten importiert, %2$d übersprungen (POP3 oder nicht unterstützt).</string>
     <string name="settings_test_connection">Verbindung testen</string>
     <string name="settings_test_connecting">Wird getestet…</string>
     <string name="settings_test_ok">Verbindung erfolgreich.</string>

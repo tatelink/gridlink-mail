@@ -642,6 +642,22 @@ private fun BackupScreen(
             )
         }
     }
+    val importK9Launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            viewModel.importK9Settings(uri) { ok, added, skipped ->
+                message = if (ok && added > 0) {
+                    context.getString(R.string.connect_import_k9_summary, added, skipped)
+                } else {
+                    context.getString(
+                        if (!ok) R.string.settings_backup_failed else R.string.connect_import_k9_none,
+                    )
+                }
+                if (ok && added > 0) onAccountsImported()
+            }
+        }
+    }
 
     DetailScaffold(title = stringResource(R.string.settings_backup_screen_title), onBack = onBack) { padding ->
         Column(
@@ -666,6 +682,14 @@ private fun BackupScreen(
                     },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 ) { Text(stringResource(R.string.settings_backup_import)) }
+                OutlinedButton(
+                    onClick = {
+                        importK9Launcher.launch(
+                            arrayOf("application/octet-stream", "text/xml", "application/xml", "*/*"),
+                        )
+                    },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                ) { Text(stringResource(R.string.settings_backup_import_k9)) }
                 message?.let {
                     Text(
                         it,

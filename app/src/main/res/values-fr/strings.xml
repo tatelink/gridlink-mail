@@ -198,6 +198,7 @@
     <string name="settings_backup_explainer">Enregistrez vos préférences (apparence, lecture, notifications, confidentialité, langue) et la configuration de vos comptes dans un fichier, ou restaurez-les depuis celui-ci. Les mots de passe ne sont jamais inclus, donc les comptes importés doivent être reconnectés.</string>
     <string name="settings_backup_export">Exporter les paramètres…</string>
     <string name="settings_backup_import">Importer les paramètres…</string>
+    <string name="settings_backup_import_k9">Importer depuis K-9 ou Thunderbird</string>
     <string name="settings_backup_exported">Paramètres exportés</string>
     <string name="settings_backup_imported">Paramètres importés</string>
     <string name="settings_backup_imported_accounts">Importé. Les nouveaux comptes ont besoin d\'un mot de passe : ouvrez chacun dans Comptes pour vous connecter.</string>
@@ -449,6 +450,14 @@
     <string name="connect_oauth_copy_code">Copier le code</string>
     <string name="connect_oauth_code_copied">Code copié</string>
     <string name="connect_oauth_cancel">Annuler</string>
+    <string name="connect_import_signin_microsoft">Se connecter avec Microsoft</string>
+    <string name="connect_import_oauth_explainer">Ce compte se connecte avec Microsoft. Connectez-vous une fois pour l\'activer. Votre mot de passe n\'est jamais enregistré dans le fichier.</string>
+    <string name="connect_import_oauth_unsupported">Ce compte utilise la connexion OAuth pour un serveur auquel Sterna ne peut pas se connecter automatiquement. Utilisez plutôt un mot de passe d\'application, ou ignorez-le.</string>
+    <string name="connect_import_use_app_password">Utiliser plutôt un mot de passe d\'application</string>
+    <string name="connect_import_app_password_note">Certains comptes Microsoft autorisent un mot de passe d\'application ; beaucoup de comptes professionnels ou scolaires le désactivent.</string>
+    <string name="connect_oauth_declined">Vous avez refusé la connexion. Réessayez.</string>
+    <string name="connect_oauth_admin_consent">L\'administrateur de votre organisation doit approuver Sterna pour la connexion Microsoft, ou vous pouvez vous connecter avec un mot de passe d\'application.</string>
+    <string name="connect_oauth_error_code">Microsoft a refusé la connexion (%1$s). Réessayez, ou utilisez un mot de passe d\'application.</string>
     <string name="connect_incoming_imap">Entrant (IMAP)</string>
     <string name="connect_outgoing_smtp">Sortant (SMTP)</string>
     <string name="connect_account_name_optional">Nom du compte (facultatif)</string>
@@ -564,6 +573,9 @@
     <string name="connect_import_invalid">Ce fichier n\'est pas une sauvegarde Sterna valide.</string>
     <string name="connect_import_settings">Importer les paramètres depuis une sauvegarde</string>
     <string name="connect_import_no_accounts">Paramètres importés. La sauvegarde ne contenait aucun compte, ajoutez-en un ci-dessous.</string>
+    <string name="connect_import_k9">Importer depuis K-9 ou Thunderbird</string>
+    <string name="connect_import_k9_none">Aucun compte importable n\'a été trouvé dans ce fichier.</string>
+    <string name="connect_import_k9_summary">%1$d compte(s) importé(s), %2$d ignoré(s) (POP3 ou non pris en charge).</string>
     <string name="settings_test_connection">Tester la connexion</string>
     <string name="settings_test_connecting">Test en cours…</string>
     <string name="settings_test_ok">Connexion réussie.</string>

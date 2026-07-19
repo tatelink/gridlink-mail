@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sterna.container
+import app.sterna.core.data.account.K9SettingsImporter
 import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.data.settings.PreviewLines
@@ -238,6 +239,24 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 val target = AppLanguage.entries.firstOrNull { it.tag == tag } ?: AppLanguage.SYSTEM
                 if (target != currentAppLanguage()) onLanguageChanged(target)
             }
+        }
+    }
+
+    /** Parse a K-9 / Thunderbird `.k9s` export and import its (inert) accounts. [onResult] reports
+     *  success, how many accounts were added (0 on failure/none), and how many were skipped
+     *  (POP3 / unsupported). Imported accounts have no credentials and must be signed into. */
+    fun importK9Settings(uri: Uri, onResult: (ok: Boolean, added: Int, skipped: Int) -> Unit) {
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    getApplication<Application>().contentResolver.openInputStream(uri)?.use {
+                        K9SettingsImporter.parse(it)
+                    } ?: error("no input stream")
+                }
+            }.getOrNull()
+            if (result == null) { onResult(false, 0, 0); return@launch }
+            val added = store.importAccounts(result.accounts)
+            onResult(true, added, result.skipped.size)
         }
     }
 

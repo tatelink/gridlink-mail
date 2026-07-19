@@ -72,6 +72,7 @@ import app.sterna.ui.components.autofill
 import app.sterna.ui.settings.SettingsViewModel
 import app.sterna.ui.settings.applyAppLanguage
 import app.sterna.util.isValidEmail
+import app.sterna.core.data.account.AuthType
 import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailProtocol
 
@@ -147,6 +148,24 @@ fun ConnectScreen(
             )
         }
     }
+    // K-9 / Thunderbird `.k9s` export: parsed (not by extension — the files carry no MIME type),
+    // its accounts imported inert, then the per-account sign-in queue starts.
+    val importK9Launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            settingsViewModel.importK9Settings(uri) { ok, added, skipped ->
+                when {
+                    ok && added > 0 -> viewModel.beginImportSignIn()
+                    ok -> importMessage = context.getString(R.string.connect_import_k9_none)
+                    else -> importMessage = context.getString(R.string.connect_import_invalid)
+                }
+                if (ok && added > 0 && skipped > 0) {
+                    importMessage = context.getString(R.string.connect_import_k9_summary, added, skipped)
+                }
+            }
+        }
+    }
 
     val ready = if (oauthSelected) {
         // Outlook (OAuth): only the email is needed; "Connect" launches the browser flow.
@@ -176,11 +195,7 @@ fun ConnectScreen(
                 return@Column
             }
             (importSignIn as? ConnectViewModel.ImportSignIn.Prompt)?.let { prompt ->
-                ImportSignInPanel(
-                    prompt = prompt,
-                    onSubmit = viewModel::submitImportPassword,
-                    onSkip = viewModel::skipCurrentImport,
-                )
+                ImportSignInStep(prompt, viewModel)
                 return@Column
             }
             if (firstRun) {
@@ -206,6 +221,18 @@ fun ConnectScreen(
                     Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.connect_import_settings))
+                }
+                OutlinedButton(
+                    onClick = {
+                        importK9Launcher.launch(
+                            arrayOf("application/octet-stream", "text/xml", "application/xml", "*/*"),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.connect_import_k9))
                 }
                 importMessage?.let {
                     Text(
@@ -443,10 +470,22 @@ fun ConnectScreen(
 /** Device-flow approval screen: show the user code + a button to open the browser. */
 @Composable
 private fun DeviceApprovalPanel(state: ConnectState.AwaitingApproval, onCancel: () -> Unit) {
+    Spacer(Modifier.height(8.dp))
+    DeviceApprovalContent(state.userCode, state.verificationUri, state.verificationUriComplete, onCancel)
+}
+
+/** The shared device-flow approval body (code + open-browser + waiting + cancel), reused by both the
+ *  add-account and imported-account OAuth flows. */
+@Composable
+private fun DeviceApprovalContent(
+    userCode: String,
+    verificationUri: String,
+    verificationUriComplete: String?,
+    onCancel: () -> Unit,
+) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val copiedMsg = stringResource(R.string.connect_oauth_code_copied)
-    Spacer(Modifier.height(8.dp))
     Text(
         stringResource(R.string.connect_oauth_step1),
         style = MaterialTheme.typography.bodyMedium,
@@ -456,19 +495,19 @@ private fun DeviceApprovalPanel(state: ConnectState.AwaitingApproval, onCancel: 
         modifier = Modifier
             .fillMaxWidth()
             .clickable {
-                clipboard.setText(AnnotatedString(state.userCode))
+                clipboard.setText(AnnotatedString(userCode))
                 Toast.makeText(context, copiedMsg, Toast.LENGTH_SHORT).show()
             },
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(state.userCode, style = MaterialTheme.typography.headlineMedium)
+        Text(userCode, style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.width(8.dp))
         Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.connect_oauth_copy_code))
     }
     Button(
         onClick = {
-            val target = state.verificationUriComplete ?: state.verificationUri
+            val target = verificationUriComplete ?: verificationUri
             runCatching {
                 context.startActivity(
                     Intent(Intent.ACTION_VIEW, Uri.parse(target)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
@@ -485,6 +524,124 @@ private fun DeviceApprovalPanel(state: ConnectState.AwaitingApproval, onCancel: 
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         CircularProgressIndicator(modifier = Modifier.height(20.dp).width(20.dp))
         TextButton(onClick = onCancel) { Text(stringResource(R.string.connect_oauth_cancel)) }
+    }
+}
+
+/** The app-password creation page for Microsoft accounts. */
+private const val MS_APP_PASSWORD_URL = "https://account.live.com/proofs/AppPassword"
+
+/** A one-tap chip that opens the Microsoft app-password creation page. */
+@Composable
+private fun AppPasswordHelpChip() {
+    val context = LocalContext.current
+    TextButton(
+        onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(MS_APP_PASSWORD_URL))) },
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+    ) {
+        Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(stringResource(R.string.connect_app_password_help))
+    }
+}
+
+/** Dispatch the head imported account to the right sign-in panel: a live device-flow, an OAuth
+ *  sign-in button, or a password field (basic-auth or a chosen app-password fallback). */
+@Composable
+private fun ImportSignInStep(prompt: ConnectViewModel.ImportSignIn.Prompt, viewModel: ConnectViewModel) {
+    val head = prompt.remaining.first()
+    when {
+        prompt.approval != null -> {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.connect_import_signin_progress, prompt.index, prompt.total),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            DeviceApprovalContent(
+                prompt.approval.userCode, prompt.approval.verificationUri,
+                prompt.approval.verificationUriComplete, onCancel = viewModel::cancelImportOAuth,
+            )
+        }
+        head.authType == AuthType.OAUTH && !prompt.forcePassword ->
+            ImportOAuthPanel(prompt, head, viewModel)
+        else ->
+            ImportSignInPanel(prompt, onSubmit = viewModel::submitImportPassword, onSkip = viewModel::skipCurrentImport)
+    }
+}
+
+/**
+ * Post-import step for an OAuth account (Microsoft): a browser sign-in activates it. Unknown XOAUTH2
+ * hosts can't be signed into automatically, so only the app-password fallback + skip are offered.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun ImportOAuthPanel(
+    prompt: ConnectViewModel.ImportSignIn.Prompt,
+    head: ConnectViewModel.PendingAccount,
+    viewModel: ConnectViewModel,
+) {
+    Spacer(Modifier.height(8.dp))
+    Text(
+        stringResource(R.string.connect_import_signin_title),
+        style = MaterialTheme.typography.headlineSmall,
+    )
+    Text(
+        stringResource(R.string.connect_import_signin_progress, prompt.index, prompt.total),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    OutlinedTextField(
+        value = head.email,
+        onValueChange = {},
+        readOnly = true,
+        label = { Text(stringResource(R.string.connect_email_username)) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().autofill(
+            listOf(AutofillType.EmailAddress, AutofillType.Username),
+        ) {},
+    )
+    if (head.provider != null) {
+        Text(
+            stringResource(R.string.connect_import_oauth_explainer),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Button(
+            onClick = viewModel::startImportOAuth,
+            enabled = !prompt.verifying,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (prompt.verifying) {
+                CircularProgressIndicator(modifier = Modifier.height(20.dp).width(20.dp))
+            } else {
+                Text(stringResource(R.string.connect_import_signin_microsoft))
+            }
+        }
+    } else {
+        Text(
+            stringResource(R.string.connect_import_oauth_unsupported),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    prompt.error?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+    if (prompt.offerAppPasswordFallback || head.provider == null) {
+        Text(
+            stringResource(R.string.connect_import_app_password_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(
+            onClick = viewModel::switchImportToAppPassword,
+            enabled = !prompt.verifying,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(stringResource(R.string.connect_import_use_app_password)) }
+        AppPasswordHelpChip()
+    }
+    TextButton(onClick = viewModel::skipCurrentImport, enabled = !prompt.verifying) {
+        Text(stringResource(R.string.connect_import_signin_skip))
     }
 }
 
@@ -525,6 +682,16 @@ private fun ImportSignInPanel(
             listOf(AutofillType.EmailAddress, AutofillType.Username),
         ) {},
     )
+    // A forced fallback means this account imported as OAuth but sign-in failed/was declined:
+    // point the user at creating a Microsoft app password to paste below.
+    if (prompt.forcePassword) {
+        Text(
+            stringResource(R.string.connect_import_app_password_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        AppPasswordHelpChip()
+    }
     OutlinedTextField(
         value = password,
         onValueChange = { password = it },

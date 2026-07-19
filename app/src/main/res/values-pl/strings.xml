@@ -198,6 +198,7 @@
     <string name="settings_backup_explainer">Zapisz preferencje aplikacji (wygląd, czytanie, powiadomienia, prywatność, język) i konfigurację kont do pliku lub przywróć je z pliku. Hasła nigdy nie są uwzględniane, więc do zaimportowanych kont trzeba zalogować się ponownie.</string>
     <string name="settings_backup_export">Eksportuj ustawienia…</string>
     <string name="settings_backup_import">Importuj ustawienia…</string>
+    <string name="settings_backup_import_k9">Importuj z K-9 lub Thunderbird</string>
     <string name="settings_backup_exported">Ustawienia wyeksportowane</string>
     <string name="settings_backup_imported">Ustawienia zaimportowane</string>
     <string name="settings_backup_imported_accounts">Zaimportowano. Nowe konta wymagają hasła – otwórz każde w sekcji Konta, aby się zalogować.</string>
@@ -449,6 +450,14 @@
     <string name="connect_oauth_copy_code">Kopiuj kod</string>
     <string name="connect_oauth_code_copied">Kod skopiowany</string>
     <string name="connect_oauth_cancel">Anuluj</string>
+    <string name="connect_import_signin_microsoft">Zaloguj się przez Microsoft</string>
+    <string name="connect_import_oauth_explainer">To konto loguje się przez Microsoft. Zaloguj się raz, aby je aktywować. Twoje hasło nigdy nie jest zapisywane w pliku.</string>
+    <string name="connect_import_oauth_unsupported">To konto używa logowania OAuth dla serwera, do którego Sterna nie może zalogować się automatycznie. Użyj zamiast tego hasła aplikacji lub pomiń je.</string>
+    <string name="connect_import_use_app_password">Użyj zamiast tego hasła aplikacji</string>
+    <string name="connect_import_app_password_note">Niektóre konta Microsoft zezwalają na hasło aplikacji; wiele kont służbowych lub szkolnych je wyłącza.</string>
+    <string name="connect_oauth_declined">Odrzucono logowanie. Spróbuj ponownie.</string>
+    <string name="connect_oauth_admin_consent">Administrator Twojej organizacji musi zatwierdzić Sternę do logowania przez Microsoft lub możesz zalogować się za pomocą hasła aplikacji.</string>
+    <string name="connect_oauth_error_code">Microsoft odrzucił logowanie (%1$s). Spróbuj ponownie lub użyj hasła aplikacji.</string>
     <string name="connect_incoming_imap">Przychodzące (IMAP)</string>
     <string name="connect_outgoing_smtp">Wychodzące (SMTP)</string>
     <string name="connect_account_name_optional">Nazwa konta (opcjonalnie)</string>
@@ -562,6 +571,9 @@
     <string name="connect_import_invalid">Ten plik nie jest prawidłową kopią zapasową Sterna.</string>
     <string name="connect_import_settings">Importuj ustawienia z kopii zapasowej</string>
     <string name="connect_import_no_accounts">Ustawienia zaimportowane. Kopia nie zawierała kont – dodaj je poniżej.</string>
+    <string name="connect_import_k9">Importuj z K-9 lub Thunderbird</string>
+    <string name="connect_import_k9_none">Nie znaleziono kont do zaimportowania w tym pliku.</string>
+    <string name="connect_import_k9_summary">Zaimportowano konta: %1$d, pominięto: %2$d (POP3 lub nieobsługiwane).</string>
     <string name="settings_test_connection">Testuj połączenie</string>
     <string name="settings_test_connecting">Testowanie…</string>
     <string name="settings_test_ok">Połączenie udane.</string>

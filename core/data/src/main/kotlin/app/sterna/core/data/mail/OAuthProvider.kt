@@ -43,5 +43,14 @@ data class OAuthProvider(
             imap = MailEndpoint("outlook.office365.com", 993, ConnectionSecurity.TLS),
             smtp = MailEndpoint("smtp.office365.com", 587, ConnectionSecurity.STARTTLS),
         )
+
+        /** The built-in provider whose IMAP host matches [host], or null for an unknown XOAUTH2 server. */
+        fun forImapHost(host: String): OAuthProvider? = when {
+            host.isBlank() -> null
+            host.equals(MICROSOFT.imap.host, ignoreCase = true) ||
+                host.endsWith("office365.com", ignoreCase = true) ||
+                host.endsWith("outlook.com", ignoreCase = true) -> MICROSOFT
+            else -> null
+        }
     }
 }

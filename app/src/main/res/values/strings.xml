@@ -257,6 +257,7 @@
     <string name="settings_backup_explainer">Save your app preferences (appearance, reading, notifications, privacy, language) and your account setup to a file, or restore them from one. Passwords are never included, so imported accounts need to be signed in again.</string>
     <string name="settings_backup_export">Export settings…</string>
     <string name="settings_backup_import">Import settings…</string>
+    <string name="settings_backup_import_k9">Import from K-9 or Thunderbird</string>
     <string name="settings_backup_exported">Settings exported</string>
     <string name="settings_backup_imported">Settings imported</string>
     <string name="settings_backup_imported_accounts">Imported. New accounts need a password — open each under Accounts to sign in.</string>
@@ -511,6 +512,9 @@
     <string name="connect_import_invalid">That file isn\'t a valid Sterna backup.</string>
     <string name="connect_import_settings">Import settings from a backup</string>
     <string name="connect_import_no_accounts">Settings imported. The backup had no accounts, so add one below.</string>
+    <string name="connect_import_k9">Import from K-9 or Thunderbird</string>
+    <string name="connect_import_k9_none">No importable accounts were found in that file.</string>
+    <string name="connect_import_k9_summary">Imported %1$d account(s), skipped %2$d (POP3 or unsupported).</string>
     <string name="connect_protocol">Protocol</string>
     <string name="connect_jmap">JMAP</string>
     <string name="connect_imap_smtp">IMAP / SMTP</string>
@@ -543,6 +547,14 @@
     <string name="connect_oauth_copy_code">Copy code</string>
     <string name="connect_oauth_code_copied">Code copied</string>
     <string name="connect_oauth_cancel">Cancel</string>
+    <string name="connect_import_signin_microsoft">Sign in with Microsoft</string>
+    <string name="connect_import_oauth_explainer">This account signs in with Microsoft. Sign in once to activate it. Your password is never stored in the file.</string>
+    <string name="connect_import_oauth_unsupported">This account uses OAuth sign-in for a server Sterna can\'t sign into automatically. Use an app password instead, or skip it.</string>
+    <string name="connect_import_use_app_password">Use an app password instead</string>
+    <string name="connect_import_app_password_note">Some Microsoft accounts allow an app password; many work or school accounts disable it.</string>
+    <string name="connect_oauth_declined">You declined the sign-in. Try again.</string>
+    <string name="connect_oauth_admin_consent">Your organisation\'s admin must approve Sterna for Microsoft sign-in, or you can sign in with an app password instead.</string>
+    <string name="connect_oauth_error_code">Microsoft refused the sign-in (%1$s). Try again, or use an app password instead.</string>
     <string name="connect_incoming_imap">Incoming (IMAP)</string>
     <string name="connect_outgoing_smtp">Outgoing (SMTP)</string>
     <string name="connect_account_name_optional">Account name (optional)</string>
