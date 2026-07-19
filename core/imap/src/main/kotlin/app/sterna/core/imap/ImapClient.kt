@@ -211,14 +211,31 @@ class ImapSession(private var socket: Socket) : Closeable {
     }
 
     /** Move a message to another mailbox; returns its new UID in the destination if reported. */
-    fun move(uid: Long, destination: String): Long? {
-        val result = runCatching { command("UID MOVE $uid ${quote(destination)}") }.getOrElse {
-            command("UID COPY $uid ${quote(destination)}").also {
-                command("UID STORE $uid +FLAGS (\\Deleted)")
-                runCatching { command("UID EXPUNGE $uid") }
+    fun move(uid: Long, destination: String): Long? = move(listOf(uid), destination)[uid]
+
+    /**
+     * Move many messages to [destination] with one `UID MOVE <set> <dest>` per chunk
+     * (falling back to `UID COPY` + `+FLAGS (\Deleted)` + `UID EXPUNGE`), instead of one
+     * command per message — the bulk-action fix (Codeberg #29). The caller must have
+     * SELECTed the source mailbox. Returns the source-UID → destination-UID mapping parsed
+     * from COPYUID (RFC 4315 / RFC 6851), empty when the server reports none — the move
+     * still happened; only per-message Undo positioning is lost. Chunked to stay well under
+     * command-length limits.
+     */
+    fun move(uids: List<Long>, destination: String): Map<Long, Long> {
+        val mapping = LinkedHashMap<Long, Long>()
+        for (chunk in uids.distinct().chunked(UID_SET_CHUNK)) {
+            val set = compressUidSet(chunk)
+            if (set.isEmpty()) continue
+            val result = runCatching { command("UID MOVE $set ${quote(destination)}") }.getOrElse {
+                val copy = command("UID COPY $set ${quote(destination)}")
+                command("UID STORE $set +FLAGS (\\Deleted)")
+                runCatching { command("UID EXPUNGE $set") }.onFailure { runCatching { command("EXPUNGE") } }
+                copy
             }
+            mapping.putAll(parseCopyUidMap(result))
         }
-        return parseCopyUid(result)
+        return mapping
     }
 
     /** Fetch a single message by UID (envelope + flags), or null if not found. */
@@ -234,6 +251,20 @@ class ImapSession(private var socket: Socket) : Closeable {
         // [COPYUID <uidvalidity> <sourceUid> <destUid>]
         val m = Regex("COPYUID\\s+\\d+\\s+[\\d,:]+\\s+(\\d+)").find(text) ?: return null
         return m.groupValues[1].toLongOrNull()
+    }
+
+    /**
+     * Parse the ordered source-UID → destination-UID mapping from a `COPYUID
+     * <uidvalidity> <source-set> <dest-set>` response (RFC 4315). Both sets correspond
+     * positionally, so they're expanded preserving order and zipped. Empty if there is no
+     * COPYUID or the two sets don't line up.
+     */
+    private fun parseCopyUidMap(result: ImapResult): Map<Long, Long> {
+        val text = (result.untagged + listOf(result.tagged)).joinToString(" ") { resp ->
+            resp.joinToString(" ") { flatten(it) }
+        }
+        val m = Regex("COPYUID\\s+\\d+\\s+([\\d,:]+)\\s+([\\d,:]+)").find(text) ?: return emptyMap()
+        return copyUidMapping(m.groupValues[1], m.groupValues[2])
     }
 
     private fun flatten(v: Any?): String = when (v) {
@@ -319,9 +350,21 @@ class ImapSession(private var socket: Socket) : Closeable {
         command("UID STORE $uid $op ($flag)")
     }
 
-    fun delete(uid: Long) {
-        command("UID STORE $uid +FLAGS (\\Deleted)")
-        runCatching { command("UID EXPUNGE $uid") }.onFailure { command("EXPUNGE") }
+    fun delete(uid: Long) = delete(listOf(uid))
+
+    /**
+     * Permanently delete many messages with one `UID STORE <set> +FLAGS (\Deleted)` +
+     * `UID EXPUNGE <set>` per chunk (Codeberg #29). Falls back to a plain `EXPUNGE` when the
+     * server lacks UIDPLUS, matching the single-message path. The caller must have SELECTed
+     * the mailbox.
+     */
+    fun delete(uids: List<Long>) {
+        for (chunk in uids.distinct().chunked(UID_SET_CHUNK)) {
+            val set = compressUidSet(chunk)
+            if (set.isEmpty()) continue
+            command("UID STORE $set +FLAGS (\\Deleted)")
+            runCatching { command("UID EXPUNGE $set") }.onFailure { command("EXPUNGE") }
+        }
     }
 
     /** APPEND a raw message into [mailbox] (e.g. a sent copy into Sent), with [flags]. */
@@ -485,6 +528,13 @@ class ImapSession(private var socket: Socket) : Closeable {
         }
     }
 }
+
+/**
+ * Cap on how many UIDs go into one `UID MOVE`/`UID STORE` sequence-set, so an enormous
+ * selection is split across a few commands instead of one over-long line. 200 UIDs
+ * compress to well under any server's command-length limit.
+ */
+private const val UID_SET_CHUNK = 200
 
 /** Untagged responses collected for one tagged command. */
 internal class ImapResult(

@@ -902,6 +902,11 @@ fun InboxScreen(
                                 } else {
                                     val inJunk = currentRole == "junk"
                                     DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.inbox_select_all)) },
+                                        leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
+                                        onClick = { selMenu = false; viewModel.selectAll() },
+                                    )
+                                    DropdownMenuItem(
                                         text = {
                                             Text(stringResource(if (inJunk) R.string.message_not_spam else R.string.message_report_spam))
                                         },

@@ -259,6 +259,27 @@ class ImapMailService(
     suspend fun deleteMessage(credentials: AccountCredentials, mailboxId: String, uid: Long) =
         withSession(credentials) { it.select(mailboxId); it.delete(uid) }
 
+    /**
+     * Move many messages from one source folder to [destMailbox] in a single session —
+     * one SELECT + one `UID MOVE <set>` (chunked) instead of N round-trips (Codeberg #29).
+     * Returns the source-UID → destination-UID mapping (from COPYUID) so Undo can move the
+     * whole batch back; empty if the server reported none.
+     */
+    suspend fun moveBatch(credentials: AccountCredentials, sourceMailbox: String, uids: List<Long>, destMailbox: String): Map<Long, Long> =
+        withSession(credentials) { it.select(sourceMailbox); it.move(uids, destMailbox) }
+
+    /** Permanently delete many messages from one folder in a single session (Codeberg #29). */
+    suspend fun deleteBatch(credentials: AccountCredentials, mailboxId: String, uids: List<Long>) =
+        withSession(credentials) { it.select(mailboxId); it.delete(uids) }
+
+    /** Fetch several messages by UID from one folder in a single session (e.g. to re-cache a restored batch). */
+    suspend fun fetchByUids(credentials: AccountCredentials, mailboxId: String, uids: List<Long>): List<EmailEntity> =
+        if (uids.isEmpty()) emptyList()
+        else withSession(credentials) { session ->
+            session.select(mailboxId)
+            session.fetchUids(uids).map { it.toEntity(credentials.id, mailboxId) }
+        }
+
     /** Create a folder if it doesn't exist (e.g. an Archive on first archive). */
     suspend fun createFolder(credentials: AccountCredentials, path: String) =
         withSession(credentials) { it.createFolder(path) }

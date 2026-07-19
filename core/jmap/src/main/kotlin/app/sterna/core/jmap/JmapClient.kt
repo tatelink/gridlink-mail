@@ -679,6 +679,39 @@ class JmapClient internal constructor(
         return args["newState"]?.jsonPrimitive?.contentOrNull
     }
 
+    /**
+     * Move many emails so each belongs to exactly [targetMailboxId], in ONE `Email/set`
+     * (Codeberg #29) — over [postWithRetry], so a big batch is one request that still backs
+     * off on the server's rate limit. Returns the new state. No-op (null) for an empty list.
+     */
+    suspend fun move(
+        session: JmapSession,
+        accountId: String,
+        emailIds: List<String>,
+        targetMailboxId: String,
+        auth: JmapAuth,
+    ): String? {
+        if (emailIds.isEmpty()) return null
+        val args = emailSet(session, auth) {
+            put("accountId", accountId)
+            putJsonObject("update") {
+                emailIds.forEach { id ->
+                    putJsonObject(id) { putJsonObject("mailboxIds") { put(targetMailboxId, true) } }
+                }
+            }
+        }
+        return args["newState"]?.jsonPrimitive?.contentOrNull
+    }
+
+    /** Permanently delete many emails in one `Email/set` (Codeberg #29). No-op for empty. */
+    suspend fun destroy(session: JmapSession, accountId: String, emailIds: List<String>, auth: JmapAuth): String? {
+        if (emailIds.isEmpty()) return null
+        return emailSet(session, auth) {
+            put("accountId", accountId)
+            putJsonArray("destroy") { emailIds.forEach { add(it) } }
+        }["newState"]?.jsonPrimitive?.contentOrNull
+    }
+
     /** Create a mailbox (e.g. an Archive folder) and return its new id (RFC 8621 §2.5). */
     suspend fun createMailbox(
         session: JmapSession,

@@ -1462,6 +1462,160 @@ class MailRepository(
         mailboxDao.adjustCounts(targetMailboxId, totalDelta = 1, unreadDelta = unread)
     }
 
+    // ---- bulk (batched) actions (Codeberg #29) ----------------------------------------
+    // One server round-trip group per (account, source folder) instead of one command per
+    // message, so a several-hundred-message archive/move/delete goes through in one shot.
+    // The caller (InboxViewModel) groups the selection by account first; each method here
+    // takes one account's ids, then (IMAP) groups them by source folder.
+
+    /** Which ids of a batch actually went through, and which failed — for the bulk snackbar/toast. */
+    class BulkResult(val succeeded: Set<String>, val failed: Set<String>) {
+        companion object { val EMPTY = BulkResult(emptySet(), emptySet()) }
+    }
+
+    /**
+     * Batch-move one IMAP source folder's [ids] to [dest] (dest != source) with a single
+     * `UID MOVE <set>`, recording each id's new destination UID (from COPYUID) in
+     * [lastImapMove] so Undo can move the whole set back. Ids whose UID can't be parsed, or
+     * the whole group if the command fails, are marked failed.
+     */
+    private suspend fun imapMoveGroup(
+        credentials: AccountCredentials, source: String, ids: List<String>, dest: String,
+        succeeded: MutableSet<String>, failed: MutableSet<String>,
+    ) {
+        val uidToId = ids.mapNotNull { id -> ImapMailService.uidOf(id)?.let { it to id } }.toMap()
+        failed += ids.filter { ImapMailService.uidOf(it) == null }
+        if (uidToId.isEmpty()) return
+        runCatching { imap.moveBatch(credentials, source, uidToId.keys.toList(), dest) }
+            .onSuccess { mapping ->
+                uidToId.forEach { (uid, id) ->
+                    mapping[uid]?.let { lastImapMove[id] = ImapLoc(dest, it) }
+                    emailDao.deleteById(id)
+                    succeeded += id
+                }
+            }
+            .onFailure { failed += uidToId.values }
+    }
+
+    /** Batch-destroy one IMAP folder's [ids] permanently with a single `UID STORE`+`EXPUNGE`. */
+    private suspend fun imapDestroyGroup(
+        credentials: AccountCredentials, source: String, ids: List<String>,
+        succeeded: MutableSet<String>, failed: MutableSet<String>,
+    ) {
+        val uidToId = ids.mapNotNull { id -> ImapMailService.uidOf(id)?.let { it to id } }.toMap()
+        failed += ids.filter { ImapMailService.uidOf(it) == null }
+        if (uidToId.isEmpty()) return
+        runCatching { imap.deleteBatch(credentials, source, uidToId.keys.toList()) }
+            .onSuccess { uidToId.values.forEach { emailDao.deleteById(it); succeeded += it } }
+            .onFailure { failed += uidToId.values }
+    }
+
+    /** JMAP: move every id to exactly [target] in one `Email/set`, then drop the local rows. */
+    private suspend fun jmapMoveAll(ctx: Context, emailIds: List<String>, target: String): BulkResult =
+        runCatching { client.move(ctx.session, ctx.accountId, emailIds, target, ctx.auth) }
+            .map { emailIds.forEach { emailDao.deleteById(it) }; BulkResult(emailIds.toSet(), emptySet()) }
+            .getOrElse { BulkResult(emptySet(), emailIds.toSet()) }
+
+    /** JMAP: destroy every id in one `Email/set`, then drop the local rows. */
+    private suspend fun jmapDestroyAll(ctx: Context, emailIds: List<String>): BulkResult =
+        runCatching { client.destroy(ctx.session, ctx.accountId, emailIds, ctx.auth) }
+            .map { emailIds.forEach { emailDao.deleteById(it) }; BulkResult(emailIds.toSet(), emptySet()) }
+            .getOrElse { BulkResult(emptySet(), emailIds.toSet()) }
+
+    /** Archive a whole selection (one account). Messages already in the archive/all folder are dropped locally. */
+    suspend fun archiveAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
+        if (emailIds.isEmpty()) return BulkResult.EMPTY
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val dest = imapRoleFolder(credentials, "archive", "all")
+                ?: run { imap.createFolder(credentials, "Archive"); "Archive" }
+            val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
+            emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
+                when {
+                    source == null -> failed += ids
+                    source == dest -> ids.forEach { emailDao.deleteById(it); succeeded += it }
+                    else -> imapMoveGroup(credentials, source, ids, dest, succeeded, failed)
+                }
+            }
+            return BulkResult(succeeded, failed)
+        }
+        val ctx = connect(credentials)
+        val target = archiveMailboxId(ctx) ?: ctx.rolesToMailboxId["all"] ?: createArchiveFolder(ctx)
+        return jmapMoveAll(ctx, emailIds, target)
+    }
+
+    /** Move a whole selection (one account) to [targetMailboxId]. */
+    suspend fun moveAllToMailbox(credentials: AccountCredentials, emailIds: List<String>, targetMailboxId: String): BulkResult {
+        if (emailIds.isEmpty()) return BulkResult.EMPTY
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
+            emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
+                when {
+                    source == null -> failed += ids
+                    source == targetMailboxId -> ids.forEach { emailDao.deleteById(it); succeeded += it }
+                    else -> imapMoveGroup(credentials, source, ids, targetMailboxId, succeeded, failed)
+                }
+            }
+            return BulkResult(succeeded, failed)
+        }
+        return jmapMoveAll(connect(credentials), emailIds, targetMailboxId)
+    }
+
+    /**
+     * Delete a whole selection (one account): move to Trash where possible (undoable),
+     * permanently destroy the ids already in Trash / accounts with no Trash (matching the
+     * single-message [delete], Codeberg #23). Destroyed ids aren't undoable.
+     */
+    suspend fun deleteAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
+        if (emailIds.isEmpty()) return BulkResult.EMPTY
+        // Opt-in mark-read-on-delete: best-effort before the move (a \Seen store keeps the UID).
+        if (settings?.markReadOnDelete?.first() == true) {
+            emailIds.forEach { id -> if (emailDao.seenOf(id) == false) runCatching { setRead(credentials, id, true) } }
+        }
+        val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val trash = imapRoleFolder(credentials, "trash")
+            emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
+                when {
+                    source == null -> failed += ids
+                    trash != null && source != trash -> imapMoveGroup(credentials, source, ids, trash, succeeded, failed)
+                    else -> imapDestroyGroup(credentials, source, ids, succeeded, failed)
+                }
+            }
+            return BulkResult(succeeded, failed)
+        }
+        val ctx = connect(credentials)
+        val trash = ctx.rolesToMailboxId["trash"]
+        val (toDestroy, toTrash) = emailIds.partition { id -> trash == null || emailDao.mailboxOf(id) == trash }
+        if (toTrash.isNotEmpty()) jmapMoveAll(ctx, toTrash, trash!!).let { succeeded += it.succeeded; failed += it.failed }
+        if (toDestroy.isNotEmpty()) jmapDestroyAll(ctx, toDestroy).let { succeeded += it.succeeded; failed += it.failed }
+        return BulkResult(succeeded, failed)
+    }
+
+    /** Permanently destroy a whole selection (one account) — the held-back bulk destroy (Codeberg #23/#29). */
+    suspend fun destroyAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
+        if (emailIds.isEmpty()) return BulkResult.EMPTY
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
+            emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
+                if (source == null) failed += ids else imapDestroyGroup(credentials, source, ids, succeeded, failed)
+            }
+            return BulkResult(succeeded, failed)
+        }
+        return jmapDestroyAll(connect(credentials), emailIds)
+    }
+
+    /** Report a whole selection as spam (move to Junk) in one batch. */
+    suspend fun reportSpamAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
+        val junk = roleMailboxId(credentials, "junk") ?: return BulkResult(emptySet(), emailIds.toSet())
+        return moveAllToMailbox(credentials, emailIds, junk)
+    }
+
+    /** Move a whole selection out of Junk back to the Inbox in one batch. */
+    suspend fun notSpamAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
+        val inbox = roleMailboxId(credentials, "inbox") ?: return BulkResult(emptySet(), emailIds.toSet())
+        return moveAllToMailbox(credentials, emailIds, inbox)
+    }
+
     /** The cached role of a mailbox (e.g. "junk", "inbox"), or null. */
     suspend fun mailboxRole(mailboxId: String?): String? = mailboxId?.let { mailboxDao.roleForId(it) }
 
@@ -1700,6 +1854,49 @@ class MailRepository(
         client.move(ctx.session, ctx.accountId, emailId, mailboxId, ctx.auth)
         val fetched = client.getEmailsByIds(ctx.session, ctx.accountId, listOf(emailId), ctx.auth)
         if (fetched.isNotEmpty()) emailDao.upsertAll(fetched.map { it.toEntity(ctx.credentials.id, mailboxId) })
+    }
+
+    /**
+     * Undo a batched move/delete for one account: move every message back to its source
+     * folder, grouped so each (current folder → source folder) route is ONE `UID MOVE` /
+     * `Email/set` instead of one command per message (Codeberg #29). Restoring a large batch
+     * with per-message moves would hit the very server limits the forward batch avoids, so the
+     * whole set must go back together. [targets] is (emailId, sourceMailboxId) per message.
+     */
+    suspend fun restoreAll(credentials: AccountCredentials, targets: List<Pair<String, String>>) {
+        if (targets.isEmpty()) return
+        if (credentials.protocol == MailProtocol.IMAP) {
+            // Group by (current folder the message sits in, source folder to return it to).
+            // lastImapMove holds where the forward move put each id and its UID there.
+            val byRoute = LinkedHashMap<Pair<String, String>, MutableList<Long>>()
+            val restoredIds = mutableListOf<String>()
+            targets.forEach { (emailId, source) ->
+                val loc = lastImapMove[emailId] ?: return@forEach
+                byRoute.getOrPut(loc.mailboxId to source) { mutableListOf() } += loc.uid
+                restoredIds += emailId
+            }
+            byRoute.forEach { (route, uids) ->
+                val (currentFolder, source) = route
+                val mapping = runCatching { imap.moveBatch(credentials, currentFolder, uids, source) }.getOrDefault(emptyMap())
+                val newUids = mapping.values.toList()
+                if (newUids.isNotEmpty()) {
+                    runCatching { imap.fetchByUids(credentials, source, newUids) }
+                        .getOrDefault(emptyList())
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { emailDao.upsertAll(it) }
+                }
+            }
+            restoredIds.forEach { lastImapMove.remove(it) }
+            return
+        }
+        // JMAP: ids are stable across mailbox moves, so move each id back to its source in one
+        // Email/set per source folder, then re-fetch to re-cache the restored rows.
+        val ctx = connect(credentials)
+        targets.groupBy({ it.second }, { it.first }).forEach { (source, ids) ->
+            runCatching { client.move(ctx.session, ctx.accountId, ids, source, ctx.auth) }
+            val fetched = runCatching { client.getEmailsByIds(ctx.session, ctx.accountId, ids, ctx.auth) }.getOrDefault(emptyList())
+            if (fetched.isNotEmpty()) emailDao.upsertAll(fetched.map { it.toEntity(ctx.credentials.id, source) })
+        }
     }
 
     /** Move to Trash (or destroy if there is none) and drop from the local list. */

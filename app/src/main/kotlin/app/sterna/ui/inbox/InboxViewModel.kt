@@ -14,6 +14,7 @@ import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.db.OutboxState
 import app.sterna.core.data.mail.InboxRow
+import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.data.settings.SwipeAction
 import app.sterna.core.jmap.model.Email
@@ -599,7 +600,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         if (targets.isEmpty()) return
         viewModelScope.launch {
             var failed = 0
-            targets.forEach { (c, id) -> runCatching { repo.destroyMessage(c, id) }.onFailure { failed++ } }
+            // Batch the permanent destroy per account (one UID STORE+EXPUNGE / one Email/set),
+            // so holding back several hundred in-Trash messages destroys them in one shot (#29).
+            targets.groupBy({ it.first }, { it.second }).forEach { (credentials, ids) ->
+                val result = runCatching { repo.destroyAll(credentials, ids) }
+                    .getOrElse { MailRepository.BulkResult(emptySet(), ids.toSet()) }
+                failed += result.failed.size
+            }
             if (failed > 0) {
                 _message.value = getApplication<Application>().getString(R.string.status_action_failed)
                 forceRefresh() // some didn't destroy — bring the rows back
@@ -753,9 +760,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         val action = _undo.value ?: return
         _undo.value = null
         viewModelScope.launch {
-            action.entries.forEach { entry ->
-                val credentials = entry.accountId?.let { store.credentials(it) } ?: store.load() ?: return@forEach
-                runCatching { repo.restore(credentials, entry.emailId, entry.mailboxId) }
+            // Group by account and restore each account's whole set in one batch (one UID MOVE /
+            // Email/set per source folder), so undoing a large selection doesn't hit the same
+            // per-message server limits the forward batch avoids (Codeberg #29).
+            action.entries.groupBy { it.accountId }.forEach { (accountId, entries) ->
+                val credentials = accountId?.let { store.credentials(it) } ?: store.load() ?: return@forEach
+                runCatching { repo.restoreAll(credentials, entries.map { it.emailId to it.mailboxId }) }
                     .onFailure { status.value = Status(refreshing = false, error = it.message) }
             }
         }
@@ -934,6 +944,55 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Batched bulk action: group the selection by account, then hand each account's ids to a
+     * single repo call that itself batches per source folder — one `UID MOVE <set>` (IMAP)
+     * or one `Email/set` (JMAP) instead of one server command per message. This is the fix
+     * for large selections failing on IMAP (Codeberg #29). Everything #23 added is preserved:
+     * dropThreadMembers, an UndoEntry per surviving message for a reversible op,
+     * resetSyncState()+refresh() (a big move can empty the loaded window of a huge folder),
+     * and the failure toast only when something actually failed.
+     */
+    private fun bulkBatched(
+        clearAfter: Boolean = true,
+        undoLabel: String? = null,
+        batchOp: suspend (AccountCredentials, List<String>) -> MailRepository.BulkResult,
+    ) {
+        val ids = _selectedIds.value
+        if (clearAfter) clearSelection()
+        dropThreadMembers(ids)
+        viewModelScope.launch {
+            val emails = repo.cachedEmailsByIds(ids)
+            var failed = 0
+            val undoEntries = mutableListOf<UndoEntry>()
+            // AccountCredentials is a data class, so all of an account's messages group together.
+            emails.groupBy { credentialsFor(it) }.forEach { (credentials, group) ->
+                if (credentials == null) { failed += group.size; return@forEach }
+                val result = runCatching { batchOp(credentials, group.map { it.id }) }
+                    .getOrElse {
+                        android.util.Log.w("SternaBulk", "batch op failed for ${credentials.id}", it)
+                        MailRepository.BulkResult(emptySet(), group.mapTo(mutableSetOf()) { e -> e.id })
+                    }
+                failed += result.failed.size
+                if (undoLabel != null) {
+                    group.forEach { email ->
+                        if (email.id in result.succeeded) {
+                            email.mailboxId?.let { mb -> undoEntries += UndoEntry(email.id, email.accountId, mb) }
+                        }
+                    }
+                }
+            }
+            repo.resetSyncState()
+            refresh()
+            if (undoLabel != null && undoEntries.isNotEmpty()) {
+                _undo.value = UndoAction(undoEntries, undoLabel)
+            }
+            if (failed > 0) {
+                _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+            }
+        }
+    }
+
     fun deleteSelected() {
         val ids = _selectedIds.value
         viewModelScope.launch {
@@ -948,17 +1007,17 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 clearSelection()
                 heldBackDestroy(emails, getApplication<Application>().getString(R.string.status_message_deleted))
             } else {
-                bulk(undoLabel = getApplication<Application>().getString(R.string.status_message_deleted)) { c, id -> repo.delete(c, id) }
+                bulkBatched(undoLabel = getApplication<Application>().getString(R.string.status_message_deleted)) { c, ids -> repo.deleteAll(c, ids) }
             }
         }
     }
-    fun archiveSelected() = bulk(undoLabel = getApplication<Application>().getString(R.string.status_message_archived)) { c, id -> repo.archive(c, id) }
+    fun archiveSelected() = bulkBatched(undoLabel = getApplication<Application>().getString(R.string.status_message_archived)) { c, ids -> repo.archiveAll(c, ids) }
 
     /** Move the selection to [targetMailboxId] (used for unarchive → Inbox and move-to-folder). */
-    fun moveSelectedTo(targetMailboxId: String) = bulk { c, id -> repo.moveToMailbox(c, id, targetMailboxId) }
+    fun moveSelectedTo(targetMailboxId: String) = bulkBatched { c, ids -> repo.moveAllToMailbox(c, ids, targetMailboxId) }
 
-    fun reportSpamSelected() = bulk { c, id -> repo.reportSpam(c, id) }
-    fun notSpamSelected() = bulk { c, id -> repo.notSpam(c, id) }
+    fun reportSpamSelected() = bulkBatched { c, ids -> repo.reportSpamAll(c, ids) }
+    fun notSpamSelected() = bulkBatched { c, ids -> repo.notSpamAll(c, ids) }
 
     /** Snooze the whole selection until [until] (hidden now, returns to the inbox then). */
     fun snoozeSelected(until: Long) = bulk { c, id ->
