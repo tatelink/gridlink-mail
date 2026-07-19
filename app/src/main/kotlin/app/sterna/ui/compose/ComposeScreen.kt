@@ -20,6 +20,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -456,7 +459,16 @@ fun ComposeScreen(
             )
         },
     ) { padding ->
-      Box(Modifier.fillMaxSize().padding(padding)) {
+      val density = LocalDensity.current
+      // Measured viewport height, so the body can fill the whole area below the header and its
+      // tap target reaches the bottom of the screen (tapping the empty lower part focuses it) — #26.
+      var viewportPx by remember { mutableIntStateOf(0) }
+      Box(
+          Modifier
+              .fillMaxSize()
+              .padding(padding)
+              .onSizeChanged { viewportPx = it.height },
+      ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -577,7 +589,9 @@ fun ComposeScreen(
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 220.dp)
+                    // Fill down to the bottom of the screen so the whole area under the header is
+                    // part of the body's tap target, not just the first ~220dp (#26).
+                    .heightIn(min = with(density) { viewportPx.toDp() }.coerceAtLeast(220.dp))
                     .padding(top = 12.dp, bottom = 16.dp),
                 decorationBox = { inner ->
                     if (body.isEmpty()) {
