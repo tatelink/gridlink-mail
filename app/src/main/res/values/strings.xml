@@ -2,7 +2,7 @@
     <string name="app_name">Sterna Mail</string>
 
     <!-- Compose -->
-    <string name="compose_title_new">New message</string>
+    <string name="compose_title_new">New mail</string>
     <string name="compose_title_reply">Reply</string>
     <string name="compose_discard">Discard</string>
     <string name="compose_attach">Attach file</string>

@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -628,8 +629,18 @@ private fun ComposeField(
     focusRequester: FocusRequester? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
+    // Tapping anywhere on the row (the label or the empty area, not just the thin input)
+    // focuses the field, so the whole labelled line is the tap target (#26).
+    val localFocus = remember { FocusRequester() }
+    val focus = focusRequester ?: localFocus
     Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) { focus.requestFocus() },
+        ) {
             FieldLabel(label)
             BasicTextField(
                 value = value,
@@ -641,7 +652,7 @@ private fun ComposeField(
                 modifier = Modifier
                     .weight(1f)
                     .padding(vertical = 14.dp)
-                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+                    .focusRequester(focus),
             )
             trailing?.invoke()
         }
@@ -685,8 +696,18 @@ private fun RecipientChipsField(
     fun rebuild(newChips: List<String>, newInput: String) = newChips.joinToString("") { "$it, " } + newInput
 
     var focused by remember { mutableStateOf(false) }
+    // Tapping anywhere on the row (label or the empty area) focuses the recipient input,
+    // so the whole labelled line is the tap target (#26).
+    val localFocus = remember { FocusRequester() }
+    val focus = focusRequester ?: localFocus
     Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) { focus.requestFocus() },
+        ) {
             FieldLabel(label)
             FlowRow(
                 modifier = Modifier.weight(1f).padding(vertical = 8.dp),
@@ -750,7 +771,7 @@ private fun RecipientChipsField(
                                 false
                             }
                         }
-                        .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+                        .focusRequester(focus),
                 )
             }
             trailing?.invoke()
