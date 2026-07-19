@@ -574,6 +574,14 @@
     <string name="connect_import_k9">Importar do K-9 ou Thunderbird</string>
     <string name="connect_import_k9_none">Nenhuma conta importável foi encontrada nesse ficheiro.</string>
     <string name="connect_import_k9_summary">%1$d conta(s) importada(s), %2$d ignorada(s) (POP3 ou não suportadas).</string>
+    <string name="import_snackbar_imported">%1$d conta(s) importada(s) com sucesso</string>
+    <string name="import_snackbar_imported_with_skipped">%1$d conta(s) importada(s) com sucesso (%2$d ignorada(s))</string>
+    <string name="import_pending_title">Contas por iniciar sessão</string>
+    <string name="import_pending_dismiss">Dispensar</string>
+    <string name="import_pending_hint_password">Início de sessão com palavra-passe</string>
+    <string name="import_pending_hint_microsoft">Início de sessão com Microsoft</string>
+    <string name="import_pending_hint_oauth">Início de sessão com OAuth</string>
+    <string name="account_signin_required">Esta conta ainda não iniciou sessão.</string>
     <string name="settings_test_connection">Testar ligação</string>
     <string name="settings_test_connecting">A testar…</string>
     <string name="settings_test_ok">Ligação estabelecida com sucesso.</string>

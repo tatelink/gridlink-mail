@@ -515,6 +515,14 @@
     <string name="connect_import_k9">Import from K-9 or Thunderbird</string>
     <string name="connect_import_k9_none">No importable accounts were found in that file.</string>
     <string name="connect_import_k9_summary">Imported %1$d account(s), skipped %2$d (POP3 or unsupported).</string>
+    <string name="import_snackbar_imported">%1$d account(s) imported successfully</string>
+    <string name="import_snackbar_imported_with_skipped">%1$d account(s) imported successfully (%2$d skipped)</string>
+    <string name="import_pending_title">Accounts to sign in</string>
+    <string name="import_pending_dismiss">Dismiss</string>
+    <string name="import_pending_hint_password">Password sign-in</string>
+    <string name="import_pending_hint_microsoft">Microsoft sign-in</string>
+    <string name="import_pending_hint_oauth">OAuth sign-in</string>
+    <string name="account_signin_required">This account isn\'t signed in yet.</string>
     <string name="connect_protocol">Protocol</string>
     <string name="connect_jmap">JMAP</string>
     <string name="connect_imap_smtp">IMAP / SMTP</string>

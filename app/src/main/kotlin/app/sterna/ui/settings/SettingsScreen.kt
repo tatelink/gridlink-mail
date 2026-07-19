@@ -128,6 +128,18 @@ import app.sterna.push.PushStatus
 import app.sterna.ui.appLabelOf
 import app.sterna.R
 import app.sterna.ui.connect.ConnectScreen
+import app.sterna.ui.components.PendingImportAccountsSection
+import app.sterna.core.data.account.AuthType
+import app.sterna.core.data.mail.OAuthProvider
+import android.widget.Toast
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -238,6 +250,10 @@ fun SettingsScreen(
         composable("backup") {
             BackupScreen(
                 viewModel = viewModel,
+                accountsViewModel = accountsViewModel,
+                // Open an inert account WITHOUT switching to it (it has no credentials and would
+                // break the current-account inbox); the detail screen signs it in.
+                onOpenAccount = { id -> nav.navigate("account/$id") },
                 onAccountsImported = { accountsViewModel.refresh(); onAccountsChanged() },
                 onBack = { nav.popBackStack() },
             )
@@ -605,20 +621,25 @@ private fun TimePickerRow(label: String, minutes: Int, onChange: (Int) -> Unit) 
 @Composable
 private fun BackupScreen(
     viewModel: SettingsViewModel,
+    accountsViewModel: AccountsViewModel,
+    onOpenAccount: (String) -> Unit,
     onAccountsImported: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    var message by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val pending by accountsViewModel.pendingImportAccounts.collectAsStateWithLifecycle()
+    fun toast(text: String) = scope.launch { snackbarHostState.showSnackbar(text) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
         if (uri != null) {
             viewModel.exportSettings(uri) { ok ->
-                message = context.getString(
+                toast(context.getString(
                     if (ok) R.string.settings_backup_exported else R.string.settings_backup_failed,
-                )
+                ))
             }
         }
     }
@@ -629,13 +650,13 @@ private fun BackupScreen(
             viewModel.importSettings(
                 uri,
                 onResult = { ok, accountsAdded ->
-                    message = context.getString(
+                    toast(context.getString(
                         when {
                             !ok -> R.string.settings_backup_failed
                             accountsAdded > 0 -> R.string.settings_backup_imported_accounts
                             else -> R.string.settings_backup_imported
                         },
-                    )
+                    ))
                     if (ok && accountsAdded > 0) onAccountsImported()
                 },
                 onLanguageChanged = { applyAppLanguage(it) },
@@ -647,58 +668,58 @@ private fun BackupScreen(
     ) { uri ->
         if (uri != null) {
             viewModel.importK9Settings(uri) { ok, added, skipped ->
-                message = if (ok && added > 0) {
-                    context.getString(R.string.connect_import_k9_summary, added, skipped)
-                } else {
-                    context.getString(
-                        if (!ok) R.string.settings_backup_failed else R.string.connect_import_k9_none,
-                    )
-                }
+                toast(when {
+                    !ok -> context.getString(R.string.settings_backup_failed)
+                    added == 0 -> context.getString(R.string.connect_import_k9_none)
+                    skipped > 0 -> context.getString(R.string.import_snackbar_imported_with_skipped, added, skipped)
+                    else -> context.getString(R.string.import_snackbar_imported, added)
+                })
                 if (ok && added > 0) onAccountsImported()
             }
         }
     }
 
     DetailScaffold(title = stringResource(R.string.settings_backup_screen_title), onBack = onBack) { padding ->
-        Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
-        ) {
-            SettingsSection(stringResource(R.string.settings_backup_section)) {
-                Text(
-                    stringResource(R.string.settings_backup_explainer),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-                Button(
-                    onClick = { exportLauncher.launch("sterna-settings.json") },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                ) { Text(stringResource(R.string.settings_backup_export)) }
-                OutlinedButton(
-                    onClick = {
-                        importLauncher.launch(
-                            arrayOf("application/json", "application/octet-stream", "text/plain"),
-                        )
-                    },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                ) { Text(stringResource(R.string.settings_backup_import)) }
-                OutlinedButton(
-                    onClick = {
-                        importK9Launcher.launch(
-                            arrayOf("application/octet-stream", "text/xml", "application/xml", "*/*"),
-                        )
-                    },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                ) { Text(stringResource(R.string.settings_backup_import_k9)) }
-                message?.let {
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
+            ) {
+                SettingsSection(stringResource(R.string.settings_backup_section)) {
                     Text(
-                        it,
+                        stringResource(R.string.settings_backup_explainer),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
+                    Button(
+                        onClick = { exportLauncher.launch("sterna-settings.json") },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    ) { Text(stringResource(R.string.settings_backup_export)) }
+                    OutlinedButton(
+                        onClick = {
+                            importLauncher.launch(
+                                arrayOf("application/json", "application/octet-stream", "text/plain"),
+                            )
+                        },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    ) { Text(stringResource(R.string.settings_backup_import)) }
+                    OutlinedButton(
+                        onClick = {
+                            importK9Launcher.launch(
+                                arrayOf("application/octet-stream", "text/xml", "application/xml", "*/*"),
+                            )
+                        },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    ) { Text(stringResource(R.string.settings_backup_import_k9)) }
                 }
+                // Imported accounts still awaiting sign-in; tap to open + sign in, swipe to dismiss.
+                PendingImportAccountsSection(
+                    accounts = pending,
+                    onSignIn = { onOpenAccount(it.id) },
+                    onDismiss = { accountsViewModel.dismissImport(it.id) },
+                )
             }
+            SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter).padding(padding))
         }
     }
 }
@@ -1038,7 +1059,10 @@ private fun AccountsScreen(
                     isCurrent = account.id == currentId,
                     color = accountColorOf(account.color),
                     onClick = {
-                        if (account.id != currentId) {
+                        // Never switch to an INERT (imported, not-yet-signed-in) account: it has no
+                        // credentials and would break the current-account inbox. Still open it so the
+                        // user can sign it in from its detail screen.
+                        if (account.id != currentId && viewModel.isSignedIn(account.id)) {
                             viewModel.switchTo(account.id)
                             onAccountsChanged()
                         }
@@ -1067,7 +1091,12 @@ private fun AccountDetailScreen(
     onSignedOut: () -> Unit,
     onAccountsChanged: () -> Unit,
 ) {
-    val account = remember(accountId) { viewModel.account(accountId) }
+    // Derive from the LIVE accounts flow so signing in an inert account (OAuth) or switching it
+    // OAUTH→BASIC re-renders this screen with the new authType; the editor field states below stay
+    // keyed by accountId only, so a re-fetch of the same account never resets the user's edits.
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val snapshot = remember(accountId) { viewModel.account(accountId) }
+    val account = accounts.firstOrNull { it.id == accountId } ?: snapshot
     if (account == null) {
         // Account was removed (e.g. on sign-out) — nothing to show.
         DetailScaffold(title = stringResource(R.string.settings_account_screen_title), onBack = onBack) { padding ->
@@ -1095,9 +1124,24 @@ private fun AccountDetailScreen(
     val cacheCount by viewModel.cacheCount.collectAsStateWithLifecycle()
     val connTest by viewModel.connTest.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // Is this an inert (imported, not-yet-signed-in) account? Re-read on each recomposition so the
+    // sign-in card disappears once a credential is stored (OAuth success / password save).
+    val isInert = !viewModel.isSignedIn(accountId)
+    val accountSignIn by viewModel.accountSignIn.collectAsStateWithLifecycle()
     LaunchedEffect(accountId) {
         viewModel.loadCacheCount(accountId)
         viewModel.clearConnTest()
+        viewModel.resetAccountSignIn()
+    }
+    // On a successful OAuth sign-in, return to the previous screen (the Backup list drops this row).
+    LaunchedEffect(accountSignIn) {
+        if (accountSignIn is AccountsViewModel.AccountSignIn.Success) {
+            onAccountsChanged()
+            onBack()
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(accountId) {
+        onDispose { viewModel.resetAccountSignIn() }
     }
 
     val canSave = username.isNotBlank() && if (isImap) {
@@ -1111,6 +1155,75 @@ private fun AccountDetailScreen(
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
+            // An imported account has no stored credential yet: sign it in first. OAuth accounts
+            // (Microsoft) run a browser device flow here; BASIC accounts use the password field +
+            // Save below (a successful save clears the pending flag).
+            if (isInert) {
+                val oauthProvider = if (account.authType == AuthType.OAUTH) {
+                    OAuthProvider.forImapHost(account.imapHost)
+                } else {
+                    null
+                }
+                Column(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.account_signin_required),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (account.authType == AuthType.OAUTH && oauthProvider != null) {
+                        when (val s = accountSignIn) {
+                            AccountsViewModel.AccountSignIn.Idle,
+                            is AccountsViewModel.AccountSignIn.Failed -> {
+                                if (s is AccountsViewModel.AccountSignIn.Failed) {
+                                    Text(
+                                        s.message,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                    if (s.offerAppPassword) {
+                                        Text(
+                                            stringResource(R.string.connect_import_app_password_note),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        stringResource(R.string.connect_import_oauth_explainer),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Button(
+                                    onClick = { viewModel.startAccountOAuth(accountId) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text(stringResource(R.string.connect_import_signin_microsoft)) }
+                                if (s is AccountsViewModel.AccountSignIn.Failed && s.offerAppPassword) {
+                                    OutlinedButton(
+                                        onClick = { viewModel.switchAccountToAppPassword(accountId) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) { Text(stringResource(R.string.connect_import_use_app_password)) }
+                                    AppPasswordHelpLink()
+                                }
+                            }
+                            AccountsViewModel.AccountSignIn.Starting,
+                            AccountsViewModel.AccountSignIn.Connecting ->
+                                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                            is AccountsViewModel.AccountSignIn.Approval ->
+                                InlineDeviceApproval(
+                                    s.userCode, s.verificationUri, s.verificationUriComplete,
+                                    onCancel = { viewModel.cancelAccountOAuth() },
+                                )
+                            // Success is handled by the LaunchedEffect above (navigates back).
+                            AccountsViewModel.AccountSignIn.Success -> Unit
+                        }
+                    }
+                }
+                HorizontalDivider()
+            }
             SettingsSection(stringResource(R.string.settings_account_section)) {
                 SettingTextField(
                     label = stringResource(R.string.settings_display_name_label),
@@ -1451,6 +1564,72 @@ private fun AccountDetailScreen(
                 }
             }
         }
+    }
+}
+
+/** Microsoft's app-password creation page (used for the OAuth→app-password fallback). */
+private const val MS_APP_PASSWORD_URL = "https://account.live.com/proofs/AppPassword"
+
+/** One-tap link opening the Microsoft app-password page. */
+@Composable
+private fun AppPasswordHelpLink() {
+    val context = LocalContext.current
+    TextButton(
+        onClick = {
+            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(MS_APP_PASSWORD_URL))) }
+        },
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+    ) {
+        Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(stringResource(R.string.connect_app_password_help))
+    }
+}
+
+/**
+ * Minimal inline device-approval panel for the account detail sign-in card: the user code (tap to
+ * copy), an open-browser button, and a Cancel. Mirrors ConnectScreen's private DeviceApprovalContent
+ * without importing it.
+ */
+@Composable
+private fun InlineDeviceApproval(
+    userCode: String,
+    verificationUri: String,
+    verificationUriComplete: String?,
+    onCancel: () -> Unit,
+) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val copiedMsg = stringResource(R.string.connect_oauth_code_copied)
+    Text(stringResource(R.string.connect_oauth_step1), style = MaterialTheme.typography.bodyMedium)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                clipboard.setText(AnnotatedString(userCode))
+                Toast.makeText(context, copiedMsg, Toast.LENGTH_SHORT).show()
+            },
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(userCode, style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.width(8.dp))
+        Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.connect_oauth_copy_code))
+    }
+    Button(
+        onClick = {
+            val target = verificationUriComplete ?: verificationUri
+            runCatching {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(target)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text(stringResource(R.string.connect_oauth_open_browser)) }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        TextButton(onClick = onCancel) { Text(stringResource(R.string.connect_oauth_cancel)) }
     }
 }
 

@@ -26,6 +26,12 @@ data class StoredAccount(
     val signature: String = "",
     /** Sending identities; empty means use a default derived from the account. */
     val identities: List<StoredIdentity> = emptyList(),
+    /**
+     * True for a freshly imported account (K-9 / backup) that still needs its one-time sign-in.
+     * Drives the "accounts to sign in" list; cleared once the user signs it in or dismisses it.
+     * The account stays inert (no stored credential) until sign-in regardless of this flag.
+     */
+    val importPending: Boolean = false,
     val protocol: MailProtocol = MailProtocol.JMAP,
     // OAuth (used only when authType == OAUTH; the refresh token is stored encrypted
     // in the password slot). The access token is short-lived; cached to avoid a

@@ -423,6 +423,7 @@ class AccountStore(context: Context) {
                 inboxId = null,
                 inboxName = "Inbox",
                 unread = 0,
+                importPending = true,
             )
         }
         if (added.isEmpty()) return 0
@@ -454,10 +455,22 @@ class AccountStore(context: Context) {
                     oauthAccessExpiresAt = accessExpiresAtMillis,
                     oauthTokenEndpoint = tokenEndpoint,
                     oauthClientId = clientId,
+                    importPending = false,
                 ) else it
             },
         )
         return true
+    }
+
+    /** Accounts still awaiting their one-time import sign-in (inert, imported, not yet dismissed). */
+    fun pendingImportAccounts(): List<StoredAccount> =
+        accounts().filter { it.importPending && credentials(it.id) == null }
+
+    /** Set/clear an account's import-pending flag. Cleared on sign-in or when the user dismisses it
+     *  from the "accounts to sign in" list (the account then stays inert but off that list). */
+    fun setImportPending(id: String, pending: Boolean) {
+        if (accounts().none { it.id == id }) return
+        saveAccounts(accounts().map { if (it.id == id) it.copy(importPending = pending) else it })
     }
 
     /** Switch an account to password (BASIC) auth, dropping any OAuth material and its stored slot,

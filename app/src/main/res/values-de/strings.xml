@@ -574,6 +574,14 @@
     <string name="connect_import_k9">Aus K-9 oder Thunderbird importieren</string>
     <string name="connect_import_k9_none">In dieser Datei wurden keine importierbaren Konten gefunden.</string>
     <string name="connect_import_k9_summary">%1$d Konto/Konten importiert, %2$d übersprungen (POP3 oder nicht unterstützt).</string>
+    <string name="import_snackbar_imported">%1$d Konto/Konten erfolgreich importiert</string>
+    <string name="import_snackbar_imported_with_skipped">%1$d Konto/Konten erfolgreich importiert (%2$d übersprungen)</string>
+    <string name="import_pending_title">Anzumeldende Konten</string>
+    <string name="import_pending_dismiss">Verwerfen</string>
+    <string name="import_pending_hint_password">Anmeldung mit Passwort</string>
+    <string name="import_pending_hint_microsoft">Microsoft-Anmeldung</string>
+    <string name="import_pending_hint_oauth">OAuth-Anmeldung</string>
+    <string name="account_signin_required">Dieses Konto ist noch nicht angemeldet.</string>
     <string name="settings_test_connection">Verbindung testen</string>
     <string name="settings_test_connecting">Wird getestet…</string>
     <string name="settings_test_ok">Verbindung erfolgreich.</string>

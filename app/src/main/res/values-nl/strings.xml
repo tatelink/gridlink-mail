@@ -577,6 +577,14 @@
     <string name="connect_import_k9">Importeren uit K-9 of Thunderbird</string>
     <string name="connect_import_k9_none">Er zijn geen importeerbare accounts in dat bestand gevonden.</string>
     <string name="connect_import_k9_summary">%1$d account(s) geïmporteerd, %2$d overgeslagen (POP3 of niet ondersteund).</string>
+    <string name="import_snackbar_imported">%1$d account(s) succesvol geïmporteerd</string>
+    <string name="import_snackbar_imported_with_skipped">%1$d account(s) succesvol geïmporteerd (%2$d overgeslagen)</string>
+    <string name="import_pending_title">Aan te melden accounts</string>
+    <string name="import_pending_dismiss">Negeren</string>
+    <string name="import_pending_hint_password">Aanmelden met wachtwoord</string>
+    <string name="import_pending_hint_microsoft">Aanmelden met Microsoft</string>
+    <string name="import_pending_hint_oauth">Aanmelden met OAuth</string>
+    <string name="account_signin_required">Dit account is nog niet aangemeld.</string>
     <string name="settings_test_connection">Verbinding testen</string>
     <string name="settings_test_connecting">Testen…</string>
     <string name="settings_test_ok">Verbinding geslaagd.</string>

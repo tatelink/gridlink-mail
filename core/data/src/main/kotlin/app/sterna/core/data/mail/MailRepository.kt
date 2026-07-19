@@ -72,6 +72,7 @@ import app.sterna.core.jmap.model.VacationResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -298,6 +299,11 @@ sealed interface MessageCrypto {
         val wasEncrypted: Boolean,
     ) : MessageCrypto
 }
+
+/** A device-flow sign-in was refused, cancelled, or expired. [failure] carries the parsed error and
+ *  (for Microsoft) the AADSTS code, so the UI can map it to a specific, actionable message. */
+class OAuthDeniedException(val failure: DeviceTokenResult.Failed) :
+    Exception(failure.description.ifBlank { failure.error })
 
 class MailRepository(
     private val client: JmapClient,
@@ -847,6 +853,33 @@ class MailRepository(
     /** Poll a built-in provider's token endpoint once for a pending device authorization. */
     suspend fun pollProviderToken(provider: OAuthProvider, deviceCode: String): DeviceTokenResult =
         oauthClient.pollDeviceToken(provider.metadata, deviceCode, provider.clientId)
+
+    /**
+     * Run a provider device flow to completion: start it, hand the user code to [onCode] so the UI
+     * can show it, then poll until the grant is approved, refused, or the code expires. Returns the
+     * granted tokens, or fails with [OAuthDeniedException] (carrying the parsed error / AADSTS code
+     * so the caller can map it) on refusal or timeout. One shared implementation for every screen
+     * that signs an account in via the browser (first-run import list and account settings).
+     */
+    suspend fun runProviderDeviceFlow(
+        provider: OAuthProvider,
+        onCode: (DeviceAuthorization) -> Unit,
+    ): Result<OAuthTokens> = runCatching {
+        val device = startProviderDeviceAuth(provider)
+        onCode(device)
+        var interval = device.interval.coerceAtLeast(1).toLong()
+        val deadline = System.currentTimeMillis() + device.expiresIn * 1000L
+        while (System.currentTimeMillis() < deadline) {
+            delay(interval * 1000)
+            when (val r = pollProviderToken(provider, device.deviceCode)) {
+                is DeviceTokenResult.Success -> return@runCatching r.tokens
+                DeviceTokenResult.Pending -> Unit
+                DeviceTokenResult.SlowDown -> interval += 5
+                is DeviceTokenResult.Failed -> throw OAuthDeniedException(r)
+            }
+        }
+        throw OAuthDeniedException(DeviceTokenResult.Failed("expired_token"))
+    }
 
     /**
      * Validate freshly granted OAuth [tokens] by connecting to [provider]'s IMAP server

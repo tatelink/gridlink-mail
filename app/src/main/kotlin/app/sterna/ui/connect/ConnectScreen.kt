@@ -37,6 +37,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -45,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -68,6 +71,7 @@ import androidx.compose.ui.autofill.AutofillType
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import app.sterna.R
+import app.sterna.ui.components.PendingImportAccountsSection
 import app.sterna.ui.components.autofill
 import app.sterna.ui.settings.SettingsViewModel
 import app.sterna.ui.settings.applyAppLanguage
@@ -75,6 +79,7 @@ import app.sterna.util.isValidEmail
 import app.sterna.core.data.account.AuthType
 import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailProtocol
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -129,7 +134,9 @@ fun ConnectScreen(
     // (without passwords) and drops the user straight into the app to sign in; a preferences-only
     // backup just applies the preferences and leaves the user on this screen to add an account.
     val settingsViewModel: SettingsViewModel = viewModel()
-    var importMessage by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    fun snackbar(message: String) = scope.launch { snackbarHostState.showSnackbar(message) }
     val importSettingsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -138,10 +145,10 @@ fun ConnectScreen(
                 uri,
                 onResult = { ok, accountsAdded ->
                     when {
+                        // Accounts imported inert → the "accounts to sign in" list appears; no snackbar needed.
                         ok && accountsAdded > 0 -> viewModel.beginImportSignIn()
-                        else -> importMessage = context.getString(
-                            if (ok) R.string.connect_import_no_accounts else R.string.connect_import_invalid,
-                        )
+                        ok -> snackbar(context.getString(R.string.connect_import_no_accounts))
+                        else -> snackbar(context.getString(R.string.connect_import_invalid))
                     }
                 },
                 onLanguageChanged = { applyAppLanguage(it) },
@@ -149,19 +156,25 @@ fun ConnectScreen(
         }
     }
     // K-9 / Thunderbird `.k9s` export: parsed (not by extension — the files carry no MIME type),
-    // its accounts imported inert, then the per-account sign-in queue starts.
+    // its accounts imported inert, then the "accounts to sign in" list appears.
     val importK9Launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) {
             settingsViewModel.importK9Settings(uri) { ok, added, skipped ->
                 when {
-                    ok && added > 0 -> viewModel.beginImportSignIn()
-                    ok -> importMessage = context.getString(R.string.connect_import_k9_none)
-                    else -> importMessage = context.getString(R.string.connect_import_invalid)
-                }
-                if (ok && added > 0 && skipped > 0) {
-                    importMessage = context.getString(R.string.connect_import_k9_summary, added, skipped)
+                    ok && added > 0 -> {
+                        snackbar(
+                            if (skipped > 0) {
+                                context.getString(R.string.import_snackbar_imported_with_skipped, added, skipped)
+                            } else {
+                                context.getString(R.string.import_snackbar_imported, added)
+                            },
+                        )
+                        viewModel.beginImportSignIn()
+                    }
+                    ok -> snackbar(context.getString(R.string.connect_import_k9_none))
+                    else -> snackbar(context.getString(R.string.connect_import_invalid))
                 }
             }
         }
@@ -179,7 +192,10 @@ fun ConnectScreen(
         }
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.connect_add_account)) }) }) { padding ->
+    Scaffold(
+        topBar = { TopAppBar(title = { Text(stringResource(R.string.connect_add_account)) }) },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -194,8 +210,22 @@ fun ConnectScreen(
                 DeviceApprovalPanel(awaiting, onCancel = viewModel::cancelOAuth)
                 return@Column
             }
-            (importSignIn as? ConnectViewModel.ImportSignIn.Prompt)?.let { prompt ->
-                ImportSignInStep(prompt, viewModel)
+            (importSignIn as? ConnectViewModel.ImportSignIn.Listing)?.let { listing ->
+                val sel = listing.selected
+                if (sel == null) {
+                    Spacer(Modifier.height(8.dp))
+                    // The section renders its own "Accounts to sign in" header (shared with
+                    // Settings → Backup), so no extra title here.
+                    PendingImportAccountsSection(
+                        // Re-read the StoredAccounts each recomposition (driven by importSignIn) so the
+                        // list reflects the just-signed-in / dismissed accounts dropping off.
+                        accounts = viewModel.pendingStoredAccounts,
+                        onSignIn = { viewModel.selectImportAccount(it.id) },
+                        onDismiss = { viewModel.dismissImportAccount(it.id) },
+                    )
+                } else {
+                    ImportAccountSignIn(sel, viewModel)
+                }
                 return@Column
             }
             if (firstRun) {
@@ -233,13 +263,6 @@ fun ConnectScreen(
                     Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.connect_import_k9))
-                }
-                importMessage?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
                 }
             }
             Text(stringResource(R.string.connect_protocol), style = MaterialTheme.typography.labelLarge)
@@ -544,54 +567,41 @@ private fun AppPasswordHelpChip() {
     }
 }
 
-/** Dispatch the head imported account to the right sign-in panel: a live device-flow, an OAuth
+/** The inline sign-in for the one imported account the user tapped: a live device-flow, an OAuth
  *  sign-in button, or a password field (basic-auth or a chosen app-password fallback). */
 @Composable
-private fun ImportSignInStep(prompt: ConnectViewModel.ImportSignIn.Prompt, viewModel: ConnectViewModel) {
-    val head = prompt.remaining.first()
+private fun ImportAccountSignIn(target: ConnectViewModel.SignInTarget, viewModel: ConnectViewModel) {
+    val approval = target.approval
     when {
-        prompt.approval != null -> {
+        approval != null -> {
             Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.connect_import_signin_progress, prompt.index, prompt.total),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             DeviceApprovalContent(
-                prompt.approval.userCode, prompt.approval.verificationUri,
-                prompt.approval.verificationUriComplete, onCancel = viewModel::cancelImportOAuth,
+                approval.userCode, approval.verificationUri,
+                approval.verificationUriComplete, onCancel = viewModel::cancelImportOAuth,
             )
         }
-        head.authType == AuthType.OAUTH && !prompt.forcePassword ->
-            ImportOAuthPanel(prompt, head, viewModel)
+        target.account.authType == AuthType.OAUTH && !target.forcePassword ->
+            ImportOAuthPanel(target, viewModel)
         else ->
-            ImportSignInPanel(prompt, onSubmit = viewModel::submitImportPassword, onSkip = viewModel::skipCurrentImport)
+            ImportSignInPanel(target, viewModel)
     }
 }
 
 /**
  * Post-import step for an OAuth account (Microsoft): a browser sign-in activates it. Unknown XOAUTH2
- * hosts can't be signed into automatically, so only the app-password fallback + skip are offered.
+ * hosts can't be signed into automatically, so only the app-password fallback + back are offered.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun ImportOAuthPanel(
-    prompt: ConnectViewModel.ImportSignIn.Prompt,
-    head: ConnectViewModel.PendingAccount,
-    viewModel: ConnectViewModel,
-) {
+private fun ImportOAuthPanel(target: ConnectViewModel.SignInTarget, viewModel: ConnectViewModel) {
+    val account = target.account
     Spacer(Modifier.height(8.dp))
     Text(
         stringResource(R.string.connect_import_signin_title),
         style = MaterialTheme.typography.headlineSmall,
     )
-    Text(
-        stringResource(R.string.connect_import_signin_progress, prompt.index, prompt.total),
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
     OutlinedTextField(
-        value = head.email,
+        value = account.email,
         onValueChange = {},
         readOnly = true,
         label = { Text(stringResource(R.string.connect_email_username)) },
@@ -600,7 +610,7 @@ private fun ImportOAuthPanel(
             listOf(AutofillType.EmailAddress, AutofillType.Username),
         ) {},
     )
-    if (head.provider != null) {
+    if (account.provider != null) {
         Text(
             stringResource(R.string.connect_import_oauth_explainer),
             style = MaterialTheme.typography.bodyMedium,
@@ -608,10 +618,10 @@ private fun ImportOAuthPanel(
         )
         Button(
             onClick = viewModel::startImportOAuth,
-            enabled = !prompt.verifying,
+            enabled = !target.verifying,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            if (prompt.verifying) {
+            if (target.verifying) {
                 CircularProgressIndicator(modifier = Modifier.height(20.dp).width(20.dp))
             } else {
                 Text(stringResource(R.string.connect_import_signin_microsoft))
@@ -624,10 +634,10 @@ private fun ImportOAuthPanel(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-    prompt.error?.let {
+    target.error?.let {
         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
     }
-    if (prompt.offerAppPasswordFallback || head.provider == null) {
+    if (target.offerAppPasswordFallback || account.provider == null) {
         Text(
             stringResource(R.string.connect_import_app_password_note),
             style = MaterialTheme.typography.bodySmall,
@@ -635,45 +645,36 @@ private fun ImportOAuthPanel(
         )
         OutlinedButton(
             onClick = viewModel::switchImportToAppPassword,
-            enabled = !prompt.verifying,
+            enabled = !target.verifying,
             modifier = Modifier.fillMaxWidth(),
         ) { Text(stringResource(R.string.connect_import_use_app_password)) }
         AppPasswordHelpChip()
     }
-    TextButton(onClick = viewModel::skipCurrentImport, enabled = !prompt.verifying) {
+    TextButton(onClick = viewModel::closeImportAccount, enabled = !target.verifying) {
         Text(stringResource(R.string.connect_import_signin_skip))
     }
 }
 
 /**
- * Post-import step: ask for the current imported account's password, verify it against the server,
- * and save it. Shown one account at a time until the queue empties (then the screen enters the app).
+ * Post-import step: ask for the selected imported account's password, verify it against the server,
+ * and save it. On success the account drops off the list; "Back to list" returns without signing in.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun ImportSignInPanel(
-    prompt: ConnectViewModel.ImportSignIn.Prompt,
-    onSubmit: (String) -> Unit,
-    onSkip: () -> Unit,
-) {
-    val current = prompt.remaining.first()
-    var password by rememberSaveable(current.id) { mutableStateOf("") }
-    var passwordVisible by rememberSaveable(current.id) { mutableStateOf(false) }
+private fun ImportSignInPanel(target: ConnectViewModel.SignInTarget, viewModel: ConnectViewModel) {
+    val account = target.account
+    var password by rememberSaveable(account.id) { mutableStateOf("") }
+    var passwordVisible by rememberSaveable(account.id) { mutableStateOf(false) }
     Spacer(Modifier.height(8.dp))
     Text(
         stringResource(R.string.connect_import_signin_title),
         style = MaterialTheme.typography.headlineSmall,
     )
-    Text(
-        stringResource(R.string.connect_import_signin_progress, prompt.index, prompt.total),
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
     // Read-only email field: shows which account this is AND gives password managers a username
     // node so they match the right credential (matching is by username + domain, not the password
     // field alone). The account is fixed, so an autofilled username is ignored.
     OutlinedTextField(
-        value = current.email,
+        value = account.email,
         onValueChange = {},
         readOnly = true,
         label = { Text(stringResource(R.string.connect_email_username)) },
@@ -684,7 +685,7 @@ private fun ImportSignInPanel(
     )
     // A forced fallback means this account imported as OAuth but sign-in failed/was declined:
     // point the user at creating a Microsoft app password to paste below.
-    if (prompt.forcePassword) {
+    if (target.forcePassword) {
         Text(
             stringResource(R.string.connect_import_app_password_note),
             style = MaterialTheme.typography.bodySmall,
@@ -697,8 +698,8 @@ private fun ImportSignInPanel(
         onValueChange = { password = it },
         label = { Text(stringResource(R.string.connect_password)) },
         singleLine = true,
-        isError = prompt.error != null,
-        enabled = !prompt.verifying,
+        isError = target.error != null,
+        enabled = !target.verifying,
         visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
             IconButton(onClick = { passwordVisible = !passwordVisible }) {
@@ -709,25 +710,25 @@ private fun ImportSignInPanel(
             }
         },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-        keyboardActions = KeyboardActions(onDone = { if (password.isNotBlank()) onSubmit(password) }),
+        keyboardActions = KeyboardActions(onDone = { if (password.isNotBlank()) viewModel.submitImportPassword(password) }),
         // Autofill hint so password managers (Bitwarden…) recognise and fill this field.
         modifier = Modifier.fillMaxWidth().autofill(listOf(AutofillType.Password)) { password = it },
     )
-    prompt.error?.let {
+    target.error?.let {
         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
     }
     Button(
-        onClick = { onSubmit(password) },
-        enabled = password.isNotBlank() && !prompt.verifying,
+        onClick = { viewModel.submitImportPassword(password) },
+        enabled = password.isNotBlank() && !target.verifying,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        if (prompt.verifying) {
+        if (target.verifying) {
             CircularProgressIndicator(modifier = Modifier.height(20.dp).width(20.dp))
         } else {
             Text(stringResource(R.string.connect_import_signin_button))
         }
     }
-    TextButton(onClick = onSkip, enabled = !prompt.verifying) {
+    TextButton(onClick = viewModel::closeImportAccount, enabled = !target.verifying) {
         Text(stringResource(R.string.connect_import_signin_skip))
     }
 }
