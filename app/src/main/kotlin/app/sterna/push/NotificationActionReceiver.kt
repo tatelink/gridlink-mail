@@ -41,6 +41,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     }
                 }
                 NotificationManagerCompat.from(appContext).cancel(notifId)
+                // Keep the account's group summary in step with the child we just removed.
+                credentials?.let { Notifications.updateGroupSummary(appContext, accountId, it.username, silent = true) }
             } catch (_: Throwable) {
                 // Best-effort; leave the notification so the user can retry from the app.
             } finally {

@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sterna.container
 import app.sterna.R
+import app.sterna.push.Notifications
 import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.calendar.ICalendar
@@ -358,6 +359,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val credentials = credentials() ?: return@launch
             runCatching { repo.setRead(credentials, current.id, true) }
+            // Clear the mail's notification now that it's been read (Codeberg #19).
+            Notifications.dismiss(getApplication(), credentials.id, credentials.username, listOf(current.id))
         }
     }
 

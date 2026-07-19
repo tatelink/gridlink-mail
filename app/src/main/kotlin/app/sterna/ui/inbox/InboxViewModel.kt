@@ -9,6 +9,7 @@ import app.sterna.container
 import app.sterna.R
 import app.sterna.folders.FolderDeleteWorker
 import app.sterna.push.NewMailNotifier
+import app.sterna.push.Notifications
 import app.sterna.push.PushController
 import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
@@ -551,6 +552,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val credentials = credentialsFor(email) ?: return@launch
             runCatching { repo.setRead(credentials, email.id, targetSeen) }
+            if (targetSeen) dismissReadNotifications(listOf(email))
         }
     }
 
@@ -665,6 +667,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 val credentials = credentialsFor(m) ?: return@forEach
                 runCatching { repo.setRead(credentials, m.id, targetSeen) }
             }
+            if (targetSeen) dismissReadNotifications(members)
         }
     }
 
@@ -819,6 +822,21 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private fun credentialsFor(email: Email): AccountCredentials? =
         email.accountId?.let { store.credentials(it) } ?: store.load()
 
+    /**
+     * Clear the new-mail notifications of [emails] just marked read locally, grouped by
+     * account so the group summary is refreshed once per account (Codeberg #19).
+     */
+    private fun dismissReadNotifications(emails: List<Email>) {
+        if (emails.isEmpty()) return
+        val app = getApplication<Application>()
+        emails.mapNotNull { e -> credentialsFor(e)?.let { it.id to it.username to e.id } }
+            .groupBy({ it.first }, { it.second })
+            .forEach { (account, ids) ->
+                val (accountId, label) = account
+                Notifications.dismiss(app, accountId, label, ids)
+            }
+    }
+
     /** Mailbox ids backing the current view (one folder, or all inboxes when unified). */
     private fun currentMailboxIds(): List<String> = when (val sel = selection.value) {
         is Sel.Folder -> listOfNotNull(sel.id)
@@ -844,6 +862,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 val credentials = credentialsFor(email) ?: return@forEach
                 runCatching { repo.setRead(credentials, email.id, true) }
             }
+            dismissReadNotifications(unread)
         }
     }
 
@@ -1151,6 +1170,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 val credentials = credentialsFor(email) ?: return@forEach
                 runCatching { repo.setRead(credentials, email.id, targetSeen) }
             }
+            if (targetSeen) dismissReadNotifications(emails)
             // Reflect the new state immediately so the toggle icon flips without re-selecting.
             _selectionAllRead.value = targetSeen
         }

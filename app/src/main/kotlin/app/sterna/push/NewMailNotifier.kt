@@ -94,9 +94,15 @@ object NewMailNotifier {
     ) {
         val known = prefs(context).getStringSet(key(credentials.id, mailboxId), null).orEmpty()
         val newMail = emails.filter { it.id !in known && !it.isSeen }
-        if (newMail.isNotEmpty()) {
+        // Codeberg #19: a message we announced that has since been read — in the app or on
+        // another device (a remote read arrives here as a re-synced $seen change) — should
+        // have its notification cleared. Only touch ids that still have a live notification.
+        val active = Notifications.activeChildIds(context, credentials.id)
+        val readIds = emails.filter { it.isSeen && it.id.hashCode() in active }.map { it.id }
+        if (newMail.isNotEmpty() || readIds.isNotEmpty()) {
             val silent = quietHoursActive(context)
             newMail.forEach { Notifications.notifyNewMail(context, it, credentials.id, silent, folderName) }
+            readIds.forEach { Notifications.cancelChild(context, it) }
             // Rebuilt from ALL active children so successive per-folder passes accumulate
             // instead of the last folder overwriting the whole account's summary.
             Notifications.updateGroupSummary(context, credentials.id, credentials.username, silent)

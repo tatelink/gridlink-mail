@@ -152,6 +152,41 @@ object Notifications {
     }
 
     /**
+     * The active child (per-message) notification ids for [accountId]'s group, excluding the
+     * group summary. Lets a read message be matched to a live notification to dismiss (#19).
+     */
+    fun activeChildIds(context: Context, accountId: String): Set<Int> {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val group = GROUP_PREFIX + accountId
+        val summaryId = ("summary:" + accountId).hashCode()
+        return manager.activeNotifications
+            .filter { sbn ->
+                sbn.id != summaryId && sbn.notification.group == group &&
+                    (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) == 0
+            }
+            .map { it.id }
+            .toSet()
+    }
+
+    /** Cancel the per-message notification for [emailId] without touching the group summary. */
+    fun cancelChild(context: Context, emailId: String) {
+        context.getSystemService(NotificationManager::class.java).cancel(emailId.hashCode())
+    }
+
+    /**
+     * Dismiss the new-mail notifications for [emailIds] that just became read — in the app or
+     * on another device — and refresh the account's group summary. A no-op for ids with no
+     * live notification, so reading already-seen mail costs nothing (Codeberg #19).
+     */
+    fun dismiss(context: Context, accountId: String, accountLabel: String, emailIds: Collection<String>) {
+        val active = activeChildIds(context, accountId)
+        val hit = emailIds.filter { it.hashCode() in active }
+        if (hit.isEmpty()) return
+        hit.forEach { cancelChild(context, it) }
+        updateGroupSummary(context, accountId, accountLabel, silent = true)
+    }
+
+    /**
      * Posts the per-account group summary that bundles the account's individual
      * new-mail notifications (Android collapses them under one expandable entry).
      * [lines] are "sender — subject" strings for the latest batch.
