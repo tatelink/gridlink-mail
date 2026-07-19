@@ -1,0 +1,3 @@
+Corrige les actions groupées sur les comptes IMAP : archiver, déplacer ou supprimer une grande sélection (des centaines de messages) pouvait échouer avec « impossible d'effectuer l'action ». Chaque action passe désormais par un seul lot par dossier au lieu d'une commande par message, donc les grandes sélections aboutissent, et « Annuler » restaure tout le lot.
+
+Ajoute « Tout sélectionner » à la barre de sélection. L'option disparaissait dès le premier message sélectionné, il devenait alors impossible d'étendre une sélection manuelle à l'ensemble des messages.

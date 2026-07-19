@@ -1,0 +1,3 @@
+Fixes bulk actions on IMAP accounts: archiving, moving or deleting a large selection (hundreds of messages) could fail with "couldn't complete the action". Each action now goes through as a single batch per folder instead of one command per message, so large selections complete, and Undo brings the whole batch back.
+
+Adds "Select all" to the selection toolbar. It used to disappear as soon as you selected your first message, so there was no way to grow a manual selection to everything at once.
