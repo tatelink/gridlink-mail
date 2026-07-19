@@ -164,7 +164,11 @@ fun SettingsScreen(
 ) {
     val nav = rememberNavController()
     LaunchedEffect(initialAccountId) {
-        if (initialAccountId != null) nav.navigate("account/$initialAccountId")
+        // Deep-link from the drawer's account row: go straight to the account detail and drop the
+        // hub from the back stack, so Back returns to the inbox, not the Settings hub (#34).
+        if (initialAccountId != null) {
+            nav.navigate("account/$initialAccountId") { popUpTo("hub") { inclusive = true } }
+        }
     }
     // Horizontal push between hub and detail screens (standard master/detail motion): a detail
     // slides in from the right and the hub slides out to the left; Back reverses it. The slides are
@@ -220,7 +224,9 @@ fun SettingsScreen(
             AccountDetailScreen(
                 accountId = id,
                 viewModel = accountsViewModel,
-                onBack = { nav.popBackStack() },
+                // When this is the only inner destination (deep-linked from the drawer, hub popped),
+                // Back falls through to the caller so it returns to the inbox, not a dead end (#34).
+                onBack = { if (!nav.popBackStack()) onBack() },
                 onSignedOut = {
                     onAccountsChanged()
                     nav.popBackStack()
