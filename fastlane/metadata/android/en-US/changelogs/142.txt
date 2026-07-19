@@ -1,0 +1,1 @@
+Two small fixes. In a new message, tapping anywhere in the empty area below the header now places the cursor in the body, not just the first part of it. And opening an account from the navigation drawer, then pressing Back, now returns to your inbox instead of the Settings screen.
