@@ -1,0 +1,3 @@
+Corrige la suppression depuis la corbeille : le message est maintenant réellement supprimé au lieu de réapparaître, et la suppression passe par « Annuler » pour être réversible, comme un balayage.
+
+La suppression se comporte désormais de la même façon partout (balayage, barre d'outils et message ouvert), le bouton dans la corbeille affiche une icône de suppression définitive, et un message restauré via « Annuler » n'est plus laissé hors de vue en haut de la liste.

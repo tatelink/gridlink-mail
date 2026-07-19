@@ -1,0 +1,3 @@
+Fixes deleting mail from Trash: the delete now permanently removes the message instead of silently doing nothing, and it is held back behind Undo so it can be reversed, the same way a swipe can.
+
+Delete now behaves the same everywhere (swipe, the toolbar, and the open message), the button inside Trash shows a permanent-delete icon, and a message brought back with Undo is no longer left scrolled out of view at the top of the list.
