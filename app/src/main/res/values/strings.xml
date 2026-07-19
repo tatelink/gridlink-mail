@@ -519,6 +519,7 @@
     <string name="import_snackbar_imported_with_skipped">%1$d account(s) imported successfully (%2$d skipped)</string>
     <string name="import_pending_title">Accounts to sign in</string>
     <string name="import_pending_dismiss">Dismiss</string>
+    <string name="import_pending_dismissed">Account dismissed</string>
     <string name="import_pending_hint_password">Password sign-in</string>
     <string name="import_pending_hint_microsoft">Microsoft sign-in</string>
     <string name="import_pending_hint_oauth">OAuth sign-in</string>

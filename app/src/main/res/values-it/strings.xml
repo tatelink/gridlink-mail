@@ -578,6 +578,7 @@
     <string name="import_snackbar_imported_with_skipped">%1$d account importati correttamente (%2$d ignorati)</string>
     <string name="import_pending_title">Account da collegare</string>
     <string name="import_pending_dismiss">Ignora</string>
+    <string name="import_pending_dismissed">Account ignorato</string>
     <string name="import_pending_hint_password">Accesso con password</string>
     <string name="import_pending_hint_microsoft">Accesso Microsoft</string>
     <string name="import_pending_hint_oauth">Accesso OAuth</string>

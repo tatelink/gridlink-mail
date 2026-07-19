@@ -37,8 +37,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -137,6 +139,17 @@ fun ConnectScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     fun snackbar(message: String) = scope.launch { snackbarHostState.showSnackbar(message) }
+    fun dismissWithUndo(id: String) {
+        viewModel.dismissImportAccount(id)
+        scope.launch {
+            val result = snackbarHostState.showSnackbar(
+                context.getString(R.string.import_pending_dismissed),
+                actionLabel = context.getString(R.string.inbox_undo),
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) viewModel.restoreImportAccount(id)
+        }
+    }
     val importSettingsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -221,7 +234,7 @@ fun ConnectScreen(
                         // list reflects the just-signed-in / dismissed accounts dropping off.
                         accounts = viewModel.pendingStoredAccounts,
                         onSignIn = { viewModel.selectImportAccount(it.id) },
-                        onDismiss = { viewModel.dismissImportAccount(it.id) },
+                        onDismiss = { dismissWithUndo(it.id) },
                     )
                 } else {
                     ImportAccountSignIn(sel, viewModel)

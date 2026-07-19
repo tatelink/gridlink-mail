@@ -134,8 +134,10 @@ import app.sterna.core.data.mail.OAuthProvider
 import android.widget.Toast
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -631,6 +633,17 @@ private fun BackupScreen(
     val scope = rememberCoroutineScope()
     val pending by accountsViewModel.pendingImportAccounts.collectAsStateWithLifecycle()
     fun toast(text: String) = scope.launch { snackbarHostState.showSnackbar(text) }
+    fun dismissWithUndo(id: String) {
+        accountsViewModel.dismissImport(id)
+        scope.launch {
+            val result = snackbarHostState.showSnackbar(
+                context.getString(R.string.import_pending_dismissed),
+                actionLabel = context.getString(R.string.inbox_undo),
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) accountsViewModel.restoreImport(id)
+        }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -716,7 +729,7 @@ private fun BackupScreen(
                 PendingImportAccountsSection(
                     accounts = pending,
                     onSignIn = { onOpenAccount(it.id) },
-                    onDismiss = { accountsViewModel.dismissImport(it.id) },
+                    onDismiss = { dismissWithUndo(it.id) },
                 )
             }
             SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter).padding(padding))

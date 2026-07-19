@@ -578,6 +578,7 @@
     <string name="import_snackbar_imported_with_skipped">Pomyślnie zaimportowano konta: %1$d (pominięto: %2$d)</string>
     <string name="import_pending_title">Konta do zalogowania</string>
     <string name="import_pending_dismiss">Odrzuć</string>
+    <string name="import_pending_dismissed">Konto odrzucone</string>
     <string name="import_pending_hint_password">Logowanie hasłem</string>
     <string name="import_pending_hint_microsoft">Logowanie Microsoft</string>
     <string name="import_pending_hint_oauth">Logowanie OAuth</string>

@@ -578,6 +578,7 @@
     <string name="import_snackbar_imported_with_skipped">%1$d Konto/Konten erfolgreich importiert (%2$d übersprungen)</string>
     <string name="import_pending_title">Anzumeldende Konten</string>
     <string name="import_pending_dismiss">Verwerfen</string>
+    <string name="import_pending_dismissed">Konto verworfen</string>
     <string name="import_pending_hint_password">Anmeldung mit Passwort</string>
     <string name="import_pending_hint_microsoft">Microsoft-Anmeldung</string>
     <string name="import_pending_hint_oauth">OAuth-Anmeldung</string>

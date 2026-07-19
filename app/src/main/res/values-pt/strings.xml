@@ -578,6 +578,7 @@
     <string name="import_snackbar_imported_with_skipped">%1$d conta(s) importada(s) com sucesso (%2$d ignorada(s))</string>
     <string name="import_pending_title">Contas por iniciar sessão</string>
     <string name="import_pending_dismiss">Dispensar</string>
+    <string name="import_pending_dismissed">Conta dispensada</string>
     <string name="import_pending_hint_password">Início de sessão com palavra-passe</string>
     <string name="import_pending_hint_microsoft">Início de sessão com Microsoft</string>
     <string name="import_pending_hint_oauth">Início de sessão com OAuth</string>

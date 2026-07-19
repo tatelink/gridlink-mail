@@ -581,6 +581,7 @@
     <string name="import_snackbar_imported_with_skipped">%1$d account(s) succesvol geïmporteerd (%2$d overgeslagen)</string>
     <string name="import_pending_title">Aan te melden accounts</string>
     <string name="import_pending_dismiss">Negeren</string>
+    <string name="import_pending_dismissed">Account genegeerd</string>
     <string name="import_pending_hint_password">Aanmelden met wachtwoord</string>
     <string name="import_pending_hint_microsoft">Aanmelden met Microsoft</string>
     <string name="import_pending_hint_oauth">Aanmelden met OAuth</string>

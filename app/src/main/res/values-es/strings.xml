@@ -578,6 +578,7 @@
     <string name="import_snackbar_imported_with_skipped">%1$d cuenta(s) importada(s) correctamente (%2$d omitida(s))</string>
     <string name="import_pending_title">Cuentas por iniciar sesión</string>
     <string name="import_pending_dismiss">Descartar</string>
+    <string name="import_pending_dismissed">Cuenta descartada</string>
     <string name="import_pending_hint_password">Inicio de sesión con contraseña</string>
     <string name="import_pending_hint_microsoft">Inicio de sesión con Microsoft</string>
     <string name="import_pending_hint_oauth">Inicio de sesión con OAuth</string>

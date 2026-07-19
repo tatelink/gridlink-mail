@@ -314,6 +314,12 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         if (currentListing()?.selected?.account?.id == id) closeImportAccount() else refreshListing()
     }
 
+    /** Undo a swipe-dismiss: put the account back on the "to sign in" list. */
+    fun restoreImportAccount(id: String) {
+        container.accountStore.setImportPending(id, true)
+        refreshListing()
+    }
+
     /** Mutate the currently-selected [SignInTarget] in place, if any. */
     private fun updateSelected(block: (SignInTarget) -> SignInTarget) {
         val l = currentListing() ?: return

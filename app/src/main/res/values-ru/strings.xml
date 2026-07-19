@@ -579,6 +579,7 @@
     <string name="import_snackbar_imported_with_skipped">Успешно импортировано учётных записей: %1$d (пропущено: %2$d)</string>
     <string name="import_pending_title">Учётные записи для входа</string>
     <string name="import_pending_dismiss">Закрыть</string>
+    <string name="import_pending_dismissed">Учётная запись закрыта</string>
     <string name="import_pending_hint_password">Вход по паролю</string>
     <string name="import_pending_hint_microsoft">Вход через Microsoft</string>
     <string name="import_pending_hint_oauth">Вход через OAuth</string>

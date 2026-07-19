@@ -56,6 +56,12 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         refresh()
     }
 
+    /** Undo a dismiss: put the imported account back on the "accounts to sign in" list. */
+    fun restoreImport(id: String) {
+        store.setImportPending(id, true)
+        refresh()
+    }
+
     /** Cached-message count for the account detail screen currently open. */
     private val _cacheCount = MutableStateFlow(0)
     val cacheCount = _cacheCount.asStateFlow()
