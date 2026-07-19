@@ -308,15 +308,16 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         refreshListing(keepSelected = null)
     }
 
-    /** Swipe-dismiss: leave the account inert (sign in later from Settings) and drop it off the list. */
+    /** Swipe-dismiss: disconnect and REMOVE the imported account entirely (it never appears in the
+     *  account list; the user can re-import it later). Undoable via [restoreImportAccount]. */
     fun dismissImportAccount(id: String) {
-        container.accountStore.setImportPending(id, false)
+        container.accountStore.remove(id)
         if (currentListing()?.selected?.account?.id == id) closeImportAccount() else refreshListing()
     }
 
-    /** Undo a swipe-dismiss: put the account back on the "to sign in" list. */
-    fun restoreImportAccount(id: String) {
-        container.accountStore.setImportPending(id, true)
+    /** Undo a swipe-dismiss: re-add the removed account, back on the "to sign in" list. */
+    fun restoreImportAccount(account: StoredAccount) {
+        container.accountStore.readdImportedAccount(account)
         refreshListing()
     }
 

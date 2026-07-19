@@ -139,15 +139,15 @@ fun ConnectScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     fun snackbar(message: String) = scope.launch { snackbarHostState.showSnackbar(message) }
-    fun dismissWithUndo(id: String) {
-        viewModel.dismissImportAccount(id)
+    fun dismissWithUndo(account: app.sterna.core.data.account.StoredAccount) {
+        viewModel.dismissImportAccount(account.id)
         scope.launch {
             val result = snackbarHostState.showSnackbar(
                 context.getString(R.string.import_pending_dismissed),
                 actionLabel = context.getString(R.string.inbox_undo),
                 duration = SnackbarDuration.Short,
             )
-            if (result == SnackbarResult.ActionPerformed) viewModel.restoreImportAccount(id)
+            if (result == SnackbarResult.ActionPerformed) viewModel.restoreImportAccount(account)
         }
     }
     val importSettingsLauncher = rememberLauncherForActivityResult(
@@ -234,7 +234,7 @@ fun ConnectScreen(
                         // list reflects the just-signed-in / dismissed accounts dropping off.
                         accounts = viewModel.pendingStoredAccounts,
                         onSignIn = { viewModel.selectImportAccount(it.id) },
-                        onDismiss = { dismissWithUndo(it.id) },
+                        onDismiss = { dismissWithUndo(it) },
                     )
                 } else {
                     ImportAccountSignIn(sel, viewModel)

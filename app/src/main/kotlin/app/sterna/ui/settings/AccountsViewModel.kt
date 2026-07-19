@@ -50,15 +50,16 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     /** Whether an account has a stored credential (false == inert, awaiting sign-in). */
     fun isSignedIn(id: String): Boolean = store.credentials(id) != null
 
-    /** Drop an imported account from the "accounts to sign in" list; it stays inert and retryable. */
+    /** Swipe-dismiss: disconnect and REMOVE the imported account entirely (it leaves the account
+     *  list; the user can re-import it later). Undoable via [restoreImport]. */
     fun dismissImport(id: String) {
-        store.setImportPending(id, false)
+        store.remove(id)
         refresh()
     }
 
-    /** Undo a dismiss: put the imported account back on the "accounts to sign in" list. */
-    fun restoreImport(id: String) {
-        store.setImportPending(id, true)
+    /** Undo a dismiss: re-add the removed account, back on the "accounts to sign in" list. */
+    fun restoreImport(account: StoredAccount) {
+        store.readdImportedAccount(account)
         refresh()
     }
 

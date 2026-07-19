@@ -466,11 +466,18 @@ class AccountStore(context: Context) {
     fun pendingImportAccounts(): List<StoredAccount> =
         accounts().filter { it.importPending && credentials(it.id) == null }
 
-    /** Set/clear an account's import-pending flag. Cleared on sign-in or when the user dismisses it
-     *  from the "accounts to sign in" list (the account then stays inert but off that list). */
+    /** Clear an account's import-pending flag (on a successful sign-in), so it leaves the
+     *  "accounts to sign in" list and becomes a normal account. No-op for an unknown id. */
     fun setImportPending(id: String, pending: Boolean) {
         if (accounts().none { it.id == id }) return
         saveAccounts(accounts().map { if (it.id == id) it.copy(importPending = pending) else it })
+    }
+
+    /** Re-insert a dismissed imported account unchanged (undo of a swipe-dismiss): back on the
+     *  "to sign in" list, still inert. No-op if an account with this id already exists. */
+    fun readdImportedAccount(account: StoredAccount) {
+        if (accounts().any { it.id == account.id }) return
+        saveAccounts(accounts() + account.copy(importPending = true))
     }
 
     /** Switch an account to password (BASIC) auth, dropping any OAuth material and its stored slot,

@@ -1019,15 +1019,15 @@ private fun AccountsScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    fun dismissWithUndo(id: String) {
-        viewModel.dismissImport(id)
+    fun dismissWithUndo(account: StoredAccount) {
+        viewModel.dismissImport(account.id)
         scope.launch {
             val result = snackbarHostState.showSnackbar(
                 context.getString(R.string.import_pending_dismissed),
                 actionLabel = context.getString(R.string.inbox_undo),
                 duration = SnackbarDuration.Short,
             )
-            if (result == SnackbarResult.ActionPerformed) viewModel.restoreImport(id)
+            if (result == SnackbarResult.ActionPerformed) viewModel.restoreImport(account)
         }
     }
     DetailScaffold(title = stringResource(R.string.settings_accounts_screen_title), onBack = onBack) { padding ->
@@ -1038,12 +1038,13 @@ private fun AccountsScreen(
                     PendingImportAccountsSection(
                         accounts = pending,
                         onSignIn = { onOpenAccount(it.id) },
-                        onDismiss = { dismissWithUndo(it.id) },
+                        onDismiss = { dismissWithUndo(it) },
                     )
                     HorizontalDivider()
                 }
             }
-            items(accounts, key = { it.id }) { account ->
+            // Only signed-in accounts here; the still-inert imported ones live in the section above.
+            items(accounts.filter { !it.importPending }, key = { it.id }) { account ->
                 AccountRow(
                     seed = account.username,
                     label = account.label(),
