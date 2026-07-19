@@ -252,10 +252,6 @@ fun SettingsScreen(
         composable("backup") {
             BackupScreen(
                 viewModel = viewModel,
-                accountsViewModel = accountsViewModel,
-                // Open an inert account WITHOUT switching to it (it has no credentials and would
-                // break the current-account inbox); the detail screen signs it in.
-                onOpenAccount = { id -> nav.navigate("account/$id") },
                 onAccountsImported = { accountsViewModel.refresh(); onAccountsChanged() },
                 onBack = { nav.popBackStack() },
             )
@@ -623,27 +619,13 @@ private fun TimePickerRow(label: String, minutes: Int, onChange: (Int) -> Unit) 
 @Composable
 private fun BackupScreen(
     viewModel: SettingsViewModel,
-    accountsViewModel: AccountsViewModel,
-    onOpenAccount: (String) -> Unit,
     onAccountsImported: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val pending by accountsViewModel.pendingImportAccounts.collectAsStateWithLifecycle()
     fun toast(text: String) = scope.launch { snackbarHostState.showSnackbar(text) }
-    fun dismissWithUndo(id: String) {
-        accountsViewModel.dismissImport(id)
-        scope.launch {
-            val result = snackbarHostState.showSnackbar(
-                context.getString(R.string.import_pending_dismissed),
-                actionLabel = context.getString(R.string.inbox_undo),
-                duration = SnackbarDuration.Short,
-            )
-            if (result == SnackbarResult.ActionPerformed) accountsViewModel.restoreImport(id)
-        }
-    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -676,21 +658,6 @@ private fun BackupScreen(
             )
         }
     }
-    val importK9Launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri != null) {
-            viewModel.importK9Settings(uri) { ok, added, skipped ->
-                toast(when {
-                    !ok -> context.getString(R.string.settings_backup_failed)
-                    added == 0 -> context.getString(R.string.connect_import_k9_none)
-                    skipped > 0 -> context.getString(R.string.import_snackbar_imported_with_skipped, added, skipped)
-                    else -> context.getString(R.string.import_snackbar_imported, added)
-                })
-                if (ok && added > 0) onAccountsImported()
-            }
-        }
-    }
 
     DetailScaffold(title = stringResource(R.string.settings_backup_screen_title), onBack = onBack) { padding ->
         Box(Modifier.fillMaxSize()) {
@@ -716,21 +683,7 @@ private fun BackupScreen(
                         },
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     ) { Text(stringResource(R.string.settings_backup_import)) }
-                    OutlinedButton(
-                        onClick = {
-                            importK9Launcher.launch(
-                                arrayOf("application/octet-stream", "text/xml", "application/xml", "*/*"),
-                            )
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    ) { Text(stringResource(R.string.settings_backup_import_k9)) }
                 }
-                // Imported accounts still awaiting sign-in; tap to open + sign in, swipe to dismiss.
-                PendingImportAccountsSection(
-                    accounts = pending,
-                    onSignIn = { onOpenAccount(it.id) },
-                    onDismiss = { dismissWithUndo(it.id) },
-                )
             }
             SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter).padding(padding))
         }
@@ -1062,8 +1015,34 @@ private fun AccountsScreen(
 ) {
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val currentId by viewModel.currentId.collectAsStateWithLifecycle()
+    val pending by viewModel.pendingImportAccounts.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    fun dismissWithUndo(id: String) {
+        viewModel.dismissImport(id)
+        scope.launch {
+            val result = snackbarHostState.showSnackbar(
+                context.getString(R.string.import_pending_dismissed),
+                actionLabel = context.getString(R.string.inbox_undo),
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) viewModel.restoreImport(id)
+        }
+    }
     DetailScaffold(title = stringResource(R.string.settings_accounts_screen_title), onBack = onBack) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+      Box(Modifier.fillMaxSize().padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize()) {
+            if (pending.isNotEmpty()) {
+                item(key = "pending-import") {
+                    PendingImportAccountsSection(
+                        accounts = pending,
+                        onSignIn = { onOpenAccount(it.id) },
+                        onDismiss = { dismissWithUndo(it.id) },
+                    )
+                    HorizontalDivider()
+                }
+            }
             items(accounts, key = { it.id }) { account ->
                 AccountRow(
                     seed = account.username,
@@ -1093,6 +1072,8 @@ private fun AccountsScreen(
                 }
             }
         }
+        SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter))
+      }
     }
 }
 

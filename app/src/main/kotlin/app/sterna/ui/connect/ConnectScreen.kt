@@ -252,31 +252,35 @@ fun ConnectScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(4.dp))
-                OutlinedButton(
-                    onClick = {
-                        importSettingsLauncher.launch(
-                            arrayOf("application/json", "application/octet-stream", "text/plain"),
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.connect_import_settings))
-                }
-                OutlinedButton(
-                    onClick = {
-                        importK9Launcher.launch(
-                            arrayOf("application/octet-stream", "text/xml", "application/xml", "*/*"),
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.connect_import_k9))
-                }
+            }
+            // Import entry points, shown whenever adding an account (not just first run): migrating
+            // from K-9 / Thunderbird or a Sterna backup belongs here, where people add accounts, not
+            // buried in Settings → Backup.
+            Spacer(Modifier.height(4.dp))
+            Text(stringResource(R.string.connect_import_header), style = MaterialTheme.typography.labelLarge)
+            OutlinedButton(
+                onClick = {
+                    importK9Launcher.launch(
+                        arrayOf("application/octet-stream", "text/xml", "application/xml", "*/*"),
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.connect_import_k9))
+            }
+            OutlinedButton(
+                onClick = {
+                    importSettingsLauncher.launch(
+                        arrayOf("application/json", "application/octet-stream", "text/plain"),
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.connect_import_settings))
             }
             Text(stringResource(R.string.connect_protocol), style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
