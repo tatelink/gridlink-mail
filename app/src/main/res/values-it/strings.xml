@@ -43,6 +43,7 @@
     <string name="inbox_delete_folder_title">Eliminare la cartella?</string>
     <string name="inbox_delete_folder_body">\"%1$s\" e i suoi messaggi verranno rimossi.</string>
     <string name="inbox_delete">Elimina</string>
+    <string name="inbox_delete_forever">Elimina definitivamente</string>
     <string name="inbox_undo">Annulla</string>
     <string name="inbox_message_sent">Messaggio inviato</string>
     <string name="inbox_app_name">Sterna Mail</string>

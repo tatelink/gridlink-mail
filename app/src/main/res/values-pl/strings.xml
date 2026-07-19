@@ -43,6 +43,7 @@
     <string name="inbox_delete_folder_title">Usunąć folder?</string>
     <string name="inbox_delete_folder_body">\"%1$s\" i jego wiadomości zostaną usunięte.</string>
     <string name="inbox_delete">Usuń</string>
+    <string name="inbox_delete_forever">Usuń trwale</string>
     <string name="inbox_undo">Cofnij</string>
     <string name="inbox_message_sent">Wiadomość wysłana</string>
     <string name="inbox_app_name">Sterna Mail</string>

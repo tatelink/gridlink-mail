@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Schedule
@@ -228,6 +229,7 @@ fun InboxScreen(
     val undo by viewModel.undo.collectAsStateWithLifecycle()
     val watchedFolders by viewModel.watchedFolders.collectAsStateWithLifecycle()
     val pendingPurge by viewModel.pendingPurge.collectAsStateWithLifecycle()
+    val pendingDelete by viewModel.pendingDelete.collectAsStateWithLifecycle()
     val pendingFolderDelete by viewModel.pendingFolderDelete.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
@@ -483,6 +485,17 @@ fun InboxScreen(
             duration = SnackbarDuration.Indefinite,
         )
         if (result == SnackbarResult.ActionPerformed) viewModel.undoEmptyTrash()
+    }
+    // Permanent (Trash) delete hold-back: the destroy is deferred behind this Undo, so
+    // deleting from Trash is undoable too (Codeberg #23). Pending clears when it fires.
+    LaunchedEffect(pendingDelete) {
+        val label = pendingDelete ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = label,
+            actionLabel = undoLabel,
+            duration = SnackbarDuration.Indefinite,
+        )
+        if (result == SnackbarResult.ActionPerformed) viewModel.undoDelete()
     }
     // Folder-delete hold-back: same pattern (pending clears when the delete fires).
     LaunchedEffect(pendingFolderDelete) {
@@ -833,7 +846,13 @@ fun InboxScreen(
                                 Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = stringResource(R.string.inbox_move_to_folder))
                             }
                             IconButton(onClick = { viewModel.deleteSelected() }) {
-                                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.inbox_delete))
+                                // In Trash the button destroys, not moves-to-Trash — so a Trash-can
+                                // icon is misleading; show "delete forever" instead (Codeberg #23).
+                                val trash = isTrashContext(ui)
+                                Icon(
+                                    if (trash) Icons.Filled.DeleteForever else Icons.Filled.Delete,
+                                    contentDescription = stringResource(if (trash) R.string.inbox_delete_forever else R.string.inbox_delete),
+                                )
                             }
                             // Overflow: snooze + report/not-spam for the whole selection.
                             var selMenu by remember { mutableStateOf(false) }
@@ -1109,6 +1128,7 @@ fun InboxScreen(
                     rightAction = swipe.right,
                     leftAction = swipe.left,
                     unarchiveContext = isUnarchiveContext(ui),
+                    trashContext = isTrashContext(ui),
                     // A collapsed conversation acts on the whole thread; a flat row on its one message.
                     onSwipe = { action ->
                         if (expandable) performThreadSwipe(action, email, viewModel, ui)
@@ -1156,6 +1176,7 @@ fun InboxScreen(
                         rightAction = swipe.right,
                         leftAction = swipe.left,
                         unarchiveContext = isUnarchiveContext(ui),
+                        trashContext = isTrashContext(ui),
                         highlightId = highlightId,
                         selectionActive = selectionActive,
                         selectedIds = selectedIds,
@@ -1408,6 +1429,7 @@ private fun SwipeableEmailRow(
     rightAction: SwipeAction,
     leftAction: SwipeAction,
     unarchiveContext: Boolean,
+    trashContext: Boolean,
     onSwipe: (SwipeAction) -> Unit,
     onClick: () -> Unit,
     // Nullable so inline conversation children can omit long-press selection and the star.
@@ -1565,7 +1587,7 @@ private fun SwipeableEmailRow(
                 Modifier.matchParentSize().background(bg).padding(horizontal = 24.dp),
                 contentAlignment = if (draggingRight) Alignment.CenterStart else Alignment.CenterEnd,
             ) {
-                val labelRes = swipeActionLabel(action, email, unarchiveContext)
+                val labelRes = swipeActionLabel(action, email, unarchiveContext, trashContext)
                 if (labelRes != 0) {
                     Text(
                         stringResource(labelRes),
@@ -1672,11 +1694,17 @@ private fun isUnarchiveContext(ui: MailUi): Boolean {
     return role == "archive" || role == "all"
 }
 
+/** True when the current view is the Trash folder, where a delete destroys instead of moving
+ *  there — so the affordance should read "delete permanently", not the Trash-can (Codeberg #23). */
+private fun isTrashContext(ui: MailUi): Boolean =
+    ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
+
 /** The string resource shown on the swipe background for [action] on [email] (0 = none). */
-private fun swipeActionLabel(action: SwipeAction, email: Email, unarchiveContext: Boolean): Int = when (action) {
+private fun swipeActionLabel(action: SwipeAction, email: Email, unarchiveContext: Boolean, trashContext: Boolean): Int = when (action) {
     SwipeAction.NONE -> 0
     SwipeAction.TOGGLE_READ -> if (email.isSeen) R.string.inbox_mark_unread else R.string.inbox_mark_read
-    SwipeAction.DELETE -> R.string.inbox_delete
+    // In Trash a delete destroys, so the swipe reads "Delete permanently" (Codeberg #23).
+    SwipeAction.DELETE -> if (trashContext) R.string.inbox_delete_forever else R.string.inbox_delete
     SwipeAction.ARCHIVE -> if (unarchiveContext) R.string.inbox_unarchive else R.string.inbox_archive
     SwipeAction.FLAG -> if (email.isFlagged) R.string.inbox_unflag else R.string.inbox_flag
 }
@@ -1735,6 +1763,7 @@ private fun ThreadChildren(
     rightAction: SwipeAction,
     leftAction: SwipeAction,
     unarchiveContext: Boolean,
+    trashContext: Boolean,
     highlightId: String?,
     selectionActive: Boolean,
     selectedIds: Set<String>,
@@ -1765,6 +1794,7 @@ private fun ThreadChildren(
                             rightAction = rightAction,
                             leftAction = leftAction,
                             unarchiveContext = unarchiveContext,
+                            trashContext = trashContext,
                             onSwipe = { action -> onSwipeChild(action, child) },
                             // Children join multi-select like top-level rows: long-press enters
                             // selection on this one message, a tap in selection mode toggles it.

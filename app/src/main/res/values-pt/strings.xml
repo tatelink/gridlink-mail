@@ -43,6 +43,7 @@
     <string name="inbox_delete_folder_title">Excluir pasta?</string>
     <string name="inbox_delete_folder_body">\"%1$s\" e suas mensagens serão removidas.</string>
     <string name="inbox_delete">Excluir</string>
+    <string name="inbox_delete_forever">Eliminar permanentemente</string>
     <string name="inbox_undo">Desfazer</string>
     <string name="inbox_message_sent">Mensagem enviada</string>
     <string name="inbox_app_name">Sterna Mail</string>

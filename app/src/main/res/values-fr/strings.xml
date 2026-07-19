@@ -43,6 +43,7 @@
     <string name="inbox_delete_folder_title">Supprimer le dossier ?</string>
     <string name="inbox_delete_folder_body">« %1$s » et ses messages seront supprimés.</string>
     <string name="inbox_delete">Supprimer</string>
+    <string name="inbox_delete_forever">Supprimer définitivement</string>
     <string name="inbox_undo">Annuler</string>
     <string name="inbox_message_sent">Message envoyé</string>
     <string name="inbox_app_name">Sterna Mail</string>

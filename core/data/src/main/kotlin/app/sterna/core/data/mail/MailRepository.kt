@@ -1404,6 +1404,35 @@ class MailRepository(
         advanceEmailState(newState, credentials.id, mb)
     }
 
+    /**
+     * Whether deleting [email] would permanently destroy it (it already sits in Trash, or
+     * the account has no Trash) rather than move it there. The UI uses this to hold the
+     * destroy back behind an Undo window instead of doing it immediately (Codeberg #23).
+     */
+    suspend fun deleteWouldDestroy(credentials: AccountCredentials, email: Email): Boolean {
+        val trash = roleMailboxId(credentials, "trash") ?: return true
+        return email.mailboxId == trash
+    }
+
+    /**
+     * Permanently destroy a message regardless of its folder (JMAP destroy / IMAP expunge).
+     * Unlike [delete] it never moves to Trash, so it is correct for a message already there,
+     * and it does not depend on the local cache (the IMAP location is parsed from the id),
+     * so it still works after the row has been optimistically evicted (Codeberg #23).
+     */
+    suspend fun destroyMessage(credentials: AccountCredentials, emailId: String) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            imapTarget(emailId)?.let { (mb, uid) -> imap.deleteMessage(credentials, mb, uid) }
+            emailDao.deleteById(emailId)
+            return
+        }
+        val ctx = connect(credentials)
+        val mb = emailDao.mailboxOf(emailId)
+        val newState = client.destroy(ctx.session, ctx.accountId, emailId, ctx.auth)
+        emailDao.deleteById(emailId)
+        advanceEmailState(newState, credentials.id, mb)
+    }
+
     /** Move a message to an arbitrary mailbox (e.g. unarchive → Inbox, or move-to-folder). */
     suspend fun moveToMailbox(credentials: AccountCredentials, emailId: String, targetMailboxId: String) {
         // Captured before the local row is dropped, to nudge the drawer's cached counts.
@@ -1684,7 +1713,10 @@ class MailRepository(
         if (credentials.protocol == MailProtocol.IMAP) {
             imapTarget(emailId)?.let { (mb, uid) ->
                 val trash = imapRoleFolder(credentials, "trash")
-                if (trash != null) {
+                // Deleting a message that is already in Trash (or when there is no Trash)
+                // must permanently remove it: moving it to the folder it already sits in is
+                // a no-op that leaves it on the server (Codeberg #23).
+                if (trash != null && mb != trash) {
                     imap.move(credentials, mb, uid, trash)?.let { lastImapMove[emailId] = ImapLoc(trash, it) }
                 } else {
                     imap.deleteMessage(credentials, mb, uid) // permanent; no undo
@@ -1696,7 +1728,10 @@ class MailRepository(
         val ctx = connect(credentials)
         val mb = emailDao.mailboxOf(emailId)
         val trash = ctx.rolesToMailboxId["trash"]
-        val newState = if (trash != null) {
+        // Already in Trash (mb == trash) or no Trash at all → destroy for real; moving a
+        // message to the mailbox it already occupies is a server no-op, so the message would
+        // reappear on the next sync and never actually be deleted (Codeberg #23).
+        val newState = if (trash != null && mb != trash) {
             client.move(ctx.session, ctx.accountId, emailId, trash, ctx.auth)
         } else {
             client.destroy(ctx.session, ctx.accountId, emailId, ctx.auth)

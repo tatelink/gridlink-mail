@@ -43,6 +43,7 @@
     <string name="inbox_delete_folder_title">Ordner löschen?</string>
     <string name="inbox_delete_folder_body">\"%1$s\" und seine Nachrichten werden entfernt.</string>
     <string name="inbox_delete">Löschen</string>
+    <string name="inbox_delete_forever">Endgültig löschen</string>
     <string name="inbox_undo">Rückgängig</string>
     <string name="inbox_message_sent">Nachricht gesendet</string>
     <string name="inbox_app_name">Sterna Mail</string>

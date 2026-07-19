@@ -43,6 +43,7 @@
     <string name="inbox_delete_folder_title">Удалить папку?</string>
     <string name="inbox_delete_folder_body">«%1$s» и все её письма будут удалены.</string>
     <string name="inbox_delete">Удалить</string>
+    <string name="inbox_delete_forever">Удалить навсегда</string>
     <string name="inbox_undo">Отменить</string>
     <string name="inbox_message_sent">Письмо отправлено</string>
     <string name="inbox_app_name">Sterna Mail</string>

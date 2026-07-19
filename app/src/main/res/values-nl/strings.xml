@@ -43,6 +43,7 @@
     <string name="inbox_delete_folder_title">Map verwijderen?</string>
     <string name="inbox_delete_folder_body">\"%1$s\" en de bijbehorende berichten worden verwijderd.</string>
     <string name="inbox_delete">Verwijderen</string>
+    <string name="inbox_delete_forever">Permanent verwijderen</string>
     <string name="inbox_undo">Ongedaan maken</string>
     <string name="inbox_message_sent">Bericht verzonden</string>
     <string name="inbox_app_name">Sterna Mail</string>

@@ -170,6 +170,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     val pendingPurge: StateFlow<String?> = _pendingPurge.asStateFlow()
     private var purgeJob: Job? = null
 
+    /** Non-null label while a permanent (Trash) delete is held back and can still be undone. */
+    private val _pendingDelete = MutableStateFlow<String?>(null)
+    val pendingDelete: StateFlow<String?> = _pendingDelete.asStateFlow()
+    private var pendingDeleteJob: Job? = null
+    /** The messages whose permanent destroy is currently held back (fired when the window ends). */
+    private var pendingDeleteTargets: List<Pair<AccountCredentials, String>> = emptyList()
+
     /** A transient message to surface in a snackbar (e.g. an action error). */
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
@@ -547,7 +554,84 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Swipe action: delete (move to Trash). */
-    fun delete(email: Email) = swipeRemove(email, getApplication<Application>().getString(R.string.status_message_deleted)) { c, id -> repo.delete(c, id) }
+    fun delete(email: Email) {
+        val credentials = credentialsFor(email) ?: return
+        val label = getApplication<Application>().getString(R.string.status_message_deleted)
+        viewModelScope.launch {
+            // A delete that only moves to Trash is reversible immediately (Undo moves it back).
+            // A delete that would DESTROY (already in Trash, or no Trash) is held behind the Undo
+            // window instead, so it is undoable too (Codeberg #23).
+            if (repo.deleteWouldDestroy(credentials, email)) {
+                heldBackDestroy(listOf(email), label)
+            } else {
+                swipeRemove(email, label) { c, id -> repo.delete(c, id) }
+            }
+        }
+    }
+
+    /**
+     * Permanently destroy [emails], but hold the destroy back behind the Undo window: evict the
+     * rows now, fire the destroy when the window elapses, and let [undoDelete] cancel it. Same
+     * model as Empty trash, shared by swipe delete and bulk delete so every delete UX behaves the
+     * same (Codeberg #23). A new held-back delete supersedes a pending one (the earlier set, left
+     * un-undone, is destroyed at once).
+     */
+    private fun heldBackDestroy(emails: List<Email>, label: String) {
+        val targets = emails.mapNotNull { e -> credentialsFor(e)?.let { it to e.id } }
+        if (targets.isEmpty()) return
+        flushPendingDestroy()
+        pendingDeleteTargets = targets
+        viewModelScope.launch {
+            emails.forEach { repo.evict(it.id); dropThreadMember(it) }
+            _pendingDelete.value = label
+            pendingDeleteJob = viewModelScope.launch {
+                delay(PURGE_HOLD_BACK_MS)
+                firePendingDestroy()
+            }
+        }
+    }
+
+    /** Actually destroy the held-back set (window elapsed, or superseded by a newer delete). */
+    private fun firePendingDestroy() {
+        val targets = pendingDeleteTargets
+        pendingDeleteTargets = emptyList()
+        _pendingDelete.value = null
+        if (targets.isEmpty()) return
+        viewModelScope.launch {
+            var failed = 0
+            targets.forEach { (c, id) -> runCatching { repo.destroyMessage(c, id) }.onFailure { failed++ } }
+            if (failed > 0) {
+                _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+                forceRefresh() // some didn't destroy — bring the rows back
+            }
+        }
+    }
+
+    /** Fire any held-back destroy immediately (a new delete supersedes the pending one). */
+    private fun flushPendingDestroy() {
+        pendingDeleteJob?.cancel()
+        pendingDeleteJob = null
+        firePendingDestroy()
+    }
+
+    /** Cancel the held-back destroy and restore the rows (nothing was destroyed yet). */
+    fun undoDelete() {
+        pendingDeleteJob?.cancel()
+        pendingDeleteJob = null
+        pendingDeleteTargets = emptyList()
+        _pendingDelete.value = null
+        // A full re-query, not an incremental refresh: the messages were only evicted locally and
+        // are still in Trash on the server, so queryChanges reports no change and would leave the
+        // view empty. Dropping the sync cursors forces a fresh query that brings them back.
+        forceRefresh()
+    }
+
+    /** Re-query the current folder from scratch (drops sync cursors first) so locally-evicted but
+     *  server-present messages reappear — an incremental refresh alone re-fetches nothing. */
+    private fun forceRefresh() {
+        repo.resetSyncState()
+        refresh()
+    }
 
     /** Swipe action: archive. */
     fun archive(email: Email) = swipeRemove(email, getApplication<Application>().getString(R.string.status_message_archived)) { c, id -> repo.archive(c, id) }
@@ -708,7 +792,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         purgeJob?.cancel()
         purgeJob = null
         _pendingPurge.value = null
-        refresh()
+        // Full re-query, not incremental: the rows were only evicted locally and are still on the
+        // server, so a delta refresh brings nothing back (Codeberg #23).
+        forceRefresh()
     }
 
     /** Swipe action: toggle flag/star. */
@@ -805,7 +891,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Apply a bulk action to the selected messages; exits selection mode unless [clearAfter] is false. */
-    private fun bulk(clearAfter: Boolean = true, op: suspend (AccountCredentials, String) -> Unit) {
+    private fun bulk(
+        clearAfter: Boolean = true,
+        undoLabel: String? = null,
+        op: suspend (AccountCredentials, String) -> Unit,
+    ) {
         val ids = _selectedIds.value
         if (clearAfter) clearSelection()
         // Every bulk op removes its messages from the current view; expanded-conversation
@@ -813,13 +903,19 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         dropThreadMembers(ids)
         viewModelScope.launch {
             var failed = 0
+            // For a reversible bulk op (move to Trash/Archive/folder), capture each message's
+            // source mailbox so the whole batch can be moved back — the same Undo a swipe of one
+            // message already offers, so bulk and swipe behave the same (Codeberg #23).
+            val undoEntries = mutableListOf<UndoEntry>()
             repo.cachedEmailsByIds(ids).forEach { email ->
                 val credentials = credentialsFor(email)
                 if (credentials == null) { failed++; return@forEach }
-                runCatching { op(credentials, email.id) }.onFailure {
-                    failed++
-                    android.util.Log.w("SternaBulk", "bulk op failed for ${email.id}", it)
-                }
+                runCatching { op(credentials, email.id) }
+                    .onSuccess { email.mailboxId?.let { mb -> undoEntries += UndoEntry(email.id, email.accountId, mb) } }
+                    .onFailure {
+                        failed++
+                        android.util.Log.w("SternaBulk", "bulk op failed for ${email.id}", it)
+                    }
             }
             // A large selection can empty the whole loaded window of a huge folder. The rows
             // are gone locally, but an incremental refresh re-fetches nothing (the tens of
@@ -828,6 +924,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // re-query so a full page repopulates the window from the server.
             repo.resetSyncState()
             refresh()
+            if (undoLabel != null && undoEntries.isNotEmpty()) {
+                _undo.value = UndoAction(undoEntries, undoLabel)
+            }
             // Don't fail silently: if nothing (or only some) went through, tell the user.
             if (failed > 0) {
                 _message.value = getApplication<Application>().getString(R.string.status_action_failed)
@@ -835,8 +934,25 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun deleteSelected() = bulk { c, id -> repo.delete(c, id) }
-    fun archiveSelected() = bulk { c, id -> repo.archive(c, id) }
+    fun deleteSelected() {
+        val ids = _selectedIds.value
+        viewModelScope.launch {
+            val emails = repo.cachedEmailsByIds(ids)
+            // If the whole selection would be permanently destroyed (all in Trash, or no Trash),
+            // hold it back behind Undo exactly like a swipe delete, so bulk delete is consistent
+            // (Codeberg #23). A mixed/non-Trash selection keeps the plain move-to-Trash bulk path.
+            val allDestroy = emails.isNotEmpty() && emails.all { e ->
+                credentialsFor(e)?.let { repo.deleteWouldDestroy(it, e) } ?: false
+            }
+            if (allDestroy) {
+                clearSelection()
+                heldBackDestroy(emails, getApplication<Application>().getString(R.string.status_message_deleted))
+            } else {
+                bulk(undoLabel = getApplication<Application>().getString(R.string.status_message_deleted)) { c, id -> repo.delete(c, id) }
+            }
+        }
+    }
+    fun archiveSelected() = bulk(undoLabel = getApplication<Application>().getString(R.string.status_message_archived)) { c, id -> repo.archive(c, id) }
 
     /** Move the selection to [targetMailboxId] (used for unarchive → Inbox and move-to-folder). */
     fun moveSelectedTo(targetMailboxId: String) = bulk { c, id -> repo.moveToMailbox(c, id, targetMailboxId) }
