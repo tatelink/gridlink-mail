@@ -1,0 +1,3 @@
+New-mail notifications now clear themselves when the message is read, whether you read it in Sterna or on another device (a desktop client or webmail). No more stale notifications left to swipe away.
+
+In the compose screen, tapping a header field's label or anywhere along its line now focuses that field, instead of only the thin input being tappable. The screen is also titled "New mail".
