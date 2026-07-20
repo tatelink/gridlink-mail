@@ -127,6 +127,7 @@ fun ComposeScreen(
     val pgpAvailable by viewModel.pgpAvailable.collectAsStateWithLifecycle()
     val pgpMode by viewModel.pgpMode.collectAsStateWithLifecycle()
     val recipientKeys by viewModel.recipientKeys.collectAsStateWithLifecycle()
+    val pgpKeylessRecipients by viewModel.pgpKeylessRecipients.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let(viewModel::attach)
@@ -136,17 +137,16 @@ fun ComposeScreen(
     LaunchedEffect(state) {
         (state as? ComposeState.PgpInteraction)?.let { pgpLauncher(it.pendingIntent) }
     }
-    // Plain-language feedback each time the user cycles the lock toggle, so the
-    // icon states (off / sign / encrypt) aren't a mystery to newcomers.
+    // Plain-language feedback when the user cycles the lock toggle, so the icon states
+    // (off / sign / encrypt) aren't a mystery to newcomers. Only manual toggles announce; an
+    // automatic opportunistic switch stays silent (#35).
     val snackbarHostState = remember { SnackbarHostState() }
-    var pgpModeSeen by remember { mutableStateOf<PgpMode?>(null) }
-    LaunchedEffect(pgpMode) {
-        // Skip the very first emission (initial state), announce only real changes.
-        if (pgpModeSeen != null && pgpModeSeen != pgpMode) {
+    LaunchedEffect(Unit) {
+        viewModel.pgpToggleAnnounce.collect { mode ->
             snackbarHostState.currentSnackbarData?.dismiss()
             snackbarHostState.showSnackbar(
                 message = context.getString(
-                    when (pgpMode) {
+                    when (mode) {
                         PgpMode.OFF -> R.string.compose_pgp_snack_off
                         PgpMode.SIGN -> R.string.compose_pgp_snack_sign
                         PgpMode.ENCRYPT -> R.string.compose_pgp_snack_encrypt
@@ -155,7 +155,6 @@ fun ComposeScreen(
                 duration = SnackbarDuration.Short,
             )
         }
-        pgpModeSeen = pgpMode
     }
 
     LaunchedEffect(Unit) {
@@ -557,9 +556,24 @@ fun ComposeScreen(
                 )
             }
             ComposeField(stringResource(R.string.compose_subject), subject, { subject = it })
-            if (pgpMode == PgpMode.ENCRYPT) {
+            // Only when the body is actually being encrypted to someone (a recipient has a key),
+            // so a fresh encrypt-by-default compose with no recipients doesn't claim it yet (#35).
+            if (pgpMode == PgpMode.ENCRYPT && recipientKeys.values.any { it }) {
                 Text(
                     stringResource(R.string.compose_pgp_subject_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            // Encrypt-by-default couldn't encrypt because these recipients have no key: say so and
+            // name them, so it's clear why the message won't be encrypted (Codeberg #35).
+            if (pgpKeylessRecipients.isNotEmpty()) {
+                Text(
+                    stringResource(
+                        R.string.compose_pgp_not_encrypted_no_key,
+                        pgpKeylessRecipients.joinToString(", "),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),

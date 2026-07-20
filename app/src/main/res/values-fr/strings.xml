@@ -377,7 +377,7 @@
     <string name="settings_pgp_key_none">Aucune clé sélectionnée</string>
     <string name="settings_pgp_choose_key">Choisir la clé</string>
     <string name="settings_pgp_encrypt_default_title">Chiffrer par défaut</string>
-    <string name="settings_pgp_encrypt_default_subtitle">Activer le chiffrement des nouveaux messages quand c\'est possible</string>
+    <string name="settings_pgp_encrypt_default_subtitle">Démarrer les nouveaux messages chiffrés quand chaque destinataire a une clé, sinon envoyer normalement</string>
     <string name="settings_pgp_missing_help">Sterna utilise l\'application OpenKeychain pour gérer les clés et chiffrer les messages. Installez-la pour activer OpenPGP.</string>
     <string name="settings_pgp_install">Installer OpenKeychain</string>
     <string name="settings_pgp_error">Erreur du fournisseur OpenPGP</string>
@@ -402,6 +402,7 @@
     <string name="compose_pgp_sign">Signer ce message</string>
     <string name="compose_pgp_encrypt">Chiffrer ce message</string>
     <string name="compose_pgp_subject_note">L\'objet n\'est pas chiffré.</string>
+    <string name="compose_pgp_not_encrypted_no_key">Ce message ne sera pas chiffré : pas de clé publique pour %1$s.</string>
     <string name="compose_pgp_no_draft">Les messages chiffrés ne peuvent pas être enregistrés en brouillon.</string>
     <string name="compose_pgp_not_configured">OpenPGP n\'est pas configuré pour ce compte.</string>
     <string name="compose_pgp_missing_keys">Aucune clé publique pour un ou plusieurs destinataires.</string>

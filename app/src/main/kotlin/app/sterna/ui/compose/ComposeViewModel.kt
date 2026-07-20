@@ -31,7 +31,10 @@ import kotlinx.coroutines.Dispatchers
 import java.io.File
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -111,13 +114,29 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     private var recipientKeysJob: Job? = null
 
+    /** True once the user sets the lock by hand: the mode then reflects their intent and is never
+     *  auto-downgraded. While false the mode is derived from recipient-key availability (#35). */
+    private var pgpModeUserSet = false
+
+    /** Recipients with no usable key that kept an opportunistic default from encrypting, surfaced
+     *  as an inline hint so it's clear why the message won't be encrypted (#35). */
+    private val _pgpKeylessRecipients = MutableStateFlow<List<String>>(emptyList())
+    val pgpKeylessRecipients: StateFlow<List<String>> = _pgpKeylessRecipients.asStateFlow()
+
+    /** Emits the new mode only when the user cycles the lock by hand, so the confirmation snackbar
+     *  fires on a deliberate toggle and never on an automatic opportunistic switch (#35). */
+    private val _pgpToggleAnnounce = MutableSharedFlow<PgpMode>(extraBufferCapacity = 1)
+    val pgpToggleAnnounce: SharedFlow<PgpMode> = _pgpToggleAnnounce.asSharedFlow()
+
     /** The sending account when its PGP is enabled with a key; else null. */
     private fun pgpAccount(): StoredAccount? =
         (_selectedFrom.value?.accountId ?: accountId ?: store.load()?.id)
             ?.let { store.account(it) }
             ?.takeIf { it.pgpEnabled && it.pgpSignKeyId != 0L }
 
-    /** Re-evaluate availability (on open and on From changes); drops the mode if gone. */
+    /** Re-evaluate availability (on open and on From changes); drops the mode if PGP is gone. The
+     *  opportunistic default is derived from recipient keys in [updateRecipientKeys], not forced
+     *  to ENCRYPT here (#35). */
     private fun refreshPgp() {
         viewModelScope.launch {
             val account = pgpAccount()
@@ -125,33 +144,70 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             _pgpAvailable.value = available
             if (!available) {
                 _pgpMode.value = PgpMode.OFF
-            } else if (account != null && account.pgpEncryptByDefault && _pgpMode.value == PgpMode.OFF) {
+                _pgpKeylessRecipients.value = emptyList()
+            } else if (account?.pgpEncryptByDefault == true && !pgpModeUserSet) {
+                // The default intent is to encrypt (lock closed); deriveAutoMode() backs off visibly
+                // to plaintext if a recipient turns out to have no key (#35).
                 _pgpMode.value = PgpMode.ENCRYPT
             }
         }
     }
 
-    /** Lock toggle: OFF → SIGN → ENCRYPT → OFF. */
+    /** Lock toggle: OFF → SIGN → ENCRYPT → OFF. Marks the mode as user-chosen, so it is honoured
+     *  strictly and never auto-downgraded (#35). */
     fun cyclePgpMode() {
+        pgpModeUserSet = true
+        _pgpKeylessRecipients.value = emptyList()
         _pgpMode.value = when (_pgpMode.value) {
             PgpMode.OFF -> PgpMode.SIGN
             PgpMode.SIGN -> PgpMode.ENCRYPT
             PgpMode.ENCRYPT -> PgpMode.OFF
         }
+        _pgpToggleAnnounce.tryEmit(_pgpMode.value)
     }
 
-    /** Refresh per-recipient key availability (debounced; ENCRYPT mode only). */
+    /**
+     * Refresh per-recipient key availability (debounced), then re-derive the opportunistic default
+     * mode. Runs whenever we care about keys: an encrypt-by-default account (to decide the mode) or
+     * an explicit ENCRYPT (to flag missing recipients). (#35)
+     */
     fun updateRecipientKeys(to: String, cc: String, bcc: String) {
-        if (_pgpMode.value != PgpMode.ENCRYPT) return
+        val account = pgpAccount()
+        val care = _pgpAvailable.value &&
+            (account?.pgpEncryptByDefault == true || _pgpMode.value == PgpMode.ENCRYPT)
+        if (!care) {
+            _recipientKeys.value = emptyMap()
+            return
+        }
         recipientKeysJob?.cancel()
         recipientKeysJob = viewModelScope.launch {
             delay(RECIPIENT_KEYS_DEBOUNCE_MS)
             val addresses = (parseAddrs(to) + parseAddrs(cc) + parseAddrs(bcc)).distinct()
-            if (addresses.isEmpty()) {
-                _recipientKeys.value = emptyMap()
-                return@launch
-            }
-            _recipientKeys.value = runCatching { pgp.findKeysEach(addresses) }.getOrDefault(emptyMap())
+            _recipientKeys.value =
+                if (addresses.isEmpty()) emptyMap()
+                else runCatching { pgp.findKeysEach(addresses) }.getOrDefault(emptyMap())
+            deriveAutoMode(addresses)
+        }
+    }
+
+    /**
+     * Opportunistic default (#35): with encrypt-by-default on and the user not having set the lock
+     * by hand, encrypt only when EVERY recipient has a key, otherwise fall back visibly to plain.
+     * The keyless recipients are recorded for the inline hint. A user-set lock is left untouched.
+     */
+    private fun deriveAutoMode(addresses: List<String>) {
+        val account = pgpAccount() ?: return
+        if (pgpModeUserSet || !account.pgpEncryptByDefault) return
+        // Encrypt is the default intent; back off only when a recipient is CONFIRMED to have no key
+        // (a pending lookup leaves it optimistic, so the lock doesn't flicker while typing). No
+        // recipients yet → stay on the encrypt intent.
+        val keyless = addresses.filter { _recipientKeys.value[it] == false }
+        if (keyless.isEmpty()) {
+            _pgpMode.value = PgpMode.ENCRYPT
+            _pgpKeylessRecipients.value = emptyList()
+        } else {
+            _pgpMode.value = PgpMode.OFF
+            _pgpKeylessRecipients.value = keyless
         }
     }
 

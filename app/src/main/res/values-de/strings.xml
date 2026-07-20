@@ -377,7 +377,7 @@
     <string name="settings_pgp_key_none">Kein Schlüssel ausgewählt</string>
     <string name="settings_pgp_choose_key">Schlüssel wählen</string>
     <string name="settings_pgp_encrypt_default_title">Standardmäßig verschlüsseln</string>
-    <string name="settings_pgp_encrypt_default_subtitle">Neue Nachrichten möglichst verschlüsselt beginnen</string>
+    <string name="settings_pgp_encrypt_default_subtitle">Neue Nachrichten verschlüsselt beginnen, wenn jeder Empfänger einen Schlüssel hat, sonst normal senden</string>
     <string name="settings_pgp_missing_help">Sterna nutzt die OpenKeychain-App zur Schlüsselverwaltung und Verschlüsselung. Installieren Sie sie, um OpenPGP zu aktivieren.</string>
     <string name="settings_pgp_install">OpenKeychain installieren</string>
     <string name="settings_pgp_error">Fehler des OpenPGP-Anbieters</string>
@@ -402,6 +402,7 @@
     <string name="compose_pgp_sign">Diese Nachricht signieren</string>
     <string name="compose_pgp_encrypt">Diese Nachricht verschlüsseln</string>
     <string name="compose_pgp_subject_note">Der Betreff wird nicht verschlüsselt.</string>
+    <string name="compose_pgp_not_encrypted_no_key">Diese Nachricht wird nicht verschlüsselt: kein öffentlicher Schlüssel für %1$s.</string>
     <string name="compose_pgp_no_draft">Verschlüsselte Nachrichten können nicht als Entwurf gespeichert werden.</string>
     <string name="compose_pgp_not_configured">OpenPGP ist für dieses Konto nicht eingerichtet.</string>
     <string name="compose_pgp_missing_keys">Kein öffentlicher Schlüssel für einen oder mehrere Empfänger.</string>

@@ -377,7 +377,7 @@
     <string name="settings_pgp_key_none">Ключ не выбран</string>
     <string name="settings_pgp_choose_key">Выбрать ключ</string>
     <string name="settings_pgp_encrypt_default_title">Шифровать по умолчанию</string>
-    <string name="settings_pgp_encrypt_default_subtitle">Начинать новые письма с включённым шифрованием, когда это возможно</string>
+    <string name="settings_pgp_encrypt_default_subtitle">Начинать новые письма зашифрованными, когда у каждого получателя есть ключ, иначе отправлять обычно</string>
     <string name="settings_pgp_missing_help">Sterna использует приложение OpenKeychain для управления ключами и шифрования писем. Установите его, чтобы включить OpenPGP.</string>
     <string name="settings_pgp_install">Установить OpenKeychain</string>
     <string name="settings_pgp_error">Ошибка провайдера OpenPGP</string>
@@ -402,6 +402,7 @@
     <string name="compose_pgp_sign">Подписать это письмо</string>
     <string name="compose_pgp_encrypt">Зашифровать это письмо</string>
     <string name="compose_pgp_subject_note">Тема письма не шифруется.</string>
+    <string name="compose_pgp_not_encrypted_no_key">Это письмо не будет зашифровано: нет открытого ключа для %1$s.</string>
     <string name="compose_pgp_no_draft">Зашифрованные письма нельзя сохранить как черновик.</string>
     <string name="compose_pgp_not_configured">OpenPGP не настроен для этой учётной записи.</string>
     <string name="compose_pgp_missing_keys">Нет открытого ключа для одного или нескольких получателей.</string>

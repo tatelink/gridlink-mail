@@ -377,7 +377,7 @@
     <string name="settings_pgp_key_none">Geen sleutel geselecteerd</string>
     <string name="settings_pgp_choose_key">Sleutel kiezen</string>
     <string name="settings_pgp_encrypt_default_title">Standaard versleutelen</string>
-    <string name="settings_pgp_encrypt_default_subtitle">Nieuwe berichten met versleuteling beginnen wanneer mogelijk</string>
+    <string name="settings_pgp_encrypt_default_subtitle">Nieuwe berichten versleuteld beginnen als elke ontvanger een sleutel heeft, anders normaal verzenden</string>
     <string name="settings_pgp_missing_help">Sterna gebruikt de OpenKeychain-app om sleutels te beheren en berichten te versleutelen. Installeer deze om OpenPGP in te schakelen.</string>
     <string name="settings_pgp_install">OpenKeychain installeren</string>
     <string name="settings_pgp_error">Fout van de OpenPGP-provider</string>
@@ -402,6 +402,7 @@
     <string name="compose_pgp_sign">Dit bericht ondertekenen</string>
     <string name="compose_pgp_encrypt">Dit bericht versleutelen</string>
     <string name="compose_pgp_subject_note">Het onderwerp wordt niet versleuteld.</string>
+    <string name="compose_pgp_not_encrypted_no_key">Dit bericht wordt niet versleuteld: geen publieke sleutel voor %1$s.</string>
     <string name="compose_pgp_no_draft">Versleutelde berichten kunnen niet als concept worden opgeslagen.</string>
     <string name="compose_pgp_not_configured">OpenPGP is niet ingesteld voor dit account.</string>
     <string name="compose_pgp_missing_keys">Geen openbare sleutel voor een of meer ontvangers.</string>

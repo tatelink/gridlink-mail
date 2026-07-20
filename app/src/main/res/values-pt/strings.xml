@@ -377,7 +377,7 @@
     <string name="settings_pgp_key_none">Nenhuma chave selecionada</string>
     <string name="settings_pgp_choose_key">Escolher chave</string>
     <string name="settings_pgp_encrypt_default_title">Criptografar por padrão</string>
-    <string name="settings_pgp_encrypt_default_subtitle">Iniciar novas mensagens com a criptografia ativada quando possível</string>
+    <string name="settings_pgp_encrypt_default_subtitle">Iniciar novas mensagens cifradas quando cada destinatário tem uma chave; caso contrário, enviar normalmente</string>
     <string name="settings_pgp_missing_help">O Sterna usa o aplicativo OpenKeychain para gerenciar chaves e criptografar mensagens. Instale-o para ativar o OpenPGP.</string>
     <string name="settings_pgp_install">Obter OpenKeychain</string>
     <string name="settings_pgp_error">Erro do provedor OpenPGP</string>
@@ -402,6 +402,7 @@
     <string name="compose_pgp_sign">Assinar esta mensagem</string>
     <string name="compose_pgp_encrypt">Criptografar esta mensagem</string>
     <string name="compose_pgp_subject_note">O assunto não é criptografado.</string>
+    <string name="compose_pgp_not_encrypted_no_key">Esta mensagem não será cifrada: sem chave pública para %1$s.</string>
     <string name="compose_pgp_no_draft">Mensagens criptografadas não podem ser salvas como rascunho.</string>
     <string name="compose_pgp_not_configured">O OpenPGP não está configurado para esta conta.</string>
     <string name="compose_pgp_missing_keys">Nenhuma chave pública para um ou mais destinatários.</string>
