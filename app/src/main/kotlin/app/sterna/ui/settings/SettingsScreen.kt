@@ -164,13 +164,11 @@ fun SettingsScreen(
     accountsViewModel: AccountsViewModel = viewModel(),
 ) {
     val nav = rememberNavController()
-    LaunchedEffect(initialAccountId) {
-        // Deep-link from the drawer's account row: go straight to the account detail and drop the
-        // hub from the back stack, so Back returns to the inbox, not the Settings hub (#34).
-        if (initialAccountId != null) {
-            nav.navigate("account/$initialAccountId") { popUpTo("hub") { inclusive = true } }
-        }
-    }
+    // Deep-link from the drawer's account row (#34): start the inner graph ON the account detail so
+    // the Settings hub never renders. Routing through the hub and popping it after the fact (the old
+    // approach) flashed the hub for a frame plus a slide transition before the detail appeared. With
+    // the detail as the start destination, Back can't pop it (popBackStack returns false) and falls
+    // through to the caller, so Back still returns to the inbox, not the hub.
     // Horizontal push between hub and detail screens (standard master/detail motion): a detail
     // slides in from the right and the hub slides out to the left; Back reverses it. The slides are
     // OPAQUE and fully tile the viewport at every frame, so a fast double-back (e.g. right after a
@@ -178,7 +176,7 @@ fun SettingsScreen(
     // window-background frame — the failure mode that made the old cross-fade unusable here.
     NavHost(
         navController = nav,
-        startDestination = "hub",
+        startDestination = if (initialAccountId != null) "account/$initialAccountId" else "hub",
         enterTransition = { slideInHorizontally(tween(300)) { it } },
         exitTransition = { slideOutHorizontally(tween(300)) { -it } },
         popEnterTransition = { slideInHorizontally(tween(300)) { -it } },
