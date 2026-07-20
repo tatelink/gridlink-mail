@@ -1,0 +1,1 @@
+Fixes a recipient address you typed but hadn't turned into a chip disappearing when you moved to another field. It now becomes a chip when the field loses focus, so what you typed stays visible.

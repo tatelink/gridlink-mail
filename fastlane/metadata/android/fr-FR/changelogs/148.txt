@@ -1,0 +1,1 @@
+Corrige une adresse de destinataire tapée mais pas encore transformée en pastille qui disparaissait quand on passait à un autre champ. Elle devient désormais une pastille quand le champ perd le focus, de sorte que ce que vous avez tapé reste visible.
