@@ -1,0 +1,3 @@
+Le contenu des notifications est désormais à votre main : un nouveau réglage par compte permet à une notification de nouveau message d'afficher l'expéditeur et l'objet (comme avant), l'expéditeur seul, ou ni l'un ni l'autre.
+
+Corrige aussi les compteurs de non-lus des dossiers dans le tiroir qui ne se mettaient pas à jour quand on lisait ou marquait comme non lu un message dans l'application.
