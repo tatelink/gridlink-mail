@@ -1411,16 +1411,27 @@ class MailRepository(
 
     suspend fun setRead(credentials: AccountCredentials, emailId: String, seen: Boolean) {
         markRecentlyMutated(emailId)
+        // Capture before the change so we only move the folder counter on a real transition.
+        val wasSeen = emailDao.seenOf(emailId)
+        val mailboxId = emailDao.mailboxOf(emailId)
         if (credentials.protocol == MailProtocol.IMAP) {
             imapTarget(emailId)?.let { (mb, uid) -> imap.setFlag(credentials, mb, uid, "\\Seen", seen) }
             emailDao.setSeen(emailId, seen)
+            adjustFolderUnreadOnRead(mailboxId, wasSeen, seen)
             return
         }
         val ctx = connect(credentials)
-        val mb = emailDao.mailboxOf(emailId)
         val newState = client.setSeen(ctx.session, ctx.accountId, emailId, seen, ctx.auth)
         emailDao.setSeen(emailId, seen)
-        advanceEmailState(newState, credentials.id, mb)
+        adjustFolderUnreadOnRead(mailboxId, wasSeen, seen)
+        advanceEmailState(newState, credentials.id, mailboxId)
+    }
+
+    /** Keep the drawer's cached folder unread counter fresh on a local read/unread (sync corrects
+     *  drift). Mirrors [adjustCountsForMove]; only moves the count on a real state change (#46). */
+    private suspend fun adjustFolderUnreadOnRead(mailboxId: String?, wasSeen: Boolean?, seen: Boolean) {
+        if (mailboxId == null || wasSeen == null || wasSeen == seen) return
+        mailboxDao.adjustCounts(mailboxId, totalDelta = 0, unreadDelta = if (seen) -1 else 1)
     }
 
     suspend fun setFlagged(credentials: AccountCredentials, emailId: String, flagged: Boolean) {
