@@ -872,8 +872,16 @@ private fun RecipientChipsField(
                         .widthIn(min = 90.dp)
                         .padding(vertical = 6.dp)
                         .onFocusChanged { fs ->
-                            if (fs.isFocused) wasFocused = true
-                            else if (wasFocused) { expanded = false; wasFocused = false }
+                            if (fs.isFocused) {
+                                wasFocused = true
+                            } else if (wasFocused) {
+                                // Commit what was typed but not yet turned into a chip, so it stays
+                                // visible when the field collapses and its input is hidden (#26).
+                                val pending = input.trim()
+                                if (pending.isNotEmpty()) onValueChange(rebuild(chips + pending, ""))
+                                expanded = false
+                                wasFocused = false
+                            }
                         }
                         .onPreviewKeyEvent { ev ->
                             if (ev.type == KeyEventType.KeyDown && ev.key == Key.Backspace &&
