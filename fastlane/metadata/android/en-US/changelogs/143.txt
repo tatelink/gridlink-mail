@@ -1,0 +1,1 @@
+Fixes a crash on Android 11 and older: selecting the Battery saver delivery mode could make the app crash on every launch until its storage was cleared. Battery saver now works on those devices.
