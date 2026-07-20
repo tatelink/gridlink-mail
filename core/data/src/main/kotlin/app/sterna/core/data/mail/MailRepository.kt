@@ -14,6 +14,7 @@ import app.sterna.core.data.account.AccountStore
 import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.OAuthCredentials
+import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.filter.SieveCodec
 import app.sterna.core.data.db.EmailDao
@@ -2827,6 +2828,15 @@ class MailRepository(
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
         val accountId = session.mailAccountId()
             ?: error("This user has no JMAP mail account.")
+        // Codeberg #32: the server is authoritative for the addresses the user may send
+        // as. Refresh them into the account so the composer's From picker reflects the
+        // server, on every client. Best-effort — a fetch failure must not break connect.
+        runCatching {
+            val serverIdentities = client.getIdentities(session, accountId, auth)
+                .filter { it.email.isNotBlank() }
+                .map { StoredIdentity(id = it.id, name = it.name.orEmpty(), email = it.email, signature = it.textSignature.orEmpty()) }
+            accountStore.setServerIdentities(credentials.id, serverIdentities)
+        }
         val mailboxes = client.getMailboxes(session, accountId, auth)
         val roles = mailboxes.mapNotNull { mb -> mb.role?.let { it to mb.id } }.toMap()
         return Context(credentials, session, accountId, auth, roles, mailboxes).also { context = it }

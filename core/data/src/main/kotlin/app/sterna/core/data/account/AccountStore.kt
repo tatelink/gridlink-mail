@@ -236,6 +236,17 @@ class AccountStore(context: Context) {
         saveAccounts(accounts().map { if (it.id == accountId) it.copy(identities = identities) else it })
     }
 
+    /**
+     * Persist the identities discovered from the JMAP server (RFC 8621 Identity/get).
+     * No-op if the id is unknown or the list is unchanged (avoids a needless write on
+     * every connect). Manual [identities] are left untouched.
+     */
+    fun setServerIdentities(accountId: String, identities: List<StoredIdentity>) {
+        val current = account(accountId) ?: return
+        if (current.serverIdentities == identities) return
+        saveAccounts(accounts().map { if (it.id == accountId) it.copy(serverIdentities = identities) else it })
+    }
+
     /** The per-account sync window (defaults to 90 days for unknown ids). */
     fun syncWindow(id: String): SyncWindow = account(id)?.syncWindow ?: SyncWindow.DAYS_90
 

@@ -27,6 +27,12 @@ data class StoredAccount(
     /** Sending identities; empty means use a default derived from the account. */
     val identities: List<StoredIdentity> = emptyList(),
     /**
+     * Identities discovered from the JMAP server (Identity/get, RFC 8621 §6), refreshed
+     * on connect. The server is authoritative for what the user may send as, so these
+     * populate the composer's From picker; [identities] (manual) are merged on top.
+     */
+    val serverIdentities: List<StoredIdentity> = emptyList(),
+    /**
      * True for a freshly imported account (K-9 / backup) that still needs its one-time sign-in.
      * Drives the "accounts to sign in" list; cleared once the user signs it in or dismisses it.
      * The account stays inert (no stored credential) until sign-in regardless of this flag.
@@ -57,10 +63,14 @@ data class StoredAccount(
     fun label(): String = accountName.ifBlank { username }
 
     /**
-     * Identities to send as. Falls back to a single default derived from the
-     * account (its name/address and legacy signature) when none are configured.
+     * Identities to send as. Server-provided identities come first (the server decides
+     * what you may send as), with any manually-configured ones merged on top, deduped by
+     * address. Falls back to a single default derived from the account when none exist.
      */
-    fun resolvedIdentities(): List<StoredIdentity> = identities.ifEmpty {
-        listOf(StoredIdentity(id = "default", name = accountName, email = username, signature = signature))
-    }
+    fun resolvedIdentities(): List<StoredIdentity> =
+        (serverIdentities + identities)
+            .distinctBy { it.email.trim().lowercase() }
+            .ifEmpty {
+                listOf(StoredIdentity(id = "default", name = accountName, email = username, signature = signature))
+            }
 }
