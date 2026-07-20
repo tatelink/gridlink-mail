@@ -1,0 +1,1 @@
+Le menu « De : » du composeur propose désormais les adresses d'envoi configurées sur votre serveur JMAP (alias et identités), rafraîchies à la connexion, sans avoir à les ressaisir. Les identités que vous avez ajoutées manuellement sont conservées à côté.
