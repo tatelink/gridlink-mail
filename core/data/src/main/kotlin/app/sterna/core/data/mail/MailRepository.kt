@@ -93,8 +93,15 @@ import java.io.Closeable
 /** Cap on changes to apply incrementally before falling back to a full query. */
 private const val MAX_CHANGES = 50
 
-/** How long a locally flag/seen-changed id is protected from sync eviction (ms). */
-private const val RECENT_MUTATION_MS = 20_000L
+/**
+ * How long a locally mutated id (flag/seen change, delete, or an undo's move-back) is protected
+ * from sync eviction (ms). This window must comfortably outlast the server's read-after-write
+ * delay on a move-back: after an Undo we move the message back on the server and re-cache it,
+ * and the next reconcile (delta OR full-query) must not prune it before the server reports it
+ * home again. Local Stalwart reflects a move within ~a second, but push echoes and a periodic
+ * sync can land later, so keep a generous margin.
+ */
+private const val RECENT_MUTATION_MS = 45_000L
 
 /** Page size for the cached email list (rows loaded per scroll step). */
 private const val PAGE_SIZE = 50
@@ -427,6 +434,14 @@ class MailRepository(
     }
 
     /**
+     * The ids still inside their mutation-protection window (expired entries are pruned as a
+     * side effect). Handed to the full-query reconcile so a fresh page can't delete a row we
+     * just mutated/restored but the server hasn't caught up on yet.
+     */
+    private fun recentlyMutatedIds(): List<String> =
+        recentlyMutated.keys.filter { isRecentlyMutated(it) }
+
+    /**
      * Bring a mailbox's cache up to date. Uses Email/queryChanges (which respects
      * thread collapsing) + Email/changes when we have prior state; otherwise, or
      * when the server can't compute the delta, falls back to a full query.
@@ -474,7 +489,7 @@ class MailRepository(
         }
         // Cold cache, or the server can't compute changes — full query.
         val page = client.queryEmailsPage(session, accountId, mailboxId, limit, auth)
-        emailDao.replaceMailbox(localAccountId, mailboxId, page.emails.map { it.toEntity(localAccountId, mailboxId) })
+        emailDao.replaceMailbox(localAccountId, mailboxId, page.emails.map { it.toEntity(localAccountId, mailboxId) }, recentlyMutatedIds())
         android.util.Log.i("MailSync", "full query $mailboxId: ${page.emails.size} emails")
         val queryState = page.queryState
         val emailState = page.emailState
@@ -716,7 +731,7 @@ class MailRepository(
             runCatching {
                 if (credentials.protocol == MailProtocol.IMAP) {
                     val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = limit)
-                    emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages)
+                    emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds())
                     results += AccountInboxMeta(
                         credentials.id, load.accountName, load.targetMailboxId, load.targetName, load.unread,
                     )
@@ -1038,7 +1053,7 @@ class MailRepository(
     ): MailboxMeta {
         val load = imap.loadFolder(credentials, mailboxId, limit)
         mailboxDao.replaceAll(load.mailboxes)
-        emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages)
+        emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds())
         if (pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, load.targetMailboxId, pruneBeforeMillis)
         return MailboxMeta(load.accountName, load.targetMailboxId, load.targetName, load.unread)
     }
@@ -1462,24 +1477,30 @@ class MailRepository(
      * Archive folder; "archiving" just drops the Inbox membership, leaving the message in \All),
      * else create an Archive folder as a last resort.
      */
-    suspend fun archive(credentials: AccountCredentials, emailId: String) {
+    suspend fun archive(credentials: AccountCredentials, emailId: String): String? {
+        val row = emailDao.emailsByIds(listOf(emailId)).firstOrNull()
         if (credentials.protocol == MailProtocol.IMAP) {
+            val dest = imapRoleFolder(credentials, "archive", "all")
+                ?: run { imap.createFolder(credentials, "Archive"); "Archive" }
+            var noop = false
             imapTarget(emailId)?.let { (mb, uid) ->
-                val dest = imapRoleFolder(credentials, "archive", "all")
-                    ?: run { imap.createFolder(credentials, "Archive"); "Archive" }
-                if (mb == dest) return // already in the archive/all folder — nothing to do
+                if (mb == dest) { noop = true; return@let } // already in the archive/all folder
                 imap.move(credentials, mb, uid, dest)?.let { lastImapMove[emailId] = ImapLoc(dest, it) }
             }
             emailDao.deleteById(emailId)
-            return
+            if (noop) return null
+            adjustCountsForRemoval(listOfNotNull(row), dest)
+            return dest
         }
         val ctx = connect(credentials)
-        val mb = emailDao.mailboxOf(emailId)
+        val mb = row?.mailboxId ?: emailDao.mailboxOf(emailId)
         val target = archiveMailboxId(ctx) ?: ctx.rolesToMailboxId["all"] ?: createArchiveFolder(ctx)
-        if (mb == target) return // already in the archive/all folder — nothing to do
-        val newState = client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
+        if (mb == target) return null // already in the archive/all folder — nothing to do
         emailDao.deleteById(emailId)
+        adjustCountsForRemoval(listOfNotNull(row), target)
+        val newState = client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
         advanceEmailState(newState, credentials.id, mb)
+        return target
     }
 
     /**
@@ -1492,52 +1513,66 @@ class MailRepository(
         return email.mailboxId == trash
     }
 
-    /**
-     * Permanently destroy a message regardless of its folder (JMAP destroy / IMAP expunge).
-     * Unlike [delete] it never moves to Trash, so it is correct for a message already there,
-     * and it does not depend on the local cache (the IMAP location is parsed from the id),
-     * so it still works after the row has been optimistically evicted (Codeberg #23).
-     */
-    suspend fun destroyMessage(credentials: AccountCredentials, emailId: String) {
-        if (credentials.protocol == MailProtocol.IMAP) {
-            imapTarget(emailId)?.let { (mb, uid) -> imap.deleteMessage(credentials, mb, uid) }
-            emailDao.deleteById(emailId)
-            return
-        }
-        val ctx = connect(credentials)
-        val mb = emailDao.mailboxOf(emailId)
-        val newState = client.destroy(ctx.session, ctx.accountId, emailId, ctx.auth)
-        emailDao.deleteById(emailId)
-        advanceEmailState(newState, credentials.id, mb)
-    }
-
-    /** Move a message to an arbitrary mailbox (e.g. unarchive → Inbox, or move-to-folder). */
-    suspend fun moveToMailbox(credentials: AccountCredentials, emailId: String, targetMailboxId: String) {
-        // Captured before the local row is dropped, to nudge the drawer's cached counts.
+    /** Move a message to an arbitrary mailbox (e.g. unarchive → Inbox, or move-to-folder).
+     *  Returns the destination the message ended up in (null = a no-op, already there), so the
+     *  caller can offer an Undo that both restores the row and reverses the count nudge. */
+    suspend fun moveToMailbox(credentials: AccountCredentials, emailId: String, targetMailboxId: String): String? {
+        // Captured before the local row is dropped, to decrement the TRUE source and increment the
+        // destination in the drawer's cached counts (INV-COUNT). The next mailbox-state sync
+        // (getMailboxes on every refresh) corrects any drift.
         val moved = emailDao.emailsByIds(listOf(emailId)).firstOrNull()
+        if (moved != null && moved.mailboxId == targetMailboxId) return null
+        // Network-first (the local drop follows a successful move): this path is also reached by
+        // the reader's report-spam / not-spam, which don't restore the row on failure, so a failed
+        // move must never leave the cache short of a row that is still on the server.
         if (credentials.protocol == MailProtocol.IMAP) {
-            imapTarget(emailId)?.let { (mb, uid) ->
-                if (mb == targetMailboxId) return@let
+            val already = imapTarget(emailId)?.let { (mb, uid) ->
+                if (mb == targetMailboxId) return@let true
                 imap.move(credentials, mb, uid, targetMailboxId)?.let { lastImapMove[emailId] = ImapLoc(targetMailboxId, it) }
-            }
+                false
+            } ?: false
             emailDao.deleteById(emailId)
-            adjustCountsForMove(moved, targetMailboxId)
-            return
+            if (already) return null
+            adjustCountsForRemoval(listOfNotNull(moved), targetMailboxId)
+            return targetMailboxId
         }
         val ctx = connect(credentials)
-        val mb = emailDao.mailboxOf(emailId)
+        val mb = moved?.mailboxId ?: emailDao.mailboxOf(emailId)
         val newState = client.move(ctx.session, ctx.accountId, emailId, targetMailboxId, ctx.auth)
         emailDao.deleteById(emailId)
-        adjustCountsForMove(moved, targetMailboxId)
+        adjustCountsForRemoval(listOfNotNull(moved), targetMailboxId)
         advanceEmailState(newState, credentials.id, mb)
+        return targetMailboxId
     }
 
-    /** Keep the drawer's cached folder counters fresh after a local move (sync corrects drift). */
-    private suspend fun adjustCountsForMove(moved: EmailEntity?, targetMailboxId: String) {
-        if (moved == null || moved.mailboxId == targetMailboxId) return
-        val unread = if (moved.seen) 0 else 1
-        mailboxDao.adjustCounts(moved.mailboxId, totalDelta = -1, unreadDelta = -unread)
-        mailboxDao.adjustCounts(targetMailboxId, totalDelta = 1, unreadDelta = unread)
+    /**
+     * Nudge the drawer's cached folder counters when [rows] leave their source folder(s) into
+     * [destMailboxId] (null when they are destroyed / emptied). Each row is decremented from its
+     * OWN mailboxId, so deleting from Inbox hits Inbox and from Archive hits Archive (INV-SOURCE);
+     * the destination is incremented for a move. Unread deltas count only unseen rows. Counts are
+     * optimistic — the next mailbox-state sync (getMailboxes) reconciles them to server truth.
+     */
+    private suspend fun adjustCountsForRemoval(rows: List<EmailEntity>, destMailboxId: String?) =
+        nudgeCounts(rows.map { it.mailboxId to it.seen }, destMailboxId)
+
+    /**
+     * The count-nudge primitive: [sources] is (sourceMailboxId, seen) for each row leaving its
+     * folder into [destMailboxId] (null = destroyed). Decrements each distinct source, increments
+     * the destination. An Undo reuses this in reverse — the "source" of the reverse move is the
+     * folder the message currently sits in (Trash/Archive/dest) and the "dest" is where it goes
+     * home to — so restoring counts is just another removal.
+     */
+    private suspend fun nudgeCounts(sources: List<Pair<String, Boolean>>, destMailboxId: String?) {
+        sources.groupBy { it.first }.forEach { (src, group) ->
+            if (src == destMailboxId) return@forEach
+            mailboxDao.adjustCounts(src, totalDelta = -group.size, unreadDelta = -group.count { !it.second })
+        }
+        if (destMailboxId != null) {
+            val incoming = sources.filter { it.first != destMailboxId }
+            if (incoming.isNotEmpty()) {
+                mailboxDao.adjustCounts(destMailboxId, totalDelta = incoming.size, unreadDelta = incoming.count { !it.second })
+            }
+        }
     }
 
     // ---- bulk (batched) actions (Codeberg #29) ----------------------------------------
@@ -1546,8 +1581,10 @@ class MailRepository(
     // The caller (InboxViewModel) groups the selection by account first; each method here
     // takes one account's ids, then (IMAP) groups them by source folder.
 
-    /** Which ids of a batch actually went through, and which failed — for the bulk snackbar/toast. */
-    class BulkResult(val succeeded: Set<String>, val failed: Set<String>) {
+    /** Which ids of a batch actually went through, and which failed — for the bulk snackbar/toast.
+     *  [dest] is the folder the succeeded ids were moved to (null = destroyed / no single dest),
+     *  so an undoable bulk op can reverse the drawer-count nudge on Undo. */
+    class BulkResult(val succeeded: Set<String>, val failed: Set<String>, val dest: String? = null) {
         companion object { val EMPTY = BulkResult(emptySet(), emptySet()) }
     }
 
@@ -1564,6 +1601,8 @@ class MailRepository(
         val uidToId = ids.mapNotNull { id -> ImapMailService.uidOf(id)?.let { it to id } }.toMap()
         failed += ids.filter { ImapMailService.uidOf(it) == null }
         if (uidToId.isEmpty()) return
+        // Captured before the local rows are dropped, to nudge the drawer counts (INV-COUNT).
+        val rows = emailDao.emailsByIds(uidToId.values.toList())
         runCatching { imap.moveBatch(credentials, source, uidToId.keys.toList(), dest) }
             .onSuccess { mapping ->
                 uidToId.forEach { (uid, id) ->
@@ -1571,6 +1610,7 @@ class MailRepository(
                     emailDao.deleteById(id)
                     succeeded += id
                 }
+                adjustCountsForRemoval(rows.filter { it.id in uidToId.values }, dest)
             }
             .onFailure { failed += uidToId.values }
     }
@@ -1583,22 +1623,38 @@ class MailRepository(
         val uidToId = ids.mapNotNull { id -> ImapMailService.uidOf(id)?.let { it to id } }.toMap()
         failed += ids.filter { ImapMailService.uidOf(it) == null }
         if (uidToId.isEmpty()) return
+        val rows = emailDao.emailsByIds(uidToId.values.toList())
         runCatching { imap.deleteBatch(credentials, source, uidToId.keys.toList()) }
-            .onSuccess { uidToId.values.forEach { emailDao.deleteById(it); succeeded += it } }
+            .onSuccess {
+                uidToId.values.forEach { emailDao.deleteById(it); succeeded += it }
+                adjustCountsForRemoval(rows, destMailboxId = null)
+            }
             .onFailure { failed += uidToId.values }
     }
 
     /** JMAP: move every id to exactly [target] in one `Email/set`, then drop the local rows. */
-    private suspend fun jmapMoveAll(ctx: Context, emailIds: List<String>, target: String): BulkResult =
-        runCatching { client.move(ctx.session, ctx.accountId, emailIds, target, ctx.auth) }
-            .map { emailIds.forEach { emailDao.deleteById(it) }; BulkResult(emailIds.toSet(), emptySet()) }
+    private suspend fun jmapMoveAll(ctx: Context, emailIds: List<String>, target: String): BulkResult {
+        val rows = emailDao.emailsByIds(emailIds)
+        return runCatching { client.move(ctx.session, ctx.accountId, emailIds, target, ctx.auth) }
+            .map {
+                emailIds.forEach { emailDao.deleteById(it) }
+                adjustCountsForRemoval(rows, target)
+                BulkResult(emailIds.toSet(), emptySet(), dest = target)
+            }
             .getOrElse { BulkResult(emptySet(), emailIds.toSet()) }
+    }
 
     /** JMAP: destroy every id in one `Email/set`, then drop the local rows. */
-    private suspend fun jmapDestroyAll(ctx: Context, emailIds: List<String>): BulkResult =
-        runCatching { client.destroy(ctx.session, ctx.accountId, emailIds, ctx.auth) }
-            .map { emailIds.forEach { emailDao.deleteById(it) }; BulkResult(emailIds.toSet(), emptySet()) }
+    private suspend fun jmapDestroyAll(ctx: Context, emailIds: List<String>): BulkResult {
+        val rows = emailDao.emailsByIds(emailIds)
+        return runCatching { client.destroy(ctx.session, ctx.accountId, emailIds, ctx.auth) }
+            .map {
+                emailIds.forEach { emailDao.deleteById(it) }
+                adjustCountsForRemoval(rows, destMailboxId = null)
+                BulkResult(emailIds.toSet(), emptySet())
+            }
             .getOrElse { BulkResult(emptySet(), emailIds.toSet()) }
+    }
 
     /** Archive a whole selection (one account). Messages already in the archive/all folder are dropped locally. */
     suspend fun archiveAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
@@ -1614,7 +1670,7 @@ class MailRepository(
                     else -> imapMoveGroup(credentials, source, ids, dest, succeeded, failed)
                 }
             }
-            return BulkResult(succeeded, failed)
+            return BulkResult(succeeded, failed, dest = dest)
         }
         val ctx = connect(credentials)
         val target = archiveMailboxId(ctx) ?: ctx.rolesToMailboxId["all"] ?: createArchiveFolder(ctx)
@@ -1633,7 +1689,7 @@ class MailRepository(
                     else -> imapMoveGroup(credentials, source, ids, targetMailboxId, succeeded, failed)
                 }
             }
-            return BulkResult(succeeded, failed)
+            return BulkResult(succeeded, failed, dest = targetMailboxId)
         }
         return jmapMoveAll(connect(credentials), emailIds, targetMailboxId)
     }
@@ -1659,14 +1715,16 @@ class MailRepository(
                     else -> imapDestroyGroup(credentials, source, ids, succeeded, failed)
                 }
             }
-            return BulkResult(succeeded, failed)
+            // Undo restores the moved-to-Trash subset back to their source; the destroyed subset
+            // (already in Trash / no Trash) can't be undone, so Trash is the meaningful dest.
+            return BulkResult(succeeded, failed, dest = trash)
         }
         val ctx = connect(credentials)
         val trash = ctx.rolesToMailboxId["trash"]
         val (toDestroy, toTrash) = emailIds.partition { id -> trash == null || emailDao.mailboxOf(id) == trash }
         if (toTrash.isNotEmpty()) jmapMoveAll(ctx, toTrash, trash!!).let { succeeded += it.succeeded; failed += it.failed }
         if (toDestroy.isNotEmpty()) jmapDestroyAll(ctx, toDestroy).let { succeeded += it.succeeded; failed += it.failed }
-        return BulkResult(succeeded, failed)
+        return BulkResult(succeeded, failed, dest = trash)
     }
 
     /** Permanently destroy a whole selection (one account) — the held-back bulk destroy (Codeberg #23/#29). */
@@ -1918,40 +1976,39 @@ class MailRepository(
     }
 
     /**
-     * Undo a delete/archive: move the message back to [mailboxId] on the server and
-     * re-cache it there so it reappears in the list.
+     * One message to move back on an Undo: [emailId] returns to [sourceMailboxId] (where it was
+     * before the action), coming from [destMailboxId] (where the forward action put it — Trash,
+     * Archive, or a target folder; null when it was a destroy, which can't be undone but is kept
+     * for shape). The dest lets the undo reverse the count nudge without a reconciling refresh.
      */
-    suspend fun restore(credentials: AccountCredentials, emailId: String, mailboxId: String) {
-        if (credentials.protocol == MailProtocol.IMAP) {
-            val loc = lastImapMove.remove(emailId) ?: return
-            val newUid = imap.move(credentials, loc.mailboxId, loc.uid, mailboxId) ?: return
-            imap.fetchByUid(credentials, mailboxId, newUid)?.let { emailDao.upsertAll(listOf(it)) }
-            return
-        }
-        val ctx = connect(credentials)
-        client.move(ctx.session, ctx.accountId, emailId, mailboxId, ctx.auth)
-        val fetched = client.getEmailsByIds(ctx.session, ctx.accountId, listOf(emailId), ctx.auth)
-        if (fetched.isNotEmpty()) emailDao.upsertAll(fetched.map { it.toEntity(ctx.credentials.id, mailboxId) })
-    }
+    data class RestoreTarget(val emailId: String, val sourceMailboxId: String, val destMailboxId: String?)
 
     /**
-     * Undo a batched move/delete for one account: move every message back to its source
-     * folder, grouped so each (current folder → source folder) route is ONE `UID MOVE` /
-     * `Email/set` instead of one command per message (Codeberg #29). Restoring a large batch
-     * with per-message moves would hit the very server limits the forward batch avoids, so the
-     * whole set must go back together. [targets] is (emailId, sourceMailboxId) per message.
+     * Undo a batched move/delete for one account: move every message back to its source folder,
+     * grouped so each (current folder → source folder) route is ONE `UID MOVE` / `Email/set`
+     * instead of one command per message (Codeberg #29). Restoring a large batch with per-message
+     * moves would hit the very server limits the forward batch avoids, so the whole set must go
+     * back together.
+     *
+     * This is an OPTIMISTIC restore that STICKS: every restored id is marked recently-mutated so
+     * neither reconcile path (delta or full-query) prunes it while the server catches up on the
+     * move-back, and the count nudge is reversed here — so the caller must NOT fire a reconciling
+     * refresh afterwards (that would read stale server state and race the restore).
      */
-    suspend fun restoreAll(credentials: AccountCredentials, targets: List<Pair<String, String>>) {
+    suspend fun restoreAll(credentials: AccountCredentials, targets: List<RestoreTarget>) {
         if (targets.isEmpty()) return
+        // Protect the restored ids from the next reconcile BEFORE any server call, so even a sync
+        // that fires mid-restore can't drop them.
+        targets.forEach { markRecentlyMutated(it.emailId) }
         if (credentials.protocol == MailProtocol.IMAP) {
             // Group by (current folder the message sits in, source folder to return it to).
             // lastImapMove holds where the forward move put each id and its UID there.
             val byRoute = LinkedHashMap<Pair<String, String>, MutableList<Long>>()
             val restoredIds = mutableListOf<String>()
-            targets.forEach { (emailId, source) ->
-                val loc = lastImapMove[emailId] ?: return@forEach
-                byRoute.getOrPut(loc.mailboxId to source) { mutableListOf() } += loc.uid
-                restoredIds += emailId
+            targets.forEach { t ->
+                val loc = lastImapMove[t.emailId] ?: return@forEach
+                byRoute.getOrPut(loc.mailboxId to t.sourceMailboxId) { mutableListOf() } += loc.uid
+                restoredIds += t.emailId
             }
             byRoute.forEach { (route, uids) ->
                 val (currentFolder, source) = route
@@ -1961,58 +2018,92 @@ class MailRepository(
                     runCatching { imap.fetchByUids(credentials, source, newUids) }
                         .getOrDefault(emptyList())
                         .takeIf { it.isNotEmpty() }
-                        ?.let { emailDao.upsertAll(it) }
+                        ?.let { fetched -> emailDao.upsertAll(fetched); fetched.forEach { markRecentlyMutated(it.id) } }
                 }
             }
             restoredIds.forEach { lastImapMove.remove(it) }
+            restoreCounts(targets)
             return
         }
         // JMAP: ids are stable across mailbox moves, so move each id back to its source in one
         // Email/set per source folder, then re-fetch to re-cache the restored rows.
         val ctx = connect(credentials)
-        targets.groupBy({ it.second }, { it.first }).forEach { (source, ids) ->
+        targets.groupBy { it.sourceMailboxId }.forEach { (source, group) ->
+            val ids = group.map { it.emailId }
             runCatching { client.move(ctx.session, ctx.accountId, ids, source, ctx.auth) }
             val fetched = runCatching { client.getEmailsByIds(ctx.session, ctx.accountId, ids, ctx.auth) }.getOrDefault(emptyList())
-            if (fetched.isNotEmpty()) emailDao.upsertAll(fetched.map { it.toEntity(ctx.credentials.id, source) })
+            if (fetched.isNotEmpty()) {
+                emailDao.upsertAll(fetched.map { it.toEntity(ctx.credentials.id, source) })
+                fetched.forEach { markRecentlyMutated(it.id) }
+            }
+        }
+        restoreCounts(targets)
+    }
+
+    /**
+     * Reverse the forward removal's count nudge for an Undo: each message moves from where it now
+     * sits ([RestoreTarget.destMailboxId]) back to [RestoreTarget.sourceMailboxId]. Rows whose
+     * seen state we could re-cache use it; the rest are treated as read (the common case for an
+     * already-triaged message) — a small transient the next sync corrects anyway.
+     */
+    private suspend fun restoreCounts(targets: List<RestoreTarget>) {
+        val seenById = emailDao.emailsByIds(targets.map { it.emailId }).associate { it.id to it.seen }
+        val moves = targets.mapNotNull { t ->
+            val dest = t.destMailboxId ?: return@mapNotNull null // a destroy can't be undone
+            (dest to (seenById[t.emailId] ?: true))
+                .takeIf { dest != t.sourceMailboxId }
+                ?.let { t.sourceMailboxId to it }
+        }
+        moves.groupBy({ it.first }, { it.second }).forEach { (source, rows) ->
+            nudgeCounts(rows, destMailboxId = source)
         }
     }
 
-    /** Move to Trash (or destroy if there is none) and drop from the local list. */
-    suspend fun delete(credentials: AccountCredentials, emailId: String) {
+    /** Move to Trash (or destroy if there is none) and drop from the local list. Returns the
+     *  Trash folder the message landed in (null when it was destroyed for real / no Trash), so
+     *  the caller can offer an Undo that restores the row and reverses the count nudge. */
+    suspend fun delete(credentials: AccountCredentials, emailId: String): String? {
         // Opt-in: flag the message read on its way out, so Trash doesn't accumulate unread
         // badges. Best-effort BEFORE the move (the id changes with an IMAP move); a failure
         // must never block the deletion itself.
         if (settings?.markReadOnDelete?.first() == true && emailDao.seenOf(emailId) == false) {
             runCatching { setRead(credentials, emailId, true) }
         }
+        val row = emailDao.emailsByIds(listOf(emailId)).firstOrNull()
         if (credentials.protocol == MailProtocol.IMAP) {
+            val trash = imapRoleFolder(credentials, "trash")
+            var dest: String? = null
             imapTarget(emailId)?.let { (mb, uid) ->
-                val trash = imapRoleFolder(credentials, "trash")
                 // Deleting a message that is already in Trash (or when there is no Trash)
                 // must permanently remove it: moving it to the folder it already sits in is
                 // a no-op that leaves it on the server (Codeberg #23).
                 if (trash != null && mb != trash) {
                     imap.move(credentials, mb, uid, trash)?.let { lastImapMove[emailId] = ImapLoc(trash, it) }
+                    dest = trash
                 } else {
                     imap.deleteMessage(credentials, mb, uid) // permanent; no undo
                 }
             }
             emailDao.deleteById(emailId)
-            return
+            adjustCountsForRemoval(listOfNotNull(row), dest)
+            return dest
         }
         val ctx = connect(credentials)
-        val mb = emailDao.mailboxOf(emailId)
+        val mb = row?.mailboxId ?: emailDao.mailboxOf(emailId)
         val trash = ctx.rolesToMailboxId["trash"]
         // Already in Trash (mb == trash) or no Trash at all → destroy for real; moving a
         // message to the mailbox it already occupies is a server no-op, so the message would
         // reappear on the next sync and never actually be deleted (Codeberg #23).
-        val newState = if (trash != null && mb != trash) {
-            client.move(ctx.session, ctx.accountId, emailId, trash, ctx.auth)
+        val toTrash = trash != null && mb != trash
+        emailDao.deleteById(emailId)
+        adjustCountsForRemoval(listOfNotNull(row), if (toTrash) trash else null)
+        val newState = if (toTrash) {
+            client.move(ctx.session, ctx.accountId, emailId, trash!!, ctx.auth)
         } else {
             client.destroy(ctx.session, ctx.accountId, emailId, ctx.auth)
         }
-        emailDao.deleteById(emailId)
         advanceEmailState(newState, credentials.id, mb)
+        return if (toTrash) trash else null
     }
 
     /**
@@ -2132,8 +2223,19 @@ class MailRepository(
     suspend fun cachedThreadEmailsAllFolders(accountId: String, threadKey: String): List<Email> =
         emailDao.cachedThreadEmailsAllFolders(accountId, threadKey).map { it.toEmail() }
 
-    /** Remove a message from the local cache only (optimistic UI removal). */
-    suspend fun evict(emailId: String) = emailDao.deleteById(emailId)
+    /**
+     * Remove a message from the local cache only (optimistic UI removal), decrementing its source
+     * folder's drawer counts. Used by the held-back destroy paths (in-Trash delete, empty-trash):
+     * the row leaves the list and the count drops NOW, while the actual server destroy is held
+     * behind the Undo window. If the destroy is later undone, [forceRefresh] re-queries the server
+     * and the next getMailboxes resets the counts to truth (the message is still there), so no
+     * explicit count restore is needed for these paths.
+     */
+    suspend fun evict(emailId: String) {
+        val row = emailDao.emailsByIds(listOf(emailId)).firstOrNull()
+        emailDao.deleteById(emailId)
+        adjustCountsForRemoval(listOfNotNull(row), destMailboxId = null)
+    }
 
     /**
      * Drop in-memory sync bookkeeping so the next refresh does a full re-query.

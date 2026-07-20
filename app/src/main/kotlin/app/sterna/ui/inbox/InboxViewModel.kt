@@ -22,6 +22,7 @@ import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.Mailbox
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.send.SendOutbox
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -90,11 +91,14 @@ private const val SERVER_SEARCH_LIMIT = 200
 /** The actions bound to the two swipe directions (from Settings → Reading). */
 data class SwipeConfig(val right: SwipeAction, val left: SwipeAction)
 
-/** One message that can be moved back to its original mailbox by an Undo. */
+/** One message that can be moved back to its original mailbox by an Undo. [mailboxId] is the
+ *  SOURCE folder to restore to; [destMailboxId] is where the forward action put it (Trash /
+ *  Archive / target), so the undo can reverse the drawer-count nudge (null = it was destroyed). */
 data class UndoEntry(
     val emailId: String,
     val accountId: String?,
     val mailboxId: String,
+    val destMailboxId: String? = null,
 )
 
 /**
@@ -473,15 +477,21 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         refresh()
     }
 
+    /** The in-flight refresh, so a new one cancels-and-replaces it (never two reconciles at once). */
+    private var refreshJob: Job? = null
+
     fun refresh() {
+        refreshJob?.cancel()
         status.value = Status(refreshing = true, error = null)
-        viewModelScope.launch {
+        refreshJob = viewModelScope.launch {
             try {
                 when (val sel = selection.value) {
                     Sel.Unified -> refreshUnified()
                     is Sel.Folder -> refreshFolder(sel.id)
                 }
                 status.value = Status(refreshing = false, error = null)
+            } catch (c: CancellationException) {
+                throw c // a superseding refresh cancelled us — don't stomp its status
             } catch (t: Throwable) {
                 status.value = Status(refreshing = false, error = t.message ?: t.javaClass.simpleName)
             }
@@ -691,7 +701,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * Remove every message of a thread optimistically, run [op] per message, then offer one Undo
      * that restores the whole batch. Mirrors [swipeRemove] but for a collapsed conversation.
      */
-    private fun threadSwipeRemove(rep: Email, labelRes: Int, op: suspend (AccountCredentials, String) -> Unit) {
+    private fun threadSwipeRemove(rep: Email, labelRes: Int, op: suspend (AccountCredentials, String) -> String?) {
         viewModelScope.launch {
             val members = threadMessages(rep)
             // The conversation is leaving the list — drop its inline-expansion state.
@@ -704,9 +714,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             members.forEach { m ->
                 val credentials = credentialsFor(m) ?: return@forEach
                 val mailboxId = m.mailboxId ?: return@forEach
-                repo.evict(m.id)
+                // The repo op removes the row locally and nudges counts; no separate pre-evict.
                 runCatching { op(credentials, m.id) }
-                    .onSuccess { entries += UndoEntry(m.id, m.accountId, mailboxId) }
+                    .onSuccess { dest -> entries += UndoEntry(m.id, m.accountId, mailboxId, dest) }
                     .onFailure { failed = true }
             }
             if (entries.isNotEmpty()) {
@@ -739,16 +749,18 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * Remove [email] optimistically (so the row leaves instantly — never stuck mid-swipe), run
      * the server [op], then either offer Undo on success or restore the row + report the error.
      */
-    private fun swipeRemove(email: Email, label: String, op: suspend (AccountCredentials, String) -> Unit) {
+    private fun swipeRemove(email: Email, label: String, op: suspend (AccountCredentials, String) -> String?) {
         val credentials = credentialsFor(email) ?: return
         val mailboxId = email.mailboxId
         viewModelScope.launch {
-            repo.evict(email.id)
+            // No pre-evict: the repo op removes the row locally (optimistically, before its network
+            // round-trip) AND nudges the drawer counts from the true source, so the list still
+            // clears instantly. It returns the destination the message went to, for the Undo.
             dropThreadMember(email)
             runCatching { op(credentials, email.id) }
-                .onSuccess {
+                .onSuccess { dest ->
                     if (mailboxId != null) {
-                        _undo.value = UndoAction(listOf(UndoEntry(email.id, email.accountId, mailboxId)), label)
+                        _undo.value = UndoAction(listOf(UndoEntry(email.id, email.accountId, mailboxId, dest)), label)
                     }
                 }
                 .onFailure {
@@ -768,8 +780,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // per-message server limits the forward batch avoids (Codeberg #29).
             action.entries.groupBy { it.accountId }.forEach { (accountId, entries) ->
                 val credentials = accountId?.let { store.credentials(it) } ?: store.load() ?: return@forEach
-                runCatching { repo.restoreAll(credentials, entries.map { it.emailId to it.mailboxId }) }
-                    .onFailure { status.value = Status(refreshing = false, error = it.message) }
+                // Optimistic restore that STICKS: restoreAll re-tags the rows, marks them
+                // recently-mutated (so the reconcile spares them) and reverses the count nudge.
+                // Deliberately NO refresh here — a reconciling re-query would race the move-back.
+                runCatching {
+                    repo.restoreAll(
+                        credentials,
+                        entries.map { MailRepository.RestoreTarget(it.emailId, it.mailboxId, it.destMailboxId) },
+                    )
+                }.onFailure { status.value = Status(refreshing = false, error = it.message) }
             }
         }
     }
@@ -940,7 +959,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 val credentials = credentialsFor(email)
                 if (credentials == null) { failed++; return@forEach }
                 runCatching { op(credentials, email.id) }
-                    .onSuccess { email.mailboxId?.let { mb -> undoEntries += UndoEntry(email.id, email.accountId, mb) } }
+                    .onSuccess { email.mailboxId?.let { mb -> undoEntries += UndoEntry(email.id, email.accountId, mb, null) } }
                     .onFailure {
                         failed++
                         android.util.Log.w("SternaBulk", "bulk op failed for ${email.id}", it)
@@ -996,7 +1015,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 if (undoLabel != null) {
                     group.forEach { email ->
                         if (email.id in result.succeeded) {
-                            email.mailboxId?.let { mb -> undoEntries += UndoEntry(email.id, email.accountId, mb) }
+                            email.mailboxId?.let { mb -> undoEntries += UndoEntry(email.id, email.accountId, mb, result.dest) }
                         }
                     }
                 }
