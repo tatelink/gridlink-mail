@@ -6,12 +6,15 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -19,18 +22,14 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
@@ -277,10 +276,8 @@ fun ComposeScreen(
     }
 
     // Land in the recipient field with the keyboard up, unless this is a reply (To is prefilled).
+    // The To field opens and self-focuses via its `autoFocus` flag below.
     val toFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        if (replyTo == null) runCatching { toFocus.requestFocus() }
-    }
 
     val sending = state is ComposeState.Sending
 
@@ -459,26 +456,21 @@ fun ComposeScreen(
             )
         },
     ) { padding ->
-      val density = LocalDensity.current
-      // Measured viewport height, so the body can fill the whole area below the header and its
-      // tap target reaches the bottom of the screen (tapping the empty lower part focuses it) — #26.
-      var viewportPx by remember { mutableIntStateOf(0) }
-      Box(
-          Modifier
-              .fillMaxSize()
-              .padding(padding)
-              .onSizeChanged { viewportPx = it.height },
-      ) {
+      Box(Modifier.fillMaxSize().padding(padding)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState())
+                // The header stays put and the body fills the space above the keyboard; the body
+                // owns its own scroll, so writing a long message keeps the cursor in view (#26).
+                .imePadding()
                 .graphicsLayer {
                     translationY = -fly * 64.dp.toPx()
                     alpha = 1f - fly
                 },
         ) {
+          // The header (recipients + subject + attachments) sits on a faint tint so the writing
+          // area below reads as a distinct zone; its dividers run full width (edge to edge).
+          Column(Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f))) {
             // From — switch sending account / identity (only when there's a choice).
             if (fromOptions.size > 1) {
                 var fromMenu by remember { mutableStateOf(false) }
@@ -487,7 +479,7 @@ fun ComposeScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { fromMenu = true }
-                            .padding(vertical = 12.dp),
+                            .padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         FieldLabel(stringResource(R.string.compose_from))
@@ -498,7 +490,11 @@ fun ComposeScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        Icon(Icons.Filled.ExpandMore, contentDescription = stringResource(R.string.compose_choose_sender))
+                        // An IconButton (not a bare Icon) so this chevron lines up with the To
+                        // field's expand chevron, which is also an IconButton.
+                        IconButton(onClick = { fromMenu = true }) {
+                            Icon(Icons.Filled.ExpandMore, contentDescription = stringResource(R.string.compose_choose_sender))
+                        }
                     }
                     DropdownMenu(expanded = fromMenu, onDismissRequest = { fromMenu = false }, shape = MaterialTheme.shapes.medium) {
                         fromOptions.forEach { option ->
@@ -527,6 +523,7 @@ fun ComposeScreen(
                 onSuggest = viewModel::suggest,
                 onClearSuggestions = viewModel::clearSuggestions,
                 focusRequester = toFocus,
+                autoFocus = replyTo == null,
                 missingKey = missingKeyFor,
                 trailing = {
                     IconButton(onClick = { expanded = !expanded }) {
@@ -555,31 +552,57 @@ fun ComposeScreen(
                     stringResource(R.string.compose_pgp_subject_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
 
-            attachments.forEach { att ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            if (attachments.isNotEmpty()) {
+                // Same as the recipient chips: cap the attachment list and scroll it so many files
+                // don't grow the header without limit (#26 follow-up).
+                Column(
+                    Modifier
+                        .heightIn(max = 132.dp)
+                        .verticalScroll(rememberScrollState()),
                 ) {
-                    Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text(
-                        text = att.name ?: stringResource(R.string.compose_attachment_fallback),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = { viewModel.removeAttachment(att) }) {
-                        Text(stringResource(R.string.compose_remove))
+                    attachments.forEach { att ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                            Text(
+                                text = att.name ?: stringResource(R.string.compose_attachment_fallback),
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { viewModel.removeAttachment(att) }) {
+                                Text(stringResource(R.string.compose_remove))
+                            }
+                        }
                     }
                 }
             }
             attachmentStatus?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
             }
+            // Above the body so they stay visible while it fills the rest of the screen.
+            if (sending) CircularProgressIndicator(Modifier.padding(horizontal = 16.dp))
+            (state as? ComposeState.Error)?.let {
+                Text(
+                    text = stringResource(R.string.compose_could_not_send, it.message),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+          }
 
             // Body — no frame, fills the rest of the width and grows with content.
             BasicTextField(
@@ -589,9 +612,11 @@ fun ComposeScreen(
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 modifier = Modifier
                     .fillMaxWidth()
-                    // Fill down to the bottom of the screen so the whole area under the header is
-                    // part of the body's tap target, not just the first ~220dp (#26).
-                    .heightIn(min = with(density) { viewportPx.toDp() }.coerceAtLeast(220.dp))
+                    // Fills all the space below the header (so the whole area under it is the body's
+                    // tap target) with a bounded height, so the field scrolls its own content and
+                    // keeps the cursor in view as you write (#26).
+                    .weight(1f)
+                    .padding(horizontal = 16.dp)
                     .padding(top = 12.dp, bottom = 16.dp),
                 decorationBox = { inner ->
                     if (body.isEmpty()) {
@@ -604,15 +629,6 @@ fun ComposeScreen(
                     inner()
                 },
             )
-
-            if (sending) CircularProgressIndicator()
-            (state as? ComposeState.Error)?.let {
-                Text(
-                    text = stringResource(R.string.compose_could_not_send, it.message),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
         }
         // The tern that carries the message off-screen, top-right.
         if (flying) {
@@ -650,10 +666,15 @@ private fun ComposeField(
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { focus.requestFocus() },
+            modifier = Modifier
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { focus.requestFocus() }
+                // At least a 48dp tap target even when the field is empty (accessibility).
+                .heightIn(min = 48.dp)
+                // Content is inset while the divider below runs full width (#26 follow-up).
+                .padding(horizontal = 16.dp),
         ) {
             FieldLabel(label)
             BasicTextField(
@@ -665,7 +686,7 @@ private fun ComposeField(
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
                 modifier = Modifier
                     .weight(1f)
-                    .padding(vertical = 14.dp)
+                    .padding(vertical = 10.dp)
                     .focusRequester(focus),
             )
             trailing?.invoke()
@@ -699,6 +720,8 @@ private fun RecipientChipsField(
     onSuggest: (String) -> Unit,
     onClearSuggestions: () -> Unit,
     focusRequester: FocusRequester? = null,
+    /** Open and focus the field on first composition (the To field on a fresh compose). */
+    autoFocus: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
     /** When encrypting, flags a recipient with no available public key. */
     missingKey: (String) -> Boolean = { false },
@@ -709,24 +732,71 @@ private fun RecipientChipsField(
 
     fun rebuild(newChips: List<String>, newInput: String) = newChips.joinToString("") { "$it, " } + newInput
 
-    var focused by remember { mutableStateOf(false) }
-    // Tapping anywhere on the row (label or the empty area) focuses the recipient input,
-    // so the whole labelled line is the tap target (#26).
+    // Expanded shows the editable chip area with the input; collapsed shows chips only (or a
+    // one-line "+N" summary) with no empty input line, so tapping another field leaves no unused
+    // space. Start expanded only for a fresh empty field so it can auto-focus (#26 follow-up).
+    var expanded by remember { mutableStateOf(false) }
+    // Guards against the input's initial onFocusChanged(false) collapsing the field before the
+    // focus request lands: only a loss AFTER a real gain collapses it.
+    var wasFocused by remember { mutableStateOf(false) }
     val localFocus = remember { FocusRequester() }
     val focus = focusRequester ?: localFocus
+    val chipScroll = rememberScrollState()
+    // Collapse to a one-line summary past what fits without scrolling (about two per line).
+    val collapsed = !expanded && chips.size > 2
+    // Open on first composition when asked (the To field on a fresh compose), so it self-focuses.
+    LaunchedEffect(Unit) { if (autoFocus) expanded = true }
+    // The input isn't composed while collapsed, so focus it once the field expands.
+    LaunchedEffect(expanded) { if (expanded) runCatching { focus.requestFocus() } }
+    // Follow the growing chip area so the blinking input stays in view as recipients are added.
+    LaunchedEffect(chipScroll.maxValue) { if (expanded) chipScroll.animateScrollTo(chipScroll.maxValue) }
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { focus.requestFocus() },
+            modifier = Modifier
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { expanded = true }
+                // At least a 48dp tap target even when the field is empty/collapsed (accessibility).
+                .heightIn(min = 48.dp)
+                // Content is inset while the divider below runs full width (#26 follow-up).
+                .padding(horizontal = 16.dp),
         ) {
             FieldLabel(label)
-            FlowRow(
-                modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+            if (collapsed) {
+                // One-line summary: the first recipient plus a count of the rest. Tapping expands.
+                Row(
+                    modifier = Modifier.weight(1f).padding(vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        chips.first(),
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (chips.size > 1) {
+                        Text(
+                            "+${chips.size - 1}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
+            } else {
+              FlowRow(
+                // Cap the chip area (~2.5 lines) and scroll it, so adding many recipients doesn't
+                // grow the field without limit and eat the message body (#26 follow-up).
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(max = 104.dp)
+                    .verticalScroll(chipScroll)
+                    .padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
+              ) {
                 chips.forEachIndexed { index, chip ->
                     // Invalid address OR (while encrypting) no key for it → flagged.
                     val valid = isValidEmail(chip) && !missingKey(chip)
@@ -754,7 +824,10 @@ private fun RecipientChipsField(
                         },
                     )
                 }
-                BasicTextField(
+                // The input exists only while expanded, so an unfocused field shows no empty input
+                // line (and no stray blinking cursor) — it collapses to its chips.
+                if (expanded) {
+                  BasicTextField(
                     value = input,
                     onValueChange = { raw ->
                         val last = raw.lastOrNull()
@@ -773,8 +846,11 @@ private fun RecipientChipsField(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier
                         .widthIn(min = 90.dp)
-                        .padding(vertical = 8.dp)
-                        .onFocusChanged { focused = it.isFocused }
+                        .padding(vertical = 6.dp)
+                        .onFocusChanged { fs ->
+                            if (fs.isFocused) wasFocused = true
+                            else if (wasFocused) { expanded = false; wasFocused = false }
+                        }
                         .onPreviewKeyEvent { ev ->
                             if (ev.type == KeyEventType.KeyDown && ev.key == Key.Backspace &&
                                 input.isEmpty() && chips.isNotEmpty()
@@ -786,29 +862,43 @@ private fun RecipientChipsField(
                             }
                         }
                         .focusRequester(focus),
-                )
+                  )
+                }
+              }
             }
             trailing?.invoke()
         }
         FieldDivider()
-        if (focused && suggestions.isNotEmpty()) {
-            suggestions.forEach { contact ->
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            onValueChange(rebuild(chips + contact.email, ""))
-                            onClearSuggestions()
+        if (expanded && suggestions.isNotEmpty()) {
+            // Cap the suggestion list and let it scroll on its own, so a long list can't push the
+            // message body off-screen — the body keeps a usable minimum. Items stack vertically
+            // with a divider between them so they read as distinct rows.
+            Column(
+                Modifier
+                    .heightIn(max = 208.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                suggestions.forEachIndexed { index, contact ->
+                    if (index > 0) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    }
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onValueChange(rebuild(chips + contact.email, ""))
+                                onClearSuggestions()
+                            }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                    ) {
+                        Text(contact.name ?: contact.email, style = MaterialTheme.typography.bodyMedium)
+                        if (contact.name != null) {
+                            Text(
+                                contact.email,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
-                        .padding(horizontal = 8.dp, vertical = 10.dp),
-                ) {
-                    Text(contact.name ?: contact.email, style = MaterialTheme.typography.bodyMedium)
-                    if (contact.name != null) {
-                        Text(
-                            contact.email,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
                 }
             }
