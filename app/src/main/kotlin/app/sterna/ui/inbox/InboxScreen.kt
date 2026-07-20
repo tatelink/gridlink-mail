@@ -1372,22 +1372,14 @@ fun InboxScreen(
                                 title = stringResource(titleRes),
                                 body = stringResource(bodyRes),
                                 modifier = Modifier.align(Alignment.Center),
-                                // Filtered-empty offers a one-tap way out (clear the filter);
-                                // a genuinely empty inbox offers Compose instead.
+                                // Filtered-empty offers a one-tap way out (clear the filter). A
+                                // genuinely empty inbox has no button here — the corner Compose FAB
+                                // already covers it, so this avoids two compose buttons (Codeberg #25).
                                 action = when {
                                     unreadFiltered -> {
                                         {
                                             Button(onClick = { viewModel.toggleUnreadOnly() }) {
                                                 Text(stringResource(R.string.empty_unread_action))
-                                            }
-                                        }
-                                    }
-                                    art == EmptyArt.INBOX_ZERO -> {
-                                        {
-                                            Button(onClick = onCompose) {
-                                                Icon(Icons.Filled.Create, contentDescription = null)
-                                                Spacer(Modifier.width(8.dp))
-                                                Text(stringResource(R.string.inbox_compose))
                                             }
                                         }
                                     }
