@@ -63,6 +63,8 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -102,6 +104,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -422,15 +425,9 @@ private fun MessageContent(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    val subject = (state as? MessageState.Loaded)?.email?.subject
-                        ?.takeIf { it.isNotBlank() }
-                    Text(
-                        subject ?: stringResource(R.string.message_title_fallback),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
+                // The subject is shown in full inside the message (Codeberg #44), so the bar has
+                // no title — that frees the width for a Follow (star) action.
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -442,6 +439,18 @@ private fun MessageContent(
                 actions = {
                     val loaded = state as? MessageState.Loaded
                     if (loaded != null) {
+                        // Follow (flag) toggle, promoted from the overflow menu to the bar now that
+                        // the subject no longer takes the title space (Codeberg #44).
+                        val flagged = loaded.email.isFlagged
+                        IconButton(onClick = { viewModel.toggleFlag() }) {
+                            Icon(
+                                if (flagged) Icons.Filled.Star else Icons.Filled.StarBorder,
+                                contentDescription = stringResource(
+                                    if (flagged) R.string.message_unflag else R.string.message_flag,
+                                ),
+                                tint = if (flagged) MaterialTheme.colorScheme.tertiary else LocalContentColor.current,
+                            )
+                        }
                         IconButton(onClick = { viewModel.markUnread(onBack) }) {
                             Icon(
                                 Icons.Filled.MarkEmailUnread,
@@ -507,14 +516,6 @@ private fun MessageContent(
                                     text = { Text(stringResource(R.string.message_forward)) },
                                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null) },
                                     onClick = { menuOpen = false; onReply("forward", replyTargetId, accountId) },
-                                )
-                                val flagged = loaded.email.isFlagged
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(stringResource(if (flagged) R.string.message_unflag else R.string.message_flag))
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.Star, contentDescription = null) },
-                                    onClick = { menuOpen = false; viewModel.toggleFlag() },
                                 )
                                 // Image controls: one-time show only while still blocked,
                                 // plus the per-sender allowlist toggle.
@@ -833,6 +834,18 @@ private fun MessageHeader(
     // actions. To/Cc live on the full body, so they populate once it has loaded.
     var showParticipants by remember(msg.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
+        // The full subject, wrapping. The toolbar can only show a truncated single line (it shares
+        // its width with the action icons), so the complete text lives here (Codeberg #44).
+        Text(
+            text = msg.header.subject?.takeIf { it.isNotBlank() }
+                ?: stringResource(R.string.message_no_subject),
+            style = MaterialTheme.typography.titleLarge,
+            fontSize = 20.sp,
+            fontWeight = if (unread) FontWeight.Bold else FontWeight.Medium,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 14.dp),
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
