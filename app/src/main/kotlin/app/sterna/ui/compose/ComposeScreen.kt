@@ -93,6 +93,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sterna.R
+import app.sterna.container
 import app.sterna.contacts.AndroidContacts
 import app.sterna.util.isValidEmail
 import app.sterna.ui.FORCE_ONBOARDING_PREVIEW
@@ -157,7 +158,16 @@ fun ComposeScreen(
         pgpModeSeen = pgpMode
     }
 
-    LaunchedEffect(Unit) { viewModel.prepare(replyTo, mode, accountId, restore, to, cc, bcc, subject, body) }
+    LaunchedEffect(Unit) {
+        viewModel.prepare(replyTo, mode, accountId, restore, to, cc, bcc, subject, body)
+        // Attach any files shared into the app (ACTION_SEND) — a one-shot handoff we read and
+        // clear, so it only lands on this compose screen (Codeberg #45).
+        val app = context.applicationContext as android.app.Application
+        app.container.pendingShareUris.takeIf { it.isNotEmpty() }?.let { shared ->
+            app.container.pendingShareUris = emptyList()
+            shared.forEach { viewModel.attach(it) }
+        }
+    }
 
     // --- Contacts permission priming (offered once, on first compose) ---
     val contactsPrimed by viewModel.contactsPrimed.collectAsStateWithLifecycle()

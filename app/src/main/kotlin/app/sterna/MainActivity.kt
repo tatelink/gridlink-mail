@@ -2,6 +2,7 @@ package app.sterna
 
 import android.content.Intent
 import android.net.MailTo
+import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
@@ -32,7 +33,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        pendingMailto.value = parseMailto(intent)
+        pendingMailto.value = parseMailto(intent) ?: parseShare(intent)
         pendingEmailOpen.value = parseEmailOpen(intent)
         val settings = application.container.settingsRepository
         setContent {
@@ -59,7 +60,7 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        parseMailto(intent)?.let { pendingMailto.value = it }
+        (parseMailto(intent) ?: parseShare(intent))?.let { pendingMailto.value = it }
         parseEmailOpen(intent)?.let { pendingEmailOpen.value = it }
     }
 
@@ -83,6 +84,27 @@ class MainActivity : AppCompatActivity() {
                 body = m.body.orEmpty(),
             )
         }.getOrNull()
+    }
+
+    /**
+     * A system "Share" (ACTION_SEND / SEND_MULTIPLE) opens the compose screen: shared text and
+     * subject prefill the fields (reusing the mailto path), and any shared files are stashed for
+     * the compose screen to attach (Codeberg #45).
+     */
+    private fun parseShare(intent: Intent?): MailtoDraft? {
+        if (intent == null) return null
+        val action = intent.action
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return null
+        val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT).orEmpty()
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+        @Suppress("DEPRECATION")
+        val uris: List<Uri> = when (action) {
+            Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
+            else -> intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
+        }
+        if (subject.isBlank() && text.isBlank() && uris.isEmpty()) return null
+        application.container.pendingShareUris = uris
+        return MailtoDraft(to = "", cc = "", bcc = "", subject = subject, body = text)
     }
 
     override fun onStop() {

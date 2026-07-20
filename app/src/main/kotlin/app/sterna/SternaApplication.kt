@@ -23,6 +23,11 @@ import kotlinx.coroutines.launch
 
 /** Simple manual DI container — holds app-wide singletons. */
 class AppContainer(context: Context) {
+    /** Content Uris shared into the app (ACTION_SEND), awaiting attachment by the next compose
+     *  screen (Codeberg #45). A transient one-shot handoff between MainActivity and ComposeScreen;
+     *  the compose screen reads and clears it. */
+    var pendingShareUris: List<android.net.Uri> = emptyList()
+
     val accountStore: AccountStore = AccountStore(context.applicationContext)
     val settingsRepository: SettingsRepository = SettingsRepository(context.applicationContext)
     private val jmapClient: JmapClient = JmapClient()
