@@ -64,6 +64,18 @@ interface EmailDao {
     @Query("DELETE FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId AND id NOT IN (:keepIds)")
     suspend fun deleteNotIn(accountId: String, mailboxId: String, keepIds: List<String>)
 
+    /**
+     * Like [deleteNotIn] but never touches [spareIds] — the ids we just mutated/restored locally
+     * and are protecting until the server reflects the change. A full re-query page can otherwise
+     * be a stale snapshot (the move-back not yet visible) and would prune a restored row; sparing
+     * these keeps an optimistic Undo from being clobbered by a reconcile.
+     */
+    @Query(
+        "DELETE FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+            "AND id NOT IN (:keepIds) AND id NOT IN (:spareIds)",
+    )
+    suspend fun deleteNotInSparing(accountId: String, mailboxId: String, keepIds: List<String>, spareIds: List<String>)
+
     @Query("UPDATE emails SET seen = :seen WHERE id = :id")
     suspend fun setSeen(id: String, seen: Boolean)
 
@@ -137,11 +149,25 @@ interface EmailDao {
     @Query("DELETE FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId AND sortKey > 0 AND sortKey < :cutoff")
     suspend fun deleteOlderThan(accountId: String, mailboxId: String, cutoff: Long)
 
-    /** Replace one account's cached contents of a mailbox with a fresh snapshot. */
+    /**
+     * Replace one account's cached contents of a mailbox with a fresh snapshot. [spareIds] are
+     * ids protected from pruning even when the fresh page omits them (recently mutated/restored,
+     * see [deleteNotInSparing]) — pass the recently-mutated set so a full re-query can't clobber
+     * an optimistic Undo before the server catches up.
+     */
     @Transaction
-    suspend fun replaceMailbox(accountId: String, mailboxId: String, emails: List<EmailEntity>) {
+    suspend fun replaceMailbox(
+        accountId: String,
+        mailboxId: String,
+        emails: List<EmailEntity>,
+        spareIds: List<String> = emptyList(),
+    ) {
         upsertAll(emails)
-        deleteNotIn(accountId, mailboxId, emails.map { it.id })
+        if (spareIds.isEmpty()) {
+            deleteNotIn(accountId, mailboxId, emails.map { it.id })
+        } else {
+            deleteNotInSparing(accountId, mailboxId, emails.map { it.id }, spareIds)
+        }
     }
 }
 
