@@ -341,6 +341,14 @@ private fun MainNavHost(
                             nav.popBackStack()
                         }
                     },
+                    // Archive via the same shared inbox VM, so the reader gets the count nudge +
+                    // Undo (snackbar on the list) exactly like delete (RC-6).
+                    onArchive = { email ->
+                        if (entry.lifecycleIsResumed()) {
+                            inboxViewModel.archive(email)
+                            nav.popBackStack()
+                        }
+                    },
                     onReply = { mode, replyToId, replyAccountId ->
                         if (entry.lifecycleIsResumed()) {
                             val accountArg = replyAccountId?.let { "&accountId=${Uri.encode(it)}" }.orEmpty()

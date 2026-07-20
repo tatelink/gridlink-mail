@@ -186,6 +186,7 @@ fun MessageScreen(
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
     onDelete: (Email) -> Unit,
+    onArchive: (Email) -> Unit,
     onComposeTo: (address: String) -> Unit,
 ) {
     when {
@@ -235,6 +236,7 @@ fun MessageScreen(
                     onBack = onBack,
                     onReply = onReply,
                     onDelete = onDelete,
+                    onArchive = onArchive,
                     onComposeTo = onComposeTo,
                 )
             }
@@ -250,6 +252,7 @@ fun MessageScreen(
                 onBack = onBack,
                 onReply = onReply,
                 onDelete = onDelete,
+                onArchive = onArchive,
                 onComposeTo = onComposeTo,
             )
         }
@@ -261,6 +264,7 @@ fun MessageScreen(
             onBack = onBack,
             onReply = onReply,
             onDelete = onDelete,
+            onArchive = onArchive,
             onComposeTo = onComposeTo,
         )
     }
@@ -275,6 +279,7 @@ private fun MessagePager(
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
     onDelete: (Email) -> Unit,
+    onArchive: (Email) -> Unit,
     onComposeTo: (address: String) -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage.coerceIn(0, (pageCount - 1).coerceAtLeast(0))) { pageCount }
@@ -299,6 +304,7 @@ private fun MessagePager(
                 onBack = onBack,
                 onReply = onReply,
                 onDelete = onDelete,
+                onArchive = onArchive,
                 onComposeTo = onComposeTo,
             )
         }
@@ -313,6 +319,7 @@ private fun MessagePage(
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
     onDelete: (Email) -> Unit,
+    onArchive: (Email) -> Unit,
     onComposeTo: (address: String) -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as Application
@@ -333,6 +340,7 @@ private fun MessagePage(
         onBack = onBack,
         onReply = onReply,
         onDelete = onDelete,
+        onArchive = onArchive,
         onComposeTo = onComposeTo,
     )
 }
@@ -396,6 +404,7 @@ private fun MessageContent(
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
     onDelete: (Email) -> Unit,
+    onArchive: (Email) -> Unit,
     onComposeTo: (address: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -549,7 +558,13 @@ private fun MessageContent(
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.message_archive)) },
                                     leadingIcon = { Icon(Icons.Filled.Archive, contentDescription = null) },
-                                    onClick = { menuOpen = false; viewModel.archive(onBack) },
+                                    // Archive via the shared inbox VM (like delete) so the reader
+                                    // reuses the same count nudge + Undo; the resolved mailbox is
+                                    // passed since the body fetch can drop it (RC-6).
+                                    onClick = {
+                                        menuOpen = false
+                                        onArchive(loaded.email.copy(mailboxId = resolvedMailbox ?: loaded.email.mailboxId))
+                                    },
                                 )
                                 DropdownMenuItem(
                                     text = {

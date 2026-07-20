@@ -486,8 +486,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun markUnread(onDone: () -> Unit) = act(onDone) { c, id -> repo.setRead(c, id, false) }
-    fun archive(onDone: () -> Unit) = act(onDone) { c, id -> repo.archive(c, id) }
-    fun delete(onDone: () -> Unit) = act(onDone) { c, id -> repo.delete(c, id) }
+    // Archive + delete route through the shared inbox VM (MessageScreen.onArchive/onDelete) so the
+    // reader reuses the same count nudge + Undo as swipe/bulk (Codeberg #23, RC-6); no local copies.
     fun reportSpam(onDone: () -> Unit) = act(onDone) { c, id -> repo.reportSpam(c, id) }
     fun notSpam(onDone: () -> Unit) = act(onDone) { c, id -> repo.notSpam(c, id) }
 
