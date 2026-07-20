@@ -242,6 +242,13 @@
     <string name="settings_swipe_flag">Markieren/Markierung entfernen</string>
     <string name="settings_notifications_screen_title">Benachrichtigungen</string>
     <string name="settings_new_mail_section">Neue E-Mails</string>
+    <string name="settings_notif_content_section">Benachrichtigungsinhalt</string>
+    <string name="settings_notif_content_full">Absender und Betreff</string>
+    <string name="settings_notif_content_full_desc">Zeigt Absender und Betreff an.</string>
+    <string name="settings_notif_content_sender">Nur Absender</string>
+    <string name="settings_notif_content_sender_desc">Zeigt den Absender an, nicht den Betreff.</string>
+    <string name="settings_notif_content_none">Weder Absender noch Betreff</string>
+    <string name="settings_notif_content_none_desc">Nur, dass neue Nachrichten eingetroffen sind.</string>
     <string name="settings_push_all_title">Push für alle Konten</string>
     <string name="settings_push_all_subtitle">Alle Konten auf neue E-Mails überwachen, nicht nur das aktuelle. Verbraucht mehr Akku und Verbindungen.</string>
     <string name="settings_quiet_hours_section">Ruhezeiten</string>

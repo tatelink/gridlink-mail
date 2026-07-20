@@ -40,6 +40,9 @@ enum class MessageTextSize(val zoom: Int) { SMALL(85), NORMAL(100), LARGE(125), 
  */
 enum class DeliveryMode { INSTANT, BATTERY_SAVER }
 
+/** How much a new-mail notification reveals on the lock screen (Codeberg #25). */
+enum class NotificationContent { SENDER_AND_SUBJECT, SENDER_ONLY, NONE }
+
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 /**
@@ -197,6 +200,16 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_DELIVERY_MODE] = mode.name }
     }
 
+    /** What a new-mail notification shows; sender + subject by default (Codeberg #25). */
+    val notificationContent: Flow<NotificationContent> = dataStore.data.map { prefs ->
+        prefs[KEY_NOTIFICATION_CONTENT]?.let { runCatching { NotificationContent.valueOf(it) }.getOrNull() }
+            ?: NotificationContent.SENDER_AND_SUBJECT
+    }
+
+    suspend fun setNotificationContent(mode: NotificationContent) {
+        dataStore.edit { it[KEY_NOTIFICATION_CONTENT] = mode.name }
+    }
+
     /** Captures every DataStore-backed preference into a portable [SettingsBackup]. */
     suspend fun snapshotBackup(): SettingsBackup = SettingsBackup(
         themeMode = themeMode.first().name,
@@ -217,6 +230,7 @@ class SettingsRepository(context: Context) {
         messageTextSize = messageTextSize.first().name,
         markReadOnDelete = markReadOnDelete.first(),
         deliveryMode = deliveryMode.first().name,
+        notificationContent = notificationContent.first().name,
     )
 
     /** Applies the DataStore-backed fields of [backup]; unknown enum values are skipped. */
@@ -239,6 +253,7 @@ class SettingsRepository(context: Context) {
         backup.messageTextSize?.let { v -> runCatching { MessageTextSize.valueOf(v) }.getOrNull()?.let { setMessageTextSize(it) } }
         backup.markReadOnDelete?.let { setMarkReadOnDelete(it) }
         backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
+        backup.notificationContent?.let { v -> runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }
     }
 
     /**
@@ -302,6 +317,7 @@ class SettingsRepository(context: Context) {
         private val KEY_CONFIRM_LINKS = booleanPreferencesKey("confirm_links")
         private val KEY_IMAGE_ALLOWLIST = stringSetPreferencesKey("image_allowlist")
         private val KEY_DELIVERY_MODE = stringPreferencesKey("delivery_mode")
+        private val KEY_NOTIFICATION_CONTENT = stringPreferencesKey("notification_content")
         private val KEY_QUIET_ENABLED = booleanPreferencesKey("quiet_hours_enabled")
         private val KEY_QUIET_START = intPreferencesKey("quiet_hours_start")
         private val KEY_QUIET_END = intPreferencesKey("quiet_hours_end")

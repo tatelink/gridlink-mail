@@ -242,6 +242,13 @@
     <string name="settings_swipe_flag">Sinalizar/remover sinalização</string>
     <string name="settings_notifications_screen_title">Notificações</string>
     <string name="settings_new_mail_section">Novos e-mails</string>
+    <string name="settings_notif_content_section">Conteúdo das notificações</string>
+    <string name="settings_notif_content_full">Remetente e assunto</string>
+    <string name="settings_notif_content_full_desc">Mostra o remetente e o assunto.</string>
+    <string name="settings_notif_content_sender">Apenas o remetente</string>
+    <string name="settings_notif_content_sender_desc">Mostra o remetente, não o assunto.</string>
+    <string name="settings_notif_content_none">Sem remetente nem assunto</string>
+    <string name="settings_notif_content_none_desc">Apenas que chegou correio novo.</string>
     <string name="settings_push_all_title">Push para todas as contas</string>
     <string name="settings_push_all_subtitle">Monitora todas as contas em busca de novos e-mails, não apenas a atual. Usa mais bateria e conexões.</string>
     <string name="settings_quiet_hours_section">Horário silencioso</string>

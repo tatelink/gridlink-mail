@@ -42,6 +42,7 @@ data class SettingsBackup(
     val markReadOnDelete: Boolean? = null,
     /** [DeliveryMode] name (Instant / Battery saver). */
     val deliveryMode: String? = null,
+    val notificationContent: String? = null,
     /**
      * Account configuration WITHOUT any secret: server, username, protocol, IMAP/SMTP
      * endpoints, identities, signature, colour, sync window, notification opt-out. The

@@ -123,6 +123,7 @@ import app.sterna.core.data.settings.PreviewLines
 import app.sterna.core.data.settings.SwipeAction
 import app.sterna.core.data.settings.ThemeMode
 import app.sterna.core.data.settings.DeliveryMode
+import app.sterna.core.data.settings.NotificationContent
 import app.sterna.push.PushController
 import app.sterna.push.PushStatus
 import app.sterna.ui.appLabelOf
@@ -526,6 +527,7 @@ private fun textSizeLabel(context: Context, size: MessageTextSize): String = whe
 private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val pushAll by viewModel.pushAllAccounts.collectAsStateWithLifecycle()
     val deliveryMode by viewModel.deliveryMode.collectAsStateWithLifecycle()
+    val notifContent by viewModel.notificationContent.collectAsStateWithLifecycle()
     val quietEnabled by viewModel.quietHoursEnabled.collectAsStateWithLifecycle()
     val quietStart by viewModel.quietHoursStart.collectAsStateWithLifecycle()
     val quietEnd by viewModel.quietHoursEnd.collectAsStateWithLifecycle()
@@ -553,6 +555,26 @@ private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit
                     subtitle = stringResource(R.string.settings_push_all_subtitle),
                     checked = pushAll,
                     onCheckedChange = viewModel::setPushAllAccounts,
+                )
+            }
+            SettingsSection(stringResource(R.string.settings_notif_content_section)) {
+                DeliveryModeOption(
+                    title = stringResource(R.string.settings_notif_content_full),
+                    subtitle = stringResource(R.string.settings_notif_content_full_desc),
+                    selected = notifContent == NotificationContent.SENDER_AND_SUBJECT,
+                    onClick = { viewModel.setNotificationContent(NotificationContent.SENDER_AND_SUBJECT) },
+                )
+                DeliveryModeOption(
+                    title = stringResource(R.string.settings_notif_content_sender),
+                    subtitle = stringResource(R.string.settings_notif_content_sender_desc),
+                    selected = notifContent == NotificationContent.SENDER_ONLY,
+                    onClick = { viewModel.setNotificationContent(NotificationContent.SENDER_ONLY) },
+                )
+                DeliveryModeOption(
+                    title = stringResource(R.string.settings_notif_content_none),
+                    subtitle = stringResource(R.string.settings_notif_content_none_desc),
+                    selected = notifContent == NotificationContent.NONE,
+                    onClick = { viewModel.setNotificationContent(NotificationContent.NONE) },
                 )
             }
             SettingsSection(stringResource(R.string.settings_quiet_hours_section)) {

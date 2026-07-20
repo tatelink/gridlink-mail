@@ -10,6 +10,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.RemoteInput
 import app.sterna.MainActivity
 import app.sterna.R
+import app.sterna.core.data.settings.NotificationContent
 import app.sterna.core.jmap.model.Email
 
 /** Notification channels + helpers. No telemetry, no third-party push. */
@@ -75,10 +76,32 @@ object Notifications {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-    /** [folderName] marks non-inbox mail (multi-folder watch, issue #16); null for the inbox. */
-    fun notifyNewMail(context: Context, email: Email, accountId: String, silent: Boolean = false, folderName: String? = null) {
+    /** [folderName] marks non-inbox mail (multi-folder watch, issue #16); null for the inbox.
+     *  [content] controls how much of the mail shows on the lock screen (Codeberg #25). */
+    fun notifyNewMail(
+        context: Context,
+        email: Email,
+        accountId: String,
+        silent: Boolean = false,
+        folderName: String? = null,
+        content: NotificationContent = NotificationContent.SENDER_AND_SUBJECT,
+    ) {
         val sender = email.from.firstOrNull()?.display() ?: context.getString(R.string.notif_new_message)
         val subject = email.subject?.takeIf { it.isNotBlank() } ?: context.getString(R.string.message_no_subject)
+        // What the notification reveals, per the privacy setting: sender + subject (+ preview),
+        // sender with a generic line, or just a generic "New message" with nothing identifying.
+        val generic = context.getString(R.string.notif_new_message)
+        val title = if (content == NotificationContent.NONE) generic else sender
+        val text = when (content) {
+            NotificationContent.SENDER_AND_SUBJECT -> subject
+            NotificationContent.SENDER_ONLY -> generic
+            NotificationContent.NONE -> null
+        }
+        val bigText = if (content == NotificationContent.SENDER_AND_SUBJECT) {
+            notifPreview(context, email) ?: subject
+        } else {
+            null
+        }
         val notifId = email.id.hashCode()
         // Carry the message identity so a tap opens THAT email, not just the inbox — even when
         // the app is already running (singleTask → onNewIntent routes it). Codeberg #17 follow-up.
@@ -94,9 +117,11 @@ object Notifications {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_MAIL)
             .setSmallIcon(R.drawable.ic_stat_mail)
-            .setContentTitle(sender)
-            .setContentText(subject)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(notifPreview(context, email) ?: subject))
+            .setContentTitle(title)
+            .apply {
+                if (text != null) setContentText(text)
+                if (bigText != null) setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+            }
             .setAutoCancel(true)
             .setContentIntent(pending)
             .setCategory(NotificationCompat.CATEGORY_EMAIL)

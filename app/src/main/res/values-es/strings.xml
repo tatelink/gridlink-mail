@@ -242,6 +242,13 @@
     <string name="settings_swipe_flag">Destacar/quitar destacado</string>
     <string name="settings_notifications_screen_title">Notificaciones</string>
     <string name="settings_new_mail_section">Correo nuevo</string>
+    <string name="settings_notif_content_section">Contenido de las notificaciones</string>
+    <string name="settings_notif_content_full">Remitente y asunto</string>
+    <string name="settings_notif_content_full_desc">Muestra el remitente y el asunto.</string>
+    <string name="settings_notif_content_sender">Solo el remitente</string>
+    <string name="settings_notif_content_sender_desc">Muestra el remitente, no el asunto.</string>
+    <string name="settings_notif_content_none">Sin remitente ni asunto</string>
+    <string name="settings_notif_content_none_desc">Solo que ha llegado correo nuevo.</string>
     <string name="settings_push_all_title">Push para todas las cuentas</string>
     <string name="settings_push_all_subtitle">Vigilar todas las cuentas en busca de correo nuevo, no solo la actual. Consume más batería y conexiones.</string>
     <string name="settings_quiet_hours_section">Horas de silencio</string>

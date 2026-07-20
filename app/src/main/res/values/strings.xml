@@ -313,6 +313,13 @@
     <string name="settings_swipe_flag">Flag/unflag</string>
     <string name="settings_notifications_screen_title">Notifications</string>
     <string name="settings_new_mail_section">New mail</string>
+    <string name="settings_notif_content_section">Notification content</string>
+    <string name="settings_notif_content_full">Sender and subject</string>
+    <string name="settings_notif_content_full_desc">Show who it\'s from and the subject.</string>
+    <string name="settings_notif_content_sender">Sender only</string>
+    <string name="settings_notif_content_sender_desc">Show who it\'s from, not the subject.</string>
+    <string name="settings_notif_content_none">No sender or subject</string>
+    <string name="settings_notif_content_none_desc">Just that new mail arrived.</string>
     <string name="settings_push_all_title">Push for all accounts</string>
     <string name="settings_push_all_subtitle">Watch every account for new mail, not just the current one. Uses more battery and connections.</string>
     <string name="settings_quiet_hours_section">Quiet hours</string>

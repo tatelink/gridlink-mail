@@ -242,6 +242,13 @@
     <string name="settings_swipe_flag">Пометить/снять пометку</string>
     <string name="settings_notifications_screen_title">Уведомления</string>
     <string name="settings_new_mail_section">Новые письма</string>
+    <string name="settings_notif_content_section">Содержимое уведомлений</string>
+    <string name="settings_notif_content_full">Отправитель и тема</string>
+    <string name="settings_notif_content_full_desc">Показывает отправителя и тему.</string>
+    <string name="settings_notif_content_sender">Только отправитель</string>
+    <string name="settings_notif_content_sender_desc">Показывает отправителя, но не тему.</string>
+    <string name="settings_notif_content_none">Без отправителя и темы</string>
+    <string name="settings_notif_content_none_desc">Только то, что пришло новое письмо.</string>
     <string name="settings_push_all_title">Push для всех аккаунтов</string>
     <string name="settings_push_all_subtitle">Отслеживать новые письма во всех аккаунтах, а не только в текущем. Расходует больше заряда батареи и подключений.</string>
     <string name="settings_quiet_hours_section">Тихие часы</string>

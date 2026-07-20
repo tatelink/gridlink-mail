@@ -15,6 +15,7 @@ import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.settings.SwipeAction
 import app.sterna.core.data.settings.ThemeMode
 import app.sterna.core.data.settings.DeliveryMode
+import app.sterna.core.data.settings.NotificationContent
 import app.sterna.push.NewMailNotifier
 import app.sterna.push.PushController
 import app.sterna.security.canAuthenticate
@@ -134,6 +135,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             // Re-arm with the new outcome (stops or restarts the foreground service).
             PushController.apply(getApplication(), userInitiated = true)
         }
+    }
+
+    /** What a new-mail notification reveals: sender + subject / sender only / neither (#25). */
+    val notificationContent = settings.notificationContent.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = NotificationContent.SENDER_AND_SUBJECT,
+    )
+
+    fun setNotificationContent(mode: NotificationContent) {
+        viewModelScope.launch { settings.setNotificationContent(mode) }
     }
 
     fun setPushAllAccounts(value: Boolean) {

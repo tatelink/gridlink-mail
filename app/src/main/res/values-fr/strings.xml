@@ -242,6 +242,13 @@
     <string name="settings_swipe_flag">Suivre/ne plus suivre</string>
     <string name="settings_notifications_screen_title">Notifications</string>
     <string name="settings_new_mail_section">Nouveaux messages</string>
+    <string name="settings_notif_content_section">Contenu des notifications</string>
+    <string name="settings_notif_content_full">Expéditeur et objet</string>
+    <string name="settings_notif_content_full_desc">Affiche l\'expéditeur et l\'objet.</string>
+    <string name="settings_notif_content_sender">Expéditeur seul</string>
+    <string name="settings_notif_content_sender_desc">Affiche l\'expéditeur, pas l\'objet.</string>
+    <string name="settings_notif_content_none">Ni expéditeur ni objet</string>
+    <string name="settings_notif_content_none_desc">Seulement qu\'un nouveau message est arrivé.</string>
     <string name="settings_push_all_title">Push pour tous les comptes</string>
     <string name="settings_push_all_subtitle">Surveiller tous les comptes pour les nouveaux messages, pas seulement le compte actuel. Consomme plus de batterie et de connexions.</string>
     <string name="settings_quiet_hours_section">Heures silencieuses</string>

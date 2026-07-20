@@ -242,6 +242,13 @@
     <string name="settings_swipe_flag">Oznacz/usuń oznaczenie</string>
     <string name="settings_notifications_screen_title">Powiadomienia</string>
     <string name="settings_new_mail_section">Nowe wiadomości</string>
+    <string name="settings_notif_content_section">Treść powiadomień</string>
+    <string name="settings_notif_content_full">Nadawca i temat</string>
+    <string name="settings_notif_content_full_desc">Pokazuje nadawcę i temat.</string>
+    <string name="settings_notif_content_sender">Tylko nadawca</string>
+    <string name="settings_notif_content_sender_desc">Pokazuje nadawcę, ale nie temat.</string>
+    <string name="settings_notif_content_none">Bez nadawcy i tematu</string>
+    <string name="settings_notif_content_none_desc">Tylko to, że nadeszła nowa poczta.</string>
     <string name="settings_push_all_title">Push dla wszystkich kont</string>
     <string name="settings_push_all_subtitle">Monitoruj nowe wiadomości na wszystkich kontach, nie tylko na bieżącym. Zużywa więcej baterii i połączeń.</string>
     <string name="settings_quiet_hours_section">Godziny ciszy</string>

@@ -242,6 +242,13 @@
     <string name="settings_swipe_flag">Contrassegna/rimuovi contrassegno</string>
     <string name="settings_notifications_screen_title">Notifiche</string>
     <string name="settings_new_mail_section">Nuova posta</string>
+    <string name="settings_notif_content_section">Contenuto delle notifiche</string>
+    <string name="settings_notif_content_full">Mittente e oggetto</string>
+    <string name="settings_notif_content_full_desc">Mostra il mittente e l\'oggetto.</string>
+    <string name="settings_notif_content_sender">Solo mittente</string>
+    <string name="settings_notif_content_sender_desc">Mostra il mittente, non l\'oggetto.</string>
+    <string name="settings_notif_content_none">Né mittente né oggetto</string>
+    <string name="settings_notif_content_none_desc">Solo che è arrivata nuova posta.</string>
     <string name="settings_push_all_title">Push per tutti gli account</string>
     <string name="settings_push_all_subtitle">Controlla la nuova posta su tutti gli account, non solo su quello attuale. Consuma più batteria e connessioni.</string>
     <string name="settings_quiet_hours_section">Ore di silenzio</string>

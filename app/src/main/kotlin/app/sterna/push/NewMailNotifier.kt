@@ -101,7 +101,9 @@ object NewMailNotifier {
         val readIds = emails.filter { it.isSeen && it.id.hashCode() in active }.map { it.id }
         if (newMail.isNotEmpty() || readIds.isNotEmpty()) {
             val silent = quietHoursActive(context)
-            newMail.forEach { Notifications.notifyNewMail(context, it, credentials.id, silent, folderName) }
+            val content = (context.applicationContext as Application).container
+                .settingsRepository.notificationContent.first()
+            newMail.forEach { Notifications.notifyNewMail(context, it, credentials.id, silent, folderName, content) }
             readIds.forEach { Notifications.cancelChild(context, it) }
             // Rebuilt from ALL active children so successive per-folder passes accumulate
             // instead of the last folder overwriting the whole account's summary.
