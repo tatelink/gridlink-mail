@@ -1,0 +1,1 @@
+« Chiffrer par défaut » fait maintenant ce qu'il annonce. Un nouveau message démarre en mode chiffré, et si un destinataire n'a pas de clé publique, le message est envoyé normalement au lieu de vous bloquer, en indiquant quelle adresse n'a pas de clé. L'icône de cadenas reflète toujours ce qui va réellement se passer. Activer le cadenas vous-même reste strict.
