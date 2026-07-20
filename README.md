@@ -63,6 +63,16 @@ Prefer a direct download? Grab the **latest APK** yourself:
 > key — so the two install sources update cleanly over each other. No Google
 > account or app store needed, ever.
 
+> 🔑 **Verify the signature.** Every release APK is signed with Sterna's own key.
+> Its SHA-256 certificate fingerprint is:
+>
+> ```
+> CF:2D:00:7F:7B:FA:44:E0:8E:20:94:3D:E4:FE:17:FB:08:73:70:7F:D7:59:D6:DB:9C:AD:B1:F4:B2:AA:ED:C4
+> ```
+>
+> Obtainium (verify signature) and [AppVerifier](https://github.com/soupslurpr/AppVerifier)
+> can check a downloaded APK against it before you install.
+
 Prefer to build it yourself? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 🤔 Why JMAP?
