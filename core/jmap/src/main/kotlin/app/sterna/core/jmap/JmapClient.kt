@@ -7,6 +7,7 @@ import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailChangesResult
 import app.sterna.core.jmap.model.EmailPage
 import app.sterna.core.jmap.model.EmailQueryChangesResult
+import app.sterna.core.jmap.model.EmailSetResult
 import app.sterna.core.jmap.model.Identity
 import app.sterna.core.jmap.model.JmapSession
 import app.sterna.core.jmap.model.Mailbox
@@ -31,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
@@ -391,7 +393,7 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "threadId", "subject", "preview", "receivedAt",
-                                "from", "hasAttachment", "keywords",
+                                "from", "hasAttachment", "keywords", "mailboxIds",
                             ).forEach { add(it) }
                         }
                     }
@@ -411,6 +413,7 @@ class JmapClient internal constructor(
                 throw JmapException("Search failed: HTTP ${response.code} ${response.message}")
             }
             decodeList(body, "Email/get", Email.serializer())
+                .map { e -> e.copy(mailboxId = e.mailboxIds.keys.firstOrNull()) }
         }
     }
 
@@ -653,14 +656,17 @@ class JmapClient internal constructor(
                 }
             }
         }
-        return args["newState"]?.jsonPrimitive?.contentOrNull
+        val result = emailSetResult(args)
+        result.failed[emailId]?.let { throw JmapException("Server rejected the keyword change ($it)") }
+        return result.newState
     }
 
     /** Convenience for the \$seen keyword. Returns the new `Email/set` state. */
     suspend fun setSeen(session: JmapSession, accountId: String, emailId: String, seen: Boolean, auth: JmapAuth): String? =
         setKeyword(session, accountId, emailId, "\$seen", seen, auth)
 
-    /** Move an email so it belongs to exactly [targetMailboxId]. Returns the new state. */
+    /** Move an email so it belongs to exactly [targetMailboxId]. Returns the new state.
+     *  Throws when the server rejects the update (per-id `notUpdated`). */
     suspend fun move(
         session: JmapSession,
         accountId: String,
@@ -676,13 +682,15 @@ class JmapClient internal constructor(
                 }
             }
         }
-        return args["newState"]?.jsonPrimitive?.contentOrNull
+        val result = emailSetResult(args)
+        result.failed[emailId]?.let { throw JmapException("Server rejected the move ($it)") }
+        return result.newState
     }
 
     /**
      * Move many emails so each belongs to exactly [targetMailboxId], in ONE `Email/set`
      * (Codeberg #29) — over [postWithRetry], so a big batch is one request that still backs
-     * off on the server's rate limit. Returns the new state. No-op (null) for an empty list.
+     * off on the server's rate limit. Returns the per-id outcome (no-op for an empty list).
      */
     suspend fun move(
         session: JmapSession,
@@ -690,8 +698,8 @@ class JmapClient internal constructor(
         emailIds: List<String>,
         targetMailboxId: String,
         auth: JmapAuth,
-    ): String? {
-        if (emailIds.isEmpty()) return null
+    ): EmailSetResult {
+        if (emailIds.isEmpty()) return EmailSetResult(null, emptySet(), emptyMap())
         val args = emailSet(session, auth) {
             put("accountId", accountId)
             putJsonObject("update") {
@@ -700,16 +708,18 @@ class JmapClient internal constructor(
                 }
             }
         }
-        return args["newState"]?.jsonPrimitive?.contentOrNull
+        return emailSetResult(args)
     }
 
-    /** Permanently delete many emails in one `Email/set` (Codeberg #29). No-op for empty. */
-    suspend fun destroy(session: JmapSession, accountId: String, emailIds: List<String>, auth: JmapAuth): String? {
-        if (emailIds.isEmpty()) return null
-        return emailSet(session, auth) {
+    /** Permanently delete many emails in one `Email/set` (Codeberg #29). Returns the per-id
+     *  outcome (no-op for an empty list). */
+    suspend fun destroy(session: JmapSession, accountId: String, emailIds: List<String>, auth: JmapAuth): EmailSetResult {
+        if (emailIds.isEmpty()) return EmailSetResult(null, emptySet(), emptyMap())
+        val args = emailSet(session, auth) {
             put("accountId", accountId)
             putJsonArray("destroy") { emailIds.forEach { add(it) } }
-        }["newState"]?.jsonPrimitive?.contentOrNull
+        }
+        return emailSetResult(args)
     }
 
     /** Create a mailbox (e.g. an Archive folder) and return its new id (RFC 8621 §2.5). */
@@ -805,12 +815,17 @@ class JmapClient internal constructor(
         }
 
     /** Permanently destroy an email (used when there is no Trash mailbox). */
-    /** Permanently delete an email. Returns the new `Email/set` state. */
-    suspend fun destroy(session: JmapSession, accountId: String, emailId: String, auth: JmapAuth): String? =
-        emailSet(session, auth) {
+    /** Permanently delete an email. Returns the new `Email/set` state.
+     *  Throws when the server rejects the destroy (per-id `notDestroyed`). */
+    suspend fun destroy(session: JmapSession, accountId: String, emailId: String, auth: JmapAuth): String? {
+        val args = emailSet(session, auth) {
             put("accountId", accountId)
             putJsonArray("destroy") { add(emailId) }
-        }["newState"]?.jsonPrimitive?.contentOrNull
+        }
+        val result = emailSetResult(args)
+        result.failed[emailId]?.let { throw JmapException("Server rejected the delete ($it)") }
+        return result.newState
+    }
 
     /** Fetch the identities (from-addresses) the user may send as (RFC 8621 §6). */
     suspend fun getIdentities(session: JmapSession, accountId: String, auth: JmapAuth): List<Identity> =
@@ -1581,6 +1596,22 @@ class JmapClient internal constructor(
             }
         }
         return methodResponseArgs(postWithRetry(session.apiUrl, auth.authorizationHeader(), payload), "Email/set")
+    }
+
+    /** Per-id outcome of an Email/set response (updated/destroyed vs notUpdated/notDestroyed). */
+    private fun emailSetResult(args: JsonObject): EmailSetResult {
+        val done = buildSet {
+            (args["updated"] as? JsonObject)?.keys?.let { addAll(it) }
+            (args["destroyed"] as? JsonArray)?.forEach { add(it.jsonPrimitive.content) }
+        }
+        val failed = buildMap {
+            for (key in listOf("notUpdated", "notCreated", "notDestroyed")) {
+                (args[key] as? JsonObject)?.forEach { (id, err) ->
+                    put(id, (err as? JsonObject)?.get("type")?.jsonPrimitive?.contentOrNull ?: "unknown")
+                }
+            }
+        }
+        return EmailSetResult(args["newState"]?.jsonPrimitive?.contentOrNull, done, failed)
     }
 
     /** POST a JMAP request body and return the response text, throwing on HTTP failure. */

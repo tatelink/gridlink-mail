@@ -629,6 +629,7 @@
     <string name="status_read_file_failed">Couldn\'t read the selected file.</string>
     <string name="status_open_attachment_failed">Couldn\'t open attachment: %1$s</string>
     <string name="status_action_failed">Couldn\'t complete the action.</string>
+    <string name="status_restore_failed">Couldn\'t restore some messages.</string>
     <string name="status_moved_to_folder">Moved to %1$s</string>
 
     <!-- Notifications -->

@@ -521,6 +521,7 @@
     <string name="status_read_file_failed">Impossible de lire le fichier sélectionné.</string>
     <string name="status_open_attachment_failed">Impossible d\'ouvrir la pièce jointe : %1$s</string>
     <string name="status_action_failed">Impossible d\'effectuer l\'action.</string>
+    <string name="status_restore_failed">Impossible de restaurer certains messages.</string>
     <string name="status_moved_to_folder">Déplacé vers %1$s</string>
 
     <!-- Notifications -->

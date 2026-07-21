@@ -1632,26 +1632,31 @@ class MailRepository(
             .onFailure { failed += uidToId.values }
     }
 
-    /** JMAP: move every id to exactly [target] in one `Email/set`, then drop the local rows. */
+    /** JMAP: move every id to exactly [target] in one `Email/set`, then drop the local rows.
+     *  Only ids the server confirmed moved are dropped — a per-id `notUpdated` (wrong account,
+     *  destroyed elsewhere, …) keeps its row and lands in [BulkResult.failed]. */
     private suspend fun jmapMoveAll(ctx: Context, emailIds: List<String>, target: String): BulkResult {
         val rows = emailDao.emailsByIds(emailIds)
         return runCatching { client.move(ctx.session, ctx.accountId, emailIds, target, ctx.auth) }
-            .map {
-                emailIds.forEach { emailDao.deleteById(it) }
-                adjustCountsForRemoval(rows, target)
-                BulkResult(emailIds.toSet(), emptySet(), dest = target)
+            .map { result ->
+                val moved = emailIds.filter { it in result.done }.toSet()
+                moved.forEach { emailDao.deleteById(it) }
+                adjustCountsForRemoval(rows.filter { it.id in moved }, target)
+                BulkResult(moved, emailIds.toSet() - moved, dest = target)
             }
             .getOrElse { BulkResult(emptySet(), emailIds.toSet()) }
     }
 
-    /** JMAP: destroy every id in one `Email/set`, then drop the local rows. */
+    /** JMAP: destroy every id in one `Email/set`, then drop the local rows (confirmed ids only,
+     *  like [jmapMoveAll]). */
     private suspend fun jmapDestroyAll(ctx: Context, emailIds: List<String>): BulkResult {
         val rows = emailDao.emailsByIds(emailIds)
         return runCatching { client.destroy(ctx.session, ctx.accountId, emailIds, ctx.auth) }
-            .map {
-                emailIds.forEach { emailDao.deleteById(it) }
-                adjustCountsForRemoval(rows, destMailboxId = null)
-                BulkResult(emailIds.toSet(), emptySet())
+            .map { result ->
+                val destroyed = emailIds.filter { it in result.done }.toSet()
+                destroyed.forEach { emailDao.deleteById(it) }
+                adjustCountsForRemoval(rows.filter { it.id in destroyed }, destMailboxId = null)
+                BulkResult(destroyed, emailIds.toSet() - destroyed)
             }
             .getOrElse { BulkResult(emptySet(), emailIds.toSet()) }
     }
@@ -1994,25 +1999,30 @@ class MailRepository(
      * neither reconcile path (delta or full-query) prunes it while the server catches up on the
      * move-back, and the count nudge is reversed here — so the caller must NOT fire a reconciling
      * refresh afterwards (that would read stale server state and race the restore).
+     *
+     * Returns the ids that did NOT restore (server rejected the move-back, batch failed, or no
+     * UID mapping survived) — their counts are left alone so the caller can tell the user.
      */
-    suspend fun restoreAll(credentials: AccountCredentials, targets: List<RestoreTarget>) {
-        if (targets.isEmpty()) return
+    suspend fun restoreAll(credentials: AccountCredentials, targets: List<RestoreTarget>): Set<String> {
+        if (targets.isEmpty()) return emptySet()
         // Protect the restored ids from the next reconcile BEFORE any server call, so even a sync
         // that fires mid-restore can't drop them.
         targets.forEach { markRecentlyMutated(it.emailId) }
+        val restored = mutableSetOf<String>()
         if (credentials.protocol == MailProtocol.IMAP) {
             // Group by (current folder the message sits in, source folder to return it to).
             // lastImapMove holds where the forward move put each id and its UID there.
-            val byRoute = LinkedHashMap<Pair<String, String>, MutableList<Long>>()
-            val restoredIds = mutableListOf<String>()
+            val byRoute = LinkedHashMap<Pair<String, String>, MutableList<Pair<Long, String>>>()
             targets.forEach { t ->
                 val loc = lastImapMove[t.emailId] ?: return@forEach
-                byRoute.getOrPut(loc.mailboxId to t.sourceMailboxId) { mutableListOf() } += loc.uid
-                restoredIds += t.emailId
+                byRoute.getOrPut(loc.mailboxId to t.sourceMailboxId) { mutableListOf() } += loc.uid to t.emailId
             }
-            byRoute.forEach { (route, uids) ->
+            byRoute.forEach { (route, uidAndIds) ->
                 val (currentFolder, source) = route
-                val mapping = runCatching { imap.moveBatch(credentials, currentFolder, uids, source) }.getOrDefault(emptyMap())
+                val mapping = runCatching {
+                    imap.moveBatch(credentials, currentFolder, uidAndIds.map { it.first }, source)
+                }.getOrNull() ?: return@forEach
+                restored += uidAndIds.map { it.second }
                 val newUids = mapping.values.toList()
                 if (newUids.isNotEmpty()) {
                     runCatching { imap.fetchByUids(credentials, source, newUids) }
@@ -2021,23 +2031,28 @@ class MailRepository(
                         ?.let { fetched -> emailDao.upsertAll(fetched); fetched.forEach { markRecentlyMutated(it.id) } }
                 }
             }
-            restoredIds.forEach { lastImapMove.remove(it) }
-            restoreCounts(targets)
-            return
+            restored.forEach { lastImapMove.remove(it) }
+            restoreCounts(targets.filter { it.emailId in restored })
+            return targets.map { it.emailId }.toSet() - restored
         }
         // JMAP: ids are stable across mailbox moves, so move each id back to its source in one
         // Email/set per source folder, then re-fetch to re-cache the restored rows.
         val ctx = connect(credentials)
         targets.groupBy { it.sourceMailboxId }.forEach { (source, group) ->
-            val ids = group.map { it.emailId }
-            runCatching { client.move(ctx.session, ctx.accountId, ids, source, ctx.auth) }
+            val result = runCatching {
+                client.move(ctx.session, ctx.accountId, group.map { it.emailId }, source, ctx.auth)
+            }.getOrNull() ?: return@forEach
+            val ids = group.map { it.emailId }.filter { it in result.done }
+            if (ids.isEmpty()) return@forEach
+            restored += ids
             val fetched = runCatching { client.getEmailsByIds(ctx.session, ctx.accountId, ids, ctx.auth) }.getOrDefault(emptyList())
             if (fetched.isNotEmpty()) {
                 emailDao.upsertAll(fetched.map { it.toEntity(ctx.credentials.id, source) })
                 fetched.forEach { markRecentlyMutated(it.id) }
             }
         }
-        restoreCounts(targets)
+        restoreCounts(targets.filter { it.emailId in restored })
+        return targets.map { it.emailId }.toSet() - restored
     }
 
     /**

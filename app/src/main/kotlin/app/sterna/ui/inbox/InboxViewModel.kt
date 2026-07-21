@@ -778,6 +778,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // Group by account and restore each account's whole set in one batch (one UID MOVE /
             // Email/set per source folder), so undoing a large selection doesn't hit the same
             // per-message server limits the forward batch avoids (Codeberg #29).
+            var unrestored = 0
             action.entries.groupBy { it.accountId }.forEach { (accountId, entries) ->
                 val credentials = accountId?.let { store.credentials(it) } ?: store.load() ?: return@forEach
                 // Optimistic restore that STICKS: restoreAll re-tags the rows, marks them
@@ -788,7 +789,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                         credentials,
                         entries.map { MailRepository.RestoreTarget(it.emailId, it.mailboxId, it.destMailboxId) },
                     )
-                }.onFailure { status.value = Status(refreshing = false, error = it.message) }
+                }
+                    .onSuccess { unrestored += it.size }
+                    .onFailure {
+                        unrestored += entries.size
+                        status.value = Status(refreshing = false, error = it.message)
+                    }
+            }
+            if (unrestored > 0) {
+                _message.value = getApplication<Application>().getString(R.string.status_restore_failed)
             }
         }
     }
