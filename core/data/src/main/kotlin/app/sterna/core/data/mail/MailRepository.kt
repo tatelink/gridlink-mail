@@ -702,10 +702,13 @@ class MailRepository(
                             )
                         } catch (e: JmapException) {
                             // The anchor can still have dropped out of the folder since it was
-                            // cached. Fall back once to an absolute position at the cached row
-                            // count — the uncollapsed result's positions are message positions,
-                            // so the raw count lands at the cached window's edge; upsert-only
-                            // insertion makes an overlapping page harmless.
+                            // cached, and at that point no cached id is trustworthy. Fall back
+                            // once to an absolute position at the cached row count. That count
+                            // can overshoot the contiguous window's edge (thread expansion
+                            // caches members below it, spared undo rows linger), but any skip
+                            // is bounded to this single recovery page: the fill loop below
+                            // chains every follow-up on the fetched page's own last id, and
+                            // upsert-only insertion makes an overlapping page harmless.
                             if (e.errorType != "anchorNotFound") throw e
                             client.queryEmailsPage(
                                 ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
@@ -736,9 +739,18 @@ class MailRepository(
                             if (gained >= fillTarget) break
                             val serverTotal = page.total
                             if (serverTotal != null && cachedNow >= serverTotal) break
+                            // Chain each follow-up on the page just fetched, never on the cached
+                            // row count: the cache is not always a contiguous prefix of the
+                            // server list (thread expansion caches old members below the window,
+                            // spared undo rows linger), so a positional fetch at the raw count
+                            // would skip that many server messages — a silent gap later APPENDs
+                            // anchor below and never heal. Anchoring on the previous page's last
+                            // id starts exactly where it ended, whatever the cache holds.
                             page = client.queryEmailsPage(
                                 ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
-                                position = cachedNow, calculateTotal = true,
+                                calculateTotal = true,
+                                anchorId = page.emails.last().id,
+                                anchorOffset = 1,
                             )
                             if (page.emails.isNotEmpty()) {
                                 emailDao.upsertAll(page.emails.map { it.toEntity(credentials.id, mailboxId) })
