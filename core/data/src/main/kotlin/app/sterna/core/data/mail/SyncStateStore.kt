@@ -12,6 +12,14 @@ import android.content.Context
 class SyncStateStore(context: Context) {
     private val prefs = context.getSharedPreferences("sync_states", Context.MODE_PRIVATE)
 
+    init {
+        // v2: folder queries went uncollapsed (collapseThreads=false). A queryState minted by
+        // the old collapsed query describes a DIFFERENT query — an Email/queryChanges against
+        // it can silently omit thread members that predate the cursor, so the cache would
+        // never backfill them. Drop the old cursors once; the next sync does a full re-query.
+        if (prefs.getInt(VERSION_KEY, 1) < CURSOR_VERSION) clear()
+    }
+
     fun save(key: String, queryState: String, emailState: String) {
         prefs.edit().putString(key, "$queryState\n$emailState").apply()
     }
@@ -28,6 +36,10 @@ class SyncStateStore(context: Context) {
     }
 
     fun clear() {
-        prefs.edit().clear().apply()
+        prefs.edit().clear().putInt(VERSION_KEY, CURSOR_VERSION).apply()
     }
 }
+
+/** Store schema marker; sync keys are "<localAccountId><mailboxId>", which can't collide. */
+private const val VERSION_KEY = "cursor_version"
+private const val CURSOR_VERSION = 2

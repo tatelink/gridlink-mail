@@ -11,9 +11,9 @@ import java.sql.DriverManager
  * Verifies, against in-memory SQLite, the anchor selection of
  * [app.sterna.core.data.db.EmailDao.oldestRepresentativeEmailId] (and its companion count,
  * [app.sterna.core.data.db.EmailDao.representativeCountForMailbox]): the fetch-older page is
- * anchored on the oldest cached row that is its thread's NEWEST within the folder, because the
- * collapsed Email/query only lists thread representatives — anchoring on a cached older thread
- * member makes the server answer anchorNotFound. Mirrors the DAO queries' WHERE / ORDER BY.
+ * anchored on the oldest cached row that is its thread's NEWEST within the folder — a cached
+ * older thread member may sit below the contiguous window (fetched on expand), and anchoring
+ * on it would skip the gap. Mirrors the DAO queries' WHERE / ORDER BY.
  */
 class RepresentativeAnchorSqlTest {
     private lateinit var db: Connection

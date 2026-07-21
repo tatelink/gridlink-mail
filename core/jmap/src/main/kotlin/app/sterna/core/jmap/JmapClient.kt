@@ -139,9 +139,10 @@ class JmapClient internal constructor(
         // it, instead of an absolute [position] that shifts when new mail arrives.
         anchorId: String? = null,
         anchorOffset: Int = 0,
-        // Uncollapsed (false) returns every message, not one representative per thread —
-        // needed when the caller must see the folder's full contents (empty trash).
-        collapseThreads: Boolean = true,
+        // Uncollapsed (false, the default) returns every message, not one representative
+        // per thread: the local cache is WYSIWYG — it holds a folder's full contents and
+        // collapses into conversations at display time only. True is an explicit opt-in.
+        collapseThreads: Boolean = false,
         // Only unread messages (notKeyword $seen) — lets "Mark all read" resolve its
         // targets server-side instead of from the cached window.
         unseenOnly: Boolean = false,
@@ -231,7 +232,7 @@ class JmapClient internal constructor(
         auth: JmapAuth,
         position: Int = 0,
         calculateTotal: Boolean = false,
-        collapseThreads: Boolean = true,
+        collapseThreads: Boolean = false,
         unseenOnly: Boolean = false,
     ): EmailIdPage = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
@@ -288,10 +289,14 @@ class JmapClient internal constructor(
         mailboxId: String,
         limit: Int,
         auth: JmapAuth,
-        collapseThreads: Boolean = true,
+        collapseThreads: Boolean = false,
     ): List<Email> = queryEmailsPage(session, accountId, mailboxId, limit, auth, collapseThreads = collapseThreads).emails
 
-    /** Email/queryChanges for the inbox-style (collapsed) query. */
+    /**
+     * Email/queryChanges for the folder sync query. Its arguments (filter, sort,
+     * collapseThreads) MUST mirror [queryEmailsPage]'s exactly: a queryState is only
+     * comparable against the same query (RFC 8620 §5.6).
+     */
     suspend fun emailQueryChanges(
         session: JmapSession,
         accountId: String,
@@ -317,7 +322,7 @@ class JmapClient internal constructor(
                                 put("isAscending", false)
                             }
                         }
-                        put("collapseThreads", true)
+                        put("collapseThreads", false)
                         put("sinceQueryState", sinceQueryState)
                         put("maxChanges", maxChanges)
                     }

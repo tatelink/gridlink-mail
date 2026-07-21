@@ -90,8 +90,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.Closeable
 
-/** Cap on changes to apply incrementally before falling back to a full query. */
-private const val MAX_CHANGES = 50
+/**
+ * Cap on changes to apply incrementally before falling back to a full query. Uncollapsed
+ * folder deltas count every thread member (each reply is its own change), so the cap sits
+ * at the common SyncWindow page size: a delta under it stays cheaper than the full-query
+ * fallback it would otherwise trigger.
+ */
+private const val MAX_CHANGES = 200
 
 /**
  * How long a locally mutated id (flag/seen change, delete, or an undo's move-back) is protected
@@ -457,9 +462,11 @@ class MailRepository(
         recentlyMutated.keys.filter { isRecentlyMutated(it) }
 
     /**
-     * Bring a mailbox's cache up to date. Uses Email/queryChanges (which respects
-     * thread collapsing) + Email/changes when we have prior state; otherwise, or
-     * when the server can't compute the delta, falls back to a full query.
+     * Bring a mailbox's cache up to date. Uses Email/queryChanges + Email/changes when
+     * we have prior state; otherwise, or when the server can't compute the delta, falls
+     * back to a full query. Both paths are UNCOLLAPSED: the cache holds every in-folder
+     * thread member (conversations collapse at display time), so per-thread unread/bold
+     * state and reconciliation see non-representative members too.
      */
     private suspend fun syncMailbox(
         session: JmapSession,
@@ -612,11 +619,16 @@ class MailRepository(
                     } else {
                         val ctx = connect(credentials)
                         // Anchor on the oldest cached representative (its thread's newest row
-                        // here — the collapsed query only lists those) and fetch the page right
-                        // after it: unlike an absolute offset, the anchor doesn't shift when
-                        // new mail arrives at the top, so no page is skipped or duplicated.
+                        // here) and fetch the page right after it: unlike an absolute offset,
+                        // the anchor doesn't shift when new mail arrives at the top, so no page
+                        // is skipped or duplicated. The query is uncollapsed, so any cached
+                        // in-folder row would be found — but members cached by an on-expand
+                        // Thread/get can sit far below the contiguous window, and anchoring
+                        // there would skip the gap; the representative overlaps at worst
+                        // (upsert-only insertion makes the overlap harmless).
                         val anchorId = emailDao.oldestRepresentativeEmailId(credentials.id, mailboxId)
-                        val page = try {
+                        val before = emailDao.countForMailbox(credentials.id, mailboxId)
+                        var page = try {
                             client.queryEmailsPage(
                                 ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
                                 calculateTotal = true,
@@ -624,20 +636,35 @@ class MailRepository(
                                 anchorOffset = if (anchorId != null) 1 else 0,
                             )
                         } catch (e: JmapException) {
-                            // The anchor can still have dropped out of the collapsed result
-                            // (moved out of the folder, or demoted by a newer thread member)
-                            // since it was cached. Fall back once to an absolute position at
-                            // the cached collapsed-row count; upsert-only insertion makes an
-                            // overlapping page harmless.
+                            // The anchor can still have dropped out of the folder since it was
+                            // cached. Fall back once to an absolute position at the cached row
+                            // count — the uncollapsed result's positions are message positions,
+                            // so the raw count lands at the cached window's edge; upsert-only
+                            // insertion makes an overlapping page harmless.
                             if (e.errorType != "anchorNotFound") throw e
                             client.queryEmailsPage(
                                 ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
-                                position = emailDao.representativeCountForMailbox(credentials.id, mailboxId),
-                                calculateTotal = true,
+                                position = before, calculateTotal = true,
                             )
                         }
                         if (page.emails.isNotEmpty()) {
                             emailDao.upsertAll(page.emails.map { it.toEntity(credentials.id, mailboxId) })
+                        }
+                        // The anchor page can consist entirely of already-cached rows: the
+                        // window's bottom edge can cut inside a big thread, leaving every
+                        // uncollapsed row after its representative cached (a whole window
+                        // inside one thread in the extreme). If nothing new landed, fetch
+                        // once at the window edge instead so paging still advances.
+                        if (page.emails.isNotEmpty() &&
+                            emailDao.countForMailbox(credentials.id, mailboxId) == before
+                        ) {
+                            page = client.queryEmailsPage(
+                                ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
+                                position = before, calculateTotal = true,
+                            )
+                            if (page.emails.isNotEmpty()) {
+                                emailDao.upsertAll(page.emails.map { it.toEntity(credentials.id, mailboxId) })
+                            }
                         }
                         page.emails.size to page.total
                     }

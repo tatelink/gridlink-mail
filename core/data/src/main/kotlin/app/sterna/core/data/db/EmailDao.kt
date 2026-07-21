@@ -94,10 +94,10 @@ interface EmailDao {
 
     /**
      * Oldest cached row that is its thread's newest within the mailbox (anchor for the next
-     * older page). The paging Email/query is thread-collapsed — one representative per
-     * thread — so anchoring on a cached non-representative member (or any row the collapsed
-     * result no longer lists) would make the server answer anchorNotFound; the oldest
-     * REPRESENTATIVE is the deepest cached row the collapsed result can still contain.
+     * older page). The paging Email/query is uncollapsed, so any cached in-folder row is a
+     * valid anchor — but the cache can hold members far below the contiguous window (fetched
+     * by an on-expand Thread/get), and anchoring on one of those would skip the gap; the
+     * oldest REPRESENTATIVE stays within the window, so the next page overlaps at worst.
      */
     @Query(
         "SELECT id FROM emails e WHERE accountId = :accountId AND mailboxId = :mailboxId " +
@@ -107,7 +107,7 @@ interface EmailDao {
     )
     suspend fun oldestRepresentativeEmailId(accountId: String, mailboxId: String): String?
 
-    /** Cached thread-representative row count for the mailbox (a collapsed-list position). */
+    /** Cached thread-representative row count for the mailbox (the collapsed list's length). */
     @Query(
         "SELECT COUNT(*) FROM emails e WHERE accountId = :accountId AND mailboxId = :mailboxId " +
             "AND sortKey = (SELECT MAX(sortKey) FROM emails WHERE accountId = :accountId " +
