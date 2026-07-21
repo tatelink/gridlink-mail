@@ -138,6 +138,9 @@ class JmapClient internal constructor(
         // it, instead of an absolute [position] that shifts when new mail arrives.
         anchorId: String? = null,
         anchorOffset: Int = 0,
+        // Uncollapsed (false) returns every message, not one representative per thread —
+        // needed when the caller must see the folder's full contents (empty trash).
+        collapseThreads: Boolean = true,
     ): EmailPage = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
@@ -156,7 +159,7 @@ class JmapClient internal constructor(
                                 put("isAscending", false)
                             }
                         }
-                        put("collapseThreads", true)
+                        put("collapseThreads", collapseThreads)
                         if (anchorId != null) {
                             put("anchor", anchorId)
                             put("anchorOffset", anchorOffset)
@@ -214,7 +217,8 @@ class JmapClient internal constructor(
         mailboxId: String,
         limit: Int,
         auth: JmapAuth,
-    ): List<Email> = queryEmailsPage(session, accountId, mailboxId, limit, auth).emails
+        collapseThreads: Boolean = true,
+    ): List<Email> = queryEmailsPage(session, accountId, mailboxId, limit, auth, collapseThreads = collapseThreads).emails
 
     /** Email/queryChanges for the inbox-style (collapsed) query. */
     suspend fun emailQueryChanges(

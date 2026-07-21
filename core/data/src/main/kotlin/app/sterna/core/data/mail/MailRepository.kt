@@ -124,6 +124,12 @@ private const val INDEX_TTL_MS = 10 * 60 * 1000L
 /** Give up a crawl pass after this many consecutive page failures (vs. skipping isolated bad pages). */
 private const val MAX_CRAWL_ERRORS = 3
 
+/** Upper bound on empty-trash query+destroy passes (each pass clears up to 10 000 messages). */
+private const val MAX_PURGE_PASSES = 20
+
+/** Ids per Email/set destroy during a trash purge (RFC 8620 maxObjectsInSet floor). */
+private const val PURGE_DESTROY_BATCH = 500
+
 /**
  * Build the dynamic ORDER BY / WHERE for the paged list. Favourites (flagged)
  * always pin to the top, then the chosen [sort]; [unreadOnly] adds a seen filter.
@@ -2126,13 +2132,35 @@ class MailRepository(
                 imapTarget(id)?.let { (mb, uid) -> runCatching { imap.deleteMessage(credentials, mb, uid) } }
                 emailDao.deleteById(id)
             }
+            refreshMailboxes(credentials)
             return ids.size
         }
         val ctx = connect(credentials)
-        val emails = client.queryEmails(ctx.session, ctx.accountId, trashMailboxId, 10_000, ctx.auth)
-        emails.forEach { runCatching { client.destroy(ctx.session, ctx.accountId, it.id, ctx.auth) } }
-        emails.forEach { emailDao.deleteById(it.id) }
-        return emails.size
+        var destroyed = 0
+        // Query UNCOLLAPSED and loop until the folder reports empty: the list query collapses
+        // threads, so a single collapsed query here would purge only thread representatives and
+        // the "emptied" Trash would re-populate from the survivors on the next sync. Bounded,
+        // and stops early when a pass makes no progress (per-id rejections would otherwise
+        // return on every pass).
+        for (pass in 1..MAX_PURGE_PASSES) {
+            val ids = client
+                .queryEmails(ctx.session, ctx.accountId, trashMailboxId, 10_000, ctx.auth, collapseThreads = false)
+                .map { it.id }
+            if (ids.isEmpty()) break
+            var doneThisPass = 0
+            // Chunked: one giant destroy can exceed the server's maxObjectsInSet.
+            ids.chunked(PURGE_DESTROY_BATCH).forEach { chunk ->
+                val done = client.destroy(ctx.session, ctx.accountId, chunk, ctx.auth).done
+                done.forEach { emailDao.deleteById(it) }
+                doneThisPass += done.size
+            }
+            destroyed += doneThisPass
+            if (doneThisPass < ids.size) break
+        }
+        // Post-purge reconcile: re-fetch the folder list so the drawer counts reflect the
+        // emptied Trash instead of keeping the pre-purge numbers.
+        refreshMailboxes(credentials)
+        return destroyed
     }
 
     /**

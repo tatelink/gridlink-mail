@@ -8,6 +8,7 @@ import androidx.paging.cachedIn
 import app.sterna.container
 import app.sterna.R
 import app.sterna.folders.FolderDeleteWorker
+import app.sterna.mail.MessageDestroyWorker
 import app.sterna.push.NewMailNotifier
 import app.sterna.push.Notifications
 import app.sterna.push.PushController
@@ -175,6 +176,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val _pendingPurge = MutableStateFlow<String?>(null)
     val pendingPurge: StateFlow<String?> = _pendingPurge.asStateFlow()
     private var purgeJob: Job? = null
+    /** The Trash whose purge is currently held back (the worker fires it; Undo cancels it). */
+    private var pendingPurgeMailboxId: String? = null
 
     /** Non-null label while a permanent (Trash) delete is held back and can still be undone. */
     private val _pendingDelete = MutableStateFlow<String?>(null)
@@ -586,7 +589,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * rows now, fire the destroy when the window elapses, and let [undoDelete] cancel it. Same
      * model as Empty trash, shared by swipe delete and bulk delete so every delete UX behaves the
      * same (Codeberg #23). A new held-back delete supersedes a pending one (the earlier set, left
-     * un-undone, is destroyed at once).
+     * un-undone, is destroyed at once). The destroy itself is PERSISTED WorkManager work with an
+     * initial delay — it survives this ViewModel and the process, so a confirmed permanent delete
+     * can no longer be silently dropped by killing the app inside the window; the inner coroutine
+     * only times the snackbar. Batched per account (one Email/set / UID STORE+EXPUNGE per chunk),
+     * so holding back several hundred in-Trash messages destroys them in a few shots (#29).
      */
     private fun heldBackDestroy(emails: List<Email>, label: String) {
         val targets = emails.mapNotNull { e -> credentialsFor(e)?.let { it to e.id } }
@@ -596,46 +603,36 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             emails.forEach { repo.evict(it.id); dropThreadMember(it) }
             _pendingDelete.value = label
+            targets.groupBy({ it.first.id }, { it.second }).forEach { (accountId, ids) ->
+                MessageDestroyWorker.schedule(getApplication(), accountId, ids, PURGE_HOLD_BACK_MS)
+            }
             pendingDeleteJob = viewModelScope.launch {
                 delay(PURGE_HOLD_BACK_MS)
-                firePendingDestroy()
+                pendingDeleteTargets = emptyList()
+                _pendingDelete.value = null
             }
         }
     }
 
-    /** Actually destroy the held-back set (window elapsed, or superseded by a newer delete). */
-    private fun firePendingDestroy() {
-        val targets = pendingDeleteTargets
-        pendingDeleteTargets = emptyList()
-        _pendingDelete.value = null
-        if (targets.isEmpty()) return
-        viewModelScope.launch {
-            var failed = 0
-            // Batch the permanent destroy per account (one UID STORE+EXPUNGE / one Email/set),
-            // so holding back several hundred in-Trash messages destroys them in one shot (#29).
-            targets.groupBy({ it.first }, { it.second }).forEach { (credentials, ids) ->
-                val result = runCatching { repo.destroyAll(credentials, ids) }
-                    .getOrElse { MailRepository.BulkResult(emptySet(), ids.toSet()) }
-                failed += result.failed.size
-            }
-            if (failed > 0) {
-                _message.value = getApplication<Application>().getString(R.string.status_action_failed)
-                forceRefresh() // some didn't destroy — bring the rows back
-            }
-        }
-    }
-
-    /** Fire any held-back destroy immediately (a new delete supersedes the pending one). */
+    /** Commit any held-back destroy immediately (a new delete supersedes the pending one). */
     private fun flushPendingDestroy() {
         pendingDeleteJob?.cancel()
         pendingDeleteJob = null
-        firePendingDestroy()
+        val targets = pendingDeleteTargets
+        pendingDeleteTargets = emptyList()
+        _pendingDelete.value = null
+        targets.groupBy({ it.first.id }, { it.second }).forEach { (accountId, ids) ->
+            MessageDestroyWorker.flushNow(getApplication(), accountId, ids)
+        }
     }
 
     /** Cancel the held-back destroy and restore the rows (nothing was destroyed yet). */
     fun undoDelete() {
         pendingDeleteJob?.cancel()
         pendingDeleteJob = null
+        pendingDeleteTargets.map { it.first.id }.distinct().forEach {
+            MessageDestroyWorker.cancelDestroy(getApplication(), it)
+        }
         pendingDeleteTargets = emptyList()
         _pendingDelete.value = null
         // A full re-query, not an incremental refresh: the messages were only evicted locally and
@@ -842,29 +839,32 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Empty the current Trash folder. The view clears immediately but the actual
      * permanent delete is held back for a few seconds so it can be undone (like the
-     * delete snackbar). If not undone, the messages are destroyed on the server.
+     * delete snackbar). If not undone, the messages are destroyed on the server: the
+     * purge is PERSISTED WorkManager work with an initial delay — it survives this
+     * ViewModel and the process, like the folder delete — and the coroutine below
+     * only times the snackbar.
      */
     fun emptyTrash() {
         val trashId = (selection.value as? Sel.Folder)?.id ?: return
         val credentials = store.load() ?: return
-        purgeJob?.cancel()
         viewModelScope.launch { repo.cachedIds(listOf(trashId)).forEach { repo.evict(it) } }
         _pendingPurge.value = getApplication<Application>().getString(R.string.status_trash_emptied)
+        MessageDestroyWorker.schedulePurge(getApplication(), credentials.id, trashId, PURGE_HOLD_BACK_MS)
+        pendingPurgeMailboxId = trashId
+        purgeJob?.cancel()
         purgeJob = viewModelScope.launch {
             delay(PURGE_HOLD_BACK_MS)
-            _pendingPurge.value = null
-            runCatching { repo.emptyTrash(credentials, trashId) }
-                .onFailure {
-                    _message.value = it.message ?: getApplication<Application>().getString(R.string.status_action_failed)
-                    // The rows were evicted locally but survive on the server; only a full
-                    // re-query brings them back (an incremental refresh re-fetches nothing).
-                    forceRefresh()
-                }
+            if (pendingPurgeMailboxId == trashId) {
+                pendingPurgeMailboxId = null
+                _pendingPurge.value = null
+            }
         }
     }
 
     /** Cancel a held-back trash purge and restore the rows (nothing was destroyed yet). */
     fun undoEmptyTrash() {
+        pendingPurgeMailboxId?.let { MessageDestroyWorker.cancelPurge(getApplication(), it) }
+        pendingPurgeMailboxId = null
         purgeJob?.cancel()
         purgeJob = null
         _pendingPurge.value = null
