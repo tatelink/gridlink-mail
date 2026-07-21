@@ -2234,19 +2234,56 @@ class MailRepository(
      * Returns the fetched members (header-level, no body), or empty for IMAP (no Thread/get) and
      * on any failure (offline): the caller then simply keeps what the cache already gave it.
      */
-    suspend fun fetchThreadMembers(credentials: AccountCredentials, threadId: String): List<Email> {
+    suspend fun fetchThreadMembers(
+        credentials: AccountCredentials,
+        threadId: String,
+        viewMailboxIds: List<String> = emptyList(),
+    ): List<Email> {
         if (credentials.protocol == MailProtocol.IMAP) return emptyList()
         val emails = runCatching { threadEmails(credentials, threadId) }.getOrNull() ?: return emptyList()
         // Persist members under their actual folder (from mailboxIds); skip any without one so we
-        // never invent a mailbox. A re-fetched Inbox member out of window will be pruned again on
-        // the next Inbox replaceMailbox — that's fine; this mainly keeps Sent/Archive members.
+        // never invent a mailbox. The pick is DETERMINISTIC: keep the row where the cache already
+        // has it while the server still lists that mailbox, else prefer the folder being viewed
+        // ([viewMailboxIds]), else the "most alive" mailbox by role — never the map's arbitrary
+        // first key, which could re-key a correctly-filed row (even the representative) into
+        // Trash and feed the destroy-vs-move decision a wrong folder.
+        val cachedMailbox = emailDao.emailsByIds(emails.map { it.id }).associate { it.id to it.mailboxId }
         val entities = emails.mapNotNull { e ->
-            val mailbox = e.mailboxId ?: e.mailboxIds.keys.firstOrNull() ?: return@mapNotNull null
+            val serverBoxes = e.mailboxIds.keys
+            val mailbox = cachedMailbox[e.id]?.takeIf { it in serverBoxes }
+                ?: e.mailboxId
+                ?: viewMailboxIds.firstOrNull { it in serverBoxes }
+                ?: rankedMailboxPick(serverBoxes)
+                ?: return@mapNotNull null
             e.toEntity(credentials.id, mailbox)
         }
-        if (entities.isNotEmpty()) runCatching { emailDao.upsertAll(entities) }
+        if (entities.isNotEmpty()) runCatching {
+            emailDao.upsertAll(entities)
+            // Guard the fresh rows through the reconcile window: the very next full re-query
+            // (e.g. opening the folder a just-deleted conversation moved to) would otherwise
+            // prune every non-representative member straight back out, leaving the thread's
+            // chip at 1 with its members unreachable. A later out-of-window re-query can still
+            // prune them — that decay is accepted; expanding re-fetches.
+            entities.forEach { markRecentlyMutated(it.id) }
+        }
         return emails
     }
+
+    /**
+     * Deterministic folder pick for a message in several mailboxes: the "most alive" role wins
+     * (inbox > archive > other > junk > trash), ids sorted as tie-break — so a multi-mailbox
+     * member never lands in Trash/Junk by map-order accident.
+     */
+    private suspend fun rankedMailboxPick(mailboxIds: Set<String>): String? =
+        mailboxIds.sorted().minByOrNull { id ->
+            when (mailboxDao.roleForId(id)) {
+                "inbox" -> 0
+                "archive" -> 1
+                "junk" -> 3
+                "trash" -> 4
+                else -> 2
+            }
+        }
 
     /**
      * Cached members of a thread for inline conversation expansion: newest-first, scoped to

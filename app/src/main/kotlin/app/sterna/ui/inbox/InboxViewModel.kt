@@ -188,6 +188,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** The messages whose permanent destroy is currently held back (fired when the window ends). */
     private var pendingDeleteTargets: List<Pair<AccountCredentials, String>> = emptyList()
 
+    /** The held-back messages themselves — kept so [undoDelete] can re-complete their threads,
+     *  and so [completeThreadsAfterAction] never re-caches a row whose destroy is pending. */
+    private var pendingDeleteEmails: List<Email> = emptyList()
+
     /** A transient message to surface in a snackbar (e.g. an action error). */
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
@@ -268,9 +272,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         if (key in completedThreads) return
         val threadId = rep.threadId ?: return
         val credentials = credentialsFor(rep) ?: return
-        val fetched = runCatching { repo.fetchThreadMembers(credentials, threadId) }.getOrDefault(emptyList())
+        val fetched = runCatching { repo.fetchThreadMembers(credentials, threadId, currentMailboxIds()) }.getOrDefault(emptyList())
+        if (fetched.isEmpty()) return // offline/failed — not completed, so a later expand retries
         completedThreads += key
-        if (fetched.isEmpty() || key !in _expandedThreads.value) return // offline, or collapsed meanwhile
+        if (key !in _expandedThreads.value) return // collapsed meanwhile
         val current = _threadMembers.value[key].orEmpty()
         _threadMembers.value = _threadMembers.value + (key to ConversationExpansion.mergeMembers(current, fetched, rep.id))
     }
@@ -604,6 +609,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         if (targets.isEmpty()) return
         flushPendingDestroy()
         pendingDeleteTargets = targets
+        pendingDeleteEmails = emails
         viewModelScope.launch {
             emails.forEach { repo.evict(it.id); dropThreadMember(it) }
             _pendingDelete.value = label
@@ -613,6 +619,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             pendingDeleteJob = viewModelScope.launch {
                 delay(PURGE_HOLD_BACK_MS)
                 pendingDeleteTargets = emptyList()
+                pendingDeleteEmails = emptyList()
                 _pendingDelete.value = null
             }
         }
@@ -624,6 +631,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         pendingDeleteJob = null
         val targets = pendingDeleteTargets
         pendingDeleteTargets = emptyList()
+        pendingDeleteEmails = emptyList()
         _pendingDelete.value = null
         targets.groupBy({ it.first.id }, { it.second }).forEach { (accountId, ids) ->
             MessageDestroyWorker.flushNow(getApplication(), accountId, ids)
@@ -637,12 +645,17 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         pendingDeleteTargets.map { it.first.id }.distinct().forEach {
             MessageDestroyWorker.cancelDestroy(getApplication(), it)
         }
+        val restored = pendingDeleteEmails
         pendingDeleteTargets = emptyList()
+        pendingDeleteEmails = emptyList()
         _pendingDelete.value = null
         // A full re-query, not an incremental refresh: the messages were only evicted locally and
         // are still in Trash on the server, so queryChanges reports no change and would leave the
         // view empty. Dropping the sync cursors forces a fresh query that brings them back.
         forceRefresh()
+        // The re-query brings back collapsed representatives only — complete the restored
+        // conversations (after the refresh) so every member is cached and reachable again.
+        completeThreadsAfterAction(restored)
     }
 
     /** Re-query the current folder from scratch (drops sync cursors first) so locally-evicted but
@@ -730,6 +743,37 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Best-effort follow-up to an action that moved or restored whole conversations: for each
+     * affected thread, drop the stale expansion snapshot and re-fetch the full membership so
+     * every member is re-cached under its REAL current folder. Without this only the row(s) the
+     * target folder's next sync happens to keep stay cached — the moved conversation collapses
+     * to a chip-less single row whose other members are unreachable (the expand repair path is
+     * gated on threadCount > 1). Waits out any in-flight [refresh] first (the op's own
+     * resetSyncState()+refresh() full re-query would prune rows cached before it ran), skips
+     * threads with a held-back destroy pending (re-caching would resurrect the evicted rows
+     * inside the Undo window), caps the fan-out (a select-all can span hundreds of threads),
+     * and silently does nothing offline — the cache is then no worse than before.
+     */
+    private fun completeThreadsAfterAction(emails: List<Email>) {
+        val heldKeys = pendingDeleteEmails.mapTo(mutableSetOf()) { threadKeyOf(it) }
+        val reps = emails
+            .filter { it.threadId != null && threadKeyOf(it) !in heldKeys }
+            .distinctBy { threadKeyOf(it) }
+        if (reps.isEmpty()) return
+        // Invalidate every affected snapshot (cheap, local) so the next expand reloads fresh,
+        // even for threads past the fetch cap.
+        reps.forEach { dropThreadExpansion(threadKeyOf(it)) }
+        viewModelScope.launch {
+            refreshJob?.join()
+            reps.take(MAX_THREAD_COMPLETIONS).forEach { rep ->
+                val credentials = credentialsFor(rep) ?: return@forEach
+                val threadId = rep.threadId ?: return@forEach
+                runCatching { repo.fetchThreadMembers(credentials, threadId, currentMailboxIds()) }
+            }
+        }
+    }
+
+    /**
      * Remove every message of a thread ([members], or its full cached membership), run [op] per
      * message, then offer one Undo that restores the whole batch. Mirrors [swipeRemove] but for
      * a collapsed conversation.
@@ -761,6 +805,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 _message.value = getApplication<Application>().getString(R.string.status_action_failed)
                 refresh() // failed rows were never dropped locally — just reconcile the list
             }
+            // Re-cache the moved conversation's members under their new folder (after any
+            // reconcile above), so its row there keeps a truthful, expandable chip.
+            completeThreadsAfterAction(acting)
         }
     }
 
@@ -838,6 +885,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             if (unrestored > 0) {
                 _message.value = getApplication<Application>().getString(R.string.status_restore_failed)
             }
+            // restoreAll re-cached only the restored rows themselves — complete their
+            // conversations so the members are filed truthfully again (no refresh involved,
+            // so this can't race the optimistic restore).
+            completeThreadsAfterAction(repo.cachedEmailsByIds(action.entries.mapTo(mutableSetOf()) { it.emailId }))
         }
     }
 
@@ -1089,6 +1140,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             }
             repo.resetSyncState()
             refresh()
+            // After the full re-query settles: re-cache the touched conversations' members
+            // under their new folders so their rows keep truthful, expandable chips.
+            completeThreadsAfterAction(emails)
             if (undoLabel != null && undoEntries.isNotEmpty()) {
                 _undo.value = UndoAction(undoEntries, undoLabel)
             }
@@ -1373,6 +1427,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         const val UNIFIED_LABEL = "All inboxes"
         const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
         const val PURGE_HOLD_BACK_MS = 5_000L
+
+        /** Most threads re-completed per action — bounds the Thread/get fan-out on a select-all. */
+        const val MAX_THREAD_COMPLETIONS = 10
     }
 }
 
