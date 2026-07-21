@@ -211,7 +211,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             // The cached list row carries the folder it's filed under (its mailboxId), which is
             // reliable on both IMAP and JMAP. The fetched body's mailboxId can be absent over
             // JMAP (an email belongs to a *set* of mailboxes), so junk detection keys off this.
-            val listEmail = runCatching { repo.cachedEmail(emailId) }.getOrNull()
+            val listEmail = runCatching { credentials()?.let { repo.cachedEmail(it.id, emailId) } }.getOrNull()
             listEmail?.let { cached ->
                 _messages.value = listOf(ThreadMessage(id = cached.id, header = cached))
                 _state.value = MessageState.Loaded(cached)

@@ -16,8 +16,8 @@ class SnoozeWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val emailId = inputData.getString(KEY_ID) ?: return Result.success()
         val accountId = inputData.getString(KEY_ACCOUNT).orEmpty()
         val container = (applicationContext as Application).container
-        val email = container.mailRepository.cachedEmail(emailId)
-        container.mailRepository.unsnooze(emailId)
+        val email = container.mailRepository.cachedEmail(accountId, emailId)
+        container.mailRepository.unsnooze(accountId, emailId)
         if (email != null) Notifications.notifyNewMail(applicationContext, email, accountId)
         return Result.success()
     }

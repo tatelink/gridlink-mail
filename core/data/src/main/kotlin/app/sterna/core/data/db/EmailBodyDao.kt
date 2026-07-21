@@ -10,11 +10,13 @@ interface EmailBodyDao {
     @Upsert
     suspend fun upsert(body: EmailBodyEntity)
 
-    @Query("SELECT * FROM email_bodies WHERE id = :id LIMIT 1")
-    suspend fun byId(id: String): EmailBodyEntity?
+    // Reads/deletes are keyed (accountId, id): with the composite key (issue #31) an email id
+    // alone could match — and serve back — another account's cached body.
+    @Query("SELECT * FROM email_bodies WHERE accountId = :accountId AND id = :id LIMIT 1")
+    suspend fun byId(accountId: String, id: String): EmailBodyEntity?
 
-    @Query("SELECT id FROM email_bodies WHERE id IN (:ids)")
-    suspend fun cachedIds(ids: List<String>): List<String>
+    @Query("SELECT id FROM email_bodies WHERE accountId = :accountId AND id IN (:ids)")
+    suspend fun cachedIds(accountId: String, ids: List<String>): List<String>
 
     @Query("SELECT COUNT(*) FROM email_bodies WHERE accountId = :accountId")
     suspend fun countForAccount(accountId: String): Int
@@ -26,8 +28,8 @@ interface EmailBodyDao {
     )
     suspend fun pruneForAccount(accountId: String, keep: Int)
 
-    @Query("DELETE FROM email_bodies WHERE id = :id")
-    suspend fun deleteById(id: String)
+    @Query("DELETE FROM email_bodies WHERE accountId = :accountId AND id = :id")
+    suspend fun deleteById(accountId: String, id: String)
 
     @Query("DELETE FROM email_bodies WHERE accountId = :accountId")
     suspend fun deleteForAccount(accountId: String)

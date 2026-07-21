@@ -649,7 +649,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         pendingDeleteTargets = targets
         pendingDeleteEmails = emails
         viewModelScope.launch {
-            emails.forEach { repo.evict(it.id); dropThreadMember(it) }
+            targets.forEach { (credentials, id) -> repo.evict(credentials.id, id) }
+            emails.forEach { dropThreadMember(it) }
             _pendingDelete.value = label
             targets.groupBy({ it.first.id }, { it.second }).forEach { (accountId, ids) ->
                 MessageDestroyWorker.schedule(getApplication(), accountId, ids, PURGE_HOLD_BACK_MS)
@@ -880,7 +881,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // The UI row may not carry its source folder (e.g. a server-fetched thread member) —
             // fall back to the cached row, captured before the op drops it, so a moved message
             // always gets its Undo.
-            val source = email.mailboxId ?: repo.cachedEmail(email.id)?.mailboxId
+            val source = email.mailboxId ?: repo.cachedEmail(credentials.id, email.id)?.mailboxId
             runCatching { op(credentials, email.id) }
                 .onSuccess { dest ->
                     if (source != null) {
@@ -945,7 +946,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun emptyTrash() {
         val trashId = (selection.value as? Sel.Folder)?.id ?: return
         val credentials = store.load() ?: return
-        viewModelScope.launch { repo.cachedIds(listOf(credentials.id to trashId)).forEach { repo.evict(it) } }
+        viewModelScope.launch { repo.cachedIds(listOf(credentials.id to trashId)).forEach { repo.evict(credentials.id, it) } }
         _pendingPurge.value = getApplication<Application>().getString(R.string.status_trash_emptied)
         MessageDestroyWorker.schedulePurge(getApplication(), credentials.id, trashId, PURGE_HOLD_BACK_MS)
         val target = credentials.id to trashId
@@ -1291,7 +1292,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private var folderDeleteJob: Job? = null
-    private var pendingDeleteMailboxId: String? = null
+    /** (accountId, mailboxId) of the folder whose held-back delete is undoable. */
+    private var pendingDeleteMailboxId: Pair<String, String>? = null
     private val _pendingFolderDelete = MutableStateFlow<String?>(null)
 
     /** Snackbar label while a folder delete waits out its undo window; null = none. */
@@ -1310,11 +1312,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _pendingFolderDelete.value =
             getApplication<Application>().getString(R.string.inbox_folder_deleted, folderName)
         FolderDeleteWorker.schedule(getApplication(), credentials.id, mailboxId, PURGE_HOLD_BACK_MS)
-        pendingDeleteMailboxId = mailboxId
+        pendingDeleteMailboxId = credentials.id to mailboxId
         folderDeleteJob?.cancel()
         folderDeleteJob = viewModelScope.launch {
             delay(PURGE_HOLD_BACK_MS)
-            if (pendingDeleteMailboxId == mailboxId) {
+            if (pendingDeleteMailboxId == credentials.id to mailboxId) {
                 pendingDeleteMailboxId = null
                 _pendingFolderDelete.value = null
                 refreshWatchedFolders()
@@ -1324,7 +1326,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Cancel a held-back folder delete (nothing was destroyed yet) and restore the drawer. */
     fun undoDeleteFolder() {
-        pendingDeleteMailboxId?.let { FolderDeleteWorker.cancel(getApplication(), it) }
+        pendingDeleteMailboxId?.let { (accountId, mailboxId) -> FolderDeleteWorker.cancel(getApplication(), accountId, mailboxId) }
         pendingDeleteMailboxId = null
         folderDeleteJob?.cancel()
         folderDeleteJob = null

@@ -38,9 +38,10 @@ class ThreadMembersSqlTest {
             st.executeUpdate(
                 """
                 CREATE TABLE emails(
-                    id TEXT PRIMARY KEY, accountId TEXT, mailboxId TEXT, threadId TEXT,
+                    id TEXT, accountId TEXT, mailboxId TEXT, threadId TEXT,
                     subject TEXT, preview TEXT, receivedAt TEXT, fromName TEXT, fromEmail TEXT,
-                    seen INTEGER, flagged INTEGER, hasAttachment INTEGER, sortKey INTEGER
+                    seen INTEGER, flagged INTEGER, hasAttachment INTEGER, sortKey INTEGER,
+                    PRIMARY KEY(accountId, id)
                 )
                 """.trimIndent(),
             )
