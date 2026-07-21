@@ -2,11 +2,13 @@ package app.sterna.push
 
 import android.app.Application
 import android.content.Context
+import android.content.SharedPreferences
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.jmap.model.Email
 import kotlinx.coroutines.flow.first
+import java.time.Instant
 import java.util.Calendar
 
 /**
@@ -18,11 +20,31 @@ import java.util.Calendar
  */
 object NewMailNotifier {
     private const val PREFS = "push_baselines"
+    private const val VERSION_KEY = "baseline_version"
+    // v2: folder syncs went uncollapsed, so the first full re-query after the update
+    // caches every thread member — mail that sat on the server all along but was never
+    // in these baselines (they only ever saw representatives).
+    private const val BASELINE_VERSION = 2
+    // Age floor slack under a baseline's last pass (see [notifyDiff]).
+    private const val NOTIFY_HORIZON_MS = 24L * 60 * 60 * 1000
 
-    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private fun prefs(context: Context): SharedPreferences {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        // On the version bump, wipe the stale baselines once so each folder's next pass
+        // reseeds silently from the then-current cache ([FetchAndNotify] seeds whenever a
+        // baseline is missing) instead of announcing days-old members as new mail. One
+        // real arrival in the wipe-to-reseed window going unannounced is the cost.
+        if (prefs.getInt(VERSION_KEY, 1) < BASELINE_VERSION) {
+            prefs.edit().clear().putInt(VERSION_KEY, BASELINE_VERSION).apply()
+        }
+        return prefs
+    }
 
     /** Baseline key for one account folder. Account ids are UUIDs, so ':' is unambiguous. */
     private fun key(accountId: String, mailboxId: String) = "$accountId:$mailboxId"
+
+    /** Key of a baseline's last-pass timestamp. Disjoint from [key] ("ts" is no UUID). */
+    private fun tsKey(accountId: String, mailboxId: String) = "ts:" + key(accountId, mailboxId)
 
     /**
      * Move a pre-multi-folder baseline (bare accountId key, inbox-only) onto its
@@ -41,7 +63,10 @@ object NewMailNotifier {
     /** Reset a folder's baseline to [emails] without notifying (first sight of a folder,
      *  or when the user is opening the app anyway — the list itself shows what arrived). */
     fun seed(context: Context, accountId: String, mailboxId: String, emails: List<Email>) {
-        prefs(context).edit().putStringSet(key(accountId, mailboxId), emails.map { it.id }.toSet()).apply()
+        prefs(context).edit()
+            .putStringSet(key(accountId, mailboxId), emails.map { it.id }.toSet())
+            .putLong(tsKey(accountId, mailboxId), System.currentTimeMillis())
+            .apply()
     }
 
     /** True once [seed] or [notifyDiff] has recorded a baseline for this folder. */
@@ -52,13 +77,18 @@ object NewMailNotifier {
     fun clear(context: Context, accountId: String) {
         val prefs = prefs(context)
         val edit = prefs.edit().remove(accountId)
-        prefs.all.keys.filter { it.startsWith("$accountId:") }.forEach { edit.remove(it) }
+        prefs.all.keys
+            .filter { it.startsWith("$accountId:") || it.startsWith("ts:$accountId:") }
+            .forEach { edit.remove(it) }
         edit.apply()
     }
 
     /** Drop one folder's baseline (folder deleted or no longer watched). */
     fun clear(context: Context, accountId: String, mailboxId: String) {
-        prefs(context).edit().remove(key(accountId, mailboxId)).apply()
+        prefs(context).edit()
+            .remove(key(accountId, mailboxId))
+            .remove(tsKey(accountId, mailboxId))
+            .apply()
     }
 
     /**
@@ -73,9 +103,16 @@ object NewMailNotifier {
         val newKey = key(accountId, newMailboxId)
         val edit = prefs.edit()
         prefs.all.keys
-            .filter { it == oldKey || it.startsWith("$oldKey/") || it.startsWith("$oldKey.") }
+            .filter {
+                val bare = it.removePrefix("ts:")
+                bare == oldKey || bare.startsWith("$oldKey/") || bare.startsWith("$oldKey.")
+            }
             .forEach { k ->
-                prefs.getStringSet(k, null)?.let { edit.putStringSet(newKey + k.removePrefix(oldKey), it) }
+                if (k.startsWith("ts:")) {
+                    edit.putLong("ts:" + newKey + k.removePrefix("ts:").removePrefix(oldKey), prefs.getLong(k, 0L))
+                } else {
+                    prefs.getStringSet(k, null)?.let { edit.putStringSet(newKey + k.removePrefix(oldKey), it) }
+                }
                 edit.remove(k)
             }
         edit.apply()
@@ -93,13 +130,22 @@ object NewMailNotifier {
         emails: List<Email>,
     ) {
         val known = prefs(context).getStringSet(key(credentials.id, mailboxId), null).orEmpty()
+        // Age floor: never announce mail received more than NOTIFY_HORIZON_MS before this
+        // folder's previous pass. The cache gains OLD rows without them ever having been new
+        // mail — scrolling back pages weeks-old unread into the cache, expanding a thread
+        // caches old members — and none of those are in the baseline, so each would fire a
+        // days-late notification here. Genuinely new mail carrying an old receivedAt (a
+        // delayed relay) is skipped too — accepted trade-off. A missing timestamp or an
+        // unparseable date disables the floor for that mail (never suppresses a real arrival).
+        val lastPass = prefs(context).getLong(tsKey(credentials.id, mailboxId), 0L)
+        val floor = if (lastPass > 0) lastPass - NOTIFY_HORIZON_MS else Long.MIN_VALUE
         // One notification per conversation: the uncollapsed folder sync hands us every new
         // member of a thread, so a reply burst would otherwise fire one notification per
         // message. Collapse the new-mail set by thread (COALESCE(threadId, id) — an IMAP or
         // thread-less message is its own thread), keeping the newest member as the
         // representative; the whole burst still enters the baseline via [seed] below, so a
         // skipped member can never resurface as "new" on a later pass.
-        val newMail = emails.filter { it.id !in known && !it.isSeen }
+        val newMail = emails.filter { it.id !in known && !it.isSeen && receivedAfter(it, floor) }
             .groupBy { it.threadId ?: it.id }
             .map { (_, members) -> members.maxBy { it.receivedAt.orEmpty() } }
         // Codeberg #19: a message we announced that has since been read — in the app or on
@@ -118,6 +164,13 @@ object NewMailNotifier {
             Notifications.updateGroupSummary(context, credentials.id, credentials.username, silent)
         }
         seed(context, credentials.id, mailboxId, emails)
+    }
+
+    /** Whether [email] was received at or after [floorMs] (lenient: unknown dates pass). */
+    private fun receivedAfter(email: Email, floorMs: Long): Boolean {
+        if (floorMs == Long.MIN_VALUE) return true
+        val received = email.receivedAt ?: return true
+        return runCatching { Instant.parse(received).toEpochMilli() >= floorMs }.getOrDefault(true)
     }
 
     /** Whether new mail should be posted silently right now (quiet-hours window). */

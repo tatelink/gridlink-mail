@@ -756,7 +756,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * every member is re-cached under its REAL current folder. Without this only the row(s) the
      * target folder's next sync happens to keep stay cached — the moved conversation collapses
      * to a chip-less single row whose other members are unreachable (the expand repair path is
-     * gated on threadCount > 1). Waits out any in-flight [refresh] first (the op's own
+     * gated on threadTotal > 1). Waits out any in-flight [refresh] first (the op's own
      * resetSyncState()+refresh() full re-query would prune rows cached before it ran), skips
      * threads with a held-back destroy pending (re-caching would resurrect the evicted rows
      * inside the Undo window), caps the fan-out (a select-all can span hundreds of threads),
