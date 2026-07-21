@@ -83,36 +83,44 @@ class PushService : Service() {
             stopSelf()
             return
         }
-        accounts.forEach { watch(it, gen, resetBaseline) }
-        Log.i(TAG, "Watching ${accounts.size} account(s) for new mail")
+        // One EventSource per login (issue #31): a login's session carries StateChanges for all of
+        // its mail accounts, so sub-accounts sharing a credential ride a single socket. Group by
+        // the login and fan a change out to every account in the group.
+        val groups = accounts.groupBy { store.account(it.id)?.loginKey() ?: it.id }
+        groups.forEach { (loginId, group) -> watch(loginId, group, gen, resetBaseline) }
+        Log.i(TAG, "Watching ${accounts.size} account(s) over ${groups.size} connection(s) for new mail")
     }
 
-    /** (Re)establish the push connection for one account. */
-    private suspend fun watch(credentials: AccountCredentials, gen: Int, resetBaseline: Boolean) {
+    /** (Re)establish the single push connection for one login and fan changes out to its accounts. */
+    private suspend fun watch(loginId: String, group: List<AccountCredentials>, gen: Int, resetBaseline: Boolean) {
         if (gen != generation) return
         val repo = application.container.mailRepository
         runCatching {
-            // Refresh + notify across the watched folders; on a reconnect (resetBaseline
-            // false) this announces anything that arrived during the gap.
-            FetchAndNotify.run(this, credentials, resetBaselines = resetBaseline)
-            connections[credentials.id] = repo.openAccountPush(
-                credentials,
-                onChanged = { if (gen == generation) scope.launch { onAccountChanged(credentials) } },
-                onClosed = { if (gen == generation) scheduleReconnect(credentials, gen) },
+            // Seed/announce baselines for every account in the group; on a reconnect (resetBaseline
+            // false) this announces anything that arrived during the gap, per sub-account.
+            group.forEach { runCatching { FetchAndNotify.run(this, it, resetBaselines = resetBaseline) } }
+            // Any credential in the group reaches the shared session; prefer the login's own.
+            val owner = group.firstOrNull { it.id == loginId } ?: group.first()
+            val watchedJmapIds = group.mapNotNull { it.jmapAccountId }.toSet()
+            connections[loginId] = repo.openAccountPush(
+                owner,
+                onChanged = { if (gen == generation) scope.launch { group.forEach { onAccountChanged(it) } } },
+                onClosed = { if (gen == generation) scheduleReconnect(loginId, group, gen) },
+                watchedJmapAccountIds = watchedJmapIds,
             )
         }.onFailure {
-            Log.e(TAG, "Push watch failed for account ${credentials.id}", it)
-            scheduleReconnect(credentials, gen)
+            Log.e(TAG, "Push watch failed for login $loginId", it)
+            scheduleReconnect(loginId, group, gen)
         }
     }
 
-    private fun scheduleReconnect(credentials: AccountCredentials, gen: Int) {
+    private fun scheduleReconnect(loginId: String, group: List<AccountCredentials>, gen: Int) {
         scope.launch {
             delay(RECONNECT_DELAY_MS)
             if (gen == generation) {
-                Log.i(TAG, "Reconnecting push for account ${credentials.id}")
-                runCatching { connections.remove(credentials.id)?.close() }
-                watch(credentials, gen, resetBaseline = false)
+                Log.i(TAG, "Reconnecting push for login $loginId")
+                runCatching { connections.remove(loginId)?.close() }
+                watch(loginId, group, gen, resetBaseline = false)
             }
         }
     }

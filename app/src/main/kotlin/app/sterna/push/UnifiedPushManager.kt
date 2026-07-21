@@ -90,7 +90,10 @@ class UnifiedPushManager(
         _needsDistributorChoice.value = false
     }
 
-    fun isActive(accountId: String): Boolean = store.load(accountId)?.status == UpStatus.ACTIVE
+    // A linked sub-account has no subscription of its own — it rides its login's one PushSubscription
+    // (issue #31), so its transport status is the login's.
+    fun isActive(accountId: String): Boolean =
+        store.load(accountStore.account(accountId)?.loginKey() ?: accountId)?.status == UpStatus.ACTIVE
 
     /**
      * Reality check before transport decisions: the saved distributor was uninstalled
@@ -137,6 +140,9 @@ class UnifiedPushManager(
     @Synchronized
     fun ensureRegistered(credentials: AccountCredentials) {
         if (credentials.protocol != MailProtocol.JMAP) return
+        // Only the login holds a PushSubscription; its sub-accounts (issue #31) are served by it and
+        // fanned to on delivery, so registering them would create redundant subscriptions.
+        if (accountStore.account(credentials.id)?.isLinked == true) return
         if (!ensureDistributor()) return
         val state = store.getOrCreate(credentials.id)
         val now = System.currentTimeMillis()
@@ -239,14 +245,21 @@ class UnifiedPushManager(
                     }
                 }
             }
-            // The subscription is per-credential, so any StateChange concerns this account.
-            is PushMessagePayload.Change -> PushFetchWorker.enqueue(context, accountId)
+            // One PushSubscription per login carries StateChanges for all its accounts, so fan the
+            // wake out to the login and every sub-account sharing it (issue #31).
+            is PushMessagePayload.Change -> enqueueForLogin(accountId)
             // Unknown/undecryptable payload: treat as a bare wake signal — still fetch.
             null -> {
                 Log.d(TAG, "Unparsed push payload (${message.content.size}B, decrypted=${message.decrypted})")
-                PushFetchWorker.enqueue(context, accountId)
+                enqueueForLogin(accountId)
             }
         }
+    }
+
+    /** Wake the login [loginId] and every sub-account riding its subscription (issue #31). */
+    private fun enqueueForLogin(loginId: String) {
+        (listOf(loginId) + accountStore.linkedAccounts(loginId).map { it.id }).distinct()
+            .forEach { PushFetchWorker.enqueue(context, it) }
     }
 
     /**

@@ -2761,15 +2761,20 @@ class MailRepository(
         credentials: AccountCredentials,
         onChanged: () -> Unit,
         onClosed: () -> Unit = {},
+        // The JMAP account ids whose Email state should wake [onChanged]. One EventSource per login
+        // carries StateChanges for every account in the session (issue #31), so a login watches all
+        // its sub-accounts through this one socket. Empty = just this credential's own account.
+        watchedJmapAccountIds: Set<String> = emptySet(),
     ): Closeable {
         if (credentials.protocol == MailProtocol.IMAP) {
             return imap.openIdle(credentials, onChanged = onChanged, onClosed = onClosed)
         }
         val resolved = resolve(credentials)
+        val watched = watchedJmapAccountIds.ifEmpty { setOf(resolved.accountId) }
         return client.openEventSource(
             session = resolved.session,
             auth = resolved.auth,
-            onStateChange = { change -> if (change.emailChanged(resolved.accountId)) onChanged() },
+            onStateChange = { change -> if (watched.any { change.emailChanged(it) }) onChanged() },
             onClosed = onClosed,
         )
     }
