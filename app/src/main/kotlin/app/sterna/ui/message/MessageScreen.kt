@@ -474,8 +474,15 @@ private fun MessageContent(
                         IconButton(onClick = {
                             // The displayed email can carry a null mailboxId (the body fetch drops
                             // it), which would misroute the delete and lose Undo — pass the folder
-                            // the VM resolved (Codeberg #23).
-                            onDelete(loaded.email.copy(mailboxId = resolvedMailbox ?: loaded.email.mailboxId))
+                            // the VM resolved (Codeberg #23). Same for the owning account: in the
+                            // unified inbox the page's nav-passed accountId is authoritative, and
+                            // without it the delete would run against the current account.
+                            onDelete(
+                                loaded.email.copy(
+                                    mailboxId = resolvedMailbox ?: loaded.email.mailboxId,
+                                    accountId = accountId ?: loaded.email.accountId,
+                                ),
+                            )
                         }) {
                             Icon(
                                 if (inTrash) Icons.Filled.DeleteForever else Icons.Filled.Delete,
@@ -560,10 +567,17 @@ private fun MessageContent(
                                     leadingIcon = { Icon(Icons.Filled.Archive, contentDescription = null) },
                                     // Archive via the shared inbox VM (like delete) so the reader
                                     // reuses the same count nudge + Undo; the resolved mailbox is
-                                    // passed since the body fetch can drop it (RC-6).
+                                    // passed since the body fetch can drop it (RC-6), and the
+                                    // page's accountId so a unified-inbox archive hits the
+                                    // message's own account, not the current one.
                                     onClick = {
                                         menuOpen = false
-                                        onArchive(loaded.email.copy(mailboxId = resolvedMailbox ?: loaded.email.mailboxId))
+                                        onArchive(
+                                            loaded.email.copy(
+                                                mailboxId = resolvedMailbox ?: loaded.email.mailboxId,
+                                                accountId = accountId ?: loaded.email.accountId,
+                                            ),
+                                        )
                                     },
                                 )
                                 DropdownMenuItem(

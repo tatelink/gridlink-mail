@@ -636,13 +636,17 @@ class MailRepository(
         enablePlaceholders = false,
     )
 
-    /** All cached ids for the given mailboxes (drives "select all"). */
-    suspend fun cachedIds(mailboxIds: List<String>): List<String> =
-        if (mailboxIds.isEmpty()) emptyList() else emailDao.idsForMailboxes(mailboxIds)
+    // The bulk-read scopes are (accountId, mailboxId) PAIRS, not bare mailbox ids: servers
+    // like Stalwart number mailboxes per-account, so two accounts' inboxes can share an id
+    // and a mailbox-only read would silently pull a sibling account's rows into a bulk op.
 
-    /** All cached emails for the given mailboxes (drives "mark all read"). */
-    suspend fun cachedEmailsForMailboxes(mailboxIds: List<String>): List<Email> =
-        if (mailboxIds.isEmpty()) emptyList() else emailDao.emailsForMailboxes(mailboxIds).map { it.toEmail() }
+    /** All cached ids for the given (account, mailbox) scopes (drives "select all"). */
+    suspend fun cachedIds(scopes: List<Pair<String, String>>): List<String> =
+        scopes.flatMap { (accountId, mailboxId) -> emailDao.idsForMailbox(accountId, mailboxId) }
+
+    /** All cached emails for the given (account, mailbox) scopes (drives "mark all read"). */
+    suspend fun cachedEmailsForMailboxes(scopes: List<Pair<String, String>>): List<Email> =
+        scopes.flatMap { (accountId, mailboxId) -> emailDao.getByMailbox(accountId, mailboxId) }.map { it.toEmail() }
 
     /** Cached emails by id (drives bulk actions on a selection). */
     suspend fun cachedEmailsByIds(ids: Collection<String>): List<Email> =
@@ -2127,7 +2131,7 @@ class MailRepository(
      */
     suspend fun emptyTrash(credentials: AccountCredentials, trashMailboxId: String): Int {
         if (credentials.protocol == MailProtocol.IMAP) {
-            val ids = cachedIds(listOf(trashMailboxId))
+            val ids = cachedIds(listOf(credentials.id to trashMailboxId))
             ids.forEach { id ->
                 imapTarget(id)?.let { (mb, uid) -> runCatching { imap.deleteMessage(credentials, mb, uid) } }
                 emailDao.deleteById(id)

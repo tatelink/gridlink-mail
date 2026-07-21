@@ -536,6 +536,11 @@ class AccountStore(context: Context) {
     /** Known inbox mailbox ids across every account (those synced at least once). */
     fun allInboxMailboxIds(): List<String> = accounts().mapNotNull { it.inboxId }
 
+    /** (account id, inbox id) pairs across every account — for reads that must stay
+     *  account-scoped even when same-server accounts' mailbox ids collide. */
+    fun allInboxScopes(): List<Pair<String, String>> =
+        accounts().mapNotNull { a -> a.inboxId?.let { a.id to it } }
+
     /** Combined unread count across every account, for the unified-inbox header. */
     fun totalUnreadCount(): Int = accounts().sumOf { it.unread }
 

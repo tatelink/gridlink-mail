@@ -96,13 +96,11 @@ interface EmailDao {
     @Query("SELECT id FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId ORDER BY sortKey ASC LIMIT 1")
     suspend fun oldestEmailId(accountId: String, mailboxId: String): String?
 
-    /** All cached ids across the given mailboxes (for "select all"). */
-    @Query("SELECT id FROM emails WHERE mailboxId IN (:mailboxIds)")
-    suspend fun idsForMailboxes(mailboxIds: List<String>): List<String>
-
-    /** All cached rows across the given mailboxes (for "mark all read"). */
-    @Query("SELECT * FROM emails WHERE mailboxId IN (:mailboxIds)")
-    suspend fun emailsForMailboxes(mailboxIds: List<String>): List<EmailEntity>
+    /** All cached ids in one account's mailbox (for "select all" — account-scoped like
+     *  [getByMailbox], so a same-server sibling account's colliding mailbox id can't
+     *  leak its rows into a bulk selection). */
+    @Query("SELECT id FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId")
+    suspend fun idsForMailbox(accountId: String, mailboxId: String): List<String>
 
     /** Cached rows by id (for bulk actions on a selection). */
     @Query("SELECT * FROM emails WHERE id IN (:ids)")

@@ -225,7 +225,9 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 // images arrive together so the WebView renders once, complete. Not marked read
                 // here — see [onActiveChanged].
                 val opened = repo.openMessage(credentials, emailId, markRead = false)
-                val anchor = opened.email
+                // Stamp the owning account: the fetched body never carries one, and downstream
+                // actions (reader archive/delete in the unified inbox) route by it.
+                val anchor = opened.email.copy(accountId = opened.email.accountId ?: accountId)
                 _state.value = MessageState.Loaded(anchorDisplay(anchor))
                 // Show the opened message (body + inline images) IMMEDIATELY. The thread fetch
                 // below is a separate network round-trip; it must not gate the body the user

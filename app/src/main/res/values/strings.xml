@@ -632,6 +632,7 @@
     <string name="status_action_failed">Couldn\'t complete the action.</string>
     <string name="status_restore_failed">Couldn\'t restore some messages.</string>
     <string name="status_moved_to_folder">Moved to %1$s</string>
+    <string name="status_move_other_account">Some messages were not moved (other account).</string>
 
     <!-- Notifications -->
     <string name="notif_channel_mail">New mail</string>

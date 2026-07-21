@@ -847,7 +847,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun emptyTrash() {
         val trashId = (selection.value as? Sel.Folder)?.id ?: return
         val credentials = store.load() ?: return
-        viewModelScope.launch { repo.cachedIds(listOf(trashId)).forEach { repo.evict(it) } }
+        viewModelScope.launch { repo.cachedIds(listOf(credentials.id to trashId)).forEach { repo.evict(it) } }
         _pendingPurge.value = getApplication<Application>().getString(R.string.status_trash_emptied)
         MessageDestroyWorker.schedulePurge(getApplication(), credentials.id, trashId, PURGE_HOLD_BACK_MS)
         pendingPurgeMailboxId = trashId
@@ -906,6 +906,18 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         Sel.Unified -> unifiedInboxIds.value
     }
 
+    /** (account id, mailbox id) scopes backing the current view: the current account's folder,
+     *  or each account's own inbox when unified. Bulk cache reads must carry BOTH ids — same-
+     *  server accounts can share a mailbox id (Stalwart numbers them per-account), and a
+     *  mailbox-only read would sweep a sibling account's messages into the operation. */
+    private fun currentScopes(): List<Pair<String, String>> = when (val sel = selection.value) {
+        is Sel.Folder -> {
+            val accountId = store.currentId()
+            if (accountId != null && sel.id != null) listOf(accountId to sel.id) else emptyList()
+        }
+        Sel.Unified -> store.allInboxScopes()
+    }
+
     // ---- sort / filter / bulk ----
 
     fun setSortOrder(order: SortOrder) {
@@ -919,7 +931,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Mark every message in the current view as read. */
     fun markAllRead() {
         viewModelScope.launch {
-            val unread = repo.cachedEmailsForMailboxes(currentMailboxIds()).filter { !it.isSeen }
+            val unread = repo.cachedEmailsForMailboxes(currentScopes()).filter { !it.isSeen }
             patchThreadMembersSeen(unread.mapTo(mutableSetOf()) { it.id }, true)
             unread.forEach { email ->
                 val credentials = credentialsFor(email) ?: return@forEach
@@ -973,7 +985,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun selectAll() {
         _selectionActive.value = true
         viewModelScope.launch {
-            _selectedIds.value = repo.cachedIds(currentMailboxIds()).toSet()
+            _selectedIds.value = repo.cachedIds(currentScopes()).toSet()
         }
     }
 
@@ -1101,7 +1113,24 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun archiveSelected() = bulkBatched(undoLabel = getApplication<Application>().getString(R.string.status_message_archived)) { c, ids -> repo.archiveAll(c, ids) }
 
     /** Move the selection to [targetMailboxId] (used for unarchive → Inbox and move-to-folder). */
-    fun moveSelectedTo(targetMailboxId: String) = bulkBatched { c, ids -> repo.moveAllToMailbox(c, ids, targetMailboxId) }
+    fun moveSelectedTo(targetMailboxId: String) {
+        val ids = _selectedIds.value
+        viewModelScope.launch {
+            // The picker listed the CURRENT account's folders, but a unified-inbox selection
+            // can span accounts — and the same folder id in a sibling account is a different
+            // (or nonexistent) folder, since same-server mailbox ids collide. Only the current
+            // account's messages move; the rest are left untouched and reported.
+            val currentId = store.currentId()
+            val (movable, skipped) = repo.cachedEmailsByIds(ids).partition { credentialsFor(it)?.id == currentId }
+            clearSelection()
+            if (skipped.isNotEmpty()) {
+                _message.value = getApplication<Application>().getString(R.string.status_move_other_account)
+            }
+            if (movable.isNotEmpty()) {
+                bulkBatched(ids = movable.mapTo(mutableSetOf()) { it.id }) { c, batch -> repo.moveAllToMailbox(c, batch, targetMailboxId) }
+            }
+        }
+    }
 
     fun reportSpamSelected() = bulkBatched { c, ids -> repo.reportSpamAll(c, ids) }
     fun notSpamSelected() = bulkBatched { c, ids -> repo.notSpamAll(c, ids) }
