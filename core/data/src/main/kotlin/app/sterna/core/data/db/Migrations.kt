@@ -74,3 +74,86 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
         )
     }
 }
+
+/**
+ * SQL that creates the `emails` table with the composite `(accountId, id)` primary key. Kept as a
+ * constant so the 13→14 migration and a plain JVM unit test build the exact table Room expects
+ * (column set, nullability and PK order must match [EmailEntity], or Room's open-time schema check
+ * fails). Column order is irrelevant to Room's validation; the PK column order is not.
+ */
+const val EMAILS_CREATE_SQL: String =
+    "CREATE TABLE IF NOT EXISTS `emails` (" +
+        "`id` TEXT NOT NULL, " +
+        "`accountId` TEXT NOT NULL, " +
+        "`mailboxId` TEXT NOT NULL, " +
+        "`threadId` TEXT, " +
+        "`subject` TEXT, " +
+        "`preview` TEXT, " +
+        "`receivedAt` TEXT, " +
+        "`fromName` TEXT, " +
+        "`fromEmail` TEXT, " +
+        "`seen` INTEGER NOT NULL, " +
+        "`flagged` INTEGER NOT NULL, " +
+        "`hasAttachment` INTEGER NOT NULL, " +
+        "`sortKey` INTEGER NOT NULL, " +
+        "PRIMARY KEY(`accountId`, `id`))"
+
+/** The index Room derives from `@Index("mailboxId")` on `emails` (name: `index_<table>_<column>`). */
+const val EMAILS_MAILBOX_INDEX_SQL: String =
+    "CREATE INDEX IF NOT EXISTS `index_emails_mailboxId` ON `emails` (`mailboxId`)"
+
+/** The `email_bodies` table with the composite key ([EmailBodyEntity]); shared with the JVM test. */
+const val EMAIL_BODIES_CREATE_SQL: String =
+    "CREATE TABLE IF NOT EXISTS `email_bodies` (" +
+        "`id` TEXT NOT NULL, " +
+        "`accountId` TEXT NOT NULL, " +
+        "`bodyJson` TEXT NOT NULL, " +
+        "`inlineImagesJson` TEXT NOT NULL, " +
+        "`fetchedAt` INTEGER NOT NULL, " +
+        "PRIMARY KEY(`accountId`, `id`))"
+
+/** The `snoozed` table with the composite key ([SnoozedEntity]); shared with the JVM test. */
+const val SNOOZED_CREATE_SQL: String =
+    "CREATE TABLE IF NOT EXISTS `snoozed` (" +
+        "`emailId` TEXT NOT NULL, " +
+        "`accountId` TEXT NOT NULL, " +
+        "`until` INTEGER NOT NULL, " +
+        "PRIMARY KEY(`accountId`, `emailId`))"
+
+/** Ordered column lists of the three rebuilt tables (identical in v13 and v14 — only the PK changes). */
+const val EMAILS_COLUMNS: String =
+    "`id`, `accountId`, `mailboxId`, `threadId`, `subject`, `preview`, `receivedAt`, " +
+        "`fromName`, `fromEmail`, `seen`, `flagged`, `hasAttachment`, `sortKey`"
+const val EMAIL_BODIES_COLUMNS: String = "`id`, `accountId`, `bodyJson`, `inlineImagesJson`, `fetchedAt`"
+const val SNOOZED_COLUMNS: String = "`emailId`, `accountId`, `until`"
+
+/**
+ * Rebuild [table] under its new composite-key DDL [createSql], copying every row over by explicit
+ * [columns] (never positionally). Old single-column keys were globally unique, so no collision is
+ * possible on the way in.
+ */
+private fun SupportSQLiteDatabase.rebuildTable(table: String, createSql: String, columns: String) {
+    execSQL(createSql.replace("`$table`", "`${table}_new`"))
+    execSQL("INSERT INTO `${table}_new` ($columns) SELECT $columns FROM `$table`")
+    execSQL("DROP TABLE `$table`")
+    execSQL("ALTER TABLE `${table}_new` RENAME TO `$table`")
+}
+
+/**
+ * 13→14: widen the primary keys of `emails`, `email_bodies` and `snoozed` from the email id alone
+ * to the composite `(accountId, id)` — a JMAP email id is unique only within its JMAP account
+ * (RFC 8620 §1.6.2), so two accounts under one login (issue #31) can each hold a message with the
+ * same id; a single-column key let one account's sync clobber (or serve back) the other's row.
+ * All three rebuilds are non-destructive: every existing row is copied over. `snoozed` is user
+ * data, so preserving it is mandatory; the caches merely avoid a pointless re-download.
+ */
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.rebuildTable("emails", EMAILS_CREATE_SQL, EMAILS_COLUMNS)
+        db.execSQL(EMAILS_MAILBOX_INDEX_SQL)
+        // The old accountId index is subsumed by the new key's prefix.
+        db.execSQL("DROP INDEX IF EXISTS `index_email_bodies_accountId`")
+        db.rebuildTable("email_bodies", EMAIL_BODIES_CREATE_SQL, EMAIL_BODIES_COLUMNS)
+        db.rebuildTable("snoozed", SNOOZED_CREATE_SQL, SNOOZED_COLUMNS)
+    }
+}
