@@ -52,6 +52,12 @@ data class AccountCredentials(
 )
 
 /**
+ * A mail-capable JMAP account found in a login's session (RFC 8620 §1.6.2): its server account id
+ * and display name. Primary-first when passed to [AccountStore.reconcileLinkedAccounts].
+ */
+data class DiscoveredMailAccount(val jmapAccountId: String, val name: String)
+
+/**
  * Persists one or more accounts. Account metadata is stored as JSON; each
  * password is encrypted via [KeystoreCrypto] and only the ciphertext is written.
  * The single-account methods (load/hasAccount/saveInboxMeta/…) operate on the
@@ -401,6 +407,85 @@ class AccountStore(context: Context) {
 
     fun allCredentials(): List<AccountCredentials> = accounts().mapNotNull { credentials(it.id) }
 
+    // ---- linked sub-accounts (issue #31) ----
+
+    /** Sub-accounts linked to [loginId] (they share its credential). Empty for a standalone login. */
+    fun linkedAccounts(loginId: String): List<StoredAccount> = accounts().filter { it.loginId == loginId }
+
+    /**
+     * Reconcile the sub-accounts linked to [loginId] against the mail accounts its JMAP session
+     * exposes. [discovered] is primary-first (see JmapSession.mailAccountIds): the head is the
+     * login's own mail account, the tail are the extra ones a single credential may reach
+     * (delegated / shared mailboxes). Creates a linked [StoredAccount] for each newly-granted
+     * account and prunes any whose access was revoked, returning the pruned ids so the caller can
+     * purge their caches. Idempotent — writes nothing and returns empty when nothing changed, so it
+     * is safe to call on every session refresh. Never touches a login's inbox metadata or secret.
+     */
+    fun reconcileLinkedAccounts(loginId: String, discovered: List<DiscoveredMailAccount>): List<String> {
+        val list = accounts()
+        val login = list.firstOrNull { it.id == loginId } ?: return emptyList()
+        val primary = discovered.firstOrNull() ?: return emptyList()
+        val subs = discovered.drop(1)
+        val existingLinked = list.filter { it.loginId == loginId }
+        val linkedByJmap = existingLinked.mapNotNull { acc -> acc.jmapAccountId?.let { it to acc } }.toMap()
+
+        val updated = list.toMutableList()
+        var changed = false
+
+        // Pin the login's own JMAP account id on first discovery, so later reconciles can tell the
+        // login apart from its sub-accounts and matching stays stable.
+        if (login.jmapAccountId == null) {
+            updated[updated.indexOfFirst { it.id == loginId }] = login.copy(jmapAccountId = primary.jmapAccountId)
+            changed = true
+        }
+
+        // Add newly-granted sub-accounts (skip the login's own account and ones we already track).
+        for (sub in subs) {
+            if (sub.jmapAccountId == primary.jmapAccountId || sub.jmapAccountId in linkedByJmap) continue
+            updated += StoredAccount(
+                id = UUID.randomUUID().toString(),
+                server = login.server,
+                username = login.username,
+                accountName = sub.name,
+                loginId = loginId,
+                jmapAccountId = sub.jmapAccountId,
+                protocol = login.protocol,
+                authType = login.authType,
+            )
+            changed = true
+        }
+
+        // Prune sub-accounts whose access is gone from an otherwise-healthy session.
+        val liveSubIds = subs.map { it.jmapAccountId }.toSet()
+        val pruned = existingLinked.filter { it.jmapAccountId !in liveSubIds }.map { it.id }
+        if (pruned.isNotEmpty()) {
+            updated.removeAll { it.id in pruned }
+            if (currentId() in pruned) prefs.edit().putString(KEY_CURRENT, loginId).apply()
+            changed = true
+        }
+
+        if (changed) saveAccounts(updated)
+        return pruned
+    }
+
+    /**
+     * Remove an account and cascade: removing a login also removes the sub-accounts linked to it
+     * (their secret is the login's, so they cannot outlive it); removing a single sub-account leaves
+     * the login and its siblings intact. Returns every removed id so the caller can purge caches and
+     * notification baselines. Falls the current account back to a survivor when it was removed.
+     */
+    fun removeCascading(id: String): List<String> {
+        val target = account(id) ?: return emptyList()
+        val ids = (listOf(id) + if (target.isLinked) emptyList() else linkedAccounts(id).map { it.id }).distinct()
+        prefs.edit().apply { ids.forEach { remove(passwordKey(it)) } }.apply()
+        val remaining = accounts().filterNot { it.id in ids }
+        saveAccounts(remaining)
+        if (currentId() in ids || remaining.none { it.id == prefs.getString(KEY_CURRENT, null) }) {
+            prefs.edit().putString(KEY_CURRENT, remaining.firstOrNull()?.id).apply()
+        }
+        return ids
+    }
+
     // ---- backup export / import (configuration only, never secrets) ----
 
     /**
@@ -411,8 +496,10 @@ class AccountStore(context: Context) {
     // OAuth accounts are excluded: their only secret (the refresh token) can't be exported, and
     // there is no password prompt to revive them on restore, so a backed-up OAuth account would be
     // permanently inert. The user re-adds those via the normal OAuth sign-in on the new device.
+    // Linked sub-accounts (issue #31) are excluded too: they carry no secret of their own and are
+    // re-discovered from the login's session on the first connect after a restore.
     fun accountsForBackup(): List<StoredAccount> = accounts()
-        .filter { it.authType == AuthType.BASIC }
+        .filter { it.authType == AuthType.BASIC && !it.isLinked }
         .map {
             it.copy(
                 oauthAccessToken = "",

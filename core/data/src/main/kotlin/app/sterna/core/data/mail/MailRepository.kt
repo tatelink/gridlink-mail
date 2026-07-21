@@ -11,6 +11,7 @@ import androidx.paging.map
 import androidx.sqlite.db.SimpleSQLiteQuery
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.account.AccountStore
+import app.sterna.core.data.account.DiscoveredMailAccount
 import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.OAuthCredentials
@@ -2638,6 +2639,31 @@ class MailRepository(
             ?: error("This user has no JMAP mail account.")
 
     /**
+     * Codeberg #31: a single login can expose several mail accounts. When the session advertises
+     * more than one, surface each as its own StoredAccount (delegated / shared mailboxes) and prune
+     * ones whose access was revoked, purging their caches. A single-account session is a strict
+     * no-op. Best-effort and off the sync hot path — it runs only on a session (re)fetch in
+     * connect(), and reconcile itself writes nothing when the account set is unchanged.
+     */
+    private fun reconcileLinkedAccounts(credentials: AccountCredentials, session: JmapSession) {
+        val mailAccountIds = session.mailAccountIds()
+        if (mailAccountIds.size <= 1) return
+        val loginId = accountStore.account(credentials.id)?.loginKey() ?: credentials.id
+        val discovered = mailAccountIds.map { DiscoveredMailAccount(it, session.accounts[it]?.name.orEmpty()) }
+        val pruned = runCatching { accountStore.reconcileLinkedAccounts(loginId, discovered) }.getOrDefault(emptyList())
+        pruned.forEach { prunedId ->
+            bgScope.launch {
+                runCatching {
+                    emailDao.deleteForAccount(prunedId)
+                    emailFtsDao.clearAccount(prunedId)
+                    emailBodyDao.deleteForAccount(prunedId)
+                    mailboxDao.deleteForAccount(prunedId)
+                }
+            }
+        }
+    }
+
+    /**
      * Refresh the account's inbox (unless [includeInbox] is false) plus the watched
      * folders in [extraFolderIds] into the cache (multi-folder push, issue #16).
      * Independent of the current-account context, so it is safe for background push.
@@ -3300,6 +3326,7 @@ class MailRepository(
         val auth = jmapAuth(credentials)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
         val accountId = jmapAccountIdFor(credentials, session)
+        reconcileLinkedAccounts(credentials, session)
         // Codeberg #32: the server is authoritative for the addresses the user may send
         // as. Refresh them into the account so the composer's From picker reflects the
         // server, on every client. Best-effort — a fetch failure must not break connect.

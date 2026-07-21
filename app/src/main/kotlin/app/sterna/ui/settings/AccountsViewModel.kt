@@ -334,20 +334,33 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         refresh()
     }
 
-    /** Sign out and purge that account's cached mail + the attachment cache. */
+    /**
+     * Sign out and purge that account's cached mail + the attachment cache. Signing out a login
+     * cascades to the JMAP sub-accounts linked to it (issue #31): they share its credential, so
+     * they cannot outlive it — each has its cache, notification baseline and push torn down too.
+     */
     fun signOut(id: String) {
-        // UnifiedPush teardown needs the credentials, so it runs before removal.
-        store.allCredentials().firstOrNull { it.id == id }?.let {
-            getApplication<Application>().container.unifiedPushManager.teardown(it)
+        val app = getApplication<Application>()
+        // Everything this sign-out will remove, resolved BEFORE removal so UnifiedPush teardown
+        // (which needs the credentials) and the cache purge can run per removed account.
+        val target = store.account(id)
+        val toRemove = buildList {
+            add(id)
+            if (target != null && !target.isLinked) addAll(store.linkedAccounts(id).map { it.id })
+        }.distinct()
+        store.allCredentials().filter { it.id in toRemove }.forEach {
+            app.container.unifiedPushManager.teardown(it)
         }
-        store.remove(id)
-        NewMailNotifier.clear(getApplication(), id)
+        val removed = store.removeCascading(id).ifEmpty { toRemove }
+        removed.forEach { NewMailNotifier.clear(app, it) }
         refresh()
         mail.resetSyncState()
         viewModelScope.launch {
-            mail.disconnectImap(id)
-            storage.purgeAccount(id)
+            removed.forEach {
+                mail.disconnectImap(it)
+                storage.purgeAccount(it)
+            }
         }
-        PushController.apply(getApplication(), userInitiated = true)
+        PushController.apply(app, userInitiated = true)
     }
 }
