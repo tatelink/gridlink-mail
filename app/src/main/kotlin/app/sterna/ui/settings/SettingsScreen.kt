@@ -142,6 +142,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneOffset
@@ -1284,7 +1285,22 @@ private fun AccountDetailScreen(
                 // Read-only delivery status (issue #17) — transparency, never a control.
                 if (notificationsEnabled) {
                     val appContext = LocalContext.current
-                    val statusText = when (val s = PushController.statusFor(appContext, accountId)) {
+                    // statusFor is a plain snapshot, but re-enabling notifications re-arms push
+                    // asynchronously (service start/stop, UnifiedPush bring-up): a one-shot read
+                    // taken during the toggle's recomposition still sees the old transport and
+                    // claimed "checked every 30 minutes" for a push account until the screen was
+                    // rebuilt (#53). Keep re-reading while the line is visible so it settles on
+                    // the effective delivery.
+                    var status by remember(accountId) {
+                        mutableStateOf(PushController.statusFor(appContext, accountId))
+                    }
+                    LaunchedEffect(accountId, notificationsEnabled) {
+                        while (true) {
+                            status = PushController.statusFor(appContext, accountId)
+                            delay(500)
+                        }
+                    }
+                    val statusText = when (val s = status) {
                         is PushStatus.ViaUnifiedPush ->
                             stringResource(R.string.settings_push_status_up, appLabelOf(appContext, s.distributorPackage))
                         PushStatus.Direct -> stringResource(R.string.settings_push_status_direct)
