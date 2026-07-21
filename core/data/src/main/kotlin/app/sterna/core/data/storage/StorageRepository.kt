@@ -63,6 +63,7 @@ class StorageRepository(
         emailDao.deleteForAccount(accountId)
         emailFtsDao.clearAccount(accountId)
         emailBodyDao.deleteForAccount(accountId)
+        mailboxDao.deleteForAccount(accountId)
     }
 
     /**
@@ -74,6 +75,7 @@ class StorageRepository(
         emailDao.deleteForAccount(accountId)
         emailFtsDao.clearAccount(accountId)
         emailBodyDao.deleteForAccount(accountId)
+        mailboxDao.deleteForAccount(accountId)
         clearAttachments()
     }
 

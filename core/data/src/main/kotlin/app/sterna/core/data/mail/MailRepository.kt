@@ -136,6 +136,9 @@ private const val UNREAD_RESOLVE_PAGE = 500
 /** Upper bound on server-resolved unread ids for one "Mark all read" (20 pages of 500). */
 private const val UNREAD_RESOLVE_MAX = 10_000
 
+/** Ids per bulk Email/set seen update — "mark all read" (RFC 8620 maxObjectsInSet floor). */
+private const val SET_SEEN_BATCH = 500
+
 /**
  * Build the dynamic ORDER BY / WHERE for the paged list. Favourites (flagged)
  * always pin to the top, then the chosen [sort]; [unreadOnly] adds a seen filter.
@@ -689,12 +692,18 @@ class MailRepository(
             val ctx = connect(credentials)
             val ids = mutableListOf<String>()
             while (ids.size < UNREAD_RESOLVE_MAX) {
-                val page = client.queryEmailsPage(
+                // Ids-only query (no Email/get): only the ids matter here, headers would be waste.
+                val page = client.queryEmailIds(
                     ctx.session, ctx.accountId, mailboxId, UNREAD_RESOLVE_PAGE, ctx.auth,
-                    position = ids.size, collapseThreads = false, unseenOnly = true,
+                    position = ids.size, calculateTotal = true, collapseThreads = false, unseenOnly = true,
                 )
-                ids += page.emails.map { it.id }
-                if (page.emails.size < UNREAD_RESOLVE_PAGE) break
+                if (page.ids.isEmpty()) break
+                ids += page.ids
+                // Advance by the ACTUAL page size and stop on the server's total (or an empty
+                // page): a server clamping the limit below UNREAD_RESOLVE_PAGE must not end
+                // the walk early with unread mail left behind.
+                val total = page.total
+                if (total != null && ids.size >= total) break
             }
             ids
         }.getOrElse { cached() }
@@ -1093,12 +1102,17 @@ class MailRepository(
             ?: mailboxes.firstOrNull()
             ?: error("No mailboxes found.")
 
-        syncMailbox(session, accountId, auth, target.id, limit, credentials.id)
-        if (pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, target.id, pruneBeforeMillis)
+        // The folder rows must land even when the message sync throws (server hiccup mid-
+        // refresh): otherwise the drawer keeps stale — or, right after a migration, empty —
+        // folders although the list we already fetched is good. Failure persists the rows,
+        // then rethrows; the prune stays success-only.
+        val syncError = runCatching { syncMailbox(session, accountId, auth, target.id, limit, credentials.id) }.exceptionOrNull()
+        if (syncError == null && pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, target.id, pruneBeforeMillis)
         // Folder counters land AFTER the email rows: badge and list update together, and an
         // optimistic nudge from a concurrent action isn't overwritten mid-refresh by counters
         // fetched before the rows synced.
         mailboxDao.replaceAll(credentials.id, mailboxes.map { it.toEntity(credentials.id) })
+        if (syncError != null) throw syncError
         // Warm the body cache for the top of the inbox so opening is instant (single-account
         // refresh path; the unified path warms it in refreshAllInboxes). Inbox only, to bound
         // bandwidth. Fire-and-forget so it never delays the list.
@@ -1504,6 +1518,39 @@ class MailRepository(
         emailDao.setSeen(emailId, seen)
         adjustFolderUnreadOnRead(credentials.id, mailboxId, wasSeen, seen)
         advanceEmailState(newState, credentials.id, mailboxId)
+    }
+
+    /**
+     * Mark many messages read/unread. JMAP: ONE `Email/set` per [SET_SEEN_BATCH]-id chunk
+     * instead of one round trip per message; local seen state, the folder-count nudges
+     * (grouped per folder like [adjustCountsForRemoval]) and the reconcile protection are
+     * applied only to ids the server confirmed. Ids beyond the cache (resolved server-side
+     * by [unreadIds]) have no row to nudge from — the caller's reconciling refresh converges
+     * their counters. IMAP flags are per-message, so that branch stays the per-id [setRead]
+     * path (its targets are cache-bounded anyway).
+     */
+    suspend fun setReadAll(credentials: AccountCredentials, emailIds: List<String>, seen: Boolean) {
+        if (emailIds.isEmpty()) return
+        if (credentials.protocol == MailProtocol.IMAP) {
+            emailIds.forEach { runCatching { setRead(credentials, it, seen) } }
+            return
+        }
+        val ctx = connect(credentials)
+        emailIds.chunked(SET_SEEN_BATCH).forEach { chunk ->
+            // Captured before the write so only real transitions nudge the counters (#46).
+            val rows = emailDao.emailsByIds(chunk).associateBy { it.id }
+            val result = client.setSeenAll(ctx.session, ctx.accountId, chunk, seen, ctx.auth)
+            val done = chunk.filter { it in result.done }
+            done.forEach { markRecentlyMutated(it); emailDao.setSeen(it, seen) }
+            done.mapNotNull { rows[it] }.filter { it.seen != seen }
+                .groupBy { it.mailboxId }
+                .forEach { (mailboxId, group) ->
+                    val delta = if (seen) -group.size else group.size
+                    accountStore.adjustInboxUnread(credentials.id, mailboxId, delta)
+                    mailboxDao.adjustCounts(credentials.id, mailboxId, totalDelta = 0, unreadDelta = delta)
+                }
+            advanceEmailState(result.newState, credentials.id, *done.mapNotNull { rows[it]?.mailboxId }.toTypedArray())
+        }
     }
 
     /** Keep the drawer's cached folder unread counter fresh on a local read/unread (sync corrects

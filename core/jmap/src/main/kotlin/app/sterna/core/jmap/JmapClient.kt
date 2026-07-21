@@ -5,6 +5,7 @@ import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailChangesResult
+import app.sterna.core.jmap.model.EmailIdPage
 import app.sterna.core.jmap.model.EmailPage
 import app.sterna.core.jmap.model.EmailQueryChangesResult
 import app.sterna.core.jmap.model.EmailSetResult
@@ -213,6 +214,70 @@ class JmapClient internal constructor(
                 queryState = methodResponseArgs(body, "Email/query")["queryState"]?.jsonPrimitive?.contentOrNull,
                 emailState = methodResponseArgs(body, "Email/get")["state"]?.jsonPrimitive?.contentOrNull,
                 total = methodResponseArgs(body, "Email/query")["total"]?.jsonPrimitive?.intOrNull,
+            )
+        }
+    }
+
+    /**
+     * Ids-only page of a mailbox query: a lone Email/query, no chained Email/get — for
+     * resolving bulk-action targets (e.g. "Mark all read"), where fetching headers for
+     * thousands of messages would be pure waste.
+     */
+    suspend fun queryEmailIds(
+        session: JmapSession,
+        accountId: String,
+        mailboxId: String,
+        limit: Int,
+        auth: JmapAuth,
+        position: Int = 0,
+        calculateTotal: Boolean = false,
+        collapseThreads: Boolean = true,
+        unseenOnly: Boolean = false,
+    ): EmailIdPage = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/query")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("filter") {
+                            put("inMailbox", mailboxId)
+                            if (unseenOnly) put("notKeyword", "\$seen")
+                        }
+                        putJsonArray("sort") {
+                            addJsonObject {
+                                put("property", "receivedAt")
+                                put("isAscending", false)
+                            }
+                        }
+                        put("collapseThreads", collapseThreads)
+                        put("position", position)
+                        put("limit", limit)
+                        if (calculateTotal) put("calculateTotal", true)
+                    }
+                    add("q0")
+                }
+            }
+        }
+        val request = Request.Builder()
+            .url(session.apiUrl)
+            .header("Authorization", auth.authorizationHeader())
+            .header("Accept", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw JmapException("Email/query failed: HTTP ${response.code} ${response.message}")
+            }
+            val args = methodResponseArgs(body, "Email/query")
+            EmailIdPage(
+                ids = (args["ids"] as? JsonArray)?.map { it.jsonPrimitive.content } ?: emptyList(),
+                total = args["total"]?.jsonPrimitive?.intOrNull,
             )
         }
     }
@@ -674,6 +739,32 @@ class JmapClient internal constructor(
     /** Convenience for the \$seen keyword. Returns the new `Email/set` state. */
     suspend fun setSeen(session: JmapSession, accountId: String, emailId: String, seen: Boolean, auth: JmapAuth): String? =
         setKeyword(session, accountId, emailId, "\$seen", seen, auth)
+
+    /**
+     * Set or clear the \$seen keyword on many emails in ONE `Email/set` — over [postWithRetry],
+     * like the bulk [move] — so "Mark all read" doesn't cost one round trip per message.
+     * Returns the per-id outcome (no-op for an empty list).
+     */
+    suspend fun setSeenAll(
+        session: JmapSession,
+        accountId: String,
+        emailIds: List<String>,
+        seen: Boolean,
+        auth: JmapAuth,
+    ): EmailSetResult {
+        if (emailIds.isEmpty()) return EmailSetResult(null, emptySet(), emptyMap())
+        val args = emailSet(session, auth) {
+            put("accountId", accountId)
+            putJsonObject("update") {
+                emailIds.forEach { id ->
+                    putJsonObject(id) {
+                        if (seen) put("keywords/\$seen", true) else put("keywords/\$seen", JsonNull)
+                    }
+                }
+            }
+        }
+        return emailSetResult(args)
+    }
 
     /** Move an email so it belongs to exactly [targetMailboxId]. Returns the new state.
      *  Throws when the server rejects the update (per-id `notUpdated`). */

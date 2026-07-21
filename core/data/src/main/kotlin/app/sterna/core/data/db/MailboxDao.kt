@@ -21,6 +21,10 @@ interface MailboxDao {
     @Query("DELETE FROM mailboxes")
     suspend fun deleteAll()
 
+    /** Drop one account's folder rows (sign-out / clear-account-cache). */
+    @Query("DELETE FROM mailboxes WHERE accountId = :accountId")
+    suspend fun deleteForAccount(accountId: String)
+
     /** The id (IMAP path) of the account's first mailbox with the given role, if any. */
     @Query("SELECT id FROM mailboxes WHERE accountId = :accountId AND role = :role LIMIT 1")
     suspend fun idForRole(accountId: String, role: String): String?

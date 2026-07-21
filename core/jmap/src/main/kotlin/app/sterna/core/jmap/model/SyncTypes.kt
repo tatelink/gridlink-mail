@@ -16,6 +16,13 @@ data class EmailPage(
     val total: Int? = null,
 )
 
+/** Ids-only page of an `Email/query` (no `Email/get`) — for resolving bulk-action targets. */
+data class EmailIdPage(
+    val ids: List<String>,
+    /** Total messages matching the query (when the server calculated it), for paging end-detection. */
+    val total: Int? = null,
+)
+
 /**
  * One page of the search-index crawl. [queryCount] is how many ids `Email/query` returned at this
  * position (drives pagination); it can exceed `emails.size` when `Email/get` omits ids

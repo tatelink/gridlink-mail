@@ -1007,10 +1007,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 val credentials = store.credentials(accountId) ?: return@forEach
                 // Server-resolved targets (cached fallback offline): acting on the cached rows
                 // alone leaves non-representative and out-of-window unread untouched, and the
-                // badge springs back to their count at the next sync.
-                repo.unreadIds(credentials, mailboxId).forEach { id ->
-                    runCatching { repo.setRead(credentials, id, true) }
-                }
+                // badge springs back to their count at the next sync. One bulk repo call per
+                // folder (chunked Email/set inside), not one round trip per message.
+                val ids = repo.unreadIds(credentials, mailboxId)
+                runCatching { repo.setReadAll(credentials, ids, seen = true) }
             }
             dismissReadNotifications(cachedUnread)
             // Reconcile: rows marked beyond the cache don't nudge the badge (no cached seen
