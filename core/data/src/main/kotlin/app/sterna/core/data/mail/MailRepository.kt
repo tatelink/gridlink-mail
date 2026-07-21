@@ -1217,8 +1217,7 @@ class MailRepository(
         if (credentials.protocol == MailProtocol.IMAP) return refreshImap(credentials, mailboxId, limit, pruneBeforeMillis)
         val auth = jmapAuth(credentials)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
-        val accountId = session.mailAccountId()
-            ?: error("This user has no JMAP mail account.")
+        val accountId = jmapAccountIdFor(credentials, session)
 
         val mailboxes = client.getMailboxes(session, accountId, auth)
         context = Context(
@@ -2611,10 +2610,20 @@ class MailRepository(
     private suspend fun resolve(credentials: AccountCredentials): Resolved {
         val auth = jmapAuth(credentials)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
-        val accountId = session.mailAccountId() ?: error("This user has no JMAP mail account.")
+        val accountId = jmapAccountIdFor(credentials, session)
         val mailboxes = client.getMailboxes(session, accountId, auth)
         return Resolved(session, accountId, auth, mailboxes)
     }
+
+    /**
+     * The JMAP account id to pin this credential's API calls to: a linked sub-account's own
+     * [AccountCredentials.jmapAccountId], else the session's primary mail account (the standalone
+     * path, byte-identical to pre-multi-account behaviour).
+     */
+    private fun jmapAccountIdFor(credentials: AccountCredentials, session: JmapSession): String =
+        credentials.jmapAccountId
+            ?: session.mailAccountId()
+            ?: error("This user has no JMAP mail account.")
 
     /**
      * Refresh the account's inbox (unless [includeInbox] is false) plus the watched
@@ -3278,8 +3287,7 @@ class MailRepository(
         context?.let { if (it.credentials == credentials) return it }
         val auth = jmapAuth(credentials)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
-        val accountId = session.mailAccountId()
-            ?: error("This user has no JMAP mail account.")
+        val accountId = jmapAccountIdFor(credentials, session)
         // Codeberg #32: the server is authoritative for the addresses the user may send
         // as. Refresh them into the account so the composer's From picker reflects the
         // server, on every client. Best-effort — a fetch failure must not break connect.

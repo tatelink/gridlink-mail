@@ -38,6 +38,13 @@ data class AccountCredentials(
     val password: String,
     val id: String = "",
     val protocol: MailProtocol = MailProtocol.JMAP,
+    /**
+     * The server-side JMAP account id to pin API calls to (RFC 8620 §1.6.2). Non-null for a
+     * linked sub-account; null lets [app.sterna.core.data.mail.MailRepository] fall back to the
+     * session's primary mail account. Part of equals so the context cache never confuses two
+     * sub-accounts that share one login/credential.
+     */
+    val jmapAccountId: String? = null,
     val imap: MailEndpoint? = null,
     val smtp: MailEndpoint? = null,
     /** Non-null for OAuth accounts; when set, prefer Bearer auth over the password. */
@@ -166,11 +173,13 @@ class AccountStore(context: Context) {
      * keeps the stored one (some servers don't rotate it). No-op for unknown ids.
      */
     fun updateOAuthTokens(id: String, accessToken: String, refreshToken: String, accessExpiresAtMillis: Long) {
-        if (accounts().none { it.id == id }) return
-        if (refreshToken.isNotBlank()) writePassword(id, refreshToken)
+        // Tokens live on the login record; a refresh triggered by any sub-account updates the login
+        // so every sub-account sharing that login observes the fresh access token.
+        val loginId = account(id)?.loginKey() ?: return
+        if (refreshToken.isNotBlank()) writePassword(loginId, refreshToken)
         saveAccounts(
             accounts().map {
-                if (it.id == id) it.copy(oauthAccessToken = accessToken, oauthAccessExpiresAt = accessExpiresAtMillis) else it
+                if (it.id == loginId) it.copy(oauthAccessToken = accessToken, oauthAccessExpiresAt = accessExpiresAtMillis) else it
             },
         )
     }
@@ -217,10 +226,10 @@ class AccountStore(context: Context) {
         )
     }
 
-    /** Re-encrypt and store a new password for the account. */
+    /** Re-encrypt and store a new password for the account (written under its login slot). */
     fun updatePassword(id: String, password: String) {
-        if (accounts().none { it.id == id }) return
-        writePassword(id, password)
+        val loginId = account(id)?.loginKey() ?: return
+        writePassword(loginId, password)
     }
 
     /** Optional signature for an account (null id = current account); blank if none. */
@@ -350,16 +359,21 @@ class AccountStore(context: Context) {
     fun load(): AccountCredentials? = currentId()?.let { credentials(it) }
 
     fun credentials(id: String): AccountCredentials? {
-        val account = accounts().firstOrNull { it.id == id } ?: return null
+        val list = accounts()
+        val account = list.firstOrNull { it.id == id } ?: return null
+        // A linked sub-account borrows its login's encrypted secret and OAuth tokens: the secret
+        // lives under the login id only (never duplicated), and a token refresh on the login is
+        // observed by every sub-account. Standalone accounts resolve to themselves (loginKey == id).
+        val login = list.firstOrNull { it.id == account.loginKey() } ?: account
         // For OAuth accounts the encrypted slot holds the refresh token, not a password.
-        val secret = readPassword(id) ?: return null
-        val oauth = if (account.authType == AuthType.OAUTH) {
+        val secret = readPassword(login.id) ?: return null
+        val oauth = if (login.authType == AuthType.OAUTH) {
             OAuthCredentials(
-                accessToken = account.oauthAccessToken,
+                accessToken = login.oauthAccessToken,
                 refreshToken = secret,
-                accessExpiresAtMillis = account.oauthAccessExpiresAt,
-                tokenEndpoint = account.oauthTokenEndpoint,
-                clientId = account.oauthClientId,
+                accessExpiresAtMillis = login.oauthAccessExpiresAt,
+                tokenEndpoint = login.oauthTokenEndpoint,
+                clientId = login.oauthClientId,
             )
         } else {
             null
@@ -370,6 +384,7 @@ class AccountStore(context: Context) {
             password = if (oauth == null) secret else "",
             id = id,
             protocol = account.protocol,
+            jmapAccountId = account.jmapAccountId,
             oauth = oauth,
             imap = if (account.protocol == MailProtocol.IMAP) {
                 MailEndpoint(account.imapHost, account.imapPort, account.imapSecurity)

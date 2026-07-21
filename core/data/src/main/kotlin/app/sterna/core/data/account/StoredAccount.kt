@@ -8,6 +8,19 @@ data class StoredAccount(
     val id: String,
     val server: String,
     val username: String,
+    /**
+     * The server-side JMAP account id this record maps to (RFC 8620 §1.6.2). A single login can
+     * expose several mail accounts in `Session.accounts`; each becomes its own [StoredAccount].
+     * null = resolve via the session's primary mail account (legacy/standalone records,
+     * byte-identical to pre-multi-account behaviour).
+     */
+    val jmapAccountId: String? = null,
+    /**
+     * Groups sub-accounts that share one login/credential. Points at the primary [StoredAccount.id]
+     * whose encrypted secret and OAuth tokens this record borrows. null = standalone (this id IS
+     * the login; the secret lives under this id).
+     */
+    val loginId: String? = null,
     val accountName: String = "",
     val inboxId: String? = null,
     val inboxName: String = "Inbox",
@@ -59,6 +72,12 @@ data class StoredAccount(
     val pgpSignKeyId: Long = 0L,
     val pgpEncryptByDefault: Boolean = false,
 ) {
+    /** The id whose stored secret/OAuth tokens back this record: its login (or itself if standalone). */
+    fun loginKey(): String = loginId ?: id
+
+    /** True for a sub-account discovered under another account's login (shares its credential). */
+    val isLinked: Boolean get() = loginId != null
+
     /** Best label for the account in UI. */
     fun label(): String = accountName.ifBlank { username }
 
