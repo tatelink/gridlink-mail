@@ -215,8 +215,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             listEmail?.let { cached ->
                 _messages.value = listOf(ThreadMessage(id = cached.id, header = cached))
                 _state.value = MessageState.Loaded(cached)
-                _inJunk.value = repo.mailboxRole(cached.mailboxId) == "junk"
-                _inTrash.value = repo.mailboxRole(cached.mailboxId) == "trash"
+                _inJunk.value = repo.mailboxRole(cached.accountId ?: accountId, cached.mailboxId) == "junk"
+                _inTrash.value = repo.mailboxRole(cached.accountId ?: accountId, cached.mailboxId) == "trash"
                 _mailboxId.value = cached.mailboxId
             }
             try {
@@ -241,8 +241,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                         inlineImages = opened.inlineImages,
                     ),
                 )
-                _inJunk.value = repo.mailboxRole(anchor.mailboxId ?: listEmail?.mailboxId) == "junk"
-                _inTrash.value = repo.mailboxRole(anchor.mailboxId ?: listEmail?.mailboxId) == "trash"
+                _inJunk.value = repo.mailboxRole(anchor.accountId, anchor.mailboxId ?: listEmail?.mailboxId) == "junk"
+                _inTrash.value = repo.mailboxRole(anchor.accountId, anchor.mailboxId ?: listEmail?.mailboxId) == "trash"
                 _mailboxId.value = anchor.mailboxId ?: listEmail?.mailboxId
                 // OpenPGP: reflect the crypto state; a decrypt is attempted once the
                 // page settles in front of the user (see onActiveChanged), not while

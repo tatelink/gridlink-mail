@@ -150,6 +150,7 @@ class ImapMailService(
         withSession(credentials) { session ->
             session.listFolders().mapIndexed { index, folder ->
                 MailboxEntity(
+                    accountId = credentials.id,
                     id = folder.path,
                     name = folder.name,
                     role = folder.role,
@@ -169,6 +170,7 @@ class ImapMailService(
         val folders = session.listFolders()
         val mailboxes = folders.mapIndexed { index, folder ->
             MailboxEntity(
+                accountId = credentials.id,
                 id = folder.path,
                 name = folder.name,
                 role = folder.role,

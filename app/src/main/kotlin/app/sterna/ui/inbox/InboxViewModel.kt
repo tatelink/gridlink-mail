@@ -366,7 +366,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     )
     private val status = MutableStateFlow(Status(refreshing = false, error = null))
 
-    private val mailboxes = repo.observeMailboxes()
+    // The drawer shows the CURRENT account's folders: the cache now keeps every account's
+    // rows side by side, so the flow re-scopes when the user switches accounts.
+    private val mailboxes = currentAccountId.flatMapLatest { accountId ->
+        if (accountId == null) flowOf(emptyList()) else repo.observeMailboxes(accountId)
+    }
     private val searchState = MutableStateFlow(SearchUi())
     private var searchJob: Job? = null
 
@@ -422,7 +426,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             atInbox = sel is Sel.Unified || (sel as? Sel.Folder)?.id == store.inboxMailboxId(),
             accountName = meta.accountName,
             mailboxName = meta.mailboxName,
-            unread = meta.unread,
+            // "All inboxes (N)" re-reads the stored per-account metas on every folder-cache
+            // change: local actions mirror their count nudges into the store, so the unified
+            // total moves together with the per-folder badge below it instead of freezing at
+            // the last refresh's snapshot.
+            unread = if (sel is Sel.Unified) store.totalUnreadCount() else meta.unread,
             refreshing = status.refreshing,
             error = status.error,
         )
@@ -992,13 +1000,22 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Mark every message in the current view as read. */
     fun markAllRead() {
         viewModelScope.launch {
-            val unread = repo.cachedEmailsForMailboxes(currentScopes()).filter { !it.isSeen }
-            patchThreadMembersSeen(unread.mapTo(mutableSetOf()) { it.id }, true)
-            unread.forEach { email ->
-                val credentials = credentialsFor(email) ?: return@forEach
-                runCatching { repo.setRead(credentials, email.id, true) }
+            val scopes = currentScopes()
+            val cachedUnread = repo.cachedEmailsForMailboxes(scopes).filter { !it.isSeen }
+            patchThreadMembersSeen(cachedUnread.mapTo(mutableSetOf()) { it.id }, true)
+            scopes.forEach { (accountId, mailboxId) ->
+                val credentials = store.credentials(accountId) ?: return@forEach
+                // Server-resolved targets (cached fallback offline): acting on the cached rows
+                // alone leaves non-representative and out-of-window unread untouched, and the
+                // badge springs back to their count at the next sync.
+                repo.unreadIds(credentials, mailboxId).forEach { id ->
+                    runCatching { repo.setRead(credentials, id, true) }
+                }
             }
-            dismissReadNotifications(unread)
+            dismissReadNotifications(cachedUnread)
+            // Reconcile: rows marked beyond the cache don't nudge the badge (no cached seen
+            // state), so converge counters and list on server truth now instead of later.
+            refresh()
         }
     }
 
@@ -1259,7 +1276,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteFolder(mailboxId: String, folderName: String) {
         val credentials = store.load() ?: return
         val ids = listOf(mailboxId) + subfolderIdsOf(mailboxId)
-        viewModelScope.launch { repo.hideMailboxesLocally(ids) }
+        viewModelScope.launch { repo.hideMailboxesLocally(credentials.id, ids) }
         _pendingFolderDelete.value =
             getApplication<Application>().getString(R.string.inbox_folder_deleted, folderName)
         FolderDeleteWorker.schedule(getApplication(), credentials.id, mailboxId, PURGE_HOLD_BACK_MS)

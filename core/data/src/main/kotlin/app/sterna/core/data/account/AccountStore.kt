@@ -544,6 +544,27 @@ class AccountStore(context: Context) {
     /** Combined unread count across every account, for the unified-inbox header. */
     fun totalUnreadCount(): Int = accounts().sumOf { it.unread }
 
+    /**
+     * Mirror a drawer-count nudge into the stored inbox snapshot: when a local action changes
+     * the unread count of [accountId]'s inbox, move the persisted meta too, so "All inboxes (N)"
+     * and the offline header never visibly disagree with the per-folder badge. No-op unless
+     * [mailboxId] is that account's inbox; the next refresh restores server truth.
+     */
+    fun adjustInboxUnread(accountId: String, mailboxId: String, delta: Int) {
+        if (delta == 0) return
+        val list = accounts()
+        if (list.none { it.id == accountId && it.inboxId == mailboxId }) return
+        saveAccounts(
+            list.map {
+                if (it.id == accountId && it.inboxId == mailboxId) {
+                    it.copy(unread = (it.unread + delta).coerceAtLeast(0))
+                } else {
+                    it
+                }
+            },
+        )
+    }
+
     /** Record a specific account's inbox id/name/unread (used by the unified refresh fan-out). */
     fun saveInboxMetaFor(accountId: String, mailboxId: String, mailboxName: String, @Suppress("UNUSED_PARAMETER") accountName: String, unread: Int) {
         saveAccounts(

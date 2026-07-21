@@ -53,7 +53,7 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
         _state.update { it.copy(loading = true, errorKind = null) }
         viewModelScope.launch {
             try {
-                val folders = runCatching { repo.observeMailboxes().first().map { mb -> mb.name } }
+                val folders = runCatching { repo.observeMailboxes(credentials.id).first().map { mb -> mb.name } }
                     .getOrDefault(emptyList())
                 when (val result = repo.loadFilterRules(credentials)) {
                     FilterRulesState.Unsupported ->

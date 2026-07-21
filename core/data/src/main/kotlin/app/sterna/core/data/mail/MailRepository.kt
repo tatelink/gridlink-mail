@@ -130,6 +130,12 @@ private const val MAX_PURGE_PASSES = 20
 /** Ids per Email/set destroy during a trash purge (RFC 8620 maxObjectsInSet floor). */
 private const val PURGE_DESTROY_BATCH = 500
 
+/** Page size when resolving unread ids server-side (RFC 8620 maxObjectsInGet floor). */
+private const val UNREAD_RESOLVE_PAGE = 500
+
+/** Upper bound on server-resolved unread ids for one "Mark all read" (20 pages of 500). */
+private const val UNREAD_RESOLVE_MAX = 10_000
+
 /**
  * Build the dynamic ORDER BY / WHERE for the paged list. Favourites (flagged)
  * always pin to the top, then the chosen [sort]; [unreadOnly] adds a seen filter.
@@ -506,9 +512,9 @@ class MailRepository(
         }
     }
 
-    /** Cached mailboxes (folders), updated reactively. */
-    fun observeMailboxes(): Flow<List<Mailbox>> =
-        mailboxDao.observeAll().map { rows -> rows.map { it.toMailbox() } }
+    /** Cached mailboxes (folders) of the local account [accountId], updated reactively. */
+    fun observeMailboxes(accountId: String): Flow<List<Mailbox>> =
+        mailboxDao.observeAll(accountId).map { rows -> rows.map { it.toMailbox() } }
 
     /** Cached emails for a mailbox, newest first, updated reactively. */
     fun observeMailbox(mailboxId: String): Flow<List<Email>> =
@@ -668,6 +674,33 @@ class MailRepository(
         if (ids.isEmpty()) emptyList() else emailDao.emailsByIds(ids.toList()).map { it.toEmail() }
 
     /**
+     * Every unread message id in [mailboxId], resolved SERVER-side (uncollapsed Email/query
+     * filtered on `notKeyword $seen`, paginated and bounded) — so "Mark all read" reaches
+     * unread mail the cache doesn't hold (non-representative thread members, mail past the
+     * sync window) and the badge doesn't spring back at the next sync. Falls back to the
+     * cached unread rows when the query fails (offline); IMAP has no cheap folder-wide id
+     * query, so it always uses the cache.
+     */
+    suspend fun unreadIds(credentials: AccountCredentials, mailboxId: String): List<String> {
+        suspend fun cached() =
+            emailDao.getByMailbox(credentials.id, mailboxId).filter { !it.seen }.map { it.id }
+        if (credentials.protocol == MailProtocol.IMAP) return cached()
+        return runCatching {
+            val ctx = connect(credentials)
+            val ids = mutableListOf<String>()
+            while (ids.size < UNREAD_RESOLVE_MAX) {
+                val page = client.queryEmailsPage(
+                    ctx.session, ctx.accountId, mailboxId, UNREAD_RESOLVE_PAGE, ctx.auth,
+                    position = ids.size, collapseThreads = false, unseenOnly = true,
+                )
+                ids += page.emails.map { it.id }
+                if (page.emails.size < UNREAD_RESOLVE_PAGE) break
+            }
+            ids
+        }.getOrElse { cached() }
+    }
+
+    /**
      * Instant coverage floor for the search index: re-seed the rows that are in the display cache
      * (recent window), without clearing crawled-only rows. Called when a search session opens; the
      * full whole-mailbox crawl ([syncSearchIndex]) runs separately in the background.
@@ -757,6 +790,7 @@ class MailRepository(
                 if (credentials.protocol == MailProtocol.IMAP) {
                     val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = limit)
                     emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds())
+                    mailboxDao.replaceAll(credentials.id, load.mailboxes)
                     results += AccountInboxMeta(
                         credentials.id, load.accountName, load.targetMailboxId, load.targetName, load.unread,
                     )
@@ -767,6 +801,10 @@ class MailRepository(
                     ?: resolved.mailboxes.firstOrNull()
                     ?: return@runCatching
                 syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit, credentials.id)
+                // Persist the fetched folder counters (previously discarded), AFTER the row sync
+                // so badge and list move together — the unified refresh reconciles the drawer for
+                // every account, not just the current one.
+                mailboxDao.replaceAll(credentials.id, resolved.mailboxes.map { it.toEntity(credentials.id) })
                 val name = resolved.session.accounts[resolved.accountId]?.name ?: credentials.username
                 results += AccountInboxMeta(credentials.id, name, inbox.id, inbox.name, inbox.unreadEmails)
                 // Warm the body cache for the visible top of the inbox so opening is instant.
@@ -1041,7 +1079,6 @@ class MailRepository(
             ?: error("This user has no JMAP mail account.")
 
         val mailboxes = client.getMailboxes(session, accountId, auth)
-        mailboxDao.replaceAll(mailboxes.map { it.toEntity() })
         context = Context(
             credentials = credentials,
             session = session,
@@ -1058,6 +1095,10 @@ class MailRepository(
 
         syncMailbox(session, accountId, auth, target.id, limit, credentials.id)
         if (pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, target.id, pruneBeforeMillis)
+        // Folder counters land AFTER the email rows: badge and list update together, and an
+        // optimistic nudge from a concurrent action isn't overwritten mid-refresh by counters
+        // fetched before the rows synced.
+        mailboxDao.replaceAll(credentials.id, mailboxes.map { it.toEntity(credentials.id) })
         // Warm the body cache for the top of the inbox so opening is instant (single-account
         // refresh path; the unified path warms it in refreshAllInboxes). Inbox only, to bound
         // bandwidth. Fire-and-forget so it never delays the list.
@@ -1077,8 +1118,8 @@ class MailRepository(
         pruneBeforeMillis: Long?,
     ): MailboxMeta {
         val load = imap.loadFolder(credentials, mailboxId, limit)
-        mailboxDao.replaceAll(load.mailboxes)
         emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds())
+        mailboxDao.replaceAll(credentials.id, load.mailboxes)
         if (pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, load.targetMailboxId, pruneBeforeMillis)
         return MailboxMeta(load.accountName, load.targetMailboxId, load.targetName, load.unread)
     }
@@ -1094,10 +1135,10 @@ class MailRepository(
         val ctx = connect(credentials)
         val email = client.getEmail(ctx.session, ctx.accountId, emailId, ctx.auth)
         if (markRead && !email.isSeen) {
-            runCatching {
-                client.setSeen(ctx.session, ctx.accountId, emailId, seen = true, ctx.auth)
-                emailDao.setSeen(emailId, true)
-            }
+            // Through setRead, never inline: it also nudges the drawer count, protects the id
+            // from the next reconcile (recently-mutated) and advances the mailbox emailState —
+            // an inline Email/set here would silently skip all three.
+            runCatching { setRead(credentials, emailId, seen = true) }
         }
         return email
     }
@@ -1110,10 +1151,7 @@ class MailRepository(
         val uid = ImapMailService.uidOf(emailId) ?: error("Not an IMAP message.")
         val body = MimeParser.parseBody(imap.fetchSource(credentials, mailboxId, uid))
         if (markRead && !cached.isSeen) {
-            runCatching {
-                imap.markSeen(credentials, mailboxId, uid)
-                emailDao.setSeen(emailId, true)
-            }
+            runCatching { setRead(credentials, emailId, seen = true) }
         }
         return cached.withBody(body)
     }
@@ -1458,22 +1496,35 @@ class MailRepository(
         if (credentials.protocol == MailProtocol.IMAP) {
             imapTarget(emailId)?.let { (mb, uid) -> imap.setFlag(credentials, mb, uid, "\\Seen", seen) }
             emailDao.setSeen(emailId, seen)
-            adjustFolderUnreadOnRead(mailboxId, wasSeen, seen)
+            adjustFolderUnreadOnRead(credentials.id, mailboxId, wasSeen, seen)
             return
         }
         val ctx = connect(credentials)
         val newState = client.setSeen(ctx.session, ctx.accountId, emailId, seen, ctx.auth)
         emailDao.setSeen(emailId, seen)
-        adjustFolderUnreadOnRead(mailboxId, wasSeen, seen)
+        adjustFolderUnreadOnRead(credentials.id, mailboxId, wasSeen, seen)
         advanceEmailState(newState, credentials.id, mailboxId)
     }
 
     /** Keep the drawer's cached folder unread counter fresh on a local read/unread (sync corrects
      *  drift). Mirrors [adjustCountsForMove]; only moves the count on a real state change (#46). */
-    private suspend fun adjustFolderUnreadOnRead(mailboxId: String?, wasSeen: Boolean?, seen: Boolean) {
+    private suspend fun adjustFolderUnreadOnRead(accountId: String, mailboxId: String?, wasSeen: Boolean?, seen: Boolean) {
         if (mailboxId == null || wasSeen == null || wasSeen == seen) return
-        mailboxDao.adjustCounts(mailboxId, totalDelta = 0, unreadDelta = if (seen) -1 else 1)
+        val delta = if (seen) -1 else 1
+        accountStore.adjustInboxUnread(accountId, mailboxId, delta)
+        if (!isImapAccount(accountId)) mailboxDao.adjustCounts(accountId, mailboxId, totalDelta = 0, unreadDelta = delta)
     }
+
+    /**
+     * IMAP folder rows carry no server unread counts (a hard 0 — populating them would cost one
+     * STATUS round-trip per folder on every listing), so the drawer shows no IMAP badges. Nudging
+     * deltas onto that 0 baseline would manufacture transient bogus badges (e.g. "Trash (1)"
+     * after deleting an unread) that the next refresh wipes — gate the folder-row nudges off so
+     * IMAP badges are consistently absent rather than sporadically wrong. The stored inbox meta
+     * is NOT gated: its baseline is the real SEARCH UNSEEN count from the last refresh.
+     */
+    private fun isImapAccount(accountId: String): Boolean =
+        accountStore.account(accountId)?.protocol == MailProtocol.IMAP
 
     suspend fun setFlagged(credentials: AccountCredentials, emailId: String, flagged: Boolean) {
         markRecentlyMutated(emailId)
@@ -1581,24 +1632,34 @@ class MailRepository(
      * optimistic — the next mailbox-state sync (getMailboxes) reconciles them to server truth.
      */
     private suspend fun adjustCountsForRemoval(rows: List<EmailEntity>, destMailboxId: String?) =
-        nudgeCounts(rows.map { it.mailboxId to it.seen }, destMailboxId)
+        rows.groupBy { it.accountId }.forEach { (accountId, group) ->
+            nudgeCounts(accountId, group.map { it.mailboxId to it.seen }, destMailboxId)
+        }
 
     /**
      * The count-nudge primitive: [sources] is (sourceMailboxId, seen) for each row leaving its
      * folder into [destMailboxId] (null = destroyed). Decrements each distinct source, increments
      * the destination. An Undo reuses this in reverse — the "source" of the reverse move is the
      * folder the message currently sits in (Trash/Archive/dest) and the "dest" is where it goes
-     * home to — so restoring counts is just another removal.
+     * home to — so restoring counts is just another removal. Scoped to the acting [accountId]:
+     * same-server accounts can share bare mailbox ids, and an unscoped nudge from the unified
+     * inbox would move a sibling account's badge. Nudges that touch the account's inbox are
+     * mirrored into its stored inbox meta so "All inboxes (N)" moves with the badge.
      */
-    private suspend fun nudgeCounts(sources: List<Pair<String, Boolean>>, destMailboxId: String?) {
+    private suspend fun nudgeCounts(accountId: String, sources: List<Pair<String, Boolean>>, destMailboxId: String?) {
+        val imap = isImapAccount(accountId)
         sources.groupBy { it.first }.forEach { (src, group) ->
             if (src == destMailboxId) return@forEach
-            mailboxDao.adjustCounts(src, totalDelta = -group.size, unreadDelta = -group.count { !it.second })
+            val unread = group.count { !it.second }
+            accountStore.adjustInboxUnread(accountId, src, -unread)
+            if (!imap) mailboxDao.adjustCounts(accountId, src, totalDelta = -group.size, unreadDelta = -unread)
         }
         if (destMailboxId != null) {
             val incoming = sources.filter { it.first != destMailboxId }
             if (incoming.isNotEmpty()) {
-                mailboxDao.adjustCounts(destMailboxId, totalDelta = incoming.size, unreadDelta = incoming.count { !it.second })
+                val unread = incoming.count { !it.second }
+                accountStore.adjustInboxUnread(accountId, destMailboxId, unread)
+                if (!imap) mailboxDao.adjustCounts(accountId, destMailboxId, totalDelta = incoming.size, unreadDelta = unread)
             }
         }
     }
@@ -1784,8 +1845,14 @@ class MailRepository(
         return moveAllToMailbox(credentials, emailIds, inbox)
     }
 
-    /** The cached role of a mailbox (e.g. "junk", "inbox"), or null. */
-    suspend fun mailboxRole(mailboxId: String?): String? = mailboxId?.let { mailboxDao.roleForId(it) }
+    /** The cached role of an account's mailbox (e.g. "junk", "inbox"), or null. [accountId]
+     *  null falls back to the current account — same-server accounts can share a bare mailbox
+     *  id, so an unscoped lookup could read a sibling account's folder. */
+    suspend fun mailboxRole(accountId: String?, mailboxId: String?): String? {
+        if (mailboxId == null) return null
+        val account = accountId ?: accountStore.currentId() ?: return null
+        return mailboxDao.roleForId(account, mailboxId)
+    }
 
     /** Move a message to the Junk folder (Report spam). */
     suspend fun reportSpam(credentials: AccountCredentials, emailId: String) {
@@ -1944,17 +2011,18 @@ class MailRepository(
      * Drop folders from the local cache only (drawer disappearance while a folder
      * delete waits out its undo window); any refresh restores them.
      */
-    suspend fun hideMailboxesLocally(mailboxIds: List<String>) = mailboxDao.deleteByIds(mailboxIds)
+    suspend fun hideMailboxesLocally(accountId: String, mailboxIds: List<String>) =
+        mailboxDao.deleteByIds(accountId, mailboxIds)
 
     /** Re-fetch the folder list into the cache (after a create/rename/delete). */
     private suspend fun refreshMailboxes(credentials: AccountCredentials) {
         if (credentials.protocol == MailProtocol.IMAP) {
             val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = 1)
-            mailboxDao.replaceAll(load.mailboxes)
+            mailboxDao.replaceAll(credentials.id, load.mailboxes)
             return
         }
         val ctx = connect(credentials)
-        mailboxDao.replaceAll(client.getMailboxes(ctx.session, ctx.accountId, ctx.auth).map { it.toEntity() })
+        mailboxDao.replaceAll(credentials.id, client.getMailboxes(ctx.session, ctx.accountId, ctx.auth).map { it.toEntity(credentials.id) })
     }
 
     /** Create an "Archive" folder on the server, cache it in the context, and refresh the folder list. */
@@ -2061,7 +2129,7 @@ class MailRepository(
                 }
             }
             restored.forEach { lastImapMove.remove(it) }
-            restoreCounts(targets.filter { it.emailId in restored })
+            restoreCounts(credentials.id, targets.filter { it.emailId in restored })
             return targets.map { it.emailId }.toSet() - restored
         }
         // JMAP: ids are stable across mailbox moves, so move each id back to its source in one
@@ -2080,7 +2148,7 @@ class MailRepository(
                 fetched.forEach { markRecentlyMutated(it.id) }
             }
         }
-        restoreCounts(targets.filter { it.emailId in restored })
+        restoreCounts(credentials.id, targets.filter { it.emailId in restored })
         return targets.map { it.emailId }.toSet() - restored
     }
 
@@ -2090,7 +2158,7 @@ class MailRepository(
      * seen state we could re-cache use it; the rest are treated as read (the common case for an
      * already-triaged message) — a small transient the next sync corrects anyway.
      */
-    private suspend fun restoreCounts(targets: List<RestoreTarget>) {
+    private suspend fun restoreCounts(accountId: String, targets: List<RestoreTarget>) {
         val seenById = emailDao.emailsByIds(targets.map { it.emailId }).associate { it.id to it.seen }
         val moves = targets.mapNotNull { t ->
             val dest = t.destMailboxId ?: return@mapNotNull null // a destroy can't be undone
@@ -2099,7 +2167,7 @@ class MailRepository(
                 ?.let { t.sourceMailboxId to it }
         }
         moves.groupBy({ it.first }, { it.second }).forEach { (source, rows) ->
-            nudgeCounts(rows, destMailboxId = source)
+            nudgeCounts(accountId, rows, destMailboxId = source)
         }
     }
 
@@ -2193,7 +2261,7 @@ class MailRepository(
     suspend fun search(credentials: AccountCredentials, query: SearchQuery, limit: Int = 50): List<Email> {
         if (query.isEmpty()) return emptyList()
         if (credentials.protocol == MailProtocol.IMAP) {
-            val inbox = mailboxDao.idForRole("inbox") ?: return emptyList()
+            val inbox = mailboxDao.idForRole(credentials.id, "inbox") ?: return emptyList()
             return imap.search(credentials, inbox, query.text, limit).map { it.toEmail() }
         }
         val ctx = connect(credentials)
@@ -2268,7 +2336,7 @@ class MailRepository(
             val mailbox = cachedMailbox[e.id]?.takeIf { it in serverBoxes }
                 ?: e.mailboxId
                 ?: viewMailboxIds.firstOrNull { it in serverBoxes }
-                ?: rankedMailboxPick(serverBoxes)
+                ?: rankedMailboxPick(credentials.id, serverBoxes)
                 ?: return@mapNotNull null
             e.toEntity(credentials.id, mailbox)
         }
@@ -2289,9 +2357,9 @@ class MailRepository(
      * (inbox > archive > other > junk > trash), ids sorted as tie-break — so a multi-mailbox
      * member never lands in Trash/Junk by map-order accident.
      */
-    private suspend fun rankedMailboxPick(mailboxIds: Set<String>): String? =
+    private suspend fun rankedMailboxPick(accountId: String, mailboxIds: Set<String>): String? =
         mailboxIds.sorted().minByOrNull { id ->
-            when (mailboxDao.roleForId(id)) {
+            when (mailboxDao.roleForId(accountId, id)) {
                 "inbox" -> 0
                 "archive" -> 1
                 "junk" -> 3
@@ -2403,7 +2471,7 @@ class MailRepository(
                 }
             }
         }
-        return targets.map { mailbox ->
+        val refreshes = targets.map { mailbox ->
             syncMailbox(resolved.session, resolved.accountId, resolved.auth, mailbox.id, limit, credentials.id)
             FolderRefresh(
                 mailboxId = mailbox.id,
@@ -2412,6 +2480,11 @@ class MailRepository(
                 emails = emailDao.getByMailbox(credentials.id, mailbox.id).map { it.toEmail() },
             )
         }
+        // Persist the fetched folder counters (previously discarded): without this, pushed and
+        // background-fetched mail never moved the drawer badge, and reading it afterwards made
+        // the badge undercount. Written after the row syncs so badge and list land together.
+        mailboxDao.replaceAll(credentials.id, resolved.mailboxes.map { it.toEntity(credentials.id) })
+        return refreshes
     }
 
     // ---- JMAP PushSubscription (issue #17) ---------------------------------------------
@@ -2518,7 +2591,7 @@ class MailRepository(
         val bccTrimmed = bcc.map { it.trim() }.filter { it.isNotEmpty() }
         if (credentials.protocol == MailProtocol.IMAP) {
             val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
-            val drafts = mailboxDao.idForRole("drafts") ?: error("This account has no Drafts folder.")
+            val drafts = mailboxDao.idForRole(credentials.id, "drafts") ?: error("This account has no Drafts folder.")
             imap.appendDraft(
                 credentials, drafts,
                 outgoing(credentials, recipients, subject, body, cc = ccTrimmed, bcc = bccTrimmed),
@@ -2771,7 +2844,7 @@ class MailRepository(
                 attachments = if (pgpEntity != null) emptyList() else outAttachments,
                 pgpEntity = pgpEntity,
             )
-            imap.send(credentials, message, mailboxDao.idForRole("sent"))
+            imap.send(credentials, message, mailboxDao.idForRole(credentials.id, "sent"))
             return
         }
         val attachments = stored.map { a ->

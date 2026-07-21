@@ -9,47 +9,51 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface MailboxDao {
 
-    @Query("SELECT * FROM mailboxes ORDER BY sortOrder, name")
-    fun observeAll(): Flow<List<MailboxEntity>>
+    @Query("SELECT * FROM mailboxes WHERE accountId = :accountId ORDER BY sortOrder, name")
+    fun observeAll(accountId: String): Flow<List<MailboxEntity>>
 
     @Upsert
     suspend fun upsertAll(mailboxes: List<MailboxEntity>)
 
-    @Query("DELETE FROM mailboxes WHERE id NOT IN (:keepIds)")
-    suspend fun deleteNotIn(keepIds: List<String>)
+    @Query("DELETE FROM mailboxes WHERE accountId = :accountId AND id NOT IN (:keepIds)")
+    suspend fun deleteNotIn(accountId: String, keepIds: List<String>)
 
     @Query("DELETE FROM mailboxes")
     suspend fun deleteAll()
 
-    /** The id (IMAP path) of the first mailbox with the given role, if any. */
-    @Query("SELECT id FROM mailboxes WHERE role = :role LIMIT 1")
-    suspend fun idForRole(role: String): String?
+    /** The id (IMAP path) of the account's first mailbox with the given role, if any. */
+    @Query("SELECT id FROM mailboxes WHERE accountId = :accountId AND role = :role LIMIT 1")
+    suspend fun idForRole(accountId: String, role: String): String?
 
     /**
-     * Id of a folder whose lowercased name is one of [names], preferring a top-level
-     * folder — used to find an archive folder when the server set no `archive` role.
+     * Id of the account's folder whose lowercased name is one of [names], preferring a
+     * top-level folder — used to find an archive folder when the server set no `archive` role.
      */
-    @Query("SELECT id FROM mailboxes WHERE LOWER(name) IN (:names) ORDER BY (parentId IS NULL) DESC LIMIT 1")
-    suspend fun idForAnyName(names: List<String>): String?
+    @Query(
+        "SELECT id FROM mailboxes WHERE accountId = :accountId AND LOWER(name) IN (:names) " +
+            "ORDER BY (parentId IS NULL) DESC LIMIT 1",
+    )
+    suspend fun idForAnyName(accountId: String, names: List<String>): String?
 
-    /** The role of a mailbox by id (e.g. to tell if a message is in Junk). */
-    @Query("SELECT role FROM mailboxes WHERE id = :id LIMIT 1")
-    suspend fun roleForId(id: String): String?
+    /** The role of an account's mailbox by id (e.g. to tell if a message is in Junk). */
+    @Query("SELECT role FROM mailboxes WHERE accountId = :accountId AND id = :id LIMIT 1")
+    suspend fun roleForId(accountId: String, id: String): String?
 
     /** Nudge a folder's cached counters after a local move; the next sync corrects drift. */
     @Query(
         "UPDATE mailboxes SET totalEmails = MAX(0, totalEmails + :totalDelta), " +
-            "unreadEmails = MAX(0, unreadEmails + :unreadDelta) WHERE id = :id",
+            "unreadEmails = MAX(0, unreadEmails + :unreadDelta) WHERE accountId = :accountId AND id = :id",
     )
-    suspend fun adjustCounts(id: String, totalDelta: Int, unreadDelta: Int)
+    suspend fun adjustCounts(accountId: String, id: String, totalDelta: Int, unreadDelta: Int)
 
     /** Drop folders from the cache (drawer) — e.g. while a folder delete awaits its undo window. */
-    @Query("DELETE FROM mailboxes WHERE id IN (:ids)")
-    suspend fun deleteByIds(ids: List<String>)
+    @Query("DELETE FROM mailboxes WHERE accountId = :accountId AND id IN (:ids)")
+    suspend fun deleteByIds(accountId: String, ids: List<String>)
 
+    /** Replace ONE account's folder rows; other accounts' rows are untouched. */
     @Transaction
-    suspend fun replaceAll(mailboxes: List<MailboxEntity>) {
+    suspend fun replaceAll(accountId: String, mailboxes: List<MailboxEntity>) {
         upsertAll(mailboxes)
-        deleteNotIn(mailboxes.map { it.id })
+        deleteNotIn(accountId, mailboxes.map { it.id })
     }
 }

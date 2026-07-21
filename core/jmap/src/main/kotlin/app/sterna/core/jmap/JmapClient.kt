@@ -141,6 +141,9 @@ class JmapClient internal constructor(
         // Uncollapsed (false) returns every message, not one representative per thread —
         // needed when the caller must see the folder's full contents (empty trash).
         collapseThreads: Boolean = true,
+        // Only unread messages (notKeyword $seen) — lets "Mark all read" resolve its
+        // targets server-side instead of from the cached window.
+        unseenOnly: Boolean = false,
     ): EmailPage = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
@@ -152,7 +155,10 @@ class JmapClient internal constructor(
                     add("Email/query")
                     addJsonObject {
                         put("accountId", accountId)
-                        putJsonObject("filter") { put("inMailbox", mailboxId) }
+                        putJsonObject("filter") {
+                            put("inMailbox", mailboxId)
+                            if (unseenOnly) put("notKeyword", "\$seen")
+                        }
                         putJsonArray("sort") {
                             addJsonObject {
                                 put("property", "receivedAt")

@@ -3,7 +3,8 @@ package app.sterna.core.data.mail
 import app.sterna.core.data.db.MailboxEntity
 import app.sterna.core.jmap.model.Mailbox
 
-internal fun Mailbox.toEntity(): MailboxEntity = MailboxEntity(
+internal fun Mailbox.toEntity(accountId: String): MailboxEntity = MailboxEntity(
+    accountId = accountId,
     id = id,
     name = name,
     role = role,

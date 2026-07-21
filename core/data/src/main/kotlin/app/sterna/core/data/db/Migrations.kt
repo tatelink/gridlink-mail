@@ -50,3 +50,27 @@ val MIGRATION_11_12 = object : Migration(11, 12) {
         db.execSQL("ALTER TABLE `outbox` ADD COLUMN `pgpEntityPath` TEXT")
     }
 }
+
+/**
+ * 12→13: `mailboxes` gains `accountId` (composite key), so every account keeps its own
+ * folder rows/counters. The table is a disposable server mirror — rebuild it in place
+ * (repopulated on the next refresh) instead of letting the destructive fallback wipe the
+ * whole DB, which would destroy queued outbox mail.
+ */
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS `mailboxes`")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `mailboxes` (" +
+                "`accountId` TEXT NOT NULL, " +
+                "`id` TEXT NOT NULL, " +
+                "`name` TEXT NOT NULL, " +
+                "`role` TEXT, " +
+                "`parentId` TEXT, " +
+                "`sortOrder` INTEGER NOT NULL, " +
+                "`totalEmails` INTEGER NOT NULL, " +
+                "`unreadEmails` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`accountId`, `id`))",
+        )
+    }
+}
