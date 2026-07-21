@@ -5,8 +5,10 @@ import app.sterna.core.jmap.model.Quota
 import app.sterna.core.jmap.model.VacationResponse
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -47,6 +49,41 @@ class JmapClientTest {
         val expected = "Basic " + Base64.getEncoder()
             .encodeToString("admin@masto.top:secret".toByteArray())
         assertEquals(expected, server.takeRequest().getHeader("Authorization"))
+    }
+
+    @Test fun fetchSession_reAuthenticatesAfterCrossHostRedirect() = runBlocking {
+        // OkHttp strips the Authorization header when a redirect crosses hosts (here: two mock
+        // servers on different ports), which is exactly the Fastmail autodiscovery shape —
+        // well-known redirecting to api.fastmail.com/jmap/session (issue #54). fetchSession
+        // must retry the redirect target once, re-authenticated.
+        val target = MockWebServer()
+        target.start()
+        try {
+            target.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse =
+                    if (request.getHeader("Authorization") == "Bearer fmu1-token") {
+                        MockResponse().setHeader("Content-Type", "application/json").setBody(SESSION_JSON)
+                    } else {
+                        MockResponse().setResponseCode(401)
+                    }
+            }
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .setHeader("Location", target.url("/jmap/session").toString()),
+            )
+
+            val session = client.fetchSession(
+                server.url("/.well-known/jmap").toString(),
+                BearerAuth("fmu1-token"),
+            )
+
+            assertEquals("acc1", session.mailAccountId())
+            // First hit arrives header-less (OkHttp dropped it), the retry authenticates.
+            assertEquals(2, target.requestCount)
+        } finally {
+            target.shutdown()
+        }
     }
 
     // The scheme-upgrade is exercised directly (a real https MockWebServer would need an

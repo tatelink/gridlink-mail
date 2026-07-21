@@ -1354,7 +1354,14 @@ private fun AccountDetailScreen(
                     keyboardType = KeyboardType.Email,
                 )
                 SettingTextField(
-                    label = stringResource(R.string.settings_password_label),
+                    // For API-token accounts the encrypted slot holds the token, not a password.
+                    label = stringResource(
+                        if (account.authType == AuthType.API_TOKEN) {
+                            R.string.settings_api_token_label
+                        } else {
+                            R.string.settings_password_label
+                        },
+                    ),
                     value = password,
                     onValueChange = { password = it; saved = false; viewModel.clearConnTest() },
                     keyboardType = KeyboardType.Password,

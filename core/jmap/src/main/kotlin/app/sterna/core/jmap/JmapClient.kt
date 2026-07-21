@@ -69,24 +69,43 @@ class JmapClient internal constructor(
     /** GET the Session resource and parse it (RFC 8620 §2). */
     suspend fun fetchSession(sessionUrl: String, auth: JmapAuth): JmapSession =
         withContext(Dispatchers.IO) {
-            val request = Request.Builder()
-                .url(sessionUrl)
-                .header("Authorization", auth.authorizationHeader())
-                .header("Accept", "application/json")
-                .get()
-                .build()
-            httpClient.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    throw JmapException(
-                        "Session request failed: HTTP ${response.code} ${response.message}",
-                        httpCode = response.code,
-                    )
+            var url = sessionUrl
+            var retried = false
+            while (true) {
+                val request = Request.Builder()
+                    .url(url)
+                    .header("Authorization", auth.authorizationHeader())
+                    .header("Accept", "application/json")
+                    .get()
+                    .build()
+                val session = httpClient.newCall(request).execute().use { response ->
+                    // OkHttp drops the Authorization header when a redirect crosses hosts, so
+                    // an autodiscovery redirect (RFC 8620 §2.2, e.g. fastmail.com/.well-known/jmap
+                    // → api.fastmail.com/jmap/session) lands unauthenticated and 401s. Retry the
+                    // redirect target once, re-authenticated. The scheme check forbids a cleartext
+                    // downgrade (followSslRedirects(false) already refuses scheme switches).
+                    val landedAt = response.request.url
+                    if (!retried && response.code == 401 && response.priorResponse != null &&
+                        landedAt.toString() != url && url.startsWith("${landedAt.scheme}://")
+                    ) {
+                        retried = true
+                        url = landedAt.toString()
+                        return@use null
+                    }
+                    val body = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        throw JmapException(
+                            "Session request failed: HTTP ${response.code} ${response.message}",
+                            httpCode = response.code,
+                        )
+                    }
+                    runCatching { json.decodeFromString<JmapSession>(body) }
+                        .getOrElse { throw JmapException("Could not parse JMAP session", it) }
                 }
-                val session = runCatching { json.decodeFromString<JmapSession>(body) }
-                    .getOrElse { throw JmapException("Could not parse JMAP session", it) }
-                upgradeSessionUrls(session, sessionUrl)
+                if (session != null) return@withContext upgradeSessionUrls(session, url)
             }
+            @Suppress("UNREACHABLE_CODE")
+            throw IllegalStateException("unreachable")
         }
 
     /** Fetch all mailboxes for an account via a single Mailbox/get call (RFC 8621 §2.1). */

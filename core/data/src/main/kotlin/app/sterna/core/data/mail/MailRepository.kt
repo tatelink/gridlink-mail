@@ -11,6 +11,7 @@ import androidx.paging.map
 import androidx.sqlite.db.SimpleSQLiteQuery
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.account.AccountStore
+import app.sterna.core.data.account.AuthType
 import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.OAuthCredentials
@@ -977,10 +978,11 @@ class MailRepository(
      * any reachable candidate means the server was found but the password is wrong
      * — reported distinctly so the UI can give a precise error.
      */
-    suspend fun discoverJmapServer(email: String, password: String): DiscoveryResult {
+    suspend fun discoverJmapServer(email: String, password: String, token: String? = null): DiscoveryResult {
         val hosts = Jmap.autodiscoverHosts(email)
         if (hosts.isEmpty()) return DiscoveryResult.NotFound
-        val auth = BasicAuth(email.trim(), password)
+        // A non-null [token] is an API token (e.g. Fastmail): Bearer, never Basic.
+        val auth = if (token != null) BearerAuth(token) else BasicAuth(email.trim(), password)
         var sawAuthFailure = false
         for (host in hosts) {
             try {
@@ -997,14 +999,43 @@ class MailRepository(
     }
 
     /**
-     * Build JMAP auth for [credentials]: Bearer for OAuth accounts (refreshing the
-     * access token first when it's missing or within 60s of expiry, then persisting
-     * the new tokens), Basic otherwise.
+     * Build JMAP auth for [credentials]: Bearer for API-token accounts (the token
+     * lives in the password slot) and for OAuth accounts (refreshing the access
+     * token first when it's missing or within 60s of expiry, then persisting the
+     * new tokens), Basic otherwise.
      */
     private suspend fun jmapAuth(credentials: AccountCredentials): JmapAuth {
+        if (credentials.authType == AuthType.API_TOKEN) return BearerAuth(credentials.password)
         val token = tokenRefresher.freshAccessToken(credentials)
             ?: return BasicAuth(credentials.username, credentials.password)
         return BearerAuth(token)
+    }
+
+    /**
+     * Resolve a manually-entered JMAP server to the value to persist as the account's
+     * `server`: try each session-URL candidate (an explicit session URL is used
+     * verbatim; ".../jmap" also tries ".../jmap/session" and the host's well-known)
+     * and return the first whose session parses and carries a mail account. Inputs
+     * [Jmap.sessionUrlFor] already resolves are returned unchanged; a probed fallback
+     * returns the exact working session URL (stable under [Jmap.sessionUrlFor]).
+     * Rethrows the first candidate's failure when none works.
+     */
+    suspend fun resolveJmapServerInput(serverInput: String, auth: JmapAuth): String {
+        val candidates = Jmap.sessionUrlCandidates(serverInput)
+        var firstError: Throwable? = null
+        for (url in candidates) {
+            val session = try {
+                client.fetchSession(url, auth)
+            } catch (t: Throwable) {
+                if (firstError == null) firstError = t
+                continue
+            }
+            if (session.mailAccountId() != null) {
+                return if (candidates.size == 1) serverInput.trim() else url
+            }
+            if (firstError == null) firstError = JmapException("This user has no JMAP mail account.")
+        }
+        throw firstError ?: JmapException("No JMAP server found at $serverInput")
     }
 
     /**
@@ -1018,7 +1049,7 @@ class MailRepository(
         } else {
             val session = client.fetchSession(
                 Jmap.sessionUrlFor(credentials.server),
-                BasicAuth(credentials.username, credentials.password),
+                jmapAuth(credentials),
             )
             requireNotNull(session.mailAccountId()) { "This user has no JMAP mail account." }
             Unit

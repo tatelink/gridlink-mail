@@ -14,9 +14,11 @@ import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.mail.OAuthDeniedException
 import app.sterna.core.data.mail.OAuthProvider
+import app.sterna.core.jmap.BearerAuth
 import app.sterna.core.jmap.DeviceAuthorization
 import app.sterna.core.jmap.DeviceTokenResult
 import app.sterna.core.jmap.Jmap
+import app.sterna.core.jmap.JmapException
 import app.sterna.core.jmap.OAuthMetadata
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -90,6 +92,58 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                 MailRepository.DiscoveryResult.NotFound ->
                     _state.value = ConnectState.NeedsServer
             }
+        }
+    }
+
+    /**
+     * API-token sign-in (issue #54): authenticate with a server-generated Bearer
+     * token (e.g. a Fastmail API token) instead of a password. A blank [server]
+     * autodiscovers from the email domain; otherwise the input is resolved
+     * tolerantly (bare host, base URL, or a pasted session URL all work).
+     */
+    fun connectToken(server: String, email: String, token: String, accountName: String) {
+        if (busy()) return
+        val emailTrim = email.trim()
+        val serverTrim = server.trim()
+        if (serverTrim.isNotBlank()) {
+            _state.value = ConnectState.Connecting
+            viewModelScope.launch { finishTokenConnect(serverTrim, emailTrim, token, accountName) }
+            return
+        }
+        _state.value = ConnectState.Discovering
+        viewModelScope.launch {
+            val result = runCatching {
+                container.mailRepository.discoverJmapServer(emailTrim, password = "", token = token)
+            }.getOrElse { MailRepository.DiscoveryResult.NotFound }
+            when (result) {
+                is MailRepository.DiscoveryResult.Found -> {
+                    _state.value = ConnectState.Connecting
+                    finishTokenConnect(result.server, emailTrim, token, accountName)
+                }
+                MailRepository.DiscoveryResult.BadCredentials ->
+                    _state.value = ConnectState.Error(string(R.string.connect_token_rejected))
+                MailRepository.DiscoveryResult.NotFound ->
+                    _state.value = ConnectState.NeedsServer
+            }
+        }
+    }
+
+    /** Resolve the server input with the token, validate, persist. Mirrors [finishJmapConnect]. */
+    private suspend fun finishTokenConnect(server: String, email: String, token: String, accountName: String) {
+        try {
+            val resolved = container.mailRepository.resolveJmapServerInput(server, BearerAuth(token))
+            val credentials = AccountCredentials(resolved, email, token, authType = AuthType.API_TOKEN)
+            val meta = container.mailRepository.refresh(credentials)
+            container.accountStore.add(resolved, email, token, accountName.trim(), authType = AuthType.API_TOKEN)
+            container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
+            _state.value = ConnectState.Connected
+        } catch (t: Throwable) {
+            // A 401/403 with a token means the token itself was rejected — say so.
+            val code = (t as? JmapException)?.httpCode
+            _state.value = ConnectState.Error(
+                if (code == 401 || code == 403) string(R.string.connect_token_rejected)
+                else t.message ?: t.javaClass.simpleName,
+            )
         }
     }
 
