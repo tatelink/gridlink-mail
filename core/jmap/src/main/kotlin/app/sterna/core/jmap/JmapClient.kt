@@ -1678,7 +1678,7 @@ class JmapClient internal constructor(
             val args = call[1].jsonObject
             if (name == "error") {
                 val type = args["type"]?.jsonPrimitive?.content ?: "unknown"
-                throw JmapException("JMAP method error: $type")
+                throw JmapException("JMAP method error: $type", errorType = type)
             }
             if (name == expectedMethod) return args
         }

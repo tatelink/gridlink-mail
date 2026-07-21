@@ -10,4 +10,6 @@ class JmapException(
     message: String,
     cause: Throwable? = null,
     val httpCode: Int? = null,
+    /** The JMAP method-level error type (e.g. "anchorNotFound"), when the failure was one. */
+    val errorType: String? = null,
 ) : Exception(message, cause)

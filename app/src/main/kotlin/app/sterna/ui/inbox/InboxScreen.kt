@@ -1246,7 +1246,12 @@ fun InboxScreen(
             }
             PullToRefreshBox(
                 isRefreshing = ui.refreshing,
-                onRefresh = viewModel::refresh,
+                onRefresh = {
+                    viewModel.refresh()
+                    // Also re-attempt a failed fetch-older append, so the pull gesture
+                    // clears the sticky "couldn't load more" footer, not just Retry.
+                    pagedEmails.retry()
+                },
                 modifier = Modifier.fillMaxSize().weight(1f),
                 state = refreshState,
                 indicator = {

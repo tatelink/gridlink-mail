@@ -602,16 +602,31 @@ class MailRepository(
                         entities.size to exists
                     } else {
                         val ctx = connect(credentials)
-                        // Anchor on the oldest cached message and fetch the page right after
-                        // it: unlike an absolute offset, the anchor doesn't shift when new
-                        // mail arrives at the top, so no page is skipped or duplicated.
-                        val anchorId = emailDao.oldestEmailId(credentials.id, mailboxId)
-                        val page = client.queryEmailsPage(
-                            ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
-                            calculateTotal = true,
-                            anchorId = anchorId,
-                            anchorOffset = if (anchorId != null) 1 else 0,
-                        )
+                        // Anchor on the oldest cached representative (its thread's newest row
+                        // here — the collapsed query only lists those) and fetch the page right
+                        // after it: unlike an absolute offset, the anchor doesn't shift when
+                        // new mail arrives at the top, so no page is skipped or duplicated.
+                        val anchorId = emailDao.oldestRepresentativeEmailId(credentials.id, mailboxId)
+                        val page = try {
+                            client.queryEmailsPage(
+                                ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
+                                calculateTotal = true,
+                                anchorId = anchorId,
+                                anchorOffset = if (anchorId != null) 1 else 0,
+                            )
+                        } catch (e: JmapException) {
+                            // The anchor can still have dropped out of the collapsed result
+                            // (moved out of the folder, or demoted by a newer thread member)
+                            // since it was cached. Fall back once to an absolute position at
+                            // the cached collapsed-row count; upsert-only insertion makes an
+                            // overlapping page harmless.
+                            if (e.errorType != "anchorNotFound") throw e
+                            client.queryEmailsPage(
+                                ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
+                                position = emailDao.representativeCountForMailbox(credentials.id, mailboxId),
+                                calculateTotal = true,
+                            )
+                        }
                         if (page.emails.isNotEmpty()) {
                             emailDao.upsertAll(page.emails.map { it.toEntity(credentials.id, mailboxId) })
                         }

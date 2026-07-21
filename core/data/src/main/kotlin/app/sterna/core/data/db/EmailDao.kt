@@ -92,9 +92,28 @@ interface EmailDao {
     @Query("SELECT COUNT(*) FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId")
     suspend fun countForMailbox(accountId: String, mailboxId: String): Int
 
-    /** Oldest cached email id in an account's mailbox (anchor for the next older page). */
-    @Query("SELECT id FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId ORDER BY sortKey ASC LIMIT 1")
-    suspend fun oldestEmailId(accountId: String, mailboxId: String): String?
+    /**
+     * Oldest cached row that is its thread's newest within the mailbox (anchor for the next
+     * older page). The paging Email/query is thread-collapsed — one representative per
+     * thread — so anchoring on a cached non-representative member (or any row the collapsed
+     * result no longer lists) would make the server answer anchorNotFound; the oldest
+     * REPRESENTATIVE is the deepest cached row the collapsed result can still contain.
+     */
+    @Query(
+        "SELECT id FROM emails e WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+            "AND sortKey = (SELECT MAX(sortKey) FROM emails WHERE accountId = :accountId " +
+            "AND mailboxId = :mailboxId AND COALESCE(threadId, id) = COALESCE(e.threadId, e.id)) " +
+            "ORDER BY sortKey ASC LIMIT 1",
+    )
+    suspend fun oldestRepresentativeEmailId(accountId: String, mailboxId: String): String?
+
+    /** Cached thread-representative row count for the mailbox (a collapsed-list position). */
+    @Query(
+        "SELECT COUNT(*) FROM emails e WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+            "AND sortKey = (SELECT MAX(sortKey) FROM emails WHERE accountId = :accountId " +
+            "AND mailboxId = :mailboxId AND COALESCE(threadId, id) = COALESCE(e.threadId, e.id))",
+    )
+    suspend fun representativeCountForMailbox(accountId: String, mailboxId: String): Int
 
     /** All cached ids in one account's mailbox (for "select all" — account-scoped like
      *  [getByMailbox], so a same-server sibling account's colliding mailbox id can't
