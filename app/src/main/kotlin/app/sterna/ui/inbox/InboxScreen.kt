@@ -1162,7 +1162,7 @@ fun InboxScreen(
                 val email = row.email
                 val ownerAccount = if (ui.unified) accounts.firstOrNull { it.id == email.accountId } else null
                 // A conversation in the browse list can unfold inline; search results stay flat.
-                val expandable = !fromSearch && row.threadCount > 1
+                val expandable = !fromSearch && row.threadExpandable
                 val threadKey = email.threadId ?: email.id
                 val isExpanded = expandable && threadKey in expandedThreads
                 SwipeableEmailRow(
@@ -1200,6 +1200,7 @@ fun InboxScreen(
                     gesturesEnabled = !selectionActive,
                     unread = row.unread,
                     threadCount = row.threadCount,
+                    threadExpandable = expandable,
                     // The pill unfolds the thread in place; suppressed during multi-select.
                     onToggleExpand = if (expandable && !selectionActive) {
                         { viewModel.toggleThreadExpanded(email) }
@@ -1480,6 +1481,7 @@ private fun SwipeableEmailRow(
     gesturesEnabled: Boolean,
     unread: Boolean,
     threadCount: Int,
+    threadExpandable: Boolean = threadCount > 1,
     onToggleExpand: (() -> Unit)? = null,
     expanded: Boolean = false,
     animateEntry: Boolean = false,
@@ -1670,6 +1672,7 @@ private fun SwipeableEmailRow(
                 onLongClick = onLongClick,
                 unread = unread,
                 threadCount = threadCount,
+                threadExpandable = threadExpandable,
                 onToggleExpand = onToggleExpand,
                 expanded = expanded,
                 highlighted = highlighted,

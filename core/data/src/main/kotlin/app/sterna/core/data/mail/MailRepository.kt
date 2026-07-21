@@ -179,10 +179,11 @@ private fun pagingQuery(
 
 /**
  * Build the conversation-collapsed paged query: one row per thread
- * (COALESCE(threadId, id)) showing the thread's latest message in this view, its TOTAL
- * message count across the account's folders, and whether the in-view part is unread.
- * Counting across folders (not just the viewed mailbox) means a thread whose reply sits in
- * Sent still reads as a conversation. [unreadOnly] keeps threads whose in-view part is unread.
+ * (COALESCE(threadId, id)) showing the thread's latest message in this view, how many of the
+ * thread's messages are IN this view (the chip — what you see is what's in the folder), and
+ * whether the in-view part is unread. The account-wide cached total rides along only to keep
+ * the row expandable when the rest of the thread (a reply in Sent, say) sits elsewhere.
+ * [unreadOnly] keeps threads whose in-view part is unread.
  */
 private fun conversationQuery(
     mailboxIds: List<String>,
@@ -190,12 +191,12 @@ private fun conversationQuery(
     unreadOnly: Boolean,
     accountId: String? = null,
 ): SimpleSQLiteQuery {
-    // Bind order matches the clauses left-to-right in the SQL: the in-view sub-query (mailbox
-    // ids [+ account id]), then the cross-folder count scope (the account id for a single
-    // account, else the same mailbox ids), then the outer WHERE (mailbox ids [+ account id]).
+    // Bind order matches the clauses left-to-right in the SQL: the in-view sub-query, the
+    // in-view count sub-query and the outer WHERE each bind the mailbox ids [+ account id];
+    // the account-wide total sub-query binds nothing (it is scoped by joining on the
+    // representative's accountId).
     val perClause = mailboxIds + listOfNotNull(accountId)
-    val countScope = if (accountId != null) listOf(accountId) else mailboxIds
-    val args = perClause + countScope + perClause
+    val args = perClause + perClause + perClause
     return SimpleSQLiteQuery(
         conversationSql(mailboxIds.size, sort, unreadOnly, accountId != null),
         args.toTypedArray(),
@@ -204,18 +205,18 @@ private fun conversationQuery(
 
 /**
  * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite). Bind order:
- * the in-view sub-query's mailbox ids [+ account id], then the cross-folder count scope
- * (account id when [hasAccountId], else the mailbox ids again), then the outer WHERE's mailbox
- * ids [+ account id]. The representative row and unread state come from the in-view sub-query
- * `g`; the message count comes from the cross-folder sub-query `t`.
+ * the in-view sub-query `g`, the in-view count sub-query `c` and the outer WHERE each take
+ * the mailbox ids [+ account id]; the account-wide total sub-query `t` takes none. The
+ * representative row and unread state come from `g`; `threadCount` (the chip) is `c`'s count
+ * of the thread's messages in the viewed mailboxes; `threadTotal` is `t`'s count of its
+ * cached messages across the whole account and only gates the expand affordance. Both count
+ * joins pin the representative's accountId so colliding server-assigned mailbox/thread ids
+ * across accounts can't inflate a count in the unified view.
  */
 internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boolean, hasAccountId: Boolean = false): String {
     val placeholders = List(mailboxCount) { "?" }.joinToString(",")
     val accountInner = if (hasAccountId) " AND accountId = ?" else ""
     val accountOuter = if (hasAccountId) " AND e.accountId = ?" else ""
-    // Cross-folder count: the whole account's mail when its id is known, else (the unified
-    // inbox, where no single account is in scope) fall back to the viewed mailboxes.
-    val countScope = if (hasAccountId) "accountId = ?" else "mailboxId IN ($placeholders)"
     val notSnoozed = "id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
         "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
     val having = if (unreadOnly) " HAVING MIN(seen) = 0" else ""
@@ -227,7 +228,7 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
         SortOrder.UNREAD_FIRST -> "g.threadUnread ASC, e.sortKey DESC"
     }
     return """
-        SELECT e.*, t.threadCount AS threadCount, g.threadUnread AS threadUnread
+        SELECT e.*, c.threadCount AS threadCount, t.threadTotal AS threadTotal, g.threadUnread AS threadUnread
         FROM emails e
         JOIN (
             SELECT COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread
@@ -236,11 +237,17 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
             GROUP BY tkey$having
         ) g ON COALESCE(e.threadId, e.id) = g.tkey AND e.sortKey = g.maxKey
         JOIN (
-            SELECT COALESCE(threadId, id) AS tkey2, COUNT(*) AS threadCount
+            SELECT accountId AS cacc, COALESCE(threadId, id) AS ckey, COUNT(*) AS threadCount
             FROM emails
-            WHERE $countScope AND $notSnoozed
-            GROUP BY tkey2
-        ) t ON t.tkey2 = g.tkey
+            WHERE mailboxId IN ($placeholders)$accountInner AND $notSnoozed
+            GROUP BY cacc, ckey
+        ) c ON c.ckey = g.tkey AND c.cacc = e.accountId
+        JOIN (
+            SELECT accountId AS tacc, COALESCE(threadId, id) AS tkey2, COUNT(*) AS threadTotal
+            FROM emails
+            WHERE $notSnoozed
+            GROUP BY tacc, tkey2
+        ) t ON t.tkey2 = g.tkey AND t.tacc = e.accountId
         WHERE e.mailboxId IN ($placeholders)$accountOuter AND $notSnoozed
         GROUP BY g.tkey
         ORDER BY $orderBy
@@ -250,12 +257,15 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
 /**
  * One row in the paged list. In flat mode it's a single email ([threadCount] == 1);
  * in conversation mode it's a collapsed thread whose representative is [email],
- * [threadCount] messages in this view, [unread] if any is unread.
+ * [threadCount] messages in this view, [unread] if any is unread. [threadExpandable]
+ * marks a thread with 2+ cached messages account-wide: the row can still unfold into
+ * its full conversation when the others (a Sent reply, say) sit outside this view.
  */
 data class InboxRow(
     val email: Email,
     val threadCount: Int,
     val unread: Boolean,
+    val threadExpandable: Boolean = threadCount > 1,
 )
 
 /** Metadata about the selected mailbox after a refresh. */

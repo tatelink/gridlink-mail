@@ -11,7 +11,12 @@ import java.time.OffsetDateTime
 
 /** Map a grouped conversation row to the domain [InboxRow] (unread = any in thread). */
 internal fun ConversationRow.toInboxRow(): InboxRow =
-    InboxRow(email = email.toEmail(), threadCount = threadCount, unread = threadUnread == 0)
+    InboxRow(
+        email = email.toEmail(),
+        threadCount = threadCount,
+        unread = threadUnread == 0,
+        threadExpandable = threadTotal > 1,
+    )
 
 internal fun Email.toEntity(accountId: String, mailboxId: String): EmailEntity {
     val sender = from.firstOrNull()

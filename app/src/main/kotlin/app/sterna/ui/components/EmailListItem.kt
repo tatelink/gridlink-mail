@@ -77,11 +77,16 @@ fun EmailListItem(
     onToggleFavourite: (() -> Unit)? = null,
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
-    // In conversation view: the thread's unread state and how many messages it holds.
+    // In conversation view: the thread's unread state and how many of its messages are in
+    // the viewed folder(s) — the pill shows this in-view count.
     unread: Boolean = !email.isSeen,
     threadCount: Int = 1,
-    // Conversation expand affordance: when the row is a thread (threadCount > 1) and a handler
-    // is given, the count badge becomes a tappable chevron pill that unfolds the thread inline.
+    // Whether the row is a conversation at all (2+ cached messages account-wide). Keeps the
+    // pill — and with it the unfold affordance — visible even when only one of the thread's
+    // messages sits in this view (the rest in Sent, say).
+    threadExpandable: Boolean = threadCount > 1,
+    // Conversation expand affordance: when the row is a thread and a handler is given, the
+    // count badge becomes a tappable chevron pill that unfolds the thread inline.
     // [expanded] drives the chevron direction and the accessibility expanded/collapsed state.
     onToggleExpand: (() -> Unit)? = null,
     expanded: Boolean = false,
@@ -157,10 +162,10 @@ fun EmailListItem(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                // Conversation pill — only when the thread has 2+ messages. A count plus a
-                // chevron that unfolds the thread inline; tappable when a handler is given
-                // (the browse list), otherwise a static count badge (e.g. search results).
-                if (threadCount > 1) {
+                // Conversation pill — only when the thread has 2+ messages. The in-view count
+                // plus a chevron that unfolds the thread inline; tappable when a handler is
+                // given (the browse list), otherwise a static count badge (e.g. search results).
+                if (threadExpandable) {
                     Spacer(Modifier.width(6.dp))
                     ThreadPill(
                         count = threadCount,

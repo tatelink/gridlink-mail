@@ -9,7 +9,10 @@ import androidx.room.Embedded
  */
 data class ConversationRow(
     @Embedded val email: EmailEntity,
+    /** Messages of the thread in the viewed mailbox(es) — the number the chip shows. */
     val threadCount: Int,
+    /** Cached messages of the thread across the whole account — gates expandability. */
+    val threadTotal: Int,
     /** 0 when at least one message in the thread is unread (MIN(seen) over the group). */
     val threadUnread: Int,
 )

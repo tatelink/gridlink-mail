@@ -58,7 +58,7 @@ class ConversationSqlTest {
     private fun run(sort: SortOrder = SortOrder.DATE_DESC, unreadOnly: Boolean = false): List<Map<String, Any?>> {
         val sql = conversationSql(mailboxCount = 1, sort = sort, unreadOnly = unreadOnly)
         return db.prepareStatement(sql).use { ps ->
-            // in-view sub-query, cross-folder count scope, outer WHERE — each binds "inbox".
+            // in-view sub-query, in-view count sub-query, outer WHERE — each binds "inbox".
             ps.setString(1, "inbox"); ps.setString(2, "inbox"); ps.setString(3, "inbox")
             ps.executeQuery().use { rs ->
                 buildList {
@@ -67,6 +67,7 @@ class ConversationSqlTest {
                             mapOf(
                                 "id" to rs.getString("id"),
                                 "threadCount" to rs.getInt("threadCount"),
+                                "threadTotal" to rs.getInt("threadTotal"),
                                 "threadUnread" to rs.getInt("threadUnread"),
                             ),
                         )
@@ -121,17 +122,18 @@ class ConversationSqlTest {
 
         val sql = conversationSql(mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false, hasAccountId = true)
         val rows = db.prepareStatement(sql).use { ps ->
-            // in-view (mailbox, accountId), cross-folder count scope (accountId), outer (mailbox, accountId).
+            // in-view (mailbox, accountId), in-view count (mailbox, accountId), outer (mailbox, accountId).
             ps.setString(1, "inbox"); ps.setString(2, "accA")
-            ps.setString(3, "accA")
-            ps.setString(4, "inbox"); ps.setString(5, "accA")
+            ps.setString(3, "inbox"); ps.setString(4, "accA")
+            ps.setString(5, "inbox"); ps.setString(6, "accA")
             ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
         }
         assertEquals(listOf("a1"), rows) // only account A's mail; b1 is excluded
     }
 
-    @Test fun threadCountSpansFoldersSoAnInboxMessageWithASentReplyIsAConversation() {
-        // A thread with one message in the Inbox and its reply filed in Sent.
+    @Test fun threadCountIsFolderScopedButACrossFolderThreadStaysExpandable() {
+        // A thread with one message in the Inbox and its reply filed in Sent: the chip says
+        // what is IN the Inbox (1), while threadTotal still marks it as a conversation.
         insert("in1", threadId = "T1", seen = 0, flagged = 0, sortKey = 100, mailbox = "inbox")
         insert("sent1", threadId = "T1", seen = 1, flagged = 0, sortKey = 200, mailbox = "sent")
 
@@ -139,17 +141,52 @@ class ConversationSqlTest {
         val rows = db.prepareStatement(sql).use { ps ->
             // Viewing the Inbox for account "acc".
             ps.setString(1, "inbox"); ps.setString(2, "acc")
-            ps.setString(3, "acc")
-            ps.setString(4, "inbox"); ps.setString(5, "acc")
+            ps.setString(3, "inbox"); ps.setString(4, "acc")
+            ps.setString(5, "inbox"); ps.setString(6, "acc")
             ps.executeQuery().use { rs ->
                 buildList {
-                    while (rs.next()) add(mapOf("id" to rs.getString("id"), "threadCount" to rs.getInt("threadCount")))
+                    while (rs.next()) {
+                        add(
+                            mapOf(
+                                "id" to rs.getString("id"),
+                                "threadCount" to rs.getInt("threadCount"),
+                                "threadTotal" to rs.getInt("threadTotal"),
+                            ),
+                        )
+                    }
                 }
             }
         }
         assertEquals(1, rows.size)
-        assertEquals("in1", rows[0]["id"])   // representative is the in-view (Inbox) message…
-        assertEquals(2, rows[0]["threadCount"]) // …but the count includes the Sent reply.
+        assertEquals("in1", rows[0]["id"])      // representative is the in-view (Inbox) message…
+        assertEquals(1, rows[0]["threadCount"]) // …the chip counts only the Inbox message…
+        assertEquals(2, rows[0]["threadTotal"]) // …and the Sent reply keeps it expandable.
+    }
+
+    @Test fun threadCountIgnoresMembersOutsideTheViewedFolder() {
+        // Two members in the viewed folder, one filed elsewhere: chip 2, total 3.
+        insert("in1", threadId = "T1", seen = 1, flagged = 0, sortKey = 100, mailbox = "inbox")
+        insert("in2", threadId = "T1", seen = 0, flagged = 0, sortKey = 200, mailbox = "inbox")
+        insert("tr1", threadId = "T1", seen = 1, flagged = 0, sortKey = 300, mailbox = "trash")
+
+        val rows = run()
+        assertEquals(1, rows.size)
+        assertEquals("in2", rows[0]["id"]) // representative = newest IN-VIEW member, not tr1
+        assertEquals(2, rows[0]["threadCount"])
+        assertEquals(3, rows[0]["threadTotal"])
+    }
+
+    @Test fun countsDoNotMixAccountsSharingMailboxAndThreadIds() {
+        // Unified view (no account bind): two accounts whose server assigned the same
+        // mailbox AND thread ids — the counts must stay per the representative's account.
+        insert("a1", threadId = "T1", seen = 0, flagged = 0, sortKey = 200, accountId = "accA")
+        insert("b1", threadId = "T1", seen = 1, flagged = 0, sortKey = 100, accountId = "accB")
+
+        val rows = run()
+        assertEquals(1, rows.size) // pre-existing: colliding tkeys collapse to one row
+        assertEquals("a1", rows[0]["id"])
+        assertEquals(1, rows[0]["threadCount"]) // accB's b1 must not inflate the chip
+        assertEquals(1, rows[0]["threadTotal"])
     }
 
     @Test fun favouritesPinToTop() {
