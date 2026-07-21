@@ -111,6 +111,18 @@ private const val RECENT_MUTATION_MS = 45_000L
 /** Page size for the cached email list (rows loaded per scroll step). */
 private const val PAGE_SIZE = 50
 
+/**
+ * Per-APPEND fill target for the conversation list: a network page is messages, but the
+ * collapsed list's rows are threads, so one page can add almost no visible rows (a big
+ * thread eating it whole). The mediator keeps fetching until at least this many NEW
+ * thread representatives are cached...
+ */
+private const val APPEND_THREAD_TARGET = 10
+
+/** ...but never more than this many pages per APPEND: one giant thread must not chain
+ *  unbounded fetches (Paging simply APPENDs again if the viewport still isn't full). */
+private const val MAX_APPEND_FILL_PAGES = 4
+
 /** How many of the inbox's newest messages to prefetch (bodies) into the cache per sync. */
 private const val PREFETCH_COUNT = 20
 
@@ -587,13 +599,13 @@ class MailRepository(
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
-                remoteMediator = folderMediator(credentials, mailboxId),
+                remoteMediator = folderMediator(credentials, mailboxId, conversationView = true),
                 pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(listOf(mailboxId), sort, unreadOnly, credentials.id)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
                 config = pagingConfig(),
-                remoteMediator = folderMediator(credentials, mailboxId),
+                remoteMediator = folderMediator(credentials, mailboxId, conversationView = false),
                 pagingSourceFactory = { emailDao.pagingSource(pagingQuery(listOf(mailboxId), sort, unreadOnly, credentials.id)) },
             ).flow.map { data -> data.map { InboxRow(it.toEmail(), threadCount = 1, unread = !it.seen) } }
         }
@@ -603,11 +615,15 @@ class MailRepository(
      * The scroll-to-load-more mediator for a single folder. It only extends the
      * EmailEntity cache (fetching older pages from the server on APPEND) and never
      * inspects row contents, so it works for either paged value type [V].
+     * [conversationView] switches the APPEND fill target to thread representatives:
+     * the collapsed list's rows are threads, so a message page must not count as a
+     * full page of progress when it lands inside one big thread.
      */
     @OptIn(ExperimentalPagingApi::class)
     private fun <V : Any> folderMediator(
         credentials: AccountCredentials,
         mailboxId: String,
+        conversationView: Boolean,
     ): RemoteMediator<Int, V> {
         return object : RemoteMediator<Int, V>() {
             // The cache is populated by refresh()/sync; only extend it on scroll.
@@ -638,6 +654,11 @@ class MailRepository(
                         // (upsert-only insertion makes the overlap harmless).
                         val anchorId = emailDao.oldestRepresentativeEmailId(credentials.id, mailboxId)
                         val before = emailDao.countForMailbox(credentials.id, mailboxId)
+                        val repsBefore = if (conversationView) {
+                            emailDao.representativeCountForMailbox(credentials.id, mailboxId)
+                        } else {
+                            0
+                        }
                         var page = try {
                             client.queryEmailsPage(
                                 ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
@@ -660,21 +681,35 @@ class MailRepository(
                         if (page.emails.isNotEmpty()) {
                             emailDao.upsertAll(page.emails.map { it.toEntity(credentials.id, mailboxId) })
                         }
-                        // The anchor page can consist entirely of already-cached rows: the
-                        // window's bottom edge can cut inside a big thread, leaving every
-                        // uncollapsed row after its representative cached (a whole window
-                        // inside one thread in the extreme). If nothing new landed, fetch
-                        // once at the window edge instead so paging still advances.
-                        if (page.emails.isNotEmpty() &&
-                            emailDao.countForMailbox(credentials.id, mailboxId) == before
-                        ) {
+                        // A page is messages, but the collapsed list's rows are threads — and
+                        // the anchor page can even consist entirely of already-cached rows
+                        // (the window's bottom edge cutting inside a big thread). Keep
+                        // fetching at the window edge until this APPEND has produced enough
+                        // NEW rows — thread representatives in conversation mode, any new
+                        // cached row in flat mode (the pre-existing stall guard) — bounded
+                        // so one giant thread can't chain fetches without limit: Paging
+                        // simply APPENDs again if the viewport still isn't full.
+                        val maxFetches = if (conversationView) MAX_APPEND_FILL_PAGES else 2
+                        val fillTarget = if (conversationView) APPEND_THREAD_TARGET else 1
+                        var fetches = 1
+                        while (page.emails.isNotEmpty() && fetches < maxFetches) {
+                            val cachedNow = emailDao.countForMailbox(credentials.id, mailboxId)
+                            val gained = if (conversationView) {
+                                emailDao.representativeCountForMailbox(credentials.id, mailboxId) - repsBefore
+                            } else {
+                                cachedNow - before
+                            }
+                            if (gained >= fillTarget) break
+                            val serverTotal = page.total
+                            if (serverTotal != null && cachedNow >= serverTotal) break
                             page = client.queryEmailsPage(
                                 ctx.session, ctx.accountId, mailboxId, PAGE_SIZE, ctx.auth,
-                                position = before, calculateTotal = true,
+                                position = cachedNow, calculateTotal = true,
                             )
                             if (page.emails.isNotEmpty()) {
                                 emailDao.upsertAll(page.emails.map { it.toEntity(credentials.id, mailboxId) })
                             }
+                            fetches++
                         }
                         page.emails.size to page.total
                     }
