@@ -193,9 +193,10 @@ private fun pagingQuery(
 /**
  * Build the conversation-collapsed paged query: one row per thread
  * (COALESCE(threadId, id)) showing the thread's latest message in this view, how many of the
- * thread's messages are IN this view (the chip — what you see is what's in the folder), and
+ * thread's messages the unfolded conversation would show — the view's members plus the
+ * Sent-role replies in [sentMailboxIds] (the chip always equals the expansion) — and
  * whether the in-view part is unread. The account-wide cached total rides along only to keep
- * the row expandable when the rest of the thread (a reply in Sent, say) sits elsewhere.
+ * the row expandable when the rest of the thread sits elsewhere.
  * [unreadOnly] keeps threads whose in-view part is unread.
  */
 private fun conversationQuery(
@@ -203,31 +204,39 @@ private fun conversationQuery(
     sort: SortOrder,
     unreadOnly: Boolean,
     accountId: String? = null,
+    sentMailboxIds: List<String> = emptyList(),
 ): SimpleSQLiteQuery {
-    // Bind order matches the clauses left-to-right in the SQL: the in-view sub-query, the
-    // in-view count sub-query and the outer WHERE each bind the mailbox ids [+ account id];
-    // the account-wide total sub-query binds nothing (it is scoped by joining on the
+    // Bind order matches the clauses left-to-right in the SQL: the in-view sub-query binds
+    // the mailbox ids [+ account id]; the chip count sub-query binds the mailbox ids PLUS
+    // the Sent ids [+ account id]; the outer WHERE binds like the in-view sub-query; the
+    // account-wide total sub-query binds nothing (it is scoped by joining on the
     // representative's accountId).
+    val extraSent = sentMailboxIds.distinct().filterNot { it in mailboxIds }
     val perClause = mailboxIds + listOfNotNull(accountId)
-    val args = perClause + perClause + perClause
+    val chipClause = mailboxIds + extraSent + listOfNotNull(accountId)
+    val args = perClause + chipClause + perClause
     return SimpleSQLiteQuery(
-        conversationSql(mailboxIds.size, sort, unreadOnly, accountId != null),
+        conversationSql(mailboxIds.size, sort, unreadOnly, accountId != null, extraSent.size),
         args.toTypedArray(),
     )
 }
 
 /**
  * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite). Bind order:
- * the in-view sub-query `g`, the in-view count sub-query `c` and the outer WHERE each take
- * the mailbox ids [+ account id]; the account-wide total sub-query `t` takes none. The
- * representative row and unread state come from `g`; `threadCount` (the chip) is `c`'s count
- * of the thread's messages in the viewed mailboxes; `threadTotal` is `t`'s count of its
- * cached messages across the whole account and only gates the expand affordance. Both count
- * joins pin the representative's accountId so colliding server-assigned mailbox/thread ids
- * across accounts can't inflate a count in the unified view.
+ * the in-view sub-query `g` takes the mailbox ids [+ account id]; the chip count sub-query
+ * `c` takes the mailbox ids plus [sentMailboxCount] Sent-role mailbox ids [+ account id];
+ * the outer WHERE binds like `g`; the account-wide total sub-query `t` takes none. The
+ * representative row and unread state come from `g` (strictly folder-scoped — a thread with
+ * only Sent members must not surface a row); `threadCount` (the chip) is `c`'s count of the
+ * thread's messages in the viewed mailboxes PLUS its Sent replies, matching exactly what the
+ * unfolded conversation shows; `threadTotal` is `t`'s count of its cached messages across
+ * the whole account and only gates the expand affordance. Both count joins pin the
+ * representative's accountId so colliding server-assigned mailbox/thread ids across accounts
+ * can't inflate a count in the unified view.
  */
-internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boolean, hasAccountId: Boolean = false): String {
+internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boolean, hasAccountId: Boolean = false, sentMailboxCount: Int = 0): String {
     val placeholders = List(mailboxCount) { "?" }.joinToString(",")
+    val chipPlaceholders = List(mailboxCount + sentMailboxCount) { "?" }.joinToString(",")
     val accountInner = if (hasAccountId) " AND accountId = ?" else ""
     val accountOuter = if (hasAccountId) " AND e.accountId = ?" else ""
     val notSnoozed = "id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
@@ -252,7 +261,7 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
         JOIN (
             SELECT accountId AS cacc, COALESCE(threadId, id) AS ckey, COUNT(*) AS threadCount
             FROM emails
-            WHERE mailboxId IN ($placeholders)$accountInner AND $notSnoozed
+            WHERE mailboxId IN ($chipPlaceholders)$accountInner AND $notSnoozed
             GROUP BY cacc, ckey
         ) c ON c.ckey = g.tkey AND c.cacc = e.accountId
         JOIN (
@@ -270,9 +279,10 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
 /**
  * One row in the paged list. In flat mode it's a single email ([threadCount] == 1);
  * in conversation mode it's a collapsed thread whose representative is [email],
- * [threadCount] messages in this view, [unread] if any is unread. [threadExpandable]
- * marks a thread with 2+ cached messages account-wide: the row can still unfold into
- * its full conversation when the others (a Sent reply, say) sit outside this view.
+ * [threadCount] messages in this view plus its Sent replies (exactly what the unfolded
+ * conversation shows), [unread] if any in-view member is unread. [threadExpandable]
+ * marks a thread with 2+ cached messages account-wide: the row can still unfold when
+ * the others (a Sent reply, say) sit outside this view.
  */
 data class InboxRow(
     val email: Email,
@@ -601,12 +611,15 @@ class MailRepository(
         sort: SortOrder,
         unreadOnly: Boolean,
         conversationView: Boolean,
+        // Each account's Sent-role mailbox id: the conversation chip also counts the thread's
+        // Sent replies, so it always equals what the unfolded conversation shows.
+        sentMailboxIds: List<String> = emptyList(),
     ): Flow<PagingData<InboxRow>> {
         if (mailboxIds.isEmpty()) return flowOf(PagingData.empty())
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(mailboxIds, sort, unreadOnly)) },
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(mailboxIds, sort, unreadOnly, sentMailboxIds = sentMailboxIds)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
@@ -629,12 +642,14 @@ class MailRepository(
         sort: SortOrder,
         unreadOnly: Boolean,
         conversationView: Boolean,
+        // The account's Sent-role mailbox id — see [pagedMailbox].
+        sentMailboxIds: List<String> = emptyList(),
     ): Flow<PagingData<InboxRow>> {
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
                 remoteMediator = folderMediator(credentials, mailboxId, conversationView = true),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(listOf(mailboxId), sort, unreadOnly, credentials.id)) },
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(listOf(mailboxId), sort, unreadOnly, credentials.id, sentMailboxIds)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
@@ -2534,22 +2549,24 @@ class MailRepository(
         }
 
     /**
-     * Cached members of a thread for inline conversation expansion: newest-first, scoped to
-     * the representative's [accountId] and the current view's [mailboxIds]. Cache only — no
-     * network — so unfolding a conversation row is instant and works offline. [threadKey] is
-     * the representative's threadId (or its id when thread-less).
+     * Cached members of a thread for inline conversation expansion and whole-thread actions:
+     * newest-first, scoped to the representative's [accountId] and [mailboxIds] (the current
+     * view's folders — plus the account's Sent folder when listing an unfolded conversation).
+     * Cache only — no network — so unfolding a conversation row is instant and works offline.
+     * [threadKey] is the representative's threadId (or its id when thread-less).
      */
     suspend fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): List<Email> =
         if (mailboxIds.isEmpty()) emptyList()
         else emailDao.cachedThreadEmails(accountId, mailboxIds, threadKey).map { it.toEmail() }
 
     /**
-     * Cached members of a thread across ALL the account's folders (Sent, Archive, …), newest
-     * first — used to populate an inline-expanded conversation so it shows the whole exchange,
-     * not only the messages in the folder being browsed. Cache only, no network.
+     * The cached Sent-role mailbox id of each of [accountIds] (accounts without a cached Sent
+     * folder are skipped). Backs the conversation view's "this folder plus Sent replies"
+     * scope: the chip count and the unfolded member list both extend the viewed folder(s)
+     * with these, so a conversation never shows (or counts) Trash/Spam/Drafts members.
      */
-    suspend fun cachedThreadEmailsAllFolders(accountId: String, threadKey: String): List<Email> =
-        emailDao.cachedThreadEmailsAllFolders(accountId, threadKey).map { it.toEmail() }
+    suspend fun sentMailboxIds(accountIds: List<String>): List<String> =
+        accountIds.distinct().mapNotNull { mailboxDao.idForRole(it, "sent") }
 
     /**
      * Remove a message from the local cache only (optimistic UI removal), decrementing its source

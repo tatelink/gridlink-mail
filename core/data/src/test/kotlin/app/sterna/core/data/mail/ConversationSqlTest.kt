@@ -131,18 +131,17 @@ class ConversationSqlTest {
         assertEquals(listOf("a1"), rows) // only account A's mail; b1 is excluded
     }
 
-    @Test fun threadCountIsFolderScopedButACrossFolderThreadStaysExpandable() {
-        // A thread with one message in the Inbox and its reply filed in Sent: the chip says
-        // what is IN the Inbox (1), while threadTotal still marks it as a conversation.
-        insert("in1", threadId = "T1", seen = 0, flagged = 0, sortKey = 100, mailbox = "inbox")
-        insert("sent1", threadId = "T1", seen = 1, flagged = 0, sortKey = 200, mailbox = "sent")
-
-        val sql = conversationSql(mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false, hasAccountId = true)
-        val rows = db.prepareStatement(sql).use { ps ->
-            // Viewing the Inbox for account "acc".
-            ps.setString(1, "inbox"); ps.setString(2, "acc")
-            ps.setString(3, "inbox"); ps.setString(4, "acc")
-            ps.setString(5, "inbox"); ps.setString(6, "acc")
+    /** Run the SQL as bound in production for the Inbox of account "acc" with a Sent folder:
+     *  `g` and the outer WHERE scope to the Inbox; the chip sub-query `c` also takes "sent". */
+    private fun runWithSent(): List<Map<String, Any?>> {
+        val sql = conversationSql(
+            mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false,
+            hasAccountId = true, sentMailboxCount = 1,
+        )
+        return db.prepareStatement(sql).use { ps ->
+            ps.setString(1, "inbox"); ps.setString(2, "acc") // in-view sub-query g
+            ps.setString(3, "inbox"); ps.setString(4, "sent"); ps.setString(5, "acc") // chip c
+            ps.setString(6, "inbox"); ps.setString(7, "acc") // outer WHERE
             ps.executeQuery().use { rs ->
                 buildList {
                     while (rs.next()) {
@@ -157,14 +156,48 @@ class ConversationSqlTest {
                 }
             }
         }
+    }
+
+    @Test fun chipCountsFolderPlusSentMembersMatchingTheUnfoldedConversation() {
+        // A thread with one message in the Inbox and its reply filed in Sent: the unfolded
+        // conversation shows both, so the chip says 2 — while the representative stays the
+        // in-view (Inbox) message.
+        insert("in1", threadId = "T1", seen = 0, flagged = 0, sortKey = 100, mailbox = "inbox")
+        insert("sent1", threadId = "T1", seen = 1, flagged = 0, sortKey = 200, mailbox = "sent")
+
+        val rows = runWithSent()
         assertEquals(1, rows.size)
         assertEquals("in1", rows[0]["id"])      // representative is the in-view (Inbox) message…
-        assertEquals(1, rows[0]["threadCount"]) // …the chip counts only the Inbox message…
-        assertEquals(2, rows[0]["threadTotal"]) // …and the Sent reply keeps it expandable.
+        assertEquals(2, rows[0]["threadCount"]) // …the chip counts Inbox + Sent members…
+        assertEquals(2, rows[0]["threadTotal"]) // …and the account-wide total gates expandability.
+    }
+
+    @Test fun chipIgnoresTrashMembersEvenWithSentBound() {
+        // Folder member + Sent reply + trashed member: the unfolded conversation shows 2
+        // (Inbox + Sent), so the chip says 2; the trashed member neither counts nor elects
+        // the representative, but keeps threadTotal at 3.
+        insert("in1", threadId = "T1", seen = 1, flagged = 0, sortKey = 100, mailbox = "inbox")
+        insert("sent1", threadId = "T1", seen = 1, flagged = 0, sortKey = 200, mailbox = "sent")
+        insert("tr1", threadId = "T1", seen = 1, flagged = 0, sortKey = 300, mailbox = "trash")
+
+        val rows = runWithSent()
+        assertEquals(1, rows.size)
+        assertEquals("in1", rows[0]["id"]) // representative = newest IN-VIEW member, not tr1/sent1
+        assertEquals(2, rows[0]["threadCount"])
+        assertEquals(3, rows[0]["threadTotal"])
+    }
+
+    @Test fun threadWithOnlySentMembersSurfacesNoRow() {
+        // Row presence stays strictly folder-scoped: Sent members widen the chip of an
+        // in-folder thread but never conjure a row of their own into the Inbox.
+        insert("sent1", threadId = "T1", seen = 1, flagged = 0, sortKey = 100, mailbox = "sent")
+
+        assertEquals(0, runWithSent().size)
     }
 
     @Test fun threadCountIgnoresMembersOutsideTheViewedFolder() {
-        // Two members in the viewed folder, one filed elsewhere: chip 2, total 3.
+        // No Sent folder bound: two members in the viewed folder, one filed elsewhere —
+        // chip 2, total 3.
         insert("in1", threadId = "T1", seen = 1, flagged = 0, sortKey = 100, mailbox = "inbox")
         insert("in2", threadId = "T1", seen = 0, flagged = 0, sortKey = 200, mailbox = "inbox")
         insert("tr1", threadId = "T1", seen = 1, flagged = 0, sortKey = 300, mailbox = "trash")

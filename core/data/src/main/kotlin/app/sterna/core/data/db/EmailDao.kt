@@ -126,28 +126,19 @@ interface EmailDao {
     suspend fun emailsByIds(ids: List<String>): List<EmailEntity>
 
     /**
-     * All cached messages of one thread, newest first, scoped to a single account and the
-     * current view's mailboxes — so an expanded conversation lists its members from the
-     * cache with no network round-trip. [threadKey] is COALESCE(threadId, id) (a
-     * thread-less message is its own thread). The account scope matters in the unified
-     * inbox, where two accounts can share a server-assigned thread id.
+     * All cached messages of one thread, newest first, scoped to a single account and
+     * [mailboxIds] — the current view's mailboxes, plus the account's Sent folder when
+     * listing an unfolded conversation — so an expanded conversation lists its members from
+     * the cache with no network round-trip and never shows another folder's (Trash/Spam/
+     * Drafts) members. [threadKey] is COALESCE(threadId, id) (a thread-less message is its
+     * own thread). The account scope matters in the unified inbox, where two accounts can
+     * share a server-assigned thread id.
      */
     @Query(
         "SELECT * FROM emails WHERE accountId = :accountId AND mailboxId IN (:mailboxIds) " +
             "AND COALESCE(threadId, id) = :threadKey ORDER BY sortKey DESC",
     )
     suspend fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): List<EmailEntity>
-
-    /**
-     * Like [cachedThreadEmails] but across ALL of the account's cached folders — so an
-     * unfolded conversation also lists the thread's replies filed under Sent (or Archive),
-     * not just the messages in the folder currently being viewed.
-     */
-    @Query(
-        "SELECT * FROM emails WHERE accountId = :accountId " +
-            "AND COALESCE(threadId, id) = :threadKey ORDER BY sortKey DESC",
-    )
-    suspend fun cachedThreadEmailsAllFolders(accountId: String, threadKey: String): List<EmailEntity>
 
     /**
      * Per-folder count of unread THREADS (the conversation-mode drawer badge): one row per

@@ -23,10 +23,12 @@ class ThreadMembersSqlTest {
         "SELECT id FROM emails WHERE accountId = ? AND mailboxId IN (?) " +
             "AND COALESCE(threadId, id) = ? ORDER BY sortKey DESC"
 
-    // Mirrors the all-folders query used to populate an unfolded conversation
-    // (cachedThreadEmailsAllFolders): no mailbox filter, so Sent/Archive replies are included.
-    private val allFoldersSql =
-        "SELECT id FROM emails WHERE accountId = ? " +
+    // Mirrors the same query as bound when populating an unfolded conversation: the viewed
+    // folder PLUS the account's Sent mailbox in the IN-list — Sent replies are interleaved,
+    // while members living in Trash/Spam/Drafts stay out (they belong to their own folder's
+    // conversation).
+    private val viewPlusSentSql =
+        "SELECT id FROM emails WHERE accountId = ? AND mailboxId IN (?, ?) " +
             "AND COALESCE(threadId, id) = ? ORDER BY sortKey DESC"
 
     @Before fun setUp() {
@@ -66,9 +68,9 @@ class ThreadMembersSqlTest {
             ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
         }
 
-    private fun membersAllFolders(accountId: String, threadKey: String): List<String> =
-        db.prepareStatement(allFoldersSql).use { ps ->
-            ps.setString(1, accountId); ps.setString(2, threadKey)
+    private fun membersViewPlusSent(accountId: String, mailbox: String, sent: String, threadKey: String): List<String> =
+        db.prepareStatement(viewPlusSentSql).use { ps ->
+            ps.setString(1, accountId); ps.setString(2, mailbox); ps.setString(3, sent); ps.setString(4, threadKey)
             ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
         }
 
@@ -92,12 +94,17 @@ class ThreadMembersSqlTest {
         assertEquals(listOf("solo"), members("acc", "inbox", "solo"))
     }
 
-    @Test fun allFoldersQueryIncludesSentReplies() {
+    @Test fun unfoldScopeIncludesSentRepliesButNeverOtherFoldersMembers() {
         insert("in1", threadId = "T1", sortKey = 100, mailbox = "inbox")
         insert("sent1", threadId = "T1", sortKey = 200, mailbox = "sent") // a reply, filed in Sent
-        // Folder-scoped (inbox) sees only the inbox message…
+        insert("tr1", threadId = "T1", sortKey = 300, mailbox = "trash") // deleted member
+        insert("dr1", threadId = "T1", sortKey = 400, mailbox = "drafts") // unsent draft
+        // The strictly folder-scoped binding (whole-thread swipe) sees only the inbox message…
         assertEquals(listOf("in1"), members("acc", "inbox", "T1"))
-        // …while the all-folders query used for the unfold also lists the Sent reply, newest-first.
-        assertEquals(listOf("sent1", "in1"), membersAllFolders("acc", "T1"))
+        // …while the unfold binding (view + Sent) interleaves the Sent reply, newest-first,
+        // and keeps the trashed and draft members out: they belong to their own folder's
+        // conversation (the Trash view's binding would list tr1 + sent1 instead).
+        assertEquals(listOf("sent1", "in1"), membersViewPlusSent("acc", "inbox", "sent", "T1"))
+        assertEquals(listOf("tr1", "sent1"), membersViewPlusSent("acc", "trash", "sent", "T1"))
     }
 }

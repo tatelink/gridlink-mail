@@ -233,8 +233,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Lazily-loaded members of an expanded thread, keyed by thread key — the thread's other
-     * messages (newest-first, the latest/representative excluded since the collapsed row
-     * already shows it). Loaded from the local cache on expand; no network.
+     * messages in the viewed folder(s) plus its Sent replies (newest-first, the latest/
+     * representative excluded since the collapsed row already shows it). Folder-scoped by
+     * design: a member deleted to Trash leaves THIS conversation and shows up in the Trash
+     * folder's conversation instead. Loaded from the local cache on expand; no network.
      */
     private val _threadMembers = MutableStateFlow<Map<String, List<Email>>>(emptyMap())
     val threadMembers: StateFlow<Map<String, List<Email>>> = _threadMembers.asStateFlow()
@@ -261,9 +263,14 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun expandThread(rep: Email, key: String) {
+        // Display scope of the unfolded conversation: the viewed folder(s) plus the thread's
+        // own account's Sent folder — a conversation is folder-scoped, so members sitting in
+        // Trash/Spam/Drafts (or any other folder) belong to THAT folder's conversation and
+        // never surface here. The Sent id resolves once per expansion, not per row.
+        val allowed = expansionMailboxIds(rep)
         // 1. Instant cache render (skip if a previous expand already loaded this thread).
         if (!_threadMembers.value.containsKey(key)) {
-            val cached = runCatching { loadThreadMembers(rep) }.getOrDefault(emptyList())
+            val cached = runCatching { loadThreadMembers(rep, allowed) }.getOrDefault(emptyList())
             if (key !in _expandedThreads.value) return // collapsed again while loading the cache
             _threadMembers.value = _threadMembers.value + (key to cached)
         }
@@ -276,18 +283,34 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         if (fetched.isEmpty()) return // offline/failed — not completed, so a later expand retries
         completedThreads += key
         if (key !in _expandedThreads.value) return // collapsed meanwhile
+        // The fetch persisted EVERY member (the cache stays complete — other folders' rows,
+        // counts and later expansions from those folders depend on it); only the DISPLAY is
+        // scoped, judging each wire member on its server mailboxIds map since it carries no
+        // local mailboxId.
+        val scoped = ConversationExpansion.membersInScope(fetched, allowed)
         val current = _threadMembers.value[key].orEmpty()
-        _threadMembers.value = _threadMembers.value + (key to ConversationExpansion.mergeMembers(current, fetched, rep.id))
+        _threadMembers.value = _threadMembers.value + (key to ConversationExpansion.mergeMembers(current, scoped, rep.id))
+    }
+
+    /** The mailbox ids an unfolded conversation may show: the current view's plus the Sent
+     *  folder of the thread's own account (resolved per-account, so a unified-view thread of
+     *  a non-current account gets ITS Sent folder, not the current account's). */
+    private suspend fun expansionMailboxIds(rep: Email): Set<String> {
+        val accountId = rep.accountId ?: store.load()?.id
+        val sent = if (accountId == null) emptyList()
+        else runCatching { repo.sentMailboxIds(listOf(accountId)) }.getOrDefault(emptyList())
+        return (currentMailboxIds() + sent).toSet()
     }
 
     /**
      * Cached thread members minus the representative already shown on the collapsed row.
-     * Pulled from ALL the account's folders, so the unfolded conversation also lists replies
-     * filed under Sent (or Archive), not just the messages in the folder being viewed.
+     * Pulled from [allowed] (the viewed folder(s) plus the account's Sent folder), so the
+     * unfolded conversation lists this folder's exchange — Sent replies interleaved — but
+     * never members that live in Trash, Spam, Drafts or another folder.
      */
-    private suspend fun loadThreadMembers(rep: Email): List<Email> {
+    private suspend fun loadThreadMembers(rep: Email, allowed: Set<String>): List<Email> {
         val accountId = rep.accountId ?: store.load()?.id ?: return emptyList()
-        val all = repo.cachedThreadEmailsAllFolders(accountId, threadKeyOf(rep))
+        val all = repo.cachedThreadEmails(accountId, allowed.toList(), threadKeyOf(rep))
         return ConversationExpansion.membersBelow(all, rep.id)
     }
 
@@ -411,10 +434,17 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                     if (id == null || credentials == null) {
                         flowOf(PagingData.empty())
                     } else {
-                        repo.pagedFolder(credentials, id, key.sort, key.unreadOnly, key.conversationView)
+                        // Conversation chips also count the thread's Sent replies (the chip
+                        // equals what the unfolded conversation shows) — resolve the Sent
+                        // folder id(s) once per page key, per account in the unified view.
+                        val sent = if (key.conversationView) repo.sentMailboxIds(listOf(credentials.id)) else emptyList()
+                        repo.pagedFolder(credentials, id, key.sort, key.unreadOnly, key.conversationView, sent)
                     }
                 }
-                Sel.Unified -> repo.pagedMailbox(key.unifiedIds, key.sort, key.unreadOnly, key.conversationView)
+                Sel.Unified -> {
+                    val sent = if (key.conversationView) repo.sentMailboxIds(store.allInboxScopes().map { it.first }) else emptyList()
+                    repo.pagedMailbox(key.unifiedIds, key.sort, key.unreadOnly, key.conversationView, sent)
+                }
             }
         }.cachedIn(viewModelScope)
 

@@ -75,4 +75,33 @@ class ConversationExpansionTest {
         val merged = ConversationExpansion.mergeMembers(cached, emptyList(), representativeId = "rep")
         assertEquals(listOf("a"), merged.map { it.id })
     }
+
+    @Test fun `scope keeps in-view and Sent members, drops other folders' members`() {
+        val fetched = listOf(
+            Email(id = "in1", mailboxIds = mapOf("inbox" to true)),
+            Email(id = "sent1", mailboxIds = mapOf("sent" to true)),
+            Email(id = "tr1", mailboxIds = mapOf("trash" to true)),
+            Email(id = "junk1", mailboxIds = mapOf("junk" to true)),
+            Email(id = "draft1", mailboxIds = mapOf("drafts" to true)),
+        )
+        val scoped = ConversationExpansion.membersInScope(fetched, allowed = setOf("inbox", "sent"))
+        assertEquals(listOf("in1", "sent1"), scoped.map { it.id })
+    }
+
+    @Test fun `scope keeps a multi-mailbox member with at least one allowed home`() {
+        // Label-style servers can file one message in several mailboxes at once.
+        val fetched = listOf(Email(id = "m1", mailboxIds = mapOf("archive" to true, "inbox" to true)))
+        val scoped = ConversationExpansion.membersInScope(fetched, allowed = setOf("inbox", "sent"))
+        assertEquals(listOf("m1"), scoped.map { it.id })
+    }
+
+    @Test fun `scope falls back to the local mailboxId when the server map is absent`() {
+        val fetched = listOf(
+            Email(id = "in1", mailboxId = "inbox"),
+            Email(id = "tr1", mailboxId = "trash"),
+            Email(id = "lost", mailboxId = null),
+        )
+        val scoped = ConversationExpansion.membersInScope(fetched, allowed = setOf("inbox", "sent"))
+        assertEquals(listOf("in1"), scoped.map { it.id })
+    }
 }

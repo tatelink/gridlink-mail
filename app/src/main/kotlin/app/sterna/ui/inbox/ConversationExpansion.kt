@@ -23,6 +23,20 @@ internal object ConversationExpansion {
         all.filter { it.id != representativeId }
 
     /**
+     * The server-fetched thread members an unfolded conversation may DISPLAY: those living in
+     * one of the [allowed] mailboxes (the viewed folder(s) plus the account's Sent folder).
+     * A wire member carries no local mailboxId, so membership is judged on its server
+     * [Email.mailboxIds] map — kept if ANY of its mailboxes is allowed. Members whose only
+     * homes are elsewhere (Trash, Spam, Drafts, another folder) are dropped from display:
+     * they belong to that folder's own conversation. The caller still persists ALL fetched
+     * members to the cache; only what is shown is scoped.
+     */
+    fun membersInScope(fetched: List<Email>, allowed: Set<String>): List<Email> =
+        fetched.filter { f ->
+            f.mailboxIds.keys.any { it in allowed } || f.mailboxId?.let { it in allowed } == true
+        }
+
+    /**
      * Merge the instantly-shown [cached] members with the [fetched] full-thread members from the
      * server: dedup by id (the fresher [fetched] copy wins), drop the representative
      * ([representativeId]) already shown at the top, and order newest-first by receivedAt — so a
