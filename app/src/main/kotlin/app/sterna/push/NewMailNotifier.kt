@@ -93,7 +93,15 @@ object NewMailNotifier {
         emails: List<Email>,
     ) {
         val known = prefs(context).getStringSet(key(credentials.id, mailboxId), null).orEmpty()
+        // One notification per conversation: the uncollapsed folder sync hands us every new
+        // member of a thread, so a reply burst would otherwise fire one notification per
+        // message. Collapse the new-mail set by thread (COALESCE(threadId, id) — an IMAP or
+        // thread-less message is its own thread), keeping the newest member as the
+        // representative; the whole burst still enters the baseline via [seed] below, so a
+        // skipped member can never resurface as "new" on a later pass.
         val newMail = emails.filter { it.id !in known && !it.isSeen }
+            .groupBy { it.threadId ?: it.id }
+            .map { (_, members) -> members.maxBy { it.receivedAt.orEmpty() } }
         // Codeberg #19: a message we announced that has since been read — in the app or on
         // another device (a remote read arrives here as a re-synced $seen change) — should
         // have its notification cleared. Only touch ids that still have a live notification.
