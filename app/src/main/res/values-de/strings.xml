@@ -507,6 +507,7 @@
     <string name="status_no_saved_account">Kein gespeichertes Konto.</string>
     <string name="status_add_recipient">Füge mindestens einen Empfänger hinzu.</string>
     <string name="status_message_deleted">Nachricht gelöscht</string>
+    <string name="status_message_deleted_forever">Nachricht endgültig gelöscht</string>
     <string name="status_message_archived">Nachricht archiviert</string>
     <string name="status_message_unarchived">Nachricht aus Archiv geholt</string>
     <string name="status_conversation_deleted">Unterhaltung gelöscht</string>
@@ -521,7 +522,9 @@
     <string name="status_read_file_failed">Die ausgewählte Datei konnte nicht gelesen werden.</string>
     <string name="status_open_attachment_failed">Anhang konnte nicht geöffnet werden: %1$s</string>
     <string name="status_action_failed">Die Aktion konnte nicht abgeschlossen werden.</string>
+    <string name="status_restore_failed">Einige Nachrichten konnten nicht wiederhergestellt werden.</string>
     <string name="status_moved_to_folder">Verschoben nach %1$s</string>
+    <string name="status_move_other_account">Einige Nachrichten wurden nicht verschoben (anderes Konto).</string>
 
     <!-- Notifications -->
     <string name="notif_channel_mail">Neue E-Mails</string>

@@ -507,6 +507,7 @@
     <string name="status_no_saved_account">Нет сохранённого аккаунта.</string>
     <string name="status_add_recipient">Добавьте хотя бы одного получателя.</string>
     <string name="status_message_deleted">Письмо удалено</string>
+    <string name="status_message_deleted_forever">Письмо удалено навсегда</string>
     <string name="status_message_archived">Письмо архивировано</string>
     <string name="status_message_unarchived">Письмо извлечено из архива</string>
     <string name="status_conversation_deleted">Переписка удалена</string>
@@ -521,7 +522,9 @@
     <string name="status_read_file_failed">Не удалось прочитать выбранный файл.</string>
     <string name="status_open_attachment_failed">Не удалось открыть вложение: %1$s</string>
     <string name="status_action_failed">Не удалось выполнить действие.</string>
+    <string name="status_restore_failed">Не удалось восстановить некоторые письма.</string>
     <string name="status_moved_to_folder">Перемещено в %1$s</string>
+    <string name="status_move_other_account">Некоторые письма не были перемещены (другой аккаунт).</string>
 
     <!-- Notifications -->
     <string name="notif_channel_mail">Новые письма</string>

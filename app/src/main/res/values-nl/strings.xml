@@ -507,6 +507,7 @@
     <string name="status_no_saved_account">Geen opgeslagen account.</string>
     <string name="status_add_recipient">Voeg ten minste één ontvanger toe.</string>
     <string name="status_message_deleted">Bericht verwijderd</string>
+    <string name="status_message_deleted_forever">Bericht definitief verwijderd</string>
     <string name="status_message_archived">Bericht gearchiveerd</string>
     <string name="status_message_unarchived">Bericht uit archief gehaald</string>
     <string name="status_conversation_deleted">Gesprek verwijderd</string>
@@ -521,7 +522,9 @@
     <string name="status_read_file_failed">Kon het geselecteerde bestand niet lezen.</string>
     <string name="status_open_attachment_failed">Kon bijlage niet openen: %1$s</string>
     <string name="status_action_failed">Kon de actie niet voltooien.</string>
+    <string name="status_restore_failed">Kon sommige berichten niet herstellen.</string>
     <string name="status_moved_to_folder">Verplaatst naar %1$s</string>
+    <string name="status_move_other_account">Sommige berichten zijn niet verplaatst (ander account).</string>
 
     <!-- Notifications -->
     <string name="notif_channel_mail">Nieuwe e-mail</string>
