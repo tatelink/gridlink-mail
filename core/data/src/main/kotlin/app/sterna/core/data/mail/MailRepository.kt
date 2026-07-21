@@ -1628,7 +1628,9 @@ class MailRepository(
             .onFailure { failed += uidToId.values }
     }
 
-    /** Batch-destroy one IMAP folder's [ids] permanently with a single `UID STORE`+`EXPUNGE`. */
+    /** Batch-destroy one IMAP folder's [ids] permanently with a single `UID STORE`+`EXPUNGE`.
+     *  A failed command THROWS (transport-level, retryable) rather than marking the ids failed:
+     *  the held-back destroy worker must retry a user-confirmed destroy, not abandon it. */
     private suspend fun imapDestroyGroup(
         credentials: AccountCredentials, source: String, ids: List<String>,
         succeeded: MutableSet<String>, failed: MutableSet<String>,
@@ -1637,12 +1639,9 @@ class MailRepository(
         failed += ids.filter { ImapMailService.uidOf(it) == null }
         if (uidToId.isEmpty()) return
         val rows = emailDao.emailsByIds(uidToId.values.toList())
-        runCatching { imap.deleteBatch(credentials, source, uidToId.keys.toList()) }
-            .onSuccess {
-                uidToId.values.forEach { emailDao.deleteById(it); succeeded += it }
-                adjustCountsForRemoval(rows, destMailboxId = null)
-            }
-            .onFailure { failed += uidToId.values }
+        imap.deleteBatch(credentials, source, uidToId.keys.toList())
+        uidToId.values.forEach { emailDao.deleteById(it); succeeded += it }
+        adjustCountsForRemoval(rows, destMailboxId = null)
     }
 
     /** JMAP: move every id to exactly [target] in one `Email/set`, then drop the local rows.
@@ -1661,17 +1660,16 @@ class MailRepository(
     }
 
     /** JMAP: destroy every id in one `Email/set`, then drop the local rows (confirmed ids only,
-     *  like [jmapMoveAll]). */
+     *  like [jmapMoveAll]). A failed request THROWS (transport-level, retryable) rather than
+     *  marking the ids failed — see [imapDestroyGroup]; per-id `notDestroyed` rejections land
+     *  in [BulkResult.failed]. */
     private suspend fun jmapDestroyAll(ctx: Context, emailIds: List<String>): BulkResult {
         val rows = emailDao.emailsByIds(emailIds)
-        return runCatching { client.destroy(ctx.session, ctx.accountId, emailIds, ctx.auth) }
-            .map { result ->
-                val destroyed = emailIds.filter { it in result.done }.toSet()
-                destroyed.forEach { emailDao.deleteById(it) }
-                adjustCountsForRemoval(rows.filter { it.id in destroyed }, destMailboxId = null)
-                BulkResult(destroyed, emailIds.toSet() - destroyed)
-            }
-            .getOrElse { BulkResult(emptySet(), emailIds.toSet()) }
+        val result = client.destroy(ctx.session, ctx.accountId, emailIds, ctx.auth)
+        val destroyed = emailIds.filter { it in result.done }.toSet()
+        destroyed.forEach { emailDao.deleteById(it) }
+        adjustCountsForRemoval(rows.filter { it.id in destroyed }, destMailboxId = null)
+        return BulkResult(destroyed, emailIds.toSet() - destroyed)
     }
 
     /** Archive a whole selection (one account). Messages already in the archive/all folder are dropped locally. */
@@ -1743,7 +1741,10 @@ class MailRepository(
         return jmapMoveAll(ctx, emailIds, trash)
     }
 
-    /** Permanently destroy a whole selection (one account) — the held-back bulk destroy (Codeberg #23/#29). */
+    /** Permanently destroy a whole selection (one account) — the held-back bulk destroy
+     *  (Codeberg #23/#29). THROWS on a transport-level failure (offline, dead connection) so
+     *  the destroy worker retries instead of abandoning a confirmed destroy;
+     *  [BulkResult.failed] only carries per-id rejections (unparsable id, `notDestroyed`). */
     suspend fun destroyAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
         if (credentials.protocol == MailProtocol.IMAP) {
@@ -2033,7 +2034,9 @@ class MailRepository(
                 val mapping = runCatching {
                     imap.moveBatch(credentials, currentFolder, uidAndIds.map { it.first }, source)
                 }.getOrNull() ?: return@forEach
-                restored += uidAndIds.map { it.second }
+                // Credit only the uids the COPYUID mapping confirms moved back — a partial
+                // mapping means the rest didn't restore, and they must feed the failure toast.
+                restored += uidAndIds.filter { it.first in mapping }.map { it.second }
                 val newUids = mapping.values.toList()
                 if (newUids.isNotEmpty()) {
                     runCatching { imap.fetchByUids(credentials, source, newUids) }

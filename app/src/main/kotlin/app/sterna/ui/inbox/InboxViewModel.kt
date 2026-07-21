@@ -176,8 +176,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val _pendingPurge = MutableStateFlow<String?>(null)
     val pendingPurge: StateFlow<String?> = _pendingPurge.asStateFlow()
     private var purgeJob: Job? = null
-    /** The Trash whose purge is currently held back (the worker fires it; Undo cancels it). */
-    private var pendingPurgeMailboxId: String? = null
+    /** The (accountId, Trash) whose purge is currently held back (the worker fires it; Undo
+     *  cancels it) — the account keys the unique work, since same-server accounts can share
+     *  a mailbox id. */
+    private var pendingPurgeTarget: Pair<String, String>? = null
 
     /** Non-null label while a permanent (Trash) delete is held back and can still be undone. */
     private val _pendingDelete = MutableStateFlow<String?>(null)
@@ -576,7 +578,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // A delete that only moves to Trash is reversible immediately (Undo moves it back).
             // A delete that would DESTROY (already in Trash, or no Trash) is held behind the Undo
             // window instead, so it is undoable too (Codeberg #23) — and its snackbar says so.
-            if (repo.deleteWouldDestroy(credentials, email)) {
+            // The probe can hit the network (folder lookup); if it fails (offline), fall back to
+            // the move path, whose own failure is handled and can never destroy anything.
+            if (runCatching { repo.deleteWouldDestroy(credentials, email) }.getOrDefault(false)) {
                 heldBackDestroy(listOf(email), getApplication<Application>().getString(R.string.status_message_deleted_forever))
             } else {
                 swipeRemove(email, getApplication<Application>().getString(R.string.status_message_deleted)) { c, id -> repo.delete(c, id) }
@@ -692,21 +696,25 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * Delete a whole conversation. Members whose delete would permanently destroy them (already
      * in Trash, or no Trash) go through the held-back destroy — a real, cancelable Undo window,
      * never an inline destroy — while the rest take the move-to-Trash path with a regular Undo.
-     * The per-member decision only ever picks held-back vs move, so a stale cached folder can at
-     * worst hold a move back behind Undo, never destroy a message that wasn't in Trash.
+     * The per-member decision only ever picks held-back vs move, so a stale cached folder (or a
+     * probe that fails offline) can at worst hold a move back behind Undo, never destroy a
+     * message that wasn't in Trash.
      */
     fun deleteThread(rep: Email) {
         viewModelScope.launch {
             val members = threadMessages(rep)
             val (destroy, move) = members.partition { m ->
-                credentialsFor(m)?.let { repo.deleteWouldDestroy(it, m) } ?: false
+                credentialsFor(m)?.let { c -> runCatching { repo.deleteWouldDestroy(c, m) }.getOrDefault(false) } ?: false
             }
             dropThreadExpansion(threadKeyOf(rep))
             if (destroy.isNotEmpty()) {
                 heldBackDestroy(destroy, getApplication<Application>().getString(R.string.status_message_deleted_forever))
             }
             if (move.isNotEmpty()) {
-                threadSwipeRemove(rep, R.string.status_conversation_deleted, members = move) { c, id -> repo.delete(c, id) }
+                // Mixed destroy+move: only the held-back destroy offers Undo — two snackbars
+                // would queue on one host while the destroy clock runs, so the move executes
+                // without its own (a pure move keeps it).
+                threadSwipeRemove(rep, R.string.status_conversation_deleted, members = move, offerUndo = destroy.isEmpty()) { c, id -> repo.delete(c, id) }
             }
         }
     }
@@ -730,6 +738,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         rep: Email,
         labelRes: Int,
         members: List<Email>? = null,
+        offerUndo: Boolean = true,
         op: suspend (AccountCredentials, String) -> String?,
     ) {
         viewModelScope.launch {
@@ -745,7 +754,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                     .onSuccess { dest -> entries += UndoEntry(m.id, m.accountId, mailboxId, dest) }
                     .onFailure { failed = true }
             }
-            if (entries.isNotEmpty()) {
+            if (offerUndo && entries.isNotEmpty()) {
                 _undo.value = UndoAction(entries, getApplication<Application>().getString(labelRes))
             }
             if (failed) {
@@ -850,12 +859,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repo.cachedIds(listOf(credentials.id to trashId)).forEach { repo.evict(it) } }
         _pendingPurge.value = getApplication<Application>().getString(R.string.status_trash_emptied)
         MessageDestroyWorker.schedulePurge(getApplication(), credentials.id, trashId, PURGE_HOLD_BACK_MS)
-        pendingPurgeMailboxId = trashId
+        val target = credentials.id to trashId
+        pendingPurgeTarget = target
         purgeJob?.cancel()
         purgeJob = viewModelScope.launch {
             delay(PURGE_HOLD_BACK_MS)
-            if (pendingPurgeMailboxId == trashId) {
-                pendingPurgeMailboxId = null
+            if (pendingPurgeTarget == target) {
+                pendingPurgeTarget = null
                 _pendingPurge.value = null
             }
         }
@@ -863,8 +873,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Cancel a held-back trash purge and restore the rows (nothing was destroyed yet). */
     fun undoEmptyTrash() {
-        pendingPurgeMailboxId?.let { MessageDestroyWorker.cancelPurge(getApplication(), it) }
-        pendingPurgeMailboxId = null
+        pendingPurgeTarget?.let { (accountId, trashId) -> MessageDestroyWorker.cancelPurge(getApplication(), accountId, trashId) }
+        pendingPurgeTarget = null
         purgeJob?.cancel()
         purgeJob = null
         _pendingPurge.value = null
@@ -1096,15 +1106,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // back behind Undo exactly like a swipe delete — never destroyed inline — so bulk
             // delete is consistent (Codeberg #23); the rest keeps the move-to-Trash bulk path.
             val (destroy, move) = emails.partition { e ->
-                credentialsFor(e)?.let { repo.deleteWouldDestroy(it, e) } ?: false
+                credentialsFor(e)?.let { c -> runCatching { repo.deleteWouldDestroy(c, e) }.getOrDefault(false) } ?: false
             }
             clearSelection()
             if (destroy.isNotEmpty()) {
                 heldBackDestroy(destroy, getApplication<Application>().getString(R.string.status_message_deleted_forever))
             }
             if (move.isNotEmpty()) {
+                // Mixed destroy+move: only the held-back destroy offers Undo (see deleteThread).
                 bulkBatched(
-                    undoLabel = getApplication<Application>().getString(R.string.status_message_deleted),
+                    undoLabel = getApplication<Application>().getString(R.string.status_message_deleted).takeIf { destroy.isEmpty() },
                     ids = move.mapTo(mutableSetOf()) { it.id },
                 ) { c, batch -> repo.deleteAll(c, batch) }
             }

@@ -68,8 +68,10 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
         /** Margin over the snackbar window so an Undo cancel always wins the race. */
         private const val DELAY_MARGIN_MS = 1_000L
 
-        /** Ids per work request: WorkManager caps input Data at ~10 KB per request. */
-        private const val IDS_PER_REQUEST = 100
+        /** Byte budget for one request's ids: WorkManager caps input Data at 10240 bytes and
+         *  throws at enqueue past it — long IMAP ids (`imap:<uuid>:<folder>:<uid>`) can blow a
+         *  fixed per-count chunk, so chunk on cumulative size with ample headroom instead. */
+        private const val MAX_IDS_BYTES_PER_REQUEST = 6 * 1024
 
         /** Hold the permanent destroy of [emailIds] (one account) back for [holdBackMs], then run it. */
         fun schedule(context: Context, accountId: String, emailIds: List<String>, holdBackMs: Long) {
@@ -105,16 +107,16 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
                 .setInputData(workDataOf(KEY_ACCOUNT_ID to accountId, KEY_PURGE_MAILBOX_ID to mailboxId))
                 .build()
             WorkManager.getInstance(context)
-                .enqueueUniqueWork(purgeWorkName(mailboxId), ExistingWorkPolicy.REPLACE, request)
+                .enqueueUniqueWork(purgeWorkName(accountId, mailboxId), ExistingWorkPolicy.REPLACE, request)
         }
 
         /** Undo: cancel the held-back purge of [mailboxId] (nothing was destroyed yet). */
-        fun cancelPurge(context: Context, mailboxId: String) {
-            WorkManager.getInstance(context).cancelUniqueWork(purgeWorkName(mailboxId))
+        fun cancelPurge(context: Context, accountId: String, mailboxId: String) {
+            WorkManager.getInstance(context).cancelUniqueWork(purgeWorkName(accountId, mailboxId))
         }
 
         private fun destroyRequests(accountId: String, emailIds: List<String>, delayMs: Long): List<OneTimeWorkRequest> =
-            emailIds.chunked(IDS_PER_REQUEST).map { chunk ->
+            chunkBySize(emailIds).map { chunk ->
                 OneTimeWorkRequestBuilder<MessageDestroyWorker>()
                     .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
                     .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -122,7 +124,30 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
                     .build()
             }
 
+        /** Split [emailIds] so each chunk's ids stay under [MAX_IDS_BYTES_PER_REQUEST]. */
+        private fun chunkBySize(emailIds: List<String>): List<List<String>> {
+            val chunks = mutableListOf<List<String>>()
+            var chunk = mutableListOf<String>()
+            var bytes = 0
+            emailIds.forEach { id ->
+                val size = id.encodeToByteArray().size + Long.SIZE_BYTES // UTF-8 + per-entry margin
+                if (chunk.isNotEmpty() && bytes + size > MAX_IDS_BYTES_PER_REQUEST) {
+                    chunks += chunk
+                    chunk = mutableListOf()
+                    bytes = 0
+                }
+                chunk += id
+                bytes += size
+            }
+            if (chunk.isNotEmpty()) chunks += chunk
+            return chunks
+        }
+
         private fun destroyWorkName(accountId: String) = "message-destroy-$accountId"
-        private fun purgeWorkName(mailboxId: String) = "trash-purge-$mailboxId"
+
+        // The account is part of the name: mailbox ids can collide between same-server accounts
+        // (e.g. Stalwart), and a colliding name would let one account's purge REPLACE or cancel
+        // the other's pending one.
+        private fun purgeWorkName(accountId: String, mailboxId: String) = "trash-purge-$accountId-$mailboxId"
     }
 }
