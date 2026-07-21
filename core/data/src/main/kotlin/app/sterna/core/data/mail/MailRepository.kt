@@ -1496,9 +1496,12 @@ class MailRepository(
         val mb = row?.mailboxId ?: emailDao.mailboxOf(emailId)
         val target = archiveMailboxId(ctx) ?: ctx.rolesToMailboxId["all"] ?: createArchiveFolder(ctx)
         if (mb == target) return null // already in the archive/all folder — nothing to do
+        // Network-first like moveToMailbox: the local row is dropped (and counts nudged) only
+        // after the server acknowledged, so a failed archive never hides a message that is
+        // still on the server.
+        val newState = client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
         emailDao.deleteById(emailId)
         adjustCountsForRemoval(listOfNotNull(row), target)
-        val newState = client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
         advanceEmailState(newState, credentials.id, mb)
         return target
     }
@@ -1700,9 +1703,10 @@ class MailRepository(
     }
 
     /**
-     * Delete a whole selection (one account): move to Trash where possible (undoable),
-     * permanently destroy the ids already in Trash / accounts with no Trash (matching the
-     * single-message [delete], Codeberg #23). Destroyed ids aren't undoable.
+     * Delete a whole selection (one account): move everything to Trash (undoable). Like the
+     * single-message [delete] this NEVER destroys inline — the caller routes the would-destroy
+     * subset through the held-back destroy ([destroyAll]) with its cancelable Undo window
+     * (Codeberg #23) — so an account with no Trash fails the batch instead of destroying it.
      */
     suspend fun deleteAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
@@ -1710,26 +1714,23 @@ class MailRepository(
         if (settings?.markReadOnDelete?.first() == true) {
             emailIds.forEach { id -> if (emailDao.seenOf(id) == false) runCatching { setRead(credentials, id, true) } }
         }
-        val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
         if (credentials.protocol == MailProtocol.IMAP) {
+            val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
             val trash = imapRoleFolder(credentials, "trash")
             emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
                 when {
-                    source == null -> failed += ids
-                    trash != null && source != trash -> imapMoveGroup(credentials, source, ids, trash, succeeded, failed)
-                    else -> imapDestroyGroup(credentials, source, ids, succeeded, failed)
+                    source == null || trash == null -> failed += ids
+                    // Already in Trash: nothing to move — drop the row locally only. Deliberately
+                    // in NEITHER set: there is no move to undo and nothing failed.
+                    source == trash -> ids.forEach { emailDao.deleteById(it) }
+                    else -> imapMoveGroup(credentials, source, ids, trash, succeeded, failed)
                 }
             }
-            // Undo restores the moved-to-Trash subset back to their source; the destroyed subset
-            // (already in Trash / no Trash) can't be undone, so Trash is the meaningful dest.
             return BulkResult(succeeded, failed, dest = trash)
         }
         val ctx = connect(credentials)
-        val trash = ctx.rolesToMailboxId["trash"]
-        val (toDestroy, toTrash) = emailIds.partition { id -> trash == null || emailDao.mailboxOf(id) == trash }
-        if (toTrash.isNotEmpty()) jmapMoveAll(ctx, toTrash, trash!!).let { succeeded += it.succeeded; failed += it.failed }
-        if (toDestroy.isNotEmpty()) jmapDestroyAll(ctx, toDestroy).let { succeeded += it.succeeded; failed += it.failed }
-        return BulkResult(succeeded, failed, dest = trash)
+        val trash = ctx.rolesToMailboxId["trash"] ?: return BulkResult(emptySet(), emailIds.toSet())
+        return jmapMoveAll(ctx, emailIds, trash)
     }
 
     /** Permanently destroy a whole selection (one account) — the held-back bulk destroy (Codeberg #23/#29). */
@@ -2074,9 +2075,13 @@ class MailRepository(
         }
     }
 
-    /** Move to Trash (or destroy if there is none) and drop from the local list. Returns the
-     *  Trash folder the message landed in (null when it was destroyed for real / no Trash), so
-     *  the caller can offer an Undo that restores the row and reverses the count nudge. */
+    /** Move to Trash and drop from the local list. A delete here NEVER destroys: moving a
+     *  message to the folder it already sits in is a safe server no-op, and permanent deletion
+     *  is only reachable through the held-back path ([evict] + [destroyAll]) with its cancelable
+     *  Undo window (Codeberg #23) — the caller routes would-destroy deletes there via
+     *  [deleteWouldDestroy]. Returns the Trash folder the message landed in, so the caller can
+     *  offer an Undo that restores the row and reverses the count nudge. Throws when the account
+     *  has no Trash folder. */
     suspend fun delete(credentials: AccountCredentials, emailId: String): String? {
         // Opt-in: flag the message read on its way out, so Trash doesn't accumulate unread
         // badges. Best-effort BEFORE the move (the id changes with an IMAP move); a failure
@@ -2086,39 +2091,27 @@ class MailRepository(
         }
         val row = emailDao.emailsByIds(listOf(emailId)).firstOrNull()
         if (credentials.protocol == MailProtocol.IMAP) {
-            val trash = imapRoleFolder(credentials, "trash")
-            var dest: String? = null
+            val trash = imapRoleFolder(credentials, "trash") ?: error("This account has no Trash folder.")
             imapTarget(emailId)?.let { (mb, uid) ->
-                // Deleting a message that is already in Trash (or when there is no Trash)
-                // must permanently remove it: moving it to the folder it already sits in is
-                // a no-op that leaves it on the server (Codeberg #23).
-                if (trash != null && mb != trash) {
+                if (mb != trash) {
                     imap.move(credentials, mb, uid, trash)?.let { lastImapMove[emailId] = ImapLoc(trash, it) }
-                    dest = trash
-                } else {
-                    imap.deleteMessage(credentials, mb, uid) // permanent; no undo
                 }
             }
             emailDao.deleteById(emailId)
-            adjustCountsForRemoval(listOfNotNull(row), dest)
-            return dest
+            adjustCountsForRemoval(listOfNotNull(row), trash)
+            return trash
         }
         val ctx = connect(credentials)
         val mb = row?.mailboxId ?: emailDao.mailboxOf(emailId)
-        val trash = ctx.rolesToMailboxId["trash"]
-        // Already in Trash (mb == trash) or no Trash at all → destroy for real; moving a
-        // message to the mailbox it already occupies is a server no-op, so the message would
-        // reappear on the next sync and never actually be deleted (Codeberg #23).
-        val toTrash = trash != null && mb != trash
+        val trash = ctx.rolesToMailboxId["trash"] ?: error("This account has no Trash folder.")
+        // Network-first (like moveToMailbox): the local row is dropped (and counts nudged) only
+        // after the server acknowledged the move, so a failed delete never hides a message that
+        // is still on the server.
+        val newState = client.move(ctx.session, ctx.accountId, emailId, trash, ctx.auth)
         emailDao.deleteById(emailId)
-        adjustCountsForRemoval(listOfNotNull(row), if (toTrash) trash else null)
-        val newState = if (toTrash) {
-            client.move(ctx.session, ctx.accountId, emailId, trash!!, ctx.auth)
-        } else {
-            client.destroy(ctx.session, ctx.accountId, emailId, ctx.auth)
-        }
+        adjustCountsForRemoval(listOfNotNull(row), trash)
         advanceEmailState(newState, credentials.id, mb)
-        return if (toTrash) trash else null
+        return trash
     }
 
     /**

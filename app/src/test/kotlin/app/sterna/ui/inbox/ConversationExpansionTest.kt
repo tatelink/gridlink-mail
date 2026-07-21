@@ -61,6 +61,15 @@ class ConversationExpansionTest {
         assertEquals("fresh", merged[0].subject)
     }
 
+    @Test fun `merge never lets the fetched copy null out cached identity fields`() {
+        val cached = listOf(Email(id = "m1", accountId = "acc", mailboxId = "trash"))
+        val fetched = listOf(Email(id = "m1", subject = "fresh"))
+        val merged = ConversationExpansion.mergeMembers(cached, fetched, representativeId = "rep")
+        assertEquals("acc", merged[0].accountId)
+        assertEquals("trash", merged[0].mailboxId)
+        assertEquals("fresh", merged[0].subject)
+    }
+
     @Test fun `merge with no fetched members keeps the cached list (offline)`() {
         val cached = listOf(Email(id = "a", receivedAt = "2026-06-20T10:00:00Z"))
         val merged = ConversationExpansion.mergeMembers(cached, emptyList(), representativeId = "rep")

@@ -569,15 +569,14 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Swipe action: delete (move to Trash). */
     fun delete(email: Email) {
         val credentials = credentialsFor(email) ?: return
-        val label = getApplication<Application>().getString(R.string.status_message_deleted)
         viewModelScope.launch {
             // A delete that only moves to Trash is reversible immediately (Undo moves it back).
             // A delete that would DESTROY (already in Trash, or no Trash) is held behind the Undo
-            // window instead, so it is undoable too (Codeberg #23).
+            // window instead, so it is undoable too (Codeberg #23) — and its snackbar says so.
             if (repo.deleteWouldDestroy(credentials, email)) {
-                heldBackDestroy(listOf(email), label)
+                heldBackDestroy(listOf(email), getApplication<Application>().getString(R.string.status_message_deleted_forever))
             } else {
-                swipeRemove(email, label) { c, id -> repo.delete(c, id) }
+                swipeRemove(email, getApplication<Application>().getString(R.string.status_message_deleted)) { c, id -> repo.delete(c, id) }
             }
         }
     }
@@ -692,29 +691,59 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun deleteThread(rep: Email) = threadSwipeRemove(rep, R.string.status_conversation_deleted) { c, id -> repo.delete(c, id) }
+    /**
+     * Delete a whole conversation. Members whose delete would permanently destroy them (already
+     * in Trash, or no Trash) go through the held-back destroy — a real, cancelable Undo window,
+     * never an inline destroy — while the rest take the move-to-Trash path with a regular Undo.
+     * The per-member decision only ever picks held-back vs move, so a stale cached folder can at
+     * worst hold a move back behind Undo, never destroy a message that wasn't in Trash.
+     */
+    fun deleteThread(rep: Email) {
+        viewModelScope.launch {
+            val members = threadMessages(rep)
+            val (destroy, move) = members.partition { m ->
+                credentialsFor(m)?.let { repo.deleteWouldDestroy(it, m) } ?: false
+            }
+            dropThreadExpansion(threadKeyOf(rep))
+            if (destroy.isNotEmpty()) {
+                heldBackDestroy(destroy, getApplication<Application>().getString(R.string.status_message_deleted_forever))
+            }
+            if (move.isNotEmpty()) {
+                threadSwipeRemove(rep, R.string.status_conversation_deleted, members = move) { c, id -> repo.delete(c, id) }
+            }
+        }
+    }
     fun archiveThread(rep: Email) = threadSwipeRemove(rep, R.string.status_conversation_archived) { c, id -> repo.archive(c, id) }
     fun unarchiveThread(rep: Email, inboxId: String) =
         threadSwipeRemove(rep, R.string.status_conversation_unarchived) { c, id -> repo.moveToMailbox(c, id, inboxId) }
 
+    /** Drop a thread's inline-expansion state — its conversation is leaving the list. */
+    private fun dropThreadExpansion(key: String) {
+        _expandedThreads.value = _expandedThreads.value - key
+        _threadMembers.value = _threadMembers.value - key
+        completedThreads -= key
+    }
+
     /**
-     * Remove every message of a thread optimistically, run [op] per message, then offer one Undo
-     * that restores the whole batch. Mirrors [swipeRemove] but for a collapsed conversation.
+     * Remove every message of a thread ([members], or its full cached membership), run [op] per
+     * message, then offer one Undo that restores the whole batch. Mirrors [swipeRemove] but for
+     * a collapsed conversation.
      */
-    private fun threadSwipeRemove(rep: Email, labelRes: Int, op: suspend (AccountCredentials, String) -> String?) {
+    private fun threadSwipeRemove(
+        rep: Email,
+        labelRes: Int,
+        members: List<Email>? = null,
+        op: suspend (AccountCredentials, String) -> String?,
+    ) {
         viewModelScope.launch {
-            val members = threadMessages(rep)
-            // The conversation is leaving the list — drop its inline-expansion state.
-            val key = threadKeyOf(rep)
-            _expandedThreads.value = _expandedThreads.value - key
-            _threadMembers.value = _threadMembers.value - key
-            completedThreads -= key
+            val acting = members ?: threadMessages(rep)
+            dropThreadExpansion(threadKeyOf(rep))
             val entries = mutableListOf<UndoEntry>()
             var failed = false
-            members.forEach { m ->
+            acting.forEach { m ->
                 val credentials = credentialsFor(m) ?: return@forEach
                 val mailboxId = m.mailboxId ?: return@forEach
-                // The repo op removes the row locally and nudges counts; no separate pre-evict.
+                // The repo op is network-first: it drops the row and nudges counts on ack.
                 runCatching { op(credentials, m.id) }
                     .onSuccess { dest -> entries += UndoEntry(m.id, m.accountId, mailboxId, dest) }
                     .onFailure { failed = true }
@@ -724,7 +753,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (failed) {
                 _message.value = getApplication<Application>().getString(R.string.status_action_failed)
-                refresh() // a server op failed — bring the optimistically-removed rows back
+                refresh() // failed rows were never dropped locally — just reconcile the list
             }
         }
     }
@@ -751,21 +780,25 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun swipeRemove(email: Email, label: String, op: suspend (AccountCredentials, String) -> String?) {
         val credentials = credentialsFor(email) ?: return
-        val mailboxId = email.mailboxId
         viewModelScope.launch {
-            // No pre-evict: the repo op removes the row locally (optimistically, before its network
-            // round-trip) AND nudges the drawer counts from the true source, so the list still
-            // clears instantly. It returns the destination the message went to, for the Undo.
+            // No pre-evict: the repo op is network-first — it drops the row AND nudges the drawer
+            // counts from the true source once the server acknowledged. The swipe animation has
+            // already flown the row off; it leaves the list when the ack lands. The op returns
+            // the destination the message went to, for the Undo.
             dropThreadMember(email)
+            // The UI row may not carry its source folder (e.g. a server-fetched thread member) —
+            // fall back to the cached row, captured before the op drops it, so a moved message
+            // always gets its Undo.
+            val source = email.mailboxId ?: repo.cachedEmail(email.id)?.mailboxId
             runCatching { op(credentials, email.id) }
                 .onSuccess { dest ->
-                    if (mailboxId != null) {
-                        _undo.value = UndoAction(listOf(UndoEntry(email.id, email.accountId, mailboxId, dest)), label)
+                    if (source != null) {
+                        _undo.value = UndoAction(listOf(UndoEntry(email.id, email.accountId, source, dest)), label)
                     }
                 }
                 .onFailure {
                     _message.value = it.message ?: getApplication<Application>().getString(R.string.status_action_failed)
-                    refresh() // the server op failed — bring the optimistically-removed row back
+                    refresh() // the failed row was never dropped locally — just reconcile the list
                 }
         }
     }
@@ -823,7 +856,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { repo.emptyTrash(credentials, trashId) }
                 .onFailure {
                     _message.value = it.message ?: getApplication<Application>().getString(R.string.status_action_failed)
-                    refresh() // purge failed — bring the rows back
+                    // The rows were evicted locally but survive on the server; only a full
+                    // re-query brings them back (an incremental refresh re-fetches nothing).
+                    forceRefresh()
                 }
         }
     }
@@ -1003,13 +1038,14 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private fun bulkBatched(
         clearAfter: Boolean = true,
         undoLabel: String? = null,
+        ids: Set<String>? = null,
         batchOp: suspend (AccountCredentials, List<String>) -> MailRepository.BulkResult,
     ) {
-        val ids = _selectedIds.value
+        val targetIds = ids ?: _selectedIds.value
         if (clearAfter) clearSelection()
-        dropThreadMembers(ids)
+        dropThreadMembers(targetIds)
         viewModelScope.launch {
-            val emails = repo.cachedEmailsByIds(ids)
+            val emails = repo.cachedEmailsByIds(targetIds)
             var failed = 0
             val undoEntries = mutableListOf<UndoEntry>()
             // AccountCredentials is a data class, so all of an account's messages group together.
@@ -1044,17 +1080,21 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         val ids = _selectedIds.value
         viewModelScope.launch {
             val emails = repo.cachedEmailsByIds(ids)
-            // If the whole selection would be permanently destroyed (all in Trash, or no Trash),
-            // hold it back behind Undo exactly like a swipe delete, so bulk delete is consistent
-            // (Codeberg #23). A mixed/non-Trash selection keeps the plain move-to-Trash bulk path.
-            val allDestroy = emails.isNotEmpty() && emails.all { e ->
+            // The subset whose delete would permanently destroy (in Trash, or no Trash) is held
+            // back behind Undo exactly like a swipe delete — never destroyed inline — so bulk
+            // delete is consistent (Codeberg #23); the rest keeps the move-to-Trash bulk path.
+            val (destroy, move) = emails.partition { e ->
                 credentialsFor(e)?.let { repo.deleteWouldDestroy(it, e) } ?: false
             }
-            if (allDestroy) {
-                clearSelection()
-                heldBackDestroy(emails, getApplication<Application>().getString(R.string.status_message_deleted))
-            } else {
-                bulkBatched(undoLabel = getApplication<Application>().getString(R.string.status_message_deleted)) { c, ids -> repo.deleteAll(c, ids) }
+            clearSelection()
+            if (destroy.isNotEmpty()) {
+                heldBackDestroy(destroy, getApplication<Application>().getString(R.string.status_message_deleted_forever))
+            }
+            if (move.isNotEmpty()) {
+                bulkBatched(
+                    undoLabel = getApplication<Application>().getString(R.string.status_message_deleted),
+                    ids = move.mapTo(mutableSetOf()) { it.id },
+                ) { c, batch -> repo.deleteAll(c, batch) }
             }
         }
     }

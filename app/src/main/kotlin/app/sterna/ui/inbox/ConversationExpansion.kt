@@ -32,7 +32,16 @@ internal object ConversationExpansion {
     fun mergeMembers(cached: List<Email>, fetched: List<Email>, representativeId: String): List<Email> {
         val byId = LinkedHashMap<String, Email>()
         cached.forEach { byId[it.id] = it }
-        fetched.forEach { byId[it.id] = it }
+        // The fetched copy refreshes content (keywords, headers, mailboxIds) but comes off the
+        // wire without local identity — it must never null out the cached accountId/mailboxId
+        // that action routing (account pick, destroy-vs-move) depends on.
+        fetched.forEach { f ->
+            val c = byId[f.id]
+            byId[f.id] = if (c == null) f else f.copy(
+                accountId = f.accountId ?: c.accountId,
+                mailboxId = f.mailboxId ?: c.mailboxId,
+            )
+        }
         return byId.values
             .filter { it.id != representativeId }
             .sortedByDescending { it.receivedAt ?: "" }
