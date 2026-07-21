@@ -282,9 +282,22 @@ fun InboxScreen(
     // From any non-inbox folder, Back returns to the Inbox instead of leaving the app.
     BackHandler(enabled = !selectionActive && !ui.atInbox) { viewModel.showInbox() }
 
-    // Move-to-folder picker for the current selection.
+    // Move-to-folder picker for the current selection. System folders lead in a fixed order
+    // (Inbox, Drafts, Sent, Spam, Archive, Trash), custom folders follow in their own order (#25).
     if (showMoveSheet) {
-        val targets = ui.mailboxes.filter { it.id != ui.selectedMailboxId }
+        val targets = ui.mailboxes
+            .filter { it.id != ui.selectedMailboxId }
+            .sortedBy { mb ->
+                when (mb.role) {
+                    "inbox" -> 0
+                    "drafts" -> 1
+                    "sent" -> 2
+                    "junk" -> 3
+                    "archive", "all" -> 4
+                    "trash" -> 5
+                    else -> 6
+                }
+            }
         AlertDialog(
             onDismissRequest = { showMoveSheet = false },
             title = { Text(stringResource(R.string.inbox_move_to_folder)) },
