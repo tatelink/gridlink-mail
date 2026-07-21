@@ -119,6 +119,26 @@ object NewMailNotifier {
     }
 
     /**
+     * The subset of [emails] genuinely new to this folder: not in its baseline, and past
+     * the age floor — never announce mail received more than [NOTIFY_HORIZON_MS] before the
+     * folder's previous pass. The cache gains OLD rows without them ever having been new
+     * mail — scrolling back pages weeks-old unread into the cache, expanding a thread
+     * caches old members — and none of those are in the baseline, so each would otherwise
+     * count as days-late "new" mail. Genuinely new mail carrying an old receivedAt (a
+     * delayed relay) is skipped too — accepted trade-off. A missing timestamp or an
+     * unparseable date disables the floor for that mail (never suppresses a real arrival).
+     * Read-only: the baseline only advances in [notifyDiff]/[seed]. Read state is NOT
+     * consulted (a reply already read on another device is still new) — [notifyDiff]
+     * additionally drops seen mail, a notification-only concern.
+     */
+    fun newSince(context: Context, accountId: String, mailboxId: String, emails: List<Email>): List<Email> {
+        val known = prefs(context).getStringSet(key(accountId, mailboxId), null).orEmpty()
+        val lastPass = prefs(context).getLong(tsKey(accountId, mailboxId), 0L)
+        val floor = if (lastPass > 0) lastPass - NOTIFY_HORIZON_MS else Long.MIN_VALUE
+        return emails.filter { it.id !in known && receivedAfter(it, floor) }
+    }
+
+    /**
      * Post notifications for a folder's messages not in its baseline, then advance it.
      * [folderName] is shown as notification sub-text; pass null for the inbox.
      */
@@ -129,23 +149,14 @@ object NewMailNotifier {
         folderName: String?,
         emails: List<Email>,
     ) {
-        val known = prefs(context).getStringSet(key(credentials.id, mailboxId), null).orEmpty()
-        // Age floor: never announce mail received more than NOTIFY_HORIZON_MS before this
-        // folder's previous pass. The cache gains OLD rows without them ever having been new
-        // mail — scrolling back pages weeks-old unread into the cache, expanding a thread
-        // caches old members — and none of those are in the baseline, so each would fire a
-        // days-late notification here. Genuinely new mail carrying an old receivedAt (a
-        // delayed relay) is skipped too — accepted trade-off. A missing timestamp or an
-        // unparseable date disables the floor for that mail (never suppresses a real arrival).
-        val lastPass = prefs(context).getLong(tsKey(credentials.id, mailboxId), 0L)
-        val floor = if (lastPass > 0) lastPass - NOTIFY_HORIZON_MS else Long.MIN_VALUE
         // One notification per conversation: the uncollapsed folder sync hands us every new
         // member of a thread, so a reply burst would otherwise fire one notification per
         // message. Collapse the new-mail set by thread (COALESCE(threadId, id) — an IMAP or
         // thread-less message is its own thread), keeping the newest member as the
         // representative; the whole burst still enters the baseline via [seed] below, so a
         // skipped member can never resurface as "new" on a later pass.
-        val newMail = emails.filter { it.id !in known && !it.isSeen && receivedAfter(it, floor) }
+        val newMail = newSince(context, credentials.id, mailboxId, emails)
+            .filter { !it.isSeen }
             .groupBy { it.threadId ?: it.id }
             .map { (_, members) -> members.maxBy { it.receivedAt.orEmpty() } }
         // Codeberg #19: a message we announced that has since been read — in the app or on

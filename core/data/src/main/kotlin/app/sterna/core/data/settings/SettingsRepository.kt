@@ -124,6 +124,14 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_MARK_READ_ON_DELETE] = enabled }
     }
 
+    /** Return a conversation's archived messages to the Inbox when a new reply arrives
+     *  (off by default — archiving stays final unless opted in; Codeberg #50). */
+    val unarchiveOnReply: Flow<Boolean> = dataStore.data.map { it[KEY_UNARCHIVE_ON_REPLY] ?: false }
+
+    suspend fun setUnarchiveOnReply(enabled: Boolean) {
+        dataStore.edit { it[KEY_UNARCHIVE_ON_REPLY] = enabled }
+    }
+
     /** Reading text size for the message body. */
     val messageTextSize: Flow<MessageTextSize> = dataStore.data.map { prefs ->
         prefs[KEY_MESSAGE_TEXT_SIZE]?.let { runCatching { MessageTextSize.valueOf(it) }.getOrNull() }
@@ -229,6 +237,7 @@ class SettingsRepository(context: Context) {
         conversationView = conversationView.first(),
         messageTextSize = messageTextSize.first().name,
         markReadOnDelete = markReadOnDelete.first(),
+        unarchiveOnReply = unarchiveOnReply.first(),
         deliveryMode = deliveryMode.first().name,
         notificationContent = notificationContent.first().name,
     )
@@ -252,6 +261,7 @@ class SettingsRepository(context: Context) {
         backup.conversationView?.let { setConversationView(it) }
         backup.messageTextSize?.let { v -> runCatching { MessageTextSize.valueOf(v) }.getOrNull()?.let { setMessageTextSize(it) } }
         backup.markReadOnDelete?.let { setMarkReadOnDelete(it) }
+        backup.unarchiveOnReply?.let { setUnarchiveOnReply(it) }
         backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
         backup.notificationContent?.let { v -> runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }
     }
@@ -309,6 +319,7 @@ class SettingsRepository(context: Context) {
         private val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
         private val KEY_CONVERSATION_VIEW = booleanPreferencesKey("conversation_view")
         private val KEY_MARK_READ_ON_DELETE = booleanPreferencesKey("mark_read_on_delete")
+        private val KEY_UNARCHIVE_ON_REPLY = booleanPreferencesKey("unarchive_on_reply")
         private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         private val KEY_HAS_SEEN_WELCOME = booleanPreferencesKey("has_seen_welcome")

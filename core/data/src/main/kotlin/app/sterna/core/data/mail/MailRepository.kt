@@ -1949,6 +1949,39 @@ class MailRepository(
         return jmapMoveAll(ctx, emailIds, target)
     }
 
+    /**
+     * Codeberg #50 (opt-in): when a genuinely-new reply lands in the Inbox, pull the thread's
+     * archived members back so the Inbox conversation is whole again. JMAP only — IMAP has no
+     * thread ids, so it can never resolve members to move. The archive resolves like
+     * [archiveAll] minus creation (no archive folder means nothing is archived). Server-first
+     * (one bulk `Email/set`); the confirmed rows are then RE-FILED locally into the Inbox
+     * rather than dropped — the caller's inbox refresh already ran, so dropping them would
+     * leave the conversation torn until the next pass — and marked recently-mutated so
+     * neither reconcile path prunes them while the server catches up on the move. Per-id
+     * rejections simply stay archived. Returns the re-filed members as Inbox emails so the
+     * caller can fold them into its notifier baseline.
+     */
+    suspend fun unarchiveThreadsOnReply(credentials: AccountCredentials, threadIds: Set<String>): List<Email> {
+        if (threadIds.isEmpty() || credentials.protocol == MailProtocol.IMAP) return emptyList()
+        val ctx = connect(credentials)
+        val inbox = ctx.rolesToMailboxId["inbox"] ?: return emptyList()
+        val archive = archiveMailboxId(ctx) ?: ctx.rolesToMailboxId["all"] ?: return emptyList()
+        if (archive == inbox) return emptyList()
+        val members = emailDao.threadMembersInMailbox(credentials.id, archive, threadIds.toList())
+        if (members.isEmpty()) return emptyList()
+        // Protect the rows BEFORE the server call, so a sync firing mid-move can't evict them.
+        members.forEach { markRecentlyMutated(it.id) }
+        val result = runCatching {
+            client.move(ctx.session, ctx.accountId, members.map { it.id }, inbox, ctx.auth)
+        }.getOrNull() ?: return emptyList()
+        val moved = members.filter { it.id in result.done }
+        if (moved.isEmpty()) return emptyList()
+        val refiled = moved.map { it.copy(mailboxId = inbox) }
+        emailDao.upsertAll(refiled)
+        adjustCountsForRemoval(moved, inbox)
+        return refiled.map { it.toEmail() }
+    }
+
     /** Move a whole selection (one account) to [targetMailboxId]. */
     suspend fun moveAllToMailbox(credentials: AccountCredentials, emailIds: List<String>, targetMailboxId: String): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
