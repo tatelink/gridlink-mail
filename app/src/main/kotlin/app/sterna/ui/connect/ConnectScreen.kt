@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -215,6 +216,9 @@ fun ConnectScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                // Keep the form scrollable above the keyboard so the focused field (password…)
+                // stays visible while typing (#52) — same recipe as the compose screen.
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
