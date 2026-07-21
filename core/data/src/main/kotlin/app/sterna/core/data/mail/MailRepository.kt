@@ -80,6 +80,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -544,9 +545,42 @@ class MailRepository(
         }
     }
 
-    /** Cached mailboxes (folders) of the local account [accountId], updated reactively. */
+    /**
+     * Live, mode-appropriate unread count per folder of the local account [accountId], keyed by
+     * mailboxId, for the drawer badge: unread threads in conversation view, unread messages in
+     * flat view. Both aggregates mirror the list's folder-scoped source (same thread grouping,
+     * same not-snoozed filter), so a badge equals the visible bold rows and moves instantly on
+     * read/move/delete/snooze — Room invalidation, no manual nudge. A folder absent from the
+     * aggregate (nothing cached — e.g. never synced) maps to no badge, never a made-up count.
+     */
+    private fun observeUnreadByMailbox(accountId: String): Flow<Map<String, Int>> {
+        val conversationView = settings?.conversationView ?: flowOf(true)
+        return combine(
+            emailDao.observeThreadUnreadCounts(),
+            emailDao.observeMessageUnreadCounts(),
+            conversationView,
+        ) { threads, messages, conversation ->
+            (if (conversation) threads else messages)
+                .filter { it.accountId == accountId }
+                .associate { it.mailboxId to it.count }
+        }
+    }
+
+    /**
+     * Cached mailboxes (folders) of the local account [accountId], updated reactively. JMAP
+     * folders carry a live local [Mailbox.unreadForList] (the drawer badge — equals the list's
+     * bold rows; unread older than the sync window is deliberately not counted, WYSIWYG). IMAP
+     * folders keep the stored server-counter path: their partial cache window would make a
+     * local count wrong.
+     */
     fun observeMailboxes(accountId: String): Flow<List<Mailbox>> =
-        mailboxDao.observeAll(accountId).map { rows -> rows.map { it.toMailbox() } }
+        if (isImapAccount(accountId)) {
+            mailboxDao.observeAll(accountId).map { rows -> rows.map { it.toMailbox() } }
+        } else {
+            combine(mailboxDao.observeAll(accountId), observeUnreadByMailbox(accountId)) { rows, unread ->
+                rows.map { it.toMailbox().copy(unreadForList = unread[it.id] ?: 0) }
+            }
+        }
 
     /** Cached emails for a mailbox, newest first, updated reactively. */
     fun observeMailbox(mailboxId: String): Flow<List<Email>> =

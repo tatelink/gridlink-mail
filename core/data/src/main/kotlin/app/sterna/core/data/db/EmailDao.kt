@@ -149,6 +149,39 @@ interface EmailDao {
     )
     suspend fun cachedThreadEmailsAllFolders(accountId: String, threadKey: String): List<EmailEntity>
 
+    /**
+     * Per-folder count of unread THREADS (the conversation-mode drawer badge): one row per
+     * (accountId, mailboxId) with the number of threads whose in-folder part has an unread
+     * member. Mirrors the collapsed list's folder-scoped sub-query `g` in
+     * MailRepository.conversationSql exactly — COALESCE(threadId, id) grouped within the
+     * folder, HAVING MIN(seen) = 0, same not-snoozed filter — so the badge equals the visible
+     * bold conversation rows by construction. Account-scoped like the list (same-server
+     * accounts can share mailbox/thread ids). Reactive: Room re-emits on any emails/snoozed
+     * change, so the badge is live with no manual nudge.
+     */
+    @Query(
+        "SELECT accountId, mailboxId, COUNT(*) AS count FROM (" +
+            "SELECT accountId, mailboxId, COALESCE(threadId, id) AS tk FROM emails " +
+            "WHERE id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
+            "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
+            "GROUP BY accountId, mailboxId, tk HAVING MIN(seen) = 0" +
+            ") GROUP BY accountId, mailboxId",
+    )
+    fun observeThreadUnreadCounts(): Flow<List<MailboxUnread>>
+
+    /**
+     * Per-folder count of unread MESSAGES (the flat-mode drawer badge), with the flat list's
+     * not-snoozed filter — so the badge equals the visible bold message rows. Reactive, as
+     * [observeThreadUnreadCounts].
+     */
+    @Query(
+        "SELECT accountId, mailboxId, COUNT(*) AS count FROM emails " +
+            "WHERE seen = 0 AND id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
+            "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
+            "GROUP BY accountId, mailboxId",
+    )
+    fun observeMessageUnreadCounts(): Flow<List<MailboxUnread>>
+
     /** Cached-message count per account, for the storage usage breakdown. */
     @Query("SELECT accountId, COUNT(*) AS messageCount FROM emails GROUP BY accountId")
     suspend fun countsByAccount(): List<AccountMessageCount>
@@ -192,4 +225,11 @@ interface EmailDao {
 data class AccountMessageCount(
     val accountId: String,
     val messageCount: Int,
+)
+
+/** Per-(account, folder) unread aggregate for the drawer badge (see [EmailDao.observeThreadUnreadCounts]). */
+data class MailboxUnread(
+    val accountId: String,
+    val mailboxId: String,
+    val count: Int,
 )

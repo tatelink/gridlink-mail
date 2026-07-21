@@ -22,4 +22,7 @@ internal fun MailboxEntity.toMailbox(): Mailbox = Mailbox(
     sortOrder = sortOrder,
     totalEmails = totalEmails,
     unreadEmails = unreadEmails,
+    // Default the badge to the stored server counter (the IMAP path); the repository
+    // overrides it with the live local count for JMAP accounts.
+    unreadForList = unreadEmails,
 )

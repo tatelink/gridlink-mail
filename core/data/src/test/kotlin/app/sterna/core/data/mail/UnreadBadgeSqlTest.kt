@@ -1,0 +1,189 @@
+package app.sterna.core.data.mail
+
+import app.sterna.core.data.settings.SortOrder
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Before
+import org.junit.Test
+import java.sql.Connection
+import java.sql.DriverManager
+
+/**
+ * Verifies, against in-memory SQLite, the drawer-badge aggregates
+ * ([app.sterna.core.data.db.EmailDao.observeThreadUnreadCounts] /
+ * [app.sterna.core.data.db.EmailDao.observeMessageUnreadCounts]): per (accountId, mailboxId),
+ * the number of unread threads (conversation mode) or unread messages (flat mode), with the
+ * list's not-snoozed filter. Mirrors the DAO queries' SQL, and cross-checks the thread
+ * aggregate against [conversationSql]'s bold rows — the badge must equal what the list shows.
+ */
+class UnreadBadgeSqlTest {
+    private lateinit var db: Connection
+
+    private val threadBadgeSql =
+        "SELECT accountId, mailboxId, COUNT(*) AS count FROM (" +
+            "SELECT accountId, mailboxId, COALESCE(threadId, id) AS tk FROM emails " +
+            "WHERE id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
+            "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
+            "GROUP BY accountId, mailboxId, tk HAVING MIN(seen) = 0" +
+            ") GROUP BY accountId, mailboxId"
+
+    private val messageBadgeSql =
+        "SELECT accountId, mailboxId, COUNT(*) AS count FROM emails " +
+            "WHERE seen = 0 AND id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
+            "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
+            "GROUP BY accountId, mailboxId"
+
+    @Before fun setUp() {
+        Class.forName("org.sqlite.JDBC")
+        db = DriverManager.getConnection("jdbc:sqlite::memory:")
+        db.createStatement().use { st ->
+            st.executeUpdate(
+                """
+                CREATE TABLE emails(
+                    id TEXT PRIMARY KEY, accountId TEXT, mailboxId TEXT, threadId TEXT,
+                    subject TEXT, preview TEXT, receivedAt TEXT, fromName TEXT, fromEmail TEXT,
+                    seen INTEGER, flagged INTEGER, hasAttachment INTEGER, sortKey INTEGER
+                )
+                """.trimIndent(),
+            )
+            st.executeUpdate("CREATE TABLE snoozed(emailId TEXT PRIMARY KEY, until INTEGER)")
+        }
+    }
+
+    @After fun tearDown() = db.close()
+
+    private fun insert(
+        id: String, threadId: String?, seen: Int, sortKey: Long,
+        mailbox: String = "inbox", accountId: String = "acc",
+    ) {
+        db.prepareStatement(
+            "INSERT INTO emails VALUES(?, ?, ?, ?, 'subj', 'prev', '', 'N', 'e', ?, 0, 0, ?)",
+        ).use { ps ->
+            ps.setString(1, id); ps.setString(2, accountId); ps.setString(3, mailbox); ps.setString(4, threadId)
+            ps.setInt(5, seen); ps.setLong(6, sortKey)
+            ps.executeUpdate()
+        }
+    }
+
+    private fun snooze(id: String, untilMillis: Long) {
+        db.prepareStatement("INSERT INTO snoozed VALUES(?, ?)").use {
+            it.setString(1, id); it.setLong(2, untilMillis); it.executeUpdate()
+        }
+    }
+
+    private fun setSeen(id: String, seen: Int) {
+        db.prepareStatement("UPDATE emails SET seen = ? WHERE id = ?").use {
+            it.setInt(1, seen); it.setString(2, id); it.executeUpdate()
+        }
+    }
+
+    /** Run a badge aggregate; returns (accountId, mailboxId) → count (absent = no badge). */
+    private fun counts(sql: String): Map<Pair<String, String>, Int> =
+        db.prepareStatement(sql).use { ps ->
+            ps.executeQuery().use { rs ->
+                buildMap {
+                    while (rs.next()) {
+                        put(rs.getString("accountId") to rs.getString("mailboxId"), rs.getInt("count"))
+                    }
+                }
+            }
+        }
+
+    /** The list's bold rows: conversationSql rows with threadUnread = 0 for one (account, folder). */
+    private fun boldConversationRows(accountId: String, mailbox: String): Int {
+        val sql = conversationSql(mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false, hasAccountId = true)
+        return db.prepareStatement(sql).use { ps ->
+            ps.setString(1, mailbox); ps.setString(2, accountId)
+            ps.setString(3, mailbox); ps.setString(4, accountId)
+            ps.setString(5, mailbox); ps.setString(6, accountId)
+            ps.executeQuery().use { rs ->
+                var bold = 0
+                while (rs.next()) if (rs.getInt("threadUnread") == 0) bold++
+                bold
+            }
+        }
+    }
+
+    @Test fun threadBadgeCountsUnreadThreadsNotMessages() {
+        // T1 has TWO unread members in the inbox → one bold row, so the badge says 1, not 2.
+        insert("m1", threadId = "T1", seen = 0, sortKey = 100)
+        insert("m2", threadId = "T1", seen = 0, sortKey = 200)
+        insert("r1", threadId = "T2", seen = 1, sortKey = 300) // all-read thread → no badge
+        insert("s1", threadId = null, seen = 0, sortKey = 400) // standalone unread → counts
+
+        assertEquals(mapOf(("acc" to "inbox") to 2), counts(threadBadgeSql))
+        assertEquals(2, boldConversationRows("acc", "inbox"))
+    }
+
+    @Test fun readingANonTopMemberInItsFolderClearsThatFolderBadge() {
+        // The saga's critical cell: a conversation in Trash whose top message is read but an
+        // older member is unread — the Trash row is bold, the badge must say 1, and reading
+        // the non-top member must clear both.
+        insert("old", threadId = "T1", seen = 0, sortKey = 100, mailbox = "trash")
+        insert("top", threadId = "T1", seen = 1, sortKey = 200, mailbox = "trash")
+
+        assertEquals(mapOf(("acc" to "trash") to 1), counts(threadBadgeSql))
+        assertEquals(1, boldConversationRows("acc", "trash"))
+
+        setSeen("old", 1)
+        assertEquals(emptyMap<Pair<String, String>, Int>(), counts(threadBadgeSql))
+        assertEquals(0, boldConversationRows("acc", "trash"))
+    }
+
+    @Test fun threadBadgeIsFolderScoped() {
+        // T1: read member in the Inbox, unread member filed in Trash — only Trash gets a badge
+        // (the Inbox row is not bold: its in-folder part is read).
+        insert("in1", threadId = "T1", seen = 1, sortKey = 200, mailbox = "inbox")
+        insert("tr1", threadId = "T1", seen = 0, sortKey = 100, mailbox = "trash")
+
+        assertEquals(mapOf(("acc" to "trash") to 1), counts(threadBadgeSql))
+        assertEquals(0, boldConversationRows("acc", "inbox"))
+        assertEquals(1, boldConversationRows("acc", "trash"))
+    }
+
+    @Test fun snoozedUnreadIsExcludedFromBothBadges() {
+        insert("z1", threadId = null, seen = 0, sortKey = 100) // snoozed into the future → hidden
+        insert("z2", threadId = null, seen = 0, sortKey = 200) // snooze expired → visible again
+        snooze("z1", untilMillis = Long.MAX_VALUE)
+        snooze("z2", untilMillis = 1)
+
+        assertEquals(mapOf(("acc" to "inbox") to 1), counts(threadBadgeSql))
+        assertEquals(mapOf(("acc" to "inbox") to 1), counts(messageBadgeSql))
+    }
+
+    @Test fun badgesAreAccountScoped() {
+        // Two accounts whose inbox shares the same server-assigned mailbox id (and thread id):
+        // each account keeps its own badge; neither inflates the other.
+        insert("a1", threadId = "T1", seen = 0, sortKey = 100, accountId = "accA")
+        insert("b1", threadId = "T1", seen = 0, sortKey = 200, accountId = "accB")
+        insert("b2", threadId = "T1", seen = 0, sortKey = 300, accountId = "accB")
+
+        assertEquals(
+            mapOf(("accA" to "inbox") to 1, ("accB" to "inbox") to 1),
+            counts(threadBadgeSql),
+        )
+        assertEquals(
+            mapOf(("accA" to "inbox") to 1, ("accB" to "inbox") to 2),
+            counts(messageBadgeSql),
+        )
+    }
+
+    @Test fun messageBadgeCountsUnreadMessagesPerFolder() {
+        insert("m1", threadId = "T1", seen = 0, sortKey = 100)
+        insert("m2", threadId = "T1", seen = 0, sortKey = 200) // same thread, still 2 messages flat
+        insert("m3", threadId = null, seen = 1, sortKey = 300) // read → not counted
+        insert("t1", threadId = null, seen = 0, sortKey = 400, mailbox = "trash")
+
+        assertEquals(
+            mapOf(("acc" to "inbox") to 2, ("acc" to "trash") to 1),
+            counts(messageBadgeSql),
+        )
+    }
+
+    @Test fun emptyCacheYieldsNoBadgeRows() {
+        // A never-synced folder has no cached rows: the aggregate returns nothing for it, the
+        // repository maps that to 0 and the drawer draws no badge (never a made-up count).
+        assertEquals(emptyMap<Pair<String, String>, Int>(), counts(threadBadgeSql))
+        assertEquals(emptyMap<Pair<String, String>, Int>(), counts(messageBadgeSql))
+    }
+}

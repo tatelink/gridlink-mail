@@ -731,8 +731,8 @@ fun InboxScreen(
                 mailboxTree(ui.mailboxes, collapsedFolders).forEach { node ->
                     val mailbox = node.mailbox
                     val displayName = mailboxDisplayName(mailbox.role, mailbox.name)
-                    val label = if (mailbox.unreadEmails > 0) {
-                        stringResource(R.string.inbox_folder_unread, displayName, mailbox.unreadEmails)
+                    val label = if (mailbox.unreadForList > 0) {
+                        stringResource(R.string.inbox_folder_unread, displayName, mailbox.unreadForList)
                     } else {
                         displayName
                     }
