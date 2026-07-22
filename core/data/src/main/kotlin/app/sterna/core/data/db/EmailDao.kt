@@ -12,9 +12,6 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface EmailDao {
 
-    @Query("SELECT * FROM emails WHERE mailboxId = :mailboxId ORDER BY sortKey DESC")
-    fun observeByMailbox(mailboxId: String): Flow<List<EmailEntity>>
-
     /**
      * Paged source for the list. The sort/filter/favourite-pin ORDER BY and the
      * mailbox-id set vary per view, so the query is built dynamically (see
@@ -53,10 +50,6 @@ interface EmailDao {
 
     @Query("SELECT seen FROM emails WHERE id = :id LIMIT 1")
     suspend fun seenOf(id: String): Boolean?
-
-    /** Merged view across several mailboxes (the unified inbox), newest first. */
-    @Query("SELECT * FROM emails WHERE mailboxId IN (:mailboxIds) ORDER BY sortKey DESC")
-    fun observeByMailboxes(mailboxIds: List<String>): Flow<List<EmailEntity>>
 
     @Upsert
     suspend fun upsertAll(emails: List<EmailEntity>)

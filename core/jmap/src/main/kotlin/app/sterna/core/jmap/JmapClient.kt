@@ -158,10 +158,6 @@ class JmapClient internal constructor(
         // it, instead of an absolute [position] that shifts when new mail arrives.
         anchorId: String? = null,
         anchorOffset: Int = 0,
-        // Uncollapsed (false, the default) returns every message, not one representative
-        // per thread: the local cache is WYSIWYG — it holds a folder's full contents and
-        // collapses into conversations at display time only. True is an explicit opt-in.
-        collapseThreads: Boolean = false,
         // Only unread messages (notKeyword $seen) — lets "Mark all read" resolve its
         // targets server-side instead of from the cached window.
         unseenOnly: Boolean = false,
@@ -186,7 +182,11 @@ class JmapClient internal constructor(
                                 put("isAscending", false)
                             }
                         }
-                        put("collapseThreads", collapseThreads)
+                        // Always uncollapsed — every message, not one representative per
+                        // thread: the local cache is WYSIWYG (a folder's full contents,
+                        // collapsed into conversations at display time only), and a collapsed
+                        // query once made "empty Trash" destroy only thread representatives.
+                        put("collapseThreads", false)
                         if (anchorId != null) {
                             put("anchor", anchorId)
                             put("anchorOffset", anchorOffset)
@@ -251,7 +251,6 @@ class JmapClient internal constructor(
         auth: JmapAuth,
         position: Int = 0,
         calculateTotal: Boolean = false,
-        collapseThreads: Boolean = false,
         unseenOnly: Boolean = false,
     ): EmailIdPage = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
@@ -274,7 +273,9 @@ class JmapClient internal constructor(
                                 put("isAscending", false)
                             }
                         }
-                        put("collapseThreads", collapseThreads)
+                        // Always uncollapsed — see [queryEmailsPage]: bulk targets must
+                        // cover every message, never just thread representatives.
+                        put("collapseThreads", false)
                         put("position", position)
                         put("limit", limit)
                         if (calculateTotal) put("calculateTotal", true)
@@ -308,8 +309,7 @@ class JmapClient internal constructor(
         mailboxId: String,
         limit: Int,
         auth: JmapAuth,
-        collapseThreads: Boolean = false,
-    ): List<Email> = queryEmailsPage(session, accountId, mailboxId, limit, auth, collapseThreads = collapseThreads).emails
+    ): List<Email> = queryEmailsPage(session, accountId, mailboxId, limit, auth).emails
 
     /**
      * Email/queryChanges for the folder sync query. Its arguments (filter, sort,
@@ -940,19 +940,6 @@ class JmapClient internal constructor(
             val destroyed = args["destroyed"]?.jsonArray?.any { it.jsonPrimitive.content == mailboxId } == true
             if (!destroyed) throw JmapException("Couldn't delete the folder")
         }
-
-    /** Permanently destroy an email (used when there is no Trash mailbox). */
-    /** Permanently delete an email. Returns the new `Email/set` state.
-     *  Throws when the server rejects the destroy (per-id `notDestroyed`). */
-    suspend fun destroy(session: JmapSession, accountId: String, emailId: String, auth: JmapAuth): String? {
-        val args = emailSet(session, auth) {
-            put("accountId", accountId)
-            putJsonArray("destroy") { add(emailId) }
-        }
-        val result = emailSetResult(args)
-        result.failed[emailId]?.let { throw JmapException("Server rejected the delete ($it)") }
-        return result.newState
-    }
 
     /** Fetch the identities (from-addresses) the user may send as (RFC 8621 §6). */
     suspend fun getIdentities(session: JmapSession, accountId: String, auth: JmapAuth): List<Identity> =

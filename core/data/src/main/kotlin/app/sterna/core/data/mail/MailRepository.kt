@@ -623,14 +623,6 @@ class MailRepository(
             }
         }
 
-    /** Cached emails for a mailbox, newest first, updated reactively. */
-    fun observeMailbox(mailboxId: String): Flow<List<Email>> =
-        emailDao.observeByMailbox(mailboxId).map { rows -> rows.map { it.toEmail() } }
-
-    /** Cached emails merged across several inboxes (the unified inbox), newest first. */
-    fun observeUnifiedInbox(mailboxIds: List<String>): Flow<List<Email>> =
-        emailDao.observeByMailboxes(mailboxIds).map { rows -> rows.map { it.toEmail() } }
-
     /**
      * Paged list of cached emails for [mailboxIds] (one folder, or several for the
      * unified inbox), sorted server-side-style in SQL: favourites pinned, then the
@@ -860,7 +852,7 @@ class MailRepository(
                 // Ids-only query (no Email/get): only the ids matter here, headers would be waste.
                 val page = client.queryEmailIds(
                     ctx.session, ctx.accountId, mailboxId, UNREAD_RESOLVE_PAGE, ctx.auth,
-                    position = ids.size, calculateTotal = true, collapseThreads = false, unseenOnly = true,
+                    position = ids.size, calculateTotal = true, unseenOnly = true,
                 )
                 if (page.ids.isEmpty()) break
                 ids += page.ids
@@ -2528,7 +2520,7 @@ class MailRepository(
         // return on every pass).
         for (pass in 1..MAX_PURGE_PASSES) {
             val ids = client
-                .queryEmails(ctx.session, ctx.accountId, trashMailboxId, 10_000, ctx.auth, collapseThreads = false)
+                .queryEmails(ctx.session, ctx.accountId, trashMailboxId, 10_000, ctx.auth)
                 .map { it.id }
             if (ids.isEmpty()) break
             var doneThisPass = 0
