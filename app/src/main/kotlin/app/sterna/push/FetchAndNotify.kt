@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
+import kotlinx.coroutines.flow.first
 
 /**
  * The one fetch+notify pass shared by every delivery path (live [PushService],
@@ -55,7 +56,25 @@ object FetchAndNotify {
                 // flooding notifications for its whole existing content.
                 NewMailNotifier.seed(context, credentials.id, folder.mailboxId, folder.emails)
             } else {
-                NewMailNotifier.notifyDiff(context, credentials, folder.mailboxId, folderName, folder.emails)
+                // Codeberg #50 (opt-in): BEFORE this pass notifies and advances its baseline,
+                // pull the archived members of threads that just received genuinely-new inbox
+                // mail back into the Inbox, so the list a notification opens is already whole.
+                // Keyed to the same baseline+age-floor diff as the notifications, so mail the
+                // cache merely caught up on (scroll-back, re-sync) can never trigger it. The
+                // re-filed members join the notified list: they enter the baseline with this
+                // pass (never announced as "new" later), and the per-thread collapse keeps
+                // the new reply as the one notification. Best-effort — a failed move must
+                // not cost the notification.
+                val returned = if (isInbox && container.settingsRepository.unarchiveOnReply.first()) {
+                    val threads = NewMailNotifier.newSince(context, credentials.id, folder.mailboxId, folder.emails)
+                        .mapNotNull { it.threadId }
+                        .toSet()
+                    runCatching { container.mailRepository.unarchiveThreadsOnReply(credentials, threads) }
+                        .getOrDefault(emptyList())
+                } else {
+                    emptyList()
+                }
+                NewMailNotifier.notifyDiff(context, credentials, folder.mailboxId, folderName, folder.emails + returned)
             }
         }
     }

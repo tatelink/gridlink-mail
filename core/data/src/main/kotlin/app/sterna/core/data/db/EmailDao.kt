@@ -125,6 +125,12 @@ interface EmailDao {
     @Query("SELECT * FROM emails WHERE id IN (:ids)")
     suspend fun emailsByIds(ids: List<String>): List<EmailEntity>
 
+    /** One account's cached members of the given threads that are filed under [mailboxId]
+     *  (Codeberg #50: the archived members of threads that just received a new reply).
+     *  Thread-less rows (NULL threadId) never match — they can't have received a reply. */
+    @Query("SELECT * FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId AND threadId IN (:threadIds)")
+    suspend fun threadMembersInMailbox(accountId: String, mailboxId: String, threadIds: List<String>): List<EmailEntity>
+
     /**
      * All cached messages of one thread, newest first, scoped to a single account and
      * [mailboxIds] — the current view's mailboxes, plus the account's Sent folder when
