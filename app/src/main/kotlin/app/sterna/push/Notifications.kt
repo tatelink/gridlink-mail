@@ -88,7 +88,7 @@ object Notifications {
     ) {
         val sender = email.from.firstOrNull()?.display() ?: context.getString(R.string.notif_new_message)
         val subject = email.subject?.takeIf { it.isNotBlank() } ?: context.getString(R.string.message_no_subject)
-        // What the notification reveals, per the privacy setting: sender + subject (+ preview),
+        // What the notification reveals, per the privacy setting: sender + subject,
         // sender with a generic line, or just a generic "New message" with nothing identifying.
         val generic = context.getString(R.string.notif_new_message)
         val title = if (content == NotificationContent.NONE) generic else sender
@@ -97,11 +97,10 @@ object Notifications {
             NotificationContent.SENDER_ONLY -> generic
             NotificationContent.NONE -> null
         }
-        val bigText = if (content == NotificationContent.SENDER_AND_SUBJECT) {
-            notifPreview(context, email) ?: subject
-        } else {
-            null
-        }
+        // The expanded (shade/lock-screen) state shows the full subject — never the body
+        // preview, which "Sender + subject" was leaking to the notification drawer while
+        // the heads-up popup correctly showed the subject (Codeberg #57).
+        val bigText = if (content == NotificationContent.SENDER_AND_SUBJECT) subject else null
         val notifId = email.id.hashCode()
         // Carry the message identity so a tap opens THAT email, not just the inbox — even when
         // the app is already running (singleTask → onNewIntent routes it). Codeberg #17 follow-up.
@@ -133,19 +132,6 @@ object Notifications {
             .addAction(simpleAction(context, context.getString(R.string.notif_delete), NotificationActionReceiver.ACTION_DELETE, email.id, accountId, notifId))
             .build()
         context.getSystemService(NotificationManager::class.java).notify(notifId, notification)
-    }
-
-    /**
-     * The notification preview line. An encrypted message's server preview is PGP
-     * armor (or empty) — substitute a neutral placeholder instead of ciphertext.
-     */
-    private fun notifPreview(context: Context, email: Email): String? {
-        val preview = email.preview ?: return null
-        return if (preview.contains("-----BEGIN PGP MESSAGE-----")) {
-            context.getString(R.string.notif_pgp_encrypted)
-        } else {
-            preview
-        }
     }
 
     /**
