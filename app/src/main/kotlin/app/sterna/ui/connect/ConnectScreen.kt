@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -105,6 +106,8 @@ fun ConnectScreen(
     LaunchedEffect(Unit) { viewModel.resumeImportSignIn() }
 
     var protocol by rememberSaveable { mutableStateOf(MailProtocol.JMAP) }
+    // JMAP only: authenticate with a server-generated API token (Bearer) instead of a password.
+    var useApiToken by rememberSaveable { mutableStateOf(false) }
     var server by rememberSaveable { mutableStateOf("") }
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
     var accountName by rememberSaveable { mutableStateOf("") }
@@ -213,6 +216,9 @@ fun ConnectScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                // Keep the form scrollable above the keyboard so the focused field (password…)
+                // stays visible while typing (#52) — same recipe as the compose screen.
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -297,8 +303,23 @@ fun ConnectScreen(
             }
 
             if (protocol == MailProtocol.JMAP) {
+                Text(stringResource(R.string.connect_auth_method), style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !useApiToken,
+                        onClick = { useApiToken = false },
+                        label = { Text(stringResource(R.string.connect_password)) },
+                    )
+                    FilterChip(
+                        selected = useApiToken,
+                        onClick = { useApiToken = true },
+                        label = { Text(stringResource(R.string.connect_auth_api_token)) },
+                    )
+                }
                 Text(
-                    stringResource(R.string.connect_jmap_autodiscover_hint),
+                    stringResource(
+                        if (useApiToken) R.string.connect_api_token_hint else R.string.connect_jmap_autodiscover_hint,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -425,10 +446,18 @@ fun ConnectScreen(
                     listOf(AutofillType.EmailAddress, AutofillType.Username),
                 ) { username = it },
             )
+            // In API-token mode this same secret field holds the token (labelled accordingly).
+            val tokenMode = protocol == MailProtocol.JMAP && !oauthSelected && useApiToken
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text(stringResource(R.string.connect_password)) },
+                label = {
+                    Text(
+                        stringResource(
+                            if (tokenMode) R.string.connect_auth_api_token else R.string.connect_password,
+                        ),
+                    )
+                },
                 singleLine = true,
                 visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = {
@@ -454,7 +483,9 @@ fun ConnectScreen(
                     if (oauthSelected) {
                         viewModel.connectOutlookOAuth(username, accountName)
                     } else if (protocol == MailProtocol.JMAP) {
-                        if (server.isBlank()) {
+                        if (useApiToken) {
+                            viewModel.connectToken(server, username, password, accountName)
+                        } else if (server.isBlank()) {
                             viewModel.connectAuto(username, password, accountName)
                         } else {
                             viewModel.connect(server, username, password, accountName)
@@ -479,7 +510,7 @@ fun ConnectScreen(
                 )
             }
 
-            if (protocol == MailProtocol.JMAP) {
+            if (protocol == MailProtocol.JMAP && !useApiToken) {
                 TextButton(
                     onClick = { viewModel.connectOAuth(username, server, accountName) },
                     enabled = !busy && username.isNotBlank(),

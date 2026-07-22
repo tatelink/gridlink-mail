@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.account.AuthType
 import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.account.MailProtocol
@@ -108,6 +109,8 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
                 protocol = if (isImap) MailProtocol.IMAP else MailProtocol.JMAP,
                 imap = if (isImap) MailEndpoint(imapHost.trim(), imapPort ?: 0, imapSecurity) else null,
                 smtp = if (isImap) MailEndpoint(smtpHost.trim(), smtpPort ?: 0, smtpSecurity) else null,
+                // Keep the stored auth mode so API-token accounts test with Bearer, not Basic.
+                authType = store.account(accountId)?.authType ?: AuthType.BASIC,
             )
             _connTest.value = mail.testConnection(credentials).fold(
                 onSuccess = { ConnTest.Ok },
