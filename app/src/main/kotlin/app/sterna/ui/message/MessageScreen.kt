@@ -412,6 +412,7 @@ private fun MessageContent(
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     val calendar by viewModel.calendar.collectAsStateWithLifecycle()
     val inJunk by viewModel.inJunk.collectAsStateWithLifecycle()
+    val ownMessage by viewModel.ownMessage.collectAsStateWithLifecycle()
     val crypto by viewModel.crypto.collectAsStateWithLifecycle()
     // OpenKeychain's passphrase/key dialogs round-trip through this launcher.
     val pgpLauncher = rememberPgpInteractionLauncher { data ->
@@ -648,6 +649,7 @@ private fun MessageContent(
                     textZoom = messageTextSize.zoom,
                     onReply = { mode -> onReply(mode, replyTargetId, accountId) },
                     onComposeTo = onComposeTo,
+                    showRecipients = ownMessage,
                     crypto = crypto,
                     onCryptoAction = {
                         when (val c = crypto) {
@@ -674,6 +676,7 @@ private fun ConversationBody(
     textZoom: Int,
     onReply: (mode: String) -> Unit,
     onComposeTo: (address: String) -> Unit,
+    showRecipients: Boolean = false,
     crypto: CryptoUiState = CryptoUiState.None,
     onCryptoAction: () -> Unit = {},
 ) {
@@ -782,7 +785,7 @@ private fun ConversationBody(
         ) {
             MessageHeader(
                 msg, full, attachmentStatus, onOpenAttachment, calendar, onRespondToInvite,
-                onComposeTo, crypto, onCryptoAction,
+                onComposeTo, showRecipients, crypto, onCryptoAction,
             )
         }
         // Spinner until the body has laid out (cached/prefetched mail beats the 500ms, so none flashes).
@@ -854,10 +857,16 @@ private fun MessageHeader(
     calendar: CalendarInvite?,
     onRespondToInvite: (String) -> Unit,
     onComposeTo: (address: String) -> Unit,
+    showRecipients: Boolean = false,
     crypto: CryptoUiState = CryptoUiState.None,
     onCryptoAction: () -> Unit = {},
 ) {
     val sender = msg.header.from.firstOrNull()
+    // The user's own message (Sent/Drafts, or sent under one of the account's identities): the
+    // sender is yourself, so the header line names the recipients instead (Codeberg #59). Falls
+    // back to the sender while no recipients are known (e.g. a cold IMAP cache).
+    val recipients = if (showRecipients) msg.header.to.ifEmpty { full?.to.orEmpty() } else emptyList()
+    val recipient = recipients.firstOrNull()
     val unread = !msg.header.isSeen
     // Tapping the sender opens a panel with every participant (From / To / Cc) and per-contact
     // actions. To/Cc live on the full body, so they populate once it has loaded.
@@ -884,11 +893,18 @@ private fun MessageHeader(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Monogram(seed = sender?.email ?: "?", label = sender?.display() ?: "?")
+            Monogram(
+                seed = (recipient ?: sender)?.email ?: "?",
+                label = (recipient ?: sender)?.display() ?: "?",
+            )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = sender?.display() ?: stringResource(R.string.message_unknown_sender),
+                    text = if (recipient != null) {
+                        stringResource(R.string.list_to_recipients, recipients.joinToString { it.display() })
+                    } else {
+                        sender?.display() ?: stringResource(R.string.message_unknown_sender)
+                    },
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 1,
