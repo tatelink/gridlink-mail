@@ -580,6 +580,37 @@ fun InboxScreen(
         lastFolderKey = key
     }
 
+    // Newly arrived mail is prepended ABOVE the viewport: LazyColumn anchors the scroll to
+    // the previously-first row, so the new message sits invisible until the user scrolls up.
+    // If the list was already at the very top when the first key changed — and no drag/fling
+    // is in flight — follow it up to reveal the arrival. Anywhere below, never move the user.
+    // Restarting on folder/search changes resets the tracking, so a wholesale content swap
+    // keeps its existing behavior (instant reset above) instead of a mid-list animation.
+    val searchActive = ui.searching && ui.searchQuery.isNotBlank()
+    LaunchedEffect(ui.selectedMailboxId, ui.unified, searchActive) {
+        if (searchActive) return@LaunchedEffect
+        var prevKey: String? = null
+        var wasAtTop = true
+        snapshotFlow {
+            val key = if (pagedEmails.itemCount > 0) pagedEmails.peek(0)?.email?.id else null
+            val atTop = listState.firstVisibleItemIndex == 0 &&
+                listState.firstVisibleItemScrollOffset == 0
+            key to atTop
+        }.collect { (key, atTop) ->
+            // Sequential collect + snapshotFlow conflation coalesce rapid arrivals into
+            // one settled animation instead of queueing one per message.
+            if (prevKey != null && key != null && key != prevKey &&
+                wasAtTop && !listState.isScrollInProgress
+            ) {
+                listState.animateScrollToItem(0)
+                wasAtTop = true
+            } else {
+                wasAtTop = atTop
+            }
+            prevKey = key
+        }
+    }
+
     // Staggered first-screen entry: the first rows of a freshly-opened folder fade +
     // slide in once, in a gentle cascade. ONLY the first screen (rows past the cap never
     // animate) and ONLY on the initial show — the cascade self-locks after it plays and
