@@ -323,6 +323,15 @@ fun ConnectScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // Fastmail's JMAP endpoint refuses password (Basic) auth — API tokens only
+                // (#54) — so steer its users to the token option before they hit the 401.
+                if (!useApiToken && isFastmailTarget(username, server)) {
+                    Text(
+                        stringResource(R.string.connect_fastmail_token_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 TextButton(
                     onClick = { showAdvanced = !showAdvanced },
                     contentPadding = PaddingValues(0.dp),

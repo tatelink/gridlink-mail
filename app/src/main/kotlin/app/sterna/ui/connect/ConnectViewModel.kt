@@ -44,6 +44,14 @@ sealed interface ConnectState {
     data class Error(val message: String) : ConnectState
 }
 
+/** True when a JMAP password sign-in is aimed at Fastmail — their endpoint only accepts API
+ *  tokens (#54): the address is @fastmail.com/.fm, or the server points at api.fastmail.com. */
+internal fun isFastmailTarget(email: String, server: String): Boolean {
+    val domain = email.trim().substringAfterLast('@', "").lowercase()
+    return domain == "fastmail.com" || domain == "fastmail.fm" ||
+        server.contains("api.fastmail.com", ignoreCase = true)
+}
+
 class ConnectViewModel(application: Application) : AndroidViewModel(application) {
 
     private val container = application.container
@@ -512,7 +520,13 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
             _state.value = ConnectState.Connected
         } catch (t: Throwable) {
-            _state.value = ConnectState.Error(t.message ?: t.javaClass.simpleName)
+            // Fastmail's endpoint refuses password auth outright (API tokens only, #54):
+            // a 401 from it gets the same steer as the inline hint, not just a bare error.
+            val msg = t.message ?: t.javaClass.simpleName
+            val fastmail401 = (t as? JmapException)?.httpCode == 401 && isFastmailTarget(username, server)
+            _state.value = ConnectState.Error(
+                if (fastmail401) msg + " " + string(R.string.connect_fastmail_token_hint) else msg,
+            )
         }
     }
 

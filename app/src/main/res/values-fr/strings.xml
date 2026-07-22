@@ -437,6 +437,7 @@
     <string name="connect_auth_api_token">Jeton d\'API</string>
     <string name="connect_api_token_hint">Collez un jeton d\'API généré par votre fournisseur (par ex. Fastmail) au lieu d\'un mot de passe. Vous pouvez laisser le serveur vide ou coller son URL de session.</string>
     <string name="connect_token_rejected">Le serveur a rejeté le jeton d\'API. Vérifiez qu\'il est valide et autorise l\'accès au courrier.</string>
+    <string name="connect_fastmail_token_hint">Fastmail nécessite un jeton API — choisissez « Jeton API » ci-dessus.</string>
     <string name="connect_advanced_show">Paramètres avancés</string>
     <string name="connect_advanced_hide">Masquer les paramètres avancés</string>
     <string name="connect_discovering">Recherche de votre serveur…</string>
