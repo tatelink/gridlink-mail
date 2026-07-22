@@ -42,6 +42,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -326,11 +327,17 @@ fun ConnectScreen(
                 // Fastmail's JMAP endpoint refuses password (Basic) auth — API tokens only
                 // (#54) — so steer its users to the token option before they hit the 401.
                 if (!useApiToken && isFastmailTarget(username, server)) {
-                    Text(
-                        stringResource(R.string.connect_fastmail_token_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                    ) {
+                        Text(
+                            stringResource(R.string.connect_fastmail_token_hint),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
                 }
                 TextButton(
                     onClick = { showAdvanced = !showAdvanced },
