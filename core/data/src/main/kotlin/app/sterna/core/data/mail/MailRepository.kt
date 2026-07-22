@@ -1075,6 +1075,7 @@ class MailRepository(
         val credentials = accountStore.credentials(id) ?: error("Account could not be loaded after creation.")
         val meta = refresh(credentials)
         accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
+        reconcileLinkedAccountsAfterAdd(id)
     }
 
     /** Begin the device flow for a built-in OAuth provider (Microsoft, …). */
@@ -2660,6 +2661,24 @@ class MailRepository(
                     mailboxDao.deleteForAccount(prunedId)
                 }
             }
+        }
+    }
+
+    /**
+     * Codeberg #31: discover linked sub-accounts for the freshly added login [id], reusing the
+     * session the validating refresh() left cached — no extra network round trip. Runs once the
+     * login is persisted, so the accounts screen the add flow lands on already lists the
+     * sub-accounts instead of waiting for the first inbox connect(). Best-effort: any failure, or
+     * a cached session belonging to another login, is a no-op — the connect() hook reconciles
+     * later anyway.
+     */
+    fun reconcileLinkedAccountsAfterAdd(id: String) {
+        runCatching {
+            val credentials = accountStore.credentials(id) ?: return
+            val session = context
+                ?.takeIf { it.credentials.server == credentials.server && it.credentials.username == credentials.username }
+                ?.session ?: return
+            reconcileLinkedAccounts(credentials, session)
         }
     }
 
