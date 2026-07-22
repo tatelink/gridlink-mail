@@ -403,6 +403,13 @@ class MailRepository(
      * from any caller, including ones inside this module (e.g. an RSVP reply).
      */
     var outboxScheduler: OutboxScheduler? = null
+
+    /**
+     * App-layer teardown for a linked sub-account pruned on reconcile (access revoked, issue #31):
+     * clears its notification baselines like a sign-out would. Set by the app layer at startup —
+     * the data module cannot reach the notifier itself.
+     */
+    var onAccountPruned: ((String) -> Unit)? = null
     private class Context(
         val credentials: AccountCredentials,
         val session: JmapSession,
@@ -2643,22 +2650,29 @@ class MailRepository(
      * Codeberg #31: a single login can expose several mail accounts. When the session advertises
      * more than one, surface each as its own StoredAccount (delegated / shared mailboxes) and prune
      * ones whose access was revoked, purging their caches. A single-account session is a strict
-     * no-op. Best-effort and off the sync hot path — it runs only on a session (re)fetch in
-     * connect(), and reconcile itself writes nothing when the account set is unchanged.
+     * no-op only while the login has no linked sub-accounts: once it has some, a session shrunk
+     * back to one account is exactly the all-access-revoked case and must still reconcile so the
+     * stale sub-accounts leave the drawer. Best-effort and off the sync hot path — it runs only on
+     * a session (re)fetch in connect(), and reconcile itself writes nothing when the account set
+     * is unchanged.
      */
     private fun reconcileLinkedAccounts(credentials: AccountCredentials, session: JmapSession) {
         val mailAccountIds = session.mailAccountIds()
-        if (mailAccountIds.size <= 1) return
         val loginId = accountStore.account(credentials.id)?.loginKey() ?: credentials.id
+        if (mailAccountIds.size <= 1 && accountStore.linkedAccounts(loginId).isEmpty()) return
         val discovered = mailAccountIds.map { DiscoveredMailAccount(it, session.accounts[it]?.name.orEmpty()) }
         val pruned = runCatching { accountStore.reconcileLinkedAccounts(loginId, discovered) }.getOrDefault(emptyList())
         pruned.forEach { prunedId ->
+            // App-layer teardown first (notification baselines); each step best-effort so one
+            // failure never leaves the rest of a revoked account behind.
+            onAccountPruned?.let { hook -> runCatching { hook(prunedId) } }
             bgScope.launch {
                 runCatching {
                     emailDao.deleteForAccount(prunedId)
                     emailFtsDao.clearAccount(prunedId)
                     emailBodyDao.deleteForAccount(prunedId)
                     mailboxDao.deleteForAccount(prunedId)
+                    snoozedDao.deleteForAccount(prunedId)
                 }
             }
         }

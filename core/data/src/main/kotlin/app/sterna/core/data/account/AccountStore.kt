@@ -58,6 +58,46 @@ data class AccountCredentials(
 data class DiscoveredMailAccount(val jmapAccountId: String, val name: String)
 
 /**
+ * The pure add/prune decision behind [AccountStore.reconcileLinkedAccounts]: given a login, the
+ * sub-accounts currently linked to it, and the mail accounts its session now exposes. Kept free of
+ * storage and Android so the revocation prune stays unit-testable.
+ */
+data class LinkedAccountsDiff(
+    /** The login's own JMAP account id, to pin on first discovery; null once already pinned. */
+    val pinPrimaryId: String? = null,
+    /** Newly-granted accounts to mint a linked [StoredAccount] for. */
+    val toAdd: List<DiscoveredMailAccount> = emptyList(),
+    /** Linked [StoredAccount.id]s whose server account vanished from the session (revoked). */
+    val prunedIds: List<String> = emptyList(),
+) {
+    fun isEmpty(): Boolean = pinPrimaryId == null && toAdd.isEmpty() && prunedIds.isEmpty()
+}
+
+/**
+ * Diff [existingLinked] (the sub-accounts linked to [login]) against [discovered], the session's
+ * mail accounts primary-first (see JmapSession.mailAccountIds). A session shrunk back to the
+ * login's own account alone prunes every sub-account — that is exactly the all-access-revoked
+ * case. An empty [discovered] (a session advertising no mail account at all — a broken or
+ * mail-less response) is an empty diff instead: never prune on evidence that weak.
+ */
+fun diffLinkedAccounts(
+    login: StoredAccount,
+    existingLinked: List<StoredAccount>,
+    discovered: List<DiscoveredMailAccount>,
+): LinkedAccountsDiff {
+    val primary = discovered.firstOrNull() ?: return LinkedAccountsDiff()
+    val subs = discovered.drop(1)
+    val trackedJmapIds = existingLinked.mapNotNull { it.jmapAccountId }.toSet()
+    val liveSubIds = subs.map { it.jmapAccountId }.toSet()
+    return LinkedAccountsDiff(
+        pinPrimaryId = primary.jmapAccountId.takeIf { login.jmapAccountId == null },
+        // Skip the login's own account and ones already tracked.
+        toAdd = subs.filter { it.jmapAccountId != primary.jmapAccountId && it.jmapAccountId !in trackedJmapIds },
+        prunedIds = existingLinked.filter { it.jmapAccountId !in liveSubIds }.map { it.id },
+    )
+}
+
+/**
  * Persists one or more accounts. Account metadata is stored as JSON; each
  * password is encrypted via [KeystoreCrypto] and only the ciphertext is written.
  * The single-account methods (load/hasAccount/saveInboxMeta/…) operate on the
@@ -424,24 +464,17 @@ class AccountStore(context: Context) {
     fun reconcileLinkedAccounts(loginId: String, discovered: List<DiscoveredMailAccount>): List<String> {
         val list = accounts()
         val login = list.firstOrNull { it.id == loginId } ?: return emptyList()
-        val primary = discovered.firstOrNull() ?: return emptyList()
-        val subs = discovered.drop(1)
         val existingLinked = list.filter { it.loginId == loginId }
-        val linkedByJmap = existingLinked.mapNotNull { acc -> acc.jmapAccountId?.let { it to acc } }.toMap()
+        val diff = diffLinkedAccounts(login, existingLinked, discovered)
+        if (diff.isEmpty()) return emptyList()
 
         val updated = list.toMutableList()
-        var changed = false
-
         // Pin the login's own JMAP account id on first discovery, so later reconciles can tell the
         // login apart from its sub-accounts and matching stays stable.
-        if (login.jmapAccountId == null) {
-            updated[updated.indexOfFirst { it.id == loginId }] = login.copy(jmapAccountId = primary.jmapAccountId)
-            changed = true
+        diff.pinPrimaryId?.let { pin ->
+            updated[updated.indexOfFirst { it.id == loginId }] = login.copy(jmapAccountId = pin)
         }
-
-        // Add newly-granted sub-accounts (skip the login's own account and ones we already track).
-        for (sub in subs) {
-            if (sub.jmapAccountId == primary.jmapAccountId || sub.jmapAccountId in linkedByJmap) continue
+        diff.toAdd.forEach { sub ->
             updated += StoredAccount(
                 id = UUID.randomUUID().toString(),
                 server = login.server,
@@ -452,20 +485,13 @@ class AccountStore(context: Context) {
                 protocol = login.protocol,
                 authType = login.authType,
             )
-            changed = true
         }
-
-        // Prune sub-accounts whose access is gone from an otherwise-healthy session.
-        val liveSubIds = subs.map { it.jmapAccountId }.toSet()
-        val pruned = existingLinked.filter { it.jmapAccountId !in liveSubIds }.map { it.id }
-        if (pruned.isNotEmpty()) {
-            updated.removeAll { it.id in pruned }
-            if (currentId() in pruned) prefs.edit().putString(KEY_CURRENT, loginId).apply()
-            changed = true
+        if (diff.prunedIds.isNotEmpty()) {
+            updated.removeAll { it.id in diff.prunedIds }
+            if (currentId() in diff.prunedIds) prefs.edit().putString(KEY_CURRENT, loginId).apply()
         }
-
-        if (changed) saveAccounts(updated)
-        return pruned
+        saveAccounts(updated)
+        return diff.prunedIds
     }
 
     /**

@@ -19,4 +19,8 @@ interface SnoozedDao {
 
     @Query("DELETE FROM snoozed WHERE accountId = :accountId AND emailId = :emailId")
     suspend fun delete(accountId: String, emailId: String)
+
+    // Purge a pruned account's snoozes with the rest of its cache (issue #31).
+    @Query("DELETE FROM snoozed WHERE accountId = :accountId")
+    suspend fun deleteForAccount(accountId: String)
 }
