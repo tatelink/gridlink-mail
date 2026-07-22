@@ -17,10 +17,10 @@ sealed interface PushStatus {
     /** Instant via UnifiedPush; [distributorPackage] resolves to an app label in UI. */
     data class ViaUnifiedPush(val distributorPackage: String?) : PushStatus
 
-    /** Instant via a direct connection we hold (JMAP EventSource or IMAP IDLE). */
+    /** Instant via a direct connection we hold, open right now (JMAP EventSource or IMAP IDLE). */
     data object Direct : PushStatus
 
-    /** UnifiedPush bring-up in flight; the direct connection still covers the account. */
+    /** Bring-up in flight — UnifiedPush registration, or the direct connection (re)opening. */
     data object Connecting : PushStatus
 
     /** No live connection right now — the periodic worker checks every ~30 minutes. */
@@ -70,9 +70,16 @@ object PushController {
         return when {
             up.isActive(accountId) -> PushStatus.ViaUnifiedPush(up.distributorLabel())
             isBatterySaver(context) -> PushStatus.Periodic
+            // An open connection wins over a pending UnifiedPush bring-up: apply() keeps
+            // the EventSource up through REGISTERING/VERIFYING, so delivery is direct
+            // right now — a stuck registration must not claim "connecting" for minutes
+            // after a notifications toggle (#53).
+            PushService.isConnected(accountId) -> PushStatus.Direct
             up.isPending(accountId) -> PushStatus.Connecting
+            // Watched by the running service but its connection isn't open yet: bring-up
+            // after a toggle, or a dropped connection on its retry loop.
             (store.pushAllAccounts() || store.currentId() == accountId) && PushService.isRunning ->
-                PushStatus.Direct
+                PushStatus.Connecting
             else -> PushStatus.Periodic
         }
     }
