@@ -2205,6 +2205,13 @@ class MailRepository(
     /** Un-snooze a message now (re-appears in its list). */
     suspend fun unsnooze(emailId: String) = snoozedDao.delete(emailId)
 
+    /** Ids currently hidden by an active snooze (until in the future) — the same predicate the
+     *  list/chip SQL uses, for callers that filter in memory (e.g. the unfolded conversation). */
+    suspend fun activeSnoozedIds(): Set<String> {
+        val now = System.currentTimeMillis()
+        return snoozedDao.all().filter { it.until > now }.mapTo(mutableSetOf()) { it.emailId }
+    }
+
     /** A single cached email by id (e.g. to notify when a snooze fires). */
     suspend fun cachedEmail(emailId: String): Email? = cachedEmailsByIds(setOf(emailId)).firstOrNull()
 

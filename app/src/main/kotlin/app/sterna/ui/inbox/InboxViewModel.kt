@@ -269,9 +269,14 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         // Trash/Spam/Drafts (or any other folder) belong to THAT folder's conversation and
         // never surface here. The Sent id resolves once per expansion, not per row.
         val allowed = expansionMailboxIds(rep)
+        // Members hidden by an active snooze stay out of the unfolded list too — the chip's
+        // SQL excludes them, and the expansion must show exactly what the chip counts (they
+        // both come back once the snooze lapses).
+        val snoozed = runCatching { repo.activeSnoozedIds() }.getOrDefault(emptySet())
         // 1. Instant cache render (skip if a previous expand already loaded this thread).
         if (!_threadMembers.value.containsKey(key)) {
             val cached = runCatching { loadThreadMembers(rep, allowed) }.getOrDefault(emptyList())
+                .filterNot { it.id in snoozed }
             if (key !in _expandedThreads.value) return // collapsed again while loading the cache
             _threadMembers.value = _threadMembers.value + (key to cached)
         }
@@ -289,6 +294,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         // scoped, judging each wire member on its server mailboxIds map since it carries no
         // local mailboxId.
         val scoped = ConversationExpansion.membersInScope(fetched, allowed)
+            .filterNot { it.id in snoozed }
         val current = _threadMembers.value[key].orEmpty()
         _threadMembers.value = _threadMembers.value + (key to ConversationExpansion.mergeMembers(current, scoped, rep.id))
     }
