@@ -1062,6 +1062,22 @@ class MailRepository(
     }
 
     /**
+     * The address the server itself associates with [auth] at [server]: the session's
+     * `username` (RFC 8620 §2), else the primary mail account's name — whichever looks
+     * like an email address; null when the session declares neither (e.g. a bare login
+     * name). Token sign-ins adopt this over the typed address, which Bearer auth never
+     * validates (#54: a wrong email + valid token would otherwise mint a wrong identity).
+     */
+    suspend fun sessionIdentity(server: String, auth: JmapAuth): String? {
+        val session = client.fetchSession(Jmap.sessionUrlFor(server), auth)
+        val accountName = session.mailAccountId()?.let { session.accounts[it]?.name }
+        val looksLikeEmail = Regex("""[^@\s]+@[^@\s]+\.[^@\s]+""")
+        return sequenceOf(session.username, accountName.orEmpty())
+            .map { it.trim() }
+            .firstOrNull { looksLikeEmail.matches(it) }
+    }
+
+    /**
      * Validate an account's credentials without persisting anything or disturbing
      * the active session: JMAP fetches the session (and checks for a mail account),
      * IMAP connects + authenticates. Returns success/failure for a "test connection".

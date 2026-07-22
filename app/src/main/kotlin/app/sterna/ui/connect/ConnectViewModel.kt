@@ -140,9 +140,28 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     private suspend fun finishTokenConnect(server: String, email: String, token: String, accountName: String) {
         try {
             val resolved = container.mailRepository.resolveJmapServerInput(server, BearerAuth(token))
-            val credentials = AccountCredentials(resolved, email, token, authType = AuthType.API_TOKEN)
+            // The token alone identifies the account server-side — the typed address is never
+            // validated by Bearer auth, so a mistyped email would silently become the account's
+            // identity (From default, notifications, display). Adopt the session's own address
+            // (RFC 8620 username / mail account name) when it declares one; the typed value
+            // only stands when the server exposes no usable address.
+            val address = runCatching {
+                container.mailRepository.sessionIdentity(resolved, BearerAuth(token))
+            }.getOrNull() ?: email
+            // Re-adding the same token (whatever email was typed) resolves to the same
+            // server + adopted address: refresh that account in place, never a duplicate.
+            val existing = container.accountStore.accounts().firstOrNull {
+                it.protocol == MailProtocol.JMAP && it.authType == AuthType.API_TOKEN &&
+                    it.server.equals(resolved, ignoreCase = true) && it.username.equals(address, ignoreCase = true)
+            }
+            val credentials = AccountCredentials(resolved, address, token, id = existing?.id.orEmpty(), authType = AuthType.API_TOKEN)
             val meta = container.mailRepository.refresh(credentials)
-            container.accountStore.add(resolved, email, token, accountName.trim(), authType = AuthType.API_TOKEN)
+            if (existing != null) {
+                container.accountStore.updatePassword(existing.id, token)
+                container.accountStore.setCurrent(existing.id)
+            } else {
+                container.accountStore.add(resolved, address, token, accountName.trim(), authType = AuthType.API_TOKEN)
+            }
             container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
             _state.value = ConnectState.Connected
         } catch (t: Throwable) {
