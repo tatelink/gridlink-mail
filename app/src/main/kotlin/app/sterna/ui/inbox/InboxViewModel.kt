@@ -449,7 +449,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             }
         }.cachedIn(viewModelScope)
 
-    private val baseState = combine(mailboxes, selection, meta, status) { mailboxes, sel, meta, status ->
+    // "All inboxes (N)" sums the SAME live per-inbox aggregates the folder badges below it
+    // read (mode-aware: unread threads in conversation view, unread messages in flat view),
+    // so the two numbers in the drawer agree by construction for JMAP; IMAP inboxes keep
+    // contributing their stored server counter (their windowed cache would under-count).
+    private val unifiedUnread = unifiedInboxIds.flatMapLatest {
+        repo.observeUnifiedInboxUnread(store.allInboxScopes())
+    }
+
+    private val baseState = combine(mailboxes, selection, meta, status, unifiedUnread) { mailboxes, sel, meta, status, unifiedUnread ->
         Base(
             mailboxes = mailboxes,
             selectedMailboxId = (sel as? Sel.Folder)?.id,
@@ -457,11 +465,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             atInbox = sel is Sel.Unified || (sel as? Sel.Folder)?.id == store.inboxMailboxId(),
             accountName = meta.accountName,
             mailboxName = meta.mailboxName,
-            // "All inboxes (N)" re-reads the stored per-account metas on every folder-cache
-            // change: local actions mirror their count nudges into the store, so the unified
-            // total moves together with the per-folder badge below it instead of freezing at
-            // the last refresh's snapshot.
-            unread = if (sel is Sel.Unified) store.totalUnreadCount() else meta.unread,
+            unread = if (sel is Sel.Unified) unifiedUnread else meta.unread,
             refreshing = status.refreshing,
             error = status.error,
         )

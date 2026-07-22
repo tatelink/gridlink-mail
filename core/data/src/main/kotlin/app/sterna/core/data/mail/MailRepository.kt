@@ -578,6 +578,30 @@ class MailRepository(
     }
 
     /**
+     * Live unread total across every account's inbox, for the drawer's "All inboxes (N)"
+     * header. Each JMAP inbox contributes the SAME mode-aware aggregate its own drawer badge
+     * shows (unread threads in conversation view, unread messages in flat view — the sources
+     * of [observeUnreadByMailbox]), so the unified header and the Inbox badges below it agree
+     * by construction. IMAP inboxes contribute their stored server counter instead: their
+     * windowed cache would under-count. [scopes] is [AccountStore.allInboxScopes]' (accountId,
+     * inboxId) pairs — both ids, since same-server accounts can share a mailbox id.
+     */
+    fun observeUnifiedInboxUnread(scopes: List<Pair<String, String>>): Flow<Int> {
+        val conversationView = settings?.conversationView ?: flowOf(true)
+        val (imapScopes, jmapScopes) = scopes.partition { (accountId, _) -> isImapAccount(accountId) }
+        return combine(
+            emailDao.observeThreadUnreadCounts(),
+            emailDao.observeMessageUnreadCounts(),
+            conversationView,
+        ) { threads, messages, conversation ->
+            val live = if (conversation) threads else messages
+            jmapScopes.sumOf { (accountId, inboxId) ->
+                live.firstOrNull { it.accountId == accountId && it.mailboxId == inboxId }?.count ?: 0
+            } + imapScopes.sumOf { (accountId, _) -> accountStore.account(accountId)?.unread ?: 0 }
+        }
+    }
+
+    /**
      * Cached mailboxes (folders) of the local account [accountId], updated reactively. JMAP
      * folders carry a live local [Mailbox.unreadForList] (the drawer badge — equals the list's
      * bold rows; unread older than the sync window is deliberately not counted, WYSIWYG). IMAP

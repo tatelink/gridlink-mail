@@ -554,9 +554,11 @@ class AccountStore(context: Context) {
 
     /**
      * Mirror a drawer-count nudge into the stored inbox snapshot: when a local action changes
-     * the unread count of [accountId]'s inbox, move the persisted meta too, so "All inboxes (N)"
-     * and the offline header never visibly disagree with the per-folder badge. No-op unless
-     * [mailboxId] is that account's inbox; the next refresh restores server truth.
+     * the unread count of [accountId]'s inbox, move the persisted meta too. The JMAP unified
+     * header no longer reads this (it sums the live per-inbox aggregates), but the mirror keeps
+     * the stored counter honest between refreshes for IMAP accounts — whose meta still feeds
+     * "All inboxes (N)" — and for the offline snapshot. No-op unless [mailboxId] is that
+     * account's inbox; the next refresh restores server truth.
      */
     fun adjustInboxUnread(accountId: String, mailboxId: String, delta: Int) {
         if (delta == 0) return
