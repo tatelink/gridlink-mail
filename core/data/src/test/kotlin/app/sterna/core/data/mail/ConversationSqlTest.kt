@@ -132,7 +132,8 @@ class ConversationSqlTest {
     }
 
     /** Run the SQL as bound in production for the Inbox of account "acc" with a Sent folder:
-     *  `g` and the outer WHERE scope to the Inbox; the chip sub-query `c` also takes "sent". */
+     *  `g` and the outer WHERE scope to the Inbox; the chip sub-query `c` also takes the
+     *  account-pinned ("acc", "sent") pair. */
     private fun runWithSent(): List<Map<String, Any?>> {
         val sql = conversationSql(
             mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false,
@@ -140,8 +141,8 @@ class ConversationSqlTest {
         )
         return db.prepareStatement(sql).use { ps ->
             ps.setString(1, "inbox"); ps.setString(2, "acc") // in-view sub-query g
-            ps.setString(3, "inbox"); ps.setString(4, "sent"); ps.setString(5, "acc") // chip c
-            ps.setString(6, "inbox"); ps.setString(7, "acc") // outer WHERE
+            ps.setString(3, "inbox"); ps.setString(4, "acc"); ps.setString(5, "sent"); ps.setString(6, "acc") // chip c
+            ps.setString(7, "inbox"); ps.setString(8, "acc") // outer WHERE
             ps.executeQuery().use { rs ->
                 buildList {
                     while (rs.next()) {
@@ -220,6 +221,31 @@ class ConversationSqlTest {
         assertEquals("a1", rows[0]["id"])
         assertEquals(1, rows[0]["threadCount"]) // accB's b1 must not inflate the chip
         assertEquals(1, rows[0]["threadTotal"])
+    }
+
+    @Test fun sentPairDoesNotLeakACollidingMailboxIdAcrossAccounts() {
+        // Unified view: account B's Sent folder id ("X") collides with a plain folder of
+        // account A. A's chip must not count its "X"-folder member (X is not A's Sent) —
+        // the pair binding pins the Sent widening to account B — while B's chip still
+        // counts its Sent reply.
+        insert("a1", threadId = "T1", seen = 0, flagged = 0, sortKey = 200, accountId = "accA")
+        insert("ax", threadId = "T1", seen = 1, flagged = 0, sortKey = 100, mailbox = "X", accountId = "accA")
+        insert("b1", threadId = "T2", seen = 0, flagged = 0, sortKey = 300, accountId = "accB")
+        insert("bx", threadId = "T2", seen = 1, flagged = 0, sortKey = 250, mailbox = "X", accountId = "accB")
+
+        val sql = conversationSql(
+            mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false,
+            hasAccountId = false, sentMailboxCount = 1,
+        )
+        val rows = db.prepareStatement(sql).use { ps ->
+            ps.setString(1, "inbox") // in-view sub-query g
+            ps.setString(2, "inbox"); ps.setString(3, "accB"); ps.setString(4, "X") // chip c: view + accB's Sent pair
+            ps.setString(5, "inbox") // outer WHERE
+            ps.executeQuery().use { rs ->
+                buildList { while (rs.next()) add(rs.getString("id") to rs.getInt("threadCount")) }
+            }
+        }
+        assertEquals(listOf("b1" to 2, "a1" to 1), rows)
     }
 
     @Test fun favouritesPinToTop() {

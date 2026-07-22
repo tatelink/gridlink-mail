@@ -82,6 +82,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -195,7 +196,7 @@ private fun pagingQuery(
  * Build the conversation-collapsed paged query: one row per thread
  * (COALESCE(threadId, id)) showing the thread's latest message in this view, how many of the
  * thread's messages the unfolded conversation would show — the view's members plus the
- * Sent-role replies in [sentMailboxIds] (the chip always equals the expansion) — and
+ * Sent-role replies in [sentMailboxes] (the chip always equals the expansion) — and
  * whether the in-view part is unread. The account-wide cached total rides along only to keep
  * the row expandable when the rest of the thread sits elsewhere.
  * [unreadOnly] keeps threads whose in-view part is unread.
@@ -205,19 +206,22 @@ private fun conversationQuery(
     sort: SortOrder,
     unreadOnly: Boolean,
     accountId: String? = null,
-    sentMailboxIds: List<String> = emptyList(),
+    // Each account's Sent folder as an (accountId, mailboxId) PAIR: binding bare Sent ids
+    // across accounts would let a colliding mailbox id (an account's folder whose id equals a
+    // sibling's Sent id) inflate that account's chip in the unified view.
+    sentMailboxes: List<Pair<String, String>> = emptyList(),
 ): SimpleSQLiteQuery {
     // Bind order matches the clauses left-to-right in the SQL: the in-view sub-query binds
-    // the mailbox ids [+ account id]; the chip count sub-query binds the mailbox ids PLUS
-    // the Sent ids [+ account id]; the outer WHERE binds like the in-view sub-query; the
-    // account-wide total sub-query binds nothing (it is scoped by joining on the
-    // representative's accountId).
-    val extraSent = sentMailboxIds.distinct().filterNot { it in mailboxIds }
+    // the mailbox ids [+ account id]; the chip count sub-query binds the mailbox ids, then
+    // (accountId, sentId) per Sent pair [+ account id]; the outer WHERE binds like the
+    // in-view sub-query; the account-wide total sub-query binds nothing (it is scoped by
+    // joining on the representative's accountId).
+    val sent = sentMailboxes.distinct()
     val perClause = mailboxIds + listOfNotNull(accountId)
-    val chipClause = mailboxIds + extraSent + listOfNotNull(accountId)
+    val chipClause = mailboxIds + sent.flatMap { listOf(it.first, it.second) } + listOfNotNull(accountId)
     val args = perClause + chipClause + perClause
     return SimpleSQLiteQuery(
-        conversationSql(mailboxIds.size, sort, unreadOnly, accountId != null, extraSent.size),
+        conversationSql(mailboxIds.size, sort, unreadOnly, accountId != null, sent.size),
         args.toTypedArray(),
     )
 }
@@ -225,8 +229,10 @@ private fun conversationQuery(
 /**
  * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite). Bind order:
  * the in-view sub-query `g` takes the mailbox ids [+ account id]; the chip count sub-query
- * `c` takes the mailbox ids plus [sentMailboxCount] Sent-role mailbox ids [+ account id];
- * the outer WHERE binds like `g`; the account-wide total sub-query `t` takes none. The
+ * `c` takes the mailbox ids, then an (accountId, mailboxId) pair per [sentMailboxCount]
+ * Sent-role folder — pinned to its OWN account, so a sibling account's colliding mailbox id
+ * can't widen this account's chip — [+ account id]; the outer WHERE binds like `g`; the
+ * account-wide total sub-query `t` takes none. The
  * representative row and unread state come from `g` (strictly folder-scoped — a thread with
  * only Sent members must not surface a row); `threadCount` (the chip) is `c`'s count of the
  * thread's messages in the viewed mailboxes PLUS its Sent replies, matching exactly what the
@@ -237,7 +243,7 @@ private fun conversationQuery(
  */
 internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boolean, hasAccountId: Boolean = false, sentMailboxCount: Int = 0): String {
     val placeholders = List(mailboxCount) { "?" }.joinToString(",")
-    val chipPlaceholders = List(mailboxCount + sentMailboxCount) { "?" }.joinToString(",")
+    val sentAlternatives = " OR (accountId = ? AND mailboxId = ?)".repeat(sentMailboxCount)
     val accountInner = if (hasAccountId) " AND accountId = ?" else ""
     val accountOuter = if (hasAccountId) " AND e.accountId = ?" else ""
     val notSnoozed = "id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
@@ -262,7 +268,7 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
         JOIN (
             SELECT accountId AS cacc, COALESCE(threadId, id) AS ckey, COUNT(*) AS threadCount
             FROM emails
-            WHERE mailboxId IN ($chipPlaceholders)$accountInner AND $notSnoozed
+            WHERE (mailboxId IN ($placeholders)$sentAlternatives)$accountInner AND $notSnoozed
             GROUP BY cacc, ckey
         ) c ON c.ckey = g.tkey AND c.cacc = e.accountId
         JOIN (
@@ -636,15 +642,16 @@ class MailRepository(
         sort: SortOrder,
         unreadOnly: Boolean,
         conversationView: Boolean,
-        // Each account's Sent-role mailbox id: the conversation chip also counts the thread's
-        // Sent replies, so it always equals what the unfolded conversation shows.
-        sentMailboxIds: List<String> = emptyList(),
+        // Each account's Sent-role folder as an (accountId, mailboxId) pair: the conversation
+        // chip also counts the thread's Sent replies, so it always equals what the unfolded
+        // conversation shows — account-pinned, see [conversationQuery].
+        sentMailboxes: List<Pair<String, String>> = emptyList(),
     ): Flow<PagingData<InboxRow>> {
         if (mailboxIds.isEmpty()) return flowOf(PagingData.empty())
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(mailboxIds, sort, unreadOnly, sentMailboxIds = sentMailboxIds)) },
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(mailboxIds, sort, unreadOnly, sentMailboxes = sentMailboxes)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
@@ -667,14 +674,14 @@ class MailRepository(
         sort: SortOrder,
         unreadOnly: Boolean,
         conversationView: Boolean,
-        // The account's Sent-role mailbox id — see [pagedMailbox].
-        sentMailboxIds: List<String> = emptyList(),
+        // The account's Sent-role folder as an (accountId, mailboxId) pair — see [pagedMailbox].
+        sentMailboxes: List<Pair<String, String>> = emptyList(),
     ): Flow<PagingData<InboxRow>> {
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
                 remoteMediator = folderMediator(credentials, mailboxId, conversationView = true),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(listOf(mailboxId), sort, unreadOnly, credentials.id, sentMailboxIds)) },
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(listOf(mailboxId), sort, unreadOnly, credentials.id, sentMailboxes)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
@@ -2675,6 +2682,17 @@ class MailRepository(
      */
     suspend fun sentMailboxIds(accountIds: List<String>): List<String> =
         accountIds.distinct().mapNotNull { mailboxDao.idForRole(it, "sent") }
+
+    /**
+     * Reactive variant of [sentMailboxIds], as account-pinned (accountId, mailboxId) pairs
+     * for the conversation chip's Sent scope: re-resolves when the folder table changes, so
+     * a fresh install's chips pick the Sent folder up on the first folder sync instead of
+     * waiting for the next paging-key change, and never bleed across colliding mailbox ids.
+     */
+    fun observeSentMailboxes(accountIds: List<String>): Flow<List<Pair<String, String>>> =
+        mailboxDao.observeSentMailboxes(accountIds.distinct())
+            .map { rows -> rows.map { it.accountId to it.id } }
+            .distinctUntilChanged()
 
     /**
      * Remove a message from the local cache only (optimistic UI removal), decrementing its source

@@ -442,18 +442,27 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                         flowOf(PagingData.empty())
                     } else {
                         // Conversation chips also count the thread's Sent replies (the chip
-                        // equals what the unfolded conversation shows) — resolve the Sent
-                        // folder id(s) once per page key, per account in the unified view.
-                        val sent = if (key.conversationView) repo.sentMailboxIds(listOf(credentials.id)) else emptyList()
-                        repo.pagedFolder(credentials, id, key.sort, key.unreadOnly, key.conversationView, sent)
+                        // equals what the unfolded conversation shows). The Sent folder is
+                        // resolved reactively from the folder cache — account-pinned pairs —
+                        // so a fresh install's chips pick it up on the first folder sync.
+                        sentScopes(key, listOf(credentials.id)).flatMapLatest { sent ->
+                            repo.pagedFolder(credentials, id, key.sort, key.unreadOnly, key.conversationView, sent)
+                        }
                     }
                 }
                 Sel.Unified -> {
-                    val sent = if (key.conversationView) repo.sentMailboxIds(store.allInboxScopes().map { it.first }) else emptyList()
-                    repo.pagedMailbox(key.unifiedIds, key.sort, key.unreadOnly, key.conversationView, sent)
+                    sentScopes(key, store.allInboxScopes().map { it.first }).flatMapLatest { sent ->
+                        repo.pagedMailbox(key.unifiedIds, key.sort, key.unreadOnly, key.conversationView, sent)
+                    }
                 }
             }
         }.cachedIn(viewModelScope)
+
+    /** The accounts' Sent folders backing the chip's "plus Sent replies" scope — live from the
+     *  folder cache in conversation mode (deduped upstream, so the pager only rebuilds when a
+     *  Sent id actually changes); flat mode needs none. */
+    private fun sentScopes(key: PageKey, accountIds: List<String>): Flow<List<Pair<String, String>>> =
+        if (key.conversationView) repo.observeSentMailboxes(accountIds) else flowOf(emptyList())
 
     // "All inboxes (N)" sums the SAME live per-inbox aggregates the folder badges below it
     // read (mode-aware: unread threads in conversation view, unread messages in flat view),
