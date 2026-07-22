@@ -90,4 +90,17 @@ class MimeParserTest {
         val encoded = Base64.getEncoder().encodeToString(original)
         assertEquals(original.toList(), MimeParser.decodeBytes(encoded, "base64").toList())
     }
+
+    @Test
+    fun headerOfReadsTopLevelHeadersCaseInsensitivelyAndUnfolded() {
+        val raw = buildString {
+            append("Message-ID: <abc@example.com>\r\n")
+            append("References: <one@example.com>\r\n")
+            append(" <two@example.com>\r\n") // folded continuation
+            append("Content-Type: text/plain\r\n\r\nHello")
+        }
+        assertEquals("<abc@example.com>", MimeParser.headerOf(raw, "message-id"))
+        assertEquals("<one@example.com> <two@example.com>", MimeParser.headerOf(raw, "References"))
+        assertEquals(null, MimeParser.headerOf(raw, "In-Reply-To"))
+    }
 }

@@ -1327,11 +1327,23 @@ class MailRepository(
             ?: error("Message is not in the cache.")
         val mailboxId = cached.mailboxId ?: error("Unknown mailbox for message.")
         val uid = ImapMailService.uidOf(emailId) ?: error("Not an IMAP message.")
-        val body = MimeParser.parseBody(imap.fetchSource(credentials, mailboxId, uid))
+        val raw = imap.fetchSource(credentials, mailboxId, uid)
         if (markRead && !cached.isSeen) {
             runCatching { setRead(credentials, emailId, seen = true) }
         }
-        return cached.withBody(body)
+        // The cache holds no threading headers; lift them from the source so a reply
+        // built from this email carries In-Reply-To/References.
+        return cached.withBody(MimeParser.parseBody(raw)).copy(
+            messageId = headerIds(MimeParser.headerOf(raw, "Message-ID")),
+            references = headerIds(MimeParser.headerOf(raw, "References")),
+        )
+    }
+
+    /** The `<id@host>` tokens of a Message-ID/References header, brackets kept for re-emission. */
+    private fun headerIds(value: String?): List<String> {
+        if (value.isNullOrBlank()) return emptyList()
+        val bracketed = Regex("<[^<>]+>").findAll(value).map { it.value }.toList()
+        return bracketed.ifEmpty { value.trim().split(Regex("\\s+")).map { "<$it>" } }
     }
 
     /** Attach a parsed [MimeBody] to a cached [Email] so the message view can render it. */
@@ -2542,6 +2554,7 @@ class MailRepository(
 
     /** Fetch an email (with body) without marking it read — used to build replies/forwards. */
     suspend fun fetchEmail(credentials: AccountCredentials, emailId: String): Email {
+        if (credentials.protocol == MailProtocol.IMAP) return openEmailImap(credentials, emailId, markRead = false)
         val ctx = connect(credentials)
         return client.getEmail(ctx.session, ctx.accountId, emailId, ctx.auth)
     }
