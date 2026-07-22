@@ -2559,7 +2559,18 @@ class MailRepository(
             return imap.search(credentials, inbox, query.text, limit).map { it.toEmail() }
         }
         val ctx = connect(credentials)
-        return client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth)
+        val hits = client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth)
+        // A hit can live in several mailboxes: resolve its folder like [fetchThreadMembers] —
+        // the cached row's folder while the server still lists it, else the role-ranked pick —
+        // never the server map's arbitrary first key, which could feed a search-row action
+        // (delete's destroy-vs-move, undo's restore target) a Trash/Junk folder by accident.
+        val cachedMailbox = emailDao.emailsByIds(hits.map { it.id }).associate { it.id to it.mailboxId }
+        return hits.map { e ->
+            val serverBoxes = e.mailboxIds.keys
+            val mailbox = cachedMailbox[e.id]?.takeIf { it in serverBoxes }
+                ?: rankedMailboxPick(credentials.id, serverBoxes)
+            e.copy(mailboxId = mailbox ?: e.mailboxId)
+        }
     }
 
     /**

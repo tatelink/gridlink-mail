@@ -511,8 +511,10 @@ class JmapClient internal constructor(
             if (!response.isSuccessful) {
                 throw JmapException("Search failed: HTTP ${response.code} ${response.message}")
             }
+            // mailboxId is left null: the caller (core:data) resolves each hit's folder
+            // deterministically from the returned mailboxIds map — picking the map's
+            // arbitrary first key here could route a multi-mailbox hit to Trash.
             decodeList(body, "Email/get", Email.serializer())
-                .map { e -> e.copy(mailboxId = e.mailboxIds.keys.firstOrNull()) }
         }
     }
 
