@@ -9,6 +9,7 @@ import app.sterna.container
 import app.sterna.R
 import app.sterna.folders.FolderDeleteWorker
 import app.sterna.mail.MessageDestroyWorker
+import app.sterna.push.FetchAndNotify
 import app.sterna.push.NewMailNotifier
 import app.sterna.push.Notifications
 import app.sterna.push.PushController
@@ -556,14 +557,25 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         if (updated.mailboxId == store.inboxMailboxId() || mailboxId == null) {
             // Keep the cached inbox metadata fresh for offline display.
             store.saveInboxMeta(updated.mailboxId, updated.mailboxName, updated.accountName, updated.unreadCount)
+            // Codeberg #50: a reply landed by THIS refresh must trigger unarchive-on-reply
+            // too — with the app in the foreground this is the path new mail arrives by.
+            // No-op unless the toggle is on; never fails the refresh.
+            runCatching { FetchAndNotify.onInboxRefreshed(getApplication(), credentials, updated.mailboxId) }
         }
         selection.value = Sel.Folder(updated.mailboxId)
         meta.value = Meta(updated.accountName, updated.mailboxName, updated.unreadCount)
     }
 
     private suspend fun refreshUnified() {
-        val metas = repo.refreshAllInboxes(store.allCredentials())
+        val credentials = store.allCredentials()
+        val metas = repo.refreshAllInboxes(credentials)
         metas.forEach { store.saveInboxMetaFor(it.accountId, it.mailboxId, it.mailboxName, it.accountName, it.unreadCount) }
+        // Codeberg #50: same foreground trigger as refreshFolder, per refreshed inbox.
+        metas.forEach { meta ->
+            credentials.firstOrNull { it.id == meta.accountId }?.let { cred ->
+                runCatching { FetchAndNotify.onInboxRefreshed(getApplication(), cred, meta.mailboxId) }
+            }
+        }
         unifiedInboxIds.value = store.allInboxMailboxIds()
         meta.value = Meta(UNIFIED_LABEL, UNIFIED_LABEL, store.totalUnreadCount())
     }
