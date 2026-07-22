@@ -15,6 +15,7 @@ import app.sterna.core.imap.MimeParser
 import app.sterna.core.imap.OutgoingMessage
 import app.sterna.core.imap.OutgoingMime
 import app.sterna.core.imap.SmtpClient
+import app.sterna.core.jmap.model.EmailAddress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -330,21 +331,27 @@ class ImapMailService(
             session.fetchSource(uid)
         }
 
-    private fun ImapMessage.toEntity(accountId: String, mailboxId: String): EmailEntity = EmailEntity(
-        id = emailId(accountId, mailboxId, uid),
-        accountId = accountId,
-        mailboxId = mailboxId,
-        threadId = null,
-        subject = subject,
-        preview = null,
-        receivedAt = if (dateMillis > 0) Instant.ofEpochMilli(dateMillis).toString() else null,
-        fromName = fromName,
-        fromEmail = fromEmail,
-        seen = seen,
-        flagged = flagged,
-        hasAttachment = hasAttachment,
-        sortKey = dateMillis,
-    )
+    private fun ImapMessage.toEntity(accountId: String, mailboxId: String): EmailEntity {
+        val id = emailId(accountId, mailboxId, uid)
+        // Envelope recipients don't fit the row schema — remembered aside so Sent/Drafts
+        // rows can show "To: …" (Codeberg #59), like the JMAP path in EmailMapper.
+        recordRecipients(id, to.map { EmailAddress(name = it.name, email = it.email.orEmpty()) })
+        return EmailEntity(
+            id = id,
+            accountId = accountId,
+            mailboxId = mailboxId,
+            threadId = null,
+            subject = subject,
+            preview = null,
+            receivedAt = if (dateMillis > 0) Instant.ofEpochMilli(dateMillis).toString() else null,
+            fromName = fromName,
+            fromEmail = fromEmail,
+            seen = seen,
+            flagged = flagged,
+            hasAttachment = hasAttachment,
+            sortKey = dateMillis,
+        )
+    }
 
     private suspend fun config(endpoint: MailEndpoint, credentials: AccountCredentials) = MailServerConfig(
         host = endpoint.host,

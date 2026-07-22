@@ -127,6 +127,7 @@
     <string name="message_retry">Réessayer</string>
     <string name="message_unknown_sender">(expéditeur inconnu)</string>
     <string name="message_no_subject">(sans objet)</string>
+    <string name="list_to_recipients">À : %1$s</string>
     <string name="message_attachments">Pièces jointes (%1$d)</string>
     <string name="message_attachment_fallback">pièce jointe</string>
     <string name="message_participants_title">Participants</string>

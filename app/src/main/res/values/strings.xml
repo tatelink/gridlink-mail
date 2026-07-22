@@ -182,6 +182,8 @@
     <string name="message_retry">Retry</string>
     <string name="message_unknown_sender">(unknown sender)</string>
     <string name="message_no_subject">(no subject)</string>
+    <!-- Sent/Drafts list rows: who the mail went to (%1$s = recipient names) -->
+    <string name="list_to_recipients">To: %1$s</string>
     <string name="message_attachments">Attachments (%1$d)</string>
     <string name="message_attachment_fallback">attachment</string>
     <!-- Participants panel (tap the sender in the email view) -->

@@ -93,8 +93,18 @@ fun EmailListItem(
     // Brief emphasis flash when returning to the list from this message.
     highlighted: Boolean = false,
     onHighlightShown: () -> Unit = {},
+    // In Sent/Drafts the sender is yourself, so the row shows who the mail went TO
+    // instead (Codeberg #59). Falls back to the sender while a cached row carries no
+    // recipients (e.g. offline before the folder's first refresh).
+    showRecipients: Boolean = false,
 ) {
     val senderName = email.from.firstOrNull()?.display() ?: stringResource(R.string.message_unknown_sender)
+    val recipient = if (showRecipients) email.to.firstOrNull() else null
+    val nameLine = if (recipient != null) {
+        stringResource(R.string.list_to_recipients, email.to.joinToString { it.display() })
+    } else {
+        senderName
+    }
     val density = LocalListDensity.current
     val rowPadding = when (density) {
         ListDensity.COMPACT -> 6.dp
@@ -131,12 +141,15 @@ fun EmailListItem(
             .padding(start = 16.dp, end = 4.dp, top = rowPadding, bottom = rowPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Monogram(seed = email.from.firstOrNull()?.email ?: senderName, label = senderName)
+        Monogram(
+            seed = (recipient ?: email.from.firstOrNull())?.email ?: senderName,
+            label = recipient?.display() ?: senderName,
+        )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = senderName,
+                    text = nameLine,
                     style = MaterialTheme.typography.titleMedium,
                     // Unread is shown by weight (bold) rather than a status dot.
                     fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,

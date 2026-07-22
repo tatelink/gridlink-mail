@@ -210,7 +210,7 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "threadId", "subject", "preview",
-                                "receivedAt", "from", "hasAttachment", "keywords",
+                                "receivedAt", "from", "to", "hasAttachment", "keywords",
                             ).forEach { add(it) }
                         }
                     }
@@ -421,7 +421,7 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "threadId", "subject", "preview",
-                                "receivedAt", "from", "hasAttachment", "keywords",
+                                "receivedAt", "from", "to", "hasAttachment", "keywords",
                             ).forEach { add(it) }
                         }
                     }
@@ -716,7 +716,7 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "threadId", "subject", "preview", "receivedAt",
-                                "from", "hasAttachment", "keywords", "mailboxIds",
+                                "from", "to", "hasAttachment", "keywords", "mailboxIds",
                             ).forEach { add(it) }
                         }
                     }

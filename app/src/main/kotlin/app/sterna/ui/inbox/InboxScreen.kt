@@ -1207,6 +1207,8 @@ fun InboxScreen(
                     leftAction = swipe.left,
                     unarchiveContext = isUnarchiveContext(ui),
                     trashContext = isTrashContext(ui),
+                    // Search results keep the sender line whatever folder they came from.
+                    showRecipients = !fromSearch && isOwnMailContext(ui),
                     // A collapsed conversation acts on the whole thread; a flat row on its one message.
                     onSwipe = { action ->
                         if (expandable) performThreadSwipe(action, email, viewModel, ui)
@@ -1256,6 +1258,7 @@ fun InboxScreen(
                         leftAction = swipe.left,
                         unarchiveContext = isUnarchiveContext(ui),
                         trashContext = isTrashContext(ui),
+                        showRecipients = isOwnMailContext(ui),
                         highlightId = highlightId,
                         selectionActive = selectionActive,
                         selectedIds = selectedIds,
@@ -1506,6 +1509,7 @@ private fun SwipeableEmailRow(
     leftAction: SwipeAction,
     unarchiveContext: Boolean,
     trashContext: Boolean,
+    showRecipients: Boolean,
     onSwipe: (SwipeAction) -> Unit,
     onClick: () -> Unit,
     // Nullable so inline conversation children can omit long-press selection and the star.
@@ -1711,6 +1715,7 @@ private fun SwipeableEmailRow(
                 expanded = expanded,
                 highlighted = highlighted,
                 onHighlightShown = onHighlightShown,
+                showRecipients = showRecipients,
             )
         }
     }
@@ -1777,6 +1782,13 @@ private fun isUnarchiveContext(ui: MailUi): Boolean {
 private fun isTrashContext(ui: MailUi): Boolean =
     ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
 
+/** True when the visible folder holds the user's own outgoing mail (Sent, Drafts), where a
+ *  row shows who the mail went to — the sender is always yourself there (Codeberg #59). */
+private fun isOwnMailContext(ui: MailUi): Boolean {
+    val role = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
+    return role == "sent" || role == "drafts"
+}
+
 /** The string resource shown on the swipe background for [action] on [email] (0 = none). */
 private fun swipeActionLabel(action: SwipeAction, email: Email, unarchiveContext: Boolean, trashContext: Boolean): Int = when (action) {
     SwipeAction.NONE -> 0
@@ -1842,6 +1854,7 @@ private fun ThreadChildren(
     leftAction: SwipeAction,
     unarchiveContext: Boolean,
     trashContext: Boolean,
+    showRecipients: Boolean,
     highlightId: String?,
     selectionActive: Boolean,
     selectedIds: Set<String>,
@@ -1873,6 +1886,7 @@ private fun ThreadChildren(
                             leftAction = leftAction,
                             unarchiveContext = unarchiveContext,
                             trashContext = trashContext,
+                            showRecipients = showRecipients,
                             onSwipe = { action -> onSwipeChild(action, child) },
                             // Children join multi-select like top-level rows: long-press enters
                             // selection on this one message, a tap in selection mode toggles it.
