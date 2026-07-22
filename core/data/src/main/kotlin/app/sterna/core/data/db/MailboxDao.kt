@@ -35,7 +35,7 @@ interface MailboxDao {
      * folder up as soon as the first folder sync lands instead of waiting for its next
      * one-shot resolution.
      */
-    @Query("SELECT accountId, id FROM mailboxes WHERE accountId IN (:accountIds) AND role = 'sent'")
+    @Query("SELECT accountId, id FROM mailboxes WHERE accountId IN (:accountIds) AND role = 'sent' ORDER BY accountId, id")
     fun observeSentMailboxes(accountIds: List<String>): Flow<List<AccountMailboxId>>
 
     /**
