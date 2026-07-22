@@ -42,8 +42,15 @@ object PushController {
         transportFor(context, credentials, isBatterySaver(context))
 
     private fun transportFor(context: Context, credentials: AccountCredentials, batterySaver: Boolean): Transport {
-        val up = (context.applicationContext as Application).container.unifiedPushManager
+        val container = (context.applicationContext as Application).container
+        val up = container.unifiedPushManager
         return when {
+            // A linked sub-account holds no live push of its own (issue #31): the server never
+            // puts an ACL-shared account's StateChanges on the login's EventSource or
+            // PushSubscription (Stalwart subscribes the login's member accounts only), so a
+            // socket opened for it alone would never fire. Its mail arrives via the periodic
+            // worker, plus the group catch-up fan-out whenever the login's push wakes.
+            container.accountStore.account(credentials.id)?.isLinked == true -> Transport.PERIODIC
             // UnifiedPush stays on in battery saver too — it costs Sterna nothing;
             // "battery saver" means Sterna itself holds no persistent connection.
             credentials.protocol == MailProtocol.JMAP && up.isActive(credentials.id) -> Transport.UNIFIED_PUSH
@@ -68,6 +75,9 @@ object PushController {
         val store = container.accountStore
         val up = container.unifiedPushManager
         return when {
+            // Honest status for a linked sub-account: it inherits the login's transport state
+            // but the server never pushes its changes there (issue #31) — it is periodic.
+            store.account(accountId)?.isLinked == true -> PushStatus.Periodic
             up.isActive(accountId) -> PushStatus.ViaUnifiedPush(up.distributorLabel())
             isBatterySaver(context) -> PushStatus.Periodic
             up.isPending(accountId) -> PushStatus.Connecting

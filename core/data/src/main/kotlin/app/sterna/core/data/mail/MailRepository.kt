@@ -2781,8 +2781,10 @@ class MailRepository(
         onChanged: () -> Unit,
         onClosed: () -> Unit = {},
         // The JMAP account ids whose Email state should wake [onChanged]. One EventSource per login
-        // carries StateChanges for every account in the session (issue #31), so a login watches all
-        // its sub-accounts through this one socket. Empty = just this credential's own account.
+        // watches all the group's account ids through this one socket (issue #31). NB the server
+        // decides what it actually emits: Stalwart only pushes StateChanges for accounts the login
+        // is a member of — ACL-shared (delegated) accounts never appear here, so their delivery
+        // relies on the caller's periodic poll. Empty = just this credential's own account.
         watchedJmapAccountIds: Set<String> = emptySet(),
     ): Closeable {
         if (credentials.protocol == MailProtocol.IMAP) {

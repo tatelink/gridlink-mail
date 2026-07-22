@@ -83,9 +83,13 @@ class PushService : Service() {
             stopSelf()
             return
         }
-        // One EventSource per login (issue #31): a login's session carries StateChanges for all of
-        // its mail accounts, so sub-accounts sharing a credential ride a single socket. Group by
-        // the login and fan a change out to every account in the group.
+        // One EventSource per login (issue #31): a login's session carries StateChanges for the
+        // accounts it is a MEMBER of, so those ride a single socket; group by the login and fan a
+        // change out to every account in the group. Caveat (verified against Stalwart): an
+        // ACL-shared sub-account's changes are NEVER delivered on this socket — the server
+        // subscribes the login's member accounts only — so [MailFetchWorker] polls linked
+        // sub-accounts every cycle too, and the fan-out below is their instant catch-up whenever
+        // the login's own mail wakes us.
         val groups = accounts.groupBy { store.account(it.id)?.loginKey() ?: it.id }
         groups.forEach { (loginId, group) -> watch(loginId, group, gen, resetBaseline) }
         Log.i(TAG, "Watching ${accounts.size} account(s) over ${groups.size} connection(s) for new mail")

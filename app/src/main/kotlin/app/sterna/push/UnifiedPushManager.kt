@@ -245,8 +245,11 @@ class UnifiedPushManager(
                     }
                 }
             }
-            // One PushSubscription per login carries StateChanges for all its accounts, so fan the
-            // wake out to the login and every sub-account sharing it (issue #31).
+            // One PushSubscription per login; fan the wake out to the login and every sub-account
+            // sharing it (issue #31). The server only pushes changes for the login's member
+            // accounts (never ACL-shared sub-accounts — verified on Stalwart), so for linked
+            // sub-accounts this fan-out is a catch-up ride on the login's wakes; their own
+            // guaranteed delivery is [MailFetchWorker]'s periodic poll.
             is PushMessagePayload.Change -> enqueueForLogin(accountId)
             // Unknown/undecryptable payload: treat as a bare wake signal — still fetch.
             null -> {
