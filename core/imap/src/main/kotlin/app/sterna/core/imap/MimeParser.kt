@@ -129,6 +129,10 @@ object MimeParser {
         }
     }
 
+    /** A top-level header value of a raw message (unfolded); [name] is case-insensitive. */
+    fun headerOf(raw: String, name: String): String? =
+        parseHeaders(splitHeaders(raw).first)[name.lowercase()]
+
     /**
      * The still-transfer-encoded body + Content-Transfer-Encoding of the part at
      * [section] ("1", "2.1", …) inside a raw MIME entity — the same section paths
