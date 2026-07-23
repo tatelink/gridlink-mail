@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Watch the default network so the inbox resyncs when connectivity returns (#65).
+         Already merged in from WorkManager; declared here because the app itself uses it. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Optional: recipient autocomplete from device contacts (off by default; opt-in in Settings). -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
