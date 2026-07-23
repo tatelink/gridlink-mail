@@ -28,4 +28,42 @@ class MessageTextTest {
         val input = " From the start\n-- \nSignature line"
         assertEquals("From the start\n-- \nSignature line", reflowFormatFlowed(input))
     }
+
+    @Test fun emojiInTextIsWrappedForCounterInversion() {
+        // Colour glyphs must carry the counter-filter; the surrounding text must not.
+        assertEquals(
+            "<p>Hi <span class=\"s-emo\">\uD83D\uDE00</span> there</p>",
+            wrapEmoji("<p>Hi \uD83D\uDE00 there</p>"),
+        )
+    }
+
+    @Test fun emojiInsideTagsAndUrlsIsLeftAlone() {
+        // Wrapping inside a tag, an attribute or a URL would corrupt the message.
+        val html = "<img alt=\"\uD83D\uDE00\" src=\"https://x/\uD83D\uDE00.png\" title='a>b'>" +
+            "<style>.a::after{content:\"\uD83D\uDE00\"}</style><!-- \uD83D\uDE00 -->"
+        assertEquals(html, wrapEmoji(html))
+    }
+
+    @Test fun zwjSequenceAndSkinToneStayInOneSpan() {
+        // A family is ONE glyph: splitting it into spans would break it into separate people.
+        val family = "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67"
+        val wave = "\uD83D\uDC4B\uD83C\uDFFD"
+        assertEquals("<span class=\"s-emo\">$family</span>", wrapEmoji(family))
+        assertEquals("<span class=\"s-emo\">$wave</span>", wrapEmoji(wave))
+    }
+
+    @Test fun textGlyphsAreNotWrappedButForcedColourIs() {
+        // Monochrome text symbols are painted in the body colour and must keep inverting with it;
+        // a VS16 (or a keycap) means the author asked for the colour emoji.
+        assertEquals("\u2713 \u00a9 \u2192", wrapEmoji("\u2713 \u00a9 \u2192"))
+        assertEquals("<span class=\"s-emo\">\u2714\ufe0f</span>", wrapEmoji("\u2714\ufe0f"))
+        assertEquals("<span class=\"s-emo\">1\ufe0f\u20e3</span>", wrapEmoji("1\ufe0f\u20e3"))
+        assertEquals("\u2714\ufe0e", wrapEmoji("\u2714\ufe0e"))
+    }
+
+    @Test fun plainTextBodiesAreUntouched() {
+        // Plain text renders with the theme colours (no page invert), so nothing to counter-filter.
+        val text = "Bonjour \uD83D\uDE00\nA + B < C"
+        assertEquals(text, reflowFormatFlowed(text))
+    }
 }
