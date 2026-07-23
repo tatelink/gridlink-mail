@@ -16,8 +16,10 @@ import app.sterna.push.PushController
 import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.db.OutboxState
+import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.mail.InboxRow
 import app.sterna.core.data.mail.MailRepository
+import app.sterna.core.data.mail.emailKey
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.data.settings.SwipeAction
 import app.sterna.core.jmap.model.Email
@@ -353,8 +355,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * mutation must also be written back here or the unfolded rows keep a stale unread dot.
      * Ditto the search-results snapshot, whose rows would otherwise keep a stale bold state.
      */
-    private fun patchThreadMembersSeen(ids: Set<String>, seen: Boolean) {
-        patchSearchResults(ids) { m ->
+    private fun patchThreadMembersSeen(keys: Set<EmailKey>, seen: Boolean) {
+        patchSearchResults(keys) { m ->
             m.copy(
                 keywords = m.keywords.toMutableMap().apply {
                     if (seen) put("\$seen", true) else remove("\$seen")
@@ -364,7 +366,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         if (_threadMembers.value.isEmpty()) return
         _threadMembers.value = _threadMembers.value.mapValues { (_, members) ->
             members.map { m ->
-                if (m.id !in ids) m
+                if (m.emailKey() !in keys) m
                 else m.copy(
                     keywords = m.keywords.toMutableMap().apply {
                         if (seen) put("\$seen", true) else remove("\$seen")
@@ -380,43 +382,44 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Results removed by an action, with their position, so an Undo can put them back.
      *  Doubles as a tombstone set: the FTS index outlives evicted/deleted cache rows, so
-     *  later crawl/server merges must not resurrect a row the user just removed. */
-    private val searchRemoved = mutableMapOf<String, IndexedValue<Email>>()
+     *  later crawl/server merges must not resurrect a row the user just removed. Keyed by
+     *  account-qualified [EmailKey]: unified search can show two accounts' same-id rows. */
+    private val searchRemoved = mutableMapOf<EmailKey, IndexedValue<Email>>()
 
-    /** Remove [ids] from the search-results snapshot, stashing them for a possible Undo. */
-    private fun dropSearchResults(ids: Set<String>) {
+    /** Remove [keys] from the search-results snapshot, stashing them for a possible Undo. */
+    private fun dropSearchResults(keys: Set<EmailKey>) {
         val results = searchState.value.results ?: return
         val remaining = ArrayList<Email>(results.size)
         results.forEachIndexed { index, email ->
-            if (email.id in ids) searchRemoved[email.id] = IndexedValue(index, email)
+            if (email.emailKey() in keys) searchRemoved[email.emailKey()] = IndexedValue(index, email)
             else remaining += email
         }
         if (remaining.size != results.size) searchState.value = searchState.value.copy(results = remaining)
     }
 
-    /** Undo: put the stashed entries among [ids] back at (best-effort) their original position. */
-    private fun restoreSearchResults(ids: Collection<String>) {
-        val entries = ids.mapNotNull { searchRemoved.remove(it) }.sortedBy { it.index }
+    /** Undo: put the stashed entries among [keys] back at (best-effort) their original position. */
+    private fun restoreSearchResults(keys: Collection<EmailKey>) {
+        val entries = keys.mapNotNull { searchRemoved.remove(it) }.sortedBy { it.index }
         if (entries.isEmpty()) return
         val restored = searchState.value.results?.toMutableList() ?: return
         entries.forEach { (index, email) -> restored.add(index.coerceAtMost(restored.size), email) }
         searchState.value = searchState.value.copy(results = restored)
     }
 
-    /** Optimistically rewrite any search-result rows among [ids] (read state, star). */
-    private fun patchSearchResults(ids: Set<String>, transform: (Email) -> Email) {
+    /** Optimistically rewrite any search-result rows among [keys] (read state, star). */
+    private fun patchSearchResults(keys: Set<EmailKey>, transform: (Email) -> Email) {
         val results = searchState.value.results ?: return
-        if (results.none { it.id in ids }) return
+        if (results.none { it.emailKey() in keys }) return
         searchState.value = searchState.value.copy(
-            results = results.map { if (it.id in ids) transform(it) else it },
+            results = results.map { if (it.emailKey() in keys) transform(it) else it },
         )
     }
 
     /** Drop several messages from the expanded-conversation snapshot (bulk removals). */
-    private fun dropThreadMembers(ids: Set<String>) {
+    private fun dropThreadMembers(keys: Set<EmailKey>) {
         if (_threadMembers.value.isEmpty()) return
         _threadMembers.value = _threadMembers.value
-            .mapValues { (_, members) -> members.filterNot { it.id in ids } }
+            .mapValues { (_, members) -> members.filterNot { it.emailKey() in keys } }
             .filterValues { it.isNotEmpty() }
     }
 
@@ -429,10 +432,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         val snapshot = _threadMembers.value
         if (snapshot.isEmpty()) return
         viewModelScope.launch {
-            val ids = snapshot.values.flatten().mapTo(mutableSetOf()) { it.id }
-            val fresh = repo.cachedEmailsByIds(ids).associateBy { it.id }
+            val keys = snapshot.values.flatten().mapTo(mutableSetOf()) { it.emailKey() }
+            val fresh = repo.cachedEmailsByIds(keys).associateBy { it.emailKey() }
             _threadMembers.value = _threadMembers.value.mapValues { (_, members) ->
-                members.map { m -> fresh[m.id]?.let { f -> m.copy(keywords = f.keywords) } ?: m }
+                members.map { m -> fresh[m.emailKey()]?.let { f -> m.copy(keywords = f.keywords) } ?: m }
             }
         }
     }
@@ -462,9 +465,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Transient view filter: show only unread on the current view. */
     private val unreadOnly = MutableStateFlow(false)
 
-    /** Multi-select mode: which message ids are selected (empty + inactive = off). */
-    private val _selectedIds = MutableStateFlow<Set<String>>(emptySet())
-    val selectedIds: StateFlow<Set<String>> = _selectedIds.asStateFlow()
+    /** Multi-select mode: which messages are selected (empty + inactive = off). Account-qualified
+     *  keys, not bare ids: the unified inbox can show two accounts' same-id rows, and a bare-id
+     *  selection would silently cover — and act on — both (issue #31). */
+    private val _selectedKeys = MutableStateFlow<Set<EmailKey>>(emptySet())
+    val selectedKeys: StateFlow<Set<EmailKey>> = _selectedKeys.asStateFlow()
     private val _selectionActive = MutableStateFlow(false)
     val selectionActive: StateFlow<Boolean> = _selectionActive.asStateFlow()
 
@@ -573,7 +578,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         refresh()
         // Recompute the read/unread toggle state whenever the selection set changes.
         viewModelScope.launch {
-            _selectedIds.collect { refreshSelectionReadState(it) }
+            _selectedKeys.collect { refreshSelectionReadState(it) }
         }
     }
 
@@ -686,7 +691,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Swipe action: toggle read/unread (cache update drives the list). */
     fun toggleRead(email: Email) {
         val targetSeen = !email.isSeen
-        patchThreadMembersSeen(setOf(email.id), targetSeen)
+        patchThreadMembersSeen(setOf(email.emailKey()), targetSeen)
         viewModelScope.launch {
             val credentials = credentialsFor(email) ?: return@launch
             runCatching { repo.setRead(credentials, email.id, targetSeen) }
@@ -731,7 +736,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             targets.forEach { (credentials, id) -> repo.evict(credentials.id, id) }
             emails.forEach { dropThreadMember(it) }
-            dropSearchResults(emails.mapTo(mutableSetOf()) { it.id })
+            dropSearchResults(emails.mapTo(mutableSetOf()) { it.emailKey() })
             _pendingDelete.value = label
             targets.groupBy({ it.first.id }, { it.second }).forEach { (accountId, ids) ->
                 MessageDestroyWorker.schedule(getApplication(), accountId, ids, PURGE_HOLD_BACK_MS)
@@ -769,7 +774,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         pendingDeleteTargets = emptyList()
         pendingDeleteEmails = emptyList()
         _pendingDelete.value = null
-        restoreSearchResults(restored.map { it.id })
+        restoreSearchResults(restored.map { it.emailKey() })
         // A full re-query, not an incremental refresh: the messages were only evicted locally and
         // are still in Trash on the server, so queryChanges reports no change and would leave the
         // view empty. Dropping the sync cursors forces a fresh query that brings them back.
@@ -806,7 +811,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val members = threadMessages(rep)
             val targetSeen = members.any { !it.isSeen }
-            patchThreadMembersSeen(members.mapTo(mutableSetOf()) { it.id }, targetSeen)
+            patchThreadMembersSeen(members.mapTo(mutableSetOf()) { it.emailKey() }, targetSeen)
             members.forEach { m ->
                 val credentials = credentialsFor(m) ?: return@forEach
                 runCatching { repo.setRead(credentials, m.id, targetSeen) }
@@ -960,7 +965,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // already flown the row off; it leaves the list when the ack lands. The op returns
             // the destination the message went to, for the Undo.
             dropThreadMember(email)
-            dropSearchResults(setOf(email.id))
+            dropSearchResults(setOf(email.emailKey()))
             // The UI row may not carry its source folder (e.g. a server-fetched thread member) —
             // fall back to the cached row, captured before the op drops it, so a moved message
             // always gets its Undo.
@@ -973,7 +978,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 .onFailure {
                     _message.value = it.message ?: getApplication<Application>().getString(R.string.status_action_failed)
-                    restoreSearchResults(listOf(email.id))
+                    restoreSearchResults(listOf(email.emailKey()))
                     refresh() // the failed row was never dropped locally — just reconcile the list
                 }
         }
@@ -983,7 +988,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun undo() {
         val action = _undo.value ?: return
         _undo.value = null
-        restoreSearchResults(action.entries.map { it.emailId })
+        restoreSearchResults(action.entries.map { EmailKey(it.accountId, it.emailId) })
         viewModelScope.launch {
             // Group by account and restore each account's whole set in one batch (one UID MOVE /
             // Email/set per source folder), so undoing a large selection doesn't hit the same
@@ -1012,7 +1017,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // restoreAll re-cached only the restored rows themselves — complete their
             // conversations so the members are filed truthfully again (no refresh involved,
             // so this can't race the optimistic restore).
-            completeThreadsAfterAction(repo.cachedEmailsByIds(action.entries.mapTo(mutableSetOf()) { it.emailId }))
+            completeThreadsAfterAction(repo.cachedEmailsByIds(action.entries.mapTo(mutableSetOf()) { EmailKey(it.accountId, it.emailId) }))
         }
     }
 
@@ -1031,7 +1036,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun emptyTrash() {
         val trashId = (selection.value as? Sel.Folder)?.id ?: return
         val credentials = store.load() ?: return
-        viewModelScope.launch { repo.cachedIds(listOf(credentials.id to trashId)).forEach { repo.evict(credentials.id, it) } }
+        viewModelScope.launch { repo.cachedIds(listOf(credentials.id to trashId)).forEach { repo.evict(credentials.id, it.emailId) } }
         _pendingPurge.value = getApplication<Application>().getString(R.string.status_trash_emptied)
         MessageDestroyWorker.schedulePurge(getApplication(), credentials.id, trashId, PURGE_HOLD_BACK_MS)
         val target = credentials.id to trashId
@@ -1061,7 +1066,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Swipe action: toggle flag/star. */
     fun toggleFlag(email: Email) {
         val flagged = !email.isFlagged
-        patchSearchResults(setOf(email.id)) { m ->
+        patchSearchResults(setOf(email.emailKey())) { m ->
             m.copy(
                 keywords = m.keywords.toMutableMap().apply {
                     if (flagged) put("\$flagged", true) else remove("\$flagged")
@@ -1126,7 +1131,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val scopes = currentScopes()
             val cachedUnread = repo.cachedEmailsForMailboxes(scopes).filter { !it.isSeen }
-            patchThreadMembersSeen(cachedUnread.mapTo(mutableSetOf()) { it.id }, true)
+            patchThreadMembersSeen(cachedUnread.mapTo(mutableSetOf()) { it.emailKey() }, true)
             scopes.forEach { (accountId, mailboxId) ->
                 val credentials = store.credentials(accountId) ?: return@forEach
                 // Server-resolved targets (cached fallback offline): acting on the cached rows
@@ -1145,16 +1150,17 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     // ---- multi-select ----
 
-    fun enterSelection(emailId: String) {
+    fun enterSelection(email: Email) {
         _selectionActive.value = true
-        _selectedIds.value = setOf(emailId)
+        _selectedKeys.value = setOf(email.emailKey())
     }
 
-    fun toggleSelect(emailId: String) {
-        val next = _selectedIds.value.toMutableSet().apply {
-            if (!add(emailId)) remove(emailId)
+    fun toggleSelect(email: Email) {
+        val key = email.emailKey()
+        val next = _selectedKeys.value.toMutableSet().apply {
+            if (!add(key)) remove(key)
         }
-        _selectedIds.value = next
+        _selectedKeys.value = next
         // Deselecting the last message leaves selection mode (otherwise the row stays
         // in a 0-selected state where swipes hit the drawer instead of the message).
         if (next.isEmpty()) _selectionActive.value = false
@@ -1167,19 +1173,19 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun enterSelectionThread(rep: Email) {
         _selectionActive.value = true
-        _selectedIds.value = setOf(rep.id)
+        _selectedKeys.value = setOf(rep.emailKey())
         viewModelScope.launch {
-            _selectedIds.value = _selectedIds.value + threadMessages(rep).map { it.id }
+            _selectedKeys.value = _selectedKeys.value + threadMessages(rep).map { it.emailKey() }
         }
     }
 
     /** Toggle a collapsed conversation row in/out of the selection — all members at once. */
     fun toggleSelectThread(rep: Email) {
         viewModelScope.launch {
-            val ids = threadMessages(rep).mapTo(mutableSetOf()) { it.id } + rep.id
-            val current = _selectedIds.value
-            val next = if (rep.id in current) current - ids else current + ids
-            _selectedIds.value = next
+            val keys = threadMessages(rep).mapTo(mutableSetOf()) { it.emailKey() } + rep.emailKey()
+            val current = _selectedKeys.value
+            val next = if (rep.emailKey() in current) current - keys else current + keys
+            _selectedKeys.value = next
             if (next.isEmpty()) _selectionActive.value = false
         }
     }
@@ -1187,13 +1193,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun selectAll() {
         _selectionActive.value = true
         viewModelScope.launch {
-            _selectedIds.value = repo.cachedIds(currentScopes()).toSet()
+            _selectedKeys.value = repo.cachedIds(currentScopes()).toSet()
         }
     }
 
     fun clearSelection() {
         _selectionActive.value = false
-        _selectedIds.value = emptySet()
+        _selectedKeys.value = emptySet()
     }
 
     /** Apply a bulk action to the selected messages; exits selection mode unless [clearAfter] is false. */
@@ -1202,18 +1208,18 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         undoLabel: String? = null,
         op: suspend (AccountCredentials, String) -> Unit,
     ) {
-        val ids = _selectedIds.value
+        val keys = _selectedKeys.value
         if (clearAfter) clearSelection()
         // Every bulk op removes its messages from the current view; expanded-conversation
         // members live in a static snapshot, so drop them there too or the rows linger.
-        dropThreadMembers(ids)
+        dropThreadMembers(keys)
         viewModelScope.launch {
             var failed = 0
             // For a reversible bulk op (move to Trash/Archive/folder), capture each message's
             // source mailbox so the whole batch can be moved back — the same Undo a swipe of one
             // message already offers, so bulk and swipe behave the same (Codeberg #23).
             val undoEntries = mutableListOf<UndoEntry>()
-            repo.cachedEmailsByIds(ids).forEach { email ->
+            repo.cachedEmailsByIds(keys).forEach { email ->
                 val credentials = credentialsFor(email)
                 if (credentials == null) { failed++; return@forEach }
                 runCatching { op(credentials, email.id) }
@@ -1252,28 +1258,29 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private fun bulkBatched(
         clearAfter: Boolean = true,
         undoLabel: String? = null,
-        ids: Set<String>? = null,
+        keys: Set<EmailKey>? = null,
         batchOp: suspend (AccountCredentials, List<String>) -> MailRepository.BulkResult,
     ) {
-        val targetIds = ids ?: _selectedIds.value
+        val targetKeys = keys ?: _selectedKeys.value
         if (clearAfter) clearSelection()
-        dropThreadMembers(targetIds)
+        dropThreadMembers(targetKeys)
         viewModelScope.launch {
-            val emails = repo.cachedEmailsByIds(targetIds)
+            val emails = repo.cachedEmailsByIds(targetKeys)
             // Only the cached (acted-on) rows leave the search snapshot — never a row the
             // batch below won't touch; the failed ones are restored once the batch settles.
-            dropSearchResults(emails.mapTo(mutableSetOf()) { it.id })
-            val failedIds = mutableSetOf<String>()
+            dropSearchResults(emails.mapTo(mutableSetOf()) { it.emailKey() })
+            val failedKeys = mutableSetOf<EmailKey>()
             val undoEntries = mutableListOf<UndoEntry>()
-            // AccountCredentials is a data class, so all of an account's messages group together.
+            // AccountCredentials is a data class, so all of an account's messages group together —
+            // and each account's batch receives exactly ITS ids, never a colliding sibling's.
             emails.groupBy { credentialsFor(it) }.forEach { (credentials, group) ->
-                if (credentials == null) { failedIds += group.map { it.id }; return@forEach }
+                if (credentials == null) { failedKeys += group.map { it.emailKey() }; return@forEach }
                 val result = runCatching { batchOp(credentials, group.map { it.id }) }
                     .getOrElse {
                         android.util.Log.w("SternaBulk", "batch op failed for ${credentials.id}", it)
                         MailRepository.BulkResult(emptySet(), group.mapTo(mutableSetOf()) { e -> e.id })
                     }
-                failedIds += result.failed
+                failedKeys += group.filter { it.id in result.failed }.map { it.emailKey() }
                 if (undoLabel != null) {
                     group.forEach { email ->
                         if (email.id in result.succeeded) {
@@ -1282,7 +1289,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
-            restoreSearchResults(failedIds)
+            restoreSearchResults(failedKeys)
             repo.resetSyncState()
             refresh()
             // After the full re-query settles: re-cache the touched conversations' members
@@ -1291,16 +1298,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             if (undoLabel != null && undoEntries.isNotEmpty()) {
                 _undo.value = UndoAction(undoEntries, undoLabel)
             }
-            if (failedIds.isNotEmpty()) {
+            if (failedKeys.isNotEmpty()) {
                 _message.value = getApplication<Application>().getString(R.string.status_action_failed)
             }
         }
     }
 
     fun deleteSelected() {
-        val ids = _selectedIds.value
+        val keys = _selectedKeys.value
         viewModelScope.launch {
-            val emails = repo.cachedEmailsByIds(ids)
+            val emails = repo.cachedEmailsByIds(keys)
             // The subset whose delete would permanently destroy (in Trash, or no Trash) is held
             // back behind Undo exactly like a swipe delete — never destroyed inline — so bulk
             // delete is consistent (Codeberg #23); the rest keeps the move-to-Trash bulk path.
@@ -1315,7 +1322,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 // Mixed destroy+move: only the held-back destroy offers Undo (see deleteThread).
                 bulkBatched(
                     undoLabel = getApplication<Application>().getString(R.string.status_message_deleted).takeIf { destroy.isEmpty() },
-                    ids = move.mapTo(mutableSetOf()) { it.id },
+                    keys = move.mapTo(mutableSetOf()) { it.emailKey() },
                 ) { c, batch -> repo.deleteAll(c, batch) }
             }
         }
@@ -1324,20 +1331,20 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Move the selection to [targetMailboxId] (used for unarchive → Inbox and move-to-folder). */
     fun moveSelectedTo(targetMailboxId: String) {
-        val ids = _selectedIds.value
+        val keys = _selectedKeys.value
         viewModelScope.launch {
             // The picker listed the CURRENT account's folders, but a unified-inbox selection
             // can span accounts — and the same folder id in a sibling account is a different
             // (or nonexistent) folder, since same-server mailbox ids collide. Only the current
             // account's messages move; the rest are left untouched and reported.
             val currentId = store.currentId()
-            val (movable, skipped) = repo.cachedEmailsByIds(ids).partition { credentialsFor(it)?.id == currentId }
+            val (movable, skipped) = repo.cachedEmailsByIds(keys).partition { credentialsFor(it)?.id == currentId }
             clearSelection()
             if (skipped.isNotEmpty()) {
                 _message.value = getApplication<Application>().getString(R.string.status_move_other_account)
             }
             if (movable.isNotEmpty()) {
-                bulkBatched(ids = movable.mapTo(mutableSetOf()) { it.id }) { c, batch -> repo.moveAllToMailbox(c, batch, targetMailboxId) }
+                bulkBatched(keys = movable.mapTo(mutableSetOf()) { it.emailKey() }) { c, batch -> repo.moveAllToMailbox(c, batch, targetMailboxId) }
             }
         }
     }
@@ -1468,12 +1475,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * and keeps the selection (only the read state changes, the list view stays put).
      */
     fun toggleSelectedRead() {
-        val ids = _selectedIds.value
-        if (ids.isEmpty()) return
+        val keys = _selectedKeys.value
+        if (keys.isEmpty()) return
         viewModelScope.launch {
-            val emails = repo.cachedEmailsByIds(ids)
+            val emails = repo.cachedEmailsByIds(keys)
             val targetSeen = !emails.all { it.isSeen }
-            patchThreadMembersSeen(emails.mapTo(mutableSetOf()) { it.id }, targetSeen)
+            patchThreadMembersSeen(emails.mapTo(mutableSetOf()) { it.emailKey() }, targetSeen)
             emails.forEach { email ->
                 val credentials = credentialsFor(email) ?: return@forEach
                 runCatching { repo.setRead(credentials, email.id, targetSeen) }
@@ -1484,8 +1491,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun refreshSelectionReadState(ids: Set<String>) {
-        _selectionAllRead.value = ids.isNotEmpty() && repo.cachedEmailsByIds(ids).all { it.isSeen }
+    private suspend fun refreshSelectionReadState(keys: Set<EmailKey>) {
+        _selectionAllRead.value = keys.isNotEmpty() && repo.cachedEmailsByIds(keys).all { it.isSeen }
     }
 
     // ---- inline search ----
@@ -1537,7 +1544,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             val local = runCatching { repo.searchIndex(query) }.getOrNull().orEmpty()
             if (searchState.value.query != query) return@launch
             searchState.value = searchState.value.copy(
-                results = local.filterNot { it.id in searchRemoved },
+                results = local.filterNot { it.emailKey() in searchRemoved },
                 loading = true,
             )
             // 2) Server full-text after a short typing pause: the server's own index sees everything
@@ -1569,7 +1576,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      *  unfiltered merge would resurrect the swiped-away row (see [searchRemoved]). */
     private fun mergeHits(a: List<Email>, b: List<Email>): List<Email> =
         (a + b).distinctBy { it.accountId to it.id }
-            .filterNot { it.id in searchRemoved }
+            .filterNot { it.emailKey() in searchRemoved }
             // receivedAt is an ISO-8601 UTC string, so lexicographic sort == chronological.
             .sortedByDescending { it.receivedAt ?: "" }
 

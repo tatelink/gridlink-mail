@@ -308,6 +308,18 @@ data class InboxRow(
     val threadExpandable: Boolean = threadCount > 1,
 )
 
+/**
+ * An account-qualified message key. Same-server accounts can cache COLLIDING email ids (servers
+ * like Stalwart number objects per account), and the unified inbox shows both rows side by side —
+ * so anything that identifies a message across accounts (list keys, the multi-select set, bulk-
+ * action routing) must carry the account too, or an action on id X hits both accounts' X.
+ * [accountId] is null only for an email that never came from the cache (single-account fallback).
+ */
+data class EmailKey(val accountId: String?, val emailId: String)
+
+/** The [EmailKey] of an email as the cache/UI sees it. */
+fun Email.emailKey(): EmailKey = EmailKey(accountId, id)
+
 /** Metadata about the selected mailbox after a refresh. */
 data class MailboxMeta(
     val accountName: String,
@@ -497,26 +509,36 @@ class MailRepository(
      * this for any changed row under thread-collapsing). We must not evict it then —
      * guard such ids briefly so a lagging delta can't drop a just-favourited message.
      */
+    // Keyed "$accountId:$emailId", not by bare id: same-server accounts can cache colliding
+    // email ids (issue #31), and a bare-id guard would shield — or expire — a sibling
+    // account's same-id row too.
     private val recentlyMutated = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private fun markRecentlyMutated(emailId: String) {
-        recentlyMutated[emailId] = System.currentTimeMillis()
+    private fun mutationKey(accountId: String, emailId: String) = "$accountId:$emailId"
+    private fun markRecentlyMutated(accountId: String, emailId: String) {
+        recentlyMutated[mutationKey(accountId, emailId)] = System.currentTimeMillis()
     }
-    private fun isRecentlyMutated(emailId: String): Boolean {
-        val at = recentlyMutated[emailId] ?: return false
+    private fun isRecentlyMutated(accountId: String, emailId: String): Boolean =
+        isRecentlyMutatedKey(mutationKey(accountId, emailId))
+    private fun isRecentlyMutatedKey(key: String): Boolean {
+        val at = recentlyMutated[key] ?: return false
         if (System.currentTimeMillis() - at > RECENT_MUTATION_MS) {
-            recentlyMutated.remove(emailId)
+            recentlyMutated.remove(key)
             return false
         }
         return true
     }
 
     /**
-     * The ids still inside their mutation-protection window (expired entries are pruned as a
-     * side effect). Handed to the full-query reconcile so a fresh page can't delete a row we
-     * just mutated/restored but the server hasn't caught up on yet.
+     * [accountId]'s email ids still inside their mutation-protection window (expired entries are
+     * pruned as a side effect). Handed to the full-query reconcile so a fresh page can't delete
+     * a row we just mutated/restored but the server hasn't caught up on yet.
      */
-    private fun recentlyMutatedIds(): List<String> =
-        recentlyMutated.keys.filter { isRecentlyMutated(it) }
+    private fun recentlyMutatedIds(accountId: String): List<String> {
+        val prefix = "$accountId:"
+        return recentlyMutated.keys
+            .filter { it.startsWith(prefix) && isRecentlyMutatedKey(it) }
+            .map { it.removePrefix(prefix) }
+    }
 
     /**
      * Bring a mailbox's cache up to date. Uses Email/queryChanges + Email/changes when
@@ -553,7 +575,7 @@ class MailRepository(
                 // the pre-mutation query state can report it as removed even though it's
                 // still in the mailbox (it only changed a keyword).
                 val toRemove = ((queryChanges.removed.toSet() - added).toList() + changes.destroyed)
-                    .filterNot { isRecentlyMutated(it) }
+                    .filterNot { isRecentlyMutated(localAccountId, it) }
                 if (toRemove.isNotEmpty()) emailDao.deleteByIds(localAccountId, toRemove)
                 val cachedIds = emailDao.getByMailbox(localAccountId, mailboxId).map { it.id }.toSet()
                 val toFetch = ((added - cachedIds) + changes.updated.filter { it in cachedIds }).distinct()
@@ -568,7 +590,7 @@ class MailRepository(
         }
         // Cold cache, or the server can't compute changes — full query.
         val page = client.queryEmailsPage(session, accountId, mailboxId, limit, auth)
-        emailDao.replaceMailbox(localAccountId, mailboxId, page.emails.map { it.toEntity(localAccountId, mailboxId) }, recentlyMutatedIds())
+        emailDao.replaceMailbox(localAccountId, mailboxId, page.emails.map { it.toEntity(localAccountId, mailboxId) }, recentlyMutatedIds(localAccountId))
         android.util.Log.i("MailSync", "full query $mailboxId: ${page.emails.size} emails")
         val queryState = page.queryState
         val emailState = page.emailState
@@ -838,17 +860,25 @@ class MailRepository(
     // like Stalwart number mailboxes per-account, so two accounts' inboxes can share an id
     // and a mailbox-only read would silently pull a sibling account's rows into a bulk op.
 
-    /** All cached ids for the given (account, mailbox) scopes (drives "select all"). */
-    suspend fun cachedIds(scopes: List<Pair<String, String>>): List<String> =
-        scopes.flatMap { (accountId, mailboxId) -> emailDao.idsForMailbox(accountId, mailboxId) }
+    /** All cached (account, id) keys for the given (account, mailbox) scopes (drives "select all"). */
+    suspend fun cachedIds(scopes: List<Pair<String, String>>): List<EmailKey> =
+        scopes.flatMap { (accountId, mailboxId) ->
+            emailDao.idsForMailbox(accountId, mailboxId).map { EmailKey(accountId, it) }
+        }
 
     /** All cached emails for the given (account, mailbox) scopes (drives "mark all read"). */
     suspend fun cachedEmailsForMailboxes(scopes: List<Pair<String, String>>): List<Email> =
         scopes.flatMap { (accountId, mailboxId) -> emailDao.getByMailbox(accountId, mailboxId) }.map { it.toEmail() }
 
-    /** Cached emails by id (drives bulk actions on a selection). */
-    suspend fun cachedEmailsByIds(ids: Collection<String>): List<Email> =
-        if (ids.isEmpty()) emptyList() else emailDao.emailsByIds(ids.toList()).map { it.toEmail() }
+    /** Cached emails for account-qualified keys (drives bulk actions on a selection). Each id is
+     *  resolved ONLY inside its own account, so a colliding id can never drag a sibling account's
+     *  message into the op; a null accountId falls back to an unscoped lookup. */
+    suspend fun cachedEmailsByIds(keys: Collection<EmailKey>): List<Email> {
+        if (keys.isEmpty()) return emptyList()
+        return keys.groupBy({ it.accountId }, { it.emailId }).flatMap { (accountId, ids) ->
+            if (accountId != null) emailDao.emailsByIds(accountId, ids) else emailDao.emailsByIds(ids)
+        }.map { it.toEmail() }
+    }
 
     /**
      * Every unread message id in [mailboxId], resolved SERVER-side (uncollapsed Email/query
@@ -972,7 +1002,7 @@ class MailRepository(
             runCatching {
                 if (credentials.protocol == MailProtocol.IMAP) {
                     val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = limit)
-                    emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds())
+                    emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds(credentials.id))
                     mailboxDao.replaceAll(credentials.id, load.mailboxes)
                     results += AccountInboxMeta(
                         credentials.id, load.accountName, load.targetMailboxId, load.targetName, load.unread,
@@ -1352,7 +1382,7 @@ class MailRepository(
         pruneBeforeMillis: Long?,
     ): MailboxMeta {
         val load = imap.loadFolder(credentials, mailboxId, limit)
-        emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds())
+        emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds(credentials.id))
         mailboxDao.replaceAll(credentials.id, load.mailboxes)
         if (pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, load.targetMailboxId, pruneBeforeMillis)
         return MailboxMeta(load.accountName, load.targetMailboxId, load.targetName, load.unread)
@@ -1447,7 +1477,7 @@ class MailRepository(
     suspend fun openMessage(credentials: AccountCredentials, emailId: String, markRead: Boolean = true): MessageBody {
         // A message decrypted earlier this process renders instantly (memory only,
         // never persisted — see decryptMessage).
-        decryptedCache.get(emailId)?.let { entry ->
+        decryptedCache.get(cryptoKey(credentials.id, emailId))?.let { entry ->
             if (markRead) bgScope.launch { runCatching { setRead(credentials, emailId, true) } }
             return entry.body
         }
@@ -1477,10 +1507,15 @@ class MailRepository(
     /** Decrypted message bodies + their raw decrypted MIME entity, memory only, small LRU. */
     private class DecryptedEntry(val body: MessageBody, val decryptedEntity: String?)
 
+    // Both crypto caches are keyed "$accountId:$emailId" (see [cryptoKey]): same-server accounts
+    // can cache colliding email ids (issue #31), and a bare-id key would serve one account's
+    // decrypted body — or raw source — for the sibling account's same-id message.
     private val decryptedCache = android.util.LruCache<String, DecryptedEntry>(8)
 
     /** Raw sources of crypto messages being decrypted (avoids refetching on interaction retries). */
     private val rawSourceCache = android.util.LruCache<String, String>(4)
+
+    private fun cryptoKey(accountId: String, emailId: String) = "$accountId:$emailId"
 
     /**
      * Structural check for OpenPGP content on an already-fetched [Email]. Both
@@ -1506,7 +1541,7 @@ class MailRepository(
         email: Email,
         emailId: String,
     ): String {
-        rawSourceCache.get(emailId)?.let { return it }
+        rawSourceCache.get(cryptoKey(credentials.id, emailId))?.let { return it }
         val raw = if (credentials.protocol == MailProtocol.IMAP) {
             val mailboxId = emailDao.mailboxOf(credentials.id, emailId) ?: email.mailboxId
                 ?: error("Unknown mailbox for message.")
@@ -1518,7 +1553,7 @@ class MailRepository(
             client.downloadBlob(ctx.session, ctx.accountId, blobId, "message/rfc822", "message.eml", ctx.auth)
                 .toString(Charsets.UTF_8)
         }
-        rawSourceCache.put(emailId, raw)
+        rawSourceCache.put(cryptoKey(credentials.id, emailId), raw)
         return raw
     }
 
@@ -1535,7 +1570,7 @@ class MailRepository(
         interactionResult: android.content.Intent? = null,
     ): PgpResult<MessageBody> {
         val pgp = pgpEngine ?: return PgpResult.NotAvailable
-        decryptedCache.get(emailId)?.let { return PgpResult.Success(it.body) }
+        decryptedCache.get(cryptoKey(credentials.id, emailId))?.let { return PgpResult.Success(it.body) }
         val email = runCatching { openEmail(credentials, emailId, markRead = false) }
             .getOrElse { return PgpResult.Error(it.message ?: "Cannot fetch message") }
         val raw = runCatching { fetchRawSource(credentials, email, emailId) }
@@ -1568,8 +1603,8 @@ class MailRepository(
             is PgpResult.Success -> {
                 val entry = runCatching { buildDecrypted(email, envelope, result.value) }
                     .getOrElse { return PgpResult.Error(it.message ?: "Cannot rebuild decrypted body") }
-                decryptedCache.put(emailId, entry)
-                rawSourceCache.remove(emailId)
+                decryptedCache.put(cryptoKey(credentials.id, emailId), entry)
+                rawSourceCache.remove(cryptoKey(credentials.id, emailId))
                 PgpResult.Success(entry.body)
             }
             is PgpResult.UserInteractionRequired -> result
@@ -1639,10 +1674,10 @@ class MailRepository(
     }
 
     /** Serve an attachment that lives inside a decrypted entity ("pgp:<section>"). */
-    private fun pgpAttachmentBytes(emailId: String, part: EmailBodyPart): ByteArray {
+    private fun pgpAttachmentBytes(accountId: String, emailId: String, part: EmailBodyPart): ByteArray {
         val section = part.partId?.removePrefix("pgp:")
             ?: error("Not a decrypted attachment part.")
-        val entity = decryptedCache.get(emailId)?.decryptedEntity
+        val entity = decryptedCache.get(cryptoKey(accountId, emailId))?.decryptedEntity
             ?: error("Message is no longer decrypted — reopen it first.")
         val (cte, encoded) = MimeParser.partAt(entity, section)
             ?: error("Attachment not found in the decrypted message.")
@@ -1735,7 +1770,7 @@ class MailRepository(
     }
 
     suspend fun setRead(credentials: AccountCredentials, emailId: String, seen: Boolean) {
-        markRecentlyMutated(emailId)
+        markRecentlyMutated(credentials.id, emailId)
         // Capture before the change so we only move the folder counter on a real transition.
         val wasSeen = emailDao.seenOf(credentials.id, emailId)
         val mailboxId = emailDao.mailboxOf(credentials.id, emailId)
@@ -1773,7 +1808,7 @@ class MailRepository(
             val rows = emailDao.emailsByIds(credentials.id, chunk).associateBy { it.id }
             val result = client.setSeenAll(ctx.session, ctx.accountId, chunk, seen, ctx.auth)
             val done = chunk.filter { it in result.done }
-            done.forEach { markRecentlyMutated(it); emailDao.setSeen(credentials.id, it, seen) }
+            done.forEach { markRecentlyMutated(credentials.id, it); emailDao.setSeen(credentials.id, it, seen) }
             done.mapNotNull { rows[it] }.filter { it.seen != seen }
                 .groupBy { it.mailboxId }
                 .forEach { (mailboxId, group) ->
@@ -1806,7 +1841,7 @@ class MailRepository(
         accountStore.account(accountId)?.protocol == MailProtocol.IMAP
 
     suspend fun setFlagged(credentials: AccountCredentials, emailId: String, flagged: Boolean) {
-        markRecentlyMutated(emailId)
+        markRecentlyMutated(credentials.id, emailId)
         if (credentials.protocol == MailProtocol.IMAP) {
             imapTarget(emailId)?.let { (mb, uid) -> imap.setFlag(credentials, mb, uid, "\\Flagged", flagged) }
             emailDao.setFlagged(credentials.id, emailId, flagged)
@@ -2071,7 +2106,7 @@ class MailRepository(
         val members = emailDao.threadMembersInMailbox(credentials.id, archive, threadIds.toList())
         if (members.isEmpty()) return emptyList()
         // Protect the rows BEFORE the server call, so a sync firing mid-move can't evict them.
-        members.forEach { markRecentlyMutated(it.id) }
+        members.forEach { markRecentlyMutated(credentials.id, it.id) }
         val result = runCatching {
             client.move(ctx.session, ctx.accountId, members.map { it.id }, inbox, ctx.auth)
         }.getOrNull() ?: return emptyList()
@@ -2428,7 +2463,7 @@ class MailRepository(
         if (targets.isEmpty()) return emptySet()
         // Protect the restored ids from the next reconcile BEFORE any server call, so even a sync
         // that fires mid-restore can't drop them.
-        targets.forEach { markRecentlyMutated(it.emailId) }
+        targets.forEach { markRecentlyMutated(credentials.id, it.emailId) }
         val restored = mutableSetOf<String>()
         if (credentials.protocol == MailProtocol.IMAP) {
             // Group by (current folder the message sits in, source folder to return it to).
@@ -2451,7 +2486,7 @@ class MailRepository(
                     runCatching { imap.fetchByUids(credentials, source, newUids) }
                         .getOrDefault(emptyList())
                         .takeIf { it.isNotEmpty() }
-                        ?.let { fetched -> emailDao.upsertAll(fetched); fetched.forEach { markRecentlyMutated(it.id) } }
+                        ?.let { fetched -> emailDao.upsertAll(fetched); fetched.forEach { markRecentlyMutated(credentials.id, it.id) } }
                 }
             }
             restored.forEach { lastImapMove.remove(it) }
@@ -2471,7 +2506,7 @@ class MailRepository(
             val fetched = runCatching { client.getEmailsByIds(ctx.session, ctx.accountId, ids, ctx.auth) }.getOrDefault(emptyList())
             if (fetched.isNotEmpty()) {
                 emailDao.upsertAll(fetched.map { it.toEntity(ctx.credentials.id, source) })
-                fetched.forEach { markRecentlyMutated(it.id) }
+                fetched.forEach { markRecentlyMutated(credentials.id, it.id) }
             }
         }
         restoreCounts(credentials.id, targets.filter { it.emailId in restored })
@@ -2543,7 +2578,7 @@ class MailRepository(
      */
     suspend fun emptyTrash(credentials: AccountCredentials, trashMailboxId: String): Int {
         if (credentials.protocol == MailProtocol.IMAP) {
-            val ids = cachedIds(listOf(credentials.id to trashMailboxId))
+            val ids = cachedIds(listOf(credentials.id to trashMailboxId)).map { it.emailId }
             ids.forEach { id ->
                 imapTarget(id)?.let { (mb, uid) -> runCatching { imap.deleteMessage(credentials, mb, uid) } }
                 emailDao.deleteById(credentials.id, id)
@@ -2685,7 +2720,7 @@ class MailRepository(
             // prune every non-representative member straight back out, leaving the thread's
             // chip at 1 with its members unreachable. A later out-of-window re-query can still
             // prune them — that decay is accepted; expanding re-fetches.
-            entities.forEach { markRecentlyMutated(it.id) }
+            entities.forEach { markRecentlyMutated(credentials.id, it.id) }
         }
         return emails
     }
@@ -3400,7 +3435,7 @@ class MailRepository(
     ): ByteArray {
         // Attachments inside a decrypted OpenPGP message are sliced from the
         // in-memory decrypted entity — they have no fetchable server section.
-        if (part.partId?.startsWith("pgp:") == true) return pgpAttachmentBytes(emailId, part)
+        if (part.partId?.startsWith("pgp:") == true) return pgpAttachmentBytes(credentials.id, emailId, part)
         if (credentials.protocol == MailProtocol.IMAP) {
             val (mb, uid) = imapTarget(emailId) ?: error("Couldn't locate the message.")
             val section = part.partId ?: error("Attachment has no section.")

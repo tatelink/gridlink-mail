@@ -163,7 +163,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.data.settings.SwipeAction
+import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.mail.InboxRow
+import app.sterna.core.data.mail.emailKey
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.Mailbox
 import app.sterna.R
@@ -215,7 +217,7 @@ fun InboxScreen(
     val pagedEmails = viewModel.pagedEmails.collectAsLazyPagingItems()
     val swipe by viewModel.swipeConfig.collectAsStateWithLifecycle()
     val selectionActive by viewModel.selectionActive.collectAsStateWithLifecycle()
-    val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
+    val selectedKeys by viewModel.selectedKeys.collectAsStateWithLifecycle()
     val selectionAllRead by viewModel.selectionAllRead.collectAsStateWithLifecycle()
     // Inline conversation expansion: which threads are unfolded, and their lazily-loaded members.
     val expandedThreads by viewModel.expandedThreads.collectAsStateWithLifecycle()
@@ -593,7 +595,7 @@ fun InboxScreen(
         var prevKey: String? = null
         var wasAtTop = true
         snapshotFlow {
-            val key = if (pagedEmails.itemCount > 0) pagedEmails.peek(0)?.email?.id else null
+            val key = if (pagedEmails.itemCount > 0) pagedEmails.peek(0)?.email?.let { "${it.accountId}|${it.id}" } else null
             val atTop = listState.firstVisibleItemIndex == 0 &&
                 listState.firstVisibleItemScrollOffset == 0
             key to atTop
@@ -879,7 +881,7 @@ fun InboxScreen(
                             // A check + the count: compact and language-proof (the old
                             // "N sélectionné(s)" wrapped to three lines here). The full
                             // localized label is kept for screen readers.
-                            val countLabel = stringResource(R.string.inbox_selected_count, selectedIds.size)
+                            val countLabel = stringResource(R.string.inbox_selected_count, selectedKeys.size)
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.clearAndSetSemantics { contentDescription = countLabel },
@@ -890,7 +892,7 @@ fun InboxScreen(
                                     modifier = Modifier.size(22.dp),
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Text(selectedIds.size.toString(), maxLines = 1)
+                                Text(selectedKeys.size.toString(), maxLines = 1)
                             }
                         },
                         actions = {
@@ -1217,14 +1219,14 @@ fun InboxScreen(
                     onClick = {
                         if (selectionActive) {
                             // A collapsed conversation selects/deselects all its members at once.
-                            if (expandable) viewModel.toggleSelectThread(email) else viewModel.toggleSelect(email.id)
+                            if (expandable) viewModel.toggleSelectThread(email) else viewModel.toggleSelect(email)
                         } else {
                             viewModel.onEmailOpened(email.id)
                             onOpenEmail(email.id, email.accountId, entryIndex, fromSearch)
                         }
                     },
                     onLongClick = {
-                        if (expandable) viewModel.enterSelectionThread(email) else viewModel.enterSelection(email.id)
+                        if (expandable) viewModel.enterSelectionThread(email) else viewModel.enterSelection(email)
                     },
                     onToggleFavourite = {
                         val favouriting = !email.isFlagged
@@ -1232,7 +1234,7 @@ fun InboxScreen(
                         // Favourites pin to the top — scroll there so it's visibly landing.
                         if (favouriting) scope.launch { listState.animateScrollToItem(0) }
                     },
-                    selected = email.id in selectedIds,
+                    selected = email.emailKey() in selectedKeys,
                     gesturesEnabled = !selectionActive,
                     unread = row.unread,
                     threadCount = row.threadCount,
@@ -1261,15 +1263,15 @@ fun InboxScreen(
                         showRecipients = isOwnMailContext(ui),
                         highlightId = highlightId,
                         selectionActive = selectionActive,
-                        selectedIds = selectedIds,
+                        selectedKeys = selectedKeys,
                         onOpenChild = { child ->
                             viewModel.onEmailOpened(child.id)
                             onOpenThreadMessage(child.id, child.accountId)
                         },
                         onSwipeChild = { action, child -> performSwipe(action, child, viewModel, ui) },
                         onToggleChildFavourite = { child -> viewModel.toggleChildFlag(child) },
-                        onEnterSelectionChild = { child -> viewModel.enterSelection(child.id) },
-                        onToggleSelectChild = { child -> viewModel.toggleSelect(child.id) },
+                        onEnterSelectionChild = { child -> viewModel.enterSelection(child) },
+                        onToggleSelectChild = { child -> viewModel.toggleSelect(child) },
                         onHighlightShown = viewModel::clearHighlight,
                     )
                 }
@@ -1315,7 +1317,7 @@ fun InboxScreen(
                                         .padding(horizontal = 16.dp, vertical = 6.dp),
                                 )
                                 LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
-                                    itemsIndexed(ui.searchResults, key = { _, it -> it.id }) { index, email ->
+                                    itemsIndexed(ui.searchResults, key = { _, it -> "${it.accountId}|${it.id}" }) { index, email ->
                                         emailRow(InboxRow(email, threadCount = 1, unread = !email.isSeen), Modifier.animateItem(), false, index, true)
                                     }
                                 }
@@ -1336,7 +1338,7 @@ fun InboxScreen(
                         ) {
                             items(
                                 count = pagedEmails.itemCount,
-                                key = pagedEmails.itemKey { it.email.id },
+                                key = pagedEmails.itemKey { "${it.email.accountId}|${it.email.id}" },
                             ) { index ->
                                 // animateItem keeps each row identified across Paging snapshot
                                 // swaps so a read/unread toggle re-binds in place instead of
@@ -1857,7 +1859,7 @@ private fun ThreadChildren(
     showRecipients: Boolean,
     highlightId: String?,
     selectionActive: Boolean,
-    selectedIds: Set<String>,
+    selectedKeys: Set<EmailKey>,
     onOpenChild: (Email) -> Unit,
     onSwipeChild: (SwipeAction, Email) -> Unit,
     onToggleChildFavourite: (Email) -> Unit,
@@ -1873,7 +1875,7 @@ private fun ThreadChildren(
     ) {
         Column(Modifier.background(MaterialTheme.colorScheme.surface)) {
             members.forEach { child ->
-                key(child.id) {
+                key(child.accountId, child.id) {
                     val ownerAccount = if (unified) accounts.firstOrNull { it.id == child.accountId } else null
                     // Indented so the children read as belonging to the conversation above.
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1895,7 +1897,7 @@ private fun ThreadChildren(
                             // Children carry the same favourite star and attachment indicator as
                             // top-level rows, so the unfolded preview matches the collapsed one.
                             onToggleFavourite = { onToggleChildFavourite(child) },
-                            selected = child.id in selectedIds,
+                            selected = child.emailKey() in selectedKeys,
                             gesturesEnabled = !selectionActive,
                             unread = !child.isSeen,
                             threadCount = 1,
