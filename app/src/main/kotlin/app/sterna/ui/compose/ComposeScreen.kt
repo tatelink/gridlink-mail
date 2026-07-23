@@ -87,7 +87,9 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -264,13 +266,21 @@ fun ComposeScreen(
     var cc by rememberSaveable { mutableStateOf("") }
     var bcc by rememberSaveable { mutableStateOf("") }
     var subject by rememberSaveable { mutableStateOf("") }
-    var body by rememberSaveable { mutableStateOf("") }
+    // The body carries its caret with it (a TextFieldValue, not a bare String), so a prefilled
+    // compose can open with the cursor where writing continues (#63).
+    var body by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     var expanded by rememberSaveable { mutableStateOf(false) }
     var applied by rememberSaveable { mutableStateOf(false) }
     // Baseline to detect unsaved edits (set from the prefill for replies/forwards).
     var initialTo by rememberSaveable { mutableStateOf("") }
     var initialSubject by rememberSaveable { mutableStateOf("") }
     var initialBody by rememberSaveable { mutableStateOf("") }
+
+    // Land in the recipient field with the keyboard up, unless the recipients are already filled
+    // (a reply, or a reopened draft) — then the body takes the focus, see the prefill below.
+    // The To field opens and self-focuses via its `autoFocus` flag further down.
+    val toFocus = remember { FocusRequester() }
+    val bodyFocus = remember { FocusRequester() }
 
     LaunchedEffect(prefill) {
         prefill?.let {
@@ -282,24 +292,28 @@ fun ComposeScreen(
                 bcc = if (it.bcc.isNotBlank()) it.bcc.trimEnd(',', ';', ' ') + ", " else ""
                 if (it.expand) expanded = true
                 subject = it.subject
-                body = it.body
+                // Open with the caret where the writing continues, and the keyboard up: after the
+                // last character of a reopened draft, above the quoted original of a reply (#63).
+                val caret = initialBodyCaret(
+                    bodyLength = it.body.length,
+                    isDraft = draftId != null,
+                    isReply = replyTo != null && mode != "forward",
+                )
+                body = TextFieldValue(it.body, TextRange(caret ?: 0))
                 initialTo = prefilledTo
                 initialSubject = it.subject
                 initialBody = it.body
                 applied = true
+                if (caret != null) runCatching { bodyFocus.requestFocus() }
             }
         }
     }
-
-    // Land in the recipient field with the keyboard up, unless this is a reply (To is prefilled).
-    // The To field opens and self-focuses via its `autoFocus` flag below.
-    val toFocus = remember { FocusRequester() }
 
     val sending = state is ComposeState.Sending
 
     // Unsaved-changes guard: prompt before discarding non-empty, unsent edits.
     val dirty = to != initialTo || cc.isNotBlank() || bcc.isNotBlank() ||
-        subject != initialSubject || body != initialBody || attachments.isNotEmpty()
+        subject != initialSubject || body.text != initialBody || attachments.isNotEmpty()
     var showDiscard by remember { mutableStateOf(false) }
     val attemptClose = { if (dirty && !sending) showDiscard = true else onCancel() }
 
@@ -313,12 +327,12 @@ fun ComposeScreen(
     // absent = not yet checked, allowed — the send resolves keys and reports precisely).
     val keysReady = pgpMode != PgpMode.ENCRYPT || allRecipients.none { recipientKeys[it] == false }
     val canSend = recipientTokens(to).isNotEmpty() && allRecipients.all(::isValidEmail) && keysReady
-    val sendNow = { viewModel.send(to, cc, bcc, subject, body) }
+    val sendNow = { viewModel.send(to, cc, bcc, subject, body.text) }
     val proceedAfterAttachment = {
         if (recipientCount >= MANY_RECIPIENTS) showManyRecipients = true else sendNow()
     }
     val attemptSend = {
-        if (attachments.isEmpty() && mentionsAttachment("$subject\n$body")) {
+        if (attachments.isEmpty() && mentionsAttachment("$subject\n${body.text}")) {
             showForgotAttachment = true
         } else {
             proceedAfterAttachment()
@@ -373,7 +387,7 @@ fun ComposeScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showDiscard = false
-                    viewModel.saveDraft(to, cc, bcc, subject, body)
+                    viewModel.saveDraft(to, cc, bcc, subject, body.text)
                 }) { Text(stringResource(R.string.compose_discard_save)) }
             },
             dismissButton = {
@@ -431,7 +445,7 @@ fun ComposeScreen(
                     val encryptingNow = pgpMode == PgpMode.ENCRYPT
                     if (!encryptingNow) {
                         IconButton(
-                            onClick = { viewModel.saveDraft(to, cc, bcc, subject, body) },
+                            onClick = { viewModel.saveDraft(to, cc, bcc, subject, body.text) },
                             enabled = !sending,
                         ) {
                             Icon(Icons.Filled.Save, contentDescription = stringResource(R.string.compose_save_draft))
@@ -450,7 +464,7 @@ fun ComposeScreen(
                                     text = { Text(label) },
                                     onClick = {
                                         scheduleMenu = false
-                                        viewModel.scheduleSend(to, cc, bcc, subject, body, millis)
+                                        viewModel.scheduleSend(to, cc, bcc, subject, body.text, millis)
                                         Toast.makeText(
                                             context,
                                             context.getString(R.string.compose_scheduled_toast, label),
@@ -539,7 +553,9 @@ fun ComposeScreen(
                 onSuggest = viewModel::suggest,
                 onClearSuggestions = viewModel::clearSuggestions,
                 focusRequester = toFocus,
-                autoFocus = replyTo == null,
+                // Whenever the recipients still have to be typed: a fresh mail and a forward. A
+                // reply and a reopened draft already have them, and focus the body instead (#63).
+                autoFocus = draftId == null && (replyTo == null || mode == "forward"),
                 missingKey = missingKeyFor,
                 trailing = {
                     IconButton(onClick = { expanded = !expanded }) {
@@ -651,9 +667,10 @@ fun ComposeScreen(
                     // keeps the cursor in view as you write (#26).
                     .weight(1f)
                     .padding(horizontal = 16.dp)
-                    .padding(top = 12.dp, bottom = 16.dp),
+                    .padding(top = 12.dp, bottom = 16.dp)
+                    .focusRequester(bodyFocus),
                 decorationBox = { inner ->
-                    if (body.isEmpty()) {
+                    if (body.text.isEmpty()) {
                         Text(
                             stringResource(R.string.compose_body_placeholder),
                             style = MaterialTheme.typography.bodyLarge,

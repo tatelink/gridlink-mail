@@ -210,4 +210,18 @@ class ComposeTextTest {
         assertEquals("", fields.body)
         assertFalse(fields.expand)
     }
+
+    // --- Where the caret lands when compose opens prefilled (#63) ---
+
+    @Test fun reopenedDraftResumesAfterItsLastCharacter() {
+        assertEquals(12, initialBodyCaret(bodyLength = 12, isDraft = true, isReply = false))
+    }
+
+    @Test fun replyStartsAboveTheQuotedOriginal() {
+        assertEquals(0, initialBodyCaret(bodyLength = 200, isDraft = false, isReply = true))
+    }
+
+    @Test fun newMailAndForwardLeaveTheBodyUnfocused() {
+        assertEquals(null, initialBodyCaret(bodyLength = 0, isDraft = false, isReply = false))
+    }
 }
