@@ -2906,6 +2906,11 @@ class MailRepository(
         else -> "$name <$email>"
     }
 
+    /**
+     * Save a draft; with [replacesEmailId] set (re-saving an opened draft, #63) the old server
+     * draft is destroyed once the new one is safely created, so saving never duplicates. The
+     * destroy is best-effort: a failure leaves a stale copy rather than failing the save.
+     */
     suspend fun saveDraft(
         credentials: AccountCredentials,
         to: List<String>,
@@ -2913,6 +2918,9 @@ class MailRepository(
         body: String,
         cc: List<String> = emptyList(),
         bcc: List<String> = emptyList(),
+        inReplyTo: List<String> = emptyList(),
+        references: List<String> = emptyList(),
+        replacesEmailId: String? = null,
     ) {
         val ccTrimmed = cc.map { it.trim() }.filter { it.isNotEmpty() }
         val bccTrimmed = bcc.map { it.trim() }.filter { it.isNotEmpty() }
@@ -2921,28 +2929,58 @@ class MailRepository(
             val drafts = mailboxDao.idForRole(credentials.id, "drafts") ?: error("This account has no Drafts folder.")
             imap.appendDraft(
                 credentials, drafts,
-                outgoing(credentials, recipients, subject, body, cc = ccTrimmed, bcc = bccTrimmed),
+                outgoing(credentials, recipients, subject, body, inReplyTo, references, cc = ccTrimmed, bcc = bccTrimmed),
             )
+            replacesEmailId?.let { runCatching { destroyDraft(credentials, it) } }
             return
         }
         val ctx = connect(credentials)
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
-        val identity = client.getIdentities(ctx.session, ctx.accountId, ctx.auth).firstOrNull()
-            ?: error("This account has no sending identity.")
+        // The identity only supplies the From header here. Identity/get needs the submission
+        // capability and is rejected outright on some setups (e.g. accessing a shared account:
+        // Stalwart answers a method-level "forbidden") — fall back to the stored identity or
+        // the sign-in address rather than refusing to save the draft.
+        val identity = runCatching { client.getIdentities(ctx.session, ctx.accountId, ctx.auth).firstOrNull() }
+            .getOrNull()
+        val storedIdentity = accountStore.identities(credentials.id).firstOrNull()
+        val from = when {
+            identity != null -> EmailAddress(name = identity.name, email = identity.email)
+            storedIdentity != null -> EmailAddress(name = storedIdentity.name, email = storedIdentity.email)
+            else -> EmailAddress(email = credentials.username)
+        }
         val draftsId = ctx.rolesToMailboxId["drafts"]
             ?: error("This account has no Drafts folder.")
         client.saveDraft(
             session = ctx.session,
             accountId = ctx.accountId,
             auth = ctx.auth,
-            from = EmailAddress(name = identity.name, email = identity.email),
+            from = from,
             to = recipients,
             cc = ccTrimmed.map { EmailAddress(email = it) },
             bcc = bccTrimmed.map { EmailAddress(email = it) },
             subject = subject,
             textBody = body,
             draftMailboxId = draftsId,
+            inReplyTo = inReplyTo,
+            references = references,
         )
+        replacesEmailId?.let { runCatching { destroyDraft(credentials, it) } }
+    }
+
+    /**
+     * Permanently destroy one saved draft, server and cache — used when an edited draft has
+     * been re-saved or successfully sent (#63), so no duplicate lingers in Drafts. JMAP is a
+     * single-id Email/set destroy; IMAP expunges the message from its folder.
+     */
+    private suspend fun destroyDraft(credentials: AccountCredentials, emailId: String) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val folder = emailDao.mailboxOf(emailId)
+                ?: mailboxDao.idForRole(credentials.id, "drafts")
+                ?: return
+            imapDestroyGroup(credentials, folder, listOf(emailId), mutableSetOf(), mutableSetOf())
+            return
+        }
+        jmapDestroyAll(connect(credentials), listOf(emailId))
     }
 
     // ---- outbox (persistent send queue) ----
@@ -2971,6 +3009,7 @@ class MailRepository(
         holdMs: Long = 0,
         pgpMode: PgpMode? = null,
         pgpEntity: String? = null,
+        draftEmailId: String? = null,
     ): Long {
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
         require(recipients.isNotEmpty()) { "Add at least one recipient." }
@@ -3002,6 +3041,7 @@ class MailRepository(
                 notBeforeMillis = now + holdMs,
                 state = if (held) OutboxState.HELD else OutboxState.QUEUED,
                 pgpMode = pgpMode?.takeIf { it != PgpMode.OFF }?.name,
+                draftEmailId = draftEmailId,
             ),
         )
         if (pgpEntity != null && pgpMode != null && pgpMode != PgpMode.OFF) {
@@ -3091,6 +3131,8 @@ class MailRepository(
         val attachments: List<EmailBodyPart>,
         val inReplyTo: List<String>,
         val references: List<String>,
+        /** The saved draft the item was edited from (#63), kept so re-sending still replaces it. */
+        val draftEmailId: String? = null,
     )
 
     /** Take an item out of the outbox for editing: build its draft, then delete the row + files. */
@@ -3125,6 +3167,7 @@ class MailRepository(
             attachments = parts,
             inReplyTo = item.inReplyTo?.split(" ")?.filter { it.isNotBlank() } ?: emptyList(),
             references = item.references?.split(" ")?.filter { it.isNotBlank() } ?: emptyList(),
+            draftEmailId = item.draftEmailId,
         )
         deleteOutbox(id)
         return draft
@@ -3132,6 +3175,14 @@ class MailRepository(
 
     /** Actually deliver one outbox item (no queue indirection); exceptions propagate to the worker. */
     suspend fun performSend(credentials: AccountCredentials, item: OutboxEntity) {
+        performDelivery(credentials, item)
+        // Delivered: the message this item was edited from (#63) leaves Drafts. Best-effort and
+        // strictly AFTER success — a cleanup hiccup must not fail (and so re-fire) a sent mail;
+        // a failed delivery above throws first, leaving the draft untouched.
+        item.draftEmailId?.let { runCatching { destroyDraft(credentials, it) } }
+    }
+
+    private suspend fun performDelivery(credentials: AccountCredentials, item: OutboxEntity) {
         val to = item.recipients.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         val subject = item.subject
         val body = item.textBody

@@ -1,5 +1,10 @@
 package app.sterna.ui.compose
 
+import app.sterna.core.jmap.model.Email
+import app.sterna.core.jmap.model.EmailAddress
+import app.sterna.core.jmap.model.EmailBodyPart
+import app.sterna.core.jmap.model.EmailBodyValue
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -160,5 +165,49 @@ class ComposeTextTest {
         )
         assertFalse("from escaped in html", blocks.html.contains("<script>evil"))
         assertTrue("ampersand escaped", blocks.html.contains("a &amp; b &lt; c"))
+    }
+
+    // --- Reopening a saved draft in compose (#63) ---
+
+    @Test fun draftFieldsCarryAddressingSubjectAndPlainBody() {
+        val draft = Email(
+            id = "d1",
+            subject = "Half-written",
+            to = listOf(EmailAddress(email = "a@example.com"), EmailAddress(name = "B", email = "b@example.com")),
+            cc = listOf(EmailAddress(email = "c@example.com")),
+            bcc = listOf(EmailAddress(email = "d@example.com")),
+            textBody = listOf(EmailBodyPart(partId = "1", type = "text/plain")),
+            bodyValues = mapOf("1" to EmailBodyValue("first line\nsecond line")),
+        )
+        val fields = draftFieldsOf(draft)
+        assertEquals("a@example.com, b@example.com", fields.to)
+        assertEquals("c@example.com", fields.cc)
+        assertEquals("d@example.com", fields.bcc)
+        assertEquals("Half-written", fields.subject)
+        assertEquals("first line\nsecond line", fields.body)
+        assertTrue("cc/bcc row revealed", fields.expand)
+    }
+
+    @Test fun draftFieldsFlattenHtmlOnlyBodyToText() {
+        // A draft saved by another client may be HTML-only; the plain-text editor gets it
+        // flattened with paragraphs preserved, not raw markup on one line.
+        val draft = Email(
+            id = "d2",
+            subject = "Html draft",
+            to = listOf(EmailAddress(email = "a@example.com")),
+            htmlBody = listOf(EmailBodyPart(partId = "h", type = "text/html")),
+            bodyValues = mapOf("h" to EmailBodyValue("<p>one</p><p>two &amp; three</p>")),
+        )
+        val fields = draftFieldsOf(draft)
+        assertEquals("one\ntwo & three", fields.body)
+        assertFalse("no cc/bcc row", fields.expand)
+    }
+
+    @Test fun draftFieldsTolerateEmptyDraft() {
+        val fields = draftFieldsOf(Email(id = "d3"))
+        assertEquals("", fields.to)
+        assertEquals("", fields.subject)
+        assertEquals("", fields.body)
+        assertFalse(fields.expand)
     }
 }

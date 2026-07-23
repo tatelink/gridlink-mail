@@ -21,6 +21,7 @@
     <string name="compose_attachment_fallback">pièce jointe</string>
     <string name="compose_body_placeholder">Rédigez votre message</string>
     <string name="compose_could_not_send">Échec de l\'envoi : %1$s</string>
+    <string name="compose_could_not_save">Échec de l\'enregistrement du brouillon : %1$s</string>
     <string name="compose_prefill_failed">Impossible de charger le message d\'origine.</string>
     <string name="compose_scheduled_toast">Programmé — %1$s</string>
     <string name="compose_discard_title">Abandonner le message ?</string>

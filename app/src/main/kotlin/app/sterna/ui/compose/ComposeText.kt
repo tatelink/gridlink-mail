@@ -1,5 +1,7 @@
 package app.sterna.ui.compose
 
+import app.sterna.core.jmap.model.Email
+
 /**
  * Heuristic "forgot the attachment?" check: does [text] (subject + body) mention
  * an attachment in one of the app's languages? Substrings are lower-cased and
@@ -107,3 +109,66 @@ internal fun htmlEscape(s: String): String =
 /** Escape for HTML and turn newlines into &lt;br&gt; so plain text keeps its line breaks. */
 internal fun htmlEscapeMultiline(s: String): String =
     htmlEscape(s).replace("\n", "<br>")
+
+/**
+ * Best-effort HTML→plain-text for quoting or editing an original that has no text/plain part
+ * (most modern mail is HTML-only). Converts block boundaries to newlines so the original
+ * keeps its paragraphs, instead of collapsing to one line.
+ */
+internal fun htmlToText(html: String): String =
+    html
+        .replace(Regex("(?is)<(script|style|head)\\b.*?</\\1>"), "")
+        .replace(Regex("(?i)<br\\s*/?>"), "\n")
+        .replace(Regex("(?i)</(p|div|li|tr|h[1-6]|blockquote|ul|ol|table)\\s*>"), "\n")
+        .replace(Regex("<[^>]+>"), "")
+        .let(::unescapeEntities)
+        .replace(Regex("[ \\t]+\n"), "\n")
+        .replace(Regex("\n{3,}"), "\n\n")
+        .trim()
+
+// &amp; last so an escaped entity like "&amp;lt;" decodes to "&lt;", not "<".
+internal fun unescapeEntities(s: String): String =
+    s.replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+
+/**
+ * The message's body as plain text: its text/plain part, else its HTML converted to text,
+ * else the one-line preview as a last resort. Used for quoting a reply and for reopening a
+ * draft in the plain-text editor (#63).
+ */
+internal fun originalPlainText(o: Email): String {
+    // HTML-only mail makes the server synthesise textBody = the HTML part, so the "text"
+    // body can actually be HTML. Convert it (keeping line breaks) instead of showing raw
+    // HTML on one line. A genuine text/plain part is used as-is.
+    val textPart = o.textBody.firstOrNull()
+    val raw = textPart?.partId?.let { o.bodyValues[it]?.value }
+    if (!raw.isNullOrBlank()) {
+        return if (textPart?.type.equals("text/html", ignoreCase = true)) htmlToText(raw) else raw
+    }
+    o.htmlContent()?.takeIf { it.isNotBlank() }?.let { return htmlToText(it) }
+    return o.preview.orEmpty()
+}
+
+/**
+ * Compose's initial fields when reopening a saved draft for editing (#63): every addressing
+ * field as typed-out addresses, the subject verbatim, and the body flattened to the plain-text
+ * editor's format. Cc/Bcc are revealed when the draft used them.
+ */
+internal fun draftFieldsOf(o: Email): DraftFields {
+    val to = o.to.joinToString(", ") { it.email }
+    val cc = o.cc.joinToString(", ") { it.email }
+    val bcc = o.bcc.joinToString(", ") { it.email }
+    return DraftFields(
+        to = to,
+        cc = cc,
+        bcc = bcc,
+        subject = o.subject.orEmpty(),
+        body = originalPlainText(o),
+        expand = cc.isNotBlank() || bcc.isNotBlank(),
+    )
+}

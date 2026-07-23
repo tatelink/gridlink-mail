@@ -34,6 +34,8 @@ class SendOutbox(private val scope: CoroutineScope) {
         /** For an undone forward: the carried original (text + html) so resending keeps it. */
         val forwardedText: String? = null,
         val forwardedHtml: String? = null,
+        /** The saved draft this message was edited from (#63), so re-sending still replaces it. */
+        val draftEmailId: String? = null,
     )
 
     private val _pending = MutableStateFlow<Pending?>(null)

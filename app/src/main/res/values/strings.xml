@@ -21,6 +21,7 @@
     <string name="compose_attachment_fallback">attachment</string>
     <string name="compose_body_placeholder">Compose email</string>
     <string name="compose_could_not_send">Could not send: %1$s</string>
+    <string name="compose_could_not_save">Could not save the draft: %1$s</string>
     <string name="compose_prefill_failed">Couldn\'t load the original message.</string>
     <string name="compose_scheduled_toast">Scheduled — %1$s</string>
     <string name="compose_discard_title">Discard message?</string>
