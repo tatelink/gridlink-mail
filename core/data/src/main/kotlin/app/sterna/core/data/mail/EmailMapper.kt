@@ -8,6 +8,27 @@ import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import java.time.Instant
 import java.time.OffsetDateTime
+import java.util.Collections
+
+/**
+ * Recipients of cached list rows, kept in memory only: the `emails` table predates them
+ * and a column would mean a schema bump. Recorded whenever a live fetch passes through
+ * [toEntity], replayed by [toEmail] so Sent/Drafts rows can show "To: …" (Codeberg #59).
+ * After process death a row falls back to its sender until the folder's next refresh.
+ */
+private const val RECIPIENTS_MAX = 2000
+private val recentRecipients: MutableMap<String, List<EmailAddress>> = Collections.synchronizedMap(
+    object : LinkedHashMap<String, List<EmailAddress>>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<EmailAddress>>): Boolean =
+            size > RECIPIENTS_MAX
+    },
+)
+
+/** Record [to] as the remembered recipients of email [id]; a no-op when empty (never
+ *  erase an earlier record — some fetch paths hand over an Email without recipients). */
+internal fun recordRecipients(id: String, to: List<EmailAddress>) {
+    if (to.isNotEmpty()) recentRecipients[id] = to
+}
 
 /** Map a grouped conversation row to the domain [InboxRow] (unread = any in thread). */
 internal fun ConversationRow.toInboxRow(): InboxRow =
@@ -20,6 +41,8 @@ internal fun ConversationRow.toInboxRow(): InboxRow =
 
 internal fun Email.toEntity(accountId: String, mailboxId: String): EmailEntity {
     val sender = from.firstOrNull()
+    // Recipients don't fit the row schema — remember them aside for [toEmail] to replay.
+    recordRecipients(id, to)
     return EmailEntity(
         id = id,
         accountId = accountId,
@@ -50,6 +73,7 @@ internal fun EmailEntity.toEmail(): Email = Email(
     } else {
         emptyList()
     },
+    to = recentRecipients[id].orEmpty(),
     hasAttachment = hasAttachment,
     keywords = buildMap {
         if (seen) put("\$seen", true)

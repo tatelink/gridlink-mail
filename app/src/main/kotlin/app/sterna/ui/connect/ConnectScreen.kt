@@ -42,6 +42,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -106,6 +107,8 @@ fun ConnectScreen(
     LaunchedEffect(Unit) { viewModel.resumeImportSignIn() }
 
     var protocol by rememberSaveable { mutableStateOf(MailProtocol.JMAP) }
+    // JMAP only: authenticate with a server-generated API token (Bearer) instead of a password.
+    var useApiToken by rememberSaveable { mutableStateOf(false) }
     var server by rememberSaveable { mutableStateOf("") }
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
     var accountName by rememberSaveable { mutableStateOf("") }
@@ -301,11 +304,41 @@ fun ConnectScreen(
             }
 
             if (protocol == MailProtocol.JMAP) {
+                Text(stringResource(R.string.connect_auth_method), style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !useApiToken,
+                        onClick = { useApiToken = false },
+                        label = { Text(stringResource(R.string.connect_password)) },
+                    )
+                    FilterChip(
+                        selected = useApiToken,
+                        onClick = { useApiToken = true },
+                        label = { Text(stringResource(R.string.connect_auth_api_token)) },
+                    )
+                }
                 Text(
-                    stringResource(R.string.connect_jmap_autodiscover_hint),
+                    stringResource(
+                        if (useApiToken) R.string.connect_api_token_hint else R.string.connect_jmap_autodiscover_hint,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // Fastmail's JMAP endpoint refuses password (Basic) auth — API tokens only
+                // (#54) — so steer its users to the token option before they hit the 401.
+                if (!useApiToken && isFastmailTarget(username, server)) {
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                    ) {
+                        Text(
+                            stringResource(R.string.connect_fastmail_token_hint),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                }
                 TextButton(
                     onClick = { showAdvanced = !showAdvanced },
                     contentPadding = PaddingValues(0.dp),
@@ -429,10 +462,18 @@ fun ConnectScreen(
                     listOf(AutofillType.EmailAddress, AutofillType.Username),
                 ) { username = it },
             )
+            // In API-token mode this same secret field holds the token (labelled accordingly).
+            val tokenMode = protocol == MailProtocol.JMAP && !oauthSelected && useApiToken
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text(stringResource(R.string.connect_password)) },
+                label = {
+                    Text(
+                        stringResource(
+                            if (tokenMode) R.string.connect_auth_api_token else R.string.connect_password,
+                        ),
+                    )
+                },
                 singleLine = true,
                 visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = {
@@ -458,7 +499,9 @@ fun ConnectScreen(
                     if (oauthSelected) {
                         viewModel.connectOutlookOAuth(username, accountName)
                     } else if (protocol == MailProtocol.JMAP) {
-                        if (server.isBlank()) {
+                        if (useApiToken) {
+                            viewModel.connectToken(server, username, password, accountName)
+                        } else if (server.isBlank()) {
                             viewModel.connectAuto(username, password, accountName)
                         } else {
                             viewModel.connect(server, username, password, accountName)
@@ -483,7 +526,7 @@ fun ConnectScreen(
                 )
             }
 
-            if (protocol == MailProtocol.JMAP) {
+            if (protocol == MailProtocol.JMAP && !useApiToken) {
                 TextButton(
                     onClick = { viewModel.connectOAuth(username, server, accountName) },
                     enabled = !busy && username.isNotBlank(),

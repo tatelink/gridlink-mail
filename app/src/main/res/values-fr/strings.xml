@@ -127,6 +127,7 @@
     <string name="message_retry">Réessayer</string>
     <string name="message_unknown_sender">(expéditeur inconnu)</string>
     <string name="message_no_subject">(sans objet)</string>
+    <string name="list_to_recipients">À : %1$s</string>
     <string name="message_attachments">Pièces jointes (%1$d)</string>
     <string name="message_attachment_fallback">pièce jointe</string>
     <string name="message_participants_title">Participants</string>
@@ -355,6 +356,7 @@
     <string name="settings_server_url_label">URL du serveur</string>
     <string name="settings_username_label">Nom d\'utilisateur</string>
     <string name="settings_password_label">Mot de passe (laisser vide pour conserver l\'actuel)</string>
+    <string name="settings_api_token_label">Jeton d\'API (laisser vide pour conserver l\'actuel)</string>
     <string name="settings_protocol_section">Protocole</string>
     <string name="settings_protocol_imap_smtp">IMAP / SMTP</string>
     <string name="settings_protocol_jmap">JMAP</string>
@@ -432,6 +434,11 @@
     <string name="connect_jmap_server">Serveur JMAP</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
     <string name="connect_jmap_autodiscover_hint">Saisissez simplement votre adresse e-mail et votre mot de passe — Sterna Mail trouvera votre serveur automatiquement.</string>
+    <string name="connect_auth_method">Se connecter avec</string>
+    <string name="connect_auth_api_token">Jeton d\'API</string>
+    <string name="connect_api_token_hint">Collez un jeton d\'API généré par votre fournisseur (par ex. Fastmail) au lieu d\'un mot de passe. Vous pouvez laisser le serveur vide ou coller son URL de session.</string>
+    <string name="connect_token_rejected">Le serveur a rejeté le jeton d\'API. Vérifiez qu\'il est valide et autorise l\'accès au courrier.</string>
+    <string name="connect_fastmail_token_hint">Fastmail nécessite un jeton API — choisissez « Jeton d\'API » ci-dessus.</string>
     <string name="connect_advanced_show">Paramètres avancés</string>
     <string name="connect_advanced_hide">Masquer les paramètres avancés</string>
     <string name="connect_discovering">Recherche de votre serveur…</string>
@@ -563,6 +570,8 @@
     <string name="settings_conversation_section">Conversations</string>
     <string name="settings_conversation_title">Affichage par conversation</string>
     <string name="settings_conversation_subtitle">Regrouper les messages d\'un même fil dans une seule ligne, avec un compteur.</string>
+    <string name="settings_unarchive_on_reply_title">Désarchiver à l\'arrivée d\'une réponse</string>
+    <string name="settings_unarchive_on_reply_subtitle">Quand une nouvelle réponse arrive, ramener les messages archivés de la conversation dans la boîte de réception.</string>
 
     <!-- Appended keys -->
     <string name="compose_many_recipients_title">Envoyer à de nombreuses personnes ?</string>

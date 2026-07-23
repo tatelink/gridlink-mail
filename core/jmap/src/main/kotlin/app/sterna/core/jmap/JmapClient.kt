@@ -69,24 +69,43 @@ class JmapClient internal constructor(
     /** GET the Session resource and parse it (RFC 8620 §2). */
     suspend fun fetchSession(sessionUrl: String, auth: JmapAuth): JmapSession =
         withContext(Dispatchers.IO) {
-            val request = Request.Builder()
-                .url(sessionUrl)
-                .header("Authorization", auth.authorizationHeader())
-                .header("Accept", "application/json")
-                .get()
-                .build()
-            httpClient.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    throw JmapException(
-                        "Session request failed: HTTP ${response.code} ${response.message}",
-                        httpCode = response.code,
-                    )
+            var url = sessionUrl
+            var retried = false
+            while (true) {
+                val request = Request.Builder()
+                    .url(url)
+                    .header("Authorization", auth.authorizationHeader())
+                    .header("Accept", "application/json")
+                    .get()
+                    .build()
+                val session = httpClient.newCall(request).execute().use { response ->
+                    // OkHttp drops the Authorization header when a redirect crosses hosts, so
+                    // an autodiscovery redirect (RFC 8620 §2.2, e.g. fastmail.com/.well-known/jmap
+                    // → api.fastmail.com/jmap/session) lands unauthenticated and 401s. Retry the
+                    // redirect target once, re-authenticated. The scheme check forbids a cleartext
+                    // downgrade (followSslRedirects(false) already refuses scheme switches).
+                    val landedAt = response.request.url
+                    if (!retried && response.code == 401 && response.priorResponse != null &&
+                        landedAt.toString() != url && url.startsWith("${landedAt.scheme}://")
+                    ) {
+                        retried = true
+                        url = landedAt.toString()
+                        return@use null
+                    }
+                    val body = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        throw JmapException(
+                            "Session request failed: HTTP ${response.code} ${response.message}",
+                            httpCode = response.code,
+                        )
+                    }
+                    runCatching { json.decodeFromString<JmapSession>(body) }
+                        .getOrElse { throw JmapException("Could not parse JMAP session", it) }
                 }
-                val session = runCatching { json.decodeFromString<JmapSession>(body) }
-                    .getOrElse { throw JmapException("Could not parse JMAP session", it) }
-                upgradeSessionUrls(session, sessionUrl)
+                if (session != null) return@withContext upgradeSessionUrls(session, url)
             }
+            @Suppress("UNREACHABLE_CODE")
+            throw IllegalStateException("unreachable")
         }
 
     /** Fetch all mailboxes for an account via a single Mailbox/get call (RFC 8621 §2.1). */
@@ -139,10 +158,6 @@ class JmapClient internal constructor(
         // it, instead of an absolute [position] that shifts when new mail arrives.
         anchorId: String? = null,
         anchorOffset: Int = 0,
-        // Uncollapsed (false, the default) returns every message, not one representative
-        // per thread: the local cache is WYSIWYG — it holds a folder's full contents and
-        // collapses into conversations at display time only. True is an explicit opt-in.
-        collapseThreads: Boolean = false,
         // Only unread messages (notKeyword $seen) — lets "Mark all read" resolve its
         // targets server-side instead of from the cached window.
         unseenOnly: Boolean = false,
@@ -167,7 +182,11 @@ class JmapClient internal constructor(
                                 put("isAscending", false)
                             }
                         }
-                        put("collapseThreads", collapseThreads)
+                        // Always uncollapsed — every message, not one representative per
+                        // thread: the local cache is WYSIWYG (a folder's full contents,
+                        // collapsed into conversations at display time only), and a collapsed
+                        // query once made "empty Trash" destroy only thread representatives.
+                        put("collapseThreads", false)
                         if (anchorId != null) {
                             put("anchor", anchorId)
                             put("anchorOffset", anchorOffset)
@@ -191,7 +210,7 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "threadId", "subject", "preview",
-                                "receivedAt", "from", "hasAttachment", "keywords",
+                                "receivedAt", "from", "to", "hasAttachment", "keywords",
                             ).forEach { add(it) }
                         }
                     }
@@ -232,7 +251,6 @@ class JmapClient internal constructor(
         auth: JmapAuth,
         position: Int = 0,
         calculateTotal: Boolean = false,
-        collapseThreads: Boolean = false,
         unseenOnly: Boolean = false,
     ): EmailIdPage = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
@@ -255,7 +273,9 @@ class JmapClient internal constructor(
                                 put("isAscending", false)
                             }
                         }
-                        put("collapseThreads", collapseThreads)
+                        // Always uncollapsed — see [queryEmailsPage]: bulk targets must
+                        // cover every message, never just thread representatives.
+                        put("collapseThreads", false)
                         put("position", position)
                         put("limit", limit)
                         if (calculateTotal) put("calculateTotal", true)
@@ -289,8 +309,7 @@ class JmapClient internal constructor(
         mailboxId: String,
         limit: Int,
         auth: JmapAuth,
-        collapseThreads: Boolean = false,
-    ): List<Email> = queryEmailsPage(session, accountId, mailboxId, limit, auth, collapseThreads = collapseThreads).emails
+    ): List<Email> = queryEmailsPage(session, accountId, mailboxId, limit, auth).emails
 
     /**
      * Email/queryChanges for the folder sync query. Its arguments (filter, sort,
@@ -402,7 +421,7 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "threadId", "subject", "preview",
-                                "receivedAt", "from", "hasAttachment", "keywords",
+                                "receivedAt", "from", "to", "hasAttachment", "keywords",
                             ).forEach { add(it) }
                         }
                     }
@@ -492,8 +511,10 @@ class JmapClient internal constructor(
             if (!response.isSuccessful) {
                 throw JmapException("Search failed: HTTP ${response.code} ${response.message}")
             }
+            // mailboxId is left null: the caller (core:data) resolves each hit's folder
+            // deterministically from the returned mailboxIds map — picking the map's
+            // arbitrary first key here could route a multi-mailbox hit to Trash.
             decodeList(body, "Email/get", Email.serializer())
-                .map { e -> e.copy(mailboxId = e.mailboxIds.keys.firstOrNull()) }
         }
     }
 
@@ -695,7 +716,7 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "threadId", "subject", "preview", "receivedAt",
-                                "from", "hasAttachment", "keywords", "mailboxIds",
+                                "from", "to", "hasAttachment", "keywords", "mailboxIds",
                             ).forEach { add(it) }
                         }
                     }
@@ -919,19 +940,6 @@ class JmapClient internal constructor(
             val destroyed = args["destroyed"]?.jsonArray?.any { it.jsonPrimitive.content == mailboxId } == true
             if (!destroyed) throw JmapException("Couldn't delete the folder")
         }
-
-    /** Permanently destroy an email (used when there is no Trash mailbox). */
-    /** Permanently delete an email. Returns the new `Email/set` state.
-     *  Throws when the server rejects the destroy (per-id `notDestroyed`). */
-    suspend fun destroy(session: JmapSession, accountId: String, emailId: String, auth: JmapAuth): String? {
-        val args = emailSet(session, auth) {
-            put("accountId", accountId)
-            putJsonArray("destroy") { add(emailId) }
-        }
-        val result = emailSetResult(args)
-        result.failed[emailId]?.let { throw JmapException("Server rejected the delete ($it)") }
-        return result.newState
-    }
 
     /** Fetch the identities (from-addresses) the user may send as (RFC 8621 §6). */
     suspend fun getIdentities(session: JmapSession, accountId: String, auth: JmapAuth): List<Identity> =

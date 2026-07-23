@@ -46,12 +46,19 @@ data class ImapFolder(
     val delimiter: String,
 )
 
+/** One decoded envelope address (either part may be absent). */
+data class ImapAddress(
+    val name: String?,
+    val email: String?,
+)
+
 /** One email's envelope + flags as fetched from IMAP (body fetched separately). */
 data class ImapMessage(
     val uid: Long,
     val subject: String?,
     val fromName: String?,
     val fromEmail: String?,
+    val to: List<ImapAddress>,
     /** Epoch millis from the envelope date (0 if unparseable). */
     val dateMillis: Long,
     val seen: Boolean,

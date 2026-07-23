@@ -9,6 +9,7 @@ import app.sterna.container
 import app.sterna.R
 import app.sterna.folders.FolderDeleteWorker
 import app.sterna.mail.MessageDestroyWorker
+import app.sterna.push.FetchAndNotify
 import app.sterna.push.NewMailNotifier
 import app.sterna.push.Notifications
 import app.sterna.push.PushController
@@ -268,9 +269,17 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         // Trash/Spam/Drafts (or any other folder) belong to THAT folder's conversation and
         // never surface here. The Sent id resolves once per expansion, not per row.
         val allowed = expansionMailboxIds(rep)
+        // Members hidden by an active snooze stay out of the unfolded list too — the chip's
+        // SQL excludes them, and the expansion must show exactly what the chip counts (they
+        // both come back once the snooze lapses).
+        val repAccountId = rep.accountId ?: store.load()?.id
+        val snoozed = repAccountId
+            ?.let { runCatching { repo.activeSnoozedIds(it) }.getOrDefault(emptySet()) }
+            ?: emptySet()
         // 1. Instant cache render (skip if a previous expand already loaded this thread).
         if (!_threadMembers.value.containsKey(key)) {
             val cached = runCatching { loadThreadMembers(rep, allowed) }.getOrDefault(emptyList())
+                .filterNot { it.id in snoozed }
             if (key !in _expandedThreads.value) return // collapsed again while loading the cache
             _threadMembers.value = _threadMembers.value + (key to cached)
         }
@@ -288,6 +297,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         // scoped, judging each wire member on its server mailboxIds map since it carries no
         // local mailboxId.
         val scoped = ConversationExpansion.membersInScope(fetched, allowed)
+            .filterNot { it.id in snoozed }
         val current = _threadMembers.value[key].orEmpty()
         _threadMembers.value = _threadMembers.value + (key to ConversationExpansion.mergeMembers(current, scoped, rep.id))
     }
@@ -341,8 +351,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * Optimistically rewrite the seen keyword on any expanded-conversation members among [ids].
      * The expanded members are a cache snapshot (see [_threadMembers]), so every read/unread
      * mutation must also be written back here or the unfolded rows keep a stale unread dot.
+     * Ditto the search-results snapshot, whose rows would otherwise keep a stale bold state.
      */
     private fun patchThreadMembersSeen(ids: Set<String>, seen: Boolean) {
+        patchSearchResults(ids) { m ->
+            m.copy(
+                keywords = m.keywords.toMutableMap().apply {
+                    if (seen) put("\$seen", true) else remove("\$seen")
+                },
+            )
+        }
         if (_threadMembers.value.isEmpty()) return
         _threadMembers.value = _threadMembers.value.mapValues { (_, members) ->
             members.map { m ->
@@ -354,6 +372,44 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+    }
+
+    // ---- search-results snapshot patching ----
+    // The search results are a static snapshot too (audit r1-F9): every removal must be
+    // written back into it or the swiped row stays frozen on screen until search is left.
+
+    /** Results removed by an action, with their position, so an Undo can put them back.
+     *  Doubles as a tombstone set: the FTS index outlives evicted/deleted cache rows, so
+     *  later crawl/server merges must not resurrect a row the user just removed. */
+    private val searchRemoved = mutableMapOf<String, IndexedValue<Email>>()
+
+    /** Remove [ids] from the search-results snapshot, stashing them for a possible Undo. */
+    private fun dropSearchResults(ids: Set<String>) {
+        val results = searchState.value.results ?: return
+        val remaining = ArrayList<Email>(results.size)
+        results.forEachIndexed { index, email ->
+            if (email.id in ids) searchRemoved[email.id] = IndexedValue(index, email)
+            else remaining += email
+        }
+        if (remaining.size != results.size) searchState.value = searchState.value.copy(results = remaining)
+    }
+
+    /** Undo: put the stashed entries among [ids] back at (best-effort) their original position. */
+    private fun restoreSearchResults(ids: Collection<String>) {
+        val entries = ids.mapNotNull { searchRemoved.remove(it) }.sortedBy { it.index }
+        if (entries.isEmpty()) return
+        val restored = searchState.value.results?.toMutableList() ?: return
+        entries.forEach { (index, email) -> restored.add(index.coerceAtMost(restored.size), email) }
+        searchState.value = searchState.value.copy(results = restored)
+    }
+
+    /** Optimistically rewrite any search-result rows among [ids] (read state, star). */
+    private fun patchSearchResults(ids: Set<String>, transform: (Email) -> Email) {
+        val results = searchState.value.results ?: return
+        if (results.none { it.id in ids }) return
+        searchState.value = searchState.value.copy(
+            results = results.map { if (it.id in ids) transform(it) else it },
+        )
     }
 
     /** Drop several messages from the expanded-conversation snapshot (bulk removals). */
@@ -435,20 +491,37 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                         flowOf(PagingData.empty())
                     } else {
                         // Conversation chips also count the thread's Sent replies (the chip
-                        // equals what the unfolded conversation shows) — resolve the Sent
-                        // folder id(s) once per page key, per account in the unified view.
-                        val sent = if (key.conversationView) repo.sentMailboxIds(listOf(credentials.id)) else emptyList()
-                        repo.pagedFolder(credentials, id, key.sort, key.unreadOnly, key.conversationView, sent)
+                        // equals what the unfolded conversation shows). The Sent folder is
+                        // resolved reactively from the folder cache — account-pinned pairs —
+                        // so a fresh install's chips pick it up on the first folder sync.
+                        sentScopes(key, listOf(credentials.id)).flatMapLatest { sent ->
+                            repo.pagedFolder(credentials, id, key.sort, key.unreadOnly, key.conversationView, sent)
+                        }
                     }
                 }
                 Sel.Unified -> {
-                    val sent = if (key.conversationView) repo.sentMailboxIds(store.allInboxScopes().map { it.first }) else emptyList()
-                    repo.pagedMailbox(key.unifiedIds, key.sort, key.unreadOnly, key.conversationView, sent)
+                    sentScopes(key, store.allInboxScopes().map { it.first }).flatMapLatest { sent ->
+                        repo.pagedMailbox(key.unifiedIds, key.sort, key.unreadOnly, key.conversationView, sent)
+                    }
                 }
             }
         }.cachedIn(viewModelScope)
 
-    private val baseState = combine(mailboxes, selection, meta, status) { mailboxes, sel, meta, status ->
+    /** The accounts' Sent folders backing the chip's "plus Sent replies" scope — live from the
+     *  folder cache in conversation mode (deduped upstream, so the pager only rebuilds when a
+     *  Sent id actually changes); flat mode needs none. */
+    private fun sentScopes(key: PageKey, accountIds: List<String>): Flow<List<Pair<String, String>>> =
+        if (key.conversationView) repo.observeSentMailboxes(accountIds) else flowOf(emptyList())
+
+    // "All inboxes (N)" sums the SAME live per-inbox aggregates the folder badges below it
+    // read (mode-aware: unread threads in conversation view, unread messages in flat view),
+    // so the two numbers in the drawer agree by construction for JMAP; IMAP inboxes keep
+    // contributing their stored server counter (their windowed cache would under-count).
+    private val unifiedUnread = unifiedInboxIds.flatMapLatest {
+        repo.observeUnifiedInboxUnread(store.allInboxScopes())
+    }
+
+    private val baseState = combine(mailboxes, selection, meta, status, unifiedUnread) { mailboxes, sel, meta, status, unifiedUnread ->
         Base(
             mailboxes = mailboxes,
             selectedMailboxId = (sel as? Sel.Folder)?.id,
@@ -456,11 +529,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             atInbox = sel is Sel.Unified || (sel as? Sel.Folder)?.id == store.inboxMailboxId(),
             accountName = meta.accountName,
             mailboxName = meta.mailboxName,
-            // "All inboxes (N)" re-reads the stored per-account metas on every folder-cache
-            // change: local actions mirror their count nudges into the store, so the unified
-            // total moves together with the per-folder badge below it instead of freezing at
-            // the last refresh's snapshot.
-            unread = if (sel is Sel.Unified) store.totalUnreadCount() else meta.unread,
+            unread = if (sel is Sel.Unified) unifiedUnread else meta.unread,
             refreshing = status.refreshing,
             error = status.error,
         )
@@ -556,14 +625,25 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         if (updated.mailboxId == store.inboxMailboxId() || mailboxId == null) {
             // Keep the cached inbox metadata fresh for offline display.
             store.saveInboxMeta(updated.mailboxId, updated.mailboxName, updated.accountName, updated.unreadCount)
+            // Codeberg #50: a reply landed by THIS refresh must trigger unarchive-on-reply
+            // too — with the app in the foreground this is the path new mail arrives by.
+            // No-op unless the toggle is on; never fails the refresh.
+            runCatching { FetchAndNotify.onInboxRefreshed(getApplication(), credentials, updated.mailboxId) }
         }
         selection.value = Sel.Folder(updated.mailboxId)
         meta.value = Meta(updated.accountName, updated.mailboxName, updated.unreadCount)
     }
 
     private suspend fun refreshUnified() {
-        val metas = repo.refreshAllInboxes(store.allCredentials())
+        val credentials = store.allCredentials()
+        val metas = repo.refreshAllInboxes(credentials)
         metas.forEach { store.saveInboxMetaFor(it.accountId, it.mailboxId, it.mailboxName, it.accountName, it.unreadCount) }
+        // Codeberg #50: same foreground trigger as refreshFolder, per refreshed inbox.
+        metas.forEach { meta ->
+            credentials.firstOrNull { it.id == meta.accountId }?.let { cred ->
+                runCatching { FetchAndNotify.onInboxRefreshed(getApplication(), cred, meta.mailboxId) }
+            }
+        }
         unifiedInboxIds.value = store.allInboxMailboxIds()
         meta.value = Meta(UNIFIED_LABEL, UNIFIED_LABEL, store.totalUnreadCount())
     }
@@ -651,6 +731,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             targets.forEach { (credentials, id) -> repo.evict(credentials.id, id) }
             emails.forEach { dropThreadMember(it) }
+            dropSearchResults(emails.mapTo(mutableSetOf()) { it.id })
             _pendingDelete.value = label
             targets.groupBy({ it.first.id }, { it.second }).forEach { (accountId, ids) ->
                 MessageDestroyWorker.schedule(getApplication(), accountId, ids, PURGE_HOLD_BACK_MS)
@@ -688,6 +769,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         pendingDeleteTargets = emptyList()
         pendingDeleteEmails = emptyList()
         _pendingDelete.value = null
+        restoreSearchResults(restored.map { it.id })
         // A full re-query, not an incremental refresh: the messages were only evicted locally and
         // are still in Trash on the server, so queryChanges reports no change and would leave the
         // view empty. Dropping the sync cursors forces a fresh query that brings them back.
@@ -878,6 +960,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // already flown the row off; it leaves the list when the ack lands. The op returns
             // the destination the message went to, for the Undo.
             dropThreadMember(email)
+            dropSearchResults(setOf(email.id))
             // The UI row may not carry its source folder (e.g. a server-fetched thread member) —
             // fall back to the cached row, captured before the op drops it, so a moved message
             // always gets its Undo.
@@ -890,6 +973,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 .onFailure {
                     _message.value = it.message ?: getApplication<Application>().getString(R.string.status_action_failed)
+                    restoreSearchResults(listOf(email.id))
                     refresh() // the failed row was never dropped locally — just reconcile the list
                 }
         }
@@ -899,6 +983,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun undo() {
         val action = _undo.value ?: return
         _undo.value = null
+        restoreSearchResults(action.entries.map { it.emailId })
         viewModelScope.launch {
             // Group by account and restore each account's whole set in one batch (one UID MOVE /
             // Email/set per source folder), so undoing a large selection doesn't hit the same
@@ -975,9 +1060,17 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Swipe action: toggle flag/star. */
     fun toggleFlag(email: Email) {
+        val flagged = !email.isFlagged
+        patchSearchResults(setOf(email.id)) { m ->
+            m.copy(
+                keywords = m.keywords.toMutableMap().apply {
+                    if (flagged) put("\$flagged", true) else remove("\$flagged")
+                },
+            )
+        }
         viewModelScope.launch {
             val credentials = credentialsFor(email) ?: return@launch
-            runCatching { repo.setFlagged(credentials, email.id, !email.isFlagged) }
+            runCatching { repo.setFlagged(credentials, email.id, flagged) }
         }
     }
 
@@ -1167,17 +1260,20 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         dropThreadMembers(targetIds)
         viewModelScope.launch {
             val emails = repo.cachedEmailsByIds(targetIds)
-            var failed = 0
+            // Only the cached (acted-on) rows leave the search snapshot — never a row the
+            // batch below won't touch; the failed ones are restored once the batch settles.
+            dropSearchResults(emails.mapTo(mutableSetOf()) { it.id })
+            val failedIds = mutableSetOf<String>()
             val undoEntries = mutableListOf<UndoEntry>()
             // AccountCredentials is a data class, so all of an account's messages group together.
             emails.groupBy { credentialsFor(it) }.forEach { (credentials, group) ->
-                if (credentials == null) { failed += group.size; return@forEach }
+                if (credentials == null) { failedIds += group.map { it.id }; return@forEach }
                 val result = runCatching { batchOp(credentials, group.map { it.id }) }
                     .getOrElse {
                         android.util.Log.w("SternaBulk", "batch op failed for ${credentials.id}", it)
                         MailRepository.BulkResult(emptySet(), group.mapTo(mutableSetOf()) { e -> e.id })
                     }
-                failed += result.failed.size
+                failedIds += result.failed
                 if (undoLabel != null) {
                     group.forEach { email ->
                         if (email.id in result.succeeded) {
@@ -1186,6 +1282,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
+            restoreSearchResults(failedIds)
             repo.resetSyncState()
             refresh()
             // After the full re-query settles: re-cache the touched conversations' members
@@ -1194,7 +1291,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             if (undoLabel != null && undoEntries.isNotEmpty()) {
                 _undo.value = UndoAction(undoEntries, undoLabel)
             }
-            if (failed > 0) {
+            if (failedIds.isNotEmpty()) {
                 _message.value = getApplication<Application>().getString(R.string.status_action_failed)
             }
         }
@@ -1395,6 +1492,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSearchActive(active: Boolean) {
         searchJob?.cancel()
+        searchRemoved.clear()
         searchState.value = if (active) SearchUi(active = true) else SearchUi()
         if (!active) {
             // Deliberately DON'T cancel the crawl: on a large mailbox it needs to run to completion,
@@ -1438,7 +1536,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             indexJob?.join()
             val local = runCatching { repo.searchIndex(query) }.getOrNull().orEmpty()
             if (searchState.value.query != query) return@launch
-            searchState.value = searchState.value.copy(results = local, loading = true)
+            searchState.value = searchState.value.copy(
+                results = local.filterNot { it.id in searchRemoved },
+                loading = true,
+            )
             // 2) Server full-text after a short typing pause: the server's own index sees everything
             //    (message bodies, the whole archive) in ~a second — no client-side re-indexing needed.
             //    UNION only: server hits can add to what's shown, never remove it; cancellation (new
@@ -1463,9 +1564,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         is Sel.Folder -> listOfNotNull(store.load())
     }
 
-    /** Union of two hit lists (by account+id), newest first. */
+    /** Union of two hit lists (by account+id), newest first. Rows the user just removed stay
+     *  out: the FTS index and the server both still know an evicted/held-back message, so an
+     *  unfiltered merge would resurrect the swiped-away row (see [searchRemoved]). */
     private fun mergeHits(a: List<Email>, b: List<Email>): List<Email> =
         (a + b).distinctBy { it.accountId to it.id }
+            .filterNot { it.id in searchRemoved }
             // receivedAt is an ISO-8601 UTC string, so lexicographic sort == chronological.
             .sortedByDescending { it.receivedAt ?: "" }
 

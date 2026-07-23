@@ -12,9 +12,6 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface EmailDao {
 
-    @Query("SELECT * FROM emails WHERE mailboxId = :mailboxId ORDER BY sortKey DESC")
-    fun observeByMailbox(mailboxId: String): Flow<List<EmailEntity>>
-
     /**
      * Paged source for the list. The sort/filter/favourite-pin ORDER BY and the
      * mailbox-id set vary per view, so the query is built dynamically (see
@@ -58,10 +55,6 @@ interface EmailDao {
 
     @Query("SELECT seen FROM emails WHERE accountId = :accountId AND id = :id LIMIT 1")
     suspend fun seenOf(accountId: String, id: String): Boolean?
-
-    /** Merged view across several mailboxes (the unified inbox), newest first. */
-    @Query("SELECT * FROM emails WHERE mailboxId IN (:mailboxIds) ORDER BY sortKey DESC")
-    fun observeByMailboxes(mailboxIds: List<String>): Flow<List<EmailEntity>>
 
     @Upsert
     suspend fun upsertAll(emails: List<EmailEntity>)
@@ -134,6 +127,12 @@ interface EmailDao {
     /** Cached rows by id within one account (bulk actions running under its credentials). */
     @Query("SELECT * FROM emails WHERE accountId = :accountId AND id IN (:ids)")
     suspend fun emailsByIds(accountId: String, ids: List<String>): List<EmailEntity>
+
+    /** One account's cached members of the given threads that are filed under [mailboxId]
+     *  (Codeberg #50: the archived members of threads that just received a new reply).
+     *  Thread-less rows (NULL threadId) never match — they can't have received a reply. */
+    @Query("SELECT * FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId AND threadId IN (:threadIds)")
+    suspend fun threadMembersInMailbox(accountId: String, mailboxId: String, threadIds: List<String>): List<EmailEntity>
 
     /**
      * All cached messages of one thread, newest first, scoped to a single account and

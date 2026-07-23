@@ -416,6 +416,18 @@ class ImapSession(private var socket: Socket) : Closeable {
         val mailbox = fromAddr?.getOrNull(2) as? String
         val hostPart = fromAddr?.getOrNull(3) as? String
         val fromEmail = if (mailbox != null && hostPart != null) "$mailbox@$hostPart" else null
+        // Envelope "to" (index 5): every parseable address — Sent-folder rows show the
+        // recipients, not the sender (Codeberg #59). Group-syntax delimiters (no host) are
+        // skipped.
+        @Suppress("UNCHECKED_CAST")
+        val toAddrs = ((envelope?.getOrNull(5) as? List<Any?>).orEmpty()).mapNotNull { entry ->
+            val addr = entry as? List<Any?> ?: return@mapNotNull null
+            val name = decodeWords(addr.getOrNull(0) as? String)
+            val box = addr.getOrNull(2) as? String
+            val host = addr.getOrNull(3) as? String
+            val email = if (box != null && host != null) "$box@$host" else null
+            if (email == null && name == null) null else ImapAddress(name = name, email = email)
+        }
         val messageId = envelope?.getOrNull(9) as? String
         val inReplyTo = envelope?.getOrNull(8) as? String
 
@@ -424,6 +436,7 @@ class ImapSession(private var socket: Socket) : Closeable {
             subject = subject,
             fromName = fromName,
             fromEmail = fromEmail,
+            to = toAddrs,
             dateMillis = dateMillis,
             seen = flags.any { it.equals("\\Seen", true) },
             flagged = flags.any { it.equals("\\Flagged", true) },

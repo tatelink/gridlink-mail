@@ -30,6 +30,15 @@ interface MailboxDao {
     suspend fun idForRole(accountId: String, role: String): String?
 
     /**
+     * Each account's cached Sent-role folder, reactively: re-emits when the folder table
+     * changes, so a consumer keyed on it (the conversation chip's Sent scope) picks the
+     * folder up as soon as the first folder sync lands instead of waiting for its next
+     * one-shot resolution.
+     */
+    @Query("SELECT accountId, id FROM mailboxes WHERE accountId IN (:accountIds) AND role = 'sent' ORDER BY accountId, id")
+    fun observeSentMailboxes(accountIds: List<String>): Flow<List<AccountMailboxId>>
+
+    /**
      * Id of the account's folder whose lowercased name is one of [names], preferring a
      * top-level folder — used to find an archive folder when the server set no `archive` role.
      */
@@ -61,3 +70,9 @@ interface MailboxDao {
         deleteNotIn(accountId, mailboxes.map { it.id })
     }
 }
+
+/** Projection for [MailboxDao.observeSentMailboxes]: one account's folder id. */
+data class AccountMailboxId(
+    val accountId: String,
+    val id: String,
+)

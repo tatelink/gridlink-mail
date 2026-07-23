@@ -327,6 +327,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setMarkReadOnDelete(enabled) }
     }
 
+    val unarchiveOnReply = settings.unarchiveOnReply.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
+    fun setUnarchiveOnReply(enabled: Boolean) {
+        viewModelScope.launch { settings.setUnarchiveOnReply(enabled) }
+    }
+
     val messageTextSize = settings.messageTextSize.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

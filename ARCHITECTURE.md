@@ -4,115 +4,174 @@ This document describes how Sterna is built. It is aimed at developers.
 
 ## Goals
 
-- A production-quality JMAP email client for Android.
-- Privacy by default; no telemetry.
-- Clean, testable layers so IMAP/SMTP can be added later without rework.
+- A production-quality JMAP-first email client for Android; IMAP/SMTP are fully
+  supported through the same cache and UI.
+- Privacy by default: no telemetry, no Google/FCM, FOSS-only dependencies.
+- Clean, testable layers — the protocol clients are pure JVM and unit-tested
+  without Android.
 
 ## Stack
 
 - **Language:** Kotlin (K2 compiler).
 - **UI:** Jetpack Compose + Material 3 (Material You dynamic color).
-- **Architecture:** MVVM with unidirectional data flow (`ViewModel` + `StateFlow`).
+- **Architecture:** MVVM with unidirectional data flow (`ViewModel` + `StateFlow`),
+  manual DI (`AppContainer`).
 - **Async:** Kotlin Coroutines + Flow.
 - **Networking:** OkHttp + kotlinx.serialization (JMAP is batched JSON, so a thin
   typed client rather than Retrofit).
-- **Persistence (planned):** Room for the offline cache, DataStore for settings,
-  AndroidKeyStore-backed encryption for credentials.
-- **Background (planned):** WorkManager for sync; JMAP push via EventSource/WebSocket.
-- **Build:** Gradle (Kotlin DSL) with a version catalog (`gradle/libs.versions.toml`).
+- **Persistence:** Room (`sterna.db`, the offline cache + outbox) with Paging 3,
+  DataStore for settings, AndroidKeyStore-encrypted credentials.
+- **Background:** WorkManager for everything that must survive the process
+  (destroys, outbox, scheduled send, snooze, the push fallback poll).
+- **Build:** Gradle (Kotlin DSL) with a version catalog; minSdk 26, target/compileSdk 36.
 
 ## Module layout
 
-| Module        | Type             | Responsibility                                            |
-|---------------|------------------|-----------------------------------------------------------|
-| `:app`        | Android app      | Compose UI, navigation, ViewModels, manual DI container.  |
-| `:core:jmap`  | Kotlin JVM lib   | JMAP protocol client — session, batched method calls, typed RFC 8620/8621 models. Pure JVM so it is unit-testable without Android. |
-| `:core:data`  | Android library  | Repositories, Room offline cache (kept internal behind `DataFactory`), and the AndroidKeyStore-encrypted account store. |
+| Module              | Type            | Responsibility                                       |
+|---------------------|-----------------|------------------------------------------------------|
+| `:app`              | Android app     | Compose UI, ViewModels, push services/workers, notifications, OpenKeychain binding, app lock. |
+| `:core:jmap`        | Kotlin JVM lib  | JMAP client — session, batched method calls, typed RFC 8620/8621 models, EventSource push, OAuth device flow (RFC 8628). |
+| `:core:imap`        | Kotlin JVM lib  | IMAP/SMTP clients — protocol parsing, IDLE, MIME parser/builder, PGP/MIME, XOAUTH2. |
+| `:core:data`        | Android library | `MailRepository` (the one seam the UI talks to), Room cache, account store, settings, PGP seam, storage caps. |
+| `:libs:openpgp-api` | Android library | Vendored openpgp-api client (Java), for the OpenKeychain bound service. |
 
-## JMAP layer (`:core:jmap`)
+## Mail sync
 
-JMAP is defined by **RFC 8620** (core) and **RFC 8621** (mail). The client will:
+**JMAP.** Each folder is synced *uncollapsed* (`collapseThreads=false`): the cache
+holds every in-folder thread member, and conversations collapse at display time.
+A cold folder does a full `Email/query`; from then on `Email/queryChanges` +
+`Email/changes` deltas run against per-(account, folder) cursors persisted in
+`SyncStateStore` (surviving process death, essential for push wakeups). When the
+server cannot compute the delta or it exceeds `MAX_CHANGES` (200), sync falls
+back to a full re-query. Reconciliation never evicts ids mutated locally in the
+last ~45 s (the *recently-mutated* spare set): a delta computed from a
+pre-mutation cursor may falsely report a just-flagged or just-restored message
+as removed. After a local `Email/set`, the stored `emailState` is advanced to
+the response's new state so push echoes of our own action are not re-applied.
 
-1. Fetch the **Session** resource (`/.well-known/jmap`) to discover capabilities,
-   the account id, and the API / download / upload / EventSource URLs.
-2. Authenticate (Basic auth first; Bearer/OAuth-ready).
-3. Send **batched method calls** (e.g. `Mailbox/get`, `Email/query`, `Email/get`,
-   `Email/set`, `EmailSubmission/set`) with result back-references (`#`).
-4. Sync incrementally using per-type `state` strings and the `/changes` methods.
+**The cache is the UI's source.** Screens read Room via Paging 3; the network
+only ever writes into Room. A single folder view is backed by a `RemoteMediator`
+that extends the cache on scroll: it anchors the next `Email/query` page on the
+oldest cached thread-*representative* (stable when new mail arrives on top,
+unlike an absolute offset), falls back once to a positional query on
+`anchorNotFound`, and in conversation view keeps fetching (bounded) until the
+page has produced enough *new thread rows* — one giant thread must not count as
+a full page of progress.
 
-Reference implementations consulted: the `ltt.rs` / `jmap-mua` libraries and the RFCs.
+**IMAP** (`ImapMailService`) is the parallel read/write path: it maps folders
+and messages onto the same Room entities, so paging, conversations and the UI
+are protocol-agnostic. It keeps a windowed cache (newest N per folder, older
+pages fetched by offset on scroll) over one pooled, serialised connection per
+account.
 
-## Storage & data strategy
+The per-account **sync window** (by count or age, default 90 days) bounds what
+stays cached; the scroll mediator pages past it on demand.
 
-Local storage is **per-account, protocol-agnostic, and a bounded mirror of the
-server with opt-in offline retention**. The cache layer must not bake in JMAP
-semantics: IMAP/SMTP support is planned, and IMAP changes the trade-offs (costly
-round-trips, no server-side threads/blobs/query, slow search), so it needs
-heavier body/attachment caching and makes the **sync window a first-class,
-user-facing setting** rather than a JMAP implementation detail.
+## Conversations
 
-**What is stored, and where**
+Conversation view is pure SQL over the uncollapsed cache
+(`conversationSql`, unit-tested against real SQLite): one row per thread per
+folder, showing the thread's newest in-folder message. A conversation is scoped
+to *its folder's members plus the account's Sent replies* — so the same thread
+is a different (split) conversation in Inbox and in Trash, and the count chip
+always equals exactly what the unfolded conversation shows. A separate
+account-wide total only gates the expand affordance (the row can unfold when
+the other members live elsewhere). All joins pin the row's `accountId`, since
+same-server accounts can collide on server-assigned mailbox/thread ids.
 
-| Data | Location | Notes |
+Drawer badges are WYSIWYG: for JMAP folders the badge is a live Room aggregate —
+unread *threads* in conversation view, unread *messages* in flat view — so it
+always equals the bold rows in the list and moves instantly on read/move/
+delete/snooze. IMAP folders keep the stored server counter instead (their
+windowed cache would under-count), and the "All inboxes" header sums the same
+per-account sources.
+
+## Actions & safety
+
+- **Network-first:** delete, archive and move write to the server first and only
+  then drop the cached row; optimistic count nudges are reconciled by the next
+  sync. A failure surfaces instead of silently diverging.
+- **Destroy is held back:** a permanent destroy (delete-from-Trash, Empty trash)
+  only ever runs through a persisted WorkManager job (`MessageDestroyWorker`)
+  delayed past the Undo window — killing the app cannot drop a confirmed destroy,
+  and Undo is a work cancellation. Folder deletion follows the same model.
+- **Per-id failure parsing:** `Email/set` responses are parsed per id
+  (`notUpdated`/`notCreated`/`notDestroyed`), so bulk actions report exactly
+  which messages failed and rejected destroys resurface after a re-query.
+- **Account-scoped everything:** the `mailboxes` table is keyed
+  `(accountId, id)`, sync cursors by `(accountId, mailboxId)`, and every action
+  from the unified inbox resolves folders on the message's own account.
+
+## Push & notifications
+
+`PushController` picks a transport per account, automatically: JMAP with a
+UnifiedPush distributor → UnifiedPush; JMAP otherwise → an EventSource (SSE)
+connection; IMAP → IDLE. Direct connections live in a foreground service
+declared `specialUse` (not `dataSync`, which Android 15+ budgets and kills).
+With UnifiedPush the server posts a WebPush-encrypted `StateChange` to the
+distributor's endpoint; the connector library generates and holds the P-256
+keys on-device and hands Sterna decrypted payloads, which enqueue an expedited
+fetch worker — the process can be dead between pushes. A periodic ~30-minute
+`MailFetchWorker` is the safety net for every transport (push can die silently)
+and polls what IDLE cannot see.
+
+Notifications diff against *persisted per-folder baselines* of already-announced
+ids (shared by live push and the fallback worker, so they never double-notify),
+with an age floor so backfilled old mail is never announced as new. New-mail
+bursts collapse per thread — one notification per conversation, not per reply.
+
+## Auth & secrets
+
+Three schemes, resolved by a single `jmapAuth()`: **Basic** (username/password),
+**Microsoft OAuth** via the RFC 8628 device flow (Bearer for JMAP, XOAUTH2 for
+IMAP/SMTP, access tokens refreshed on demand), and **API tokens** (e.g.
+Fastmail) sent as Bearer. Passwords, tokens and OAuth refresh tokens are
+encrypted with an AES-256-GCM key that never leaves the AndroidKeyStore
+(AAD-bound to the account). Sterna requires TLS; cleartext JMAP is rejected by
+design.
+
+## Storage & retention
+
+| Data | Location | Bound |
 |---|---|---|
-| Message list (metadata) | Room `sterna.db` (`emails`, `mailboxes`) | id, sender, subject, 1-line preview, flags, date — small rows. |
-| Message bodies | Memory on open (today) | Opt-in on-disk persistence planned for offline + IMAP (see retention). |
-| Attachments | `cacheDir/attachments/` | Downloaded on demand; opened via `FileProvider`. |
-| Inline images (`cid:`) | Memory only | Rendered as data URIs, never persisted. |
-| Credentials | SharedPreferences, AndroidKeyStore-encrypted | In `AccountStore`. |
-| Settings | DataStore (`SettingsRepository`) | Reactive `Flow` per setting. |
+| Message list rows | Room `emails` | Pruned to the sync window (spare set excepted). |
+| Message bodies | Room `email_bodies` | Opened/prefetched messages; LRU cap per account. |
+| Search index | Room `email_fts` (FTS4) | Headers of the whole mailbox; outlives the display window. |
+| Outbox / scheduled / snoozed | Room | User data — additive migrations, never dropped. |
+| Attachments | `cacheDir/attachments/` | Size + age cap, LRU eviction. |
+| Credentials | SharedPreferences, KeyStore-encrypted | `AccountStore`. |
+| Settings | DataStore | Reactive `Flow` per setting. |
 
-**Retention & eviction**
+Sign-out purges the account's rows, bodies, baselines and attachments. The
+cache portion of the DB uses destructive migration (it is a disposable mirror);
+outbox-bearing tables migrate additively.
 
-- **Sync window, per account:** by **count** (50 / 200 / 500 / all) **or age**
-  (30 / 90 days / 1 year / all). Default **90 days**. The list is pruned to the
-  window (today `replaceMailbox` already deletes rows not in the latest snapshot).
-- **Bodies:** not persisted by default (sober, small). A per-account "keep
-  messages offline" option persists bodies with an LRU + age cap; this becomes
-  important for full offline and for IMAP.
-- **Attachments:** `cacheDir/attachments/` is currently **unbounded** — apply a
-  size + age cap with LRU eviction (e.g. 200 MB / 30 days). This is the one real
-  growth bug today.
+## Other subsystems
 
-**Lifecycle**
+- **Search:** hybrid. A local accent-folded, prefix-matched FTS4 index over the
+  *headers* of the whole mailbox (crawled in the background) answers instantly
+  and offline; after a typing pause the server's own full-text search (which
+  sees bodies) is unioned in — results are only ever added, never removed.
+- **OpenPGP:** via the OpenKeychain app over the vendored openpgp-api bound
+  service, behind the `PgpEngine` seam. Encrypt-at-compose (JMAP uploads the
+  ciphertext blob + `Email/import`; IMAP builds PGP/MIME); decrypted plaintext
+  lives only in memory, never in the cache. See [ENCRYPTION.md](ENCRYPTION.md).
+- **Outbox & scheduled send:** sends are persisted Room rows delivered by
+  WorkManager jobs (network constraint, backoff, undo-send hold-back), so a
+  send survives process death and offline spells.
+- **Snooze:** a Room table filtered out of every list query, plus a WorkManager
+  job that resurfaces the message at its time.
+- **Settings backup:** a portable JSON snapshot of preferences + account
+  *configuration*. Credentials are excluded (device-bound keys can't move);
+  imported accounts stay inert until signed in. K-9/Thunderbird `.k9s` imports
+  work the same way.
+- **App lock:** biometric/PIN gate in front of the UI.
 
-- On **sign-out / account removal**, purge that account's Room rows **and** its
-  attachment files. Today only credentials are removed, so cached mail and blobs
-  survive across accounts — a correctness and privacy gap to close.
-- The Room DB uses destructive migration: the cache is disposable and rebuilt
-  from the server, so a schema bump simply re-syncs.
+## Build & releases
 
-**Device vs server**
-
-On-device storage (DB + attachment dir, reportable per account) is distinct from
-the **server mailbox quota** (exposable later via the JMAP `Quota` extension).
-The storage UI reports device usage; server quota is a separate, optional number.
-
-## Roadmap
-
-- **M0** — Toolchain, project scaffold, "Hello Sterna" running. *(done)*
-- **M1** — Connect to a JMAP server (Stalwart), list mailboxes. *(done)*
-- **M2** — Read mail: encrypted account persistence, inbox list, message view
-  (HTML in a WebView with remote content blocked by default), Room offline
-  cache. *(done)*
-- **M3** — Actions: read/unread, flag, archive, move, delete.
-- **M4** — Compose and send.
-- **M5** — Push, notifications, multi-account, incremental sync, CI, F-Droid.
-
-Beyond M5 the work shifts from "core mail client" to "modern, complete app".
-The milestones below are ordered by user value against effort; the JMAP-native
-items (⭐) are deliberately early because RFC 8620/8621 makes them cheap. The
-full catalogue of features and their status lives in [FEATURES.md](FEATURES.md).
-
-- **M6 — JMAP quick wins.** ⭐ Conversation threading (`Thread`), server-side
-  search (`Email/query` + `SearchSnippet`), multiple identities + per-identity
-  signatures (`Identity`), schedule send (`EmailSubmission` `sendAt`), vacation
-  responder (`VacationResponse`). Low effort, high polish — features that are
-  hard over IMAP but largely free here.
-- **M7 — Triage & organisation.** Unified inbox, configurable swipe actions,
-  multi-select / bulk actions, snooze, folder management, quick filters.
-- **M8 — Privacy & security.** App lock (biometric / PIN), per-sender image
-  allowlist, link/tracking-parameter hardening, OpenPGP via OpenKeychain.
-- **M9 — Polish & reach.** Theme toggle and list density, contact avatars,
-  home-screen widgets, accessibility pass (TalkBack, font scaling), quota
-  display, calendar/`.ics` preview.
+Release builds are R8-minified and resource-shrunk (`-PnoR8` for faster test
+builds) and must be **reproducible** for F-Droid: built from a clean tree with
+`--no-build-cache`, no VCS info or dependency-metadata blob embedded, and the
+ART baseline profile deliberately not packaged (`ArtProfile` tasks disabled) —
+it is not byte-stable across build environments. R8 mappings are archived per
+release.

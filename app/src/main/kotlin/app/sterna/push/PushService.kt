@@ -37,6 +37,7 @@ class PushService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         isRunning = true
         Notifications.ensureChannels(this)
         // specialUse, not dataSync: Android 15+ budgets dataSync foreground services
@@ -109,7 +110,14 @@ class PushService : Service() {
             connections[loginId] = repo.openAccountPush(
                 owner,
                 onChanged = { if (gen == generation) scope.launch { group.forEach { onAccountChanged(it) } } },
-                onClosed = { if (gen == generation) scheduleReconnect(loginId, group, gen) },
+                onClosed = {
+                    if (gen == generation) {
+                        // Drop the dead connection now, not at the delayed retry: the status
+                        // line reads isConnected and must say "connecting", not "direct".
+                        runCatching { connections.remove(loginId)?.close() }
+                        scheduleReconnect(loginId, group, gen)
+                    }
+                },
                 watchedJmapAccountIds = watchedJmapIds,
             )
         }.onFailure {
@@ -145,6 +153,7 @@ class PushService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        instance = null
         isRunning = false
         connections.values.forEach { runCatching { it.close() } }
         scope.cancel()
@@ -160,6 +169,13 @@ class PushService : Service() {
         @Volatile
         var isRunning = false
             private set
+
+        @Volatile
+        private var instance: PushService? = null
+
+        /** Whether this account's direct connection is open right now (status line). */
+        fun isConnected(accountId: String): Boolean =
+            instance?.connections?.containsKey(accountId) == true
 
         fun start(context: Context, resetBaseline: Boolean) {
             val intent = Intent(context, PushService::class.java)

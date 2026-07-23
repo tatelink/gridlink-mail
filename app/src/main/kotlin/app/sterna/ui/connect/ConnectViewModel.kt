@@ -14,9 +14,11 @@ import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.mail.OAuthDeniedException
 import app.sterna.core.data.mail.OAuthProvider
+import app.sterna.core.jmap.BearerAuth
 import app.sterna.core.jmap.DeviceAuthorization
 import app.sterna.core.jmap.DeviceTokenResult
 import app.sterna.core.jmap.Jmap
+import app.sterna.core.jmap.JmapException
 import app.sterna.core.jmap.OAuthMetadata
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -40,6 +42,14 @@ sealed interface ConnectState {
         val verificationUriComplete: String?,
     ) : ConnectState
     data class Error(val message: String) : ConnectState
+}
+
+/** True when a JMAP password sign-in is aimed at Fastmail — their endpoint only accepts API
+ *  tokens (#54): the address is @fastmail.com/.fm, or the server points at api.fastmail.com. */
+internal fun isFastmailTarget(email: String, server: String): Boolean {
+    val domain = email.trim().substringAfterLast('@', "").lowercase()
+    return domain == "fastmail.com" || domain == "fastmail.fm" ||
+        server.contains("api.fastmail.com", ignoreCase = true)
 }
 
 class ConnectViewModel(application: Application) : AndroidViewModel(application) {
@@ -90,6 +100,77 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                 MailRepository.DiscoveryResult.NotFound ->
                     _state.value = ConnectState.NeedsServer
             }
+        }
+    }
+
+    /**
+     * API-token sign-in (issue #54): authenticate with a server-generated Bearer
+     * token (e.g. a Fastmail API token) instead of a password. A blank [server]
+     * autodiscovers from the email domain; otherwise the input is resolved
+     * tolerantly (bare host, base URL, or a pasted session URL all work).
+     */
+    fun connectToken(server: String, email: String, token: String, accountName: String) {
+        if (busy()) return
+        val emailTrim = email.trim()
+        val serverTrim = server.trim()
+        if (serverTrim.isNotBlank()) {
+            _state.value = ConnectState.Connecting
+            viewModelScope.launch { finishTokenConnect(serverTrim, emailTrim, token, accountName) }
+            return
+        }
+        _state.value = ConnectState.Discovering
+        viewModelScope.launch {
+            val result = runCatching {
+                container.mailRepository.discoverJmapServer(emailTrim, password = "", token = token)
+            }.getOrElse { MailRepository.DiscoveryResult.NotFound }
+            when (result) {
+                is MailRepository.DiscoveryResult.Found -> {
+                    _state.value = ConnectState.Connecting
+                    finishTokenConnect(result.server, emailTrim, token, accountName)
+                }
+                MailRepository.DiscoveryResult.BadCredentials ->
+                    _state.value = ConnectState.Error(string(R.string.connect_token_rejected))
+                MailRepository.DiscoveryResult.NotFound ->
+                    _state.value = ConnectState.NeedsServer
+            }
+        }
+    }
+
+    /** Resolve the server input with the token, validate, persist. Mirrors [finishJmapConnect]. */
+    private suspend fun finishTokenConnect(server: String, email: String, token: String, accountName: String) {
+        try {
+            val resolved = container.mailRepository.resolveJmapServerInput(server, BearerAuth(token))
+            // The token alone identifies the account server-side — the typed address is never
+            // validated by Bearer auth, so a mistyped email would silently become the account's
+            // identity (From default, notifications, display). Adopt the session's own address
+            // (RFC 8620 username / mail account name) when it declares one; the typed value
+            // only stands when the server exposes no usable address.
+            val address = runCatching {
+                container.mailRepository.sessionIdentity(resolved, BearerAuth(token))
+            }.getOrNull() ?: email
+            // Re-adding the same token (whatever email was typed) resolves to the same
+            // server + adopted address: refresh that account in place, never a duplicate.
+            val existing = container.accountStore.accounts().firstOrNull {
+                it.protocol == MailProtocol.JMAP && it.authType == AuthType.API_TOKEN &&
+                    it.server.equals(resolved, ignoreCase = true) && it.username.equals(address, ignoreCase = true)
+            }
+            val credentials = AccountCredentials(resolved, address, token, id = existing?.id.orEmpty(), authType = AuthType.API_TOKEN)
+            val meta = container.mailRepository.refresh(credentials)
+            if (existing != null) {
+                container.accountStore.updatePassword(existing.id, token)
+                container.accountStore.setCurrent(existing.id)
+            } else {
+                container.accountStore.add(resolved, address, token, accountName.trim(), authType = AuthType.API_TOKEN)
+            }
+            container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
+            _state.value = ConnectState.Connected
+        } catch (t: Throwable) {
+            // A 401/403 with a token means the token itself was rejected — say so.
+            val code = (t as? JmapException)?.httpCode
+            _state.value = ConnectState.Error(
+                if (code == 401 || code == 403) string(R.string.connect_token_rejected)
+                else t.message ?: t.javaClass.simpleName,
+            )
         }
     }
 
@@ -461,7 +542,13 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             container.mailRepository.reconcileLinkedAccountsAfterAdd(id)
             _state.value = ConnectState.Connected
         } catch (t: Throwable) {
-            _state.value = ConnectState.Error(t.message ?: t.javaClass.simpleName)
+            // Fastmail's endpoint refuses password auth outright (API tokens only, #54):
+            // a 401 from it gets the same steer as the inline hint, not just a bare error.
+            val msg = t.message ?: t.javaClass.simpleName
+            val fastmail401 = (t as? JmapException)?.httpCode == 401 && isFastmailTarget(username, server)
+            _state.value = ConnectState.Error(
+                if (fastmail401) msg + " " + string(R.string.connect_fastmail_token_hint) else msg,
+            )
         }
     }
 

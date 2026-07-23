@@ -15,8 +15,9 @@ data class MailEndpoint(
     val security: ConnectionSecurity,
 )
 
-/** How an account authenticates. */
-enum class AuthType { BASIC, OAUTH }
+/** How an account authenticates. API_TOKEN is a server-generated Bearer token
+ *  (e.g. a Fastmail API token), stored encrypted in the password slot; JMAP-only. */
+enum class AuthType { BASIC, OAUTH, API_TOKEN }
 
 /**
  * OAuth material for an account (present when [AccountCredentials.oauth] is set).
@@ -49,6 +50,8 @@ data class AccountCredentials(
     val smtp: MailEndpoint? = null,
     /** Non-null for OAuth accounts; when set, prefer Bearer auth over the password. */
     val oauth: OAuthCredentials? = null,
+    /** For API_TOKEN accounts [password] holds the token, sent as a Bearer header. */
+    val authType: AuthType = AuthType.BASIC,
 )
 
 /**
@@ -133,13 +136,15 @@ class AccountStore(context: Context) {
         if (accounts().any { it.id == id }) prefs.edit().putString(KEY_CURRENT, id).apply()
     }
 
-    /** Add an account (encrypting its password) and make it current. Returns its id. */
+    /** Add an account (encrypting its password — or, for an API_TOKEN account, its
+     *  token, protected identically) and make it current. Returns its id. */
     fun add(
         server: String,
         username: String,
         password: String,
         accountName: String = "",
         protocol: MailProtocol = MailProtocol.JMAP,
+        authType: AuthType = AuthType.BASIC,
         imapHost: String = "",
         imapPort: Int = 993,
         imapSecurity: ConnectionSecurity = ConnectionSecurity.TLS,
@@ -155,6 +160,7 @@ class AccountStore(context: Context) {
             username = username.trim(),
             accountName = accountName,
             protocol = protocol,
+            authType = authType,
             imapHost = imapHost.trim(),
             imapPort = imapPort,
             imapSecurity = imapSecurity,
@@ -432,6 +438,7 @@ class AccountStore(context: Context) {
             protocol = account.protocol,
             jmapAccountId = account.jmapAccountId,
             oauth = oauth,
+            authType = account.authType,
             imap = if (account.protocol == MailProtocol.IMAP) {
                 MailEndpoint(account.imapHost, account.imapPort, account.imapSecurity)
             } else {
@@ -522,6 +529,7 @@ class AccountStore(context: Context) {
     // OAuth accounts are excluded: their only secret (the refresh token) can't be exported, and
     // there is no password prompt to revive them on restore, so a backed-up OAuth account would be
     // permanently inert. The user re-adds those via the normal OAuth sign-in on the new device.
+    // API-token accounts are excluded for the same reason (the sign-in prompt asks for a password).
     // Linked sub-accounts (issue #31) are excluded too: they carry no secret of their own and are
     // re-discovered from the login's session on the first connect after a restore.
     fun accountsForBackup(): List<StoredAccount> = accounts()
@@ -674,9 +682,11 @@ class AccountStore(context: Context) {
 
     /**
      * Mirror a drawer-count nudge into the stored inbox snapshot: when a local action changes
-     * the unread count of [accountId]'s inbox, move the persisted meta too, so "All inboxes (N)"
-     * and the offline header never visibly disagree with the per-folder badge. No-op unless
-     * [mailboxId] is that account's inbox; the next refresh restores server truth.
+     * the unread count of [accountId]'s inbox, move the persisted meta too. The JMAP unified
+     * header no longer reads this (it sums the live per-inbox aggregates), but the mirror keeps
+     * the stored counter honest between refreshes for IMAP accounts — whose meta still feeds
+     * "All inboxes (N)" — and for the offline snapshot. No-op unless [mailboxId] is that
+     * account's inbox; the next refresh restores server truth.
      */
     fun adjustInboxUnread(accountId: String, mailboxId: String, delta: Int) {
         if (delta == 0) return

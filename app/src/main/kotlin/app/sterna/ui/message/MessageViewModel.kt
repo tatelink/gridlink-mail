@@ -158,6 +158,11 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val _inTrash = MutableStateFlow(false)
     val inTrash = _inTrash.asStateFlow()
 
+    /** True when the open message is the user's own outgoing mail, so the header names the
+     *  recipients instead of the sender — yourself (Codeberg #59). */
+    private val _ownMessage = MutableStateFlow(false)
+    val ownMessage = _ownMessage.asStateFlow()
+
     /** The folder the open message is filed under, resolved reliably (the body fetch can drop it).
      *  Handed to the inbox's delete so it can tell move-to-Trash from a permanent destroy (#23). */
     private val _mailboxId = MutableStateFlow<String?>(null)
@@ -199,6 +204,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _messages.value = emptyList()
         _inJunk.value = false
         _inTrash.value = false
+        _ownMessage.value = false
         _mailboxId.value = null
         _calendar.value = null
         calendarLoadedFor = null
@@ -215,8 +221,10 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             listEmail?.let { cached ->
                 _messages.value = listOf(ThreadMessage(id = cached.id, header = cached))
                 _state.value = MessageState.Loaded(cached)
-                _inJunk.value = repo.mailboxRole(cached.accountId ?: accountId, cached.mailboxId) == "junk"
-                _inTrash.value = repo.mailboxRole(cached.accountId ?: accountId, cached.mailboxId) == "trash"
+                val role = repo.mailboxRole(cached.accountId ?: accountId, cached.mailboxId)
+                _inJunk.value = role == "junk"
+                _inTrash.value = role == "trash"
+                _ownMessage.value = isOwnMessage(cached, role)
                 _mailboxId.value = cached.mailboxId
             }
             try {
@@ -241,8 +249,10 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                         inlineImages = opened.inlineImages,
                     ),
                 )
-                _inJunk.value = repo.mailboxRole(anchor.accountId, anchor.mailboxId ?: listEmail?.mailboxId) == "junk"
-                _inTrash.value = repo.mailboxRole(anchor.accountId, anchor.mailboxId ?: listEmail?.mailboxId) == "trash"
+                val anchorRole = repo.mailboxRole(anchor.accountId, anchor.mailboxId ?: listEmail?.mailboxId)
+                _inJunk.value = anchorRole == "junk"
+                _inTrash.value = anchorRole == "trash"
+                _ownMessage.value = isOwnMessage(anchor, anchorRole)
                 _mailboxId.value = anchor.mailboxId ?: listEmail?.mailboxId
                 // OpenPGP: reflect the crypto state; a decrypt is attempted once the
                 // page settles in front of the user (see onActiveChanged), not while
@@ -271,6 +281,17 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
 
     /** The anchor as displayed: shown read once it has been settled on (else its true state). */
     private fun anchorDisplay(anchor: Email): Email = if (anchorMarked) anchor.markRead() else anchor
+
+    /** Whether [email] is the user's own outgoing mail: its from address is one of the account's
+     *  send-as identities (case-insensitive), so a sent message is recognised wherever it is read
+     *  (e.g. inside an Inbox conversation) — or, when the sender can't be told, it sits in a
+     *  Sent/Drafts folder, where the author is always yourself (Codeberg #59). */
+    private fun isOwnMessage(email: Email, mailboxRole: String?): Boolean {
+        if (mailboxRole == "sent" || mailboxRole == "drafts") return true
+        val from = email.from.firstOrNull()?.email?.trim()?.lowercase() ?: return false
+        if (from.isEmpty()) return false
+        return store.identities(accountId).any { it.email.trim().lowercase() == from }
+    }
 
     /**
      * Called by the pager as this page becomes (or stops being) the settled, front-most one.

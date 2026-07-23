@@ -11,6 +11,7 @@ import androidx.paging.map
 import androidx.sqlite.db.SimpleSQLiteQuery
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.account.AccountStore
+import app.sterna.core.data.account.AuthType
 import app.sterna.core.data.account.DiscoveredMailAccount
 import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.account.MailProtocol
@@ -82,6 +83,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -194,7 +196,7 @@ private fun pagingQuery(
  * Build the conversation-collapsed paged query: one row per thread
  * (COALESCE(threadId, id)) showing the thread's latest message in this view, how many of the
  * thread's messages the unfolded conversation would show — the view's members plus the
- * Sent-role replies in [sentMailboxIds] (the chip always equals the expansion) — and
+ * Sent-role replies in [sentMailboxes] (the chip always equals the expansion) — and
  * whether the in-view part is unread. The account-wide cached total rides along only to keep
  * the row expandable when the rest of the thread sits elsewhere.
  * [unreadOnly] keeps threads whose in-view part is unread.
@@ -204,19 +206,22 @@ private fun conversationQuery(
     sort: SortOrder,
     unreadOnly: Boolean,
     accountId: String? = null,
-    sentMailboxIds: List<String> = emptyList(),
+    // Each account's Sent folder as an (accountId, mailboxId) PAIR: binding bare Sent ids
+    // across accounts would let a colliding mailbox id (an account's folder whose id equals a
+    // sibling's Sent id) inflate that account's chip in the unified view.
+    sentMailboxes: List<Pair<String, String>> = emptyList(),
 ): SimpleSQLiteQuery {
     // Bind order matches the clauses left-to-right in the SQL: the in-view sub-query binds
-    // the mailbox ids [+ account id]; the chip count sub-query binds the mailbox ids PLUS
-    // the Sent ids [+ account id]; the outer WHERE binds like the in-view sub-query; the
-    // account-wide total sub-query binds nothing (it is scoped by joining on the
-    // representative's accountId).
-    val extraSent = sentMailboxIds.distinct().filterNot { it in mailboxIds }
+    // the mailbox ids [+ account id]; the chip count sub-query binds the mailbox ids, then
+    // (accountId, sentId) per Sent pair [+ account id]; the outer WHERE binds like the
+    // in-view sub-query; the account-wide total sub-query binds nothing (it is scoped by
+    // joining on the representative's accountId).
+    val sent = sentMailboxes.distinct()
     val perClause = mailboxIds + listOfNotNull(accountId)
-    val chipClause = mailboxIds + extraSent + listOfNotNull(accountId)
+    val chipClause = mailboxIds + sent.flatMap { listOf(it.first, it.second) } + listOfNotNull(accountId)
     val args = perClause + chipClause + perClause
     return SimpleSQLiteQuery(
-        conversationSql(mailboxIds.size, sort, unreadOnly, accountId != null, extraSent.size),
+        conversationSql(mailboxIds.size, sort, unreadOnly, accountId != null, sent.size),
         args.toTypedArray(),
     )
 }
@@ -224,8 +229,10 @@ private fun conversationQuery(
 /**
  * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite). Bind order:
  * the in-view sub-query `g` takes the mailbox ids [+ account id]; the chip count sub-query
- * `c` takes the mailbox ids plus [sentMailboxCount] Sent-role mailbox ids [+ account id];
- * the outer WHERE binds like `g`; the account-wide total sub-query `t` takes none. The
+ * `c` takes the mailbox ids, then an (accountId, mailboxId) pair per [sentMailboxCount]
+ * Sent-role folder — pinned to its OWN account, so a sibling account's colliding mailbox id
+ * can't widen this account's chip — [+ account id]; the outer WHERE binds like `g`; the
+ * account-wide total sub-query `t` takes none. The
  * representative row and unread state come from `g` (strictly folder-scoped — a thread with
  * only Sent members must not surface a row); `threadCount` (the chip) is `c`'s count of the
  * thread's messages in the viewed mailboxes PLUS its Sent replies, matching exactly what the
@@ -236,7 +243,7 @@ private fun conversationQuery(
  */
 internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boolean, hasAccountId: Boolean = false, sentMailboxCount: Int = 0): String {
     val placeholders = List(mailboxCount) { "?" }.joinToString(",")
-    val chipPlaceholders = List(mailboxCount + sentMailboxCount) { "?" }.joinToString(",")
+    val sentAlternatives = " OR (accountId = ? AND mailboxId = ?)".repeat(sentMailboxCount)
     val accountInner = if (hasAccountId) " AND accountId = ?" else ""
     val accountOuter = if (hasAccountId) " AND e.accountId = ?" else ""
     val notSnoozed = notSnoozedSql("emails")
@@ -261,7 +268,7 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
         JOIN (
             SELECT accountId AS cacc, COALESCE(threadId, id) AS ckey, COUNT(*) AS threadCount
             FROM emails
-            WHERE mailboxId IN ($chipPlaceholders)$accountInner AND $notSnoozed
+            WHERE (mailboxId IN ($placeholders)$sentAlternatives)$accountInner AND $notSnoozed
             GROUP BY cacc, ckey
         ) c ON c.ckey = g.tkey AND c.cacc = e.accountId
         JOIN (
@@ -594,6 +601,30 @@ class MailRepository(
     }
 
     /**
+     * Live unread total across every account's inbox, for the drawer's "All inboxes (N)"
+     * header. Each JMAP inbox contributes the SAME mode-aware aggregate its own drawer badge
+     * shows (unread threads in conversation view, unread messages in flat view — the sources
+     * of [observeUnreadByMailbox]), so the unified header and the Inbox badges below it agree
+     * by construction. IMAP inboxes contribute their stored server counter instead: their
+     * windowed cache would under-count. [scopes] is [AccountStore.allInboxScopes]' (accountId,
+     * inboxId) pairs — both ids, since same-server accounts can share a mailbox id.
+     */
+    fun observeUnifiedInboxUnread(scopes: List<Pair<String, String>>): Flow<Int> {
+        val conversationView = settings?.conversationView ?: flowOf(true)
+        val (imapScopes, jmapScopes) = scopes.partition { (accountId, _) -> isImapAccount(accountId) }
+        return combine(
+            emailDao.observeThreadUnreadCounts(),
+            emailDao.observeMessageUnreadCounts(),
+            conversationView,
+        ) { threads, messages, conversation ->
+            val live = if (conversation) threads else messages
+            jmapScopes.sumOf { (accountId, inboxId) ->
+                live.firstOrNull { it.accountId == accountId && it.mailboxId == inboxId }?.count ?: 0
+            } + imapScopes.sumOf { (accountId, _) -> accountStore.account(accountId)?.unread ?: 0 }
+        }
+    }
+
+    /**
      * Cached mailboxes (folders) of the local account [accountId], updated reactively. JMAP
      * folders carry a live local [Mailbox.unreadForList] (the drawer badge — equals the list's
      * bold rows; unread older than the sync window is deliberately not counted, WYSIWYG). IMAP
@@ -609,14 +640,6 @@ class MailRepository(
             }
         }
 
-    /** Cached emails for a mailbox, newest first, updated reactively. */
-    fun observeMailbox(mailboxId: String): Flow<List<Email>> =
-        emailDao.observeByMailbox(mailboxId).map { rows -> rows.map { it.toEmail() } }
-
-    /** Cached emails merged across several inboxes (the unified inbox), newest first. */
-    fun observeUnifiedInbox(mailboxIds: List<String>): Flow<List<Email>> =
-        emailDao.observeByMailboxes(mailboxIds).map { rows -> rows.map { it.toEmail() } }
-
     /**
      * Paged list of cached emails for [mailboxIds] (one folder, or several for the
      * unified inbox), sorted server-side-style in SQL: favourites pinned, then the
@@ -628,15 +651,16 @@ class MailRepository(
         sort: SortOrder,
         unreadOnly: Boolean,
         conversationView: Boolean,
-        // Each account's Sent-role mailbox id: the conversation chip also counts the thread's
-        // Sent replies, so it always equals what the unfolded conversation shows.
-        sentMailboxIds: List<String> = emptyList(),
+        // Each account's Sent-role folder as an (accountId, mailboxId) pair: the conversation
+        // chip also counts the thread's Sent replies, so it always equals what the unfolded
+        // conversation shows — account-pinned, see [conversationQuery].
+        sentMailboxes: List<Pair<String, String>> = emptyList(),
     ): Flow<PagingData<InboxRow>> {
         if (mailboxIds.isEmpty()) return flowOf(PagingData.empty())
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(mailboxIds, sort, unreadOnly, sentMailboxIds = sentMailboxIds)) },
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(mailboxIds, sort, unreadOnly, sentMailboxes = sentMailboxes)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
@@ -659,14 +683,14 @@ class MailRepository(
         sort: SortOrder,
         unreadOnly: Boolean,
         conversationView: Boolean,
-        // The account's Sent-role mailbox id — see [pagedMailbox].
-        sentMailboxIds: List<String> = emptyList(),
+        // The account's Sent-role folder as an (accountId, mailboxId) pair — see [pagedMailbox].
+        sentMailboxes: List<Pair<String, String>> = emptyList(),
     ): Flow<PagingData<InboxRow>> {
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
                 remoteMediator = folderMediator(credentials, mailboxId, conversationView = true),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(listOf(mailboxId), sort, unreadOnly, credentials.id, sentMailboxIds)) },
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(listOf(mailboxId), sort, unreadOnly, credentials.id, sentMailboxes)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
@@ -845,7 +869,7 @@ class MailRepository(
                 // Ids-only query (no Email/get): only the ids matter here, headers would be waste.
                 val page = client.queryEmailIds(
                     ctx.session, ctx.accountId, mailboxId, UNREAD_RESOLVE_PAGE, ctx.auth,
-                    position = ids.size, calculateTotal = true, collapseThreads = false, unseenOnly = true,
+                    position = ids.size, calculateTotal = true, unseenOnly = true,
                 )
                 if (page.ids.isEmpty()) break
                 ids += page.ids
@@ -994,10 +1018,11 @@ class MailRepository(
      * any reachable candidate means the server was found but the password is wrong
      * — reported distinctly so the UI can give a precise error.
      */
-    suspend fun discoverJmapServer(email: String, password: String): DiscoveryResult {
+    suspend fun discoverJmapServer(email: String, password: String, token: String? = null): DiscoveryResult {
         val hosts = Jmap.autodiscoverHosts(email)
         if (hosts.isEmpty()) return DiscoveryResult.NotFound
-        val auth = BasicAuth(email.trim(), password)
+        // A non-null [token] is an API token (e.g. Fastmail): Bearer, never Basic.
+        val auth = if (token != null) BearerAuth(token) else BasicAuth(email.trim(), password)
         var sawAuthFailure = false
         for (host in hosts) {
             try {
@@ -1014,14 +1039,59 @@ class MailRepository(
     }
 
     /**
-     * Build JMAP auth for [credentials]: Bearer for OAuth accounts (refreshing the
-     * access token first when it's missing or within 60s of expiry, then persisting
-     * the new tokens), Basic otherwise.
+     * Build JMAP auth for [credentials]: Bearer for API-token accounts (the token
+     * lives in the password slot) and for OAuth accounts (refreshing the access
+     * token first when it's missing or within 60s of expiry, then persisting the
+     * new tokens), Basic otherwise.
      */
     private suspend fun jmapAuth(credentials: AccountCredentials): JmapAuth {
+        if (credentials.authType == AuthType.API_TOKEN) return BearerAuth(credentials.password)
         val token = tokenRefresher.freshAccessToken(credentials)
             ?: return BasicAuth(credentials.username, credentials.password)
         return BearerAuth(token)
+    }
+
+    /**
+     * Resolve a manually-entered JMAP server to the value to persist as the account's
+     * `server`: try each session-URL candidate (an explicit session URL is used
+     * verbatim; ".../jmap" also tries ".../jmap/session" and the host's well-known)
+     * and return the first whose session parses and carries a mail account. Inputs
+     * [Jmap.sessionUrlFor] already resolves are returned unchanged; a probed fallback
+     * returns the exact working session URL (stable under [Jmap.sessionUrlFor]).
+     * Rethrows the first candidate's failure when none works.
+     */
+    suspend fun resolveJmapServerInput(serverInput: String, auth: JmapAuth): String {
+        val candidates = Jmap.sessionUrlCandidates(serverInput)
+        var firstError: Throwable? = null
+        for (url in candidates) {
+            val session = try {
+                client.fetchSession(url, auth)
+            } catch (t: Throwable) {
+                if (firstError == null) firstError = t
+                continue
+            }
+            if (session.mailAccountId() != null) {
+                return if (candidates.size == 1) serverInput.trim() else url
+            }
+            if (firstError == null) firstError = JmapException("This user has no JMAP mail account.")
+        }
+        throw firstError ?: JmapException("No JMAP server found at $serverInput")
+    }
+
+    /**
+     * The address the server itself associates with [auth] at [server]: the session's
+     * `username` (RFC 8620 §2), else the primary mail account's name — whichever looks
+     * like an email address; null when the session declares neither (e.g. a bare login
+     * name). Token sign-ins adopt this over the typed address, which Bearer auth never
+     * validates (#54: a wrong email + valid token would otherwise mint a wrong identity).
+     */
+    suspend fun sessionIdentity(server: String, auth: JmapAuth): String? {
+        val session = client.fetchSession(Jmap.sessionUrlFor(server), auth)
+        val accountName = session.mailAccountId()?.let { session.accounts[it]?.name }
+        val looksLikeEmail = Regex("""[^@\s]+@[^@\s]+\.[^@\s]+""")
+        return sequenceOf(session.username, accountName.orEmpty())
+            .map { it.trim() }
+            .firstOrNull { looksLikeEmail.matches(it) }
     }
 
     /**
@@ -1035,7 +1105,7 @@ class MailRepository(
         } else {
             val session = client.fetchSession(
                 Jmap.sessionUrlFor(credentials.server),
-                BasicAuth(credentials.username, credentials.password),
+                jmapAuth(credentials),
             )
             requireNotNull(session.mailAccountId()) { "This user has no JMAP mail account." }
             Unit
@@ -1313,11 +1383,23 @@ class MailRepository(
             ?: error("Message is not in the cache.")
         val mailboxId = cached.mailboxId ?: error("Unknown mailbox for message.")
         val uid = ImapMailService.uidOf(emailId) ?: error("Not an IMAP message.")
-        val body = MimeParser.parseBody(imap.fetchSource(credentials, mailboxId, uid))
+        val raw = imap.fetchSource(credentials, mailboxId, uid)
         if (markRead && !cached.isSeen) {
             runCatching { setRead(credentials, emailId, seen = true) }
         }
-        return cached.withBody(body)
+        // The cache holds no threading headers; lift them from the source so a reply
+        // built from this email carries In-Reply-To/References.
+        return cached.withBody(MimeParser.parseBody(raw)).copy(
+            messageId = headerIds(MimeParser.headerOf(raw, "Message-ID")),
+            references = headerIds(MimeParser.headerOf(raw, "References")),
+        )
+    }
+
+    /** The `<id@host>` tokens of a Message-ID/References header, brackets kept for re-emission. */
+    private fun headerIds(value: String?): List<String> {
+        if (value.isNullOrBlank()) return emptyList()
+        val bracketed = Regex("<[^<>]+>").findAll(value).map { it.value }.toList()
+        return bracketed.ifEmpty { value.trim().split(Regex("\\s+")).map { "<$it>" } }
     }
 
     /** Attach a parsed [MimeBody] to a cached [Email] so the message view can render it. */
@@ -1968,6 +2050,39 @@ class MailRepository(
         return jmapMoveAll(ctx, emailIds, target)
     }
 
+    /**
+     * Codeberg #50 (opt-in): when a genuinely-new reply lands in the Inbox, pull the thread's
+     * archived members back so the Inbox conversation is whole again. JMAP only — IMAP has no
+     * thread ids, so it can never resolve members to move. The archive resolves like
+     * [archiveAll] minus creation (no archive folder means nothing is archived). Server-first
+     * (one bulk `Email/set`); the confirmed rows are then RE-FILED locally into the Inbox
+     * rather than dropped — the caller's inbox refresh already ran, so dropping them would
+     * leave the conversation torn until the next pass — and marked recently-mutated so
+     * neither reconcile path prunes them while the server catches up on the move. Per-id
+     * rejections simply stay archived. Returns the re-filed members as Inbox emails so the
+     * caller can fold them into its notifier baseline.
+     */
+    suspend fun unarchiveThreadsOnReply(credentials: AccountCredentials, threadIds: Set<String>): List<Email> {
+        if (threadIds.isEmpty() || credentials.protocol == MailProtocol.IMAP) return emptyList()
+        val ctx = connect(credentials)
+        val inbox = ctx.rolesToMailboxId["inbox"] ?: return emptyList()
+        val archive = archiveMailboxId(ctx) ?: ctx.rolesToMailboxId["all"] ?: return emptyList()
+        if (archive == inbox) return emptyList()
+        val members = emailDao.threadMembersInMailbox(credentials.id, archive, threadIds.toList())
+        if (members.isEmpty()) return emptyList()
+        // Protect the rows BEFORE the server call, so a sync firing mid-move can't evict them.
+        members.forEach { markRecentlyMutated(it.id) }
+        val result = runCatching {
+            client.move(ctx.session, ctx.accountId, members.map { it.id }, inbox, ctx.auth)
+        }.getOrNull() ?: return emptyList()
+        val moved = members.filter { it.id in result.done }
+        if (moved.isEmpty()) return emptyList()
+        val refiled = moved.map { it.copy(mailboxId = inbox) }
+        emailDao.upsertAll(refiled)
+        adjustCountsForRemoval(moved, inbox)
+        return refiled.map { it.toEmail() }
+    }
+
     /** Move a whole selection (one account) to [targetMailboxId]. */
     suspend fun moveAllToMailbox(credentials: AccountCredentials, emailIds: List<String>, targetMailboxId: String): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
@@ -2123,6 +2238,17 @@ class MailRepository(
 
     /** Un-snooze one account's message now (re-appears in its list). */
     suspend fun unsnooze(accountId: String, emailId: String) = snoozedDao.delete(accountId, emailId)
+
+    /** One account's ids currently hidden by an active snooze (until in the future) — the same
+     *  predicate the list/chip SQL uses, for callers that filter in memory (e.g. the unfolded
+     *  conversation). Account-scoped (issue #31): snoozes are keyed per account, so account A
+     *  snoozing id X must not hide account B's same-id message. */
+    suspend fun activeSnoozedIds(accountId: String): Set<String> {
+        val now = System.currentTimeMillis()
+        return snoozedDao.all()
+            .filter { it.accountId == accountId && it.until > now }
+            .mapTo(mutableSetOf()) { it.emailId }
+    }
 
     /** A single cached email of one account by id (e.g. to notify when a snooze fires). */
     suspend fun cachedEmail(accountId: String, emailId: String): Email? =
@@ -2434,7 +2560,7 @@ class MailRepository(
         // return on every pass).
         for (pass in 1..MAX_PURGE_PASSES) {
             val ids = client
-                .queryEmails(ctx.session, ctx.accountId, trashMailboxId, 10_000, ctx.auth, collapseThreads = false)
+                .queryEmails(ctx.session, ctx.accountId, trashMailboxId, 10_000, ctx.auth)
                 .map { it.id }
             if (ids.isEmpty()) break
             var doneThisPass = 0
@@ -2465,7 +2591,18 @@ class MailRepository(
             return imap.search(credentials, inbox, query.text, limit).map { it.toEmail() }
         }
         val ctx = connect(credentials)
-        return client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth)
+        val hits = client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth)
+        // A hit can live in several mailboxes: resolve its folder like [fetchThreadMembers] —
+        // the cached row's folder while the server still lists it, else the role-ranked pick —
+        // never the server map's arbitrary first key, which could feed a search-row action
+        // (delete's destroy-vs-move, undo's restore target) a Trash/Junk folder by accident.
+        val cachedMailbox = emailDao.emailsByIds(hits.map { it.id }).associate { it.id to it.mailboxId }
+        return hits.map { e ->
+            val serverBoxes = e.mailboxIds.keys
+            val mailbox = cachedMailbox[e.id]?.takeIf { it in serverBoxes }
+                ?: rankedMailboxPick(credentials.id, serverBoxes)
+            e.copy(mailboxId = mailbox ?: e.mailboxId)
+        }
     }
 
     /**
@@ -2498,6 +2635,7 @@ class MailRepository(
 
     /** Fetch an email (with body) without marking it read — used to build replies/forwards. */
     suspend fun fetchEmail(credentials: AccountCredentials, emailId: String): Email {
+        if (credentials.protocol == MailProtocol.IMAP) return openEmailImap(credentials, emailId, markRead = false)
         val ctx = connect(credentials)
         return client.getEmail(ctx.session, ctx.accountId, emailId, ctx.auth)
     }
@@ -2587,6 +2725,17 @@ class MailRepository(
      */
     suspend fun sentMailboxIds(accountIds: List<String>): List<String> =
         accountIds.distinct().mapNotNull { mailboxDao.idForRole(it, "sent") }
+
+    /**
+     * Reactive variant of [sentMailboxIds], as account-pinned (accountId, mailboxId) pairs
+     * for the conversation chip's Sent scope: re-resolves when the folder table changes, so
+     * a fresh install's chips pick the Sent folder up on the first folder sync instead of
+     * waiting for the next paging-key change, and never bleed across colliding mailbox ids.
+     */
+    fun observeSentMailboxes(accountIds: List<String>): Flow<List<Pair<String, String>>> =
+        mailboxDao.observeSentMailboxes(accountIds.distinct())
+            .map { rows -> rows.map { it.accountId to it.id } }
+            .distinctUntilChanged()
 
     /**
      * Remove a message from the local cache only (optimistic UI removal), decrementing its source
