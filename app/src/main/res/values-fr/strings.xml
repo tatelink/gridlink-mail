@@ -667,6 +667,8 @@
     <string name="compose_contacts_priming_not_now">Pas maintenant</string>
     <string name="settings_mark_read_on_delete_title">Marquer comme lu à la suppression</string>
     <string name="settings_mark_read_on_delete_subtitle">Les messages supprimés ne restent pas non lus dans la corbeille</string>
+    <string name="settings_mark_read_on_archive_title">Marquer comme lu à l’archivage</string>
+    <string name="settings_mark_read_on_archive_subtitle">Les messages archivés ne restent pas non lus dans les archives</string>
     <string name="settings_about_section">À propos</string>
     <string name="settings_about_version">Version</string>
     <string name="settings_about_source">Code source</string>
