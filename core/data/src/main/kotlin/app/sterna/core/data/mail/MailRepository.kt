@@ -2851,13 +2851,13 @@ class MailRepository(
             // failure never leaves the rest of a revoked account behind.
             onAccountPruned?.let { hook -> runCatching { hook(prunedId) } }
             bgScope.launch {
-                runCatching {
-                    emailDao.deleteForAccount(prunedId)
-                    emailFtsDao.clearAccount(prunedId)
-                    emailBodyDao.deleteForAccount(prunedId)
-                    mailboxDao.deleteForAccount(prunedId)
-                    snoozedDao.deleteForAccount(prunedId)
-                }
+                // One runCatching PER delete: a failure in one table must not leave the
+                // remaining tables' rows of a revoked account behind.
+                runCatching { emailDao.deleteForAccount(prunedId) }
+                runCatching { emailFtsDao.clearAccount(prunedId) }
+                runCatching { emailBodyDao.deleteForAccount(prunedId) }
+                runCatching { mailboxDao.deleteForAccount(prunedId) }
+                runCatching { snoozedDao.deleteForAccount(prunedId) }
             }
         }
     }
