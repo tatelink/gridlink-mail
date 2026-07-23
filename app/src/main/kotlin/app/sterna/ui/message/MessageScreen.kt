@@ -296,6 +296,12 @@ private fun MessagePager(
     // publishes its ViewModel here on settle — so the bars' content (star state, actions,
     // bar visibility) switches on settle, never mid-gesture.
     var activeMessage by remember { mutableStateOf<ActiveMessage?>(null) }
+    // Settling on a page whose entry hasn't loaded means there is no message: drop the published
+    // one, or the fixed chrome would keep starring/deleting the message the user swiped away from.
+    // The page republishes itself (MessagePage's onActivated) as soon as its entry arrives.
+    LaunchedEffect(pagerState.settledPage) {
+        if (entryAt(pagerState.settledPage) == null) activeMessage = null
+    }
     Scaffold(
         topBar = { MessageTopBar(activeMessage, onBack, onReply, onDelete, onArchive) },
     ) { padding ->
