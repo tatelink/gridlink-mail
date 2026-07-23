@@ -1117,7 +1117,9 @@ fun InboxScreen(
                             }
                             val isTrash = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
                             // Frequent actions first, nearest the anchor; the rarely-visited
-                            // Outbox sits last (#48).
+                            // Outbox comes after them (#48). In the Trash the destructive
+                            // "Empty trash" is pushed to the very bottom, so the third slot
+                            // keeps the harmless entry the finger expects everywhere else.
                             DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, shape = MaterialTheme.shapes.medium) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.inbox_select_all)) },
@@ -1129,26 +1131,9 @@ fun InboxScreen(
                                     leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
                                     onClick = { viewModel.markAllRead(); overflowOpen = false },
                                 )
-                                // The Trash gets "Empty trash" (destructive → error red) instead of
-                                // the scheduled-messages shortcut.
-                                if (isTrash) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                stringResource(R.string.inbox_empty_trash),
-                                                color = MaterialTheme.colorScheme.error,
-                                            )
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Filled.DeleteSweep,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.error,
-                                            )
-                                        },
-                                        onClick = { overflowOpen = false; viewModel.emptyTrash() },
-                                    )
-                                } else {
+                                // The Trash trades the scheduled-messages shortcut for "Empty trash",
+                                // which is appended below rather than taking this slot.
+                                if (!isTrash) {
                                     DropdownMenuItem(
                                         text = { Text(stringResource(R.string.inbox_scheduled)) },
                                         leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
@@ -1171,6 +1156,25 @@ fun InboxScreen(
                                     },
                                     onClick = { overflowOpen = false; onOpenOutbox() },
                                 )
+                                // Destructive, so it sits last (#48).
+                                if (isTrash) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                stringResource(R.string.inbox_empty_trash),
+                                                color = MaterialTheme.colorScheme.error,
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Filled.DeleteSweep,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error,
+                                            )
+                                        },
+                                        onClick = { overflowOpen = false; viewModel.emptyTrash() },
+                                    )
+                                }
                             }
                         },
                         scrollBehavior = scrollBehavior,
