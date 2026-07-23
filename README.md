@@ -166,10 +166,14 @@ and [CONTRIBUTING.md](CONTRIBUTING.md). The planned and shipped feature set is
 tracked in [FEATURES.md](FEATURES.md). Contributions, bug reports and ideas are
 very welcome. 🙌
 
-Sterna Mail is built by its author with the help of AI coding assistants, a tool
-in the workflow like an IDE or a compiler. All code is reviewed, tested and
-maintained by me, and I am responsible for it. The source is GPLv3 and open to
-inspection, issues and contributions.
+Sterna Mail is written and maintained by one developer. Every change is
+reviewed and tested on physical devices before it ships, issues are closed on
+reporter confirmation, and release builds are reproducible and checked by
+F-Droid against the published source.
+
+AI coding assistants are part of that toolchain. They do not decide what Sterna
+does and they do not review their own output. Nothing reaches a release without
+being read, built and tested by a human who is accountable for it.
 
 ## ☕ Support
 
