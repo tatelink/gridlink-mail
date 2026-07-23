@@ -1,6 +1,7 @@
 package app.sterna.core.jmap
 
 import app.sterna.core.jmap.model.EmailAddress
+import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.JmapSession
 import app.sterna.core.jmap.model.Quota
 import app.sterna.core.jmap.model.VacationResponse
@@ -311,6 +312,44 @@ class JmapClientTest {
         // Filed as a seen draft in the Drafts mailbox.
         assertTrue(sent.contains("\"\$draft\":true"))
         assertTrue(sent.contains("\"mbDrafts\":true"))
+    }
+
+    @Test fun saveDraft_referencesUploadedAttachmentBlobs() = runBlocking {
+        // Re-saving an edited draft must carry its files: without the attachments array the new
+        // draft is empty and the old one is destroyed, losing them for good (#63).
+        server.enqueue(MockResponse().setBody(DRAFT_CREATED_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+
+        client.saveDraft(
+            session = session, accountId = "acc1", auth = BasicAuth("u", "p"),
+            from = EmailAddress(email = "alex@example.com"),
+            to = listOf(EmailAddress(email = "someone@example.com")),
+            subject = "s", textBody = "b", draftMailboxId = "mbDrafts",
+            attachments = listOf(
+                EmailBodyPart(blobId = "blob1", type = "application/pdf", name = "report.pdf", size = 42),
+                // A part with no blobId can't be referenced and must simply not be emitted.
+                EmailBodyPart(partId = "/tmp/staged", type = "image/png", name = "local.png"),
+            ),
+        )
+
+        val sent = server.takeRequest().body.readUtf8()
+        assertTrue(sent.contains("\"blobId\":\"blob1\""))
+        assertTrue(sent.contains("\"name\":\"report.pdf\""))
+        assertTrue(sent.contains("\"disposition\":\"attachment\""))
+        assertTrue(!sent.contains("local.png"))
+    }
+
+    @Test fun saveDraft_omitsTheAttachmentsArrayWhenThereAreNone() = runBlocking {
+        server.enqueue(MockResponse().setBody(DRAFT_CREATED_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+
+        client.saveDraft(
+            session = session, accountId = "acc1", auth = BasicAuth("u", "p"),
+            from = EmailAddress(email = "alex@example.com"), to = emptyList(),
+            subject = "s", textBody = "b", draftMailboxId = "mbDrafts",
+        )
+
+        assertTrue(!server.takeRequest().body.readUtf8().contains("\"attachments\""))
     }
 
     @Test fun saveDraft_throwsOnNotCreated() {

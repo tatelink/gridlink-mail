@@ -3043,7 +3043,6 @@ class MailRepository(
         )
     }
 
-    /** Save a plain-text draft in the Drafts mailbox. */
     /** Build an SMTP OutgoingMessage from compose fields (IMAP accounts). */
     private fun outgoing(
         credentials: AccountCredentials,
@@ -3078,9 +3077,14 @@ class MailRepository(
     }
 
     /**
-     * Save a draft; with [replacesEmailId] set (re-saving an opened draft, #63) the old server
-     * draft is destroyed once the new one is safely created, so saving never duplicates. The
-     * destroy is best-effort: a failure leaves a stale copy rather than failing the save.
+     * Save a draft, carrying [attachments] (the chips compose shows) into it so a re-saved draft
+     * keeps its files. With [replacesEmailId] set (re-saving an opened draft, #63) the old server
+     * draft is destroyed once the new one is safely created, so saving never duplicates — but
+     * ONLY when the new draft reproduced the old one's content: every attachment made it in and
+     * [bodyIsLossy] is false. Otherwise the original survives and the caller is told
+     * ([DraftSaveOutcome.ORIGINAL_KEPT]), because losing attachments or an HTML body the user was
+     * just shown is irreversible while a duplicate is not. The destroy stays best-effort: a
+     * failure leaves a stale copy rather than failing the save.
      */
     suspend fun saveDraft(
         credentials: AccountCredentials,
@@ -3092,18 +3096,24 @@ class MailRepository(
         inReplyTo: List<String> = emptyList(),
         references: List<String> = emptyList(),
         replacesEmailId: String? = null,
-    ) {
+        attachments: List<EmailBodyPart> = emptyList(),
+        bodyIsLossy: Boolean = false,
+    ): DraftSaveOutcome {
         val ccTrimmed = cc.map { it.trim() }.filter { it.isNotEmpty() }
         val bccTrimmed = bcc.map { it.trim() }.filter { it.isNotEmpty() }
         if (credentials.protocol == MailProtocol.IMAP) {
             val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
             val drafts = mailboxDao.idForRole(credentials.id, "drafts") ?: error("This account has no Drafts folder.")
+            val parts = imapDraftAttachments(attachments)
             imap.appendDraft(
                 credentials, drafts,
-                outgoing(credentials, recipients, subject, body, inReplyTo, references, cc = ccTrimmed, bcc = bccTrimmed),
+                outgoing(credentials, recipients, subject, body, inReplyTo, references, cc = ccTrimmed, bcc = bccTrimmed)
+                    .copy(attachments = parts),
             )
-            replacesEmailId?.let { runCatching { destroyDraft(credentials, it) } }
-            return
+            return finishDraftSave(
+                credentials, replacesEmailId,
+                faithful = draftReplacementIsFaithful(attachments.size, parts.size, bodyIsLossy),
+            )
         }
         val ctx = connect(credentials)
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
@@ -3121,6 +3131,7 @@ class MailRepository(
         }
         val draftsId = ctx.rolesToMailboxId["drafts"]
             ?: error("This account has no Drafts folder.")
+        val blobs = jmapDraftAttachments(credentials, attachments)
         client.saveDraft(
             session = ctx.session,
             accountId = ctx.accountId,
@@ -3134,8 +3145,67 @@ class MailRepository(
             draftMailboxId = draftsId,
             inReplyTo = inReplyTo,
             references = references,
+            attachments = blobs,
         )
-        replacesEmailId?.let { runCatching { destroyDraft(credentials, it) } }
+        return finishDraftSave(
+            credentials, replacesEmailId,
+            faithful = draftReplacementIsFaithful(attachments.size, blobs.size, bodyIsLossy),
+        )
+    }
+
+    /**
+     * Close out a draft save. The edited original is destroyed ONLY when [faithful] — every
+     * attachment compose was showing made it into the replacement and the body wasn't flattened.
+     * Otherwise the original stays put and the caller surfaces that, so nothing the user could
+     * see is destroyed by a save that couldn't carry it (#63).
+     */
+    private suspend fun finishDraftSave(
+        credentials: AccountCredentials,
+        replacesEmailId: String?,
+        faithful: Boolean,
+    ): DraftSaveOutcome {
+        if (replacesEmailId == null) return DraftSaveOutcome.SAVED
+        if (!faithful) return DraftSaveOutcome.ORIGINAL_KEPT
+        runCatching { destroyDraft(credentials, replacesEmailId) }
+        return DraftSaveOutcome.SAVED
+    }
+
+    /**
+     * Compose's staged attachment files, read back as MIME parts for an APPENDed IMAP draft
+     * (the same bytes-from-a-staged-file path the SMTP send uses). A part whose bytes can't be
+     * read is DROPPED — the caller sees fewer parts out than in and keeps the original draft.
+     */
+    private fun imapDraftAttachments(attachments: List<EmailBodyPart>): List<OutgoingAttachment> =
+        attachments.mapNotNull { part ->
+            val path = part.partId ?: return@mapNotNull null
+            val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull() ?: return@mapNotNull null
+            val inline = part.disposition.equals("inline", ignoreCase = true) && !part.cid.isNullOrBlank()
+            OutgoingAttachment(
+                part.name ?: "attachment", part.type ?: "application/octet-stream", bytes,
+                cid = part.cid, inline = inline,
+            )
+        }
+
+    /**
+     * The blob-backed parts a JMAP draft can reference. Parts compose already uploaded are used
+     * as-is; a part still staged as a local file (PGP SIGN keeps the bytes on the device) is
+     * uploaded now so the draft can carry it — a signed draft is stored in plaintext anyway, and
+     * ENCRYPT can't save drafts at all. A part that is neither is DROPPED, and the caller keeps
+     * the original draft rather than destroying the only copy of that file.
+     */
+    private suspend fun jmapDraftAttachments(
+        credentials: AccountCredentials,
+        attachments: List<EmailBodyPart>,
+    ): List<EmailBodyPart> = attachments.mapNotNull { part ->
+        if (part.blobId != null) return@mapNotNull part
+        val path = part.partId ?: return@mapNotNull null
+        val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull() ?: return@mapNotNull null
+        runCatching {
+            uploadAttachment(
+                credentials, bytes, part.type, part.name,
+                part.disposition ?: "attachment", part.cid,
+            )
+        }.getOrNull()
     }
 
     /**

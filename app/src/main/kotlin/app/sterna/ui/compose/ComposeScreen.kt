@@ -158,6 +158,12 @@ fun ComposeScreen(
         }
     }
 
+    // Outcomes worth reporting after the screen closes (e.g. a draft save that had to keep the
+    // original): a toast, because compose navigates away the moment the save succeeds.
+    LaunchedEffect(Unit) {
+        viewModel.notices.collect { res -> Toast.makeText(context, res, Toast.LENGTH_LONG).show() }
+    }
+
     LaunchedEffect(Unit) {
         viewModel.prepare(replyTo, mode, accountId, restore, to, cc, bcc, subject, body, draftId)
         // Attach any files shared into the app (ACTION_SEND) — a one-shot handoff we read and

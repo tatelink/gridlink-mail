@@ -16,6 +16,7 @@ import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.db.ScheduledSendEntity
+import app.sterna.core.data.mail.DraftSaveOutcome
 import app.sterna.core.data.pgp.PgpMode
 import app.sterna.core.data.pgp.PgpResult
 import app.sterna.core.imap.OutgoingAttachment
@@ -86,6 +87,14 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     private val _attachmentStatus = MutableStateFlow<String?>(null)
     val attachmentStatus: StateFlow<String?> = _attachmentStatus.asStateFlow()
+
+    /**
+     * One-shot string resources to surface after an action that closes the screen (the save
+     * succeeds and compose navigates away, so an inline banner would never be read). The screen
+     * shows them as a toast, which outlives the navigation.
+     */
+    private val _notices = MutableSharedFlow<Int>(extraBufferCapacity = 1)
+    val notices: SharedFlow<Int> = _notices.asSharedFlow()
 
     /** Every identity across all accounts, and the chosen one (which sets the sending account). */
     private val _fromOptions = MutableStateFlow<List<FromOption>>(emptyList())
@@ -278,6 +287,14 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      */
     private var editingDraftId: String? = null
 
+    /**
+     * Whether the draft being edited holds content this plain-text composer cannot put back: a
+     * genuine HTML body (flattened to text on open), inline images or a calendar part (never
+     * carried), or a file attachment that failed to re-stage. Re-saving then leaves the original
+     * alone instead of destroying the only copy of what compose is unable to reproduce (#63).
+     */
+    private var editingDraftLossy = false
+
     private fun credentials(): AccountCredentials? =
         (_selectedFrom.value?.accountId ?: accountId)?.let { store.credentials(it) } ?: store.load()
 
@@ -375,10 +392,17 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     inReplyTo = draft.inReplyTo
                     references = draft.references
                     editingDraftId = draftId
-                    carryDraftAttachments(credentials, draft)
+                    // What this editor cannot give back on a re-save: rich formatting (the HTML
+                    // body is flattened to text), inline images and calendar parts (not carried).
+                    editingDraftLossy = draft.htmlContent() != null ||
+                        draft.inlineImageParts().isNotEmpty() ||
+                        draft.calendarParts().isNotEmpty()
+                    if (!carryDraftAttachments(credentials, draft)) editingDraftLossy = true
                 } catch (_: Throwable) {
                     // The draft couldn't be loaded: leave compose blank but say so, like a
                     // failed reply prefill — a silently emptied draft would look like data loss.
+                    // Whatever it held is unknown to us now, so a later save must not destroy it.
+                    editingDraftLossy = true
                     _attachmentStatus.value =
                         getApplication<Application>().getString(R.string.compose_prefill_failed)
                 }
@@ -608,28 +632,38 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      * Carry a reopened draft's file attachments back into compose (#63), staged exactly like a
      * forward's: JMAP re-uses/stages blobs, IMAP re-stages bytes. Inline images are not carried —
      * the plain-text editor can't reference them. Best-effort per part: one failed download
-     * doesn't drop the rest.
+     * doesn't drop the rest. Returns whether EVERY part came across — a partial carry means a
+     * re-save cannot reproduce the draft, so the original must survive it.
      */
-    private suspend fun carryDraftAttachments(credentials: AccountCredentials, o: Email) {
+    private suspend fun carryDraftAttachments(credentials: AccountCredentials, o: Email): Boolean {
+        val parts = o.fileAttachmentParts()
         val staged = mutableListOf<EmailBodyPart>()
-        for (part in o.fileAttachmentParts()) {
+        for (part in parts) {
             runCatching {
                 val bytes = repo.downloadAttachment(credentials, part, o.id)
                 stageOutgoing(credentials, bytes, part.type, part.name, disposition = "attachment", cid = null)
             }.getOrNull()?.let { staged += it }
         }
         if (staged.isNotEmpty()) _attachments.value = _attachments.value + staged
+        return staged.size == parts.size
     }
 
     fun saveDraft(to: String, cc: String, bcc: String, subject: String, body: String) =
         submit(to) { credentials, recipients ->
-            // Keep a reply draft threaded, and replace the draft being edited (#63) rather
-            // than piling up a copy per save.
-            repo.saveDraft(
+            // Keep a reply draft threaded, carry the attachments the chips are showing into the
+            // saved copy, and replace the draft being edited (#63) rather than piling up a copy
+            // per save — unless the copy can't hold everything the original did, in which case
+            // the repository keeps the original and says so here.
+            val outcome = repo.saveDraft(
                 credentials, recipients, subject, body, parseAddrs(cc), parseAddrs(bcc),
                 inReplyTo = inReplyTo, references = references,
                 replacesEmailId = editingDraftId,
+                attachments = _attachments.value,
+                bodyIsLossy = editingDraftLossy,
             )
+            if (outcome == DraftSaveOutcome.ORIGINAL_KEPT) {
+                _notices.tryEmit(R.string.compose_draft_original_kept)
+            }
         }
 
     private inline fun submit(

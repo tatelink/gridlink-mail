@@ -1276,25 +1276,7 @@ class JmapClient internal constructor(
                                 if (references.isNotEmpty()) {
                                     putJsonArray("references") { references.forEach { add(it) } }
                                 }
-                                if (attachments.isNotEmpty()) {
-                                    putJsonArray("attachments") {
-                                        attachments.forEach { att ->
-                                            addJsonObject {
-                                                put("blobId", att.blobId)
-                                                put("type", att.type ?: "application/octet-stream")
-                                                att.name?.let { put("name", it) }
-                                                // Inline (cid) images keep their Content-ID + inline
-                                                // disposition so the server assembles multipart/related
-                                                // and the htmlBody's `cid:` refs resolve.
-                                                put("disposition", att.disposition ?: "attachment")
-                                                att.cid?.trim()?.trim('<', '>')
-                                                    ?.takeIf { it.isNotBlank() }
-                                                    ?.let { put("cid", it) }
-                                                if (att.size > 0) put("size", att.size)
-                                            }
-                                        }
-                                    }
-                                }
+                                addAttachments(attachments)
                                 putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
                                 putJsonObject("mailboxIds") { put(draftMailboxId, true) }
                                 putJsonArray("textBody") {
@@ -1444,6 +1426,8 @@ class JmapClient internal constructor(
     }
 
     /** Save a plain-text draft in the Drafts mailbox (no submission).
+     *  [attachments] are uploaded blobs referenced by the draft, so re-saving an edited draft
+     *  keeps the files it carried instead of shedding them (#63).
      *  Returns the created draft's server id, so an edit can later replace it (#63). */
     suspend fun saveDraft(
         session: JmapSession,
@@ -1458,6 +1442,7 @@ class JmapClient internal constructor(
         draftMailboxId: String,
         inReplyTo: List<String> = emptyList(),
         references: List<String> = emptyList(),
+        attachments: List<EmailBodyPart> = emptyList(),
     ): String? {
         val args = emailSet(session, auth) {
             put("accountId", accountId)
@@ -1471,6 +1456,7 @@ class JmapClient internal constructor(
                     // Keep a reply draft threaded, so sending it later still joins its conversation.
                     if (inReplyTo.isNotEmpty()) putJsonArray("inReplyTo") { inReplyTo.forEach { add(it) } }
                     if (references.isNotEmpty()) putJsonArray("references") { references.forEach { add(it) } }
+                    addAttachments(attachments)
                     putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
                     putJsonObject("mailboxIds") { put(draftMailboxId, true) }
                     putJsonArray("textBody") {
@@ -1920,4 +1906,31 @@ class JmapClient internal constructor(
 private fun JsonObjectBuilder.addAddress(address: EmailAddress) {
     address.name?.let { put("name", it) }
     put("email", address.email)
+}
+
+/**
+ * Write the `attachments` array of an Email/set create from already-uploaded blobs. Shared by
+ * the send and the draft-save paths, so a draft carries exactly the same parts the same message
+ * would carry if it were sent (#63 — a re-saved draft must not silently shed its files).
+ * Parts without a blobId are skipped: the server can only reference uploaded blobs.
+ */
+private fun JsonObjectBuilder.addAttachments(attachments: List<EmailBodyPart>) {
+    val blobs = attachments.filter { it.blobId != null }
+    if (blobs.isEmpty()) return
+    putJsonArray("attachments") {
+        blobs.forEach { att ->
+            addJsonObject {
+                put("blobId", att.blobId)
+                put("type", att.type ?: "application/octet-stream")
+                att.name?.let { put("name", it) }
+                // Inline (cid) images keep their Content-ID + inline disposition so the server
+                // assembles multipart/related and the htmlBody's `cid:` refs resolve.
+                put("disposition", att.disposition ?: "attachment")
+                att.cid?.trim()?.trim('<', '>')
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { put("cid", it) }
+                if (att.size > 0) put("size", att.size)
+            }
+        }
+    }
 }
