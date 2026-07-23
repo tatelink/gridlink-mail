@@ -2722,7 +2722,9 @@ class MailRepository(
             // prune them — that decay is accepted; expanding re-fetches.
             entities.forEach { markRecentlyMutated(credentials.id, it.id) }
         }
-        return emails
+        // Wire members carry no accountId; stamp it so downstream keys (selection, caches)
+        // can never fall back to an unscoped lookup and hit a colliding sibling account.
+        return emails.map { if (it.accountId == null) it.copy(accountId = credentials.id) else it }
     }
 
     /**

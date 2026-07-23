@@ -60,13 +60,12 @@ class StorageRepository(
         emailDao.countForAccount(accountId)
     }
 
-    /** Purge one account's cached messages. */
+    /** Purge one account's cached messages. Snoozes are user intent, not cache — kept. */
     suspend fun clearAccountCache(accountId: String) = withContext(Dispatchers.IO) {
         emailDao.deleteForAccount(accountId)
         emailFtsDao.clearAccount(accountId)
         emailBodyDao.deleteForAccount(accountId)
         mailboxDao.deleteForAccount(accountId)
-        snoozedDao.deleteForAccount(accountId)
     }
 
     /**
