@@ -135,8 +135,8 @@ let autodiscovery find the server for you.
   [encryption guide](ENCRYPTION.md) to get started.
 
 **🔔 Notifications & server power**
-- Push for new mail with **no Google / FCM** (JMAP EventSource or IMAP IDLE),
-  grouped per account, with quiet hours
+- Push for new mail with **no Google / FCM** (JMAP EventSource, IMAP IDLE or
+  **UnifiedPush**), grouped per account, with quiet hours
 - Server-side **vacation responder** and **Sieve filter rules**, mailbox quota
   display
 
