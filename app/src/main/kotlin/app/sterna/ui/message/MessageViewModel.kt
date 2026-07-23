@@ -172,6 +172,27 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val _crypto = MutableStateFlow<CryptoUiState>(CryptoUiState.None)
     val crypto = _crypto.asStateFlow()
 
+    /** Whether the bottom Reply/Forward bar should show for this page. Written by the page's
+     *  body (the scroll-end reveal logic in ConversationBody), read by the pager-level chrome:
+     *  the visible bar is FIXED outside the pager (#62) and follows the SETTLED page's value,
+     *  so it never blinks during the swipe gesture itself. */
+    private val _replyBarVisible = MutableStateFlow(false)
+    val replyBarVisible = _replyBarVisible.asStateFlow()
+
+    fun setReplyBarVisible(visible: Boolean) {
+        _replyBarVisible.value = visible
+    }
+
+    /** One-time "show remote images" override for the open message. Lives here rather than in a
+     *  composable because its writer and reader are now split across the pager boundary (#62):
+     *  the fixed toolbar's menu sets it, the page's body reads it. Reset on load. */
+    private val _manualShowImages = MutableStateFlow(false)
+    val manualShowImages = _manualShowImages.asStateFlow()
+
+    fun showImagesOnce() {
+        _manualShowImages.value = true
+    }
+
     /** One automatic decrypt attempt per opened message (when the page settles). */
     private var autoDecryptTried = false
 
@@ -210,6 +231,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         calendarLoadedFor = null
         _crypto.value = CryptoUiState.None
         autoDecryptTried = false
+        _replyBarVisible.value = false
+        _manualShowImages.value = false
         viewModelScope.launch {
             // Paint the cached header (sender/subject/preview) immediately so the screen shows
             // the tapped message at once; the body fills in when the fetch returns. Header-only

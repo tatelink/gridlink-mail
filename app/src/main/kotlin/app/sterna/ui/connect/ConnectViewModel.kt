@@ -351,9 +351,21 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
+     * "Add account" escape from the pending-imports list: leave the listing for the normal
+     * add-account form. With every imported account still deferred there is no signed-in account,
+     * so without this exit the listing is a dead end (fresh install → import → skip → stranded;
+     * only uninstalling recovered). The pending accounts are untouched — the form offers the way
+     * back ([resumeImportSignIn]) while any remain.
+     */
+    fun leaveImportListing() {
+        if (currentListing()?.selected == null) _importSignIn.value = ImportSignIn.None
+    }
+
+    /**
      * Re-enter the sign-in list for any still-unauthenticated imported account — e.g. the app was
-     * killed mid-sign-in and relaunched. Does nothing when there are none (so a genuine first run
-     * just shows the add-account form). Never overrides a list already on screen.
+     * killed mid-sign-in and relaunched, or the user left it via [leaveImportListing] and wants
+     * back. Does nothing when there are none (so a genuine first run just shows the add-account
+     * form). Never overrides a list already on screen.
      */
     fun resumeImportSignIn() {
         if (_importSignIn.value is ImportSignIn.Listing) return

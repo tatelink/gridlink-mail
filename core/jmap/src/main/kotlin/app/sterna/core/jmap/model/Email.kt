@@ -69,7 +69,11 @@ data class Email(
     val from: List<EmailAddress> = emptyList(),
     val to: List<EmailAddress> = emptyList(),
     val cc: List<EmailAddress> = emptyList(),
+    /** Populated by the single-message fetch only (needed to reopen a draft for editing, #63). */
+    val bcc: List<EmailAddress> = emptyList(),
     val messageId: List<String> = emptyList(),
+    /** The In-Reply-To header ids, so an edited reply draft keeps its threading (#63). */
+    val inReplyTo: List<String> = emptyList(),
     val references: List<String> = emptyList(),
     val hasAttachment: Boolean = false,
     val keywords: Map<String, Boolean> = emptyMap(),

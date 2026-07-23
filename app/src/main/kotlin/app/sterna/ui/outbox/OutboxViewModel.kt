@@ -63,6 +63,7 @@ class OutboxViewModel(application: Application) : AndroidViewModel(application) 
                     attachments = draft.attachments,
                     inReplyTo = draft.inReplyTo,
                     references = draft.references,
+                    draftEmailId = draft.draftEmailId,
                 ),
             )
             _readyToEdit.value = true

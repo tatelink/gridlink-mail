@@ -201,6 +201,8 @@ fun InboxScreen(
     onCompose: () -> Unit,
     /** Reopen compose with the draft of a send the user just undid. */
     onReopenDraft: () -> Unit,
+    /** Open a saved draft in compose for editing (#63) — tapping a row in the Drafts folder. */
+    onEditDraft: (emailId: String, accountId: String?) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenScheduled: () -> Unit,
@@ -1114,23 +1116,9 @@ fun InboxScreen(
                                 }
                             }
                             val isTrash = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
+                            // Frequent actions first, nearest the anchor; the rarely-visited
+                            // Outbox sits last (#48).
                             DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, shape = MaterialTheme.shapes.medium) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.inbox_outbox)) },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
-                                    trailingIcon = {
-                                        if (outboxCount > 0) {
-                                            Badge(
-                                                containerColor = if (outboxHasFailures) {
-                                                    MaterialTheme.colorScheme.error
-                                                } else {
-                                                    MaterialTheme.colorScheme.primary
-                                                },
-                                            ) { Text(outboxCount.toString()) }
-                                        }
-                                    },
-                                    onClick = { overflowOpen = false; onOpenOutbox() },
-                                )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.inbox_select_all)) },
                                     leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
@@ -1167,6 +1155,22 @@ fun InboxScreen(
                                         onClick = { overflowOpen = false; onOpenScheduled() },
                                     )
                                 }
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.inbox_outbox)) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
+                                    trailingIcon = {
+                                        if (outboxCount > 0) {
+                                            Badge(
+                                                containerColor = if (outboxHasFailures) {
+                                                    MaterialTheme.colorScheme.error
+                                                } else {
+                                                    MaterialTheme.colorScheme.primary
+                                                },
+                                            ) { Text(outboxCount.toString()) }
+                                        }
+                                    },
+                                    onClick = { overflowOpen = false; onOpenOutbox() },
+                                )
                             }
                         },
                         scrollBehavior = scrollBehavior,
@@ -1218,6 +1222,10 @@ fun InboxScreen(
                         if (selectionActive) {
                             // A collapsed conversation selects/deselects all its members at once.
                             if (expandable) viewModel.toggleSelectThread(email) else viewModel.toggleSelect(email.id)
+                        } else if (!fromSearch && !expandable && isDraftsContext(ui)) {
+                            // In the Drafts folder a tap EDITS the draft (#63): open it in
+                            // compose, prefilled — not in the read-only reader.
+                            onEditDraft(email.id, email.accountId)
                         } else {
                             viewModel.onEmailOpened(email.id)
                             onOpenEmail(email.id, email.accountId, entryIndex, fromSearch)
@@ -1788,6 +1796,10 @@ private fun isOwnMailContext(ui: MailUi): Boolean {
     val role = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
     return role == "sent" || role == "drafts"
 }
+
+/** True when the visible folder is Drafts, where tapping a row edits it in compose (#63). */
+private fun isDraftsContext(ui: MailUi): Boolean =
+    ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "drafts"
 
 /** The string resource shown on the swipe background for [action] on [email] (0 = none). */
 private fun swipeActionLabel(action: SwipeAction, email: Email, unarchiveContext: Boolean, trashContext: Boolean): Int = when (action) {

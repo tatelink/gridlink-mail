@@ -36,6 +36,8 @@ class ScheduledSendWorker(context: Context, params: WorkerParameters) : Coroutin
                 fromEmail = row.fromEmail,
                 cc = row.cc?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList(),
                 bcc = row.bcc?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList(),
+                // A scheduled send of an edited draft (#63) still replaces the stored draft.
+                draftEmailId = row.draftEmailId,
             )
             repo.deleteScheduledSend(id)
             Result.success()

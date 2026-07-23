@@ -1686,7 +1686,9 @@ private fun InlineDeviceApproval(
 
 /**
  * Per-account OpenPGP configuration backed by the OpenKeychain provider. When
- * no provider is installed, degrades to an explainer + an F-Droid install link.
+ * no provider is installed, an explainer + an F-Droid install link are shown
+ * and the switches degrade to turn-off-only, so "Use OpenPGP" and "Encrypt by
+ * default" never become stuck ON after OpenKeychain is uninstalled (#35).
  */
 @Composable
 private fun PgpAccountSection(
@@ -1731,13 +1733,22 @@ private fun PgpAccountSection(
         ) {
             Text(stringResource(R.string.settings_pgp_install))
         }
-        return
+        // No early return: the switches below must stay reachable so a configuration
+        // left ON before the provider was uninstalled/disabled can still be turned
+        // OFF (#35). Without a provider they only allow turning things off.
     }
 
     SettingSwitch(
         title = stringResource(R.string.settings_pgp_enable_title),
-        subtitle = stringResource(R.string.settings_pgp_enable_subtitle),
+        subtitle = stringResource(
+            if (pgpAvailable) {
+                R.string.settings_pgp_enable_subtitle
+            } else {
+                R.string.settings_pgp_provider_required
+            },
+        ),
         checked = liveAccount.pgpEnabled,
+        enabled = pgpAvailable || liveAccount.pgpEnabled,
         onCheckedChange = { enabled ->
             if (enabled && liveAccount.pgpSignKeyId == 0L) {
                 // First enable: pick the signing key (enables on success).
@@ -1767,14 +1778,25 @@ private fun PgpAccountSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            OutlinedButton(onClick = { viewModel.choosePgpKey(accountId) }) {
+            OutlinedButton(
+                onClick = { viewModel.choosePgpKey(accountId) },
+                enabled = pgpAvailable,
+            ) {
                 Text(stringResource(R.string.settings_pgp_choose_key))
             }
         }
         SettingSwitch(
             title = stringResource(R.string.settings_pgp_encrypt_default_title),
-            subtitle = stringResource(R.string.settings_pgp_encrypt_default_subtitle),
+            subtitle = stringResource(
+                if (pgpAvailable) {
+                    R.string.settings_pgp_encrypt_default_subtitle
+                } else {
+                    R.string.settings_pgp_provider_required
+                },
+            ),
             checked = liveAccount.pgpEncryptByDefault,
+            enabled = pgpAvailable || liveAccount.pgpEncryptByDefault,
+            // Persisting the flag is a pure store write; it needs no provider.
             onCheckedChange = { viewModel.setPgp(accountId, true, it) },
         )
     }
