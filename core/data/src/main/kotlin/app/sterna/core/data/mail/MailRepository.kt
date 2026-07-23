@@ -2596,7 +2596,7 @@ class MailRepository(
         // the cached row's folder while the server still lists it, else the role-ranked pick —
         // never the server map's arbitrary first key, which could feed a search-row action
         // (delete's destroy-vs-move, undo's restore target) a Trash/Junk folder by accident.
-        val cachedMailbox = emailDao.emailsByIds(hits.map { it.id }).associate { it.id to it.mailboxId }
+        val cachedMailbox = emailDao.emailsByIds(credentials.id, hits.map { it.id }).associate { it.id to it.mailboxId }
         return hits.map { e ->
             val serverBoxes = e.mailboxIds.keys
             val mailbox = cachedMailbox[e.id]?.takeIf { it in serverBoxes }

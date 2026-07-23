@@ -24,10 +24,12 @@ private val recentRecipients: MutableMap<String, List<EmailAddress>> = Collectio
     },
 )
 
-/** Record [to] as the remembered recipients of email [id]; a no-op when empty (never
- *  erase an earlier record — some fetch paths hand over an Email without recipients). */
-internal fun recordRecipients(id: String, to: List<EmailAddress>) {
-    if (to.isNotEmpty()) recentRecipients[id] = to
+/** Record [to] as the remembered recipients of [accountId]'s email [id]; a no-op when empty
+ *  (never erase an earlier record — some fetch paths hand over an Email without recipients).
+ *  Keyed by (accountId, id): JMAP ids are unique only within their account (issue #31), so a
+ *  same-server sibling's colliding id must not replay another account's recipients. */
+internal fun recordRecipients(accountId: String, id: String, to: List<EmailAddress>) {
+    if (to.isNotEmpty()) recentRecipients["$accountId\u0000$id"] = to
 }
 
 /** Map a grouped conversation row to the domain [InboxRow] (unread = any in thread). */
@@ -42,7 +44,7 @@ internal fun ConversationRow.toInboxRow(): InboxRow =
 internal fun Email.toEntity(accountId: String, mailboxId: String): EmailEntity {
     val sender = from.firstOrNull()
     // Recipients don't fit the row schema — remember them aside for [toEmail] to replay.
-    recordRecipients(id, to)
+    recordRecipients(accountId, id, to)
     return EmailEntity(
         id = id,
         accountId = accountId,
@@ -73,7 +75,7 @@ internal fun EmailEntity.toEmail(): Email = Email(
     } else {
         emptyList()
     },
-    to = recentRecipients[id].orEmpty(),
+    to = recentRecipients["$accountId\u0000$id"].orEmpty(),
     hasAttachment = hasAttachment,
     keywords = buildMap {
         if (seen) put("\$seen", true)

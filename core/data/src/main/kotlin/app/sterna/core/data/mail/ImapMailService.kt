@@ -335,7 +335,7 @@ class ImapMailService(
         val id = emailId(accountId, mailboxId, uid)
         // Envelope recipients don't fit the row schema — remembered aside so Sent/Drafts
         // rows can show "To: …" (Codeberg #59), like the JMAP path in EmailMapper.
-        recordRecipients(id, to.map { EmailAddress(name = it.name, email = it.email.orEmpty()) })
+        recordRecipients(accountId, id, to.map { EmailAddress(name = it.name, email = it.email.orEmpty()) })
         return EmailEntity(
             id = id,
             accountId = accountId,

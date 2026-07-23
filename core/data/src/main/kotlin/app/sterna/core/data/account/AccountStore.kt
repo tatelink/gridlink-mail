@@ -438,7 +438,10 @@ class AccountStore(context: Context) {
             protocol = account.protocol,
             jmapAccountId = account.jmapAccountId,
             oauth = oauth,
-            authType = account.authType,
+            // The login's, not the record's: a sub-account authenticates however its login does
+            // (e.g. Bearer for an API-token login), and stays correct if the login's auth type
+            // ever changes after the sub-account was created.
+            authType = login.authType,
             imap = if (account.protocol == MailProtocol.IMAP) {
                 MailEndpoint(account.imapHost, account.imapPort, account.imapSecurity)
             } else {
