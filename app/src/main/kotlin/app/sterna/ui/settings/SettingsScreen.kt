@@ -453,6 +453,8 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val conversationView by viewModel.conversationView.collectAsStateWithLifecycle()
     val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
     val markReadOnDelete by viewModel.markReadOnDelete.collectAsStateWithLifecycle()
+    val markReadOnArchive by viewModel.markReadOnArchive.collectAsStateWithLifecycle()
+    val markReadOnMove by viewModel.markReadOnMove.collectAsStateWithLifecycle()
     val unarchiveOnReply by viewModel.unarchiveOnReply.collectAsStateWithLifecycle()
     val options = listOf(
         SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
@@ -487,11 +489,23 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     optionLabel = { textSizeLabel(context, it) },
                     onSelect = viewModel::setMessageTextSize,
                 )
-                SettingSwitch(
-                    title = stringResource(R.string.settings_mark_read_on_delete_title),
-                    subtitle = stringResource(R.string.settings_mark_read_on_delete_subtitle),
-                    checked = markReadOnDelete,
-                    onCheckedChange = viewModel::setMarkReadOnDelete,
+                SettingMultiChoiceRow(
+                    title = stringResource(R.string.settings_mark_read_title),
+                    options = listOf(MarkReadOn.DELETE, MarkReadOn.ARCHIVE, MarkReadOn.MOVE),
+                    checked = buildSet {
+                        if (markReadOnDelete) add(MarkReadOn.DELETE)
+                        if (markReadOnArchive) add(MarkReadOn.ARCHIVE)
+                        if (markReadOnMove) add(MarkReadOn.MOVE)
+                    },
+                    optionLabel = { markReadLabel(context, it) },
+                    noneLabel = stringResource(R.string.settings_mark_read_never),
+                    onCheckedChange = { option, on ->
+                        when (option) {
+                            MarkReadOn.DELETE -> viewModel.setMarkReadOnDelete(on)
+                            MarkReadOn.ARCHIVE -> viewModel.setMarkReadOnArchive(on)
+                            MarkReadOn.MOVE -> viewModel.setMarkReadOnMove(on)
+                        }
+                    },
                 )
             }
             SettingsSection(stringResource(R.string.settings_swipe_actions_section)) {
@@ -520,6 +534,16 @@ private fun swipeLabel(context: Context, action: SwipeAction): String = when (ac
     SwipeAction.DELETE -> context.getString(R.string.settings_swipe_delete)
     SwipeAction.ARCHIVE -> context.getString(R.string.settings_swipe_archive)
     SwipeAction.FLAG -> context.getString(R.string.settings_swipe_flag)
+}
+
+/** The three independent cases of the "Mark as read when" group — each one its own
+ *  preference, none of them constraining the others (Codeberg #67). */
+private enum class MarkReadOn { DELETE, ARCHIVE, MOVE }
+
+private fun markReadLabel(context: Context, on: MarkReadOn): String = when (on) {
+    MarkReadOn.DELETE -> context.getString(R.string.settings_mark_read_deleting)
+    MarkReadOn.ARCHIVE -> context.getString(R.string.settings_mark_read_archiving)
+    MarkReadOn.MOVE -> context.getString(R.string.settings_mark_read_moving)
 }
 
 private fun textSizeLabel(context: Context, size: MessageTextSize): String = when (size) {

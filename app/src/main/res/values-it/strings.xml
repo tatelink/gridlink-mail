@@ -651,8 +651,6 @@
     <string name="compose_contacts_priming_body">Completa i destinatari dai contatti di questo dispositivo. Sterna Mail li legge solo sul dispositivo e non li carica mai.</string>
     <string name="compose_contacts_priming_enable">Attiva</string>
     <string name="compose_contacts_priming_not_now">Non ora</string>
-    <string name="settings_mark_read_on_delete_title">Segna come letto all’eliminazione</string>
-    <string name="settings_mark_read_on_delete_subtitle">I messaggi eliminati non restano da leggere nel cestino</string>
     <string name="settings_about_section">Informazioni</string>
     <string name="settings_about_version">Versione</string>
     <string name="settings_about_source">Codice sorgente</string>

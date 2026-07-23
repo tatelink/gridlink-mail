@@ -1952,6 +1952,13 @@ class MailRepository(
      * else create an Archive folder as a last resort.
      */
     suspend fun archive(credentials: AccountCredentials, emailId: String): String? {
+        // Opt-in: flag the message read on its way out, so the archive doesn't accumulate
+        // unread badges. Best-effort BEFORE the move (the id changes with an IMAP move) and
+        // before [row] is read, so the count nudge below sees the new seen state; a failure
+        // must never block the archiving itself (Codeberg #67).
+        if (settings?.markReadOnArchive?.first() == true && emailDao.seenOf(emailId) == false) {
+            runCatching { setRead(credentials, emailId, true) }
+        }
         val row = emailDao.emailsByIds(listOf(emailId)).firstOrNull()
         if (credentials.protocol == MailProtocol.IMAP) {
             val dest = imapRoleFolder(credentials, "archive", "all")
@@ -2006,6 +2013,7 @@ class MailRepository(
      *  Returns the destination the message ended up in (null = a no-op, already there), so the
      *  caller can offer an Undo that both restores the row and reverses the count nudge. */
     suspend fun moveToMailbox(credentials: AccountCredentials, emailId: String, targetMailboxId: String): String? {
+        markReadOnMoveOutOfInbox(credentials, listOf(emailId), targetMailboxId)
         // Captured before the local row is dropped, to decrement the TRUE source and increment the
         // destination in the drawer's cached counts (INV-COUNT). The next mailbox-state sync
         // (getMailboxes on every refresh) corrects any drift.
@@ -2181,9 +2189,52 @@ class MailRepository(
         return BulkResult(destroyed + gone, emailIds.toSet() - destroyed - gone)
     }
 
+    /**
+     * Opt-in mark-read-on-archive/delete for a bulk action: flag the currently-unread part of the
+     * selection through the batched [setReadAll] (chunked `Email/set`) instead of one round trip
+     * per message — a select-all of 200 unread used to fire 200 sequential calls before the single
+     * batched move. The unread subset comes from ONE cached read; ids we have no row for are left
+     * alone (their state is unknown, exactly as the old per-id `seenOf(id) == false` filter did).
+     *
+     * MUST run BEFORE the mover reads its rows for the count nudge: [adjustCountsForRemoval] then
+     * sees `seen = true` and does not decrement the unread badge a second time. Best-effort: a
+     * failed flag store never blocks the archive/delete.
+     */
+    private suspend fun markSelectionRead(credentials: AccountCredentials, emailIds: List<String>) {
+        val unread = emailDao.emailsByIds(emailIds).filter { !it.seen }.map { it.id }
+        if (unread.isEmpty()) return
+        runCatching { setReadAll(credentials, unread, true) }
+    }
+
+    /**
+     * Opt-in mark-read-on-move (Codeberg #67), deliberately scoped to messages LEAVING the Inbox:
+     * only ids whose SOURCE mailbox is this account's Inbox are flagged. Reorganising between two
+     * other folders is left alone, and so is a move INTO the Inbox (unarchive, Not spam) — the
+     * message was brought back precisely to be read. Report spam counts: it is a message leaving
+     * the Inbox. Called at the top of the movers, so the flag store still runs BEFORE they read
+     * their rows for the count nudge ([markSelectionRead]); resolving the Inbox is best-effort.
+     */
+    private suspend fun markReadOnMoveOutOfInbox(
+        credentials: AccountCredentials,
+        emailIds: List<String>,
+        targetMailboxId: String,
+    ) {
+        if (settings?.markReadOnMove?.first() != true) return
+        val inbox = runCatching { roleMailboxId(credentials, "inbox") }.getOrNull() ?: return
+        if (targetMailboxId == inbox) return
+        val leaving = if (credentials.protocol == MailProtocol.IMAP) {
+            emailIds.filter { ImapMailService.mailboxOf(it) == inbox }
+        } else {
+            emailDao.emailsByIds(emailIds).filter { it.mailboxId == inbox }.map { it.id }
+        }
+        if (leaving.isNotEmpty()) markSelectionRead(credentials, leaving)
+    }
+
     /** Archive a whole selection (one account). Messages already in the archive/all folder are dropped locally. */
     suspend fun archiveAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
+        // Opt-in mark-read-on-archive: best-effort before the move (a \Seen store keeps the UID).
+        if (settings?.markReadOnArchive?.first() == true) markSelectionRead(credentials, emailIds)
         if (credentials.protocol == MailProtocol.IMAP) {
             val dest = imapRoleFolder(credentials, "archive", "all")
                 ?: run { imap.createFolder(credentials, "Archive"); "Archive" }
@@ -2241,6 +2292,7 @@ class MailRepository(
     /** Move a whole selection (one account) to [targetMailboxId]. */
     suspend fun moveAllToMailbox(credentials: AccountCredentials, emailIds: List<String>, targetMailboxId: String): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
+        markReadOnMoveOutOfInbox(credentials, emailIds, targetMailboxId)
         if (credentials.protocol == MailProtocol.IMAP) {
             val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
             emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
@@ -2264,9 +2316,7 @@ class MailRepository(
     suspend fun deleteAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
         // Opt-in mark-read-on-delete: best-effort before the move (a \Seen store keeps the UID).
-        if (settings?.markReadOnDelete?.first() == true) {
-            emailIds.forEach { id -> if (emailDao.seenOf(id) == false) runCatching { setRead(credentials, id, true) } }
-        }
+        if (settings?.markReadOnDelete?.first() == true) markSelectionRead(credentials, emailIds)
         if (credentials.protocol == MailProtocol.IMAP) {
             val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
             val trash = imapRoleFolder(credentials, "trash")

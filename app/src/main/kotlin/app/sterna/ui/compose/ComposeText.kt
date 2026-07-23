@@ -155,6 +155,19 @@ internal fun originalPlainText(o: Email): String {
 }
 
 /**
+ * Where the caret starts in a prefilled body, or null to leave the body alone (the recipient field
+ * takes the focus instead). Reopening a draft resumes after its last character, so writing carries
+ * on where it stopped; a reply starts at the very top, above the quoted original — the quotation
+ * sits below two blank lines, which is exactly where the answer goes. A forward (empty body, empty
+ * To) and a fresh mail keep the focus on the recipients (#63).
+ */
+internal fun initialBodyCaret(bodyLength: Int, isDraft: Boolean, isReply: Boolean): Int? = when {
+    isDraft -> bodyLength
+    isReply -> 0
+    else -> null
+}
+
+/**
  * Compose's initial fields when reopening a saved draft for editing (#63): every addressing
  * field as typed-out addresses, the subject verbatim, and the body flattened to the plain-text
  * editor's format. Cc/Bcc are revealed when the draft used them.
