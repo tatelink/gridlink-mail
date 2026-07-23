@@ -30,4 +30,12 @@ data class FilterRule(
     val moveTo: String? = null,
     val markRead: Boolean = false,
     val flag: Boolean = false,
-)
+) {
+    /**
+     * True for an untouched rule: no name, no match value and no action. Such a
+     * rule can neither filter nor be recognised, so it is dropped rather than
+     * kept in the list or written to the script.
+     */
+    val isEmpty: Boolean
+        get() = name.isBlank() && value.isBlank() && moveTo == null && !markRead && !flag
+}
