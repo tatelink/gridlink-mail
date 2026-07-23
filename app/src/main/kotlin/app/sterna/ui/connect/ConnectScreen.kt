@@ -3,20 +3,25 @@ package app.sterna.ui.connect
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -56,11 +61,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -85,9 +93,10 @@ import app.sterna.util.isValidEmail
 import app.sterna.core.data.account.AuthType
 import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailProtocol
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConnectScreen(
     onConnected: () -> Unit,
@@ -136,6 +145,21 @@ fun ConnectScreen(
     // provider doesn't need one (or signs in by OAuth).
     var appPasswordUrl by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+
+    // Focusing any credential field scrolls the WHOLE credential block (account name, email,
+    // password/token + the action buttons) above the keyboard, not just the focused field, so the
+    // next field is reachable without dismissing the keyboard (#52 follow-up). The per-field
+    // bring-into-view Material already does only guarantees the focused field itself.
+    val credentialReveal = remember { CredentialBlockReveal() }
+    // The focus event fires before the keyboard is up, so the reveal computed then uses the
+    // pre-IME viewport. Re-run it as the IME inset settles: collectLatest retargets the scroll on
+    // each animation frame and the last emission positions the block against the final viewport.
+    val imeInsets = WindowInsets.ime
+    val density = LocalDensity.current
+    LaunchedEffect(imeInsets, density) {
+        snapshotFlow { imeInsets.getBottom(density) }
+            .collectLatest { bottom -> if (bottom > 0) credentialReveal.reveal() }
+    }
 
     // First-run only: import a settings backup here, since Settings is unreachable before an
     // account exists. A backup that carries account configuration recreates those accounts
@@ -462,107 +486,116 @@ fun ConnectScreen(
                 }
             }
 
-            OutlinedTextField(
-                value = accountName,
-                onValueChange = { accountName = it },
-                label = { Text(stringResource(R.string.connect_account_name_optional)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            // Flag an obviously malformed email (missing @ or a too-short/absent extension) as the
-            // user types, without hard-blocking: some IMAP servers accept a non-email username.
-            val emailLooksInvalid = username.isNotBlank() && !isValidEmail(username)
-            OutlinedTextField(
-                value = username,
-                onValueChange = { username = it },
-                label = { Text(stringResource(R.string.connect_email_username)) },
-                singleLine = true,
-                isError = emailLooksInvalid,
-                supportingText = if (emailLooksInvalid) {
-                    { Text(stringResource(R.string.connect_email_invalid)) }
-                } else {
-                    null
-                },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-                modifier = Modifier.fillMaxWidth().autofill(
-                    listOf(AutofillType.EmailAddress, AutofillType.Username),
-                ) { username = it },
-            )
-            // In API-token mode this same secret field holds the token (labelled accordingly).
-            val tokenMode = protocol == MailProtocol.JMAP && !oauthSelected && useApiToken
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = {
-                    Text(
-                        stringResource(
-                            if (tokenMode) R.string.connect_auth_api_token else R.string.connect_password,
-                        ),
-                    )
-                },
-                singleLine = true,
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                            contentDescription = stringResource(
-                                if (passwordVisible) R.string.connect_password_hide else R.string.connect_password_show,
+            // One container for the whole credential block (fields + action buttons): revealing it
+            // as a unit brings ALL of it above the keyboard when it fits, so the next field and
+            // the Connect button are reachable without dismissing the keyboard first.
+            Column(
+                modifier = Modifier.bringIntoViewRequester(credentialReveal.block),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = accountName,
+                    onValueChange = { accountName = it },
+                    label = { Text(stringResource(R.string.connect_account_name_optional)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                    modifier = Modifier.fillMaxWidth().credentialField(credentialReveal),
+                )
+                // Flag an obviously malformed email (missing @ or a too-short/absent extension) as the
+                // user types, without hard-blocking: some IMAP servers accept a non-email username.
+                val emailLooksInvalid = username.isNotBlank() && !isValidEmail(username)
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text(stringResource(R.string.connect_email_username)) },
+                    singleLine = true,
+                    isError = emailLooksInvalid,
+                    supportingText = if (emailLooksInvalid) {
+                        { Text(stringResource(R.string.connect_email_invalid)) }
+                    } else {
+                        null
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                    modifier = Modifier.fillMaxWidth().credentialField(credentialReveal).autofill(
+                        listOf(AutofillType.EmailAddress, AutofillType.Username),
+                    ) { username = it },
+                )
+                // In API-token mode this same secret field holds the token (labelled accordingly).
+                val tokenMode = protocol == MailProtocol.JMAP && !oauthSelected && useApiToken
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = {
+                        Text(
+                            stringResource(
+                                if (tokenMode) R.string.connect_auth_api_token else R.string.connect_password,
                             ),
                         )
-                    }
-                },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done,
-                ),
-                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                modifier = Modifier.fillMaxWidth().autofill(listOf(AutofillType.Password)) { password = it },
-            )
-            val busy = state is ConnectState.Connecting || state is ConnectState.Discovering
-            Button(
-                onClick = {
-                    if (oauthSelected) {
-                        viewModel.connectOutlookOAuth(username, accountName)
-                    } else if (protocol == MailProtocol.JMAP) {
-                        if (useApiToken) {
-                            viewModel.connectToken(server, username, password, accountName)
-                        } else if (server.isBlank()) {
-                            viewModel.connectAuto(username, password, accountName)
-                        } else {
-                            viewModel.connect(server, username, password, accountName)
-                        }
-                    } else {
-                        viewModel.connectImap(
-                            username, password, accountName,
-                            imapHost, imapPort.toInt(), imapSecurity,
-                            smtpHost, smtpPort.toInt(), smtpSecurity,
-                        )
-                    }
-                },
-                enabled = !busy && ready,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    when (state) {
-                        is ConnectState.Discovering -> stringResource(R.string.connect_discovering)
-                        is ConnectState.Connecting -> stringResource(R.string.connect_connecting)
-                        else -> stringResource(R.string.connect_connect)
                     },
+                    singleLine = true,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = stringResource(
+                                    if (passwordVisible) R.string.connect_password_hide else R.string.connect_password_show,
+                                ),
+                            )
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                    modifier = Modifier.fillMaxWidth().credentialField(credentialReveal)
+                        .autofill(listOf(AutofillType.Password)) { password = it },
                 )
-            }
-
-            if (protocol == MailProtocol.JMAP && !useApiToken) {
-                TextButton(
-                    onClick = { viewModel.connectOAuth(username, server, accountName) },
-                    enabled = !busy && username.isNotBlank(),
+                val busy = state is ConnectState.Connecting || state is ConnectState.Discovering
+                Button(
+                    onClick = {
+                        if (oauthSelected) {
+                            viewModel.connectOutlookOAuth(username, accountName)
+                        } else if (protocol == MailProtocol.JMAP) {
+                            if (useApiToken) {
+                                viewModel.connectToken(server, username, password, accountName)
+                            } else if (server.isBlank()) {
+                                viewModel.connectAuto(username, password, accountName)
+                            } else {
+                                viewModel.connect(server, username, password, accountName)
+                            }
+                        } else {
+                            viewModel.connectImap(
+                                username, password, accountName,
+                                imapHost, imapPort.toInt(), imapSecurity,
+                                smtpHost, smtpPort.toInt(), smtpSecurity,
+                            )
+                        }
+                    },
+                    enabled = !busy && ready,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(stringResource(R.string.connect_oauth_button)) }
+                ) {
+                    Text(
+                        when (state) {
+                            is ConnectState.Discovering -> stringResource(R.string.connect_discovering)
+                            is ConnectState.Connecting -> stringResource(R.string.connect_connecting)
+                            else -> stringResource(R.string.connect_connect)
+                        },
+                    )
+                }
+
+                if (protocol == MailProtocol.JMAP && !useApiToken) {
+                    TextButton(
+                        onClick = { viewModel.connectOAuth(username, server, accountName) },
+                        enabled = !busy && username.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.connect_oauth_button)) }
+                }
+                // Outlook has no separate button — its provider chip launches the OAuth flow.
             }
-            // Outlook has no separate button — its provider chip launches the OAuth flow.
 
             Spacer(Modifier.height(4.dp))
             when (val s = state) {
@@ -581,6 +614,56 @@ fun ConnectScreen(
             }
         }
     }
+}
+
+/**
+ * Coordinates scrolling the credential block above the keyboard: one requester for the whole
+ * block, plus the requester of whichever field currently holds focus.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+private class CredentialBlockReveal {
+    /** The whole credential block (fields + action buttons). */
+    val block = BringIntoViewRequester()
+
+    /** The focused field's own requester, or null while no credential field has focus. */
+    var focused by mutableStateOf<BringIntoViewRequester?>(null)
+
+    /**
+     * Best effort for the block, guarantee for the field: ask for the whole block first, then
+     * re-ask for the focused field. When the block is taller than the space left above the
+     * keyboard the block request can't show everything (the scroller moves it edge-to-edge at
+     * most), so the follow-up request makes the focused field win — it is never left scrolled
+     * out, and the rest of the block shows as much as fits.
+     */
+    suspend fun reveal() {
+        val field = focused ?: return
+        block.bringIntoView()
+        field.bringIntoView()
+    }
+}
+
+/**
+ * Marks a credential field: gaining focus reveals the whole credential block (not just this
+ * field, which is all Material's built-in bring-into-view guarantees).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Modifier.credentialField(reveal: CredentialBlockReveal): Modifier {
+    val own = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
+    return this
+        .bringIntoViewRequester(own)
+        .onFocusEvent { focusState ->
+            if (focusState.isFocused) {
+                reveal.focused = own
+                // Immediate reveal for the keyboard-already-open case (moving focus between
+                // fields); the first opening is handled by the IME-inset watcher, which re-runs
+                // the reveal against the final keyboard-shrunk viewport.
+                scope.launch { reveal.reveal() }
+            } else if (reveal.focused === own) {
+                reveal.focused = null
+            }
+        }
 }
 
 /** Device-flow approval screen: show the user code + a button to open the browser. */
