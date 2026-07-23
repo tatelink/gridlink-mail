@@ -461,17 +461,29 @@ private fun MessageContent(
                                 tint = if (flagged) MaterialTheme.colorScheme.tertiary else LocalContentColor.current,
                             )
                         }
-                        IconButton(onClick = { viewModel.markUnread(onBack) }) {
+                        val inTrash by viewModel.inTrash.collectAsStateWithLifecycle()
+                        val resolvedMailbox by viewModel.mailboxId.collectAsStateWithLifecycle()
+                        // Archive, promoted from the overflow to the bar (#50 follow-up; mark-unread
+                        // took its overflow slot). Routes through the shared inbox VM (like delete)
+                        // so the reader reuses the same count nudge + Undo; the resolved mailbox is
+                        // passed since the body fetch can drop it (RC-6), and the page's accountId
+                        // so a unified-inbox archive hits the message's own account.
+                        IconButton(onClick = {
+                            onArchive(
+                                loaded.email.copy(
+                                    mailboxId = resolvedMailbox ?: loaded.email.mailboxId,
+                                    accountId = accountId ?: loaded.email.accountId,
+                                ),
+                            )
+                        }) {
                             Icon(
-                                Icons.Filled.MarkEmailUnread,
-                                contentDescription = stringResource(R.string.message_mark_unread),
+                                Icons.Filled.Archive,
+                                contentDescription = stringResource(R.string.message_archive),
                             )
                         }
                         // Delete routes through the inbox's held-back delete (Undo shows on the
                         // list) so the reader behaves like swipe/bulk; in Trash it destroys, so
                         // the icon reads "delete forever" (Codeberg #23).
-                        val inTrash by viewModel.inTrash.collectAsStateWithLifecycle()
-                        val resolvedMailbox by viewModel.mailboxId.collectAsStateWithLifecycle()
                         IconButton(onClick = {
                             // The displayed email can carry a null mailboxId (the body fetch drops
                             // it), which would misroute the delete and lose Undo — pass the folder
@@ -561,25 +573,13 @@ private fun MessageContent(
                                         },
                                     )
                                 }
-                                // Triage actions.
+                                // Triage actions (Archive moved out to the toolbar; mark-unread
+                                // took its slot here — #50 follow-up).
                                 HorizontalDivider()
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.message_archive)) },
-                                    leadingIcon = { Icon(Icons.Filled.Archive, contentDescription = null) },
-                                    // Archive via the shared inbox VM (like delete) so the reader
-                                    // reuses the same count nudge + Undo; the resolved mailbox is
-                                    // passed since the body fetch can drop it (RC-6), and the
-                                    // page's accountId so a unified-inbox archive hits the
-                                    // message's own account, not the current one.
-                                    onClick = {
-                                        menuOpen = false
-                                        onArchive(
-                                            loaded.email.copy(
-                                                mailboxId = resolvedMailbox ?: loaded.email.mailboxId,
-                                                accountId = accountId ?: loaded.email.accountId,
-                                            ),
-                                        )
-                                    },
+                                    text = { Text(stringResource(R.string.message_mark_unread)) },
+                                    leadingIcon = { Icon(Icons.Filled.MarkEmailUnread, contentDescription = null) },
+                                    onClick = { menuOpen = false; viewModel.markUnread(onBack) },
                                 )
                                 DropdownMenuItem(
                                     text = {
