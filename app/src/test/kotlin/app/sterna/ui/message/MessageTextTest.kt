@@ -61,6 +61,17 @@ class MessageTextTest {
         assertEquals("\u2714\ufe0e", wrapEmoji("\u2714\ufe0e"))
     }
 
+    @Test fun variationSelectorAfterANonEmojiBaseIsIgnored() {
+        // A stray VS16 right after a character reference must NOT make the `;` an emoji base:
+        // wrapping there would split the entity, so `&hearts;` would render as literal text and
+        // the numeric tree reference would show a stray semicolon. Same for any plain ASCII.
+        assertEquals("&hearts;\ufe0f", wrapEmoji("&hearts;\ufe0f"))
+        assertEquals("&#127876;\ufe0f", wrapEmoji("&#127876;\ufe0f"))
+        assertEquals("a;\ufe0f", wrapEmoji("a;\ufe0f"))
+        assertEquals("p\ufe0f", wrapEmoji("p\ufe0f"))
+        assertEquals(" \ufe0f", wrapEmoji(" \ufe0f"))
+    }
+
     @Test fun plainTextBodiesAreUntouched() {
         // Plain text renders with the theme colours (no page invert), so nothing to counter-filter.
         val text = "Bonjour \uD83D\uDE00\nA + B < C"

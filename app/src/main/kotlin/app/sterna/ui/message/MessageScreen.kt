@@ -2454,6 +2454,13 @@ private fun isEmojiPresentation(cp: Int): Boolean = when {
 }
 
 /**
+ * Whether [cp] may carry a variation selector, i.e. whether it is an `Emoji=Yes` base. In ASCII
+ * only `#`, `*` and the digits qualify (keycap bases); everything else starts at U+00A9 (©).
+ */
+private fun isEmojiBase(cp: Int): Boolean =
+    cp >= 0x00A9 || cp == '#'.code || cp == '*'.code || cp in '0'.code..'9'.code
+
+/**
  * End index of the emoji cluster starting at [i] (base + variation selector, skin tone, keycap or
  * flag-tag modifiers), or -1 if there is no emoji there.
  */
@@ -2464,7 +2471,11 @@ private fun emojiClusterEnd(s: String, i: Int): Int {
     val emoji = when {
         j < s.length && s[j] == VS15 -> false // author asked for the monochrome text glyph
         isEmojiPresentation(cp) -> true
-        j < s.length && s[j] == VS16 -> true // ✔️, ©️, keycap bases: colour forced by the author
+        // ✔️, ©️, keycap bases: colour forced by the author. Only a real Emoji=Yes base can carry a
+        // VS16 — its ASCII members are exactly `#`, `*` and `0`-`9`, every other one is >= U+00A9.
+        // Without that guard a stray U+FE0F right after an HTML character reference would split the
+        // entity (`&#127876;️` -> `&#127876<span…>;️</span>`, rendering as "🎄;").
+        j < s.length && s[j] == VS16 && isEmojiBase(cp) -> true
         else -> false
     }
     if (!emoji) return -1
