@@ -1114,23 +1114,9 @@ fun InboxScreen(
                                 }
                             }
                             val isTrash = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
+                            // Frequent actions first, nearest the anchor; the rarely-visited
+                            // Outbox sits last (#48).
                             DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, shape = MaterialTheme.shapes.medium) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.inbox_outbox)) },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
-                                    trailingIcon = {
-                                        if (outboxCount > 0) {
-                                            Badge(
-                                                containerColor = if (outboxHasFailures) {
-                                                    MaterialTheme.colorScheme.error
-                                                } else {
-                                                    MaterialTheme.colorScheme.primary
-                                                },
-                                            ) { Text(outboxCount.toString()) }
-                                        }
-                                    },
-                                    onClick = { overflowOpen = false; onOpenOutbox() },
-                                )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.inbox_select_all)) },
                                     leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
@@ -1167,6 +1153,22 @@ fun InboxScreen(
                                         onClick = { overflowOpen = false; onOpenScheduled() },
                                     )
                                 }
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.inbox_outbox)) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
+                                    trailingIcon = {
+                                        if (outboxCount > 0) {
+                                            Badge(
+                                                containerColor = if (outboxHasFailures) {
+                                                    MaterialTheme.colorScheme.error
+                                                } else {
+                                                    MaterialTheme.colorScheme.primary
+                                                },
+                                            ) { Text(outboxCount.toString()) }
+                                        }
+                                    },
+                                    onClick = { overflowOpen = false; onOpenOutbox() },
+                                )
                             }
                         },
                         scrollBehavior = scrollBehavior,
