@@ -22,6 +22,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.SettingsBackupRestore
@@ -243,6 +245,19 @@ fun ConnectScreen(
                         onSignIn = { viewModel.selectImportAccount(it.id) },
                         onDismiss = { dismissWithUndo(it) },
                     )
+                    // Always offer the normal add-account form from here (same button as
+                    // Settings → Accounts). When every imported account is still deferred there
+                    // is no signed-in account, so nothing else on screen leads to adding one —
+                    // without this exit the listing was an onboarding dead end.
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = viewModel::leaveImportListing,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.connect_add_account))
+                    }
                 } else {
                     ImportAccountSignIn(sel, viewModel)
                 }
@@ -259,6 +274,20 @@ fun ConnectScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            // Reached from the pending-imports list via its "Add account" exit (or after dismissing
+            // the last pending row): while deferred imported accounts remain, offer the way back to
+            // their sign-in list so leaving it is never one-way either.
+            if (viewModel.pendingStoredAccounts.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                OutlinedButton(
+                    onClick = viewModel::resumeImportSignIn,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.import_pending_title))
+                }
             }
             // Import entry points, shown whenever adding an account (not just first run): migrating
             // from K-9 / Thunderbird or a Sterna backup belongs here, where people add accounts, not
