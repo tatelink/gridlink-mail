@@ -453,6 +453,7 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val conversationView by viewModel.conversationView.collectAsStateWithLifecycle()
     val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
     val markReadOnDelete by viewModel.markReadOnDelete.collectAsStateWithLifecycle()
+    val markReadOnArchive by viewModel.markReadOnArchive.collectAsStateWithLifecycle()
     val unarchiveOnReply by viewModel.unarchiveOnReply.collectAsStateWithLifecycle()
     val options = listOf(
         SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
@@ -492,6 +493,12 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     subtitle = stringResource(R.string.settings_mark_read_on_delete_subtitle),
                     checked = markReadOnDelete,
                     onCheckedChange = viewModel::setMarkReadOnDelete,
+                )
+                SettingSwitch(
+                    title = stringResource(R.string.settings_mark_read_on_archive_title),
+                    subtitle = stringResource(R.string.settings_mark_read_on_archive_subtitle),
+                    checked = markReadOnArchive,
+                    onCheckedChange = viewModel::setMarkReadOnArchive,
                 )
             }
             SettingsSection(stringResource(R.string.settings_swipe_actions_section)) {

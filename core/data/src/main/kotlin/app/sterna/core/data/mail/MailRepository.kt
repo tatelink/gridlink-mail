@@ -1952,6 +1952,13 @@ class MailRepository(
      * else create an Archive folder as a last resort.
      */
     suspend fun archive(credentials: AccountCredentials, emailId: String): String? {
+        // Opt-in: flag the message read on its way out, so the archive doesn't accumulate
+        // unread badges. Best-effort BEFORE the move (the id changes with an IMAP move) and
+        // before [row] is read, so the count nudge below sees the new seen state; a failure
+        // must never block the archiving itself (Codeberg #67).
+        if (settings?.markReadOnArchive?.first() == true && emailDao.seenOf(emailId) == false) {
+            runCatching { setRead(credentials, emailId, true) }
+        }
         val row = emailDao.emailsByIds(listOf(emailId)).firstOrNull()
         if (credentials.protocol == MailProtocol.IMAP) {
             val dest = imapRoleFolder(credentials, "archive", "all")
@@ -2184,6 +2191,10 @@ class MailRepository(
     /** Archive a whole selection (one account). Messages already in the archive/all folder are dropped locally. */
     suspend fun archiveAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
+        // Opt-in mark-read-on-archive: best-effort before the move (a \Seen store keeps the UID).
+        if (settings?.markReadOnArchive?.first() == true) {
+            emailIds.forEach { id -> if (emailDao.seenOf(id) == false) runCatching { setRead(credentials, id, true) } }
+        }
         if (credentials.protocol == MailProtocol.IMAP) {
             val dest = imapRoleFolder(credentials, "archive", "all")
                 ?: run { imap.createFolder(credentials, "Archive"); "Archive" }

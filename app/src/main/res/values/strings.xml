@@ -672,6 +672,8 @@
     <string name="compose_contacts_priming_not_now">Not now</string>
     <string name="settings_mark_read_on_delete_title">Mark as read when deleting</string>
     <string name="settings_mark_read_on_delete_subtitle">Deleted messages don’t stay unread in Trash</string>
+    <string name="settings_mark_read_on_archive_title">Mark as read when archiving</string>
+    <string name="settings_mark_read_on_archive_subtitle">Archived messages don’t stay unread in the archive</string>
     <string name="settings_about_section">About</string>
     <string name="settings_about_version">Version</string>
     <string name="settings_about_source">Source code</string>
