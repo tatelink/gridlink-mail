@@ -84,8 +84,13 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
 
     fun addRule() = edit { it.copy(rules = it.rules + FilterRule()) }
 
+    /** Commits an edited rule; an untouched one is dropped instead of left as a ghost row. */
     fun updateRule(index: Int, rule: FilterRule) = edit {
-        it.copy(rules = it.rules.toMutableList().also { list -> list[index] = rule })
+        it.copy(
+            rules = it.rules.toMutableList().also { list ->
+                if (rule.isEmpty) list.removeAt(index) else list[index] = rule
+            },
+        )
     }
 
     fun removeRule(index: Int) = edit {
@@ -101,8 +106,9 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
 
     fun save() {
         val credentials = store.load() ?: return
-        val rules = _state.value.rules
-        _state.update { it.copy(saving = true, errorKind = null) }
+        // Empty rules never reach the script: they would come back as ghost rows.
+        val rules = _state.value.rules.filterNot { it.isEmpty }
+        _state.update { it.copy(rules = rules, saving = true, errorKind = null) }
         viewModelScope.launch {
             try {
                 repo.saveFilterRules(credentials, rules)
