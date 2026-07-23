@@ -355,6 +355,64 @@ class JmapClientTest {
         }
     }
 
+    // ---- ghost pruning seams: externally-destroyed messages (issue #31 sub-accounts) ----
+
+    @Test fun missingEmailIds_returnsOnlyTheExplicitNotFoundIds() = runBlocking {
+        server.enqueue(MockResponse().setBody(MISSING_IDS_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+
+        val missing = client.missingEmailIds(session, "acc1", listOf("e1", "e2", "e3"), BasicAuth("u", "p"))
+
+        assertEquals(setOf("e2"), missing)
+        val sent = server.takeRequest().body.readUtf8()
+        assertTrue(sent.contains("Email/get"))
+        assertTrue(sent.contains("\"ids\":[\"e1\",\"e2\",\"e3\"]"))
+        // ids-only existence check — never a full header re-download.
+        assertTrue(sent.contains("\"properties\":[\"id\"]"))
+    }
+
+    @Test fun missingEmailIds_emptyInputSkipsTheNetwork() = runBlocking {
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        assertTrue(client.missingEmailIds(session, "acc1", emptyList(), BasicAuth("u", "p")).isEmpty())
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test fun missingEmailIds_throwsOnJmapErrorRatherThanGuessing() {
+        // A method-level error must throw: a transient failure may never be read as
+        // "these messages are gone" (the caller prunes ONLY on an explicit notFound).
+        server.enqueue(MockResponse().setBody(ERROR_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        try {
+            runBlocking { client.missingEmailIds(session, "acc1", listOf("e1"), BasicAuth("u", "p")) }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertTrue(e.message!!.contains("accountNotFound"))
+        }
+    }
+
+    @Test fun move_carriesThePerIdSetErrorType() {
+        server.enqueue(MockResponse().setBody(SET_NOTFOUND_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        try {
+            runBlocking { client.move(session, "acc1", "e1", "mbTrash", BasicAuth("u", "p")) }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            // The repository keys the ghost prune off the typed SetError, not the message text.
+            assertEquals("notFound", e.errorType)
+        }
+    }
+
+    @Test fun setKeyword_carriesThePerIdSetErrorType() {
+        server.enqueue(MockResponse().setBody(SET_NOTFOUND_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        try {
+            runBlocking { client.setSeen(session, "acc1", "e1", true, BasicAuth("u", "p")) }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertEquals("notFound", e.errorType)
+        }
+    }
+
     private companion object {
         const val DRAFT_CREATED_JSON = """
             {"methodResponses":[["Email/set",
@@ -368,6 +426,30 @@ class JmapClientTest {
               {"accountId":"acc1","oldState":"s1","newState":"s1",
                "notCreated":{"draft":{"type":"overQuota","description":"Mailbox full"}}},
               "s0"]]}
+        """
+
+        const val MISSING_IDS_JSON = """
+            {
+              "methodResponses": [
+                ["Email/get", {
+                  "accountId": "acc1",
+                  "state": "st1",
+                  "list": [ { "id": "e1" }, { "id": "e3" } ],
+                  "notFound": ["e2"]
+                }, "g0"]
+              ]
+            }
+        """
+
+        const val SET_NOTFOUND_JSON = """
+            {
+              "methodResponses": [
+                ["Email/set", {
+                  "accountId": "acc1",
+                  "notUpdated": { "e1": { "type": "notFound" } }
+                }, "s0"]
+              ]
+            }
         """
 
         const val SESSION_JSON = """
