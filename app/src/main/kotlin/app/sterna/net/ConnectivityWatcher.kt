@@ -48,9 +48,14 @@ internal class ReconnectGate(private var online: Boolean) {
  * entirely (observed on the test Pixel, whose VPN network had outlived a day of them). Watching
  * the real transports underneath instead reports the outage the user actually had.
  *
- * [NetworkCapabilities.NET_CAPABILITY_VALIDATED] is required on top of INTERNET so a reconnect
- * only fires once the system's own probe has confirmed the network carries traffic — an
- * associated-but-not-yet-routable Wi-Fi, or a captive portal, is not a reconnect.
+ * Deliberately *not* [NetworkCapabilities.NET_CAPABILITY_VALIDATED] either: a network is only
+ * VALIDATED once the system's own captive-portal probe reaches its check server (Google's by
+ * default). Sterna's users are exactly the crowd who firewall or DNS-block those endpoints, so
+ * their networks are fully usable — the mail server answers, "test connection" passes — yet
+ * never marked VALIDATED. Requiring it meant the callback never fired for them and the reconnect
+ * resync never ran (#65, reported after 1.3.9). We match on INTERNET + NOT_VPN and let the
+ * refresh itself be the reachability test; a network that is up but not yet routable at most
+ * costs one failed refresh, where the debounce usually already covers the settle.
  */
 class ConnectivityWatcher(context: Context, private val onReconnect: () -> Unit) {
     private val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
@@ -58,7 +63,6 @@ class ConnectivityWatcher(context: Context, private val onReconnect: () -> Unit)
 
     private val request = NetworkRequest.Builder()
         .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
         .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
         .build()
 
@@ -72,7 +76,8 @@ class ConnectivityWatcher(context: Context, private val onReconnect: () -> Unit)
         }
     }
 
-    /** Does a real transport with confirmed internet exist right now? Seeds the gate. */
+    /** Does a real (non-VPN) internet transport exist right now? Seeds the gate. Mirrors the
+     *  request's capabilities — no VALIDATED, for the same reason. */
     private fun hasUsableNetwork(): Boolean {
         val cm = manager ?: return false
         @Suppress("DEPRECATION")
@@ -81,7 +86,6 @@ class ConnectivityWatcher(context: Context, private val onReconnect: () -> Unit)
             val caps = runCatching { cm.getNetworkCapabilities(network) }.getOrNull()
             caps != null &&
                 caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) &&
                 caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
         }
     }

@@ -595,7 +595,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         reconnectJob?.cancel()
         reconnectJob = viewModelScope.launch {
             delay(RECONNECT_DEBOUNCE_MS)
-            refresh()
+            // The watcher fires as soon as a transport is up, without waiting for the system's
+            // captive-portal validation (#65: users who block those probes never get it). The
+            // link may not be routable for a beat, so if the first refresh lands too early,
+            // retry a couple of times before giving up rather than stranding the offline state.
+            repeat(RECONNECT_MAX_TRIES) { attempt ->
+                refresh()
+                refreshJob?.join()
+                if (status.value.error == null) return@launch
+                if (attempt < RECONNECT_MAX_TRIES - 1) delay(RECONNECT_RETRY_GAP_MS)
+            }
         }
     }
 
@@ -1603,6 +1612,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
         /** Settling time after the network returns, before the reconnect refresh fires. */
         const val RECONNECT_DEBOUNCE_MS = 1_500L
+
+        /** Reconnect refresh attempts, and the gap between them, to ride out a link that is up
+         *  but not yet routable (validation is intentionally not awaited — #65). */
+        const val RECONNECT_MAX_TRIES = 3
+        const val RECONNECT_RETRY_GAP_MS = 3_000L
 
         /** Most threads re-completed per action — bounds the Thread/get fan-out on a select-all. */
         const val MAX_THREAD_COMPLETIONS = 10
