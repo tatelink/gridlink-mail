@@ -74,3 +74,15 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
         )
     }
 }
+
+/**
+ * Additive 13→14: `outbox` and `scheduled_sends` gain `draftEmailId` — the server draft an
+ * edited message came from, destroyed once the send succeeds so no duplicate lingers in
+ * Drafts (#63). Both tables hold unsent user mail — never rebuilt destructively.
+ */
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `outbox` ADD COLUMN `draftEmailId` TEXT")
+        db.execSQL("ALTER TABLE `scheduled_sends` ADD COLUMN `draftEmailId` TEXT")
+    }
+}

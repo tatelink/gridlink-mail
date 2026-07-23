@@ -115,6 +115,7 @@ fun ComposeScreen(
     bcc: String? = null,
     subject: String? = null,
     body: String? = null,
+    draftId: String? = null,
     viewModel: ComposeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -158,7 +159,7 @@ fun ComposeScreen(
     }
 
     LaunchedEffect(Unit) {
-        viewModel.prepare(replyTo, mode, accountId, restore, to, cc, bcc, subject, body)
+        viewModel.prepare(replyTo, mode, accountId, restore, to, cc, bcc, subject, body, draftId)
         // Attach any files shared into the app (ACTION_SEND) — a one-shot handoff we read and
         // clear, so it only lands on this compose screen (Codeberg #45).
         val app = context.applicationContext as android.app.Application
@@ -620,7 +621,10 @@ fun ComposeScreen(
             if (sending) CircularProgressIndicator(Modifier.padding(horizontal = 16.dp))
             (state as? ComposeState.Error)?.let {
                 Text(
-                    text = stringResource(R.string.compose_could_not_send, it.message),
+                    text = stringResource(
+                        if (it.whileSaving) R.string.compose_could_not_save else R.string.compose_could_not_send,
+                        it.message,
+                    ),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(horizontal = 16.dp),

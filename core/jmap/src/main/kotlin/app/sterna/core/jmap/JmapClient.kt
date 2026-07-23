@@ -613,7 +613,7 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "blobId", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "cc", "messageId", "references",
+                                "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
                                 "hasAttachment", "keywords",
                                 "htmlBody", "textBody", "attachments", "bodyValues",
                             ).forEach { add(it) }
@@ -667,7 +667,7 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "blobId", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "cc", "messageId", "references",
+                                "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
                                 "hasAttachment", "keywords",
                                 "htmlBody", "textBody", "attachments", "bodyValues",
                             ).forEach { add(it) }
@@ -1401,7 +1401,8 @@ class JmapClient internal constructor(
         }
     }
 
-    /** Save a plain-text draft in the Drafts mailbox (no submission). */
+    /** Save a plain-text draft in the Drafts mailbox (no submission).
+     *  Returns the created draft's server id, so an edit can later replace it (#63). */
     suspend fun saveDraft(
         session: JmapSession,
         accountId: String,
@@ -1413,25 +1414,37 @@ class JmapClient internal constructor(
         subject: String,
         textBody: String,
         draftMailboxId: String,
-    ) = emailSet(session, auth) {
-        put("accountId", accountId)
-        putJsonObject("create") {
-            putJsonObject("draft") {
-                putJsonArray("from") { addJsonObject { addAddress(from) } }
-                putJsonArray("to") { to.forEach { addJsonObject { addAddress(it) } } }
-                if (cc.isNotEmpty()) putJsonArray("cc") { cc.forEach { addJsonObject { addAddress(it) } } }
-                if (bcc.isNotEmpty()) putJsonArray("bcc") { bcc.forEach { addJsonObject { addAddress(it) } } }
-                put("subject", subject)
-                putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
-                putJsonObject("mailboxIds") { put(draftMailboxId, true) }
-                putJsonArray("textBody") {
-                    addJsonObject { put("partId", "body"); put("type", "text/plain") }
-                }
-                putJsonObject("bodyValues") {
-                    putJsonObject("body") { put("value", textBody) }
+        inReplyTo: List<String> = emptyList(),
+        references: List<String> = emptyList(),
+    ): String? {
+        val args = emailSet(session, auth) {
+            put("accountId", accountId)
+            putJsonObject("create") {
+                putJsonObject("draft") {
+                    putJsonArray("from") { addJsonObject { addAddress(from) } }
+                    putJsonArray("to") { to.forEach { addJsonObject { addAddress(it) } } }
+                    if (cc.isNotEmpty()) putJsonArray("cc") { cc.forEach { addJsonObject { addAddress(it) } } }
+                    if (bcc.isNotEmpty()) putJsonArray("bcc") { bcc.forEach { addJsonObject { addAddress(it) } } }
+                    put("subject", subject)
+                    // Keep a reply draft threaded, so sending it later still joins its conversation.
+                    if (inReplyTo.isNotEmpty()) putJsonArray("inReplyTo") { inReplyTo.forEach { add(it) } }
+                    if (references.isNotEmpty()) putJsonArray("references") { references.forEach { add(it) } }
+                    putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
+                    putJsonObject("mailboxIds") { put(draftMailboxId, true) }
+                    putJsonArray("textBody") {
+                        addJsonObject { put("partId", "body"); put("type", "text/plain") }
+                    }
+                    putJsonObject("bodyValues") {
+                        putJsonObject("body") { put("value", textBody) }
+                    }
                 }
             }
         }
+        (args["notCreated"] as? JsonObject)?.get("draft")?.let {
+            throw JmapException("Could not save the draft: $it")
+        }
+        return ((args["created"] as? JsonObject)?.get("draft") as? JsonObject)
+            ?.get("id")?.jsonPrimitive?.contentOrNull
     }
 
     /** Download a blob (attachment) via the session downloadUrl template. */

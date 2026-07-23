@@ -1,5 +1,6 @@
 package app.sterna.core.jmap
 
+import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.JmapSession
 import app.sterna.core.jmap.model.Quota
 import app.sterna.core.jmap.model.VacationResponse
@@ -282,7 +283,93 @@ class JmapClientTest {
         assertEquals(0, server.requestCount) // capability gate skips the network
     }
 
+    // --- saveDraft (#63: reopen/edit/replace saved drafts) ---
+
+    @Test fun saveDraft_sendsThreadingHeadersAndReturnsCreatedId() = runBlocking {
+        server.enqueue(MockResponse().setBody(DRAFT_CREATED_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+
+        val id = client.saveDraft(
+            session = session,
+            accountId = "acc1",
+            auth = BasicAuth("u", "p"),
+            from = EmailAddress(name = "Alex", email = "alex@example.com"),
+            to = listOf(EmailAddress(email = "someone@example.com")),
+            subject = "Draft subject",
+            textBody = "draft body",
+            draftMailboxId = "mbDrafts",
+            inReplyTo = listOf("<mid1@example.com>"),
+            references = listOf("<mid0@example.com>", "<mid1@example.com>"),
+        )
+
+        assertEquals("d123", id)
+        val sent = server.takeRequest().body.readUtf8()
+        assertTrue(sent.contains("\"Email/set\""))
+        // A reply draft keeps its threading headers, so sending it later joins the conversation.
+        assertTrue(sent.contains("\"inReplyTo\":[\"<mid1@example.com>\"]"))
+        assertTrue(sent.contains("\"references\":[\"<mid0@example.com>\",\"<mid1@example.com>\"]"))
+        // Filed as a seen draft in the Drafts mailbox.
+        assertTrue(sent.contains("\"\$draft\":true"))
+        assertTrue(sent.contains("\"mbDrafts\":true"))
+    }
+
+    @Test fun saveDraft_throwsOnNotCreated() {
+        server.enqueue(MockResponse().setBody(DRAFT_NOTCREATED_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        try {
+            runBlocking {
+                client.saveDraft(
+                    session = session, accountId = "acc1", auth = BasicAuth("u", "p"),
+                    from = EmailAddress(email = "alex@example.com"), to = emptyList(),
+                    subject = "s", textBody = "b", draftMailboxId = "mbDrafts",
+                )
+            }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertTrue(e.message!!.contains("overQuota"))
+        }
+    }
+
+    @Test fun saveDraft_surfacesMethodLevelError() {
+        // A server can reject the whole method (e.g. Stalwart answers "forbidden" when the
+        // request targets an account the credential doesn't own) — that must throw, not
+        // silently pass as a saved draft.
+        server.enqueue(
+            MockResponse().setBody(
+                """{"methodResponses":[["error",{"type":"forbidden","description":"You are not an owner of account u"},"s0"]]}""",
+            ),
+        )
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        try {
+            runBlocking {
+                client.saveDraft(
+                    session = session, accountId = "u", auth = BasicAuth("u", "p"),
+                    from = EmailAddress(email = "alex@example.com"), to = emptyList(),
+                    subject = "s", textBody = "b", draftMailboxId = "mbDrafts",
+                )
+            }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertEquals("forbidden", e.errorType)
+            assertTrue(e.message!!.contains("forbidden"))
+        }
+    }
+
     private companion object {
+        const val DRAFT_CREATED_JSON = """
+            {"methodResponses":[["Email/set",
+              {"accountId":"acc1","oldState":"s1","newState":"s2",
+               "created":{"draft":{"id":"d123","threadId":"t1","blobId":"b1","size":321}}},
+              "s0"]]}
+        """
+
+        const val DRAFT_NOTCREATED_JSON = """
+            {"methodResponses":[["Email/set",
+              {"accountId":"acc1","oldState":"s1","newState":"s1",
+               "notCreated":{"draft":{"type":"overQuota","description":"Mailbox full"}}},
+              "s0"]]}
+        """
+
         const val SESSION_JSON = """
             {
               "capabilities": {
