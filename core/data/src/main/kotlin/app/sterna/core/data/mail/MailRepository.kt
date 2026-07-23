@@ -116,6 +116,13 @@ private const val RECENT_MUTATION_MS = 45_000L
 private const val PAGE_SIZE = 50
 
 /**
+ * The per-id SetError type meaning the id does not exist in the account (RFC 8620 §5.3).
+ * Authoritative — unlike a transport error it can only mean the message is gone, so action
+ * paths receiving it prune the cached row (a ghost/zombie) instead of keeping it forever.
+ */
+private const val SET_ERROR_NOT_FOUND = "notFound"
+
+/**
  * Per-APPEND fill target for the conversation list: a network page is messages, but the
  * collapsed list's rows are threads, so one page can add almost no visible rows (a big
  * thread eating it whole). The mediator keeps fetching until at least this many NEW
@@ -574,8 +581,9 @@ class MailRepository(
                 // Never evict an id we just flagged/read locally: a delta computed from
                 // the pre-mutation query state can report it as removed even though it's
                 // still in the mailbox (it only changed a keyword).
-                val toRemove = ((queryChanges.removed.toSet() - added).toList() + changes.destroyed)
-                    .filterNot { isRecentlyMutated(localAccountId, it) }
+                val toRemove = deltaEvictions(queryChanges.removed, added, changes.destroyed) {
+                    isRecentlyMutated(localAccountId, it)
+                }
                 if (toRemove.isNotEmpty()) emailDao.deleteByIds(localAccountId, toRemove)
                 val cachedIds = emailDao.getByMailbox(localAccountId, mailboxId).map { it.id }.toSet()
                 val toFetch = ((added - cachedIds) + changes.updated.filter { it in cachedIds }).distinct()
@@ -585,6 +593,24 @@ class MailRepository(
                 }
                 putSyncState(key, SyncState(queryChanges.newQueryState!!, changes.newState!!))
                 android.util.Log.i("MailSync", "incremental $mailboxId: +${toFetch.size} -${toRemove.size}")
+                // Ghost sweep: a server-side destroy can reach us through NEITHER delta —
+                // Stalwart omits a delegated (shared) account's destroys from Email/changes
+                // and Email/queryChanges entirely (verified raw: same cursors report the
+                // destroy on the owner's login but empty deltas on the delegated view,
+                // while the state strings still advance) — and a reported destroy can also
+                // be eaten one-shot by the recently-mutated spare above while the cursors
+                // advance past it. Either way the cached row becomes an immortal ghost no
+                // later delta ever prunes. Verify existence against the server whenever
+                // the state advanced (a destroy always advances it), plus once per app
+                // session per mailbox so a pre-existing ghost dies on the first sync.
+                val stateAdvanced = queryChanges.newQueryState != stored.queryState ||
+                    changes.newState != stored.emailState
+                val firstThisSession = sweptMailboxes.add(key)
+                if (stateAdvanced || firstThisSession) {
+                    val swept = pruneGhostRows(session, accountId, auth, mailboxId, localAccountId)
+                    // A failed sweep keeps its once-per-session credit so the next sync retries.
+                    if (!swept && firstThisSession) sweptMailboxes.remove(key)
+                }
                 return
             }
         }
@@ -599,6 +625,62 @@ class MailRepository(
         } else {
             dropSyncState(key)
         }
+    }
+
+    /**
+     * Mailboxes (by sync key) already existence-swept this app session — grants each mailbox
+     * one unconditional sweep per process so ghosts that predate this run (their destroy
+     * notice lost before the fix, or lost while the app was killed) are pruned on the first
+     * sync even when the account has seen no new activity since.
+     */
+    private val sweptMailboxes: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /**
+     * Existence sweep for one mailbox's cached rows: ids-only `Email/get` on everything still
+     * cached, pruning exactly the ids the server reports `notFound` (see [ghostEvictions] for
+     * why the recently-mutated spare is deliberately not honoured — a point lookup can't be
+     * stale, and a destroyed id can't be protected back to life). Best-effort by design:
+     * any transport/parse failure prunes NOTHING (only an explicit notFound may evict) and
+     * returns false so the caller can retry the once-per-session sweep later.
+     */
+    private suspend fun pruneGhostRows(
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+        mailboxId: String,
+        localAccountId: String,
+    ): Boolean {
+        val cached = emailDao.getByMailbox(localAccountId, mailboxId).map { it.id }
+        if (cached.isEmpty()) return true
+        val notFound = runCatching {
+            // Chunked so a deep cache can't exceed the server's maxObjectsInGet.
+            cached.chunked(MAX_CHANGES).flatMapTo(mutableSetOf()) { chunk ->
+                client.missingEmailIds(session, accountId, chunk, auth)
+            }
+        }.getOrElse { return false }
+        val ghosts = ghostEvictions(cached, notFound)
+        if (ghosts.isNotEmpty()) {
+            pruneServerGone(localAccountId, ghosts)
+            android.util.Log.i("MailSync", "ghost sweep $mailboxId: -${ghosts.size}")
+        }
+        return true
+    }
+
+    /**
+     * Drop rows the server authoritatively no longer has (an explicit per-id `notFound`) —
+     * cache row, cached body and search-index entry — so they can't linger as zombies that
+     * ignore every action. NO folder-count nudge, unlike the action-path removals: the
+     * server's counts never included these ids at the time we learn of them (the destroy
+     * happened server-side and the cached mailbox counts have been refreshed from the server
+     * since), so a local decrement would double-subtract; the live Room-derived badges
+     * correct themselves the moment the rows are deleted.
+     */
+    private suspend fun pruneServerGone(localAccountId: String, emailIds: List<String>) {
+        val ids = emailDao.emailsByIds(localAccountId, emailIds).map { it.id }
+        if (ids.isEmpty()) return
+        emailDao.deleteByIds(localAccountId, ids)
+        runCatching { emailFtsDao.deleteByIds(localAccountId, ids) }
+        ids.forEach { runCatching { emailBodyDao.deleteById(localAccountId, it) } }
     }
 
     /**
@@ -1781,7 +1863,17 @@ class MailRepository(
             return
         }
         val ctx = connect(credentials)
-        val newState = client.setSeen(ctx.session, ctx.accountId, emailId, seen, ctx.auth)
+        val newState = try {
+            client.setSeen(ctx.session, ctx.accountId, emailId, seen, ctx.auth)
+        } catch (e: JmapException) {
+            // A per-id notFound is authoritative: the id no longer exists in the account
+            // (destroyed server-side while we had it cached). Prune the zombie row instead
+            // of leaving a bold ghost that can never be marked read. Any other failure
+            // (offline, transient) keeps the row untouched.
+            if (e.errorType != SET_ERROR_NOT_FOUND) throw e
+            pruneServerGone(credentials.id, listOf(emailId))
+            return
+        }
         emailDao.setSeen(credentials.id, emailId, seen)
         adjustFolderUnreadOnRead(credentials.id, mailboxId, wasSeen, seen)
         advanceEmailState(newState, credentials.id, mailboxId)
@@ -1807,6 +1899,10 @@ class MailRepository(
             // Captured before the write so only real transitions nudge the counters (#46).
             val rows = emailDao.emailsByIds(credentials.id, chunk).associateBy { it.id }
             val result = client.setSeenAll(ctx.session, ctx.accountId, chunk, seen, ctx.auth)
+            // Per-id notFound rejections are ghosts (destroyed server-side) — prune them
+            // instead of leaving zombie rows that can never change state (see setRead).
+            val gone = chunk.filter { result.failed[it] == SET_ERROR_NOT_FOUND }
+            if (gone.isNotEmpty()) pruneServerGone(credentials.id, gone)
             val done = chunk.filter { it in result.done }
             done.forEach { markRecentlyMutated(credentials.id, it); emailDao.setSeen(credentials.id, it, seen) }
             done.mapNotNull { rows[it] }.filter { it.seen != seen }
@@ -1849,7 +1945,14 @@ class MailRepository(
         }
         val ctx = connect(credentials)
         val mb = emailDao.mailboxOf(credentials.id, emailId)
-        val newState = client.setKeyword(ctx.session, ctx.accountId, emailId, "\$flagged", flagged, ctx.auth)
+        val newState = try {
+            client.setKeyword(ctx.session, ctx.accountId, emailId, "\$flagged", flagged, ctx.auth)
+        } catch (e: JmapException) {
+            // notFound = destroyed server-side; prune the zombie (see setRead).
+            if (e.errorType != SET_ERROR_NOT_FOUND) throw e
+            pruneServerGone(credentials.id, listOf(emailId))
+            return
+        }
         emailDao.setFlagged(credentials.id, emailId, flagged)
         advanceEmailState(newState, credentials.id, mb)
     }
@@ -1889,7 +1992,15 @@ class MailRepository(
         // Network-first like moveToMailbox: the local row is dropped (and counts nudged) only
         // after the server acknowledged, so a failed archive never hides a message that is
         // still on the server.
-        val newState = client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
+        val newState = try {
+            client.move(ctx.session, ctx.accountId, emailId, target, ctx.auth)
+        } catch (e: JmapException) {
+            // notFound = destroyed server-side; prune the zombie and report a no-op
+            // (nothing was moved, so there is nothing to Undo). See setRead.
+            if (e.errorType != SET_ERROR_NOT_FOUND) throw e
+            pruneServerGone(credentials.id, listOf(emailId))
+            return null
+        }
         emailDao.deleteById(credentials.id, emailId)
         adjustCountsForRemoval(listOfNotNull(row), target)
         advanceEmailState(newState, credentials.id, mb)
@@ -1931,7 +2042,14 @@ class MailRepository(
         }
         val ctx = connect(credentials)
         val mb = moved?.mailboxId ?: emailDao.mailboxOf(credentials.id, emailId)
-        val newState = client.move(ctx.session, ctx.accountId, emailId, targetMailboxId, ctx.auth)
+        val newState = try {
+            client.move(ctx.session, ctx.accountId, emailId, targetMailboxId, ctx.auth)
+        } catch (e: JmapException) {
+            // notFound = destroyed server-side; prune the zombie, report a no-op (see archive).
+            if (e.errorType != SET_ERROR_NOT_FOUND) throw e
+            pruneServerGone(credentials.id, listOf(emailId))
+            return null
+        }
         emailDao.deleteById(credentials.id, emailId)
         adjustCountsForRemoval(listOfNotNull(moved), targetMailboxId)
         advanceEmailState(newState, credentials.id, mb)
@@ -2045,6 +2163,10 @@ class MailRepository(
                 val moved = emailIds.filter { it in result.done }.toSet()
                 moved.forEach { emailDao.deleteById(localAccountId, it) }
                 adjustCountsForRemoval(rows.filter { it.id in moved }, target)
+                // notFound rejections are ghosts (destroyed server-side): prune their rows so
+                // they leave the list, but keep them in `failed` — nothing was moved to [target],
+                // so they must not feed a move-Undo.
+                pruneServerGone(localAccountId, emailIds.filter { result.failed[it] == SET_ERROR_NOT_FOUND })
                 BulkResult(moved, emailIds.toSet() - moved, dest = target)
             }
             .getOrElse { BulkResult(emptySet(), emailIds.toSet()) }
@@ -2061,7 +2183,12 @@ class MailRepository(
         val destroyed = emailIds.filter { it in result.done }.toSet()
         destroyed.forEach { emailDao.deleteById(localAccountId, it) }
         adjustCountsForRemoval(rows.filter { it.id in destroyed }, destMailboxId = null)
-        return BulkResult(destroyed, emailIds.toSet() - destroyed)
+        // A notFound rejection means the id was ALREADY destroyed (e.g. server-side by another
+        // client) — the requested end state holds, so prune the row (no count nudge: the server's
+        // counts never included it) and report success rather than a spurious per-id failure.
+        val gone = emailIds.filter { result.failed[it] == SET_ERROR_NOT_FOUND }.toSet()
+        pruneServerGone(localAccountId, gone.toList())
+        return BulkResult(destroyed + gone, emailIds.toSet() - destroyed - gone)
     }
 
     /** Archive a whole selection (one account). Messages already in the archive/all folder are dropped locally. */
@@ -2537,8 +2664,9 @@ class MailRepository(
      *  is only reachable through the held-back path ([evict] + [destroyAll]) with its cancelable
      *  Undo window (Codeberg #23) — the caller routes would-destroy deletes there via
      *  [deleteWouldDestroy]. Returns the Trash folder the message landed in, so the caller can
-     *  offer an Undo that restores the row and reverses the count nudge. Throws when the account
-     *  has no Trash folder. */
+     *  offer an Undo that restores the row and reverses the count nudge — or null when there was
+     *  nothing to move (the message was already destroyed server-side; its zombie row is pruned).
+     *  Throws when the account has no Trash folder. */
     suspend fun delete(credentials: AccountCredentials, emailId: String): String? {
         // Opt-in: flag the message read on its way out, so Trash doesn't accumulate unread
         // badges. Best-effort BEFORE the move (the id changes with an IMAP move); a failure
@@ -2564,7 +2692,16 @@ class MailRepository(
         // Network-first (like moveToMailbox): the local row is dropped (and counts nudged) only
         // after the server acknowledged the move, so a failed delete never hides a message that
         // is still on the server.
-        val newState = client.move(ctx.session, ctx.accountId, emailId, trash, ctx.auth)
+        val newState = try {
+            client.move(ctx.session, ctx.accountId, emailId, trash, ctx.auth)
+        } catch (e: JmapException) {
+            // notFound = already destroyed server-side. The user wanted the message gone and
+            // it IS gone — prune the zombie row and report a no-op instead of failing with
+            // "Server rejected the move (notFound)" while the ghost stays in the list.
+            if (e.errorType != SET_ERROR_NOT_FOUND) throw e
+            pruneServerGone(credentials.id, listOf(emailId))
+            return null
+        }
         emailDao.deleteById(credentials.id, emailId)
         adjustCountsForRemoval(listOfNotNull(row), trash)
         advanceEmailState(newState, credentials.id, mb)

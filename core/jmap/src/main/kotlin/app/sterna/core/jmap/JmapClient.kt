@@ -433,6 +433,44 @@ class JmapClient internal constructor(
         decodeList(body, "Email/get", Email.serializer())
     }
 
+    /**
+     * The subset of [ids] the server explicitly reports as `notFound` on an ids-only
+     * `Email/get` — an authoritative existence check (a point lookup, not a snapshot
+     * query, so it cannot be stale the way `Email/queryChanges` deltas can). Used by the
+     * sync ghost sweep and returns ONLY ids listed in the response's `notFound` array: a
+     * failed or malformed response throws rather than guessing, so a transient error can
+     * never be mistaken for "these messages are gone".
+     */
+    suspend fun missingEmailIds(
+        session: JmapSession,
+        accountId: String,
+        ids: List<String>,
+        auth: JmapAuth,
+    ): Set<String> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptySet()
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("ids") { ids.forEach { add(it) } }
+                        putJsonArray("properties") { add("id") }
+                    }
+                    add("g0")
+                }
+            }
+        }
+        val body = postJmap(session, auth, payload)
+        val args = methodResponseArgs(body, "Email/get")
+        args["notFound"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }?.toSet()
+            ?: emptySet()
+    }
+
     /** Full-text search across the account (Email/query `text` filter + Email/get). */
     suspend fun searchEmails(
         session: JmapSession,
@@ -758,7 +796,10 @@ class JmapClient internal constructor(
             }
         }
         val result = emailSetResult(args)
-        result.failed[emailId]?.let { throw JmapException("Server rejected the keyword change ($it)") }
+        // errorType carries the per-id SetError type (RFC 8620 §5.3) so the repository can
+        // tell an authoritative `notFound` (the id no longer exists — prune the cached row)
+        // from other rejections, without parsing the human-readable message.
+        result.failed[emailId]?.let { throw JmapException("Server rejected the keyword change ($it)", errorType = it) }
         return result.newState
     }
 
@@ -810,7 +851,8 @@ class JmapClient internal constructor(
             }
         }
         val result = emailSetResult(args)
-        result.failed[emailId]?.let { throw JmapException("Server rejected the move ($it)") }
+        // errorType = the per-id SetError type, so callers can react to `notFound` (see setKeyword).
+        result.failed[emailId]?.let { throw JmapException("Server rejected the move ($it)", errorType = it) }
         return result.newState
     }
 
