@@ -85,11 +85,26 @@ data class StoredAccount(
      * Identities to send as. Server-provided identities come first (the server decides
      * what you may send as), with any manually-configured ones merged on top, deduped by
      * address. Falls back to a single default derived from the account when none exist.
+     *
+     * A linked sub-account can't fetch server identities (Identity/get is member-only —
+     * "You are not an owner", issue #31) and its [username] is the LOGIN's address, so the
+     * standalone fallback would offer a silently wrong From. Its own address comes from the
+     * session's account name instead (Stalwart advertises the address there); when that name
+     * isn't an address there is nothing trustworthy to offer, and the list stays empty so
+     * [AccountStore.identities] can fall back to the login's identities.
      */
     fun resolvedIdentities(): List<StoredIdentity> =
         (serverIdentities + identities)
             .distinctBy { it.email.trim().lowercase() }
             .ifEmpty {
-                listOf(StoredIdentity(id = "default", name = accountName, email = username, signature = signature))
+                if (isLinked) {
+                    listOfNotNull(
+                        accountName.trim()
+                            .takeIf { it.matches(Regex("[^@\\s]+@[^@\\s]+")) }
+                            ?.let { StoredIdentity(id = "delegated", name = "", email = it) },
+                    )
+                } else {
+                    listOf(StoredIdentity(id = "default", name = accountName, email = username, signature = signature))
+                }
             }
 }

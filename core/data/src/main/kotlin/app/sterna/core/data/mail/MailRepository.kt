@@ -3039,6 +3039,8 @@ class MailRepository(
         body: String,
         cc: List<String> = emptyList(),
         bcc: List<String> = emptyList(),
+        fromName: String? = null,
+        fromEmail: String? = null,
     ) {
         val ccTrimmed = cc.map { it.trim() }.filter { it.isNotEmpty() }
         val bccTrimmed = bcc.map { it.trim() }.filter { it.isNotEmpty() }
@@ -3047,21 +3049,32 @@ class MailRepository(
             val drafts = mailboxDao.idForRole(credentials.id, "drafts") ?: error("This account has no Drafts folder.")
             imap.appendDraft(
                 credentials, drafts,
-                outgoing(credentials, recipients, subject, body, cc = ccTrimmed, bcc = bccTrimmed),
+                outgoing(
+                    credentials, recipients, subject, body,
+                    fromName = fromName, fromEmail = fromEmail, cc = ccTrimmed, bcc = bccTrimmed,
+                ),
             )
             return
         }
         val ctx = connect(credentials)
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
-        val identity = client.getIdentities(ctx.session, ctx.accountId, ctx.auth).firstOrNull()
-            ?: error("This account has no sending identity.")
+        // The From is the composer's chosen identity, falling back to the account's stored
+        // identities and finally the signed-in address — never a live Identity/get: that method
+        // is member-only and refused on a delegated sub-account ("You are not an owner",
+        // issue #31), and connect() refreshes the stored server identities anyway.
+        val from = if (!fromEmail.isNullOrBlank()) {
+            EmailAddress(name = fromName, email = fromEmail)
+        } else {
+            val stored = accountStore.identities(credentials.id).firstOrNull()
+            EmailAddress(name = stored?.name, email = stored?.email ?: credentials.username)
+        }
         val draftsId = ctx.rolesToMailboxId["drafts"]
             ?: error("This account has no Drafts folder.")
         client.saveDraft(
             session = ctx.session,
             accountId = ctx.accountId,
             auth = ctx.auth,
-            from = EmailAddress(name = identity.name, email = identity.email),
+            from = from,
             to = recipients,
             cc = ccTrimmed.map { EmailAddress(email = it) },
             bcc = bccTrimmed.map { EmailAddress(email = it) },
@@ -3312,7 +3325,17 @@ class MailRepository(
         val ccAddrs = ccTrimmed.map { EmailAddress(email = it) }
         val bccAddrs = bccTrimmed.map { EmailAddress(email = it) }
 
-        val serverIdentities = client.getIdentities(ctx.session, ctx.accountId, ctx.auth)
+        // Delegated sub-account (issue #31): member-only methods are refused on the shared
+        // account (Identity/get and EmailSubmission/set both fail with "You are not an owner"),
+        // but the server accepts a submission created on the LOGIN's own account whose From
+        // header carries the delegated address (envelope from the login's identity) — verified
+        // against Stalwart. So the outgoing Email, the identity lookup and the submission all
+        // target the login's primary account; the Sent copy is then re-filed into the
+        // sub-account's own Sent below.
+        val submissionAccountId = ctx.session.mailAccountId() ?: ctx.accountId
+        val onBehalf = submissionAccountId != ctx.accountId
+
+        val serverIdentities = client.getIdentities(ctx.session, submissionAccountId, ctx.auth)
         // Use the server identity matching the chosen address (so submission is authorised);
         // fall back to the first. The displayed From still reflects the chosen identity.
         val identity = fromEmail?.let { email -> serverIdentities.firstOrNull { it.email.equals(email, true) } }
@@ -3320,12 +3343,20 @@ class MailRepository(
             ?: error("This account has no sending identity.")
         val from = if (!fromEmail.isNullOrBlank()) EmailAddress(name = fromName, email = fromEmail)
         else EmailAddress(name = identity.name, email = identity.email)
-        val draftsId = ctx.rolesToMailboxId["drafts"]
-            ?: ctx.rolesToMailboxId["sent"]
+        // Mailbox ids are per-account: an on-behalf send stages and files in the login's
+        // account, so its roles must come from there, not from the sub-account's context.
+        val submissionRoles = if (onBehalf) {
+            client.getMailboxes(ctx.session, submissionAccountId, ctx.auth)
+                .mapNotNull { mb -> mb.role?.let { it to mb.id } }.toMap()
+        } else {
+            ctx.rolesToMailboxId
+        }
+        val draftsId = submissionRoles["drafts"]
+            ?: submissionRoles["sent"]
             ?: error("This account has no Drafts or Sent folder.")
-        val sentId = ctx.rolesToMailboxId["sent"] ?: draftsId
+        val sentId = submissionRoles["sent"] ?: draftsId
 
-        if (pgpEntity != null) {
+        val sentEmailId = if (pgpEntity != null) {
             // PGP/MIME must reach the wire byte-exact (protocol=/micalg= params,
             // signed bytes), so the FULL raw message is built client-side with the
             // same builder the SMTP path uses, then imported + submitted verbatim.
@@ -3337,40 +3368,62 @@ class MailRepository(
             )
             client.importAndSendEmail(
                 session = ctx.session,
-                accountId = ctx.accountId,
+                accountId = submissionAccountId,
                 auth = ctx.auth,
                 identityId = identity.id,
                 rawMessage = raw.toByteArray(Charsets.UTF_8),
                 draftMailboxId = draftsId,
                 sentMailboxId = sentId,
             )
-            runCatching { syncMailbox(ctx.session, ctx.accountId, ctx.auth, sentId, PAGE_SIZE, credentials.id) }
-            return
+        } else {
+            client.sendEmail(
+                session = ctx.session,
+                accountId = submissionAccountId,
+                auth = ctx.auth,
+                identityId = identity.id,
+                from = from,
+                to = recipients,
+                cc = ccAddrs,
+                bcc = bccAddrs,
+                subject = subject,
+                textBody = body,
+                htmlBody = htmlBody,
+                draftMailboxId = draftsId,
+                sentMailboxId = sentId,
+                inReplyTo = inReplyTo,
+                references = references,
+                attachments = attachments,
+            )
         }
 
-        client.sendEmail(
-            session = ctx.session,
-            accountId = ctx.accountId,
-            auth = ctx.auth,
-            identityId = identity.id,
-            from = from,
-            to = recipients,
-            cc = ccAddrs,
-            bcc = bccAddrs,
-            subject = subject,
-            textBody = body,
-            htmlBody = htmlBody,
-            draftMailboxId = draftsId,
-            sentMailboxId = sentId,
-            inReplyTo = inReplyTo,
-            references = references,
-            attachments = attachments,
-        )
+        // On-behalf: move the Sent copy from the login's account into the sub-account's own
+        // Sent, where the user who composed there expects it. Best-effort AFTER the send stands:
+        // if the copy fails the message simply stays in the login's Sent — never lost.
+        val ownSentId = ctx.rolesToMailboxId["sent"]
+        if (onBehalf && sentEmailId != null && ownSentId != null) {
+            runCatching {
+                client.copyEmailToAccount(
+                    session = ctx.session,
+                    auth = ctx.auth,
+                    fromAccountId = submissionAccountId,
+                    toAccountId = ctx.accountId,
+                    emailId = sentEmailId,
+                    mailboxId = ownSentId,
+                )
+            }
+        }
         // The message is now filed in Sent with a server-assigned threadId. Pull it into the
         // local cache at once (best-effort) so the conversation it belongs to reflects the
         // reply immediately — the list counts a thread's messages from the cache, so an
         // un-cached Sent reply would otherwise leave the conversation looking like one message.
-        runCatching { syncMailbox(ctx.session, ctx.accountId, ctx.auth, sentId, PAGE_SIZE, credentials.id) }
+        // For an on-behalf send that is the SUB-account's Sent (where the copy just landed).
+        runCatching {
+            if (onBehalf) {
+                ownSentId?.let { syncMailbox(ctx.session, ctx.accountId, ctx.auth, it, PAGE_SIZE, credentials.id) }
+            } else {
+                syncMailbox(ctx.session, ctx.accountId, ctx.auth, sentId, PAGE_SIZE, credentials.id)
+            }
+        }
     }
 
     /**
@@ -3403,12 +3456,18 @@ class MailRepository(
         } else {
             uploadAttachment(credentials, replyIcs, "text/calendar", "invite.ics")
         }
+        // Carry the account's own identity explicitly: a delegated sub-account's reply is
+        // submitted through its login (issue #31) and would otherwise fall back to the
+        // login's From — the organizer must see the invited address answering.
+        val identity = accountStore.identities(credentials.id).firstOrNull()
         enqueueSend(
             credentials = credentials,
             to = listOf(organizerEmail),
             subject = subject,
             body = textBody,
             attachments = listOf(attachment),
+            fromName = identity?.name,
+            fromEmail = identity?.email,
         )
     }
 
@@ -3456,7 +3515,12 @@ class MailRepository(
         cid: String? = null,
     ): EmailBodyPart {
         val ctx = connect(credentials)
-        val blob = client.uploadBlob(ctx.session, ctx.accountId, bytes, type, ctx.auth)
+        // Blobs are account-scoped (a blob uploaded to a delegated account is blobNotFound from
+        // the login's — verified against Stalwart), and for a linked sub-account the outgoing
+        // Email is created under the LOGIN's account (see performSend). Upload where the send
+        // will reference it.
+        val uploadAccountId = ctx.session.mailAccountId() ?: ctx.accountId
+        val blob = client.uploadBlob(ctx.session, uploadAccountId, bytes, type, ctx.auth)
         return EmailBodyPart(
             blobId = blob.blobId,
             type = blob.type,

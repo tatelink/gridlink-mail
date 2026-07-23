@@ -611,7 +611,14 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     fun saveDraft(to: String, cc: String, bcc: String, subject: String, body: String) =
         submit(to) { credentials, recipients ->
-            repo.saveDraft(credentials, recipients, subject, body, parseAddrs(cc), parseAddrs(bcc))
+            // Carry the composer's chosen From so the draft is honest about the identity it
+            // will be sent as (a delegated sub-account's draft must not fall back to the
+            // login's address, issue #31).
+            val identity = selectedIdentity()
+            repo.saveDraft(
+                credentials, recipients, subject, body, parseAddrs(cc), parseAddrs(bcc),
+                fromName = identity?.name, fromEmail = identity?.email,
+            )
         }
 
     private inline fun submit(

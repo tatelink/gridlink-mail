@@ -313,9 +313,16 @@ class AccountStore(context: Context) {
     fun signature(accountId: String?): String =
         (accountId?.let { account(it) } ?: currentAccount())?.signature.orEmpty()
 
-    /** Sending identities for an account (null id = current); never empty (has a default). */
-    fun identities(accountId: String?): List<StoredIdentity> =
-        (accountId?.let { account(it) } ?: currentAccount())?.resolvedIdentities() ?: emptyList()
+    /** Sending identities for an account (null id = current); never empty (has a default).
+     *  A linked sub-account whose own address is unknown (see [StoredAccount.resolvedIdentities])
+     *  falls back to its LOGIN's identities: sends route through the login's submission anyway
+     *  (issue #31), and offering the login's addresses openly beats a silently wrong From. */
+    fun identities(accountId: String?): List<StoredIdentity> {
+        val account = (accountId?.let { account(it) } ?: currentAccount()) ?: return emptyList()
+        return account.resolvedIdentities().ifEmpty {
+            account.loginId?.let { account(it)?.resolvedIdentities() }.orEmpty()
+        }
+    }
 
     /** Persist the identity list for an account. */
     @Synchronized

@@ -1187,6 +1187,8 @@ class JmapClient internal constructor(
     /**
      * Send a plain-text email: create a draft (Email/set) and submit it
      * (EmailSubmission/set) in one request, moving it to Sent on success.
+     * Returns the created message's Email id (null if the server omitted it),
+     * so an on-behalf send can re-file the Sent copy across accounts.
      */
     suspend fun sendEmail(
         session: JmapSession,
@@ -1205,7 +1207,7 @@ class JmapClient internal constructor(
         inReplyTo: List<String> = emptyList(),
         references: List<String> = emptyList(),
         attachments: List<EmailBodyPart> = emptyList(),
-    ) = withContext(Dispatchers.IO) {
+    ): String? = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
                 add(Jmap.CORE_CAPABILITY)
@@ -1313,9 +1315,14 @@ class JmapClient internal constructor(
             (subArgs["notCreated"] as? JsonObject)?.get("sub")?.let {
                 throw JmapException("Could not send the message: $it")
             }
-            Unit
+            createdEmailId(emailArgs)
         }
     }
+
+    /** The Email id minted for the "draft" creation in an Email/set or Email/import response. */
+    private fun createdEmailId(args: JsonObject): String? =
+        (args["created"] as? JsonObject)?.get("draft")?.jsonObject
+            ?.get("id")?.jsonPrimitive?.contentOrNull
 
     /**
      * Send a message whose raw RFC 5322 bytes were built CLIENT-side (PGP/MIME:
@@ -1333,7 +1340,7 @@ class JmapClient internal constructor(
         rawMessage: ByteArray,
         draftMailboxId: String,
         sentMailboxId: String,
-    ) = withContext(Dispatchers.IO) {
+    ): String? = withContext(Dispatchers.IO) {
         val blobId = uploadBlob(session, accountId, rawMessage, "message/rfc822", auth).blobId
         val payload = buildJsonObject {
             putJsonArray("using") {
@@ -1397,7 +1404,67 @@ class JmapClient internal constructor(
             (subArgs["notCreated"] as? JsonObject)?.get("sub")?.let {
                 throw JmapException("Could not send the message: $it")
             }
-            Unit
+            createdEmailId(importArgs)
+        }
+    }
+
+    /**
+     * Re-file a message across accounts of one session: Email/copy it into [toAccountId]'s
+     * [mailboxId], then destroy the original in [fromAccountId]. Used after an on-behalf send
+     * (issue #31) to move the Sent copy from the login's account into the delegated sub-account's
+     * own Sent mailbox. The destroy is an explicit second method call: Stalwart's
+     * `onSuccessDestroyOriginal` targets the creation id instead of the copied id (verified),
+     * so the spec'd one-step form silently leaves the original behind. Throws [JmapException]
+     * if the copy fails; a failed destroy is reported by the same exception AFTER the copy
+     * stands, so callers treating this as best-effort never lose the message.
+     */
+    suspend fun copyEmailToAccount(
+        session: JmapSession,
+        auth: JmapAuth,
+        fromAccountId: String,
+        toAccountId: String,
+        emailId: String,
+        mailboxId: String,
+    ): Unit = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/copy")
+                    addJsonObject {
+                        put("fromAccountId", fromAccountId)
+                        put("accountId", toAccountId)
+                        putJsonObject("create") {
+                            putJsonObject("copy") {
+                                put("id", emailId)
+                                putJsonObject("mailboxIds") { put(mailboxId, true) }
+                                putJsonObject("keywords") { put("\$seen", true) }
+                            }
+                        }
+                    }
+                    add("c0")
+                }
+                addJsonArray {
+                    add("Email/set")
+                    addJsonObject {
+                        put("accountId", fromAccountId)
+                        putJsonArray("destroy") { add(emailId) }
+                    }
+                    add("d0")
+                }
+            }
+        }
+        val body = postJmap(session, auth, payload)
+        val copyArgs = methodResponseArgs(body, "Email/copy")
+        (copyArgs["notCreated"] as? JsonObject)?.get("copy")?.let {
+            throw JmapException("Could not file the sent copy: $it")
+        }
+        val destroyArgs = methodResponseArgs(body, "Email/set")
+        (destroyArgs["notDestroyed"] as? JsonObject)?.get(emailId)?.let {
+            throw JmapException("Sent copy filed, but the original wasn't removed: $it")
         }
     }
 
