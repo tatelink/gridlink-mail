@@ -2188,13 +2188,28 @@ class MailRepository(
         return BulkResult(destroyed + gone, emailIds.toSet() - destroyed - gone)
     }
 
+    /**
+     * Opt-in mark-read-on-archive/delete for a bulk action: flag the currently-unread part of the
+     * selection through the batched [setReadAll] (chunked `Email/set`) instead of one round trip
+     * per message — a select-all of 200 unread used to fire 200 sequential calls before the single
+     * batched move. The unread subset comes from ONE cached read; ids we have no row for are left
+     * alone (their state is unknown, exactly as the old per-id `seenOf(id) == false` filter did).
+     *
+     * MUST run BEFORE the mover reads its rows for the count nudge: [adjustCountsForRemoval] then
+     * sees `seen = true` and does not decrement the unread badge a second time. Best-effort: a
+     * failed flag store never blocks the archive/delete.
+     */
+    private suspend fun markSelectionRead(credentials: AccountCredentials, emailIds: List<String>) {
+        val unread = emailDao.emailsByIds(emailIds).filter { !it.seen }.map { it.id }
+        if (unread.isEmpty()) return
+        runCatching { setReadAll(credentials, unread, true) }
+    }
+
     /** Archive a whole selection (one account). Messages already in the archive/all folder are dropped locally. */
     suspend fun archiveAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
         // Opt-in mark-read-on-archive: best-effort before the move (a \Seen store keeps the UID).
-        if (settings?.markReadOnArchive?.first() == true) {
-            emailIds.forEach { id -> if (emailDao.seenOf(id) == false) runCatching { setRead(credentials, id, true) } }
-        }
+        if (settings?.markReadOnArchive?.first() == true) markSelectionRead(credentials, emailIds)
         if (credentials.protocol == MailProtocol.IMAP) {
             val dest = imapRoleFolder(credentials, "archive", "all")
                 ?: run { imap.createFolder(credentials, "Archive"); "Archive" }
@@ -2275,9 +2290,7 @@ class MailRepository(
     suspend fun deleteAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
         // Opt-in mark-read-on-delete: best-effort before the move (a \Seen store keeps the UID).
-        if (settings?.markReadOnDelete?.first() == true) {
-            emailIds.forEach { id -> if (emailDao.seenOf(id) == false) runCatching { setRead(credentials, id, true) } }
-        }
+        if (settings?.markReadOnDelete?.first() == true) markSelectionRead(credentials, emailIds)
         if (credentials.protocol == MailProtocol.IMAP) {
             val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
             val trash = imapRoleFolder(credentials, "trash")
