@@ -388,6 +388,7 @@
     <string name="settings_pgp_encrypt_default_title">Chiffrer par défaut</string>
     <string name="settings_pgp_encrypt_default_subtitle">Démarrer les nouveaux messages chiffrés quand chaque destinataire a une clé, sinon envoyer normalement</string>
     <string name="settings_pgp_missing_help">Sterna utilise l\'application OpenKeychain pour gérer les clés et chiffrer les messages. Installez-la pour activer OpenPGP.</string>
+    <string name="settings_pgp_provider_required">OpenKeychain requis</string>
     <string name="settings_pgp_install">Installer OpenKeychain</string>
     <string name="settings_pgp_error">Erreur du fournisseur OpenPGP</string>
     <string name="message_pgp_encrypted_title">Message chiffré</string>
