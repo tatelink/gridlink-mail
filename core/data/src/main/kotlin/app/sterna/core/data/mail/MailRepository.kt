@@ -115,6 +115,15 @@ private const val RECENT_MUTATION_MS = 45_000L
 private const val PAGE_SIZE = 50
 
 /**
+ * Floor between two recurring existence sweeps of the SAME mailbox. The sweep's trigger can only
+ * be an account-wide state (JMAP has no per-mailbox change cursor for it), so without a floor it
+ * fires on nearly every incremental sync — one `Email/get` per 200 cached rows per watched folder,
+ * every time. A few minutes still evicts a silently-destroyed message well within a session while
+ * costing at most one sweep per mailbox per interval. See [shouldSweepGhosts].
+ */
+private const val GHOST_SWEEP_MIN_INTERVAL_MS = 5 * 60_000L
+
+/**
  * The per-id SetError type meaning the id does not exist in the account (RFC 8620 §5.3).
  * Authoritative — unlike a transport error it can only mean the message is gone, so action
  * paths receiving it prune the cached row (a ghost/zombie) instead of keeping it forever.
@@ -556,7 +565,7 @@ class MailRepository(
                     isRecentlyMutated(it)
                 }
                 if (toRemove.isNotEmpty()) emailDao.deleteByIds(toRemove)
-                val cachedIds = emailDao.getByMailbox(localAccountId, mailboxId).map { it.id }.toSet()
+                val cachedIds = emailDao.idsForMailbox(localAccountId, mailboxId).toSet()
                 val toFetch = ((added - cachedIds) + changes.updated.filter { it in cachedIds }).distinct()
                 if (toFetch.isNotEmpty()) {
                     val fetched = client.getEmailsByIds(session, accountId, toFetch, auth)
@@ -571,13 +580,24 @@ class MailRepository(
                 // view, while the state strings still advance) — and a reported destroy can
                 // also be eaten one-shot by the recently-mutated spare above while the
                 // cursors advance past it. Either way the cached row becomes an immortal
-                // ghost no later delta ever prunes. Verify existence against the server
-                // whenever the state advanced (a destroy always advances it), plus once per
-                // app session per mailbox so a pre-existing ghost dies on the first sync.
+                // ghost no later delta ever prunes. Verify existence against the server — but
+                // NOT on every sync: the states here are ACCOUNT-WIDE, so they advance on any
+                // activity anywhere in the account and a state-only trigger would sweep the
+                // whole cache of every watched folder almost every sync. See [shouldSweepGhosts]
+                // for the gate (once per session, on a real removal here, else a time floor).
                 val stateAdvanced = queryChanges.newQueryState != stored.queryState ||
                     changes.newState != stored.emailState
                 val firstThisSession = sweptMailboxes.add(key)
-                if (stateAdvanced || firstThisSession) {
+                val now = System.currentTimeMillis()
+                val sweep = shouldSweepGhosts(
+                    firstThisSession = firstThisSession,
+                    stateAdvanced = stateAdvanced,
+                    vanishedFromMailbox = queryChanges.removed.any { it !in added },
+                    millisSinceLastSweep = now - (lastGhostSweep[key] ?: 0L),
+                    minIntervalMs = GHOST_SWEEP_MIN_INTERVAL_MS,
+                )
+                if (sweep) {
+                    lastGhostSweep[key] = now
                     val swept = pruneGhostRows(session, accountId, auth, mailboxId, localAccountId)
                     // A failed sweep keeps its once-per-session credit so the next sync retries.
                     if (!swept && firstThisSession) sweptMailboxes.remove(key)
@@ -606,6 +626,9 @@ class MailRepository(
      */
     private val sweptMailboxes: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
+    /** When each mailbox (by sync key) was last existence-swept, for the recurring sweep's floor. */
+    private val lastGhostSweep: MutableMap<String, Long> = java.util.concurrent.ConcurrentHashMap()
+
     /**
      * Existence sweep for one mailbox's cached rows: ids-only `Email/get` on everything still
      * cached, pruning exactly the ids the server reports `notFound` (see [ghostEvictions] for
@@ -621,7 +644,7 @@ class MailRepository(
         mailboxId: String,
         localAccountId: String,
     ): Boolean {
-        val cached = emailDao.getByMailbox(localAccountId, mailboxId).map { it.id }
+        val cached = emailDao.idsForMailbox(localAccountId, mailboxId)
         if (cached.isEmpty()) return true
         val notFound = runCatching {
             // Chunked so a deep cache can't exceed the server's maxObjectsInGet.

@@ -1,6 +1,8 @@
 package app.sterna.core.data.mail
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -80,6 +82,65 @@ class SyncEvictionsTest {
         assertEquals(
             emptyList<String>(),
             ghostEvictions(cachedIds = listOf("e1", "e2"), notFound = emptySet()),
+        )
+    }
+
+    // -- shouldSweepGhosts ---------------------------------------------------------------
+
+    private val floor = 5 * 60_000L
+
+    @Test fun firstSyncOfTheSessionAlwaysSweeps() {
+        // A ghost that predates this run has no delta left to announce it: the once-per-mailbox
+        // sweep is what kills it, so it must not depend on any state having advanced.
+        assertTrue(
+            shouldSweepGhosts(
+                firstThisSession = true, stateAdvanced = false, vanishedFromMailbox = false,
+                millisSinceLastSweep = 0, minIntervalMs = floor,
+            ),
+        )
+    }
+
+    @Test fun accountWideActivityAloneDoesNotResweep() {
+        // The regression this gate exists for: Email/changes' state is account-wide, so it
+        // advances on activity in ANY folder. Sweeping on that alone re-verified the whole
+        // cache of every watched mailbox on nearly every incremental sync.
+        assertFalse(
+            shouldSweepGhosts(
+                firstThisSession = false, stateAdvanced = true, vanishedFromMailbox = false,
+                millisSinceLastSweep = 30_000, minIntervalMs = floor,
+            ),
+        )
+    }
+
+    @Test fun aRemovalInThisMailboxSweepsAtOnce() {
+        // Something genuinely left THIS folder — the shape of a destroy the recently-mutated
+        // spare can swallow — so verify immediately rather than waiting out the floor.
+        assertTrue(
+            shouldSweepGhosts(
+                firstThisSession = false, stateAdvanced = true, vanishedFromMailbox = true,
+                millisSinceLastSweep = 0, minIntervalMs = floor,
+            ),
+        )
+    }
+
+    @Test fun theFloorLetsTheSilentDestroyCaseThroughAgain() {
+        // Some servers report a destroy in NEITHER delta (verified against Stalwart on a
+        // delegated view), so the recurring sweep still has to run — once per interval.
+        assertTrue(
+            shouldSweepGhosts(
+                firstThisSession = false, stateAdvanced = true, vanishedFromMailbox = false,
+                millisSinceLastSweep = floor, minIntervalMs = floor,
+            ),
+        )
+    }
+
+    @Test fun anIdleAccountNeverResweeps() {
+        // No state movement at all: nothing can have been destroyed since the last sweep.
+        assertFalse(
+            shouldSweepGhosts(
+                firstThisSession = false, stateAdvanced = false, vanishedFromMailbox = false,
+                millisSinceLastSweep = 10 * floor, minIntervalMs = floor,
+            ),
         )
     }
 }
