@@ -270,7 +270,14 @@ fun MessageScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/** The settled page's identity + ViewModel, published to the pager-level fixed chrome (#62). */
+private class ActiveMessage(
+    val emailId: String,
+    val accountId: String?,
+    val viewModel: MessageViewModel,
+)
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun MessagePager(
     pageCount: Int,
@@ -283,30 +290,61 @@ private fun MessagePager(
     onComposeTo: (address: String) -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage.coerceIn(0, (pageCount - 1).coerceAtLeast(0))) { pageCount }
-    HorizontalPager(
-        state = pagerState,
-        modifier = Modifier.fillMaxSize(),
-        // Key by entry id so pages keep their identity when rows are inserted around them;
-        // warm one neighbour each side so a swipe reveals the adjacent body without a flash.
-        key = { i -> entryAt(i)?.first ?: "page-$i" },
-        beyondViewportPageCount = 1,
-    ) { page ->
-        val entry = entryAt(page)
-        if (entry == null) {
-            // Paged item for this page hasn't loaded yet (near the growing end).
-            MessageLoadingScaffold(onBack)
-        } else {
-            MessagePage(
-                emailId = entry.first,
-                accountId = entry.second,
-                // Read-on-settle: only the page the user lands on marks its message read.
-                active = pagerState.settledPage == page,
-                onBack = onBack,
-                onReply = onReply,
-                onDelete = onDelete,
-                onArchive = onArchive,
-                onComposeTo = onComposeTo,
-            )
+    // The chrome (top app bar + bottom Reply/Forward bar) is FIXED: it lives OUTSIDE the
+    // pager, so swiping between messages never translates or blinks it (#62). Only the
+    // message content pages horizontally. The chrome acts on the SETTLED page, which
+    // publishes its ViewModel here on settle — so the bars' content (star state, actions,
+    // bar visibility) switches on settle, never mid-gesture.
+    var activeMessage by remember { mutableStateOf<ActiveMessage?>(null) }
+    Scaffold(
+        topBar = { MessageTopBar(activeMessage, onBack, onReply, onDelete, onArchive) },
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                // Key by entry id so pages keep their identity when rows are inserted around them;
+                // warm one neighbour each side so a swipe reveals the adjacent body without a flash.
+                key = { i -> entryAt(i)?.first ?: "page-$i" },
+                beyondViewportPageCount = 1,
+            ) { page ->
+                val entry = entryAt(page)
+                if (entry == null) {
+                    // Paged item for this page hasn't loaded yet (near the growing end). No
+                    // toolbar here — the fixed one above stays in place.
+                    Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                } else {
+                    MessagePage(
+                        emailId = entry.first,
+                        accountId = entry.second,
+                        // Read-on-settle: only the page the user lands on marks its message read.
+                        active = pagerState.settledPage == page,
+                        onActivated = { vm ->
+                            activeMessage = ActiveMessage(entry.first, entry.second, vm)
+                        },
+                        onComposeTo = onComposeTo,
+                    )
+                }
+            }
+            // The bottom Reply/Forward bar, fixed over the pager. Its visibility follows the
+            // SETTLED page's scroll-end reveal (reported into that page's ViewModel by
+            // ConversationBody); the settled page doesn't change during a drag, so the bar
+            // cannot flicker mid-swipe — it animates only when the newly settled page's
+            // resting state differs from the previous one's.
+            val active = activeMessage
+            if (active != null) {
+                val barVisible by active.viewModel.replyBarVisible.collectAsStateWithLifecycle()
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = barVisible,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    enter = androidx.compose.animation.fadeIn() +
+                        androidx.compose.animation.slideInVertically(initialOffsetY = { it }),
+                    exit = androidx.compose.animation.fadeOut() +
+                        androidx.compose.animation.slideOutVertically(targetOffsetY = { it }),
+                ) {
+                    ReplyForwardBar { mode -> onReply(mode, active.emailId, active.accountId) }
+                }
+            }
         }
     }
 }
@@ -316,10 +354,7 @@ private fun MessagePage(
     emailId: String,
     accountId: String?,
     active: Boolean,
-    onBack: () -> Unit,
-    onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
-    onDelete: (Email) -> Unit,
-    onArchive: (Email) -> Unit,
+    onActivated: (MessageViewModel) -> Unit,
     onComposeTo: (address: String) -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as Application
@@ -332,15 +367,15 @@ private fun MessagePage(
         factory = viewModelFactory { initializer { MessageViewModel(app) } },
     )
     LaunchedEffect(emailId, accountId) { viewModel.load(emailId, accountId) }
-    LaunchedEffect(active) { viewModel.onActiveChanged(active) }
+    LaunchedEffect(active) {
+        viewModel.onActiveChanged(active)
+        // Hand this page's ViewModel to the fixed chrome once the user has settled on it.
+        if (active) onActivated(viewModel)
+    }
     MessageContent(
         viewModel = viewModel,
         emailId = emailId,
         accountId = accountId,
-        onBack = onBack,
-        onReply = onReply,
-        onDelete = onDelete,
-        onArchive = onArchive,
         onComposeTo = onComposeTo,
     )
 }
@@ -359,7 +394,8 @@ private fun rememberDisposableViewModelStoreOwner(): ViewModelStoreOwner {
     return owner
 }
 
-/** Toolbar + centred spinner shown while a page's entry/body is still being resolved. */
+/** Toolbar + centred spinner shown while the pager's entry list is still being resolved
+ *  (before [MessagePager] — and its fixed toolbar — can compose at all). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MessageLoadingScaffold(onBack: () -> Unit) {
@@ -391,27 +427,254 @@ private fun MessageLoadingScaffold(onBack: () -> Unit) {
 }
 
 /**
- * One page of the reading view: the toolbar + conversation body for a single list entry,
- * driven by its own [viewModel]. The horizontal pager ([MessageScreen]) hosts one of these
- * per adjacent list entry so the user can swipe between them.
+ * The reader's FIXED top app bar: ONE instance at the pager level, outside the horizontal
+ * swipe, so paging between messages never moves it (#62). It renders the actions for the
+ * SETTLED page's message; while no page has settled yet (first frames, or a still-loading
+ * entry) it shows just the back arrow.
  */
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageTopBar(
+    active: ActiveMessage?,
+    onBack: () -> Unit,
+    onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+    onDelete: (Email) -> Unit,
+    onArchive: (Email) -> Unit,
+) {
+    TopAppBar(
+        // The subject is shown in full inside the message (Codeberg #44), so the bar has
+        // no title — that frees the width for a Follow (star) action.
+        title = {},
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.message_back),
+                )
+            }
+        },
+        actions = {
+            if (active != null) {
+                MessageActions(active, onBack, onReply, onDelete, onArchive)
+            }
+        },
+    )
+}
+
+/**
+ * The toolbar actions (star / archive / delete / reply / overflow) for the settled message.
+ * All state comes from that page's own [MessageViewModel] ([ActiveMessage.viewModel]), so the
+ * star, trash/junk variants and menu entries update when the pager settles on a new page.
+ */
+@Composable
+private fun MessageActions(
+    active: ActiveMessage,
+    onBack: () -> Unit,
+    onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
+    onDelete: (Email) -> Unit,
+    onArchive: (Email) -> Unit,
+) {
+    val viewModel = active.viewModel
+    val accountId = active.accountId
+    // The reader shows a single message; reply / reply-all / forward all target exactly the
+    // opened message (the conversation itself lives in the list's inline unfold).
+    val replyTargetId = active.emailId
+    val context = LocalContext.current
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val inJunk by viewModel.inJunk.collectAsStateWithLifecycle()
+    val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
+    // Per-message manual override; the sender allowlist auto-shows without it.
+    val manualShow by viewModel.manualShowImages.collectAsStateWithLifecycle()
+    val loaded = state as? MessageState.Loaded ?: return
+    val senderEmail = loaded.email.from.firstOrNull()?.email
+    val senderAllowed = senderEmail?.lowercase()?.let { it in imageAllowlist } == true
+    val showRemote = manualShow || senderAllowed
+    // Follow (flag) toggle, promoted from the overflow menu to the bar now that
+    // the subject no longer takes the title space (Codeberg #44).
+    val flagged = loaded.email.isFlagged
+    IconButton(onClick = { viewModel.toggleFlag() }) {
+        Icon(
+            if (flagged) Icons.Filled.Star else Icons.Filled.StarBorder,
+            contentDescription = stringResource(
+                if (flagged) R.string.message_unflag else R.string.message_flag,
+            ),
+            tint = if (flagged) MaterialTheme.colorScheme.tertiary else LocalContentColor.current,
+        )
+    }
+    val inTrash by viewModel.inTrash.collectAsStateWithLifecycle()
+    val resolvedMailbox by viewModel.mailboxId.collectAsStateWithLifecycle()
+    // Archive, promoted from the overflow to the bar (#50 follow-up; mark-unread
+    // took its overflow slot). Routes through the shared inbox VM (like delete)
+    // so the reader reuses the same count nudge + Undo; the resolved mailbox is
+    // passed since the body fetch can drop it (RC-6), and the page's accountId
+    // so a unified-inbox archive hits the message's own account.
+    IconButton(onClick = {
+        onArchive(
+            loaded.email.copy(
+                mailboxId = resolvedMailbox ?: loaded.email.mailboxId,
+                accountId = accountId ?: loaded.email.accountId,
+            ),
+        )
+    }) {
+        Icon(
+            Icons.Filled.Archive,
+            contentDescription = stringResource(R.string.message_archive),
+        )
+    }
+    // Delete routes through the inbox's held-back delete (Undo shows on the
+    // list) so the reader behaves like swipe/bulk; in Trash it destroys, so
+    // the icon reads "delete forever" (Codeberg #23).
+    IconButton(onClick = {
+        // The displayed email can carry a null mailboxId (the body fetch drops
+        // it), which would misroute the delete and lose Undo — pass the folder
+        // the VM resolved (Codeberg #23). Same for the owning account: in the
+        // unified inbox the page's nav-passed accountId is authoritative, and
+        // without it the delete would run against the current account.
+        onDelete(
+            loaded.email.copy(
+                mailboxId = resolvedMailbox ?: loaded.email.mailboxId,
+                accountId = accountId ?: loaded.email.accountId,
+            ),
+        )
+    }) {
+        Icon(
+            if (inTrash) Icons.Filled.DeleteForever else Icons.Filled.Delete,
+            contentDescription = stringResource(
+                if (inTrash) R.string.inbox_delete_forever else R.string.message_delete,
+            ),
+        )
+    }
+    IconButton(onClick = { onReply("reply", replyTargetId, accountId) }) {
+        Icon(
+            Icons.AutoMirrored.Filled.Reply,
+            contentDescription = stringResource(R.string.message_reply),
+        )
+    }
+    // Keyed on the settled message so an open menu never carries over across a page settle.
+    var menuOpen by remember(active.emailId) { mutableStateOf(false) }
+    var snoozeSubmenu by remember(active.emailId) { mutableStateOf(false) }
+    IconButton(onClick = { menuOpen = true }) {
+        Icon(
+            Icons.Filled.MoreVert,
+            contentDescription = stringResource(R.string.message_more),
+        )
+    }
+    DropdownMenu(
+        expanded = menuOpen,
+        onDismissRequest = { menuOpen = false; snoozeSubmenu = false },
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        if (snoozeSubmenu) {
+            snoozePresets(context).forEach { (label, until) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        menuOpen = false; snoozeSubmenu = false
+                        viewModel.snooze(until, onBack)
+                    },
+                )
+            }
+        } else {
+            // Reply variants (plain Reply is the toolbar icon).
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.message_reply_all)) },
+                leadingIcon = { Icon(Icons.AutoMirrored.Filled.ReplyAll, contentDescription = null) },
+                onClick = { menuOpen = false; onReply("replyAll", replyTargetId, accountId) },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.message_forward)) },
+                leadingIcon = { Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null) },
+                onClick = { menuOpen = false; onReply("forward", replyTargetId, accountId) },
+            )
+            // Image controls: one-time show only while still blocked,
+            // plus the per-sender allowlist toggle.
+            if (!showRemote || senderEmail != null) HorizontalDivider()
+            if (!showRemote) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.message_show_images)) },
+                    leadingIcon = { Icon(Icons.Filled.Image, contentDescription = null) },
+                    onClick = { menuOpen = false; viewModel.showImagesOnce() },
+                )
+            }
+            if (senderEmail != null) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(
+                                if (senderAllowed) R.string.message_images_stop_sender
+                                else R.string.message_images_always_sender,
+                            ),
+                        )
+                    },
+                    leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        viewModel.setImagesAlwaysAllowed(senderEmail, !senderAllowed)
+                    },
+                )
+            }
+            // Triage actions (Archive moved out to the toolbar; mark-unread
+            // took its slot here — #50 follow-up).
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.message_mark_unread)) },
+                leadingIcon = { Icon(Icons.Filled.MarkEmailUnread, contentDescription = null) },
+                onClick = { menuOpen = false; viewModel.markUnread(onBack) },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        stringResource(
+                            if (inJunk) R.string.message_not_spam
+                            else R.string.message_report_spam,
+                        ),
+                    )
+                },
+                leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    // Confirm the move once it lands, naming the destination
+                    // folder — junk → Inbox ("Not spam"), inbox → Spam.
+                    val destName = context.getString(
+                        if (inJunk) R.string.folder_inbox else R.string.folder_junk,
+                    )
+                    val confirmMove: () -> Unit = {
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.status_moved_to_folder, destName),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        onBack()
+                    }
+                    if (inJunk) viewModel.notSpam(confirmMove) else viewModel.reportSpam(confirmMove)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.message_snooze)) },
+                leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                onClick = { snoozeSubmenu = true },
+            )
+        }
+    }
+}
+
+/**
+ * One page of the reading view: the conversation body (header overlay + WebView) for a single
+ * list entry, driven by its own [viewModel]. The horizontal pager ([MessagePager]) hosts one of
+ * these per adjacent list entry so the user can swipe between them; the toolbar and the
+ * Reply/Forward bar are NOT here — they are fixed chrome at the pager level (#62).
+ */
 @Composable
 private fun MessageContent(
     viewModel: MessageViewModel,
     emailId: String,
     accountId: String?,
-    onBack: () -> Unit,
-    onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
-    onDelete: (Email) -> Unit,
-    onArchive: (Email) -> Unit,
     onComposeTo: (address: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     val calendar by viewModel.calendar.collectAsStateWithLifecycle()
-    val inJunk by viewModel.inJunk.collectAsStateWithLifecycle()
     val ownMessage by viewModel.ownMessage.collectAsStateWithLifecycle()
     val crypto by viewModel.crypto.collectAsStateWithLifecycle()
     // OpenKeychain's passphrase/key dialogs round-trip through this launcher.
@@ -422,243 +685,50 @@ private fun MessageContent(
     val confirmLinks by viewModel.confirmLinks.collectAsStateWithLifecycle()
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
     val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    // Per-message manual override; the sender allowlist auto-shows without it.
-    var manualShow by remember(emailId) { mutableStateOf(false) }
+    // Per-message manual override (set from the fixed toolbar's menu, hence in the VM);
+    // the sender allowlist auto-shows without it.
+    val manualShow by viewModel.manualShowImages.collectAsStateWithLifecycle()
     val senderEmail = (state as? MessageState.Loaded)?.email?.from?.firstOrNull()?.email
     val senderAllowed = senderEmail?.lowercase()?.let { it in imageAllowlist } == true
     val showRemote = manualShow || senderAllowed
-    // The reader shows a single message; reply / reply-all / forward all target exactly the
-    // opened message (the conversation itself lives in the list's inline unfold).
-    val replyTargetId = emailId
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                // The subject is shown in full inside the message (Codeberg #44), so the bar has
-                // no title — that frees the width for a Follow (star) action.
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.message_back),
-                        )
-                    }
-                },
-                actions = {
-                    val loaded = state as? MessageState.Loaded
-                    if (loaded != null) {
-                        // Follow (flag) toggle, promoted from the overflow menu to the bar now that
-                        // the subject no longer takes the title space (Codeberg #44).
-                        val flagged = loaded.email.isFlagged
-                        IconButton(onClick = { viewModel.toggleFlag() }) {
-                            Icon(
-                                if (flagged) Icons.Filled.Star else Icons.Filled.StarBorder,
-                                contentDescription = stringResource(
-                                    if (flagged) R.string.message_unflag else R.string.message_flag,
-                                ),
-                                tint = if (flagged) MaterialTheme.colorScheme.tertiary else LocalContentColor.current,
-                            )
-                        }
-                        val inTrash by viewModel.inTrash.collectAsStateWithLifecycle()
-                        val resolvedMailbox by viewModel.mailboxId.collectAsStateWithLifecycle()
-                        // Archive, promoted from the overflow to the bar (#50 follow-up; mark-unread
-                        // took its overflow slot). Routes through the shared inbox VM (like delete)
-                        // so the reader reuses the same count nudge + Undo; the resolved mailbox is
-                        // passed since the body fetch can drop it (RC-6), and the page's accountId
-                        // so a unified-inbox archive hits the message's own account.
-                        IconButton(onClick = {
-                            onArchive(
-                                loaded.email.copy(
-                                    mailboxId = resolvedMailbox ?: loaded.email.mailboxId,
-                                    accountId = accountId ?: loaded.email.accountId,
-                                ),
-                            )
-                        }) {
-                            Icon(
-                                Icons.Filled.Archive,
-                                contentDescription = stringResource(R.string.message_archive),
-                            )
-                        }
-                        // Delete routes through the inbox's held-back delete (Undo shows on the
-                        // list) so the reader behaves like swipe/bulk; in Trash it destroys, so
-                        // the icon reads "delete forever" (Codeberg #23).
-                        IconButton(onClick = {
-                            // The displayed email can carry a null mailboxId (the body fetch drops
-                            // it), which would misroute the delete and lose Undo — pass the folder
-                            // the VM resolved (Codeberg #23). Same for the owning account: in the
-                            // unified inbox the page's nav-passed accountId is authoritative, and
-                            // without it the delete would run against the current account.
-                            onDelete(
-                                loaded.email.copy(
-                                    mailboxId = resolvedMailbox ?: loaded.email.mailboxId,
-                                    accountId = accountId ?: loaded.email.accountId,
-                                ),
-                            )
-                        }) {
-                            Icon(
-                                if (inTrash) Icons.Filled.DeleteForever else Icons.Filled.Delete,
-                                contentDescription = stringResource(
-                                    if (inTrash) R.string.inbox_delete_forever else R.string.message_delete,
-                                ),
-                            )
-                        }
-                        IconButton(onClick = { onReply("reply", replyTargetId, accountId) }) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Reply,
-                                contentDescription = stringResource(R.string.message_reply),
-                            )
-                        }
-                        var menuOpen by remember { mutableStateOf(false) }
-                        var snoozeSubmenu by remember { mutableStateOf(false) }
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(
-                                Icons.Filled.MoreVert,
-                                contentDescription = stringResource(R.string.message_more),
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = menuOpen,
-                            onDismissRequest = { menuOpen = false; snoozeSubmenu = false },
-                            shape = MaterialTheme.shapes.medium,
-                        ) {
-                            if (snoozeSubmenu) {
-                                val context = LocalContext.current
-                                snoozePresets(context).forEach { (label, until) ->
-                                    DropdownMenuItem(
-                                        text = { Text(label) },
-                                        onClick = {
-                                            menuOpen = false; snoozeSubmenu = false
-                                            viewModel.snooze(until, onBack)
-                                        },
-                                    )
-                                }
-                            } else {
-                                // Reply variants (plain Reply is the toolbar icon).
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.message_reply_all)) },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ReplyAll, contentDescription = null) },
-                                    onClick = { menuOpen = false; onReply("replyAll", replyTargetId, accountId) },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.message_forward)) },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null) },
-                                    onClick = { menuOpen = false; onReply("forward", replyTargetId, accountId) },
-                                )
-                                // Image controls: one-time show only while still blocked,
-                                // plus the per-sender allowlist toggle.
-                                if (!showRemote || senderEmail != null) HorizontalDivider()
-                                if (!showRemote) {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.message_show_images)) },
-                                        leadingIcon = { Icon(Icons.Filled.Image, contentDescription = null) },
-                                        onClick = { menuOpen = false; manualShow = true },
-                                    )
-                                }
-                                if (senderEmail != null) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                stringResource(
-                                                    if (senderAllowed) R.string.message_images_stop_sender
-                                                    else R.string.message_images_always_sender,
-                                                ),
-                                            )
-                                        },
-                                        leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
-                                        onClick = {
-                                            menuOpen = false
-                                            viewModel.setImagesAlwaysAllowed(senderEmail, !senderAllowed)
-                                        },
-                                    )
-                                }
-                                // Triage actions (Archive moved out to the toolbar; mark-unread
-                                // took its slot here — #50 follow-up).
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.message_mark_unread)) },
-                                    leadingIcon = { Icon(Icons.Filled.MarkEmailUnread, contentDescription = null) },
-                                    onClick = { menuOpen = false; viewModel.markUnread(onBack) },
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            stringResource(
-                                                if (inJunk) R.string.message_not_spam
-                                                else R.string.message_report_spam,
-                                            ),
-                                        )
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
-                                    onClick = {
-                                        menuOpen = false
-                                        // Confirm the move once it lands, naming the destination
-                                        // folder — junk → Inbox ("Not spam"), inbox → Spam.
-                                        val destName = context.getString(
-                                            if (inJunk) R.string.folder_inbox else R.string.folder_junk,
-                                        )
-                                        val confirmMove: () -> Unit = {
-                                            Toast.makeText(
-                                                context,
-                                                context.getString(R.string.status_moved_to_folder, destName),
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
-                                            onBack()
-                                        }
-                                        if (inJunk) viewModel.notSpam(confirmMove) else viewModel.reportSpam(confirmMove)
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.message_snooze)) },
-                                    leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
-                                    onClick = { snoozeSubmenu = true },
-                                )
-                            }
-                        }
+    Box(Modifier.fillMaxSize()) {
+        when (val s = state) {
+            is MessageState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            is MessageState.Error -> Column(
+                modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    stringResource(R.string.message_load_error, s.message),
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Button(onClick = { viewModel.load(emailId, accountId) }) {
+                    Text(stringResource(R.string.message_retry))
+                }
+            }
+            is MessageState.Loaded -> ConversationBody(
+                messages = messages,
+                blockRemote = !showRemote,
+                stripTracking = stripTracking,
+                confirmLinks = confirmLinks,
+                attachmentStatus = attachmentStatus,
+                onOpenAttachment = viewModel::openAttachment,
+                calendar = calendar,
+                onRespondToInvite = viewModel::respondToInvite,
+                textZoom = messageTextSize.zoom,
+                onBarVisibleChanged = viewModel::setReplyBarVisible,
+                onComposeTo = onComposeTo,
+                showRecipients = ownMessage,
+                crypto = crypto,
+                onCryptoAction = {
+                    when (val c = crypto) {
+                        is CryptoUiState.NeedsInteraction -> pgpLauncher(c.pendingIntent)
+                        else -> viewModel.decrypt()
                     }
                 },
             )
-        },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            when (val s = state) {
-                is MessageState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                is MessageState.Error -> Column(
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        stringResource(R.string.message_load_error, s.message),
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                    Button(onClick = { viewModel.load(emailId, accountId) }) {
-                        Text(stringResource(R.string.message_retry))
-                    }
-                }
-                is MessageState.Loaded -> ConversationBody(
-                    messages = messages,
-                    blockRemote = !showRemote,
-                    stripTracking = stripTracking,
-                    confirmLinks = confirmLinks,
-                    attachmentStatus = attachmentStatus,
-                    onOpenAttachment = viewModel::openAttachment,
-                    calendar = calendar,
-                    onRespondToInvite = viewModel::respondToInvite,
-                    textZoom = messageTextSize.zoom,
-                    onReply = { mode -> onReply(mode, replyTargetId, accountId) },
-                    onComposeTo = onComposeTo,
-                    showRecipients = ownMessage,
-                    crypto = crypto,
-                    onCryptoAction = {
-                        when (val c = crypto) {
-                            is CryptoUiState.NeedsInteraction -> pgpLauncher(c.pendingIntent)
-                            else -> viewModel.decrypt()
-                        }
-                    },
-                )
-            }
         }
     }
 }
@@ -674,7 +744,7 @@ private fun ConversationBody(
     calendar: CalendarInvite?,
     onRespondToInvite: (String) -> Unit,
     textZoom: Int,
-    onReply: (mode: String) -> Unit,
+    onBarVisibleChanged: (Boolean) -> Unit,
     onComposeTo: (address: String) -> Unit,
     showRecipients: Boolean = false,
     crypto: CryptoUiState = CryptoUiState.None,
@@ -699,6 +769,12 @@ private fun ConversationBody(
     val hasBody = full != null
     var bodyReady by remember(msg.id, hasBody) { mutableStateOf(!hasBody) }
     var showBar by remember(msg.id, hasBody) { mutableStateOf(!hasBody) }
+    // The VISIBLE Reply/Forward bar is fixed chrome at the pager level (outside the horizontal
+    // swipe — #62): this page only reports whether its resting/scroll state wants the bar, and
+    // the chrome follows the SETTLED page's value. The invisible measuring copy below stays
+    // in-page — it only reserves the bar's height in the document.
+    val barVisible = bodyReady && showBar
+    LaunchedEffect(barVisible) { onBarVisibleChanged(barVisible) }
     // Measured header height (device px) and the live body scroll offset. scrollY is read only in the
     // layout phase (the header's offset lambda) so updating it every scroll frame re-lays-out the
     // header translate WITHOUT a recomposition.
@@ -797,16 +873,8 @@ private fun ConversationBody(
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             }
         }
-        androidx.compose.animation.AnimatedVisibility(
-            visible = bodyReady && showBar,
-            modifier = Modifier.align(Alignment.BottomCenter),
-            enter = androidx.compose.animation.fadeIn() +
-                androidx.compose.animation.slideInVertically(initialOffsetY = { it }),
-            exit = androidx.compose.animation.fadeOut() +
-                androidx.compose.animation.slideOutVertically(targetOffsetY = { it }),
-        ) {
-            ReplyForwardBar(onReply)
-        }
+        // No visible Reply/Forward bar here: it is rendered once, fixed, by MessagePager (#62),
+        // driven by the [onBarVisibleChanged] reports above.
     }
 }
 
