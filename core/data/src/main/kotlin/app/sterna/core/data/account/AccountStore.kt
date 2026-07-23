@@ -92,11 +92,22 @@ fun diffLinkedAccounts(
     val subs = discovered.drop(1)
     val trackedJmapIds = existingLinked.mapNotNull { it.jmapAccountId }.toSet()
     val liveSubIds = subs.map { it.jmapAccountId }.toSet()
+    // Self-healing: two linked records tracking the SAME server account under one login are
+    // duplicates (a leftover of the pre-lock reconcile write race) — keep the oldest (records
+    // are appended, so list order is age order) and prune the rest like a revocation, so any
+    // duplicate minted in the race era cleans itself up on the next reconcile.
+    val duplicateIds = existingLinked
+        .filter { it.jmapAccountId != null }
+        .groupBy { it.jmapAccountId }
+        .values
+        .flatMap { it.drop(1) }
+        .map { it.id }
+    val revokedIds = existingLinked.filter { it.jmapAccountId !in liveSubIds }.map { it.id }
     return LinkedAccountsDiff(
         pinPrimaryId = primary.jmapAccountId.takeIf { login.jmapAccountId == null },
         // Skip the login's own account and ones already tracked.
         toAdd = subs.filter { it.jmapAccountId != primary.jmapAccountId && it.jmapAccountId !in trackedJmapIds },
-        prunedIds = existingLinked.filter { it.jmapAccountId !in liveSubIds }.map { it.id },
+        prunedIds = (revokedIds + duplicateIds).distinct(),
     )
 }
 
@@ -105,6 +116,14 @@ fun diffLinkedAccounts(
  * password is encrypted via [KeystoreCrypto] and only the ciphertext is written.
  * The single-account methods (load/hasAccount/saveInboxMeta/…) operate on the
  * currently selected account so existing callers work unchanged.
+ *
+ * Concurrency: the whole account list lives in ONE prefs JSON blob, and every mutator is a
+ * read-modify-write over it. Callers hit this store from several dispatchers at once (ViewModel
+ * scope, PushService IO scope, workers — reconcileLinkedAccounts runs on every connect()), and
+ * two interleaved read-modify-writes lose one of them — or, for reconcile, mint the same linked
+ * sub-account twice, permanently. So every mutating method is [Synchronized] on the store (the
+ * app has a single instance). Reads stay lock-free: [saveAccounts] swaps the blob atomically, so
+ * an unlocked read sees either the old or the new list, never a torn one.
  */
 class AccountStore(context: Context) {
     private val prefs = context.applicationContext
@@ -132,12 +151,14 @@ class AccountStore(context: Context) {
 
     fun currentAccount(): StoredAccount? = accounts().firstOrNull { it.id == currentId() }
 
+    @Synchronized
     fun setCurrent(id: String) {
         if (accounts().any { it.id == id }) prefs.edit().putString(KEY_CURRENT, id).apply()
     }
 
     /** Add an account (encrypting its password — or, for an API_TOKEN account, its
      *  token, protected identically) and make it current. Returns its id. */
+    @Synchronized
     fun add(
         server: String,
         username: String,
@@ -178,6 +199,7 @@ class AccountStore(context: Context) {
      * token (the long-lived secret) is encrypted into the password slot; the
      * short-lived access token is cached in the account record. Returns its id.
      */
+    @Synchronized
     fun addOAuth(
         server: String,
         username: String,
@@ -224,6 +246,7 @@ class AccountStore(context: Context) {
      * Persist freshly minted OAuth tokens after a refresh. A blank [refreshToken]
      * keeps the stored one (some servers don't rotate it). No-op for unknown ids.
      */
+    @Synchronized
     fun updateOAuthTokens(id: String, accessToken: String, refreshToken: String, accessExpiresAtMillis: Long) {
         // Tokens live on the login record; a refresh triggered by any sub-account updates the login
         // so every sub-account sharing that login observes the fresh access token.
@@ -243,6 +266,7 @@ class AccountStore(context: Context) {
      * Update the editable server settings for an account, preserving its id and
      * inbox metadata (inboxId/inboxName/unread). No-op if the id is unknown.
      */
+    @Synchronized
     fun updateAccount(
         id: String,
         server: String,
@@ -279,6 +303,7 @@ class AccountStore(context: Context) {
     }
 
     /** Re-encrypt and store a new password for the account (written under its login slot). */
+    @Synchronized
     fun updatePassword(id: String, password: String) {
         val loginId = account(id)?.loginKey() ?: return
         writePassword(loginId, password)
@@ -293,6 +318,7 @@ class AccountStore(context: Context) {
         (accountId?.let { account(it) } ?: currentAccount())?.resolvedIdentities() ?: emptyList()
 
     /** Persist the identity list for an account. */
+    @Synchronized
     fun setIdentities(accountId: String, identities: List<StoredIdentity>) {
         saveAccounts(accounts().map { if (it.id == accountId) it.copy(identities = identities) else it })
     }
@@ -302,6 +328,7 @@ class AccountStore(context: Context) {
      * No-op if the id is unknown or the list is unchanged (avoids a needless write on
      * every connect). Manual [identities] are left untouched.
      */
+    @Synchronized
     fun setServerIdentities(accountId: String, identities: List<StoredIdentity>) {
         val current = account(accountId) ?: return
         if (current.serverIdentities == identities) return
@@ -312,11 +339,13 @@ class AccountStore(context: Context) {
     fun syncWindow(id: String): SyncWindow = account(id)?.syncWindow ?: SyncWindow.DAYS_90
 
     /** Persist a new sync window for the account. No-op if the id is unknown. */
+    @Synchronized
     fun setSyncWindow(id: String, window: SyncWindow) {
         saveAccounts(accounts().map { if (it.id == id) it.copy(syncWindow = window) else it })
     }
 
     /** Persist the account's accent colour (ARGB), or null for auto. No-op if the id is unknown. */
+    @Synchronized
     fun setColor(id: String, color: Int?) {
         saveAccounts(accounts().map { if (it.id == id) it.copy(color = color) else it })
     }
@@ -325,6 +354,7 @@ class AccountStore(context: Context) {
     fun notificationsEnabled(id: String): Boolean = account(id)?.notificationsEnabled ?: true
 
     /** Enable/disable new-mail notifications for an account. No-op if the id is unknown. */
+    @Synchronized
     fun setNotificationsEnabled(id: String, enabled: Boolean) {
         saveAccounts(accounts().map { if (it.id == id) it.copy(notificationsEnabled = enabled) else it })
     }
@@ -333,6 +363,7 @@ class AccountStore(context: Context) {
     fun watchedFolders(id: String): Set<String> = account(id)?.watchedFolders ?: emptySet()
 
     /** Add/remove a folder from the account's watched set. No-op if the id is unknown. */
+    @Synchronized
     fun setFolderWatched(id: String, folderId: String, watched: Boolean) {
         saveAccounts(
             accounts().map {
@@ -352,6 +383,7 @@ class AccountStore(context: Context) {
      * Also rewrites watched children of [oldId] (path prefix). No-op for JMAP ids,
      * which are stable across renames.
      */
+    @Synchronized
     fun replaceWatchedFolder(id: String, oldId: String, newId: String, delimiter: String = "/") {
         saveAccounts(
             accounts().map { account ->
@@ -373,6 +405,7 @@ class AccountStore(context: Context) {
     }
 
     /** Persist the account's OpenPGP settings. No-op if the id is unknown. */
+    @Synchronized
     fun setPgp(id: String, enabled: Boolean, signKeyId: Long, encryptByDefault: Boolean) {
         saveAccounts(
             accounts().map {
@@ -390,6 +423,7 @@ class AccountStore(context: Context) {
     }
 
     /** Remove an account; if it was current, fall back to another (or none). */
+    @Synchronized
     fun remove(id: String) {
         prefs.edit().remove(passwordKey(id)).apply()
         val remaining = accounts().filterNot { it.id == id }
@@ -401,6 +435,7 @@ class AccountStore(context: Context) {
 
     /** Remove every account (full reset), including the shared KeyStore key so any leftover
      *  ciphertext (e.g. in a stale prefs file) can no longer be decrypted. */
+    @Synchronized
     fun clear() {
         prefs.edit().clear().apply()
         KeystoreCrypto.deleteKey()
@@ -471,6 +506,7 @@ class AccountStore(context: Context) {
      * purge their caches. Idempotent — writes nothing and returns empty when nothing changed, so it
      * is safe to call on every session refresh. Never touches a login's inbox metadata or secret.
      */
+    @Synchronized
     fun reconcileLinkedAccounts(loginId: String, discovered: List<DiscoveredMailAccount>): List<String> {
         val list = accounts()
         val login = list.firstOrNull { it.id == loginId } ?: return emptyList()
@@ -510,6 +546,7 @@ class AccountStore(context: Context) {
      * the login and its siblings intact. Returns every removed id so the caller can purge caches and
      * notification baselines. Falls the current account back to a survivor when it was removed.
      */
+    @Synchronized
     fun removeCascading(id: String): List<String> {
         val target = account(id) ?: return emptyList()
         val ids = (listOf(id) + if (target.isLinked) emptyList() else linkedAccounts(id).map { it.id }).distinct()
@@ -554,6 +591,7 @@ class AccountStore(context: Context) {
      * until the user signs in. Returns how many were actually added; makes the first added account
      * current only when there were no accounts before. Never overwrites an existing account.
      */
+    @Synchronized
     fun importAccounts(incoming: List<StoredAccount>): Int {
         val existing = accounts()
         // IMAP accounts carry a blank server (the endpoint is the IMAP host); JMAP keys on server.
@@ -585,6 +623,7 @@ class AccountStore(context: Context) {
     /** Attach freshly granted OAuth material to an existing (imported, inert) account, making it
      *  live: the refresh token goes into the encrypted slot, the access token is cached. Optionally
      *  corrects the username to the provider's canonical address. Returns false for an unknown id. */
+    @Synchronized
     fun attachOAuth(
         id: String,
         username: String? = null,
@@ -618,6 +657,7 @@ class AccountStore(context: Context) {
 
     /** Clear an account's import-pending flag (on a successful sign-in), so it leaves the
      *  "accounts to sign in" list and becomes a normal account. No-op for an unknown id. */
+    @Synchronized
     fun setImportPending(id: String, pending: Boolean) {
         if (accounts().none { it.id == id }) return
         saveAccounts(accounts().map { if (it.id == id) it.copy(importPending = pending) else it })
@@ -625,6 +665,7 @@ class AccountStore(context: Context) {
 
     /** Re-insert a dismissed imported account unchanged (undo of a swipe-dismiss): back on the
      *  "to sign in" list, still inert. No-op if an account with this id already exists. */
+    @Synchronized
     fun readdImportedAccount(account: StoredAccount) {
         if (accounts().any { it.id == account.id }) return
         saveAccounts(accounts() + account.copy(importPending = true))
@@ -632,6 +673,7 @@ class AccountStore(context: Context) {
 
     /** Switch an account to password (BASIC) auth, dropping any OAuth material and its stored slot,
      *  so it stays inert until a password is entered. Used for the OAuth→app-password fallback. */
+    @Synchronized
     fun convertToBasicAuth(id: String) {
         if (accounts().none { it.id == id }) return
         prefs.edit().remove(passwordKey(id)).apply()
@@ -649,6 +691,7 @@ class AccountStore(context: Context) {
     // [accountName] is the server-derived name; it is intentionally NOT written back
     // here so a user-chosen display name (set at add time / in account settings) is
     // never clobbered by a sync. A blank name falls back to the address via label().
+    @Synchronized
     fun saveInboxMeta(mailboxId: String, mailboxName: String, @Suppress("UNUSED_PARAMETER") accountName: String, unread: Int) {
         val id = currentId() ?: return
         saveAccounts(
@@ -691,6 +734,7 @@ class AccountStore(context: Context) {
      * "All inboxes (N)" — and for the offline snapshot. No-op unless [mailboxId] is that
      * account's inbox; the next refresh restores server truth.
      */
+    @Synchronized
     fun adjustInboxUnread(accountId: String, mailboxId: String, delta: Int) {
         if (delta == 0) return
         val list = accounts()
@@ -707,6 +751,7 @@ class AccountStore(context: Context) {
     }
 
     /** Record a specific account's inbox id/name/unread (used by the unified refresh fan-out). */
+    @Synchronized
     fun saveInboxMetaFor(accountId: String, mailboxId: String, mailboxName: String, @Suppress("UNUSED_PARAMETER") accountName: String, unread: Int) {
         saveAccounts(
             accounts().map {
@@ -763,6 +808,7 @@ class AccountStore(context: Context) {
     private fun passwordKey(id: String) = "pw_$id"
 
     /** Migrate a pre-multi-account single account into the accounts list once. */
+    @Synchronized
     private fun migrateIfNeeded() {
         if (prefs.contains(KEY_ACCOUNTS)) return
         val server = prefs.getString(LEGACY_SERVER, null) ?: return

@@ -83,4 +83,49 @@ class LinkedAccountsDiffTest {
 
         assertTrue(diff.isEmpty())
     }
+
+    // Self-healing for the pre-lock write race: two records tracking the same server account
+    // are duplicates — the oldest survives, the extra one is pruned, and nothing is re-added.
+    @Test fun duplicateRecordForALiveAccountIsPrunedKeepingTheOldest() {
+        val diff = diffLinkedAccounts(
+            login(),
+            existingLinked = listOf(linked("jordan-uuid", "u"), linked("jordan-dup-uuid", "u")),
+            discovered = listOf(DiscoveredMailAccount("s", "Alex"), DiscoveredMailAccount("u", "Jordan")),
+        )
+
+        assertEquals(listOf("jordan-dup-uuid"), diff.prunedIds)
+        assertEquals(emptyList<DiscoveredMailAccount>(), diff.toAdd)
+    }
+
+    @Test fun everyDuplicateBeyondTheFirstIsPruned() {
+        val diff = diffLinkedAccounts(
+            login(),
+            existingLinked = listOf(
+                linked("jordan-uuid", "u"),
+                linked("jordan-dup1-uuid", "u"),
+                linked("jordan-dup2-uuid", "u"),
+                linked("casey-uuid", "v"),
+            ),
+            discovered = listOf(
+                DiscoveredMailAccount("s", "Alex"),
+                DiscoveredMailAccount("u", "Jordan"),
+                DiscoveredMailAccount("v", "Casey"),
+            ),
+        )
+
+        assertEquals(listOf("jordan-dup1-uuid", "jordan-dup2-uuid"), diff.prunedIds)
+        assertEquals(emptyList<DiscoveredMailAccount>(), diff.toAdd)
+    }
+
+    // A duplicated AND revoked account: both records must go, each exactly once.
+    @Test fun duplicateOfARevokedAccountPrunesBothRecordsOnce() {
+        val diff = diffLinkedAccounts(
+            login(),
+            existingLinked = listOf(linked("jordan-uuid", "u"), linked("jordan-dup-uuid", "u")),
+            discovered = listOf(DiscoveredMailAccount("s", "Alex")),
+        )
+
+        assertEquals(listOf("jordan-uuid", "jordan-dup-uuid"), diff.prunedIds)
+        assertEquals(emptyList<DiscoveredMailAccount>(), diff.toAdd)
+    }
 }
