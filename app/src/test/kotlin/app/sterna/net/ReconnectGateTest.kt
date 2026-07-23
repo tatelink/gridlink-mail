@@ -33,6 +33,33 @@ class ReconnectGateTest {
         assertFalse(gate.onAvailable(2L))
     }
 
+    @Test fun `losing one of two live transports is not going offline`() {
+        val gate = ReconnectGate(online = true)
+        gate.onAvailable(1L) // Wi-Fi
+        gate.onAvailable(2L) // mobile
+        gate.onLost(1L)
+        // Mobile still carries traffic, so its re-announcement is not a reconnect.
+        assertFalse(gate.onAvailable(2L))
+    }
+
+    @Test fun `offline only once the last transport is gone`() {
+        val gate = ReconnectGate(online = true)
+        gate.onAvailable(1L)
+        gate.onAvailable(2L)
+        gate.onLost(1L)
+        gate.onLost(2L)
+        assertTrue(gate.onAvailable(3L))
+    }
+
+    @Test fun `transports lost in the reverse order still end offline`() {
+        val gate = ReconnectGate(online = true)
+        gate.onAvailable(1L)
+        gate.onAvailable(2L)
+        gate.onLost(2L)
+        gate.onLost(1L)
+        assertTrue(gate.onAvailable(1L))
+    }
+
     @Test fun `network property churn does not re-fire while online`() {
         val gate = ReconnectGate(online = false)
         assertTrue(gate.onAvailable(1L))

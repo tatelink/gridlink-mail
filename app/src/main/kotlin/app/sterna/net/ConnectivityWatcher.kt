@@ -3,45 +3,64 @@ package app.sterna.net
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 
 /**
  * Pure "was offline → back online" state machine behind the auto-refresh on reconnect
- * (Codeberg #65), fed by the default-network callbacks and kept free of Android types so it
- * is unit-testable. Networks are identified by their handle.
+ * (Codeberg #65), fed by the network callbacks and kept free of Android types so it is
+ * unit-testable. Networks are identified by their handle.
  *
- * Seeded with the connectivity known at registration, so the callback the framework replays
- * for an already-connected network is not a reconnect (the screen's own initial load covers
- * it), and a Wi-Fi ⇄ mobile handover — onAvailable(new) then onLost(old) — isn't one either.
+ * Tracks a *set* of networks rather than a single default, because the request it is fed by
+ * matches every real transport at once (Wi-Fi and mobile can both be up). Offline is "the set
+ * ran dry", so a Wi-Fi ⇄ mobile handover — onAvailable(new) then onLost(old), or the reverse —
+ * is never a reconnect. Seeded with the connectivity known at registration, so the callbacks
+ * the framework replays for already-connected networks aren't one either (the screen's own
+ * initial load covers those).
  */
 internal class ReconnectGate(private var online: Boolean) {
-    /** The network believed to be the default; null until one is announced. */
-    private var current: Long? = null
+    /** Every network currently satisfying the request. */
+    private val networks = mutableSetOf<Long>()
 
-    /** A network became the default. True only on a genuine offline → online transition. */
+    /** A network became usable. True only on a genuine offline → online transition. */
     fun onAvailable(handle: Long): Boolean {
-        current = handle
+        networks += handle
         if (online) return false
         online = true
         return true
     }
 
-    /** A network went away: only the current default going puts us offline. */
+    /** A network stopped satisfying the request: offline once the last one is gone. */
     fun onLost(handle: Long) {
-        if (current != null && handle != current) return
-        current = null
-        online = false
+        networks -= handle
+        if (networks.isEmpty()) online = false
     }
 }
 
 /**
- * Watches the default network and calls [onReconnect] when connectivity actually comes back,
- * so the offline empty state's promise ("we'll sync as soon as you're back") is kept.
- * Register with [start], and always [stop] when the owner goes away — the callback outlives it
- * otherwise.
+ * Watches connectivity and calls [onReconnect] when it actually comes back, so the offline
+ * empty state's promise ("we'll sync as soon as you're back") is kept. Register with [start],
+ * and always [stop] when the owner goes away — the callback outlives it otherwise.
+ *
+ * Deliberately *not* `registerDefaultNetworkCallback`: with an always-on VPN the app's default
+ * network is the tunnel, and a tunnel is connectionless — WireGuard's stays up across an
+ * airplane-mode cycle, so neither onLost nor onAvailable ever fires and the reconnect is missed
+ * entirely (observed on the test Pixel, whose VPN network had outlived a day of them). Watching
+ * the real transports underneath instead reports the outage the user actually had.
+ *
+ * [NetworkCapabilities.NET_CAPABILITY_VALIDATED] is required on top of INTERNET so a reconnect
+ * only fires once the system's own probe has confirmed the network carries traffic — an
+ * associated-but-not-yet-routable Wi-Fi, or a captive portal, is not a reconnect.
  */
 class ConnectivityWatcher(context: Context, private val onReconnect: () -> Unit) {
     private val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
-    private val gate = ReconnectGate(online = manager?.activeNetwork != null)
+    private val gate = ReconnectGate(online = hasUsableNetwork())
+
+    private val request = NetworkRequest.Builder()
+        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+        .build()
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -53,8 +72,22 @@ class ConnectivityWatcher(context: Context, private val onReconnect: () -> Unit)
         }
     }
 
+    /** Does a real transport with confirmed internet exist right now? Seeds the gate. */
+    private fun hasUsableNetwork(): Boolean {
+        val cm = manager ?: return false
+        @Suppress("DEPRECATION")
+        val networks = runCatching { cm.allNetworks }.getOrNull() ?: return false
+        return networks.any { network ->
+            val caps = runCatching { cm.getNetworkCapabilities(network) }.getOrNull()
+            caps != null &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+        }
+    }
+
     fun start() {
-        runCatching { manager?.registerDefaultNetworkCallback(callback) }
+        runCatching { manager?.registerNetworkCallback(request, callback) }
     }
 
     fun stop() {
