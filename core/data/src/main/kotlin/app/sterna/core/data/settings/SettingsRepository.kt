@@ -132,6 +132,15 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_MARK_READ_ON_ARCHIVE] = enabled }
     }
 
+    /** Mark a message as read when it LEAVES the Inbox for another folder — an explicit
+     *  move-to-folder (Report spam included), not a move between two other folders and not a
+     *  move back INTO the Inbox (off by default; Codeberg #67). */
+    val markReadOnMove: Flow<Boolean> = dataStore.data.map { it[KEY_MARK_READ_ON_MOVE] ?: false }
+
+    suspend fun setMarkReadOnMove(enabled: Boolean) {
+        dataStore.edit { it[KEY_MARK_READ_ON_MOVE] = enabled }
+    }
+
     /** Return a conversation's archived messages to the Inbox when a new reply arrives
      *  (off by default — archiving stays final unless opted in; Codeberg #50). */
     val unarchiveOnReply: Flow<Boolean> = dataStore.data.map { it[KEY_UNARCHIVE_ON_REPLY] ?: false }
@@ -246,6 +255,7 @@ class SettingsRepository(context: Context) {
         messageTextSize = messageTextSize.first().name,
         markReadOnDelete = markReadOnDelete.first(),
         markReadOnArchive = markReadOnArchive.first(),
+        markReadOnMove = markReadOnMove.first(),
         unarchiveOnReply = unarchiveOnReply.first(),
         deliveryMode = deliveryMode.first().name,
         notificationContent = notificationContent.first().name,
@@ -271,6 +281,7 @@ class SettingsRepository(context: Context) {
         backup.messageTextSize?.let { v -> runCatching { MessageTextSize.valueOf(v) }.getOrNull()?.let { setMessageTextSize(it) } }
         backup.markReadOnDelete?.let { setMarkReadOnDelete(it) }
         backup.markReadOnArchive?.let { setMarkReadOnArchive(it) }
+        backup.markReadOnMove?.let { setMarkReadOnMove(it) }
         backup.unarchiveOnReply?.let { setUnarchiveOnReply(it) }
         backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
         backup.notificationContent?.let { v -> runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }
@@ -330,6 +341,7 @@ class SettingsRepository(context: Context) {
         private val KEY_CONVERSATION_VIEW = booleanPreferencesKey("conversation_view")
         private val KEY_MARK_READ_ON_DELETE = booleanPreferencesKey("mark_read_on_delete")
         private val KEY_MARK_READ_ON_ARCHIVE = booleanPreferencesKey("mark_read_on_archive")
+        private val KEY_MARK_READ_ON_MOVE = booleanPreferencesKey("mark_read_on_move")
         private val KEY_UNARCHIVE_ON_REPLY = booleanPreferencesKey("unarchive_on_reply")
         private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")

@@ -2013,6 +2013,7 @@ class MailRepository(
      *  Returns the destination the message ended up in (null = a no-op, already there), so the
      *  caller can offer an Undo that both restores the row and reverses the count nudge. */
     suspend fun moveToMailbox(credentials: AccountCredentials, emailId: String, targetMailboxId: String): String? {
+        markReadOnMoveOutOfInbox(credentials, listOf(emailId), targetMailboxId)
         // Captured before the local row is dropped, to decrement the TRUE source and increment the
         // destination in the drawer's cached counts (INV-COUNT). The next mailbox-state sync
         // (getMailboxes on every refresh) corrects any drift.
@@ -2205,6 +2206,30 @@ class MailRepository(
         runCatching { setReadAll(credentials, unread, true) }
     }
 
+    /**
+     * Opt-in mark-read-on-move (Codeberg #67), deliberately scoped to messages LEAVING the Inbox:
+     * only ids whose SOURCE mailbox is this account's Inbox are flagged. Reorganising between two
+     * other folders is left alone, and so is a move INTO the Inbox (unarchive, Not spam) — the
+     * message was brought back precisely to be read. Report spam counts: it is a message leaving
+     * the Inbox. Called at the top of the movers, so the flag store still runs BEFORE they read
+     * their rows for the count nudge ([markSelectionRead]); resolving the Inbox is best-effort.
+     */
+    private suspend fun markReadOnMoveOutOfInbox(
+        credentials: AccountCredentials,
+        emailIds: List<String>,
+        targetMailboxId: String,
+    ) {
+        if (settings?.markReadOnMove?.first() != true) return
+        val inbox = runCatching { roleMailboxId(credentials, "inbox") }.getOrNull() ?: return
+        if (targetMailboxId == inbox) return
+        val leaving = if (credentials.protocol == MailProtocol.IMAP) {
+            emailIds.filter { ImapMailService.mailboxOf(it) == inbox }
+        } else {
+            emailDao.emailsByIds(emailIds).filter { it.mailboxId == inbox }.map { it.id }
+        }
+        if (leaving.isNotEmpty()) markSelectionRead(credentials, leaving)
+    }
+
     /** Archive a whole selection (one account). Messages already in the archive/all folder are dropped locally. */
     suspend fun archiveAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
@@ -2267,6 +2292,7 @@ class MailRepository(
     /** Move a whole selection (one account) to [targetMailboxId]. */
     suspend fun moveAllToMailbox(credentials: AccountCredentials, emailIds: List<String>, targetMailboxId: String): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
+        markReadOnMoveOutOfInbox(credentials, emailIds, targetMailboxId)
         if (credentials.protocol == MailProtocol.IMAP) {
             val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
             emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
