@@ -311,6 +311,11 @@ fun ComposeScreen(
 
     val sending = state is ComposeState.Sending
 
+    // The Save-as-draft icon greys out (disabled) while there is nothing worth saving — the same
+    // #69 rule the save itself uses (draftHasContent), so the button's state matches what tapping it
+    // would do. Recomputed on each edit to subject/body/attachments (all observed state).
+    val canSaveDraft = draftHasContent(subject, body.text, attachments.isNotEmpty())
+
     // Unsaved-changes guard: prompt before discarding non-empty, unsent edits.
     val dirty = to != initialTo || cc.isNotBlank() || bcc.isNotBlank() ||
         subject != initialSubject || body.text != initialBody || attachments.isNotEmpty()
@@ -446,7 +451,7 @@ fun ComposeScreen(
                     if (!encryptingNow) {
                         IconButton(
                             onClick = { viewModel.saveDraft(to, cc, bcc, subject, body.text) },
-                            enabled = !sending,
+                            enabled = !sending && canSaveDraft,
                         ) {
                             Icon(Icons.Filled.Save, contentDescription = stringResource(R.string.compose_save_draft))
                         }
