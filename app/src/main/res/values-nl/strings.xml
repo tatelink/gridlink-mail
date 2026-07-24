@@ -123,6 +123,10 @@
     <string name="message_report_spam">Spam melden</string>
     <string name="message_not_spam">Geen spam</string>
     <string name="message_snooze">Snoozen…</string>
+    <string name="message_view_headers">Headers weergeven</string>
+    <string name="message_headers_title">Berichtheaders</string>
+    <string name="message_headers_empty">Geen headers om weer te geven</string>
+    <string name="message_headers_error">Kan headers niet laden:\n%1$s</string>
     <string name="message_load_error">Kon bericht niet laden:\n%1$s</string>
     <string name="message_retry">Opnieuw proberen</string>
     <string name="message_unknown_sender">(onbekende afzender)</string>
@@ -654,8 +658,6 @@
     <string name="compose_contacts_priming_body">Ontvangers aanvullen uit de contacten van dit apparaat. Sterna Mail leest ze alleen op het apparaat en uploadt ze nooit.</string>
     <string name="compose_contacts_priming_enable">Inschakelen</string>
     <string name="compose_contacts_priming_not_now">Niet nu</string>
-    <string name="settings_mark_read_on_delete_title">Als gelezen markeren bij verwijderen</string>
-    <string name="settings_mark_read_on_delete_subtitle">Verwijderde berichten blijven niet ongelezen in de prullenbak</string>
     <string name="settings_about_section">Over</string>
     <string name="settings_about_version">Versie</string>
     <string name="settings_about_source">Broncode</string>

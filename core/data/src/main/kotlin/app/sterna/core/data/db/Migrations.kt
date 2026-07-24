@@ -77,7 +77,7 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
 
 /**
  * SQL that creates the `emails` table with the composite `(accountId, id)` primary key. Kept as a
- * constant so the 13→14 migration and a plain JVM unit test build the exact table Room expects
+ * constant so the 14→15 migration and a plain JVM unit test build the exact table Room expects
  * (column set, nullability and PK order must match [EmailEntity], or Room's open-time schema check
  * fails). Column order is irrelevant to Room's validation; the PK column order is not.
  */
@@ -140,14 +140,34 @@ private fun SupportSQLiteDatabase.rebuildTable(table: String, createSql: String,
 }
 
 /**
- * 13→14: widen the primary keys of `emails`, `email_bodies` and `snoozed` from the email id alone
+ * Additive 13→14 (released as 1.3.10): `outbox` and `scheduled_sends` gain `draftEmailId` — the
+ * server draft an edited message came from, destroyed once the send succeeds so no duplicate
+ * lingers in Drafts (#63). Both tables hold unsent user mail — never rebuilt destructively.
+ *
+ * This is the RELEASED v14 schema; real installs are on it. The multi-account composite-key
+ * change (issue #31) is layered on top as [MIGRATION_14_15], not folded in here.
+ */
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `outbox` ADD COLUMN `draftEmailId` TEXT")
+        db.execSQL("ALTER TABLE `scheduled_sends` ADD COLUMN `draftEmailId` TEXT")
+    }
+}
+
+/**
+ * 14→15: widen the primary keys of `emails`, `email_bodies` and `snoozed` from the email id alone
  * to the composite `(accountId, id)` — a JMAP email id is unique only within its JMAP account
  * (RFC 8620 §1.6.2), so two accounts under one login (issue #31) can each hold a message with the
  * same id; a single-column key let one account's sync clobber (or serve back) the other's row.
- * All three rebuilds are non-destructive: every existing row is copied over. `snoozed` is user
- * data, so preserving it is mandatory; the caches merely avoid a pointless re-download.
+ *
+ * Non-destructive: every existing row is copied over verbatim. The v14 tables already carry a
+ * non-null, populated `accountId` column (present since before 1.3.10) — the single pre-multi-
+ * account login wrote its own accountId into every cache row — so the rebuild simply promotes
+ * that existing value into the composite key; no backfill of a missing column is needed. Old
+ * single-column ids were globally unique, so no collision is possible on the way in. `snoozed`
+ * is user data, so preserving it is mandatory; the caches merely avoid a pointless re-download.
  */
-val MIGRATION_13_14 = object : Migration(13, 14) {
+val MIGRATION_14_15 = object : Migration(14, 15) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.rebuildTable("emails", EMAILS_CREATE_SQL, EMAILS_COLUMNS)
         db.execSQL(EMAILS_MAILBOX_INDEX_SQL)

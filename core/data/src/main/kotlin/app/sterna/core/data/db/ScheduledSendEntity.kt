@@ -19,4 +19,6 @@ data class ScheduledSendEntity(
     val inReplyTo: String?, // space-separated message-ids
     val references: String?, // space-separated message-ids
     val sendAtMillis: Long,
+    /** Server id of the saved draft this message was edited from (#63); destroyed on send. */
+    val draftEmailId: String? = null,
 )

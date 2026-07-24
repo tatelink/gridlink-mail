@@ -66,6 +66,7 @@ import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailBodyValue
+import app.sterna.core.jmap.model.EmailHeader
 import app.sterna.core.jmap.model.Mailbox
 import app.sterna.core.jmap.model.JmapSession
 import app.sterna.core.jmap.model.PushSubscription
@@ -114,6 +115,15 @@ private const val RECENT_MUTATION_MS = 45_000L
 
 /** Page size for the cached email list (rows loaded per scroll step). */
 private const val PAGE_SIZE = 50
+
+/**
+ * Floor between two recurring existence sweeps of the SAME mailbox. The sweep's trigger can only
+ * be an account-wide state (JMAP has no per-mailbox change cursor for it), so without a floor it
+ * fires on nearly every incremental sync — one `Email/get` per 200 cached rows per watched folder,
+ * every time. A few minutes still evicts a silently-destroyed message well within a session while
+ * costing at most one sweep per mailbox per interval. See [shouldSweepGhosts].
+ */
+private const val GHOST_SWEEP_MIN_INTERVAL_MS = 5 * 60_000L
 
 /**
  * The per-id SetError type meaning the id does not exist in the account (RFC 8620 §5.3).
@@ -521,6 +531,16 @@ class MailRepository(
     // account's same-id row too.
     private val recentlyMutated = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private fun mutationKey(accountId: String, emailId: String) = "$accountId:$emailId"
+
+    /**
+     * Ids the app itself just moved between folders, for the notifier's diff filter
+     * (Codeberg #50 follow-up — see [RecentLocalMoves]). Marked at every point a move is
+     * server-acknowledged (single, bulk, undo, unarchive-on-reply); for IMAP the marked id
+     * is the message's id AT ITS DESTINATION, since an IMAP move changes the id. Pure
+     * bookkeeping: no action path's semantics change.
+     */
+    val recentLocalMoves = RecentLocalMoves()
+
     private fun markRecentlyMutated(accountId: String, emailId: String) {
         recentlyMutated[mutationKey(accountId, emailId)] = System.currentTimeMillis()
     }
@@ -585,7 +605,7 @@ class MailRepository(
                     isRecentlyMutated(localAccountId, it)
                 }
                 if (toRemove.isNotEmpty()) emailDao.deleteByIds(localAccountId, toRemove)
-                val cachedIds = emailDao.getByMailbox(localAccountId, mailboxId).map { it.id }.toSet()
+                val cachedIds = emailDao.idsForMailbox(localAccountId, mailboxId).toSet()
                 val toFetch = ((added - cachedIds) + changes.updated.filter { it in cachedIds }).distinct()
                 if (toFetch.isNotEmpty()) {
                     val fetched = client.getEmailsByIds(session, accountId, toFetch, auth)
@@ -600,13 +620,24 @@ class MailRepository(
                 // while the state strings still advance) — and a reported destroy can also
                 // be eaten one-shot by the recently-mutated spare above while the cursors
                 // advance past it. Either way the cached row becomes an immortal ghost no
-                // later delta ever prunes. Verify existence against the server whenever
-                // the state advanced (a destroy always advances it), plus once per app
-                // session per mailbox so a pre-existing ghost dies on the first sync.
+                // later delta ever prunes. Verify existence against the server — but NOT on
+                // every sync: the states here are ACCOUNT-WIDE, so they advance on any
+                // activity anywhere in the account and a state-only trigger would sweep the
+                // whole cache of every watched folder almost every sync. See [shouldSweepGhosts]
+                // for the gate (once per session, on a real removal here, else a time floor).
                 val stateAdvanced = queryChanges.newQueryState != stored.queryState ||
                     changes.newState != stored.emailState
                 val firstThisSession = sweptMailboxes.add(key)
-                if (stateAdvanced || firstThisSession) {
+                val now = System.currentTimeMillis()
+                val sweep = shouldSweepGhosts(
+                    firstThisSession = firstThisSession,
+                    stateAdvanced = stateAdvanced,
+                    vanishedFromMailbox = queryChanges.removed.any { it !in added },
+                    millisSinceLastSweep = now - (lastGhostSweep[key] ?: 0L),
+                    minIntervalMs = GHOST_SWEEP_MIN_INTERVAL_MS,
+                )
+                if (sweep) {
+                    lastGhostSweep[key] = now
                     val swept = pruneGhostRows(session, accountId, auth, mailboxId, localAccountId)
                     // A failed sweep keeps its once-per-session credit so the next sync retries.
                     if (!swept && firstThisSession) sweptMailboxes.remove(key)
@@ -635,6 +666,9 @@ class MailRepository(
      */
     private val sweptMailboxes: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
+    /** When each mailbox (by sync key) was last existence-swept, for the recurring sweep's floor. */
+    private val lastGhostSweep: MutableMap<String, Long> = java.util.concurrent.ConcurrentHashMap()
+
     /**
      * Existence sweep for one mailbox's cached rows: ids-only `Email/get` on everything still
      * cached, pruning exactly the ids the server reports `notFound` (see [ghostEvictions] for
@@ -650,7 +684,7 @@ class MailRepository(
         mailboxId: String,
         localAccountId: String,
     ): Boolean {
-        val cached = emailDao.getByMailbox(localAccountId, mailboxId).map { it.id }
+        val cached = emailDao.idsForMailbox(localAccountId, mailboxId)
         if (cached.isEmpty()) return true
         val notFound = runCatching {
             // Chunked so a deep cache can't exceed the server's maxObjectsInGet.
@@ -1584,6 +1618,22 @@ class MailRepository(
         return MessageBody(email, inline)
     }
 
+    /**
+     * The raw header fields of a message, in original order with duplicates kept (issue #60).
+     * Fetched on demand for the reader's "view headers" action, so the normal open path never
+     * pulls headers. Over JMAP this is the cheap `headers` property (no blob download); IMAP has
+     * no such index, so it parses the message source (fetched/cached like any other read).
+     */
+    suspend fun rawHeaders(credentials: AccountCredentials, emailId: String): List<EmailHeader> {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val email = cachedEmail(emailId) ?: openEmail(credentials, emailId, markRead = false)
+            val raw = fetchRawSource(credentials, email, emailId)
+            return MimeParser.rawHeaders(raw).map { (name, value) -> EmailHeader(name, value) }
+        }
+        val ctx = connect(credentials)
+        return client.getEmailHeaders(ctx.session, ctx.accountId, emailId, ctx.auth)
+    }
+
     // ---- OpenPGP read path -------------------------------------------------------------------
 
     /** Decrypted message bodies + their raw decrypted MIME entity, memory only, small LRU. */
@@ -1971,6 +2021,13 @@ class MailRepository(
      * else create an Archive folder as a last resort.
      */
     suspend fun archive(credentials: AccountCredentials, emailId: String): String? {
+        // Opt-in: flag the message read on its way out, so the archive doesn't accumulate
+        // unread badges. Best-effort BEFORE the move (the id changes with an IMAP move) and
+        // before [row] is read, so the count nudge below sees the new seen state; a failure
+        // must never block the archiving itself (Codeberg #67).
+        if (settings?.markReadOnArchive?.first() == true && emailDao.seenOf(credentials.id, emailId) == false) {
+            runCatching { setRead(credentials, emailId, true) }
+        }
         val row = emailDao.emailsByIds(credentials.id, listOf(emailId)).firstOrNull()
         if (credentials.protocol == MailProtocol.IMAP) {
             val dest = imapRoleFolder(credentials, "archive", "all")
@@ -1978,7 +2035,10 @@ class MailRepository(
             var noop = false
             imapTarget(emailId)?.let { (mb, uid) ->
                 if (mb == dest) { noop = true; return@let } // already in the archive/all folder
-                imap.move(credentials, mb, uid, dest)?.let { lastImapMove[emailId] = ImapLoc(dest, it) }
+                imap.move(credentials, mb, uid, dest)?.let {
+                    lastImapMove[emailId] = ImapLoc(dest, it)
+                    recentLocalMoves.mark(ImapMailService.emailId(credentials.id, dest, it))
+                }
             }
             emailDao.deleteById(credentials.id, emailId)
             if (noop) return null
@@ -2001,6 +2061,7 @@ class MailRepository(
             pruneServerGone(credentials.id, listOf(emailId))
             return null
         }
+        recentLocalMoves.mark(emailId)
         emailDao.deleteById(credentials.id, emailId)
         adjustCountsForRemoval(listOfNotNull(row), target)
         advanceEmailState(newState, credentials.id, mb)
@@ -2021,6 +2082,7 @@ class MailRepository(
      *  Returns the destination the message ended up in (null = a no-op, already there), so the
      *  caller can offer an Undo that both restores the row and reverses the count nudge. */
     suspend fun moveToMailbox(credentials: AccountCredentials, emailId: String, targetMailboxId: String): String? {
+        markReadOnMoveOutOfInbox(credentials, listOf(emailId), targetMailboxId)
         // Captured before the local row is dropped, to decrement the TRUE source and increment the
         // destination in the drawer's cached counts (INV-COUNT). The next mailbox-state sync
         // (getMailboxes on every refresh) corrects any drift.
@@ -2032,7 +2094,10 @@ class MailRepository(
         if (credentials.protocol == MailProtocol.IMAP) {
             val already = imapTarget(emailId)?.let { (mb, uid) ->
                 if (mb == targetMailboxId) return@let true
-                imap.move(credentials, mb, uid, targetMailboxId)?.let { lastImapMove[emailId] = ImapLoc(targetMailboxId, it) }
+                imap.move(credentials, mb, uid, targetMailboxId)?.let {
+                    lastImapMove[emailId] = ImapLoc(targetMailboxId, it)
+                    recentLocalMoves.mark(ImapMailService.emailId(credentials.id, targetMailboxId, it))
+                }
                 false
             } ?: false
             emailDao.deleteById(credentials.id, emailId)
@@ -2050,6 +2115,7 @@ class MailRepository(
             pruneServerGone(credentials.id, listOf(emailId))
             return null
         }
+        recentLocalMoves.mark(emailId)
         emailDao.deleteById(credentials.id, emailId)
         adjustCountsForRemoval(listOfNotNull(moved), targetMailboxId)
         advanceEmailState(newState, credentials.id, mb)
@@ -2127,7 +2193,10 @@ class MailRepository(
         runCatching { imap.moveBatch(credentials, source, uidToId.keys.toList(), dest) }
             .onSuccess { mapping ->
                 uidToId.forEach { (uid, id) ->
-                    mapping[uid]?.let { lastImapMove[id] = ImapLoc(dest, it) }
+                    mapping[uid]?.let {
+                        lastImapMove[id] = ImapLoc(dest, it)
+                        recentLocalMoves.mark(ImapMailService.emailId(credentials.id, dest, it))
+                    }
                     emailDao.deleteById(credentials.id, id)
                     succeeded += id
                 }
@@ -2161,7 +2230,7 @@ class MailRepository(
         return runCatching { client.move(ctx.session, ctx.accountId, emailIds, target, ctx.auth) }
             .map { result ->
                 val moved = emailIds.filter { it in result.done }.toSet()
-                moved.forEach { emailDao.deleteById(localAccountId, it) }
+                moved.forEach { recentLocalMoves.mark(it); emailDao.deleteById(localAccountId, it) }
                 adjustCountsForRemoval(rows.filter { it.id in moved }, target)
                 // notFound rejections are ghosts (destroyed server-side): prune their rows so
                 // they leave the list, but keep them in `failed` — nothing was moved to [target],
@@ -2191,9 +2260,55 @@ class MailRepository(
         return BulkResult(destroyed + gone, emailIds.toSet() - destroyed - gone)
     }
 
+    /**
+     * Opt-in mark-read-on-archive/delete for a bulk action: flag the currently-unread part of the
+     * selection through the batched [setReadAll] (chunked `Email/set`) instead of one round trip
+     * per message — a select-all of 200 unread used to fire 200 sequential calls before the single
+     * batched move. The unread subset comes from ONE cached read; ids we have no row for are left
+     * alone (their state is unknown, exactly as the old per-id `seenOf(id) == false` filter did).
+     *
+     * MUST run BEFORE the mover reads its rows for the count nudge: [adjustCountsForRemoval] then
+     * sees `seen = true` and does not decrement the unread badge a second time. Best-effort: a
+     * failed flag store never blocks the archive/delete.
+     */
+    private suspend fun markSelectionRead(credentials: AccountCredentials, emailIds: List<String>) {
+        // Account-scoped read (issue #31): same-server sub-accounts can hold colliding email ids,
+        // so an unscoped lookup could flag a sibling account's message.
+        val unread = emailDao.emailsByIds(credentials.id, emailIds).filter { !it.seen }.map { it.id }
+        if (unread.isEmpty()) return
+        runCatching { setReadAll(credentials, unread, true) }
+    }
+
+    /**
+     * Opt-in mark-read-on-move (Codeberg #67), deliberately scoped to messages LEAVING the Inbox:
+     * only ids whose SOURCE mailbox is this account's Inbox are flagged. Reorganising between two
+     * other folders is left alone, and so is a move INTO the Inbox (unarchive, Not spam) — the
+     * message was brought back precisely to be read. Report spam counts: it is a message leaving
+     * the Inbox. Called at the top of the movers, so the flag store still runs BEFORE they read
+     * their rows for the count nudge ([markSelectionRead]); resolving the Inbox is best-effort.
+     */
+    private suspend fun markReadOnMoveOutOfInbox(
+        credentials: AccountCredentials,
+        emailIds: List<String>,
+        targetMailboxId: String,
+    ) {
+        if (settings?.markReadOnMove?.first() != true) return
+        val inbox = runCatching { roleMailboxId(credentials, "inbox") }.getOrNull() ?: return
+        if (targetMailboxId == inbox) return
+        val leaving = if (credentials.protocol == MailProtocol.IMAP) {
+            emailIds.filter { ImapMailService.mailboxOf(it) == inbox }
+        } else {
+            // Account-scoped (issue #31): resolve source folders within this account only.
+            emailDao.emailsByIds(credentials.id, emailIds).filter { it.mailboxId == inbox }.map { it.id }
+        }
+        if (leaving.isNotEmpty()) markSelectionRead(credentials, leaving)
+    }
+
     /** Archive a whole selection (one account). Messages already in the archive/all folder are dropped locally. */
     suspend fun archiveAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
+        // Opt-in mark-read-on-archive: best-effort before the move (a \Seen store keeps the UID).
+        if (settings?.markReadOnArchive?.first() == true) markSelectionRead(credentials, emailIds)
         if (credentials.protocol == MailProtocol.IMAP) {
             val dest = imapRoleFolder(credentials, "archive", "all")
                 ?: run { imap.createFolder(credentials, "Archive"); "Archive" }
@@ -2239,6 +2354,9 @@ class MailRepository(
         }.getOrNull() ?: return emptyList()
         val moved = members.filter { it.id in result.done }
         if (moved.isEmpty()) return emptyList()
+        // Self-moves too: the caller folds them into the baseline unannounced already, but a
+        // concurrent pass on another watched folder must not see them as fresh either.
+        moved.forEach { recentLocalMoves.mark(it.id) }
         val refiled = moved.map { it.copy(mailboxId = inbox) }
         emailDao.upsertAll(refiled)
         adjustCountsForRemoval(moved, inbox)
@@ -2248,6 +2366,7 @@ class MailRepository(
     /** Move a whole selection (one account) to [targetMailboxId]. */
     suspend fun moveAllToMailbox(credentials: AccountCredentials, emailIds: List<String>, targetMailboxId: String): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
+        markReadOnMoveOutOfInbox(credentials, emailIds, targetMailboxId)
         if (credentials.protocol == MailProtocol.IMAP) {
             val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
             emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
@@ -2271,9 +2390,7 @@ class MailRepository(
     suspend fun deleteAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
         // Opt-in mark-read-on-delete: best-effort before the move (a \Seen store keeps the UID).
-        if (settings?.markReadOnDelete?.first() == true) {
-            emailIds.forEach { id -> if (emailDao.seenOf(credentials.id, id) == false) runCatching { setRead(credentials, id, true) } }
-        }
+        if (settings?.markReadOnDelete?.first() == true) markSelectionRead(credentials, emailIds)
         if (credentials.protocol == MailProtocol.IMAP) {
             val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
             val trash = imapRoleFolder(credentials, "trash")
@@ -2613,7 +2730,10 @@ class MailRepository(
                     runCatching { imap.fetchByUids(credentials, source, newUids) }
                         .getOrDefault(emptyList())
                         .takeIf { it.isNotEmpty() }
-                        ?.let { fetched -> emailDao.upsertAll(fetched); fetched.forEach { markRecentlyMutated(credentials.id, it.id) } }
+                        ?.let { fetched ->
+                            emailDao.upsertAll(fetched)
+                            fetched.forEach { markRecentlyMutated(credentials.id, it.id); recentLocalMoves.mark(it.id) }
+                        }
                 }
             }
             restored.forEach { lastImapMove.remove(it) }
@@ -2630,6 +2750,9 @@ class MailRepository(
             val ids = group.map { it.emailId }.filter { it in result.done }
             if (ids.isEmpty()) return@forEach
             restored += ids
+            // The move-back is a self-move into the source folder (often the watched Inbox):
+            // the next notifier pass must not announce the restored rows as new arrivals.
+            ids.forEach { recentLocalMoves.mark(it) }
             val fetched = runCatching { client.getEmailsByIds(ctx.session, ctx.accountId, ids, ctx.auth) }.getOrDefault(emptyList())
             if (fetched.isNotEmpty()) {
                 emailDao.upsertAll(fetched.map { it.toEntity(ctx.credentials.id, source) })
@@ -2679,7 +2802,10 @@ class MailRepository(
             val trash = imapRoleFolder(credentials, "trash") ?: error("This account has no Trash folder.")
             imapTarget(emailId)?.let { (mb, uid) ->
                 if (mb != trash) {
-                    imap.move(credentials, mb, uid, trash)?.let { lastImapMove[emailId] = ImapLoc(trash, it) }
+                    imap.move(credentials, mb, uid, trash)?.let {
+                        lastImapMove[emailId] = ImapLoc(trash, it)
+                        recentLocalMoves.mark(ImapMailService.emailId(credentials.id, trash, it))
+                    }
                 }
             }
             emailDao.deleteById(credentials.id, emailId)
@@ -2702,6 +2828,7 @@ class MailRepository(
             pruneServerGone(credentials.id, listOf(emailId))
             return null
         }
+        recentLocalMoves.mark(emailId)
         emailDao.deleteById(credentials.id, emailId)
         adjustCountsForRemoval(listOfNotNull(row), trash)
         advanceEmailState(newState, credentials.id, mb)
@@ -3137,7 +3264,6 @@ class MailRepository(
         )
     }
 
-    /** Save a plain-text draft in the Drafts mailbox. */
     /** Build an SMTP OutgoingMessage from compose fields (IMAP accounts). */
     private fun outgoing(
         credentials: AccountCredentials,
@@ -3171,6 +3297,16 @@ class MailRepository(
         else -> "$name <$email>"
     }
 
+    /**
+     * Save a draft, carrying [attachments] (the chips compose shows) into it so a re-saved draft
+     * keeps its files. With [replacesEmailId] set (re-saving an opened draft, #63) the old server
+     * draft is destroyed once the new one is safely created, so saving never duplicates — but
+     * ONLY when the new draft reproduced the old one's content: every attachment made it in and
+     * [bodyIsLossy] is false. Otherwise the original survives and the caller is told
+     * ([DraftSaveOutcome.ORIGINAL_KEPT]), because losing attachments or an HTML body the user was
+     * just shown is irreversible while a duplicate is not. The destroy stays best-effort: a
+     * failure leaves a stale copy rather than failing the save.
+     */
     suspend fun saveDraft(
         credentials: AccountCredentials,
         to: List<String>,
@@ -3178,29 +3314,47 @@ class MailRepository(
         body: String,
         cc: List<String> = emptyList(),
         bcc: List<String> = emptyList(),
+        inReplyTo: List<String> = emptyList(),
+        references: List<String> = emptyList(),
+        replacesEmailId: String? = null,
+        attachments: List<EmailBodyPart> = emptyList(),
+        bodyIsLossy: Boolean = false,
+        // The composer's chosen From, so a delegated sub-account's draft is honest about the
+        // identity it will be sent as instead of falling back to the login's address (issue #31).
         fromName: String? = null,
         fromEmail: String? = null,
-    ) {
+    ): DraftSaveOutcome {
         val ccTrimmed = cc.map { it.trim() }.filter { it.isNotEmpty() }
         val bccTrimmed = bcc.map { it.trim() }.filter { it.isNotEmpty() }
         if (credentials.protocol == MailProtocol.IMAP) {
             val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
             val drafts = mailboxDao.idForRole(credentials.id, "drafts") ?: error("This account has no Drafts folder.")
+            val parts = imapDraftAttachments(attachments)
             imap.appendDraft(
                 credentials, drafts,
                 outgoing(
-                    credentials, recipients, subject, body,
+                    credentials, recipients, subject, body, inReplyTo, references,
                     fromName = fromName, fromEmail = fromEmail, cc = ccTrimmed, bcc = bccTrimmed,
-                ),
+                ).copy(attachments = parts),
             )
-            return
+            val outcome = finishDraftSave(
+                credentials, replacesEmailId,
+                faithful = draftReplacementIsFaithful(attachments.size, parts.size, bodyIsLossy),
+            )
+            // IMAP APPEND returns no stable id to synthesise a keyable row from, so — after the
+            // replaced original is (best-effort) expunged — reload the Drafts folder so its list
+            // (a Room-backed PagingSource) shows the new draft at once, not after a pull-to-
+            // refresh (#63). Best-effort: the draft is already appended; a refresh miss is benign.
+            runCatching { refresh(credentials, drafts) }
+            return outcome
         }
         val ctx = connect(credentials)
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
         // The From is the composer's chosen identity, falling back to the account's stored
         // identities and finally the signed-in address — never a live Identity/get: that method
         // is member-only and refused on a delegated sub-account ("You are not an owner",
-        // issue #31), and connect() refreshes the stored server identities anyway.
+        // issue #31; Stalwart answers a method-level "forbidden" for a shared account), and
+        // connect() refreshes the stored server identities anyway.
         val from = if (!fromEmail.isNullOrBlank()) {
             EmailAddress(name = fromName, email = fromEmail)
         } else {
@@ -3209,7 +3363,8 @@ class MailRepository(
         }
         val draftsId = ctx.rolesToMailboxId["drafts"]
             ?: error("This account has no Drafts folder.")
-        client.saveDraft(
+        val blobs = jmapDraftAttachments(credentials, attachments)
+        val savedId = client.saveDraft(
             session = ctx.session,
             accountId = ctx.accountId,
             auth = ctx.auth,
@@ -3220,7 +3375,142 @@ class MailRepository(
             subject = subject,
             textBody = body,
             draftMailboxId = draftsId,
+            inReplyTo = inReplyTo,
+            references = references,
+            attachments = blobs,
         )
+        // Optimistically cache the just-saved draft so the Drafts list (a Room-backed
+        // PagingSource) reflects it at once instead of waiting for a pull-to-refresh (#63).
+        // Keyed on the server-returned id, so the next sync replaces it in place — no duplicate.
+        if (savedId != null) {
+            cacheSavedDraft(
+                credentials, savedId, draftsId, from, recipients, subject, body,
+                inReplyTo, references, hasAttachment = blobs.isNotEmpty(),
+            )
+        }
+        // Evicts the replaced original (faithful edit) AFTER the new row is in, so the list
+        // never flickers empty; a new/lossy save keeps every real draft the server now holds.
+        return finishDraftSave(
+            credentials, replacesEmailId,
+            faithful = draftReplacementIsFaithful(attachments.size, blobs.size, bodyIsLossy),
+        )
+    }
+
+    /**
+     * Build and cache the Drafts-list row for a just-saved JMAP draft (#63). Uses the same
+     * [Email.toEntity] mapping the sync path uses, keyed on the server-returned [emailId], so
+     * the authoritative row from the next Drafts sync upserts over it in place (no duplicate,
+     * no ghost). The replaced original of an edited draft is evicted separately by
+     * [finishDraftSave] → [destroyDraft], keeping this row (its id is new) untouched.
+     */
+    private suspend fun cacheSavedDraft(
+        credentials: AccountCredentials,
+        emailId: String,
+        draftMailboxId: String,
+        from: EmailAddress,
+        to: List<EmailAddress>,
+        subject: String,
+        body: String,
+        inReplyTo: List<String>,
+        references: List<String>,
+        hasAttachment: Boolean,
+    ) {
+        val row = Email(
+            id = emailId,
+            accountId = credentials.id,
+            mailboxId = draftMailboxId,
+            subject = subject.ifBlank { null },
+            preview = body.replace(Regex("\\s+"), " ").trim().take(256).ifBlank { null },
+            receivedAt = java.time.Instant.now().toString(),
+            from = listOf(from),
+            to = to,
+            inReplyTo = inReplyTo,
+            references = references,
+            hasAttachment = hasAttachment,
+            keywords = mapOf("\$draft" to true, "\$seen" to true),
+        ).toEntity(credentials.id, draftMailboxId)
+        emailDao.upsertAll(listOf(row))
+    }
+
+    /**
+     * Close out a draft save. The edited original is destroyed ONLY when [faithful] — every
+     * attachment compose was showing made it into the replacement and the body wasn't flattened.
+     * Otherwise the original stays put and the caller surfaces that, so nothing the user could
+     * see is destroyed by a save that couldn't carry it (#63).
+     */
+    private suspend fun finishDraftSave(
+        credentials: AccountCredentials,
+        replacesEmailId: String?,
+        faithful: Boolean,
+    ): DraftSaveOutcome {
+        if (replacesEmailId == null) return DraftSaveOutcome.SAVED
+        if (!faithful) return DraftSaveOutcome.ORIGINAL_KEPT
+        runCatching { destroyDraft(credentials, replacesEmailId) }
+        return DraftSaveOutcome.SAVED
+    }
+
+    /**
+     * Compose's staged attachment files, read back as MIME parts for an APPENDed IMAP draft
+     * (the same bytes-from-a-staged-file path the SMTP send uses). A part whose bytes can't be
+     * read is DROPPED — the caller sees fewer parts out than in and keeps the original draft.
+     */
+    private fun imapDraftAttachments(attachments: List<EmailBodyPart>): List<OutgoingAttachment> =
+        attachments.mapNotNull { part ->
+            val path = part.partId ?: return@mapNotNull null
+            val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull() ?: return@mapNotNull null
+            val inline = part.disposition.equals("inline", ignoreCase = true) && !part.cid.isNullOrBlank()
+            OutgoingAttachment(
+                part.name ?: "attachment", part.type ?: "application/octet-stream", bytes,
+                cid = part.cid, inline = inline,
+            )
+        }
+
+    /**
+     * The blob-backed parts a JMAP draft can reference. Parts compose already uploaded are used
+     * as-is; a part still staged as a local file (PGP SIGN keeps the bytes on the device) is
+     * uploaded now so the draft can carry it — a signed draft is stored in plaintext anyway, and
+     * ENCRYPT can't save drafts at all. A part that is neither is DROPPED, and the caller keeps
+     * the original draft rather than destroying the only copy of that file.
+     */
+    private suspend fun jmapDraftAttachments(
+        credentials: AccountCredentials,
+        attachments: List<EmailBodyPart>,
+    ): List<EmailBodyPart> = attachments.mapNotNull { part ->
+        if (part.blobId != null) return@mapNotNull part
+        val path = part.partId ?: return@mapNotNull null
+        val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull() ?: return@mapNotNull null
+        runCatching {
+            uploadAttachment(
+                credentials, bytes, part.type, part.name,
+                part.disposition ?: "attachment", part.cid,
+            )
+        }.getOrNull()
+    }
+
+    /**
+     * Permanently destroy one saved draft, server and cache — used when an edited draft has
+     * been re-saved or successfully sent (#63), so no duplicate lingers in Drafts. JMAP is a
+     * single-id Email/set destroy; IMAP expunges the message from its folder.
+     */
+    /**
+     * Discard a draft the user emptied while editing it (#69): the same permanent server+cache
+     * destroy the edit-replace flow uses, so an emptied draft leaves nothing behind in Drafts —
+     * and, unlike a plain [delete], nothing in Trash either. Failures propagate so the caller can
+     * report them rather than closing over a draft that would reappear on the next sync.
+     */
+    suspend fun discardDraft(credentials: AccountCredentials, emailId: String) =
+        destroyDraft(credentials, emailId)
+
+    private suspend fun destroyDraft(credentials: AccountCredentials, emailId: String) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            // Account-scoped (issue #31): the draft's folder must be resolved within this account.
+            val folder = emailDao.mailboxOf(credentials.id, emailId)
+                ?: mailboxDao.idForRole(credentials.id, "drafts")
+                ?: return
+            imapDestroyGroup(credentials, folder, listOf(emailId), mutableSetOf(), mutableSetOf())
+            return
+        }
+        jmapDestroyAll(connect(credentials), listOf(emailId))
     }
 
     // ---- outbox (persistent send queue) ----
@@ -3249,6 +3539,7 @@ class MailRepository(
         holdMs: Long = 0,
         pgpMode: PgpMode? = null,
         pgpEntity: String? = null,
+        draftEmailId: String? = null,
     ): Long {
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }
         require(recipients.isNotEmpty()) { "Add at least one recipient." }
@@ -3280,6 +3571,7 @@ class MailRepository(
                 notBeforeMillis = now + holdMs,
                 state = if (held) OutboxState.HELD else OutboxState.QUEUED,
                 pgpMode = pgpMode?.takeIf { it != PgpMode.OFF }?.name,
+                draftEmailId = draftEmailId,
             ),
         )
         if (pgpEntity != null && pgpMode != null && pgpMode != PgpMode.OFF) {
@@ -3369,6 +3661,8 @@ class MailRepository(
         val attachments: List<EmailBodyPart>,
         val inReplyTo: List<String>,
         val references: List<String>,
+        /** The saved draft the item was edited from (#63), kept so re-sending still replaces it. */
+        val draftEmailId: String? = null,
     )
 
     /** Take an item out of the outbox for editing: build its draft, then delete the row + files. */
@@ -3403,6 +3697,7 @@ class MailRepository(
             attachments = parts,
             inReplyTo = item.inReplyTo?.split(" ")?.filter { it.isNotBlank() } ?: emptyList(),
             references = item.references?.split(" ")?.filter { it.isNotBlank() } ?: emptyList(),
+            draftEmailId = item.draftEmailId,
         )
         deleteOutbox(id)
         return draft
@@ -3410,6 +3705,14 @@ class MailRepository(
 
     /** Actually deliver one outbox item (no queue indirection); exceptions propagate to the worker. */
     suspend fun performSend(credentials: AccountCredentials, item: OutboxEntity) {
+        performDelivery(credentials, item)
+        // Delivered: the message this item was edited from (#63) leaves Drafts. Best-effort and
+        // strictly AFTER success — a cleanup hiccup must not fail (and so re-fire) a sent mail;
+        // a failed delivery above throws first, leaving the draft untouched.
+        item.draftEmailId?.let { runCatching { destroyDraft(credentials, it) } }
+    }
+
+    private suspend fun performDelivery(credentials: AccountCredentials, item: OutboxEntity) {
         val to = item.recipients.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         val subject = item.subject
         val body = item.textBody

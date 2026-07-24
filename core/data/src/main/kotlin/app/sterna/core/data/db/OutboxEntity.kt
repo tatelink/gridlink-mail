@@ -55,4 +55,10 @@ data class OutboxEntity(
      * outbox never stores plaintext of an encrypted message.
      */
     val pgpEntityPath: String? = null,
+    /**
+     * Server id of the saved draft this message was edited from (#63). Destroyed once the
+     * send succeeds, so the sent mail doesn't leave a stale duplicate in Drafts; a failed
+     * send leaves the draft untouched.
+     */
+    val draftEmailId: String? = null,
 )

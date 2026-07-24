@@ -16,6 +16,7 @@ import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.db.ScheduledSendEntity
+import app.sterna.core.data.mail.DraftSaveOutcome
 import app.sterna.core.data.pgp.PgpMode
 import app.sterna.core.data.pgp.PgpResult
 import app.sterna.core.imap.OutgoingAttachment
@@ -46,7 +47,9 @@ sealed interface ComposeState {
     data object Idle : ComposeState
     data object Sending : ComposeState
     data object Done : ComposeState
-    data class Error(val message: String) : ComposeState
+
+    /** [whileSaving] distinguishes a failed draft save from a failed send, for the banner text. */
+    data class Error(val message: String, val whileSaving: Boolean = false) : ComposeState
 
     /** The OpenPGP provider needs the user (passphrase/key pick) to finish the send:
      *  launch [pendingIntent] and hand the result to ComposeViewModel.retryPgpSend. */
@@ -67,6 +70,15 @@ data class DraftFields(
 /** A "From" choice: one identity belonging to a specific account. */
 data class FromOption(val accountId: String, val identity: StoredIdentity)
 
+/**
+ * The single #69 rule for "this draft is worth saving": a non-blank subject, a non-blank body, or
+ * at least one attachment. Recipients alone, or a wholly empty compose, do not count. Shared by the
+ * [ComposeViewModel] save gate and the ComposeScreen toolbar, so the greyed-out Save icon and the
+ * actual save-or-skip decision can never drift apart.
+ */
+internal fun draftHasContent(subject: String, body: String, hasAttachment: Boolean): Boolean =
+    subject.isNotBlank() || body.isNotBlank() || hasAttachment
+
 class ComposeViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
@@ -84,6 +96,14 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     private val _attachmentStatus = MutableStateFlow<String?>(null)
     val attachmentStatus: StateFlow<String?> = _attachmentStatus.asStateFlow()
+
+    /**
+     * One-shot string resources to surface after an action that closes the screen (the save
+     * succeeds and compose navigates away, so an inline banner would never be read). The screen
+     * shows them as a toast, which outlives the navigation.
+     */
+    private val _notices = MutableSharedFlow<Int>(extraBufferCapacity = 1)
+    val notices: SharedFlow<Int> = _notices.asSharedFlow()
 
     /** Every identity across all accounts, and the chosen one (which sets the sending account). */
     private val _fromOptions = MutableStateFlow<List<FromOption>>(emptyList())
@@ -269,6 +289,21 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     /** Account to send from: the replied-to message's account (unified inbox), else current. */
     private var accountId: String? = null
 
+    /**
+     * The saved draft being edited (#63): compose was opened from a message in Drafts. Sending
+     * or re-saving replaces it (the old copy is destroyed once the new one is safely through),
+     * so editing never leaves a duplicate behind; a failure leaves it untouched on the server.
+     */
+    private var editingDraftId: String? = null
+
+    /**
+     * Whether the draft being edited holds content this plain-text composer cannot put back: a
+     * genuine HTML body (flattened to text on open), inline images or a calendar part (never
+     * carried), or a file attachment that failed to re-stage. Re-saving then leaves the original
+     * alone instead of destroying the only copy of what compose is unable to reproduce (#63).
+     */
+    private var editingDraftLossy = false
+
     private fun credentials(): AccountCredentials? =
         (_selectedFrom.value?.accountId ?: accountId)?.let { store.credentials(it) } ?: store.load()
 
@@ -317,6 +352,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         bcc: String? = null,
         subject: String? = null,
         body: String? = null,
+        draftId: String? = null,
     ) {
         if (prepared) return
         prepared = true
@@ -348,8 +384,38 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     it.accountId == d.fromAccountId && it.identity.email == d.fromIdentityEmail
                 } ?: options.firstOrNull { it.accountId == d.fromAccountId }
                 if (match != null) _selectedFrom.value = match
+                editingDraftId = d.draftEmailId
             }
             outbox.consumeRestored()
+            return
+        }
+
+        // Editing a saved draft (#63): reopen it in compose with every field it carried, and
+        // remember its id so sending or re-saving replaces it instead of duplicating.
+        if (draftId != null) {
+            viewModelScope.launch {
+                try {
+                    val credentials = credentials() ?: return@launch
+                    val draft = repo.fetchEmail(credentials, draftId)
+                    _prefill.value = draftFieldsOf(draft)
+                    inReplyTo = draft.inReplyTo
+                    references = draft.references
+                    editingDraftId = draftId
+                    // What this editor cannot give back on a re-save: rich formatting (the HTML
+                    // body is flattened to text), inline images and calendar parts (not carried).
+                    editingDraftLossy = draft.htmlContent() != null ||
+                        draft.inlineImageParts().isNotEmpty() ||
+                        draft.calendarParts().isNotEmpty()
+                    if (!carryDraftAttachments(credentials, draft)) editingDraftLossy = true
+                } catch (_: Throwable) {
+                    // The draft couldn't be loaded: leave compose blank but say so, like a
+                    // failed reply prefill — a silently emptied draft would look like data loss.
+                    // Whatever it held is unknown to us now, so a later save must not destroy it.
+                    editingDraftLossy = true
+                    _attachmentStatus.value =
+                        getApplication<Application>().getString(R.string.compose_prefill_failed)
+                }
+            }
             return
         }
 
@@ -468,6 +534,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     holdMs = SendOutbox.HOLD_MS,
                     pgpMode = mode.takeIf { it != PgpMode.OFF },
                     pgpEntity = pgpEntity,
+                    // Editing a saved draft (#63): once this send is delivered, the worker
+                    // destroys the draft it came from, so Drafts keeps no stale duplicate.
+                    draftEmailId = editingDraftId,
                 )
                 // Keep the raw draft so undoing the send can reopen compose with it intact.
                 val draft = SendOutbox.ComposeDraft(
@@ -476,6 +545,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     fromIdentityEmail = identity?.email,
                     attachments = attachments, inReplyTo = replyTo, references = refs,
                     forwardedText = forwarded?.text, forwardedHtml = forwarded?.html,
+                    draftEmailId = editingDraftId,
                 )
                 val app = getApplication<Application>()
                 outbox.hold(
@@ -521,6 +591,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                         inReplyTo = inReplyTo.joinToString(" ").ifBlank { null },
                         references = references.joinToString(" ").ifBlank { null },
                         sendAtMillis = sendAtMillis,
+                        draftEmailId = editingDraftId,
                     ),
                 )
                 ScheduledSends.enqueue(getApplication(), id, sendAtMillis)
@@ -567,59 +638,69 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
     /**
-     * Best-effort HTML→plain-text for quoting an original that has no text/plain part
-     * (most modern mail is HTML-only). Converts block boundaries to newlines so the quoted
-     * original keeps its paragraphs, instead of collapsing to one line.
+     * Carry a reopened draft's file attachments back into compose (#63), staged exactly like a
+     * forward's: JMAP re-uses/stages blobs, IMAP re-stages bytes. Inline images are not carried —
+     * the plain-text editor can't reference them. Best-effort per part: one failed download
+     * doesn't drop the rest. Returns whether EVERY part came across — a partial carry means a
+     * re-save cannot reproduce the draft, so the original must survive it.
      */
-    private fun htmlToText(html: String): String =
-        html
-            .replace(Regex("(?is)<(script|style|head)\\b.*?</\\1>"), "")
-            .replace(Regex("(?i)<br\\s*/?>"), "\n")
-            .replace(Regex("(?i)</(p|div|li|tr|h[1-6]|blockquote|ul|ol|table)\\s*>"), "\n")
-            .replace(Regex("<[^>]+>"), "")
-            .let(::unescapeEntities)
-            .replace(Regex("[ \\t]+\n"), "\n")
-            .replace(Regex("\n{3,}"), "\n\n")
-            .trim()
-
-    // &amp; last so an escaped entity like "&amp;lt;" decodes to "&lt;", not "<".
-    private fun unescapeEntities(s: String): String =
-        s.replace("&nbsp;", " ")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&#39;", "'")
-            .replace("&apos;", "'")
-            .replace("&amp;", "&")
-
-    /**
-     * The original's body as plain text for quoting: its text/plain part, else its HTML
-     * converted to text, else the one-line preview as a last resort.
-     */
-    private fun originalPlainText(o: Email): String {
-        // HTML-only mail makes the server synthesise textBody = the HTML part, so the "text"
-        // body can actually be HTML. Convert it (keeping line breaks) instead of quoting raw
-        // HTML on one line. A genuine text/plain part is used as-is.
-        val textPart = o.textBody.firstOrNull()
-        val raw = textPart?.partId?.let { o.bodyValues[it]?.value }
-        if (!raw.isNullOrBlank()) {
-            return if (textPart?.type.equals("text/html", ignoreCase = true)) htmlToText(raw) else raw
+    private suspend fun carryDraftAttachments(credentials: AccountCredentials, o: Email): Boolean {
+        val parts = o.fileAttachmentParts()
+        val staged = mutableListOf<EmailBodyPart>()
+        for (part in parts) {
+            runCatching {
+                val bytes = repo.downloadAttachment(credentials, part, o.id)
+                stageOutgoing(credentials, bytes, part.type, part.name, disposition = "attachment", cid = null)
+            }.getOrNull()?.let { staged += it }
         }
-        o.htmlContent()?.takeIf { it.isNotBlank() }?.let { return htmlToText(it) }
-        return o.preview.orEmpty()
+        if (staged.isNotEmpty()) _attachments.value = _attachments.value + staged
+        return staged.size == parts.size
     }
 
-    fun saveDraft(to: String, cc: String, bcc: String, subject: String, body: String) =
+    /**
+     * A draft is worth persisting only if it carries real content: a non-blank subject, a non-blank
+     * body, or at least one attachment (#69). Recipients alone, or a wholly empty compose, do not
+     * count — saving one only litters Drafts with an empty shell. Delegates to [draftHasContent] so
+     * this save gate and the toolbar's greyed-out Save icon share one rule (no drift).
+     */
+    private fun hasDraftContent(subject: String, body: String): Boolean =
+        draftHasContent(subject, body, _attachments.value.isNotEmpty())
+
+    fun saveDraft(to: String, cc: String, bcc: String, subject: String, body: String) {
+        // Empty by the #69 rule: persist nothing. A brand-new compose leaves no trace at all (no
+        // server create, no local row, no outbox entry); an opened draft the user has emptied has
+        // its original deleted so no empty shell lingers in Drafts (or reappears on sync). Either
+        // way the screen then closes exactly as a normal save would.
+        if (!hasDraftContent(subject, body)) {
+            val original = editingDraftId
+            if (original == null) {
+                _state.value = ComposeState.Done
+            } else {
+                submit(to) { credentials, _ -> repo.discardDraft(credentials, original) }
+            }
+            return
+        }
         submit(to) { credentials, recipients ->
-            // Carry the composer's chosen From so the draft is honest about the identity it
-            // will be sent as (a delegated sub-account's draft must not fall back to the
-            // login's address, issue #31).
+            // Keep a reply draft threaded, carry the attachments the chips are showing into the
+            // saved copy, and replace the draft being edited (#63) rather than piling up a copy
+            // per save — unless the copy can't hold everything the original did, in which case
+            // the repository keeps the original and says so here. Carry the composer's chosen From
+            // so a delegated sub-account's draft is saved under the identity it will send as, never
+            // the login's address (issue #31).
             val identity = selectedIdentity()
-            repo.saveDraft(
+            val outcome = repo.saveDraft(
                 credentials, recipients, subject, body, parseAddrs(cc), parseAddrs(bcc),
+                inReplyTo = inReplyTo, references = references,
+                replacesEmailId = editingDraftId,
+                attachments = _attachments.value,
+                bodyIsLossy = editingDraftLossy,
                 fromName = identity?.name, fromEmail = identity?.email,
             )
+            if (outcome == DraftSaveOutcome.ORIGINAL_KEPT) {
+                _notices.tryEmit(R.string.compose_draft_original_kept)
+            }
         }
+    }
 
     private inline fun submit(
         to: String,
@@ -634,7 +715,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 op(credentials, recipients)
                 _state.value = ComposeState.Done
             } catch (t: Throwable) {
-                _state.value = ComposeState.Error(t.message ?: t.javaClass.simpleName)
+                // Saving a draft, not sending: the error banner must say so (#63 — a failed
+                // draft save used to read "couldn't send", pointing users at the wrong step).
+                _state.value = ComposeState.Error(t.message ?: t.javaClass.simpleName, whileSaving = true)
             }
         }
     }

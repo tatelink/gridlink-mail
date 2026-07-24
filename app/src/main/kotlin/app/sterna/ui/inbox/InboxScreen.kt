@@ -203,6 +203,8 @@ fun InboxScreen(
     onCompose: () -> Unit,
     /** Reopen compose with the draft of a send the user just undid. */
     onReopenDraft: () -> Unit,
+    /** Open a saved draft in compose for editing (#63) — tapping a row in the Drafts folder. */
+    onEditDraft: (emailId: String, accountId: String?) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenScheduled: () -> Unit,
@@ -1116,7 +1118,30 @@ fun InboxScreen(
                                 }
                             }
                             val isTrash = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
+                            // Frequent actions first, nearest the anchor; the rarely-visited
+                            // Outbox comes after them (#48). In the Trash the destructive
+                            // "Empty trash" is pushed to the very bottom, so the third slot
+                            // keeps the harmless entry the finger expects everywhere else.
                             DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, shape = MaterialTheme.shapes.medium) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.inbox_select_all)) },
+                                    leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
+                                    onClick = { viewModel.selectAll(); overflowOpen = false },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.inbox_mark_all_read)) },
+                                    leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
+                                    onClick = { viewModel.markAllRead(); overflowOpen = false },
+                                )
+                                // The Trash trades the scheduled-messages shortcut for "Empty trash",
+                                // which is appended below rather than taking this slot.
+                                if (!isTrash) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.inbox_scheduled)) },
+                                        leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                                        onClick = { overflowOpen = false; onOpenScheduled() },
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.inbox_outbox)) },
                                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
@@ -1133,18 +1158,7 @@ fun InboxScreen(
                                     },
                                     onClick = { overflowOpen = false; onOpenOutbox() },
                                 )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.inbox_select_all)) },
-                                    leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
-                                    onClick = { viewModel.selectAll(); overflowOpen = false },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.inbox_mark_all_read)) },
-                                    leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
-                                    onClick = { viewModel.markAllRead(); overflowOpen = false },
-                                )
-                                // The Trash gets "Empty trash" (destructive → error red) instead of
-                                // the scheduled-messages shortcut.
+                                // Destructive, so it sits last (#48).
                                 if (isTrash) {
                                     DropdownMenuItem(
                                         text = {
@@ -1161,12 +1175,6 @@ fun InboxScreen(
                                             )
                                         },
                                         onClick = { overflowOpen = false; viewModel.emptyTrash() },
-                                    )
-                                } else {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.inbox_scheduled)) },
-                                        leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
-                                        onClick = { overflowOpen = false; onOpenScheduled() },
                                     )
                                 }
                             }
@@ -1220,6 +1228,10 @@ fun InboxScreen(
                         if (selectionActive) {
                             // A collapsed conversation selects/deselects all its members at once.
                             if (expandable) viewModel.toggleSelectThread(email) else viewModel.toggleSelect(email)
+                        } else if (!fromSearch && !expandable && isDraftsContext(ui)) {
+                            // In the Drafts folder a tap EDITS the draft (#63): open it in
+                            // compose, prefilled — not in the read-only reader.
+                            onEditDraft(email.id, email.accountId)
                         } else {
                             viewModel.onEmailOpened(email.id)
                             onOpenEmail(email.id, email.accountId, entryIndex, fromSearch)
@@ -1790,6 +1802,10 @@ private fun isOwnMailContext(ui: MailUi): Boolean {
     val role = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
     return role == "sent" || role == "drafts"
 }
+
+/** True when the visible folder is Drafts, where tapping a row edits it in compose (#63). */
+private fun isDraftsContext(ui: MailUi): Boolean =
+    ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "drafts"
 
 /** The string resource shown on the swipe background for [action] on [email] (0 = none). */
 private fun swipeActionLabel(action: SwipeAction, email: Email, unarchiveContext: Boolean, trashContext: Boolean): Int = when (action) {

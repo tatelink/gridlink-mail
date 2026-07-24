@@ -651,7 +651,7 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "blobId", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "cc", "messageId", "references",
+                                "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
                                 "hasAttachment", "keywords",
                                 "htmlBody", "textBody", "attachments", "bodyValues",
                             ).forEach { add(it) }
@@ -680,6 +680,38 @@ class JmapClient internal constructor(
     }
 
     /**
+     * Fetch just the raw header fields of a message, in original order with duplicates kept
+     * (RFC 8621 §4.1.3 `headers` property). Cheap: no blob download, no body values — for the
+     * reader's "view headers" action (issue #60). Returns an empty list if the id is not found.
+     */
+    suspend fun getEmailHeaders(
+        session: JmapSession,
+        accountId: String,
+        emailId: String,
+        auth: JmapAuth,
+    ): List<app.sterna.core.jmap.model.EmailHeader> = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("ids") { add(emailId) }
+                        putJsonArray("properties") { add("id"); add("headers") }
+                    }
+                    add("g0")
+                }
+            }
+        }
+        val body = postJmap(session, auth, payload)
+        decodeList(body, "Email/get", Email.serializer()).firstOrNull()?.headers ?: emptyList()
+    }
+
+    /**
      * Fetch several messages WITH their bodies in one Email/get (for prefetching the top of
      * the inbox into the local cache). Same properties as [getEmail] but many ids at once;
      * does NOT mark anything read.
@@ -705,7 +737,7 @@ class JmapClient internal constructor(
                         putJsonArray("properties") {
                             listOf(
                                 "id", "blobId", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "cc", "messageId", "references",
+                                "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
                                 "hasAttachment", "keywords",
                                 "htmlBody", "textBody", "attachments", "bodyValues",
                             ).forEach { add(it) }
@@ -1278,25 +1310,7 @@ class JmapClient internal constructor(
                                 if (references.isNotEmpty()) {
                                     putJsonArray("references") { references.forEach { add(it) } }
                                 }
-                                if (attachments.isNotEmpty()) {
-                                    putJsonArray("attachments") {
-                                        attachments.forEach { att ->
-                                            addJsonObject {
-                                                put("blobId", att.blobId)
-                                                put("type", att.type ?: "application/octet-stream")
-                                                att.name?.let { put("name", it) }
-                                                // Inline (cid) images keep their Content-ID + inline
-                                                // disposition so the server assembles multipart/related
-                                                // and the htmlBody's `cid:` refs resolve.
-                                                put("disposition", att.disposition ?: "attachment")
-                                                att.cid?.trim()?.trim('<', '>')
-                                                    ?.takeIf { it.isNotBlank() }
-                                                    ?.let { put("cid", it) }
-                                                if (att.size > 0) put("size", att.size)
-                                            }
-                                        }
-                                    }
-                                }
+                                addAttachments(attachments)
                                 putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
                                 putJsonObject("mailboxIds") { put(draftMailboxId, true) }
                                 putJsonArray("textBody") {
@@ -1510,7 +1524,10 @@ class JmapClient internal constructor(
         }
     }
 
-    /** Save a plain-text draft in the Drafts mailbox (no submission). */
+    /** Save a plain-text draft in the Drafts mailbox (no submission).
+     *  [attachments] are uploaded blobs referenced by the draft, so re-saving an edited draft
+     *  keeps the files it carried instead of shedding them (#63).
+     *  Returns the created draft's server id, so an edit can later replace it (#63). */
     suspend fun saveDraft(
         session: JmapSession,
         accountId: String,
@@ -1522,25 +1539,39 @@ class JmapClient internal constructor(
         subject: String,
         textBody: String,
         draftMailboxId: String,
-    ) = emailSet(session, auth) {
-        put("accountId", accountId)
-        putJsonObject("create") {
-            putJsonObject("draft") {
-                putJsonArray("from") { addJsonObject { addAddress(from) } }
-                putJsonArray("to") { to.forEach { addJsonObject { addAddress(it) } } }
-                if (cc.isNotEmpty()) putJsonArray("cc") { cc.forEach { addJsonObject { addAddress(it) } } }
-                if (bcc.isNotEmpty()) putJsonArray("bcc") { bcc.forEach { addJsonObject { addAddress(it) } } }
-                put("subject", subject)
-                putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
-                putJsonObject("mailboxIds") { put(draftMailboxId, true) }
-                putJsonArray("textBody") {
-                    addJsonObject { put("partId", "body"); put("type", "text/plain") }
-                }
-                putJsonObject("bodyValues") {
-                    putJsonObject("body") { put("value", textBody) }
+        inReplyTo: List<String> = emptyList(),
+        references: List<String> = emptyList(),
+        attachments: List<EmailBodyPart> = emptyList(),
+    ): String? {
+        val args = emailSet(session, auth) {
+            put("accountId", accountId)
+            putJsonObject("create") {
+                putJsonObject("draft") {
+                    putJsonArray("from") { addJsonObject { addAddress(from) } }
+                    putJsonArray("to") { to.forEach { addJsonObject { addAddress(it) } } }
+                    if (cc.isNotEmpty()) putJsonArray("cc") { cc.forEach { addJsonObject { addAddress(it) } } }
+                    if (bcc.isNotEmpty()) putJsonArray("bcc") { bcc.forEach { addJsonObject { addAddress(it) } } }
+                    put("subject", subject)
+                    // Keep a reply draft threaded, so sending it later still joins its conversation.
+                    if (inReplyTo.isNotEmpty()) putJsonArray("inReplyTo") { inReplyTo.forEach { add(it) } }
+                    if (references.isNotEmpty()) putJsonArray("references") { references.forEach { add(it) } }
+                    addAttachments(attachments)
+                    putJsonObject("keywords") { put("\$draft", true); put("\$seen", true) }
+                    putJsonObject("mailboxIds") { put(draftMailboxId, true) }
+                    putJsonArray("textBody") {
+                        addJsonObject { put("partId", "body"); put("type", "text/plain") }
+                    }
+                    putJsonObject("bodyValues") {
+                        putJsonObject("body") { put("value", textBody) }
+                    }
                 }
             }
         }
+        (args["notCreated"] as? JsonObject)?.get("draft")?.let {
+            throw JmapException("Could not save the draft: $it")
+        }
+        return ((args["created"] as? JsonObject)?.get("draft") as? JsonObject)
+            ?.get("id")?.jsonPrimitive?.contentOrNull
     }
 
     /** Download a blob (attachment) via the session downloadUrl template. */
@@ -1974,4 +2005,31 @@ class JmapClient internal constructor(
 private fun JsonObjectBuilder.addAddress(address: EmailAddress) {
     address.name?.let { put("name", it) }
     put("email", address.email)
+}
+
+/**
+ * Write the `attachments` array of an Email/set create from already-uploaded blobs. Shared by
+ * the send and the draft-save paths, so a draft carries exactly the same parts the same message
+ * would carry if it were sent (#63 — a re-saved draft must not silently shed its files).
+ * Parts without a blobId are skipped: the server can only reference uploaded blobs.
+ */
+private fun JsonObjectBuilder.addAttachments(attachments: List<EmailBodyPart>) {
+    val blobs = attachments.filter { it.blobId != null }
+    if (blobs.isEmpty()) return
+    putJsonArray("attachments") {
+        blobs.forEach { att ->
+            addJsonObject {
+                put("blobId", att.blobId)
+                put("type", att.type ?: "application/octet-stream")
+                att.name?.let { put("name", it) }
+                // Inline (cid) images keep their Content-ID + inline disposition so the server
+                // assembles multipart/related and the htmlBody's `cid:` refs resolve.
+                put("disposition", att.disposition ?: "attachment")
+                att.cid?.trim()?.trim('<', '>')
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { put("cid", it) }
+                if (att.size > 0) put("size", att.size)
+            }
+        }
+    }
 }

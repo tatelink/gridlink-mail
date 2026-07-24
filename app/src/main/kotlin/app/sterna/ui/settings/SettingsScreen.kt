@@ -453,6 +453,8 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val conversationView by viewModel.conversationView.collectAsStateWithLifecycle()
     val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
     val markReadOnDelete by viewModel.markReadOnDelete.collectAsStateWithLifecycle()
+    val markReadOnArchive by viewModel.markReadOnArchive.collectAsStateWithLifecycle()
+    val markReadOnMove by viewModel.markReadOnMove.collectAsStateWithLifecycle()
     val unarchiveOnReply by viewModel.unarchiveOnReply.collectAsStateWithLifecycle()
     val options = listOf(
         SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
@@ -487,11 +489,23 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     optionLabel = { textSizeLabel(context, it) },
                     onSelect = viewModel::setMessageTextSize,
                 )
-                SettingSwitch(
-                    title = stringResource(R.string.settings_mark_read_on_delete_title),
-                    subtitle = stringResource(R.string.settings_mark_read_on_delete_subtitle),
-                    checked = markReadOnDelete,
-                    onCheckedChange = viewModel::setMarkReadOnDelete,
+                SettingMultiChoiceRow(
+                    title = stringResource(R.string.settings_mark_read_title),
+                    options = listOf(MarkReadOn.MOVE, MarkReadOn.DELETE, MarkReadOn.ARCHIVE),
+                    checked = buildSet {
+                        if (markReadOnDelete) add(MarkReadOn.DELETE)
+                        if (markReadOnArchive) add(MarkReadOn.ARCHIVE)
+                        if (markReadOnMove) add(MarkReadOn.MOVE)
+                    },
+                    optionLabel = { markReadLabel(context, it) },
+                    noneLabel = stringResource(R.string.settings_mark_read_never),
+                    onCheckedChange = { option, on ->
+                        when (option) {
+                            MarkReadOn.DELETE -> viewModel.setMarkReadOnDelete(on)
+                            MarkReadOn.ARCHIVE -> viewModel.setMarkReadOnArchive(on)
+                            MarkReadOn.MOVE -> viewModel.setMarkReadOnMove(on)
+                        }
+                    },
                 )
             }
             SettingsSection(stringResource(R.string.settings_swipe_actions_section)) {
@@ -520,6 +534,16 @@ private fun swipeLabel(context: Context, action: SwipeAction): String = when (ac
     SwipeAction.DELETE -> context.getString(R.string.settings_swipe_delete)
     SwipeAction.ARCHIVE -> context.getString(R.string.settings_swipe_archive)
     SwipeAction.FLAG -> context.getString(R.string.settings_swipe_flag)
+}
+
+/** The three independent cases of the "Mark as read when" group — each one its own
+ *  preference, none of them constraining the others (Codeberg #67). */
+private enum class MarkReadOn { DELETE, ARCHIVE, MOVE }
+
+private fun markReadLabel(context: Context, on: MarkReadOn): String = when (on) {
+    MarkReadOn.DELETE -> context.getString(R.string.settings_mark_read_deleting)
+    MarkReadOn.ARCHIVE -> context.getString(R.string.settings_mark_read_archiving)
+    MarkReadOn.MOVE -> context.getString(R.string.settings_mark_read_moving)
 }
 
 private fun textSizeLabel(context: Context, size: MessageTextSize): String = when (size) {
@@ -1686,7 +1710,9 @@ private fun InlineDeviceApproval(
 
 /**
  * Per-account OpenPGP configuration backed by the OpenKeychain provider. When
- * no provider is installed, degrades to an explainer + an F-Droid install link.
+ * no provider is installed, an explainer + an F-Droid install link are shown
+ * and the switches degrade to turn-off-only, so "Use OpenPGP" and "Encrypt by
+ * default" never become stuck ON after OpenKeychain is uninstalled (#35).
  */
 @Composable
 private fun PgpAccountSection(
@@ -1731,13 +1757,22 @@ private fun PgpAccountSection(
         ) {
             Text(stringResource(R.string.settings_pgp_install))
         }
-        return
+        // No early return: the switches below must stay reachable so a configuration
+        // left ON before the provider was uninstalled/disabled can still be turned
+        // OFF (#35). Without a provider they only allow turning things off.
     }
 
     SettingSwitch(
         title = stringResource(R.string.settings_pgp_enable_title),
-        subtitle = stringResource(R.string.settings_pgp_enable_subtitle),
+        subtitle = stringResource(
+            if (pgpAvailable) {
+                R.string.settings_pgp_enable_subtitle
+            } else {
+                R.string.settings_pgp_provider_required
+            },
+        ),
         checked = liveAccount.pgpEnabled,
+        enabled = pgpAvailable || liveAccount.pgpEnabled,
         onCheckedChange = { enabled ->
             if (enabled && liveAccount.pgpSignKeyId == 0L) {
                 // First enable: pick the signing key (enables on success).
@@ -1767,14 +1802,25 @@ private fun PgpAccountSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            OutlinedButton(onClick = { viewModel.choosePgpKey(accountId) }) {
+            OutlinedButton(
+                onClick = { viewModel.choosePgpKey(accountId) },
+                enabled = pgpAvailable,
+            ) {
                 Text(stringResource(R.string.settings_pgp_choose_key))
             }
         }
         SettingSwitch(
             title = stringResource(R.string.settings_pgp_encrypt_default_title),
-            subtitle = stringResource(R.string.settings_pgp_encrypt_default_subtitle),
+            subtitle = stringResource(
+                if (pgpAvailable) {
+                    R.string.settings_pgp_encrypt_default_subtitle
+                } else {
+                    R.string.settings_pgp_provider_required
+                },
+            ),
             checked = liveAccount.pgpEncryptByDefault,
+            enabled = pgpAvailable || liveAccount.pgpEncryptByDefault,
+            // Persisting the flag is a pure store write; it needs no provider.
             onCheckedChange = { viewModel.setPgp(accountId, true, it) },
         )
     }

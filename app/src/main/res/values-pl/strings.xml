@@ -123,6 +123,10 @@
     <string name="message_report_spam">Zgłoś jako spam</string>
     <string name="message_not_spam">To nie spam</string>
     <string name="message_snooze">Odłóż…</string>
+    <string name="message_view_headers">Pokaż nagłówki</string>
+    <string name="message_headers_title">Nagłówki wiadomości</string>
+    <string name="message_headers_empty">Brak nagłówków do wyświetlenia</string>
+    <string name="message_headers_error">Nie można wczytać nagłówków:\n%1$s</string>
     <string name="message_load_error">Nie udało się załadować wiadomości:\n%1$s</string>
     <string name="message_retry">Ponów</string>
     <string name="message_unknown_sender">(nieznany nadawca)</string>
@@ -651,8 +655,6 @@
     <string name="compose_contacts_priming_body">Uzupełniaj odbiorców z kontaktów tego urządzenia. Sterna Mail odczytuje je tylko na urządzeniu i nigdy ich nie przesyła.</string>
     <string name="compose_contacts_priming_enable">Włącz</string>
     <string name="compose_contacts_priming_not_now">Nie teraz</string>
-    <string name="settings_mark_read_on_delete_title">Oznaczaj jako przeczytane przy usuwaniu</string>
-    <string name="settings_mark_read_on_delete_subtitle">Usunięte wiadomości nie pozostają nieprzeczytane w koszu</string>
     <string name="settings_about_section">O aplikacji</string>
     <string name="settings_about_version">Wersja</string>
     <string name="settings_about_source">Kod źródłowy</string>

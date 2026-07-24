@@ -33,8 +33,15 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        pendingMailto.value = parseMailto(intent) ?: parseShare(intent)
-        pendingEmailOpen.value = parseEmailOpen(intent)
+        // Only on a real launch. The activity is singleTask, so the intent that opened a
+        // notification (or a mailto: link) stays the activity's intent for good; re-parsing it
+        // on every recreation — rotation, theme/locale change, font size, split screen — would
+        // re-navigate to that message on top of whatever the user is doing, once per
+        // recreation, and pile up back-stack entries they then have to unwind.
+        if (savedInstanceState == null) {
+            pendingMailto.value = parseMailto(intent) ?: parseShare(intent)
+            pendingEmailOpen.value = parseEmailOpen(intent)
+        }
         val settings = application.container.settingsRepository
         setContent {
             val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
@@ -48,9 +55,15 @@ class MainActivity : AppCompatActivity() {
                 ) {
                     SternaApp(
                         pendingMailto = pendingMailto.value,
-                        onMailtoConsumed = { pendingMailto.value = null },
+                        onMailtoConsumed = {
+                            pendingMailto.value = null
+                            stripMailtoPayload()
+                        },
                         pendingEmailOpen = pendingEmailOpen.value,
-                        onEmailOpenConsumed = { pendingEmailOpen.value = null },
+                        onEmailOpenConsumed = {
+                            pendingEmailOpen.value = null
+                            stripEmailOpenPayload()
+                        },
                     )
                 }
             }
@@ -62,6 +75,29 @@ class MainActivity : AppCompatActivity() {
         setIntent(intent)
         (parseMailto(intent) ?: parseShare(intent))?.let { pendingMailto.value = it }
         parseEmailOpen(intent)?.let { pendingEmailOpen.value = it }
+    }
+
+    /**
+     * Drop a consumed one-shot payload from the retained intent. Belt and braces next to the
+     * [onCreate] guard: whatever re-reads the intent later, it no longer carries an open/compose
+     * order that was already carried out. Kept per-payload so consuming one can never cancel a
+     * genuinely pending other.
+     */
+    private fun stripEmailOpenPayload() {
+        val i = intent ?: return
+        i.removeExtra(EXTRA_OPEN_EMAIL_ID)
+        i.removeExtra(EXTRA_OPEN_ACCOUNT_ID)
+    }
+
+    private fun stripMailtoPayload() {
+        val i = intent ?: return
+        if ("mailto".equals(i.scheme, ignoreCase = true)) i.data = null
+        if (i.action == Intent.ACTION_SEND || i.action == Intent.ACTION_SEND_MULTIPLE) {
+            i.action = Intent.ACTION_MAIN
+            i.removeExtra(Intent.EXTRA_SUBJECT)
+            i.removeExtra(Intent.EXTRA_TEXT)
+            i.removeExtra(Intent.EXTRA_STREAM)
+        }
     }
 
     /** The message a tapped new-mail notification wants to open, or null. */

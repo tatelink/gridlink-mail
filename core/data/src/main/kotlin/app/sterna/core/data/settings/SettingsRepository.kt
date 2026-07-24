@@ -124,9 +124,27 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_MARK_READ_ON_DELETE] = enabled }
     }
 
+    /** Mark a message as read when archiving it, so the archive doesn't accumulate unread
+     *  badges (off by default — archiving doesn't touch flags unless opted in; Codeberg #67). */
+    val markReadOnArchive: Flow<Boolean> = dataStore.data.map { it[KEY_MARK_READ_ON_ARCHIVE] ?: false }
+
+    suspend fun setMarkReadOnArchive(enabled: Boolean) {
+        dataStore.edit { it[KEY_MARK_READ_ON_ARCHIVE] = enabled }
+    }
+
+    /** Mark a message as read when it LEAVES the Inbox for another folder — an explicit
+     *  move-to-folder (Report spam included), not a move between two other folders and not a
+     *  move back INTO the Inbox (off by default; Codeberg #67). */
+    val markReadOnMove: Flow<Boolean> = dataStore.data.map { it[KEY_MARK_READ_ON_MOVE] ?: false }
+
+    suspend fun setMarkReadOnMove(enabled: Boolean) {
+        dataStore.edit { it[KEY_MARK_READ_ON_MOVE] = enabled }
+    }
+
     /** Return a conversation's archived messages to the Inbox when a new reply arrives
-     *  (off by default — archiving stays final unless opted in; Codeberg #50). */
-    val unarchiveOnReply: Flow<Boolean> = dataStore.data.map { it[KEY_UNARCHIVE_ON_REPLY] ?: false }
+     *  (on by default — an intact conversation is the less surprising behaviour; opt out for
+     *  strict zero-inbox; Codeberg #50). */
+    val unarchiveOnReply: Flow<Boolean> = dataStore.data.map { it[KEY_UNARCHIVE_ON_REPLY] ?: true }
 
     suspend fun setUnarchiveOnReply(enabled: Boolean) {
         dataStore.edit { it[KEY_UNARCHIVE_ON_REPLY] = enabled }
@@ -237,6 +255,8 @@ class SettingsRepository(context: Context) {
         conversationView = conversationView.first(),
         messageTextSize = messageTextSize.first().name,
         markReadOnDelete = markReadOnDelete.first(),
+        markReadOnArchive = markReadOnArchive.first(),
+        markReadOnMove = markReadOnMove.first(),
         unarchiveOnReply = unarchiveOnReply.first(),
         deliveryMode = deliveryMode.first().name,
         notificationContent = notificationContent.first().name,
@@ -261,6 +281,8 @@ class SettingsRepository(context: Context) {
         backup.conversationView?.let { setConversationView(it) }
         backup.messageTextSize?.let { v -> runCatching { MessageTextSize.valueOf(v) }.getOrNull()?.let { setMessageTextSize(it) } }
         backup.markReadOnDelete?.let { setMarkReadOnDelete(it) }
+        backup.markReadOnArchive?.let { setMarkReadOnArchive(it) }
+        backup.markReadOnMove?.let { setMarkReadOnMove(it) }
         backup.unarchiveOnReply?.let { setUnarchiveOnReply(it) }
         backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
         backup.notificationContent?.let { v -> runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }
@@ -319,6 +341,8 @@ class SettingsRepository(context: Context) {
         private val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
         private val KEY_CONVERSATION_VIEW = booleanPreferencesKey("conversation_view")
         private val KEY_MARK_READ_ON_DELETE = booleanPreferencesKey("mark_read_on_delete")
+        private val KEY_MARK_READ_ON_ARCHIVE = booleanPreferencesKey("mark_read_on_archive")
+        private val KEY_MARK_READ_ON_MOVE = booleanPreferencesKey("mark_read_on_move")
         private val KEY_UNARCHIVE_ON_REPLY = booleanPreferencesKey("unarchive_on_reply")
         private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")

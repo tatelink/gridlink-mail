@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -102,13 +104,14 @@ fun SettingsSection(title: String, content: @Composable () -> Unit) {
     }
 }
 
-/** Boolean toggle row. */
+/** Boolean toggle row. [enabled] = false renders the row inert and dimmed. */
 @Composable
 fun SettingSwitch(
     title: String,
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
@@ -117,15 +120,24 @@ fun SettingSwitch(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) {
+                    Color.Unspecified
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                },
+            )
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+                    .copy(alpha = if (enabled) 1f else 0.38f),
             )
         }
         Spacer(Modifier.width(16.dp))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 
@@ -171,6 +183,91 @@ fun <T> SettingChoiceRow(
             onDismiss = { showDialog = false },
         )
     }
+}
+
+/**
+ * Multi-choice row: independent options, each ticked on its own (none of them enables or
+ * disables another). Summarises the ticked ones — [noneLabel] when none — and opens a
+ * [SettingMultiChoiceDialog] of checkboxes when tapped.
+ */
+@Composable
+fun <T> SettingMultiChoiceRow(
+    title: String,
+    options: List<T>,
+    checked: Set<T>,
+    optionLabel: (T) -> String,
+    noneLabel: String,
+    onCheckedChange: (T, Boolean) -> Unit,
+) {
+    var showDialog by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { showDialog = true }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                options.filter { it in checked }.joinToString { optionLabel(it) }.ifEmpty { noneLabel },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    if (showDialog) {
+        SettingMultiChoiceDialog(
+            title = title,
+            options = options,
+            checked = checked,
+            optionLabel = optionLabel,
+            onCheckedChange = onCheckedChange,
+            onDismiss = { showDialog = false },
+        )
+    }
+}
+
+/** Multi-choice M3 dialog with checkbox options; each toggle applies immediately. */
+@Composable
+fun <T> SettingMultiChoiceDialog(
+    title: String,
+    options: List<T>,
+    checked: Set<T>,
+    optionLabel: (T) -> String,
+    onCheckedChange: (T, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                options.forEach { option ->
+                    val isChecked = option in checked
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = isChecked,
+                                role = Role.Checkbox,
+                                onValueChange = { onCheckedChange(option, it) },
+                            )
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Start,
+                    ) {
+                        Checkbox(checked = isChecked, onCheckedChange = null)
+                        Spacer(Modifier.width(16.dp))
+                        Text(optionLabel(option), style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_ok)) }
+        },
+    )
 }
 
 /** Account list row: monogram · label · email, with a check on the current one. */

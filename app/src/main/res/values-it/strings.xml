@@ -123,6 +123,10 @@
     <string name="message_report_spam">Segnala come spam</string>
     <string name="message_not_spam">Non è spam</string>
     <string name="message_snooze">Posticipa…</string>
+    <string name="message_view_headers">Mostra intestazioni</string>
+    <string name="message_headers_title">Intestazioni del messaggio</string>
+    <string name="message_headers_empty">Nessuna intestazione da mostrare</string>
+    <string name="message_headers_error">Impossibile caricare le intestazioni:\n%1$s</string>
     <string name="message_load_error">Impossibile caricare il messaggio:\n%1$s</string>
     <string name="message_retry">Riprova</string>
     <string name="message_unknown_sender">(mittente sconosciuto)</string>
@@ -651,8 +655,6 @@
     <string name="compose_contacts_priming_body">Completa i destinatari dai contatti di questo dispositivo. Sterna Mail li legge solo sul dispositivo e non li carica mai.</string>
     <string name="compose_contacts_priming_enable">Attiva</string>
     <string name="compose_contacts_priming_not_now">Non ora</string>
-    <string name="settings_mark_read_on_delete_title">Segna come letto all’eliminazione</string>
-    <string name="settings_mark_read_on_delete_subtitle">I messaggi eliminati non restano da leggere nel cestino</string>
     <string name="settings_about_section">Informazioni</string>
     <string name="settings_about_version">Versione</string>
     <string name="settings_about_source">Codice sorgente</string>

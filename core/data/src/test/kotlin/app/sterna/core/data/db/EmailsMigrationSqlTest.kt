@@ -9,7 +9,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 
 /**
- * Runs the 13→14 rebuilds ([MIGRATION_13_14]) against a real SQLite engine to confirm they
+ * Runs the 14→15 rebuilds ([MIGRATION_14_15]) against a real SQLite engine to confirm they
  * (a) preserve every row of `emails`, `email_bodies` and `snoozed` and (b) widen each primary
  * key to `(accountId, <email id>)` so two accounts of one login (issue #31) can each hold a
  * message that shares a JMAP email id.
@@ -24,7 +24,7 @@ class EmailsMigrationSqlTest {
 
     @After fun tearDown() = db.close()
 
-    /** The v13 tables: primary key on the email id alone (pre-#31). */
+    /** The pre-composite tables (== released v14 / 1.3.10 shape): primary key on the email id alone. */
     private val v13EmailsCreate =
         "CREATE TABLE `emails` (" +
             "`id` TEXT NOT NULL PRIMARY KEY, `accountId` TEXT NOT NULL, `mailboxId` TEXT NOT NULL, " +
@@ -58,7 +58,7 @@ class EmailsMigrationSqlTest {
         }
     }
 
-    /** Apply the exact statements [MIGRATION_13_14] runs. */
+    /** Apply the exact statements [MIGRATION_14_15] runs. */
     private fun runMigration() {
         fun rebuild(table: String, createSql: String, columns: String) {
             db.createStatement().use { st ->

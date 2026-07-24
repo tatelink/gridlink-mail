@@ -40,6 +40,8 @@ data class SettingsBackup(
     /** [MessageTextSize] name. */
     val messageTextSize: String? = null,
     val markReadOnDelete: Boolean? = null,
+    val markReadOnArchive: Boolean? = null,
+    val markReadOnMove: Boolean? = null,
     val unarchiveOnReply: Boolean? = null,
     /** [DeliveryMode] name (Instant / Battery saver). */
     val deliveryMode: String? = null,

@@ -123,6 +123,10 @@
     <string name="message_report_spam">Denunciar spam</string>
     <string name="message_not_spam">Não é spam</string>
     <string name="message_snooze">Adiar…</string>
+    <string name="message_view_headers">Ver cabeçalhos</string>
+    <string name="message_headers_title">Cabeçalhos da mensagem</string>
+    <string name="message_headers_empty">Nenhum cabeçalho para mostrar</string>
+    <string name="message_headers_error">Não foi possível carregar os cabeçalhos:\n%1$s</string>
     <string name="message_load_error">Não foi possível carregar a mensagem:\n%1$s</string>
     <string name="message_retry">Tentar novamente</string>
     <string name="message_unknown_sender">(remetente desconhecido)</string>
@@ -655,8 +659,6 @@
     <string name="compose_contacts_priming_body">Autocompletar destinatários a partir dos contatos deste aparelho. O Sterna Mail os lê apenas no aparelho e nunca os envia.</string>
     <string name="compose_contacts_priming_enable">Ativar</string>
     <string name="compose_contacts_priming_not_now">Agora não</string>
-    <string name="settings_mark_read_on_delete_title">Marcar como lida ao excluir</string>
-    <string name="settings_mark_read_on_delete_subtitle">Mensagens excluídas não ficam como não lidas na lixeira</string>
     <string name="settings_about_section">Sobre</string>
     <string name="settings_about_version">Versão</string>
     <string name="settings_about_source">Código-fonte</string>

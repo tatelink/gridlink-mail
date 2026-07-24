@@ -22,7 +22,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -87,7 +91,9 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -115,6 +121,7 @@ fun ComposeScreen(
     bcc: String? = null,
     subject: String? = null,
     body: String? = null,
+    draftId: String? = null,
     viewModel: ComposeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -157,8 +164,14 @@ fun ComposeScreen(
         }
     }
 
+    // Outcomes worth reporting after the screen closes (e.g. a draft save that had to keep the
+    // original): a toast, because compose navigates away the moment the save succeeds.
     LaunchedEffect(Unit) {
-        viewModel.prepare(replyTo, mode, accountId, restore, to, cc, bcc, subject, body)
+        viewModel.notices.collect { res -> Toast.makeText(context, res, Toast.LENGTH_LONG).show() }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.prepare(replyTo, mode, accountId, restore, to, cc, bcc, subject, body, draftId)
         // Attach any files shared into the app (ACTION_SEND) — a one-shot handoff we read and
         // clear, so it only lands on this compose screen (Codeberg #45).
         val app = context.applicationContext as android.app.Application
@@ -257,13 +270,21 @@ fun ComposeScreen(
     var cc by rememberSaveable { mutableStateOf("") }
     var bcc by rememberSaveable { mutableStateOf("") }
     var subject by rememberSaveable { mutableStateOf("") }
-    var body by rememberSaveable { mutableStateOf("") }
+    // The body carries its caret with it (a TextFieldValue, not a bare String), so a prefilled
+    // compose can open with the cursor where writing continues (#63).
+    var body by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     var expanded by rememberSaveable { mutableStateOf(false) }
     var applied by rememberSaveable { mutableStateOf(false) }
     // Baseline to detect unsaved edits (set from the prefill for replies/forwards).
     var initialTo by rememberSaveable { mutableStateOf("") }
     var initialSubject by rememberSaveable { mutableStateOf("") }
     var initialBody by rememberSaveable { mutableStateOf("") }
+
+    // Land in the recipient field with the keyboard up, unless the recipients are already filled
+    // (a reply, or a reopened draft) — then the body takes the focus, see the prefill below.
+    // The To field opens and self-focuses via its `autoFocus` flag further down.
+    val toFocus = remember { FocusRequester() }
+    val bodyFocus = remember { FocusRequester() }
 
     LaunchedEffect(prefill) {
         prefill?.let {
@@ -275,24 +296,33 @@ fun ComposeScreen(
                 bcc = if (it.bcc.isNotBlank()) it.bcc.trimEnd(',', ';', ' ') + ", " else ""
                 if (it.expand) expanded = true
                 subject = it.subject
-                body = it.body
+                // Open with the caret where the writing continues, and the keyboard up: after the
+                // last character of a reopened draft, above the quoted original of a reply (#63).
+                val caret = initialBodyCaret(
+                    bodyLength = it.body.length,
+                    isDraft = draftId != null,
+                    isReply = replyTo != null && mode != "forward",
+                )
+                body = TextFieldValue(it.body, TextRange(caret ?: 0))
                 initialTo = prefilledTo
                 initialSubject = it.subject
                 initialBody = it.body
                 applied = true
+                if (caret != null) runCatching { bodyFocus.requestFocus() }
             }
         }
     }
 
-    // Land in the recipient field with the keyboard up, unless this is a reply (To is prefilled).
-    // The To field opens and self-focuses via its `autoFocus` flag below.
-    val toFocus = remember { FocusRequester() }
-
     val sending = state is ComposeState.Sending
+
+    // The Save-as-draft icon greys out (disabled) while there is nothing worth saving — the same
+    // #69 rule the save itself uses (draftHasContent), so the button's state matches what tapping it
+    // would do. Recomputed on each edit to subject/body/attachments (all observed state).
+    val canSaveDraft = draftHasContent(subject, body.text, attachments.isNotEmpty())
 
     // Unsaved-changes guard: prompt before discarding non-empty, unsent edits.
     val dirty = to != initialTo || cc.isNotBlank() || bcc.isNotBlank() ||
-        subject != initialSubject || body != initialBody || attachments.isNotEmpty()
+        subject != initialSubject || body.text != initialBody || attachments.isNotEmpty()
     var showDiscard by remember { mutableStateOf(false) }
     val attemptClose = { if (dirty && !sending) showDiscard = true else onCancel() }
 
@@ -306,12 +336,12 @@ fun ComposeScreen(
     // absent = not yet checked, allowed — the send resolves keys and reports precisely).
     val keysReady = pgpMode != PgpMode.ENCRYPT || allRecipients.none { recipientKeys[it] == false }
     val canSend = recipientTokens(to).isNotEmpty() && allRecipients.all(::isValidEmail) && keysReady
-    val sendNow = { viewModel.send(to, cc, bcc, subject, body) }
+    val sendNow = { viewModel.send(to, cc, bcc, subject, body.text) }
     val proceedAfterAttachment = {
         if (recipientCount >= MANY_RECIPIENTS) showManyRecipients = true else sendNow()
     }
     val attemptSend = {
-        if (attachments.isEmpty() && mentionsAttachment("$subject\n$body")) {
+        if (attachments.isEmpty() && mentionsAttachment("$subject\n${body.text}")) {
             showForgotAttachment = true
         } else {
             proceedAfterAttachment()
@@ -366,7 +396,7 @@ fun ComposeScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showDiscard = false
-                    viewModel.saveDraft(to, cc, bcc, subject, body)
+                    viewModel.saveDraft(to, cc, bcc, subject, body.text)
                 }) { Text(stringResource(R.string.compose_discard_save)) }
             },
             dismissButton = {
@@ -380,6 +410,10 @@ fun ComposeScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        // Don't reserve a bottom system-bar (nav-bar) inset here: the body already pads the
+        // bottom with max(ime, nav bar) below, and consuming the nav bar twice left a nav-bar-
+        // tall composer-coloured strip between the keyboard and the body text (#26).
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -424,8 +458,8 @@ fun ComposeScreen(
                     val encryptingNow = pgpMode == PgpMode.ENCRYPT
                     if (!encryptingNow) {
                         IconButton(
-                            onClick = { viewModel.saveDraft(to, cc, bcc, subject, body) },
-                            enabled = !sending,
+                            onClick = { viewModel.saveDraft(to, cc, bcc, subject, body.text) },
+                            enabled = !sending && canSaveDraft,
                         ) {
                             Icon(Icons.Filled.Save, contentDescription = stringResource(R.string.compose_save_draft))
                         }
@@ -443,7 +477,7 @@ fun ComposeScreen(
                                     text = { Text(label) },
                                     onClick = {
                                         scheduleMenu = false
-                                        viewModel.scheduleSend(to, cc, bcc, subject, body, millis)
+                                        viewModel.scheduleSend(to, cc, bcc, subject, body.text, millis)
                                         Toast.makeText(
                                             context,
                                             context.getString(R.string.compose_scheduled_toast, label),
@@ -471,7 +505,10 @@ fun ComposeScreen(
                 .fillMaxSize()
                 // The header stays put and the body fills the space above the keyboard; the body
                 // owns its own scroll, so writing a long message keeps the cursor in view (#26).
-                .imePadding()
+                // Pad the bottom by whichever is taller — the keyboard or the nav bar — so the
+                // body sits flush on the keyboard when it's open (the ime inset already spans the
+                // nav-bar area) and above the nav bar when it's closed, with no double inset (#26).
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
                 .graphicsLayer {
                     translationY = -fly * 64.dp.toPx()
                     alpha = 1f - fly
@@ -532,7 +569,9 @@ fun ComposeScreen(
                 onSuggest = viewModel::suggest,
                 onClearSuggestions = viewModel::clearSuggestions,
                 focusRequester = toFocus,
-                autoFocus = replyTo == null,
+                // Whenever the recipients still have to be typed: a fresh mail and a forward. A
+                // reply and a reopened draft already have them, and focus the body instead (#63).
+                autoFocus = draftId == null && (replyTo == null || mode == "forward"),
                 missingKey = missingKeyFor,
                 trailing = {
                     IconButton(onClick = { expanded = !expanded }) {
@@ -555,7 +594,9 @@ fun ComposeScreen(
                     viewModel::suggest, viewModel::clearSuggestions, missingKey = missingKeyFor,
                 )
             }
-            ComposeField(stringResource(R.string.compose_subject), subject, { subject = it })
+            // Subject has no fixed label: the localized string is the in-field placeholder, so the
+            // subject starts further left than the labelled recipient rows (K-9 style).
+            ComposeField(subject, { subject = it }, placeholder = stringResource(R.string.compose_subject))
             // Only when the body is actually being encrypted to someone (a recipient has a key),
             // so a fresh encrypt-by-default compose with no recipients doesn't claim it yet (#35).
             if (pgpMode == PgpMode.ENCRYPT && recipientKeys.values.any { it }) {
@@ -620,7 +661,10 @@ fun ComposeScreen(
             if (sending) CircularProgressIndicator(Modifier.padding(horizontal = 16.dp))
             (state as? ComposeState.Error)?.let {
                 Text(
-                    text = stringResource(R.string.compose_could_not_send, it.message),
+                    text = stringResource(
+                        if (it.whileSaving) R.string.compose_could_not_save else R.string.compose_could_not_send,
+                        it.message,
+                    ),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -641,9 +685,10 @@ fun ComposeScreen(
                     // keeps the cursor in view as you write (#26).
                     .weight(1f)
                     .padding(horizontal = 16.dp)
-                    .padding(top = 12.dp, bottom = 16.dp),
+                    .padding(top = 12.dp, bottom = 16.dp)
+                    .focusRequester(bodyFocus),
                 decorationBox = { inner ->
-                    if (body.isEmpty()) {
+                    if (body.text.isEmpty()) {
                         Text(
                             stringResource(R.string.compose_body_placeholder),
                             style = MaterialTheme.typography.bodyLarge,
@@ -673,18 +718,22 @@ fun ComposeScreen(
     }
 }
 
-/** A frameless, full-width input with a fixed leading label and an underline. */
+/**
+ * A frameless, full-width input with an in-field placeholder (no fixed leading label) and an
+ * underline. The placeholder shows only while empty and disappears on the first character, so the
+ * subject text starts flush-left, further left than the labelled recipient rows (K-9 style).
+ */
 @Composable
 private fun ComposeField(
-    label: String,
     value: String,
     onValueChange: (String) -> Unit,
+    placeholder: String,
     keyboardType: KeyboardType = KeyboardType.Text,
     focusRequester: FocusRequester? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
-    // Tapping anywhere on the row (the label or the empty area, not just the thin input)
-    // focuses the field, so the whole labelled line is the tap target (#26).
+    // Tapping anywhere on the row (not just the thin input) focuses the field, so the whole
+    // line is the tap target (#26).
     val localFocus = remember { FocusRequester() }
     val focus = focusRequester ?: localFocus
     Column {
@@ -700,7 +749,6 @@ private fun ComposeField(
                 // Content is inset while the divider below runs full width (#26 follow-up).
                 .padding(horizontal = 16.dp),
         ) {
-            FieldLabel(label)
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
@@ -712,6 +760,18 @@ private fun ComposeField(
                     .weight(1f)
                     .padding(vertical = 10.dp)
                     .focusRequester(focus),
+                decorationBox = { inner ->
+                    if (value.isEmpty()) {
+                        Text(
+                            placeholder,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    inner()
+                },
             )
             trailing?.invoke()
         }
@@ -869,6 +929,9 @@ private fun RecipientChipsField(
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier
+                        // Fill the rest of the line so a tap in the empty area past the last chip
+                        // lands the caret at the end; wrap to a new line once space runs short.
+                        .weight(1f)
                         .widthIn(min = 90.dp)
                         .padding(vertical = 6.dp)
                         .onFocusChanged { fs ->
@@ -941,11 +1004,14 @@ private fun RecipientChipsField(
 
 @Composable
 private fun FieldLabel(text: String) {
+    // A fixed, tight width so From / To / Cc / Bcc all line up and the input starts just past
+    // the label (K-9 style). Narrower than before so the label sits closer to the left and the
+    // input follows tightly; still wide enough for the short field labels across locales.
     Text(
         text = text,
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.width(64.dp),
+        modifier = Modifier.width(48.dp),
     )
 }
 

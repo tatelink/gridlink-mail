@@ -272,6 +272,13 @@ private fun MainNavHost(
                 },
                 onCompose = { if (entry.lifecycleIsResumed()) nav.navigate("compose") },
                 onReopenDraft = { if (entry.lifecycleIsResumed()) nav.navigate("compose?restore=true") },
+                // A message tapped in the Drafts folder opens in compose for editing (#63),
+                // not in the reader — sending or re-saving then replaces the stored draft.
+                onEditDraft = { id, accountId ->
+                    if (entry.lifecycleIsResumed()) {
+                        nav.navigate("compose?draftId=${Uri.encode(id)}&accountId=${Uri.encode(accountId.orEmpty())}")
+                    }
+                },
                 onOpenSettings = { if (entry.lifecycleIsResumed()) nav.navigate("settings") },
                 onOpenSearch = { if (entry.lifecycleIsResumed()) nav.navigate("search") },
                 onOpenScheduled = { if (entry.lifecycleIsResumed()) nav.navigate("scheduled") },
@@ -365,9 +372,11 @@ private fun MainNavHost(
         }
         composable(
             route = "compose?replyTo={replyTo}&mode={mode}&accountId={accountId}&restore={restore}" +
-                "&to={to}&cc={cc}&bcc={bcc}&subject={subject}&body={body}",
+                "&to={to}&cc={cc}&bcc={bcc}&subject={subject}&body={body}&draftId={draftId}",
             arguments = listOf(
                 navArgument("replyTo") { type = NavType.StringType; nullable = true; defaultValue = null },
+                // A saved draft reopened for editing (#63).
+                navArgument("draftId") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("mode") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("restore") { type = NavType.StringType; nullable = true; defaultValue = null },
@@ -393,6 +402,7 @@ private fun MainNavHost(
                 bcc = entry.arguments?.getString("bcc")?.let { Uri.decode(it) }?.ifBlank { null },
                 subject = entry.arguments?.getString("subject")?.let { Uri.decode(it) }?.ifBlank { null },
                 body = entry.arguments?.getString("body")?.let { Uri.decode(it) }?.ifBlank { null },
+                draftId = entry.arguments?.getString("draftId")?.let { Uri.decode(it) }?.ifBlank { null },
             )
         }
         composable("search") { entry ->

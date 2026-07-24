@@ -27,6 +27,17 @@ data class EmailBodyPart(
     val encoding: String? = null,
 )
 
+/**
+ * A single raw header field of a message (RFC 8621 §4.1.3): its [name] and raw [value], exactly
+ * as they appear on the wire. Fetched only for the "view headers" action — order and duplicates
+ * are preserved by requesting the `headers` property (an ordered array of these).
+ */
+@Serializable
+data class EmailHeader(
+    val name: String = "",
+    val value: String = "",
+)
+
 /** The decoded content of a body part (RFC 8621 §4.1.4). */
 @Serializable
 data class EmailBodyValue(
@@ -69,7 +80,11 @@ data class Email(
     val from: List<EmailAddress> = emptyList(),
     val to: List<EmailAddress> = emptyList(),
     val cc: List<EmailAddress> = emptyList(),
+    /** Populated by the single-message fetch only (needed to reopen a draft for editing, #63). */
+    val bcc: List<EmailAddress> = emptyList(),
     val messageId: List<String> = emptyList(),
+    /** The In-Reply-To header ids, so an edited reply draft keeps its threading (#63). */
+    val inReplyTo: List<String> = emptyList(),
     val references: List<String> = emptyList(),
     val hasAttachment: Boolean = false,
     val keywords: Map<String, Boolean> = emptyMap(),
@@ -77,6 +92,12 @@ data class Email(
     val textBody: List<EmailBodyPart> = emptyList(),
     val attachments: List<EmailBodyPart> = emptyList(),
     val bodyValues: Map<String, EmailBodyValue> = emptyMap(),
+    /**
+     * All header fields in their original order (duplicates kept), populated only when the
+     * `headers` property is explicitly requested — i.e. the reader's "view headers" action
+     * (issue #60). Empty for every normal fetch, so the ordinary reader path is unchanged.
+     */
+    val headers: List<EmailHeader> = emptyList(),
 ) {
     /** Whether the message has been read ($seen keyword). */
     val isSeen: Boolean get() = keywords["\$seen"] == true

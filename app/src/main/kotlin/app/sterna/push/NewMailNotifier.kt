@@ -127,6 +127,14 @@ object NewMailNotifier {
      * count as days-late "new" mail. Genuinely new mail carrying an old receivedAt (a
      * delayed relay) is skipped too — accepted trade-off. A missing timestamp or an
      * unparseable date disables the floor for that mail (never suppresses a real arrival).
+     * Self-moves are dropped too (Codeberg #50 follow-up): a folder only counts as receiving
+     * new mail when it arrives there by itself, server-side — a message the user moved into
+     * a watched folder from THIS app (archiving an unread message into a watched Archive,
+     * moving to a folder, an Undo's move-back) is no arrival, yet it enters the folder's
+     * cache outside the baseline and would otherwise announce on the next pass. The
+     * repository records each server-acked move; the filter here only shapes this diff —
+     * the ids still enter the baseline via [notifyDiff]/[seed], so they never announce
+     * later either.
      * Read-only: the baseline only advances in [notifyDiff]/[seed]. Read state is NOT
      * consulted (a reply already read on another device is still new) — [notifyDiff]
      * additionally drops seen mail, a notification-only concern.
@@ -135,7 +143,8 @@ object NewMailNotifier {
         val known = prefs(context).getStringSet(key(accountId, mailboxId), null).orEmpty()
         val lastPass = prefs(context).getLong(tsKey(accountId, mailboxId), 0L)
         val floor = if (lastPass > 0) lastPass - NOTIFY_HORIZON_MS else Long.MIN_VALUE
-        return emails.filter { it.id !in known && receivedAfter(it, floor) }
+        val selfMoved = (context.applicationContext as Application).container.mailRepository.recentLocalMoves
+        return emails.filter { it.id !in known && receivedAfter(it, floor) && it.id !in selfMoved }
     }
 
     /**

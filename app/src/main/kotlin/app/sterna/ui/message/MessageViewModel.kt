@@ -19,6 +19,7 @@ import app.sterna.core.data.calendar.ParsedEvent
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
+import app.sterna.core.jmap.model.EmailHeader
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -83,6 +84,16 @@ sealed interface CryptoUiState {
 
     /** Decrypt/verify failed; null message = no OpenPGP provider installed. */
     data class Failed(val message: String?) : CryptoUiState
+}
+
+/**
+ * The raw-headers viewer's state (issue #60). Null (see [MessageViewModel.headers]) means the
+ * viewer is closed; the states below drive it while open.
+ */
+sealed interface HeadersState {
+    data object Loading : HeadersState
+    data class Loaded(val headers: List<EmailHeader>) : HeadersState
+    data class Error(val message: String) : HeadersState
 }
 
 /** A copy with the $seen keyword set, so a just-opened/expanded message renders as read. */
@@ -172,6 +183,52 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val _crypto = MutableStateFlow<CryptoUiState>(CryptoUiState.None)
     val crypto = _crypto.asStateFlow()
 
+    /** Whether the bottom Reply/Forward bar should show for this page. Written by the page's
+     *  body (the scroll-end reveal logic in ConversationBody), read by the pager-level chrome:
+     *  the visible bar is FIXED outside the pager (#62) and follows the SETTLED page's value,
+     *  so it never blinks during the swipe gesture itself. */
+    private val _replyBarVisible = MutableStateFlow(false)
+    val replyBarVisible = _replyBarVisible.asStateFlow()
+
+    fun setReplyBarVisible(visible: Boolean) {
+        _replyBarVisible.value = visible
+    }
+
+    /** One-time "show remote images" override for the open message. Lives here rather than in a
+     *  composable because its writer and reader are now split across the pager boundary (#62):
+     *  the fixed toolbar's menu sets it, the page's body reads it. Reset on load. */
+    private val _manualShowImages = MutableStateFlow(false)
+    val manualShowImages = _manualShowImages.asStateFlow()
+
+    fun showImagesOnce() {
+        _manualShowImages.value = true
+    }
+
+    /** The raw-headers viewer (issue #60): null while closed, else its load/loaded/error state.
+     *  Headers are pulled on demand ([viewHeaders]) so the normal reader path never fetches them. */
+    private val _headers = MutableStateFlow<HeadersState?>(null)
+    val headers = _headers.asStateFlow()
+
+    /** Open the raw-headers viewer and fetch this message's headers (cheap over JMAP). */
+    fun viewHeaders() {
+        val id = loadedId ?: return
+        _headers.value = HeadersState.Loading
+        viewModelScope.launch {
+            try {
+                val credentials = credentials()
+                    ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
+                _headers.value = HeadersState.Loaded(repo.rawHeaders(credentials, id))
+            } catch (t: Throwable) {
+                _headers.value = HeadersState.Error(t.message ?: t.javaClass.simpleName)
+            }
+        }
+    }
+
+    /** Close the raw-headers viewer. */
+    fun dismissHeaders() {
+        _headers.value = null
+    }
+
     /** One automatic decrypt attempt per opened message (when the page settles). */
     private var autoDecryptTried = false
 
@@ -210,6 +267,9 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         calendarLoadedFor = null
         _crypto.value = CryptoUiState.None
         autoDecryptTried = false
+        _replyBarVisible.value = false
+        _manualShowImages.value = false
+        _headers.value = null
         viewModelScope.launch {
             // Paint the cached header (sender/subject/preview) immediately so the screen shows
             // the tapped message at once; the body fills in when the fetch returns. Header-only

@@ -32,3 +32,30 @@ internal fun deltaEvictions(
  */
 internal fun ghostEvictions(cachedIds: List<String>, notFound: Set<String>): List<String> =
     if (notFound.isEmpty()) emptyList() else cachedIds.filter { it in notFound }
+
+/**
+ * Whether this sync cycle should run a mailbox's existence sweep. The sweep costs one
+ * `Email/get` per 200 cached rows, so it cannot ride on every incremental sync — and it would,
+ * if it keyed off [stateAdvanced] alone: `Email/changes`' state is ACCOUNT-WIDE, so it advances
+ * on any activity anywhere in the account (another folder, a flag change, a delivery).
+ *
+ * The gate keeps both halves of the ghost invariant while cutting the recurring cost:
+ * - [firstThisSession]: the once-per-mailbox-per-process sweep, so a ghost that predates this
+ *   run dies on the first sync of the session, whatever the deltas say.
+ * - [vanishedFromMailbox]: THIS mailbox's delta reported an id genuinely leaving it, which is
+ *   the shape of a destroy the recently-mutated spare can eat — sweep at once, no waiting.
+ * - [millisSinceLastSweep] ≥ [minIntervalMs]: the floor for the silent case (a destroy some
+ *   servers report in NEITHER delta), so such a ghost still dies within one interval instead
+ *   of on every single sync.
+ *
+ * Worst case per mailbox: one sweep per [minIntervalMs] of continuous account activity, plus
+ * one per delta that actually removed something from that mailbox.
+ */
+internal fun shouldSweepGhosts(
+    firstThisSession: Boolean,
+    stateAdvanced: Boolean,
+    vanishedFromMailbox: Boolean,
+    millisSinceLastSweep: Long,
+    minIntervalMs: Long,
+): Boolean = firstThisSession ||
+    (stateAdvanced && (vanishedFromMailbox || millisSinceLastSweep >= minIntervalMs))

@@ -134,6 +134,33 @@ object MimeParser {
         parseHeaders(splitHeaders(raw).first)[name.lowercase()]
 
     /**
+     * Every top-level header field of a raw message, in original order with duplicates kept
+     * (folded continuation lines joined) — the IMAP counterpart of JMAP's `headers` property,
+     * for the reader's "view headers" action (issue #60). Values are otherwise unaltered.
+     */
+    fun rawHeaders(raw: String): List<Pair<String, String>> {
+        val out = mutableListOf<Pair<String, String>>()
+        val sb = StringBuilder()
+        fun flush() {
+            val line = sb.toString()
+            val colon = line.indexOf(':')
+            if (colon > 0) out.add(line.substring(0, colon).trim() to line.substring(colon + 1).trim())
+            sb.clear()
+        }
+        for (line in splitHeaders(raw).first.split(Regex("\\r?\\n"))) {
+            if (line.isEmpty()) continue
+            if (line[0] == ' ' || line[0] == '\t') {
+                sb.append(' ').append(line.trim()) // folded continuation
+            } else {
+                if (sb.isNotEmpty()) flush()
+                sb.append(line)
+            }
+        }
+        if (sb.isNotEmpty()) flush()
+        return out
+    }
+
+    /**
      * The still-transfer-encoded body + Content-Transfer-Encoding of the part at
      * [section] ("1", "2.1", …) inside a raw MIME entity — the same section paths
      * [parseBody] assigns. Used to pull attachments out of a decrypted entity.

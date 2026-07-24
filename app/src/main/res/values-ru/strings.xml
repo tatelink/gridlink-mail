@@ -123,6 +123,10 @@
     <string name="message_report_spam">Пожаловаться на спам</string>
     <string name="message_not_spam">Не спам</string>
     <string name="message_snooze">Отложить…</string>
+    <string name="message_view_headers">Показать заголовки</string>
+    <string name="message_headers_title">Заголовки письма</string>
+    <string name="message_headers_empty">Нет заголовков для отображения</string>
+    <string name="message_headers_error">Не удалось загрузить заголовки:\n%1$s</string>
     <string name="message_load_error">Не удалось загрузить письмо:\n%1$s</string>
     <string name="message_retry">Повторить</string>
     <string name="message_unknown_sender">(отправитель неизвестен)</string>
@@ -652,8 +656,6 @@
     <string name="compose_contacts_priming_body">Автодополнять получателей из контактов этого устройства. Sterna Mail читает их только на устройстве и никогда не отправляет.</string>
     <string name="compose_contacts_priming_enable">Включить</string>
     <string name="compose_contacts_priming_not_now">Не сейчас</string>
-    <string name="settings_mark_read_on_delete_title">Отмечать прочитанным при удалении</string>
-    <string name="settings_mark_read_on_delete_subtitle">Удалённые письма не остаются непрочитанными в корзине</string>
     <string name="settings_about_section">О приложении</string>
     <string name="settings_about_version">Версия</string>
     <string name="settings_about_source">Исходный код</string>
