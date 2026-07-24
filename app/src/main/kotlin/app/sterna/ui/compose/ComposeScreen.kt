@@ -578,7 +578,9 @@ fun ComposeScreen(
                     viewModel::suggest, viewModel::clearSuggestions, missingKey = missingKeyFor,
                 )
             }
-            ComposeField(stringResource(R.string.compose_subject), subject, { subject = it })
+            // Subject has no fixed label: the localized string is the in-field placeholder, so the
+            // subject starts further left than the labelled recipient rows (K-9 style).
+            ComposeField(subject, { subject = it }, placeholder = stringResource(R.string.compose_subject))
             // Only when the body is actually being encrypted to someone (a recipient has a key),
             // so a fresh encrypt-by-default compose with no recipients doesn't claim it yet (#35).
             if (pgpMode == PgpMode.ENCRYPT && recipientKeys.values.any { it }) {
@@ -700,18 +702,22 @@ fun ComposeScreen(
     }
 }
 
-/** A frameless, full-width input with a fixed leading label and an underline. */
+/**
+ * A frameless, full-width input with an in-field placeholder (no fixed leading label) and an
+ * underline. The placeholder shows only while empty and disappears on the first character, so the
+ * subject text starts flush-left, further left than the labelled recipient rows (K-9 style).
+ */
 @Composable
 private fun ComposeField(
-    label: String,
     value: String,
     onValueChange: (String) -> Unit,
+    placeholder: String,
     keyboardType: KeyboardType = KeyboardType.Text,
     focusRequester: FocusRequester? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
-    // Tapping anywhere on the row (the label or the empty area, not just the thin input)
-    // focuses the field, so the whole labelled line is the tap target (#26).
+    // Tapping anywhere on the row (not just the thin input) focuses the field, so the whole
+    // line is the tap target (#26).
     val localFocus = remember { FocusRequester() }
     val focus = focusRequester ?: localFocus
     Column {
@@ -727,7 +733,6 @@ private fun ComposeField(
                 // Content is inset while the divider below runs full width (#26 follow-up).
                 .padding(horizontal = 16.dp),
         ) {
-            FieldLabel(label)
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
@@ -739,6 +744,18 @@ private fun ComposeField(
                     .weight(1f)
                     .padding(vertical = 10.dp)
                     .focusRequester(focus),
+                decorationBox = { inner ->
+                    if (value.isEmpty()) {
+                        Text(
+                            placeholder,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    inner()
+                },
             )
             trailing?.invoke()
         }
@@ -896,6 +913,9 @@ private fun RecipientChipsField(
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier
+                        // Fill the rest of the line so a tap in the empty area past the last chip
+                        // lands the caret at the end; wrap to a new line once space runs short.
+                        .weight(1f)
                         .widthIn(min = 90.dp)
                         .padding(vertical = 6.dp)
                         .onFocusChanged { fs ->
@@ -968,11 +988,14 @@ private fun RecipientChipsField(
 
 @Composable
 private fun FieldLabel(text: String) {
+    // A fixed, tight width so From / To / Cc / Bcc all line up and the input starts just past
+    // the label (K-9 style). Narrower than before so the label sits closer to the left and the
+    // input follows tightly; still wide enough for the short field labels across locales.
     Text(
         text = text,
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.width(64.dp),
+        modifier = Modifier.width(48.dp),
     )
 }
 
