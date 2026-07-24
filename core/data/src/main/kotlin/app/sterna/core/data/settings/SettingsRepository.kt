@@ -125,8 +125,9 @@ class SettingsRepository(context: Context) {
     }
 
     /** Return a conversation's archived messages to the Inbox when a new reply arrives
-     *  (off by default — archiving stays final unless opted in; Codeberg #50). */
-    val unarchiveOnReply: Flow<Boolean> = dataStore.data.map { it[KEY_UNARCHIVE_ON_REPLY] ?: false }
+     *  (on by default — an intact conversation is the less surprising behaviour; opt out for
+     *  strict zero-inbox; Codeberg #50). */
+    val unarchiveOnReply: Flow<Boolean> = dataStore.data.map { it[KEY_UNARCHIVE_ON_REPLY] ?: true }
 
     suspend fun setUnarchiveOnReply(enabled: Boolean) {
         dataStore.edit { it[KEY_UNARCHIVE_ON_REPLY] = enabled }
