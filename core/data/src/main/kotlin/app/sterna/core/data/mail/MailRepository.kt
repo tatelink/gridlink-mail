@@ -3356,6 +3356,15 @@ class MailRepository(
      * been re-saved or successfully sent (#63), so no duplicate lingers in Drafts. JMAP is a
      * single-id Email/set destroy; IMAP expunges the message from its folder.
      */
+    /**
+     * Discard a draft the user emptied while editing it (#69): the same permanent server+cache
+     * destroy the edit-replace flow uses, so an emptied draft leaves nothing behind in Drafts —
+     * and, unlike a plain [delete], nothing in Trash either. Failures propagate so the caller can
+     * report them rather than closing over a draft that would reappear on the next sync.
+     */
+    suspend fun discardDraft(credentials: AccountCredentials, emailId: String) =
+        destroyDraft(credentials, emailId)
+
     private suspend fun destroyDraft(credentials: AccountCredentials, emailId: String) {
         if (credentials.protocol == MailProtocol.IMAP) {
             val folder = emailDao.mailboxOf(emailId)
