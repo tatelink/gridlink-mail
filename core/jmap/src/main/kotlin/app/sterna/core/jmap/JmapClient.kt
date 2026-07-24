@@ -680,6 +680,38 @@ class JmapClient internal constructor(
     }
 
     /**
+     * Fetch just the raw header fields of a message, in original order with duplicates kept
+     * (RFC 8621 §4.1.3 `headers` property). Cheap: no blob download, no body values — for the
+     * reader's "view headers" action (issue #60). Returns an empty list if the id is not found.
+     */
+    suspend fun getEmailHeaders(
+        session: JmapSession,
+        accountId: String,
+        emailId: String,
+        auth: JmapAuth,
+    ): List<app.sterna.core.jmap.model.EmailHeader> = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("ids") { add(emailId) }
+                        putJsonArray("properties") { add("id"); add("headers") }
+                    }
+                    add("g0")
+                }
+            }
+        }
+        val body = postJmap(session, auth, payload)
+        decodeList(body, "Email/get", Email.serializer()).firstOrNull()?.headers ?: emptyList()
+    }
+
+    /**
      * Fetch several messages WITH their bodies in one Email/get (for prefetching the top of
      * the inbox into the local cache). Same properties as [getEmail] but many ids at once;
      * does NOT mark anything read.

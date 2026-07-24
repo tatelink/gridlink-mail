@@ -123,6 +123,10 @@
     <string name="message_report_spam">Пожаловаться на спам</string>
     <string name="message_not_spam">Не спам</string>
     <string name="message_snooze">Отложить…</string>
+    <string name="message_view_headers">Показать заголовки</string>
+    <string name="message_headers_title">Заголовки письма</string>
+    <string name="message_headers_empty">Нет заголовков для отображения</string>
+    <string name="message_headers_error">Не удалось загрузить заголовки:\n%1$s</string>
     <string name="message_load_error">Не удалось загрузить письмо:\n%1$s</string>
     <string name="message_retry">Повторить</string>
     <string name="message_unknown_sender">(отправитель неизвестен)</string>
