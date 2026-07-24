@@ -648,7 +648,28 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         return staged.size == parts.size
     }
 
-    fun saveDraft(to: String, cc: String, bcc: String, subject: String, body: String) =
+    /**
+     * A draft is worth persisting only if it carries real content: a non-blank subject, a non-blank
+     * body, or at least one attachment (#69). Recipients alone, or a wholly empty compose, do not
+     * count — saving one only litters Drafts with an empty shell.
+     */
+    private fun hasDraftContent(subject: String, body: String): Boolean =
+        subject.isNotBlank() || body.isNotBlank() || _attachments.value.isNotEmpty()
+
+    fun saveDraft(to: String, cc: String, bcc: String, subject: String, body: String) {
+        // Empty by the #69 rule: persist nothing. A brand-new compose leaves no trace at all (no
+        // server create, no local row, no outbox entry); an opened draft the user has emptied has
+        // its original deleted so no empty shell lingers in Drafts (or reappears on sync). Either
+        // way the screen then closes exactly as a normal save would.
+        if (!hasDraftContent(subject, body)) {
+            val original = editingDraftId
+            if (original == null) {
+                _state.value = ComposeState.Done
+            } else {
+                submit(to) { credentials, _ -> repo.discardDraft(credentials, original) }
+            }
+            return
+        }
         submit(to) { credentials, recipients ->
             // Keep a reply draft threaded, carry the attachments the chips are showing into the
             // saved copy, and replace the draft being edited (#63) rather than piling up a copy
@@ -665,6 +686,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 _notices.tryEmit(R.string.compose_draft_original_kept)
             }
         }
+    }
 
     private inline fun submit(
         to: String,
