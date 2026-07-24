@@ -70,6 +70,15 @@ data class DraftFields(
 /** A "From" choice: one identity belonging to a specific account. */
 data class FromOption(val accountId: String, val identity: StoredIdentity)
 
+/**
+ * The single #69 rule for "this draft is worth saving": a non-blank subject, a non-blank body, or
+ * at least one attachment. Recipients alone, or a wholly empty compose, do not count. Shared by the
+ * [ComposeViewModel] save gate and the ComposeScreen toolbar, so the greyed-out Save icon and the
+ * actual save-or-skip decision can never drift apart.
+ */
+internal fun draftHasContent(subject: String, body: String, hasAttachment: Boolean): Boolean =
+    subject.isNotBlank() || body.isNotBlank() || hasAttachment
+
 class ComposeViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
@@ -651,10 +660,11 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     /**
      * A draft is worth persisting only if it carries real content: a non-blank subject, a non-blank
      * body, or at least one attachment (#69). Recipients alone, or a wholly empty compose, do not
-     * count — saving one only litters Drafts with an empty shell.
+     * count — saving one only litters Drafts with an empty shell. Delegates to [draftHasContent] so
+     * this save gate and the toolbar's greyed-out Save icon share one rule (no drift).
      */
     private fun hasDraftContent(subject: String, body: String): Boolean =
-        subject.isNotBlank() || body.isNotBlank() || _attachments.value.isNotEmpty()
+        draftHasContent(subject, body, _attachments.value.isNotEmpty())
 
     fun saveDraft(to: String, cc: String, bcc: String, subject: String, body: String) {
         // Empty by the #69 rule: persist nothing. A brand-new compose leaves no trace at all (no
