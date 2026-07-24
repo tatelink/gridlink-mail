@@ -1626,7 +1626,7 @@ class MailRepository(
      */
     suspend fun rawHeaders(credentials: AccountCredentials, emailId: String): List<EmailHeader> {
         if (credentials.protocol == MailProtocol.IMAP) {
-            val email = cachedEmail(emailId) ?: openEmail(credentials, emailId, markRead = false)
+            val email = cachedEmail(credentials.id, emailId) ?: openEmail(credentials, emailId, markRead = false)
             val raw = fetchRawSource(credentials, email, emailId)
             return MimeParser.rawHeaders(raw).map { (name, value) -> EmailHeader(name, value) }
         }
