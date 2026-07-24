@@ -14,11 +14,11 @@ android {
         applicationId = "app.sterna"
         minSdk = 26
         targetSdk = 36
-        versionCode = 155
-        versionName = "1.3.9"
+        versionCode = 156
+        versionName = "1.3.10"
         // Shown on the Settings About row. Bump alongside versionCode/versionName at each
         // release (a static literal, so builds stay reproducible — never derive from clock).
-        buildConfigField("String", "VERSION_DATE", "\"2026-07-23\"")
+        buildConfigField("String", "VERSION_DATE", "\"2026-07-24\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
