@@ -1,0 +1,1 @@
+Fixes a crash on launch on older devices. On Android 9 and earlier, whose built-in SQLite is older, the search index could not be created and the app closed as soon as it started. The index is now built in a way those versions understand, so the app opens normally again.

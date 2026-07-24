@@ -1,0 +1,1 @@
+Corrige un plantage au lancement sur les appareils plus anciens. Sur Android 9 et versions antérieures, dont le moteur SQLite intégré est plus ancien, l'index de recherche ne pouvait pas être créé et l'application se fermait dès son démarrage. L'index est désormais construit d'une manière que ces versions comprennent, et l'application s'ouvre de nouveau normalement.
