@@ -10,7 +10,9 @@ import androidx.room.PrimaryKey
  * Full-text search index over mail, SEPARATE from [EmailEntity] so it can outlive the display
  * cache's recent-window pruning and (from phase 2) cover the whole mailbox.
  *
- * The `unicode61` tokenizer with `remove_diacritics=2` folds accents, so "ecole" finds "École";
+ * The `unicode61` tokenizer with `remove_diacritics=1` folds accents, so "ecole" finds "École";
+ * (`remove_diacritics=2` needs SQLite 3.27+/2019 and CRASHES older devices — Android 9 and below
+ * ship an older SQLite that rejects it as "unknown tokenizer" while building the table; issue #71);
  * queries use per-token PREFIX matching ("eco*"), which is monotonic as the user types — exactly
  * what the server's stemmed full-text search cannot do. Only `subject`, `sender` and `body` are
  * tokenized/searchable; the rest are `notIndexed` (stored for ranking, filtering and rebuilding a
@@ -19,7 +21,7 @@ import androidx.room.PrimaryKey
  */
 @Fts4(
     tokenizer = FtsOptions.TOKENIZER_UNICODE61,
-    tokenizerArgs = ["remove_diacritics=2"],
+    tokenizerArgs = ["remove_diacritics=1"],
     notIndexed = [
         "emailId", "accountId", "mailboxId", "threadId", "preview", "receivedAt",
         "fromName", "fromEmail", "seen", "flagged", "hasAttachment", "sortKey",
