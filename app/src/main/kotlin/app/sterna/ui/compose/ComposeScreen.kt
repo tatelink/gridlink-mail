@@ -22,7 +22,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -401,6 +405,10 @@ fun ComposeScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        // Don't reserve a bottom system-bar (nav-bar) inset here: the body already pads the
+        // bottom with max(ime, nav bar) below, and consuming the nav bar twice left a nav-bar-
+        // tall composer-coloured strip between the keyboard and the body text (#26).
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -492,7 +500,10 @@ fun ComposeScreen(
                 .fillMaxSize()
                 // The header stays put and the body fills the space above the keyboard; the body
                 // owns its own scroll, so writing a long message keeps the cursor in view (#26).
-                .imePadding()
+                // Pad the bottom by whichever is taller — the keyboard or the nav bar — so the
+                // body sits flush on the keyboard when it's open (the ime inset already spans the
+                // nav-bar area) and above the nav bar when it's closed, with no double inset (#26).
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
                 .graphicsLayer {
                     translationY = -fly * 64.dp.toPx()
                     alpha = 1f - fly
