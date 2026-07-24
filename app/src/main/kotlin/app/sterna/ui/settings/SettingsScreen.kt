@@ -491,7 +491,7 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 )
                 SettingMultiChoiceRow(
                     title = stringResource(R.string.settings_mark_read_title),
-                    options = listOf(MarkReadOn.DELETE, MarkReadOn.ARCHIVE, MarkReadOn.MOVE),
+                    options = listOf(MarkReadOn.MOVE, MarkReadOn.DELETE, MarkReadOn.ARCHIVE),
                     checked = buildSet {
                         if (markReadOnDelete) add(MarkReadOn.DELETE)
                         if (markReadOnArchive) add(MarkReadOn.ARCHIVE)
