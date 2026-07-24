@@ -350,7 +350,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val unarchiveOnReply = settings.unarchiveOnReply.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = false,
+        initialValue = true,
     )
 
     fun setUnarchiveOnReply(enabled: Boolean) {
