@@ -3183,10 +3183,16 @@ class MailRepository(
                 outgoing(credentials, recipients, subject, body, inReplyTo, references, cc = ccTrimmed, bcc = bccTrimmed)
                     .copy(attachments = parts),
             )
-            return finishDraftSave(
+            val outcome = finishDraftSave(
                 credentials, replacesEmailId,
                 faithful = draftReplacementIsFaithful(attachments.size, parts.size, bodyIsLossy),
             )
+            // IMAP APPEND returns no stable id to synthesise a keyable row from, so — after the
+            // replaced original is (best-effort) expunged — reload the Drafts folder so its list
+            // (a Room-backed PagingSource) shows the new draft at once, not after a pull-to-
+            // refresh (#63). Best-effort: the draft is already appended; a refresh miss is benign.
+            runCatching { refresh(credentials, drafts) }
+            return outcome
         }
         val ctx = connect(credentials)
         val recipients = to.map { it.trim() }.filter { it.isNotEmpty() }.map { EmailAddress(email = it) }
@@ -3205,7 +3211,7 @@ class MailRepository(
         val draftsId = ctx.rolesToMailboxId["drafts"]
             ?: error("This account has no Drafts folder.")
         val blobs = jmapDraftAttachments(credentials, attachments)
-        client.saveDraft(
+        val savedId = client.saveDraft(
             session = ctx.session,
             accountId = ctx.accountId,
             auth = ctx.auth,
@@ -3220,10 +3226,57 @@ class MailRepository(
             references = references,
             attachments = blobs,
         )
+        // Optimistically cache the just-saved draft so the Drafts list (a Room-backed
+        // PagingSource) reflects it at once instead of waiting for a pull-to-refresh (#63).
+        // Keyed on the server-returned id, so the next sync replaces it in place — no duplicate.
+        if (savedId != null) {
+            cacheSavedDraft(
+                credentials, savedId, draftsId, from, recipients, subject, body,
+                inReplyTo, references, hasAttachment = blobs.isNotEmpty(),
+            )
+        }
+        // Evicts the replaced original (faithful edit) AFTER the new row is in, so the list
+        // never flickers empty; a new/lossy save keeps every real draft the server now holds.
         return finishDraftSave(
             credentials, replacesEmailId,
             faithful = draftReplacementIsFaithful(attachments.size, blobs.size, bodyIsLossy),
         )
+    }
+
+    /**
+     * Build and cache the Drafts-list row for a just-saved JMAP draft (#63). Uses the same
+     * [Email.toEntity] mapping the sync path uses, keyed on the server-returned [emailId], so
+     * the authoritative row from the next Drafts sync upserts over it in place (no duplicate,
+     * no ghost). The replaced original of an edited draft is evicted separately by
+     * [finishDraftSave] → [destroyDraft], keeping this row (its id is new) untouched.
+     */
+    private suspend fun cacheSavedDraft(
+        credentials: AccountCredentials,
+        emailId: String,
+        draftMailboxId: String,
+        from: EmailAddress,
+        to: List<EmailAddress>,
+        subject: String,
+        body: String,
+        inReplyTo: List<String>,
+        references: List<String>,
+        hasAttachment: Boolean,
+    ) {
+        val row = Email(
+            id = emailId,
+            accountId = credentials.id,
+            mailboxId = draftMailboxId,
+            subject = subject.ifBlank { null },
+            preview = body.replace(Regex("\\s+"), " ").trim().take(256).ifBlank { null },
+            receivedAt = java.time.Instant.now().toString(),
+            from = listOf(from),
+            to = to,
+            inReplyTo = inReplyTo,
+            references = references,
+            hasAttachment = hasAttachment,
+            keywords = mapOf("\$draft" to true, "\$seen" to true),
+        ).toEntity(credentials.id, draftMailboxId)
+        emailDao.upsertAll(listOf(row))
     }
 
     /**
