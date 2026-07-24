@@ -125,6 +125,10 @@
     <string name="message_report_spam">Signaler comme spam</string>
     <string name="message_not_spam">Non spam</string>
     <string name="message_snooze">Reporter…</string>
+    <string name="message_view_headers">Afficher les en-têtes</string>
+    <string name="message_headers_title">En-têtes du message</string>
+    <string name="message_headers_empty">Aucun en-tête à afficher</string>
+    <string name="message_headers_error">Impossible de charger les en-têtes :\n%1$s</string>
     <string name="message_load_error">Impossible de charger le message :\n%1$s</string>
     <string name="message_retry">Réessayer</string>
     <string name="message_unknown_sender">(expéditeur inconnu)</string>

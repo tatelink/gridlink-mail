@@ -123,6 +123,10 @@
     <string name="message_report_spam">Marcar como spam</string>
     <string name="message_not_spam">No es spam</string>
     <string name="message_snooze">Posponer…</string>
+    <string name="message_view_headers">Ver encabezados</string>
+    <string name="message_headers_title">Encabezados del mensaje</string>
+    <string name="message_headers_empty">No hay encabezados que mostrar</string>
+    <string name="message_headers_error">No se pudieron cargar los encabezados:\n%1$s</string>
     <string name="message_load_error">No se pudo cargar el mensaje:\n%1$s</string>
     <string name="message_retry">Reintentar</string>
     <string name="message_unknown_sender">(remitente desconocido)</string>

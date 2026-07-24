@@ -65,6 +65,7 @@ import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailBodyValue
+import app.sterna.core.jmap.model.EmailHeader
 import app.sterna.core.jmap.model.Mailbox
 import app.sterna.core.jmap.model.JmapSession
 import app.sterna.core.jmap.model.PushSubscription
@@ -1568,6 +1569,22 @@ class MailRepository(
         val inline = fetchInlineImages(credentials, email, emailId)
         persistBody(credentials.id, emailId, email, inline)
         return MessageBody(email, inline)
+    }
+
+    /**
+     * The raw header fields of a message, in original order with duplicates kept (issue #60).
+     * Fetched on demand for the reader's "view headers" action, so the normal open path never
+     * pulls headers. Over JMAP this is the cheap `headers` property (no blob download); IMAP has
+     * no such index, so it parses the message source (fetched/cached like any other read).
+     */
+    suspend fun rawHeaders(credentials: AccountCredentials, emailId: String): List<EmailHeader> {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val email = cachedEmail(emailId) ?: openEmail(credentials, emailId, markRead = false)
+            val raw = fetchRawSource(credentials, email, emailId)
+            return MimeParser.rawHeaders(raw).map { (name, value) -> EmailHeader(name, value) }
+        }
+        val ctx = connect(credentials)
+        return client.getEmailHeaders(ctx.session, ctx.accountId, emailId, ctx.auth)
     }
 
     // ---- OpenPGP read path -------------------------------------------------------------------

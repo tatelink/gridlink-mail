@@ -180,6 +180,11 @@
     <string name="message_report_spam">Report spam</string>
     <string name="message_not_spam">Not spam</string>
     <string name="message_snooze">Snooze…</string>
+    <!-- Reader overflow: view the message's raw headers (issue #60) -->
+    <string name="message_view_headers">View headers</string>
+    <string name="message_headers_title">Message headers</string>
+    <string name="message_headers_empty">No headers to show</string>
+    <string name="message_headers_error">Could not load headers:\n%1$s</string>
     <string name="message_load_error">Could not load message:\n%1$s</string>
     <string name="message_retry">Retry</string>
     <string name="message_unknown_sender">(unknown sender)</string>

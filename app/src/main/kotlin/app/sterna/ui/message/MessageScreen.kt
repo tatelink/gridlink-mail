@@ -25,6 +25,7 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,6 +42,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -52,6 +54,7 @@ import androidx.compose.material.icons.automirrored.filled.ReplyAll
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
@@ -660,6 +663,86 @@ private fun MessageActions(
                 leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
                 onClick = { snoozeSubmenu = true },
             )
+            // Read-only raw-headers view (issue #60). Headers are fetched on demand here, so
+            // the normal reader path never pulls them.
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.message_view_headers)) },
+                leadingIcon = { Icon(Icons.Filled.Code, contentDescription = null) },
+                onClick = { menuOpen = false; viewModel.viewHeaders() },
+            )
+        }
+    }
+    // The raw-headers sheet: open only while the VM holds a non-null headers state.
+    val headersState by viewModel.headers.collectAsStateWithLifecycle()
+    headersState?.let { hs ->
+        MessageHeadersSheet(state = hs, onDismiss = { viewModel.dismissHeaders() })
+    }
+}
+
+/**
+ * Read-only raw-headers viewer (issue #60): the opened message's header fields listed as
+ * `Name: value` in monospace, in original order (duplicates kept), vertically scrollable and
+ * fully selectable/copyable. No parsing or prettifying — just the raw lines. Shown as a modal
+ * bottom sheet, matching the reader's existing [ParticipantsSheet].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageHeadersSheet(
+    state: HeadersState,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 24.dp),
+        ) {
+            Text(
+                stringResource(R.string.message_headers_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+            HorizontalDivider()
+            when (state) {
+                is HeadersState.Loading -> Box(
+                    Modifier.fillMaxWidth().padding(32.dp),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator() }
+                is HeadersState.Error -> Text(
+                    stringResource(R.string.message_headers_error, state.message),
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                )
+                is HeadersState.Loaded -> if (state.headers.isEmpty()) {
+                    Text(
+                        stringResource(R.string.message_headers_empty),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                    )
+                } else {
+                    // Long values (DKIM signatures, Received chains) wrap rather than clip.
+                    SelectionContainer {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            state.headers.forEach { header ->
+                                // JMAP's `headers` value keeps the raw leading space after the
+                                // colon; trim it so the line reads cleanly and matches the IMAP path.
+                                Text(
+                                    text = "${header.name}: ${header.value.trim()}",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 13.sp,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

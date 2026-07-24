@@ -123,6 +123,10 @@
     <string name="message_report_spam">Als Spam melden</string>
     <string name="message_not_spam">Kein Spam</string>
     <string name="message_snooze">Zurückstellen…</string>
+    <string name="message_view_headers">Kopfzeilen anzeigen</string>
+    <string name="message_headers_title">Nachrichten-Kopfzeilen</string>
+    <string name="message_headers_empty">Keine Kopfzeilen vorhanden</string>
+    <string name="message_headers_error">Kopfzeilen konnten nicht geladen werden:\n%1$s</string>
     <string name="message_load_error">Nachricht konnte nicht geladen werden:\n%1$s</string>
     <string name="message_retry">Erneut versuchen</string>
     <string name="message_unknown_sender">(unbekannter Absender)</string>
