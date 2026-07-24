@@ -58,7 +58,6 @@
     <string name="inbox_delete">Delete</string>
     <string name="inbox_delete_forever">Delete permanently</string>
     <string name="inbox_undo">Undo</string>
-    <string name="inbox_message_sent">Message sent</string>
     <string name="inbox_app_name">Sterna Mail</string>
     <string name="inbox_switch_account">Switch account</string>
     <string name="inbox_all_inboxes">All inboxes</string>
@@ -640,6 +639,9 @@
     <string name="status_conversation_archived">Conversation archived</string>
     <string name="status_conversation_unarchived">Conversation unarchived</string>
     <string name="status_message_sent">Message sent</string>
+    <!-- Post-send feedback when offline: the message is only queued in the Outbox, not yet
+         delivered, and goes out when connectivity returns (issue #70). -->
+    <string name="status_message_queued">Waiting to send when connected</string>
     <string name="status_folder_op_failed">Folder operation failed</string>
     <string name="status_attach_failed">Attach failed: %1$s</string>
     <string name="status_open_attachment">Open attachment</string>

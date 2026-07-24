@@ -45,7 +45,6 @@
     <string name="inbox_delete">Usuń</string>
     <string name="inbox_delete_forever">Usuń trwale</string>
     <string name="inbox_undo">Cofnij</string>
-    <string name="inbox_message_sent">Wiadomość wysłana</string>
     <string name="inbox_app_name">Sterna Mail</string>
     <string name="inbox_switch_account">Zmień konto</string>
     <string name="inbox_all_inboxes">Wszystkie skrzynki odbiorcze</string>
@@ -518,6 +517,7 @@
     <string name="status_conversation_archived">Rozmowa zarchiwizowana</string>
     <string name="status_conversation_unarchived">Cofnięto archiwizację rozmowy</string>
     <string name="status_message_sent">Wiadomość wysłana</string>
+    <string name="status_message_queued">Oczekuje na wysłanie po połączeniu</string>
     <string name="status_folder_op_failed">Operacja na folderze nie powiodła się</string>
     <string name="status_attach_failed">Załączanie nie powiodło się: %1$s</string>
     <string name="status_open_attachment">Otwórz załącznik</string>

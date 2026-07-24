@@ -59,7 +59,7 @@ internal class ReconnectGate(private var online: Boolean) {
  */
 class ConnectivityWatcher(context: Context, private val onReconnect: () -> Unit) {
     private val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
-    private val gate = ReconnectGate(online = hasUsableNetwork())
+    private val gate = ReconnectGate(online = hasUsableNetwork(context))
 
     private val request = NetworkRequest.Builder()
         .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -76,25 +76,29 @@ class ConnectivityWatcher(context: Context, private val onReconnect: () -> Unit)
         }
     }
 
-    /** Does a real (non-VPN) internet transport exist right now? Seeds the gate. Mirrors the
-     *  request's capabilities — no VALIDATED, for the same reason. */
-    private fun hasUsableNetwork(): Boolean {
-        val cm = manager ?: return false
-        @Suppress("DEPRECATION")
-        val networks = runCatching { cm.allNetworks }.getOrNull() ?: return false
-        return networks.any { network ->
-            val caps = runCatching { cm.getNetworkCapabilities(network) }.getOrNull()
-            caps != null &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-        }
-    }
-
     fun start() {
         runCatching { manager?.registerNetworkCallback(request, callback) }
     }
 
     fun stop() {
         runCatching { manager?.unregisterNetworkCallback(callback) }
+    }
+}
+
+/**
+ * Whether a real (non-VPN) internet transport exists right now — a cheap synchronous read of the
+ * current capabilities, not a reachability probe. Matches [ConnectivityWatcher]'s own request
+ * (INTERNET + NOT_VPN, deliberately not VALIDATED — see the class doc for why), so the send-time
+ * "queued vs sent" verdict (#70) and the reconnect watcher never read connectivity differently.
+ */
+fun hasUsableNetwork(context: Context): Boolean {
+    val cm = context.applicationContext.getSystemService(ConnectivityManager::class.java) ?: return false
+    @Suppress("DEPRECATION")
+    val networks = runCatching { cm.allNetworks }.getOrNull() ?: return false
+    return networks.any { network ->
+        val caps = runCatching { cm.getNetworkCapabilities(network) }.getOrNull()
+        caps != null &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
     }
 }

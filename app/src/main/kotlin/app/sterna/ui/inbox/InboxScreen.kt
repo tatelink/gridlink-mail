@@ -255,7 +255,6 @@ fun InboxScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     // Hoisted strings for snackbars shown from non-composable LaunchedEffect coroutines.
     val undoLabel = stringResource(R.string.inbox_undo)
-    val messageSentLabel = stringResource(R.string.inbox_message_sent)
     val context = LocalContext.current
 
     // When the user switches accounts, re-point the inbox at the new one (skip the first
@@ -484,12 +483,14 @@ fun InboxScreen(
         } else viewModel.clearUndo()
     }
 
-    // Undo-send: while a message is held in the outbox, offer an Undo. The snackbar is
-    // dismissed automatically when the hold-back elapses (pending clears → effect restarts).
+    // Undo-send: while a message is held in the outbox, offer an Undo. The label is set at send
+    // time — "Message sent" when it went out, or a queued/offline notice when it only parked in the
+    // Outbox (#70) — so the snackbar reflects what actually happened rather than always "sent". The
+    // snackbar is dismissed automatically when the hold-back elapses (pending clears → restart).
     LaunchedEffect(outboxPending) {
-        outboxPending ?: return@LaunchedEffect
+        val pending = outboxPending ?: return@LaunchedEffect
         val result = snackbarHostState.showSnackbar(
-            message = messageSentLabel,
+            message = pending.label,
             actionLabel = undoLabel,
             duration = SnackbarDuration.Indefinite,
         )

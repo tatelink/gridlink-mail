@@ -45,7 +45,6 @@
     <string name="inbox_delete">Löschen</string>
     <string name="inbox_delete_forever">Endgültig löschen</string>
     <string name="inbox_undo">Rückgängig</string>
-    <string name="inbox_message_sent">Nachricht gesendet</string>
     <string name="inbox_app_name">Sterna Mail</string>
     <string name="inbox_switch_account">Konto wechseln</string>
     <string name="inbox_all_inboxes">Alle Posteingänge</string>
@@ -518,6 +517,7 @@
     <string name="status_conversation_archived">Unterhaltung archiviert</string>
     <string name="status_conversation_unarchived">Unterhaltung aus Archiv geholt</string>
     <string name="status_message_sent">Nachricht gesendet</string>
+    <string name="status_message_queued">Wartet auf Versand, sobald verbunden</string>
     <string name="status_folder_op_failed">Ordnervorgang fehlgeschlagen</string>
     <string name="status_attach_failed">Anhängen fehlgeschlagen: %1$s</string>
     <string name="status_open_attachment">Anhang öffnen</string>

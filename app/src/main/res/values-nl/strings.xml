@@ -45,7 +45,6 @@
     <string name="inbox_delete">Verwijderen</string>
     <string name="inbox_delete_forever">Permanent verwijderen</string>
     <string name="inbox_undo">Ongedaan maken</string>
-    <string name="inbox_message_sent">Bericht verzonden</string>
     <string name="inbox_app_name">Sterna Mail</string>
     <string name="inbox_switch_account">Account wisselen</string>
     <string name="inbox_all_inboxes">Alle postvakken IN</string>
@@ -518,6 +517,7 @@
     <string name="status_conversation_archived">Gesprek gearchiveerd</string>
     <string name="status_conversation_unarchived">Gesprek uit archief gehaald</string>
     <string name="status_message_sent">Bericht verzonden</string>
+    <string name="status_message_queued">Wacht op verzending zodra er verbinding is</string>
     <string name="status_folder_op_failed">Mapbewerking mislukt</string>
     <string name="status_attach_failed">Bijvoegen mislukt: %1$s</string>
     <string name="status_open_attachment">Bijlage openen</string>
