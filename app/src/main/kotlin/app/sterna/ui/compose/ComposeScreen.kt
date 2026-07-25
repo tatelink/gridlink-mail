@@ -72,9 +72,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.graphicsLayer
@@ -280,6 +282,14 @@ fun ComposeScreen(
     var initialTo by rememberSaveable { mutableStateOf("") }
     var initialSubject by rememberSaveable { mutableStateOf("") }
     var initialBody by rememberSaveable { mutableStateOf("") }
+
+    // Which compose this is, for the signature rules: a forward carries its original at send time
+    // (so its body holds no quote), while both a reply and a forward obey the "signature in
+    // replies" / "below the quoted text" settings.
+    val isReplyBody = replyTo != null && mode != "forward"
+    val isReplyOrForward = replyTo != null
+    // Changing "From" reads those settings from DataStore, which suspends.
+    val scope = rememberCoroutineScope()
 
     // Land in the recipient field with the keyboard up, unless the recipients are already filled
     // (a reply, or a reopened draft) — then the body takes the focus, see the prefill below.
@@ -565,19 +575,37 @@ fun ComposeScreen(
                             DropdownMenuItem(
                                 text = { Text(option.identity.display()) },
                                 onClick = {
-                                    // Changing "From" swaps the signature block the composer
-                                    // inserted — but only while it is still there verbatim; an
-                                    // edited or deleted one is left as the user made it (D5). The
-                                    // caret keeps its offset, and the unsaved-changes baseline gets
-                                    // the same swap, so switching identity alone isn't "dirty".
-                                    viewModel.selectFrom(option)?.let { swap ->
-                                        replaceSignatureBlock(body.text, swap.from, swap.to)?.let { rewritten ->
+                                    // Changing "From" makes the signature follow the identity (D5):
+                                    // the block is swapped while it is still there verbatim, an
+                                    // edited or deleted one is left as the user made it, and an
+                                    // identity that had none at all gets the new signature inserted
+                                    // where the prefill would have put it — before the quote when
+                                    // there is one. The caret keeps its offset, and the
+                                    // unsaved-changes baseline is rewritten the same way, so
+                                    // switching identity alone never counts as "dirty".
+                                    scope.launch {
+                                        // The quoted original this compose opened with: the reply
+                                        // baseline, and nothing for a new mail or a forward (whose
+                                        // original is carried at send time, not in the body).
+                                        val quoted = if (isReplyBody) initialBody else ""
+                                        val rewrite: (String) -> String? =
+                                            when (val change = viewModel.selectFrom(option, isReplyOrForward)) {
+                                                null -> return@launch
+                                                is SignatureChange.Swap -> { text ->
+                                                    replaceSignatureBlock(text, change.from, change.to)
+                                                }
+                                                is SignatureChange.Insert -> { text ->
+                                                    insertSignatureBlock(
+                                                        text, change.signature, quoted, change.belowQuote,
+                                                    )
+                                                }
+                                            }
+                                        rewrite(body.text)?.let { rewritten ->
                                             body = TextFieldValue(
                                                 rewritten,
                                                 TextRange(body.selection.start.coerceAtMost(rewritten.length)),
                                             )
-                                            replaceSignatureBlock(initialBody, swap.from, swap.to)
-                                                ?.let { initialBody = it }
+                                            rewrite(initialBody)?.let { initialBody = it }
                                         }
                                     }
                                     fromMenu = false

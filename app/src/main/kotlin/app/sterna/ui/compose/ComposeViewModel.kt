@@ -73,8 +73,16 @@ data class DraftFields(
 /** A "From" choice: one identity belonging to a specific account. */
 data class FromOption(val accountId: String, val identity: StoredIdentity)
 
-/** The signature change a "From" switch implies: the outgoing identity's text, and the new one's. */
-data class SignatureSwap(val from: String, val to: String)
+/**
+ * What a "From" switch asks of the body's signature (D5). Two cases, deliberately distinct:
+ * the identity being left had a signature, so its block is [Swap]ped where it is still intact (and
+ * an edited or deleted one is left alone); or it had none, so nothing can have been deleted and the
+ * new identity's signature is [Insert]ed where the prefill would have put it.
+ */
+sealed interface SignatureChange {
+    data class Swap(val from: String, val to: String) : SignatureChange
+    data class Insert(val signature: String, val belowQuote: Boolean) : SignatureChange
+}
 
 /**
  * The single #69 rule for "this draft is worth saving": a non-blank subject, a non-blank body, or
@@ -129,19 +137,33 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     val selectedFrom: StateFlow<FromOption?> = _selectedFrom.asStateFlow()
 
     /**
-     * Switch the sending identity, and report the signature swap it implies (D5), or null when
-     * there is nothing to swap. The signature now lives in the body, so changing "From" must swap
-     * it — but only where the outgoing identity's block is still there verbatim, which the caller
-     * settles with [replaceSignatureBlock]; an edited or deleted block is left exactly as the user
-     * made it.
+     * Switch the sending identity, and report what that asks of the body's signature (D5), or null
+     * when it asks nothing. The signature lives in the body now, so the identity it belongs to must
+     * follow the "From" picker:
+     *  - the identity being left had a signature → [SignatureChange.Swap]: the caller replaces its
+     *    block where it is still there verbatim ([replaceSignatureBlock]), and leaves an edited or
+     *    deleted one exactly as the user made it — a deletion was deliberate;
+     *  - it had none → nothing can have been deleted, so the new signature is
+     *    [SignatureChange.Insert]ed where the prefill would have put it ([insertSignatureBlock]).
+     *    On a reply or a forward that still obeys the two settings: nothing at all when "signature
+     *    in replies" is off, and below the quote when asked.
+     *
+     * [isReplyOrForward] says which compose this is, since the settings only govern that case.
      */
-    fun selectFrom(option: FromOption): SignatureSwap? {
+    suspend fun selectFrom(option: FromOption, isReplyOrForward: Boolean = false): SignatureChange? {
         val previous = selectedIdentity()
         _selectedFrom.value = option
         refreshPgp()
         val old = signatureTextOf(previous)
         val new = signatureTextOf(option.identity)
-        return if (old == new || old.isBlank()) null else SignatureSwap(old, new)
+        if (old == new) return null
+        if (old.isNotBlank()) return SignatureChange.Swap(old, new)
+        if (new.isBlank()) return null
+        if (isReplyOrForward && !settings.signatureOnReplies.first()) return null
+        return SignatureChange.Insert(
+            signature = new,
+            belowQuote = isReplyOrForward && settings.signatureBelowQuote.first(),
+        )
     }
 
     private fun selectedIdentity(): StoredIdentity? = _selectedFrom.value?.identity

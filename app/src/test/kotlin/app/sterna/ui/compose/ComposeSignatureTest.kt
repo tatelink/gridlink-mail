@@ -46,7 +46,11 @@ class ComposeSignatureTest {
         assertEquals("\n\n-- \nAlex\nAcme", bodyWithSignature("", "  \nAlex\nAcme\n  "))
     }
 
-    // --- From change (D5): swap only an untouched block -----------------------------------------
+    // --- From change (D5) -----------------------------------------------------------------------
+    // Three cases, and only three: the identity being left had a signature and its block is still
+    // there → swap it; it had one and the block is gone → the user deleted it deliberately, leave
+    // the body alone; it had none → nothing can have been deleted, so insert the new one where the
+    // prefill would have put it.
 
     @Test fun changingIdentitySwapsAnUntouchedSignature() {
         val body = "Hi Bob," + bodyWithSignature("", sig)
@@ -67,9 +71,63 @@ class ComposeSignatureTest {
         assertEquals("Hi Bob,", replaceSignatureBlock(body, sig, ""))
     }
 
-    @Test fun anIdentityWithNoSignatureInsertsNothingIntoTextAlreadyWritten() {
-        // Nothing to match, so nothing is rearranged: the user's text is never reshuffled.
+    @Test fun theSwapNeverInvents_aBlankOutgoingSignatureIsTheInsertCase() {
+        // replaceSignatureBlock is the swap half only: with nothing to match it declines, and the
+        // caller reaches for insertSignatureBlock instead (tested below).
         assertNull(replaceSignatureBlock("Hi Bob,", "", "Alex (work)"))
+    }
+
+    // --- From change, third case: the identity being left had NO signature ----------------------
+
+    @Test fun leavingASignaturelessIdentityInsertsTheNewOneAtTheEndOfANewMessage() {
+        assertEquals("Hi Bob,\n\n-- \nAlex (work)", insertSignatureBlock("Hi Bob,", "Alex (work)"))
+    }
+
+    @Test fun onAnEmptyNewMessageTheInsertMatchesWhatThePrefillWouldHaveWritten() {
+        assertEquals(bodyWithSignature("", sig), insertSignatureBlock("", sig))
+    }
+
+    @Test fun onAReplyTheSignatureGoesAboveTheQuote_underTheAnswerBeingWritten() {
+        // The layout a reply opens with: answer, signature, quote. Inserting must reproduce it,
+        // not drop the signature at the very top above what the user has already typed.
+        val quote = "\n\nOn …, Alice wrote:\n> hi"
+        val body = "Hi Bob,$quote"
+        assertEquals(
+            "Hi Bob,\n\n-- \nAlex Rivera\nAcme\n\nOn …, Alice wrote:\n> hi",
+            insertSignatureBlock(body, sig, quote, signatureBelowQuote = false),
+        )
+    }
+
+    @Test fun onAReplyTheBelowQuoteSettingPutsItAtTheEnd() {
+        val quote = "\n\nOn …, Alice wrote:\n> hi"
+        assertEquals(
+            "Hi Bob,$quote\n\n-- \nAlex Rivera\nAcme",
+            insertSignatureBlock("Hi Bob,$quote", sig, quote, signatureBelowQuote = true),
+        )
+    }
+
+    @Test fun anUntouchedReplyEndsUpExactlyAsThePrefillWouldHaveBuiltIt() {
+        val quote = "\n\nOn …, Alice wrote:\n> hi"
+        assertEquals(bodyWithSignature(quote, sig), insertSignatureBlock(quote, sig, quote))
+        assertEquals(
+            bodyWithSignature(quote, sig, signatureBelowQuote = true),
+            insertSignatureBlock(quote, sig, quote, signatureBelowQuote = true),
+        )
+    }
+
+    @Test fun aQuoteTheUserHasEditedAwayFallsBackToTheEnd() {
+        // The tail is no longer the quote we opened with: rather than guess a spot inside the
+        // user's text, the block goes at the end where it is visible and movable.
+        val quote = "\n\nOn …, Alice wrote:\n> hi"
+        assertEquals(
+            "Hi Bob, (quote deleted)\n\n-- \nAlex Rivera\nAcme",
+            insertSignatureBlock("Hi Bob, (quote deleted)", sig, quote),
+        )
+    }
+
+    @Test fun insertingABlankSignatureIsANoOp() {
+        assertEquals("Hi Bob,", insertSignatureBlock("Hi Bob,", ""))
+        assertEquals("Hi Bob,", insertSignatureBlock("Hi Bob,", "   "))
     }
 
     @Test fun onlyTheSignatureBlockIsSwapped_notAQuotedCopyOfIt() {

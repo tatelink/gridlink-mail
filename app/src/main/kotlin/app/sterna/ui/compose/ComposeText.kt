@@ -273,10 +273,34 @@ internal fun bodyWithSignature(
 }
 
 /**
+ * [body] with [signature]'s block added where the prefill would have put it — used when the "From"
+ * identity changes and the identity being left had NO signature, so there is nothing to swap and
+ * nothing the user can have deleted (D5).
+ *
+ * [quoted] is the quoted original this compose opened with (empty for a new message or a forward,
+ * whose original is carried separately). With the signature above the quote — the default — the
+ * block goes immediately before that quote, i.e. under the answer being written, exactly as a reply
+ * opens. Below the quote, or with no quote at all, it goes at the very end. A quote the user has
+ * edited away is no longer found as the tail, and the block then lands at the end rather than in an
+ * arbitrary spot.
+ */
+internal fun insertSignatureBlock(
+    body: String,
+    signature: String,
+    quoted: String = "",
+    signatureBelowQuote: Boolean = false,
+): String {
+    val block = signatureBlock(signature)
+    if (block.isEmpty()) return body
+    if (signatureBelowQuote || quoted.isEmpty() || !body.endsWith(quoted)) return body + block
+    return body.dropLast(quoted.length) + block + quoted
+}
+
+/**
  * [body] with the block of [oldSignature] swapped for [newSignature]'s — or null when the block is
  * not there verbatim, which means the user edited (or deleted) it and their text must be left
  * alone. Used when the "From" identity changes mid-composition (D5). A blank [oldSignature] has no
- * block to match, so nothing is inserted: text the user has already written is never rearranged.
+ * block to match: that case is [insertSignatureBlock]'s, not this one's.
  */
 internal fun replaceSignatureBlock(body: String, oldSignature: String, newSignature: String): String? {
     val at = signatureBlockIndex(body, oldSignature)
