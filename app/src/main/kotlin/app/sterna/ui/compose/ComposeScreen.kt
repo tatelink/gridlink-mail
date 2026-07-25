@@ -126,6 +126,7 @@ fun ComposeScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val prefill by viewModel.prefill.collectAsStateWithLifecycle()
+    val replyQuote by viewModel.replyQuote.collectAsStateWithLifecycle()
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     val fromOptions by viewModel.fromOptions.collectAsStateWithLifecycle()
@@ -310,6 +311,19 @@ fun ComposeScreen(
                 applied = true
                 if (caret != null) runCatching { bodyFocus.requestFocus() }
             }
+        }
+    }
+
+    // A reply/reply-all opens with To/Subject prefilled instantly from the cache; the quoted
+    // original arrives a moment later (it needs the full message fetched, which offline stalls on
+    // the network timeout). Drop it into the body only while the body is still the untouched initial
+    // prefill — never over text the user has started typing — and re-baseline so it isn't seen as an
+    // unsaved edit. The caret stays at the top, above the quote, exactly as a fresh reply opens.
+    LaunchedEffect(replyQuote) {
+        val quote = replyQuote ?: return@LaunchedEffect
+        if (canApplyReplyQuote(applied, body.text, initialBody)) {
+            body = TextFieldValue(quote, TextRange(0))
+            initialBody = quote
         }
     }
 

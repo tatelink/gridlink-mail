@@ -265,4 +265,19 @@ class ComposeTextTest {
         assertEquals("RE: already", withPrefix("RE: already", "Re:")) // existing prefix kept, any case
         assertEquals("Fwd: ", withPrefix(null, "Fwd:"))
     }
+
+    // --- Late-arriving quote must not clobber the user's typing (cache-first ordering) ---
+
+    @Test fun quoteAppliesOntoTheUntouchedInitialBody() {
+        // Header prefill applied, body still equals its baseline ("" for a reply) → apply the quote.
+        assertTrue(canApplyReplyQuote(applied = true, bodyText = "", initialBody = ""))
+    }
+
+    @Test fun quoteSkippedWhenUserHasStartedTyping() {
+        assertFalse(canApplyReplyQuote(applied = true, bodyText = "Hi there", initialBody = ""))
+    }
+
+    @Test fun quoteWaitsUntilHeaderPrefillApplied() {
+        assertFalse(canApplyReplyQuote(applied = false, bodyText = "", initialBody = ""))
+    }
 }

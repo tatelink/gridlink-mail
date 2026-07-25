@@ -92,6 +92,16 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private val _prefill = MutableStateFlow<DraftFields?>(null)
     val prefill: StateFlow<DraftFields?> = _prefill.asStateFlow()
 
+    /**
+     * The quoted original for a reply/reply-all, delivered separately from [prefill]: the To/Subject
+     * headers are built instantly from the cached list row, while the quote needs the full original
+     * fetched over the network, which offline stalls on the timeout. Emitted once (null until the
+     * fetch returns) so the screen can drop the quote into the body only while the body is still the
+     * untouched initial prefill — never over text the user has begun typing.
+     */
+    private val _replyQuote = MutableStateFlow<String?>(null)
+    val replyQuote: StateFlow<String?> = _replyQuote.asStateFlow()
+
     private val _attachments = MutableStateFlow<List<EmailBodyPart>>(emptyList())
     val attachments: StateFlow<List<EmailBodyPart>> = _attachments.asStateFlow()
 
@@ -443,49 +453,57 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 _attachmentStatus.value =
                     getApplication<Application>().getString(R.string.compose_prefill_failed)
             }
-            // The full original is needed only for the quoted body (reply) or the carried original
-            // (forward). To/Subject/threading of a reply come from headers alone, which the cached
-            // list row already holds — so fetch the full original, but don't let a failed fetch
-            // blank the reply's recipient and subject (Codeberg: offline reply to a never-opened
-            // mail). Online, the fetch succeeds and behaviour is unchanged.
+
+            // Cache-FIRST, and never blocked on the network: To/Subject (and the reply-all
+            // recipients) of a reply come from the original's headers, which the cached list row
+            // already holds — so prefill them IMMEDIATELY. Offline, fetchEmail below does not fail
+            // fast: it blocks on the connection timeout (~10s), so waiting on it to build the
+            // headers is exactly the bug — the recipient/subject must appear at once (Codeberg:
+            // offline reply to a never-opened mail). No quote yet; the body is enriched below.
+            val cached = runCatching { repo.cachedEmail(replyToId) }.getOrNull()
+            if (cached != null) {
+                _prefill.value = buildPrefill(cached, mode, credentials.username, quoteBody = false)
+                if (mode != "forward") {
+                    // Threading ids aren't cached on the list row (empty here) — the fetch below
+                    // supplies the real ones; keep whatever the cache has meanwhile.
+                    inReplyTo = cached.messageId
+                    references = cached.references + cached.messageId
+                }
+            }
+
+            // THEN, in the background, fetch the full original — only to enrich the body: the quoted
+            // original for a reply, or the carried original for a forward. This is the call that
+            // stalls offline, which is why the headers above did not wait on it.
             val original = runCatching { repo.fetchEmail(credentials, replyToId) }.getOrNull()
 
+            if (original == null) {
+                // No full body available (offline, uncached, or the fetch failed). The headers are
+                // already prefilled from the cache if there was one; either way, say the original
+                // couldn't load so the missing quote / forward content isn't a silent surprise.
+                prefillFailed()
+                return@launch
+            }
+
             if (mode == "forward") {
-                // A forward genuinely needs the body; with no original there is nothing to carry, so
-                // degrade with the notice rather than open a forward that has lost its content.
-                if (original == null) {
-                    prefillFailed()
-                    return@launch
-                }
-                _prefill.value = buildPrefill(original, mode, credentials.username)
-                // Carry the original to send time instead of flattening it into the editor.
+                // A forward's editable body stays empty; the original is carried at send time. Its
+                // "Fwd: …" subject came from the cache above — set it now only if nothing was cached.
+                if (cached == null) _prefill.value = buildPrefill(original, mode, credentials.username)
                 runCatching { forwarded = buildForwarded(credentials, original) }
                     .onFailure { prefillFailed() }
                 return@launch
             }
 
-            // Reply / reply-all.
-            if (original != null) {
-                _prefill.value = buildPrefill(original, mode, credentials.username)
-                inReplyTo = original.messageId
-                references = original.references + original.messageId
-                return@launch
-            }
-            // Offline and never opened: the full body isn't available, but the cached list row still
-            // carries the sender, recipients and subject — enough to address the reply correctly.
-            // Prefill those from the cache and skip the quote (don't quote the truncated preview),
-            // saying so, rather than blanking To/Subject.
-            val cached = runCatching { repo.cachedEmail(replyToId) }.getOrNull()
+            // Reply / reply-all: take the real threading ids from the fetched original, then hand
+            // the quoted body to the screen out-of-band via [replyQuote] so it lands WITHOUT
+            // touching the To/Subject the user already sees (or has begun editing). When nothing was
+            // cached, the headers weren't prefilled yet, so emit the full prefill (quote included).
+            inReplyTo = original.messageId
+            references = original.references + original.messageId
             if (cached == null) {
-                prefillFailed()
-                return@launch
+                _prefill.value = buildPrefill(original, mode, credentials.username)
+            } else {
+                _replyQuote.value = quote(original)
             }
-            _prefill.value = buildPrefill(cached, mode, credentials.username, quoteBody = false)
-            // Threading headers aren't cached on the list row (they stay empty here); a full fetch
-            // would supply them, so an offline reply just isn't threaded — acceptable degradation.
-            inReplyTo = cached.messageId
-            references = cached.references + cached.messageId
-            prefillFailed()
         }
     }
 
