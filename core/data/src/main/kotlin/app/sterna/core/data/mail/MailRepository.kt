@@ -3160,10 +3160,13 @@ class MailRepository(
         dateMillis = System.currentTimeMillis(),
     )
 
+    // The From is a string-built header on the IMAP/SMTP path, so the display name must be
+    // RFC 5322-quoted (specials like the '@'/'.' of an email-address name) or RFC 2047-encoded
+    // (non-ASCII) here — OutgoingMime.formatAddress does that. JMAP sends a structured {name,
+    // email} and is unaffected (#77).
     private fun formatFrom(name: String?, email: String?): String? = when {
         email.isNullOrBlank() -> null
-        name.isNullOrBlank() -> email
-        else -> "$name <$email>"
+        else -> OutgoingMime.formatAddress(name, email)
     }
 
     /**
