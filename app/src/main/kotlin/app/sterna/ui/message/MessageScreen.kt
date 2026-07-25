@@ -848,16 +848,18 @@ private fun ConversationBody(
     // (swipe-between-messages on the body — #6). The header is an OVERLAY that collapses (slides up)
     // in lock-step with the body scroll; the Reply/Forward bar overlays the bottom, revealed only at
     // the end (it never occupies scroll space, so it can't shrink the body into a show/hide loop).
-    // Key on whether the body has ARRIVED. The body loads async, so the first composition of a
-    // cold-opened mail has full == null (header-only — see MessageViewModel). Keyed on msg.id alone,
-    // showBar/bodyReady would latch that body-less initial value (true = shown) and never reset when
-    // the body arrived, so the Reply/Forward bar flashed in at load on every cold open — but NOT via
-    // swipe, where the prewarmed page already had its body (full != null → init false). Including
-    // `hasBody` in the key resets them to hidden once the body is present (the scroll logic then
-    // drives the reveal); a genuinely body-less mail keeps them shown.
-    val hasBody = full != null
-    var bodyReady by remember(msg.id, hasBody) { mutableStateOf(!hasBody) }
-    var showBar by remember(msg.id, hasBody) { mutableStateOf(!hasBody) }
+    // Both start HIDDEN and are only revealed once the body has ARRIVED and laid out. The body loads
+    // async, so a cold open first paints a cached header-only frame (full == null — see
+    // MessageViewModel) before the fetch returns. Initialising these to `!hasBody` (= shown) for that
+    // frame made the Reply/Forward bar flash in on the header-only frame and then reset to hidden when
+    // the body arrived. That brief show->hide was absorbed by the bar's fade, so it was invisible with
+    // animations ON, but with the OS "Remove animations" setting ON (animator duration scale 0) the
+    // fade is instant and the flash rendered as a blink (Codeberg #63). Starting hidden removes the
+    // transient entirely: once the body is ready the scroll-end logic below drives the one clean
+    // reveal. (On a successful load the body always becomes non-null, so there is no resting
+    // header-only state to keep shown — the WebView's onReady/onScroll always take over.)
+    var bodyReady by remember(msg.id) { mutableStateOf(false) }
+    var showBar by remember(msg.id) { mutableStateOf(false) }
     // The VISIBLE Reply/Forward bar is fixed chrome at the pager level (outside the horizontal
     // swipe — #62): this page only reports whether its resting/scroll state wants the bar, and
     // the chrome follows the SETTLED page's value. The invisible measuring copy below stays
