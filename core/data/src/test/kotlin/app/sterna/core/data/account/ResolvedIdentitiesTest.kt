@@ -110,6 +110,44 @@ class ResolvedIdentitiesTest {
         assertEquals("mine", acc.defaultIdentity()?.id)
     }
 
+    // --- normalizeManualIdentities: self-heal old merge-on-save fold pollution ---
+
+    @Test fun normalize_collapsesByteIdenticalDuplicates() {
+        // Three identical rows (the admin@masto.top pollution) collapse to one.
+        val dup = id("a1", "admin@masto.top", name = "Admin", signature = "sig")
+        val dup2 = id("a2", "admin@masto.top", name = "Admin", signature = "sig")
+        val dup3 = id("a3", "admin@masto.top", name = "Admin", signature = "sig")
+        val cleaned = StoredAccount.normalizeManualIdentities(listOf(dup, dup2, dup3), emptyList())
+
+        assertEquals(1, cleaned.size)
+        assertEquals("a1", cleaned[0].id) // first occurrence kept
+    }
+
+    @Test fun normalize_dropsManualCopyOfServerIdentity() {
+        val server = id("srv", "admin@masto.top", name = "Admin", signature = "sig")
+        val frozen = id("manual", "admin@masto.top", name = "Admin", signature = "sig")
+        val cleaned = StoredAccount.normalizeManualIdentities(listOf(frozen), listOf(server))
+
+        assertTrue(cleaned.isEmpty())
+    }
+
+    @Test fun normalize_keepsSameEmailButDifferentName() {
+        // A genuine override (same address, different name) survives.
+        val server = id("srv", "admin@masto.top", name = "Admin", signature = "sig")
+        val override = id("manual", "admin@masto.top", name = "Custom Name", signature = "sig")
+        val cleaned = StoredAccount.normalizeManualIdentities(listOf(override), listOf(server))
+
+        assertEquals(listOf("manual"), cleaned.map { it.id })
+    }
+
+    @Test fun normalize_keepsDistinctIdentity_differentEmail() {
+        val server = id("srv", "admin@masto.top", name = "Admin", signature = "sig")
+        val distinct = id("manual", "me@example.test", name = "Me", signature = "")
+        val cleaned = StoredAccount.normalizeManualIdentities(listOf(distinct), listOf(server))
+
+        assertEquals(listOf("manual"), cleaned.map { it.id })
+    }
+
     @Test fun defaultIdentity_serverOverriddenByManual_degradesToFirst() {
         // Default pointed at a server identity that a same-email manual entry now overrides:
         // the server id is deduped out, so it must degrade to the first resolved (the manual one).

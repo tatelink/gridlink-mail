@@ -94,4 +94,28 @@ data class StoredAccount(
         val resolved = resolvedIdentities()
         return resolved.firstOrNull { it.id == defaultIdentityId } ?: resolved.firstOrNull()
     }
+
+    companion object {
+        /**
+         * Heal the MANUAL identity list of pollution left by the old merge-on-save fold (which
+         * wrote the merged server+manual list back into the manual field on every Save, so server
+         * identities piled up as frozen copies and byte-identical rows accumulated). Pure and
+         * order-preserving so the editor can seed with it and Save can persist the cleaned result:
+         *  1. collapse byte-identical duplicates, keyed by (email, name, signature);
+         *  2. drop a manual entry that matches a server identity on email AND name AND signature
+         *     (a frozen copy — not an intentional override). A manual entry sharing only the email
+         *     but differing in name or signature is a genuine override and is kept (it still wins
+         *     over the server one in [resolvedIdentities]).
+         */
+        fun normalizeManualIdentities(
+            manual: List<StoredIdentity>,
+            server: List<StoredIdentity>,
+        ): List<StoredIdentity> {
+            fun key(i: StoredIdentity) = Triple(i.email.trim().lowercase(), i.name, i.signature)
+            val serverKeys = server.map(::key).toSet()
+            return manual
+                .filterNot { key(it) in serverKeys }
+                .distinctBy(::key)
+        }
+    }
 }

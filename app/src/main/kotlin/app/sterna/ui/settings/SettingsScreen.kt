@@ -1175,7 +1175,8 @@ private fun AccountDetailScreen(
     // no server identity), so a fresh account still opens with one row instead of an empty section.
     var identities by remember(accountId) {
         mutableStateOf(
-            account.identities.ifEmpty {
+            // Self-heal pollution from the old merge-on-save fold before showing the raw list.
+            StoredAccount.normalizeManualIdentities(account.identities, account.serverIdentities).ifEmpty {
                 if (account.serverIdentities.isEmpty()) {
                     listOf(
                         StoredIdentity(
@@ -1734,9 +1735,12 @@ private fun AccountDetailScreen(
                 Button(
                     onClick = {
                         // Persist ONLY the manual list (server identities re-merge live), dropping
-                        // blank rows. Mirror the first signature to the legacy account-level field
-                        // for any back-compat readers.
-                        val cleanIdentities = identities.filter { it.email.isNotBlank() }
+                        // blank rows and healing any old-fold pollution so storage stays clean.
+                        // Mirror the first signature to the legacy account-level field for back-compat.
+                        val cleanIdentities = StoredAccount.normalizeManualIdentities(
+                            identities.filter { it.email.isNotBlank() },
+                            account.serverIdentities,
+                        )
                         // Keep a default that points at a still-present manual OR server identity;
                         // otherwise drop it so it degrades to the first rather than dangling.
                         val serverIds = account.serverIdentities.map { it.id }
