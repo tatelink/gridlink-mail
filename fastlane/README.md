@@ -2,8 +2,7 @@
 
 This directory holds the app listing text and images in the standard
 [Fastlane Supply](https://docs.fastlane.tools/actions/supply/) layout. It is
-read **as-is** by both [IzzyOnDroid](https://android.izzysoft.de/articles/named/izzyondroid-api)
-and [F-Droid](https://f-droid.org/docs/All_About_Descriptions_Graphics_and_Screenshots/),
+read **as-is** by [F-Droid](https://f-droid.org/docs/All_About_Descriptions_Graphics_and_Screenshots/),
 so no separate store copy is needed.
 
 ## Layout

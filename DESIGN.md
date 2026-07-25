@@ -7,8 +7,8 @@ for building the Compose UI so screens stay consistent. It complements
 
 ## Direction
 
-**Material Expressive, kept restrained.** We use Material 3 Expressive's
-components and motion physics, but dial back colour and bounce. The feel we are
+**Material Expressive, kept restrained.** I use Material 3 Expressive's
+components and motion physics, but dial back colour and bounce. The feel I am
 after is **sober, elegant, and responsive (réactif)** — lively, never busy.
 
 Three principles:
@@ -54,7 +54,7 @@ Three principles:
 |---|---|
 | Top bar | `LargeTopAppBar` that collapses on scroll; search + settings as actions; hamburger opens the folder drawer. |
 | Message row | monogram · (sender + subject + 1-line preview) · (time + unread dot). Accent dot for unread, no shouting bold. |
-| Folder drawer | `ModalNavigationDrawer` (the M3 drawer we kept): account header, folder tree, selected item in `secondaryContainer`. |
+| Folder drawer | `ModalNavigationDrawer` (the M3 drawer I kept): account header, folder tree, selected item in `secondaryContainer`. |
 | Compose FAB | `FloatingActionButton` (extended) that shrinks to icon-only on scroll. |
 | Opened message | The one place a card is used; HTML in a WebView with remote content blocked. |
 

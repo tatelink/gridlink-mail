@@ -78,7 +78,7 @@ transports**.
    - Notification **grouping stays per account**; non-Inbox mail shows the
      folder name as notification sub-text. Inbox notifications are unchanged.
 
-## Current pipeline (shipped 1.1.8) — what we build on
+## Current pipeline (shipped 1.1.8) — what I build on
 
 All in `app/src/main/kotlin/app/sterna/push/`:
 
@@ -118,7 +118,7 @@ All in `app/src/main/kotlin/app/sterna/push/`:
 
 Goal: Sieve-filtered (or any) folders can trigger notifications, on the existing
 transports. JMAP gets live coverage; IMAP non-Inbox folders are covered by the
-periodic worker (IDLE is single-folder; we deliberately do **not** open N IDLE
+periodic worker (IDLE is single-folder; I deliberately do **not** open N IDLE
 connections per account).
 
 ## A1. Watched-folder storage
@@ -183,7 +183,7 @@ suspend fun refreshAccountFolders(
 - **Missing folders** (deleted/renamed server-side): auto-prune — the caller
   drops the watch flag and clears that folder's baseline. A folder deleted
   elsewhere means the watch intent is gone; no error surfaced.
-- We deliberately do **not** reuse `refresh(credentials, mailboxId, …)`: it
+- I deliberately do **not** reuse `refresh(credentials, mailboxId, …)`: it
   mutates the cached single-account context and rewrites the global mailbox
   cache — wrong for background multi-account work.
 
