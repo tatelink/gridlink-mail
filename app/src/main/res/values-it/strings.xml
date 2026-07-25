@@ -517,6 +517,7 @@
     <string name="status_conversation_archived">Conversazione archiviata</string>
     <string name="status_conversation_unarchived">Archiviazione annullata</string>
     <string name="status_message_sent">Messaggio inviato</string>
+    <string name="status_message_sending">Invio in corso…</string>
     <string name="status_message_queued">In attesa di invio quando c\'è connessione</string>
     <string name="status_folder_op_failed">Operazione sulla cartella non riuscita</string>
     <string name="status_attach_failed">Allegato non riuscito: %1$s</string>

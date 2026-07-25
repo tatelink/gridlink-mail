@@ -517,6 +517,7 @@
     <string name="status_conversation_archived">Переписка архивирована</string>
     <string name="status_conversation_unarchived">Переписка извлечена из архива</string>
     <string name="status_message_sent">Письмо отправлено</string>
+    <string name="status_message_sending">Отправка…</string>
     <string name="status_message_queued">Ожидает отправки при подключении</string>
     <string name="status_folder_op_failed">Не удалось выполнить операцию с папкой</string>
     <string name="status_attach_failed">Не удалось прикрепить: %1$s</string>
