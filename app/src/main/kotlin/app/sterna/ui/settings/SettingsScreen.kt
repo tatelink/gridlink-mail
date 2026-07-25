@@ -1485,7 +1485,10 @@ private fun AccountDetailScreen(
                 // is authoritative for what you may send as); manual identities are editable and are
                 // the only ones written back on save. Never seed the editable list from the merged
                 // resolvedIdentities() — that would freeze server aliases into the manual field.
-                val serverIdentities = account.serverIdentities
+                // Dedup the server group DISPLAY by email (some servers return byte-identical
+                // Identity/get duplicates), consistent with resolvedIdentities() and the composer's
+                // From picker. Genuinely distinct server addresses are kept.
+                val serverIdentities = StoredAccount.distinctServerIdentities(account.serverIdentities)
                 val serverEmails = remember(serverIdentities) {
                     serverIdentities.map { it.email.trim().lowercase() }.toSet()
                 }

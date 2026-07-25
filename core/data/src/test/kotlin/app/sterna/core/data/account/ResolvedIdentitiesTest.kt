@@ -148,6 +148,16 @@ class ResolvedIdentitiesTest {
         assertEquals(listOf("manual"), cleaned.map { it.id })
     }
 
+    @Test fun distinctServerIdentities_collapsesByteDuplicates_keepsDistinct() {
+        // Server returns two byte-identical admin rows + one distinct address (the masto.top quirk).
+        val dup1 = id("s1", "admin@masto.top", name = "Admin")
+        val dup2 = id("s2", "Admin@Masto.top", name = "Admin")
+        val distinct = id("s3", "emon@masto.top", name = "Emon")
+        val display = StoredAccount.distinctServerIdentities(listOf(dup1, dup2, distinct))
+
+        assertEquals(listOf("s1", "s3"), display.map { it.id }) // first dup kept, distinct kept
+    }
+
     @Test fun defaultIdentity_serverOverriddenByManual_degradesToFirst() {
         // Default pointed at a server identity that a same-email manual entry now overrides:
         // the server id is deduped out, so it must degrade to the first resolved (the manual one).

@@ -117,5 +117,14 @@ data class StoredAccount(
                 .filterNot { key(it) in serverKeys }
                 .distinctBy(::key)
         }
+
+        /**
+         * Server identities deduped by address for DISPLAY, keeping the first occurrence. Some
+         * servers return byte-identical duplicates from JMAP Identity/get; [resolvedIdentities]
+         * already collapses them by email, so the editor's read-only server group must do the same
+         * to stay consistent with the composer's From picker. Genuinely distinct addresses stay.
+         */
+        fun distinctServerIdentities(server: List<StoredIdentity>): List<StoredIdentity> =
+            server.distinctBy { it.email.trim().lowercase() }
     }
 }
