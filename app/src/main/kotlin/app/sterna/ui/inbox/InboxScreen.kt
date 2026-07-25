@@ -237,6 +237,7 @@ fun InboxScreen(
     val pendingFolderDelete by viewModel.pendingFolderDelete.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
+    val restoredDraft by viewModel.restoredDraft.collectAsStateWithLifecycle()
     val outboxCount by viewModel.outboxCount.collectAsStateWithLifecycle()
     val outboxHasFailures by viewModel.outboxHasFailures.collectAsStateWithLifecycle()
     val highlightId by viewModel.highlightId.collectAsStateWithLifecycle()
@@ -495,9 +496,17 @@ fun InboxScreen(
             duration = SnackbarDuration.Indefinite,
         )
         if (result == SnackbarResult.ActionPerformed) {
+            // Drop the queued row and hand the draft back; the reopen is driven separately by the
+            // restoredDraft collector below, so it can't be lost when this coroutine is torn down.
             viewModel.undoSend()
-            onReopenDraft() // bring the held draft back to compose instead of dropping it
         }
+    }
+    // Reopen compose with the draft of an undone send. Kept out of the Undo snackbar handler above:
+    // undoSend() clears outboxPending, which cancels that handler's coroutine, so reopening from
+    // there raced the teardown (offline especially, where Undo is the normal path) and could be
+    // silently dropped. This mirrors the Outbox screen's edit-reopen, which is already reliable.
+    LaunchedEffect(restoredDraft) {
+        if (restoredDraft != null) onReopenDraft()
     }
     // A send that failed past its retries is no longer a transient snackbar: it stays in the
     // outbox and is surfaced by the badge + failure banner below.
