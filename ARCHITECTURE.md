@@ -47,7 +47,7 @@ back to a full re-query. Reconciliation never evicts ids mutated locally in the
 last ~45 s (the *recently-mutated* spare set): a delta computed from a
 pre-mutation cursor may falsely report a just-flagged or just-restored message
 as removed. After a local `Email/set`, the stored `emailState` is advanced to
-the response's new state so push echoes of our own action are not re-applied.
+the response's new state so push echoes of the app's own action are not re-applied.
 
 **The cache is the UI's source.** Screens read Room via Paging 3; the network
 only ever writes into Room. A single folder view is backed by a `RemoteMediator`

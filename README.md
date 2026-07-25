@@ -25,14 +25,14 @@ mail, on the server *you* choose.
 
 > _Named after **Sterna**, the genus of terns 🐦 — the Arctic tern flies the
 > longest migration of any animal, carrying itself clear across the world and back
-> every single year. We liked the idea of mail that travels light and always finds
+> every single year. I liked the idea of mail that travels light and always finds
 > its way home._
 
 > **Status: 1.1, and shipping.** Sterna is a complete, daily-drivable email
 > client: read, organise, search, write, schedule, and send mail (with
 > attachments) over JMAP or IMAP/SMTP, across multiple accounts, fully
 > offline-capable, with OpenPGP encryption, push notifications, and remote
-> content blocked by default. Hit a rough edge? Please tell us about it!
+> content blocked by default. Hit a rough edge? Please tell me about it!
 
 ## 📸 A look
 

@@ -17,7 +17,7 @@ Please report security issues **privately** rather than opening a public issue:
 
 Include a description, affected version (see `versionName` in `app/build.gradle.kts`),
 and a proof-of-concept if you have one (e.g. a crafted `.eml`, a server response, or an
-`adb`/intent invocation). We aim to acknowledge reports promptly and will credit
+`adb`/intent invocation). I aim to acknowledge reports promptly and will credit
 reporters who wish to be named once a fix ships.
 
 Please do **not** test against servers or accounts you do not own. A local Stalwart
@@ -123,6 +123,7 @@ Out of scope:
 
 ## Coordinated disclosure
 
-We prefer coordinated disclosure: give us a reasonable window to ship a fix before any
-public write-up. Because Sterna is distributed through F-Droid/IzzyOnDroid as well as
-directly, users may take time to update, so please factor that into disclosure timing.
+I prefer coordinated disclosure: give me a reasonable window to ship a fix before any
+public write-up. Because Sterna is distributed through F-Droid and Obtainium (with the
+Codeberg releases as the source of truth), users may take time to update, so please
+factor that into disclosure timing.
