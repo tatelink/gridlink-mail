@@ -469,9 +469,9 @@
     <string name="settings_cached_messages">Cached messages</string>
     <string name="settings_clear_account_cache">Clear this account\'s cache</string>
     <string name="settings_pgp_section">OpenPGP encryption</string>
-    <string name="settings_pgp_enable_title">Use OpenPGP</string>
+    <string name="settings_pgp_enable_title">Sign, encrypt and read mail with OpenKeychain</string>
     <string name="settings_pgp_enable_subtitle">Sign and encrypt mail with OpenKeychain</string>
-    <string name="settings_pgp_key_title">Your signing key</string>
+    <string name="settings_pgp_key_title">Your Key ID</string>
     <string name="settings_pgp_key_none">No key selected</string>
     <string name="settings_pgp_choose_key">Choose key</string>
     <string name="settings_pgp_encrypt_default_title">Encrypt by default</string>
@@ -683,7 +683,7 @@
     <string name="settings_mark_read_title">Mark as read when</string>
     <string name="settings_mark_read_deleting">deleting</string>
     <string name="settings_mark_read_archiving">archiving</string>
-    <string name="settings_mark_read_moving">moving out of the inbox</string>
+    <string name="settings_mark_read_moving">moving to another folder</string>
     <string name="settings_mark_read_never">never</string>
     <string name="settings_about_section">About</string>
     <string name="settings_about_version">Version</string>

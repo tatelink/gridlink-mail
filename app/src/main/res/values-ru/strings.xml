@@ -381,9 +381,9 @@
     <string name="settings_cached_messages">Письма в кеше</string>
     <string name="settings_clear_account_cache">Очистить кеш этого аккаунта</string>
     <string name="settings_pgp_section">Шифрование OpenPGP</string>
-    <string name="settings_pgp_enable_title">Использовать OpenPGP</string>
+    <string name="settings_pgp_enable_title">Подписывать, шифровать и читать письма через OpenKeychain</string>
     <string name="settings_pgp_enable_subtitle">Подписывать и шифровать почту через OpenKeychain</string>
-    <string name="settings_pgp_key_title">Ваш ключ подписи</string>
+    <string name="settings_pgp_key_title">Ваш идентификатор ключа</string>
     <string name="settings_pgp_key_none">Ключ не выбран</string>
     <string name="settings_pgp_choose_key">Выбрать ключ</string>
     <string name="settings_pgp_encrypt_default_title">Шифровать по умолчанию</string>

@@ -381,9 +381,9 @@
     <string name="settings_cached_messages">Wiadomości w pamięci podręcznej</string>
     <string name="settings_clear_account_cache">Wyczyść pamięć podręczną tego konta</string>
     <string name="settings_pgp_section">Szyfrowanie OpenPGP</string>
-    <string name="settings_pgp_enable_title">Używaj OpenPGP</string>
+    <string name="settings_pgp_enable_title">Podpisuj, szyfruj i odczytuj wiadomości za pomocą OpenKeychain</string>
     <string name="settings_pgp_enable_subtitle">Podpisuj i szyfruj pocztę za pomocą OpenKeychain</string>
-    <string name="settings_pgp_key_title">Twój klucz podpisujący</string>
+    <string name="settings_pgp_key_title">Twój identyfikator klucza</string>
     <string name="settings_pgp_key_none">Nie wybrano klucza</string>
     <string name="settings_pgp_choose_key">Wybierz klucz</string>
     <string name="settings_pgp_encrypt_default_title">Szyfruj domyślnie</string>

@@ -381,9 +381,9 @@
     <string name="settings_cached_messages">Mensajes en caché</string>
     <string name="settings_clear_account_cache">Vaciar la caché de esta cuenta</string>
     <string name="settings_pgp_section">Cifrado OpenPGP</string>
-    <string name="settings_pgp_enable_title">Usar OpenPGP</string>
+    <string name="settings_pgp_enable_title">Firmar, cifrar y leer mensajes con OpenKeychain</string>
     <string name="settings_pgp_enable_subtitle">Firmar y cifrar el correo con OpenKeychain</string>
-    <string name="settings_pgp_key_title">Tu clave de firma</string>
+    <string name="settings_pgp_key_title">Tu ID de clave</string>
     <string name="settings_pgp_key_none">Ninguna clave seleccionada</string>
     <string name="settings_pgp_choose_key">Elegir clave</string>
     <string name="settings_pgp_encrypt_default_title">Cifrar por defecto</string>
