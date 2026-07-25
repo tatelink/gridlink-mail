@@ -357,6 +357,26 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setUnarchiveOnReply(enabled) }
     }
 
+    val signatureOnReplies = settings.signatureOnReplies.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
+    fun setSignatureOnReplies(enabled: Boolean) {
+        viewModelScope.launch { settings.setSignatureOnReplies(enabled) }
+    }
+
+    val signatureBelowQuote = settings.signatureBelowQuote.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
+    fun setSignatureBelowQuote(enabled: Boolean) {
+        viewModelScope.launch { settings.setSignatureBelowQuote(enabled) }
+    }
+
     val messageTextSize = settings.messageTextSize.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

@@ -22,6 +22,7 @@
     <string name="compose_body_placeholder">E-mail opstellen</string>
     <string name="compose_quote_attribution">Op %1$s schreef %2$s:</string>
     <string name="compose_quote_someone">iemand</string>
+    <string name="compose_quote_not_added">Geciteerd bericht niet toegevoegd: je was al begonnen met schrijven.</string>
     <string name="compose_forward_date">Datum</string>
     <string name="compose_could_not_send">Kon niet verzenden: %1$s</string>
     <string name="compose_prefill_failed">Kon het oorspronkelijke bericht niet laden.</string>
@@ -187,8 +188,8 @@
     <string name="settings_accounts_summary">Toevoegen, wisselen, serverinstellingen</string>
     <string name="settings_appearance_title">Weergave</string>
     <string name="settings_appearance_summary">Thema, dichtheid, taal</string>
-    <string name="settings_reading_title">Lezen</string>
-    <string name="settings_reading_summary">Veegacties</string>
+    <string name="settings_reading_title">Lezen en schrijven</string>
+    <string name="settings_reading_summary">Veegacties, ondertekening</string>
     <string name="settings_notifications_title">Meldingen</string>
     <string name="settings_notifications_summary">Pushbereik, nieuwe e-mail</string>
     <string name="settings_vacation_title">Vakantiebeantwoorder</string>
@@ -237,8 +238,13 @@
     <string name="settings_preview_one_line">1 regel</string>
     <string name="settings_preview_three_lines">3 regels</string>
     <string name="settings_preview_five_lines">5 regels</string>
-    <string name="settings_reading_screen_title">Lezen</string>
+    <string name="settings_reading_screen_title">Lezen en schrijven</string>
     <string name="settings_swipe_actions_section">Veegacties</string>
+    <string name="settings_signature_section">Ondertekening</string>
+    <string name="settings_signature_on_replies_title">Ondertekening in antwoorden</string>
+    <string name="settings_signature_on_replies_subtitle">Ook toevoegen bij beantwoorden of doorsturen</string>
+    <string name="settings_signature_below_quote_title">Ondertekening onder de geciteerde tekst</string>
+    <string name="settings_signature_below_quote_subtitle">Zet die in een antwoord onder het geciteerde bericht in plaats van erboven</string>
     <string name="settings_swipe_right_title">Naar rechts vegen</string>
     <string name="settings_swipe_left_title">Naar links vegen</string>
     <string name="settings_swipe_nothing">Niets</string>

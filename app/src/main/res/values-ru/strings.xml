@@ -22,6 +22,7 @@
     <string name="compose_body_placeholder">Напишите письмо</string>
     <string name="compose_quote_attribution">%1$s, %2$s написал(а):</string>
     <string name="compose_quote_someone">кто-то</string>
+    <string name="compose_quote_not_added">Цитата не добавлена: вы уже начали писать.</string>
     <string name="compose_forward_date">Дата</string>
     <string name="compose_could_not_send">Не удалось отправить: %1$s</string>
     <string name="compose_prefill_failed">Не удалось загрузить исходное сообщение.</string>
@@ -187,8 +188,8 @@
     <string name="settings_accounts_summary">Добавление, переключение, настройки сервера</string>
     <string name="settings_appearance_title">Внешний вид</string>
     <string name="settings_appearance_summary">Тема, плотность, язык</string>
-    <string name="settings_reading_title">Чтение</string>
-    <string name="settings_reading_summary">Действия смахиванием</string>
+    <string name="settings_reading_title">Чтение и написание</string>
+    <string name="settings_reading_summary">Жесты смахивания, подпись</string>
     <string name="settings_notifications_title">Уведомления</string>
     <string name="settings_notifications_summary">Охват push, новые письма</string>
     <string name="settings_vacation_title">Автоответчик</string>
@@ -237,8 +238,13 @@
     <string name="settings_preview_one_line">1 строка</string>
     <string name="settings_preview_three_lines">3 строки</string>
     <string name="settings_preview_five_lines">5 строк</string>
-    <string name="settings_reading_screen_title">Чтение</string>
+    <string name="settings_reading_screen_title">Чтение и написание</string>
     <string name="settings_swipe_actions_section">Действия смахиванием</string>
+    <string name="settings_signature_section">Подпись</string>
+    <string name="settings_signature_on_replies_title">Подпись в ответах</string>
+    <string name="settings_signature_on_replies_subtitle">Добавлять её и при ответе или пересылке</string>
+    <string name="settings_signature_below_quote_title">Подпись под цитируемым текстом</string>
+    <string name="settings_signature_below_quote_subtitle">В ответе размещать её под цитатой, а не над ней</string>
     <string name="settings_swipe_right_title">Смахивание вправо</string>
     <string name="settings_swipe_left_title">Смахивание влево</string>
     <string name="settings_swipe_nothing">Ничего</string>

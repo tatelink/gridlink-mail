@@ -22,6 +22,7 @@
     <string name="compose_body_placeholder">Redacta el mensaje</string>
     <string name="compose_quote_attribution">El %1$s, %2$s escribió:</string>
     <string name="compose_quote_someone">alguien</string>
+    <string name="compose_quote_not_added">Mensaje citado no añadido: ya habías empezado a escribir.</string>
     <string name="compose_forward_date">Fecha</string>
     <string name="compose_could_not_send">No se pudo enviar: %1$s</string>
     <string name="compose_prefill_failed">No se pudo cargar el mensaje original.</string>
@@ -187,8 +188,8 @@
     <string name="settings_accounts_summary">Añadir, cambiar, ajustes del servidor</string>
     <string name="settings_appearance_title">Apariencia</string>
     <string name="settings_appearance_summary">Tema, densidad, idioma</string>
-    <string name="settings_reading_title">Lectura</string>
-    <string name="settings_reading_summary">Acciones de deslizamiento</string>
+    <string name="settings_reading_title">Lectura y escritura</string>
+    <string name="settings_reading_summary">Acciones de deslizamiento, firma</string>
     <string name="settings_notifications_title">Notificaciones</string>
     <string name="settings_notifications_summary">Alcance del push, correo nuevo</string>
     <string name="settings_vacation_title">Respuesta de vacaciones</string>
@@ -237,8 +238,13 @@
     <string name="settings_preview_one_line">1 línea</string>
     <string name="settings_preview_three_lines">3 líneas</string>
     <string name="settings_preview_five_lines">5 líneas</string>
-    <string name="settings_reading_screen_title">Lectura</string>
+    <string name="settings_reading_screen_title">Lectura y escritura</string>
     <string name="settings_swipe_actions_section">Acciones de deslizamiento</string>
+    <string name="settings_signature_section">Firma</string>
+    <string name="settings_signature_on_replies_title">Firma en las respuestas</string>
+    <string name="settings_signature_on_replies_subtitle">Añadirla también al responder o reenviar un mensaje</string>
+    <string name="settings_signature_below_quote_title">Firma debajo del texto citado</string>
+    <string name="settings_signature_below_quote_subtitle">En una respuesta, colocarla bajo el mensaje citado en vez de encima</string>
     <string name="settings_swipe_right_title">Deslizar a la derecha</string>
     <string name="settings_swipe_left_title">Deslizar a la izquierda</string>
     <string name="settings_swipe_nothing">Nada</string>

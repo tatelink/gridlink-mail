@@ -22,6 +22,7 @@
     <string name="compose_body_placeholder">Napisz wiadomość</string>
     <string name="compose_quote_attribution">Dnia %1$s, %2$s napisał(a):</string>
     <string name="compose_quote_someone">ktoś</string>
+    <string name="compose_quote_not_added">Nie dodano cytowanej wiadomości: pisanie było już rozpoczęte.</string>
     <string name="compose_forward_date">Data</string>
     <string name="compose_could_not_send">Nie udało się wysłać: %1$s</string>
     <string name="compose_prefill_failed">Nie udało się wczytać oryginalnej wiadomości.</string>
@@ -187,8 +188,8 @@
     <string name="settings_accounts_summary">Dodawanie, przełączanie, ustawienia serwera</string>
     <string name="settings_appearance_title">Wygląd</string>
     <string name="settings_appearance_summary">Motyw, gęstość, język</string>
-    <string name="settings_reading_title">Czytanie</string>
-    <string name="settings_reading_summary">Akcje przesunięcia</string>
+    <string name="settings_reading_title">Czytanie i pisanie</string>
+    <string name="settings_reading_summary">Gesty przesunięcia, podpis</string>
     <string name="settings_notifications_title">Powiadomienia</string>
     <string name="settings_notifications_summary">Zakres push, nowe wiadomości</string>
     <string name="settings_vacation_title">Autoresponder urlopowy</string>
@@ -237,8 +238,13 @@
     <string name="settings_preview_one_line">1 wiersz</string>
     <string name="settings_preview_three_lines">3 wiersze</string>
     <string name="settings_preview_five_lines">5 wierszy</string>
-    <string name="settings_reading_screen_title">Czytanie</string>
+    <string name="settings_reading_screen_title">Czytanie i pisanie</string>
     <string name="settings_swipe_actions_section">Akcje przesunięcia</string>
+    <string name="settings_signature_section">Podpis</string>
+    <string name="settings_signature_on_replies_title">Podpis w odpowiedziach</string>
+    <string name="settings_signature_on_replies_subtitle">Dodawaj go także przy odpowiadaniu i przekazywaniu</string>
+    <string name="settings_signature_below_quote_title">Podpis pod cytowanym tekstem</string>
+    <string name="settings_signature_below_quote_subtitle">W odpowiedzi umieszczaj go pod cytowaną wiadomością zamiast nad nią</string>
     <string name="settings_swipe_right_title">Przesunięcie w prawo</string>
     <string name="settings_swipe_left_title">Przesunięcie w lewo</string>
     <string name="settings_swipe_nothing">Brak</string>

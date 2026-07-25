@@ -457,6 +457,8 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val markReadOnArchive by viewModel.markReadOnArchive.collectAsStateWithLifecycle()
     val markReadOnMove by viewModel.markReadOnMove.collectAsStateWithLifecycle()
     val unarchiveOnReply by viewModel.unarchiveOnReply.collectAsStateWithLifecycle()
+    val signatureOnReplies by viewModel.signatureOnReplies.collectAsStateWithLifecycle()
+    val signatureBelowQuote by viewModel.signatureBelowQuote.collectAsStateWithLifecycle()
     val options = listOf(
         SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
     )
@@ -523,6 +525,22 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     selected = swipeLeft,
                     optionLabel = { swipeLabel(context, it) },
                     onSelect = viewModel::setSwipeLeft,
+                )
+            }
+            // When the signature is inserted, and where. WHAT it says is per identity
+            // (Accounts → identity). The two switches are independent: neither greys out the other.
+            SettingsSection(stringResource(R.string.settings_signature_section)) {
+                SettingSwitch(
+                    title = stringResource(R.string.settings_signature_on_replies_title),
+                    subtitle = stringResource(R.string.settings_signature_on_replies_subtitle),
+                    checked = signatureOnReplies,
+                    onCheckedChange = viewModel::setSignatureOnReplies,
+                )
+                SettingSwitch(
+                    title = stringResource(R.string.settings_signature_below_quote_title),
+                    subtitle = stringResource(R.string.settings_signature_below_quote_subtitle),
+                    checked = signatureBelowQuote,
+                    onCheckedChange = viewModel::setSignatureBelowQuote,
                 )
             }
         }

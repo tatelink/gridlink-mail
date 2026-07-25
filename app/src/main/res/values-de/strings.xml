@@ -22,6 +22,7 @@
     <string name="compose_body_placeholder">E-Mail verfassen</string>
     <string name="compose_quote_attribution">Am %1$s schrieb %2$s:</string>
     <string name="compose_quote_someone">jemand</string>
+    <string name="compose_quote_not_added">Zitierte Nachricht nicht eingefügt: Sie hatten bereits zu schreiben begonnen.</string>
     <string name="compose_forward_date">Datum</string>
     <string name="compose_could_not_send">Senden fehlgeschlagen: %1$s</string>
     <string name="compose_prefill_failed">Ursprüngliche Nachricht konnte nicht geladen werden.</string>
@@ -187,8 +188,8 @@
     <string name="settings_accounts_summary">Hinzufügen, wechseln, Servereinstellungen</string>
     <string name="settings_appearance_title">Darstellung</string>
     <string name="settings_appearance_summary">Design, Dichte, Sprache</string>
-    <string name="settings_reading_title">Lesen</string>
-    <string name="settings_reading_summary">Wischaktionen</string>
+    <string name="settings_reading_title">Lesen und Schreiben</string>
+    <string name="settings_reading_summary">Wischgesten, Signatur</string>
     <string name="settings_notifications_title">Benachrichtigungen</string>
     <string name="settings_notifications_summary">Push-Umfang, neue E-Mails</string>
     <string name="settings_vacation_title">Abwesenheitsnotiz</string>
@@ -237,8 +238,13 @@
     <string name="settings_preview_one_line">1 Zeile</string>
     <string name="settings_preview_three_lines">3 Zeilen</string>
     <string name="settings_preview_five_lines">5 Zeilen</string>
-    <string name="settings_reading_screen_title">Lesen</string>
+    <string name="settings_reading_screen_title">Lesen und Schreiben</string>
     <string name="settings_swipe_actions_section">Wischaktionen</string>
+    <string name="settings_signature_section">Signatur</string>
+    <string name="settings_signature_on_replies_title">Signatur in Antworten</string>
+    <string name="settings_signature_on_replies_subtitle">Auch beim Antworten und Weiterleiten einfügen</string>
+    <string name="settings_signature_below_quote_title">Signatur unter dem zitierten Text</string>
+    <string name="settings_signature_below_quote_subtitle">In einer Antwort unter die zitierte Nachricht setzen statt darüber</string>
     <string name="settings_swipe_right_title">Nach rechts wischen</string>
     <string name="settings_swipe_left_title">Nach links wischen</string>
     <string name="settings_swipe_nothing">Keine</string>

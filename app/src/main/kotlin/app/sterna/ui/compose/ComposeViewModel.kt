@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -89,6 +90,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private val repo = application.container.mailRepository
     private val outbox = application.container.sendOutbox
     private val pgp = application.container.pgpEngine
+    private val settings = application.container.settingsRepository
 
     private val _state = MutableStateFlow<ComposeState>(ComposeState.Idle)
     val state: StateFlow<ComposeState> = _state.asStateFlow()
@@ -144,6 +146,16 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     private fun selectedIdentity(): StoredIdentity? = _selectedFrom.value?.identity
 
+    /**
+     * Say that the quoted original was dropped (B6). On a slow link the quote arrives after compose
+     * has opened, and it is deliberately not dropped onto text the user has already begun typing —
+     * which until now happened in complete silence, so the reply simply had no quote and no reason
+     * given. A toast, nothing more: no "insert it anyway" action to reason about.
+     */
+    fun noticeQuoteNotAdded() {
+        _notices.tryEmit(R.string.compose_quote_not_added)
+    }
+
     /** The identity's plain-text signature, with a legacy raw-HTML one flattened first. */
     private fun signatureTextOf(identity: StoredIdentity?): String =
         identity?.withSplitSignature()?.signature.orEmpty()
@@ -153,17 +165,21 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         identity?.withSplitSignature()?.signatureHtml.orEmpty()
 
     /**
-     * Whether a reply/forward also opens with the signature, and whether it sits below the quoted
-     * text rather than above it. Both are user settings (defaults: no signature on replies, above
-     * the quote); wired to [SettingsRepository] in the settings phase.
+     * The body a reply/forward opens with: the [quoted] original, plus the signature when
+     * "Signature in replies" is on, above or below the quote per the second setting (Settings →
+     * Reading and writing). Both are read from DataStore here, inside the prefill coroutine, rather
+     * than from a cached snapshot — so a composer opened moments after launch still honours them.
      */
-    private val signatureInReplies: Boolean get() = false
-    private val signatureBelowQuote: Boolean get() = false
-
-    /** The body a reply/forward opens with: the [quoted] original, plus the signature when D3 is on. */
-    private fun replyBody(quoted: String): String =
-        if (!signatureInReplies) quoted
-        else bodyWithSignature(quoted, signatureTextOf(selectedIdentity()), signatureBelowQuote)
+    private suspend fun replyBody(quoted: String): String =
+        if (!settings.signatureOnReplies.first()) {
+            quoted
+        } else {
+            bodyWithSignature(
+                quoted,
+                signatureTextOf(selectedIdentity()),
+                settings.signatureBelowQuote.first(),
+            )
+        }
 
     // --- OpenPGP -----------------------------------------------------------------------------
 
@@ -278,7 +294,6 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private val settings = application.container.settingsRepository
     private val contactsEnabled =
         settings.contactSuggestions.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
@@ -838,7 +853,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      * headers are still prefilled from the cached row, but the quoted body is skipped rather than
      * quoting the truncated preview. Ignored for a forward (its body is empty here anyway).
      */
-    private fun buildPrefill(
+    private suspend fun buildPrefill(
         original: Email,
         mode: String?,
         selves: Collection<String>,

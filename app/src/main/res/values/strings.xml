@@ -23,6 +23,7 @@
     <!-- Attribution line above a quoted reply: %1$s is the date, %2$s the sender. -->
     <string name="compose_quote_attribution">On %1$s, %2$s wrote:</string>
     <string name="compose_quote_someone">someone</string>
+    <string name="compose_quote_not_added">Quoted message not added: you had already started writing.</string>
     <!-- "Date" label in the forwarded-message header (From/Subject/Date/To). -->
     <string name="compose_forward_date">Date</string>
     <string name="compose_could_not_send">Could not send: %1$s</string>
@@ -255,8 +256,8 @@
     <string name="settings_accounts_summary">Add, switch, server settings</string>
     <string name="settings_appearance_title">Appearance</string>
     <string name="settings_appearance_summary">Theme, density, language</string>
-    <string name="settings_reading_title">Reading</string>
-    <string name="settings_reading_summary">Swipe actions</string>
+    <string name="settings_reading_title">Reading and writing</string>
+    <string name="settings_reading_summary">Swipe actions, signature</string>
     <string name="settings_notifications_title">Notifications</string>
     <string name="settings_notifications_summary">Push scope, new mail</string>
     <string name="settings_vacation_title">Vacation responder</string>
@@ -308,7 +309,7 @@
     <string name="settings_preview_one_line">1 line</string>
     <string name="settings_preview_three_lines">3 lines</string>
     <string name="settings_preview_five_lines">5 lines</string>
-    <string name="settings_reading_screen_title">Reading</string>
+    <string name="settings_reading_screen_title">Reading and writing</string>
     <string name="settings_message_section">Message</string>
     <string name="settings_text_size_title">Text size</string>
     <string name="settings_text_size_small">Small</string>
@@ -321,6 +322,11 @@
     <string name="settings_unarchive_on_reply_title">Unarchive on new reply</string>
     <string name="settings_unarchive_on_reply_subtitle">When a new reply arrives, bring the conversation’s archived messages back to the inbox.</string>
     <string name="settings_swipe_actions_section">Swipe actions</string>
+    <string name="settings_signature_section">Signature</string>
+    <string name="settings_signature_on_replies_title">Signature in replies</string>
+    <string name="settings_signature_on_replies_subtitle">Add it when you reply to or forward a message too</string>
+    <string name="settings_signature_below_quote_title">Signature below the quoted text</string>
+    <string name="settings_signature_below_quote_subtitle">In a reply, put it under the quoted message instead of above it</string>
     <string name="settings_swipe_right_title">Swipe right</string>
     <string name="settings_swipe_left_title">Swipe left</string>
     <string name="settings_swipe_nothing">Nothing</string>

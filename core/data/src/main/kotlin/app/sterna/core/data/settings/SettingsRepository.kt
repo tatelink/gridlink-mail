@@ -150,6 +150,24 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_UNARCHIVE_ON_REPLY] = enabled }
     }
 
+    /** Whether a reply or a forward also opens with the signature in its body. Off by default: a
+     *  new message signs off, a reply usually carries the sign-off of the thread already. The
+     *  signature itself is per identity (Accounts → identity); this only says WHEN it is inserted. */
+    val signatureOnReplies: Flow<Boolean> = dataStore.data.map { it[KEY_SIGNATURE_ON_REPLIES] ?: false }
+
+    suspend fun setSignatureOnReplies(enabled: Boolean) {
+        dataStore.edit { it[KEY_SIGNATURE_ON_REPLIES] = enabled }
+    }
+
+    /** Whether the signature sits BELOW the quoted text in a reply rather than above it. Off by
+     *  default (above the quote — the majority default, and where the reader looks first).
+     *  Independent of [signatureOnReplies]: neither disables the other. */
+    val signatureBelowQuote: Flow<Boolean> = dataStore.data.map { it[KEY_SIGNATURE_BELOW_QUOTE] ?: false }
+
+    suspend fun setSignatureBelowQuote(enabled: Boolean) {
+        dataStore.edit { it[KEY_SIGNATURE_BELOW_QUOTE] = enabled }
+    }
+
     /** Reading text size for the message body. */
     val messageTextSize: Flow<MessageTextSize> = dataStore.data.map { prefs ->
         prefs[KEY_MESSAGE_TEXT_SIZE]?.let { runCatching { MessageTextSize.valueOf(it) }.getOrNull() }
@@ -258,6 +276,8 @@ class SettingsRepository(context: Context) {
         markReadOnArchive = markReadOnArchive.first(),
         markReadOnMove = markReadOnMove.first(),
         unarchiveOnReply = unarchiveOnReply.first(),
+        signatureOnReplies = signatureOnReplies.first(),
+        signatureBelowQuote = signatureBelowQuote.first(),
         deliveryMode = deliveryMode.first().name,
         notificationContent = notificationContent.first().name,
     )
@@ -284,6 +304,8 @@ class SettingsRepository(context: Context) {
         backup.markReadOnArchive?.let { setMarkReadOnArchive(it) }
         backup.markReadOnMove?.let { setMarkReadOnMove(it) }
         backup.unarchiveOnReply?.let { setUnarchiveOnReply(it) }
+        backup.signatureOnReplies?.let { setSignatureOnReplies(it) }
+        backup.signatureBelowQuote?.let { setSignatureBelowQuote(it) }
         backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
         backup.notificationContent?.let { v -> runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }
     }
@@ -344,6 +366,8 @@ class SettingsRepository(context: Context) {
         private val KEY_MARK_READ_ON_ARCHIVE = booleanPreferencesKey("mark_read_on_archive")
         private val KEY_MARK_READ_ON_MOVE = booleanPreferencesKey("mark_read_on_move")
         private val KEY_UNARCHIVE_ON_REPLY = booleanPreferencesKey("unarchive_on_reply")
+        private val KEY_SIGNATURE_ON_REPLIES = booleanPreferencesKey("signature_on_replies")
+        private val KEY_SIGNATURE_BELOW_QUOTE = booleanPreferencesKey("signature_below_quote")
         private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         private val KEY_HAS_SEEN_WELCOME = booleanPreferencesKey("has_seen_welcome")

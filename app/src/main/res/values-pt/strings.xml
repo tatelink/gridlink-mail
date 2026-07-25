@@ -22,6 +22,7 @@
     <string name="compose_body_placeholder">Escreva o e-mail</string>
     <string name="compose_quote_attribution">A %1$s, %2$s escreveu:</string>
     <string name="compose_quote_someone">alguém</string>
+    <string name="compose_quote_not_added">Mensagem citada não adicionada: já tinha começado a escrever.</string>
     <string name="compose_forward_date">Data</string>
     <string name="compose_could_not_send">Não foi possível enviar: %1$s</string>
     <string name="compose_prefill_failed">Não foi possível carregar a mensagem original.</string>
@@ -187,8 +188,8 @@
     <string name="settings_accounts_summary">Adicionar, trocar, configurações do servidor</string>
     <string name="settings_appearance_title">Aparência</string>
     <string name="settings_appearance_summary">Tema, densidade, idioma</string>
-    <string name="settings_reading_title">Leitura</string>
-    <string name="settings_reading_summary">Ações de deslize</string>
+    <string name="settings_reading_title">Leitura e escrita</string>
+    <string name="settings_reading_summary">Ações de deslize, assinatura</string>
     <string name="settings_notifications_title">Notificações</string>
     <string name="settings_notifications_summary">Alcance do push, novos e-mails</string>
     <string name="settings_vacation_title">Resposta de ausência</string>
@@ -237,8 +238,13 @@
     <string name="settings_preview_one_line">1 linha</string>
     <string name="settings_preview_three_lines">3 linhas</string>
     <string name="settings_preview_five_lines">5 linhas</string>
-    <string name="settings_reading_screen_title">Leitura</string>
+    <string name="settings_reading_screen_title">Leitura e escrita</string>
     <string name="settings_swipe_actions_section">Ações de deslize</string>
+    <string name="settings_signature_section">Assinatura</string>
+    <string name="settings_signature_on_replies_title">Assinatura nas respostas</string>
+    <string name="settings_signature_on_replies_subtitle">Adicioná-la também ao responder ou reencaminhar</string>
+    <string name="settings_signature_below_quote_title">Assinatura abaixo do texto citado</string>
+    <string name="settings_signature_below_quote_subtitle">Numa resposta, colocá-la sob a mensagem citada em vez de acima</string>
     <string name="settings_swipe_right_title">Deslizar para a direita</string>
     <string name="settings_swipe_left_title">Deslizar para a esquerda</string>
     <string name="settings_swipe_nothing">Nada</string>

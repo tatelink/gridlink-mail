@@ -324,6 +324,10 @@ fun ComposeScreen(
         if (canApplyReplyQuote(applied, body.text, initialBody)) {
             body = TextFieldValue(quote, TextRange(0))
             initialBody = quote
+        } else if (applied) {
+            // The user started writing before it arrived, so it is not dropped in over their text.
+            // Say so instead of silently sending a reply with no quote (B6).
+            viewModel.noticeQuoteNotAdded()
         }
     }
 
