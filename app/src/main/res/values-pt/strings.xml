@@ -517,6 +517,7 @@
     <string name="status_conversation_archived">Conversa arquivada</string>
     <string name="status_conversation_unarchived">Conversa desarquivada</string>
     <string name="status_message_sent">Mensagem enviada</string>
+    <string name="status_message_sending">A enviar…</string>
     <string name="status_message_queued">A aguardar envio quando houver ligação</string>
     <string name="status_folder_op_failed">Falha na operação da pasta</string>
     <string name="status_attach_failed">Falha ao anexar: %1$s</string>

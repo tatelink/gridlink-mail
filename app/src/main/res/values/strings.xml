@@ -640,6 +640,7 @@
     <string name="status_conversation_archived">Conversation archived</string>
     <string name="status_conversation_unarchived">Conversation unarchived</string>
     <string name="status_message_sent">Message sent</string>
+    <string name="status_message_sending">Sending…</string>
     <!-- Post-send feedback when offline: the message is only queued in the Outbox, not yet
          delivered, and goes out when connectivity returns (issue #70). -->
     <string name="status_message_queued">Waiting to send when connected</string>

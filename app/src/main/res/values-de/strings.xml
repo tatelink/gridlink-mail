@@ -517,6 +517,7 @@
     <string name="status_conversation_archived">Unterhaltung archiviert</string>
     <string name="status_conversation_unarchived">Unterhaltung aus Archiv geholt</string>
     <string name="status_message_sent">Nachricht gesendet</string>
+    <string name="status_message_sending">Wird gesendet…</string>
     <string name="status_message_queued">Wartet auf Versand, sobald verbunden</string>
     <string name="status_folder_op_failed">Ordnervorgang fehlgeschlagen</string>
     <string name="status_attach_failed">Anhängen fehlgeschlagen: %1$s</string>

@@ -599,16 +599,18 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 )
                 val app = getApplication<Application>()
                 // WYSIWYG (#70): every send is queued behind the undo window, but the message only
-                // actually leaves once the worker submits it — which offline it cannot. Say "Message
-                // sent" only when there is a real connection to hand it to now; otherwise the row is
-                // just parked in the Outbox until connectivity returns, so the feedback must say that
-                // rather than claim a delivery that has not happened. (The queue/retry path itself is
-                // unchanged — this only picks the wording.)
+                // actually leaves once the worker submits it — which has not happened yet while the
+                // undo hold is running. So never claim "sent" here: say "Sending…" when there is a
+                // connection to hand it to, and "queued" when offline. This stays honest under a VPN
+                // killswitch too (transport looks usable but the send is blocked): the real outcome
+                // surfaces via the Outbox — a failed send lands there with its failure badge, a
+                // delivered one clears. (The queue/retry path itself is unchanged — this only picks
+                // the wording.)
                 val queuedOffline = !hasUsableNetwork(app)
                 outbox.hold(
                     label = app.getString(
                         if (queuedOffline) R.string.status_message_queued
-                        else R.string.status_message_sent,
+                        else R.string.status_message_sending,
                     ),
                     draft = draft,
                 ) {

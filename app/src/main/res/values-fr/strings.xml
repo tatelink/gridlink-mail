@@ -527,6 +527,7 @@
     <string name="status_conversation_archived">Conversation archivée</string>
     <string name="status_conversation_unarchived">Conversation désarchivée</string>
     <string name="status_message_sent">Message envoyé</string>
+    <string name="status_message_sending">Envoi en cours…</string>
     <string name="status_message_queued">En attente d\'envoi, dès la reconnexion</string>
     <string name="status_folder_op_failed">Échec de l\'opération sur le dossier</string>
     <string name="status_attach_failed">Échec de la pièce jointe : %1$s</string>
