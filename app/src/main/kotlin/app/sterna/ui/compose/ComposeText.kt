@@ -125,28 +125,81 @@ internal fun imgTagCid(imgTag: String): String? =
  * draft in the plain-text editor (#63).
  */
 internal fun originalPlainText(o: Email): String {
-    // HTML-only mail makes the server synthesise textBody = the HTML part, so the "text"
-    // body can actually be HTML. Convert it (keeping line breaks) instead of showing raw
-    // HTML on one line. A genuine text/plain part is used as-is.
-    val textPart = o.textBody.firstOrNull()
-    val raw = textPart?.partId?.let { o.bodyValues[it]?.value }
-    if (!raw.isNullOrBlank()) {
-        return if (textPart?.type.equals("text/html", ignoreCase = true)) htmlToText(raw) else raw
-    }
-    o.htmlContent()?.takeIf { it.isNotBlank() }?.let { return htmlToText(it) }
-    return o.preview.orEmpty()
+    val (raw, isHtml) = bodySource(o)
+    return if (isHtml) htmlToText(raw) else raw
 }
 
 /**
- * The original as it should be QUOTED in a reply: its plain text, cut at the sender's signature
- * delimiter (D4). Standard netiquette, and the fix for signatures piling up over a three-message
- * exchange. The cut is strict — a line that is exactly "-- " or "--" — so a decorative "----------"
- * or a "--- end ---" never truncates the message.
- *
- * Only the QUOTE is cut: reopening a draft ([draftFieldsOf]) and forwarding both keep the whole
- * body, since there the signature is the user's own text or the message being passed on.
+ * The body to work from, and whether it is HTML. HTML-only mail makes the server synthesise
+ * textBody = the HTML part, so the "text" body can actually be HTML; a genuine text/plain part is
+ * used as-is, and the one-line preview is the last resort.
  */
-internal fun quotedOriginalText(o: Email): String = cutAtSignatureDelimiter(originalPlainText(o))
+private fun bodySource(o: Email): Pair<String, Boolean> {
+    val textPart = o.textBody.firstOrNull()
+    val raw = textPart?.partId?.let { o.bodyValues[it]?.value }
+    if (!raw.isNullOrBlank()) return raw to textPart?.type.equals("text/html", ignoreCase = true)
+    o.htmlContent()?.takeIf { it.isNotBlank() }?.let { return it to true }
+    return o.preview.orEmpty() to false
+}
+
+/**
+ * The original as it should be QUOTED in a reply:
+ *  - an HTML original keeps its quoting depth: the `<blockquote>` nesting becomes ">" markers
+ *    ([htmlToQuotedText]), so replying to a reply reads ">" then ">>" instead of flattening the
+ *    whole history to a single level (B1);
+ *  - a plain-text original already carries its own ">" markers and is taken as-is;
+ *  - either way it is cut at the sender's signature delimiter (D4) — standard netiquette, and the
+ *    fix for signatures piling up over a three-message exchange. The cut is strict (a line that is
+ *    exactly "-- " or "--"), so a decorative "----------" or a "--- end ---" never truncates.
+ *
+ * Only the QUOTE is treated this way: reopening a draft ([draftFieldsOf]) and forwarding both keep
+ * the whole body, since there the signature is the user's own text or the message being passed on.
+ */
+internal fun quotedOriginalText(o: Email): String {
+    val (raw, isHtml) = bodySource(o)
+    return cutAtSignatureDelimiter(if (isHtml) htmlToQuotedText(raw) else raw)
+}
+
+/**
+ * HTML→plain text for QUOTING, keeping the quoting depth the original carried: text inside one
+ * `<blockquote>` comes out prefixed with "> ", inside two with ">> ", and so on. Without this the
+ * whole history flattens to a single level and, once [quote] adds its own marker, a three-message
+ * exchange is indistinguishable from a fresh reply (B1).
+ *
+ * One regex pass over the blockquote open/close tags, splitting the HTML into depth-tagged
+ * segments — deliberately NOT an HTML parser: mail HTML is hostile, and unbalanced tags only ever
+ * cost a level of indentation here. Covers the Gmail/Apple/Proton shapes, which all nest plain
+ * `<blockquote>` elements.
+ */
+internal fun htmlToQuotedText(html: String): String {
+    val out = StringBuilder()
+    var depth = 0
+    var last = 0
+
+    fun emit(segment: String, at: Int) {
+        val text = htmlToText(segment)
+        if (text.isBlank()) return
+        if (out.isNotEmpty()) out.append('\n')
+        val marker = ">".repeat(at)
+        out.append(text.lineSequence().joinToString("\n") { if (at == 0) it else "$marker $it" })
+    }
+
+    for (tag in BLOCKQUOTE_TAG.findAll(html)) {
+        emit(html.substring(last, tag.range.first), depth)
+        depth = if (tag.value.startsWith("</")) (depth - 1).coerceAtLeast(0) else depth + 1
+        last = tag.range.last + 1
+    }
+    emit(html.substring(last), depth)
+    return out.toString().replace(Regex("\n{3,}"), "\n\n").trim()
+}
+
+private val BLOCKQUOTE_TAG = Regex("(?i)<blockquote\\b[^>]*>|</blockquote\\s*>")
+
+/**
+ * Add one quoting level to [line]: an already-quoted line gets a tighter ">" (so a reply to a reply
+ * reads ">>", not "> >"), a fresh line the usual "> ".
+ */
+internal fun deepenQuote(line: String): String = if (line.startsWith(">")) ">$line" else "> $line"
 
 /** [text] up to (excluding) the first line that is exactly "-- " or "--", trailing blanks trimmed. */
 internal fun cutAtSignatureDelimiter(text: String): String {

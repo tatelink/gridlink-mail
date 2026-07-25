@@ -875,7 +875,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         val sender = o.from.firstOrNull()?.display() ?: app.getString(R.string.compose_quote_someone)
         val date = MailDates.formatFull(o.receivedAt)
         val attribution = app.getString(R.string.compose_quote_attribution, date, sender)
-        val quoted = quotedOriginalText(o).lineSequence().joinToString("\n") { "> $it" }
+        val quoted = quotedOriginalText(o).lineSequence().joinToString("\n") { deepenQuote(it) }
         return "\n\n$attribution\n$quoted"
     }
 
