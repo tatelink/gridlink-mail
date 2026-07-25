@@ -70,12 +70,16 @@ data class StoredAccount(
     fun label(): String = accountName.ifBlank { username }
 
     /**
-     * Identities to send as. Server-provided identities come first (the server decides
-     * what you may send as), with any manually-configured ones merged on top, deduped by
-     * address. Falls back to a single default derived from the account when none exist.
+     * Identities to send as: the merge of manual [identities] and server-discovered
+     * [serverIdentities], deduped by address. Manual identities come FIRST so a manual
+     * entry with the same address as a server one wins (lets the user customise the name
+     * or signature of a server address). Pristine server addresses with no manual override
+     * still appear, and self-correct when the server later drops them (they are never
+     * frozen into [identities] on save). Falls back to a single default derived from the
+     * account when both lists are empty.
      */
     fun resolvedIdentities(): List<StoredIdentity> =
-        (serverIdentities + identities)
+        (identities + serverIdentities)
             .distinctBy { it.email.trim().lowercase() }
             .ifEmpty {
                 listOf(StoredIdentity(id = "default", name = accountName, email = username, signature = signature))

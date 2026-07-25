@@ -45,6 +45,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
@@ -1164,7 +1165,30 @@ private fun AccountDetailScreen(
     var username by remember(accountId) { mutableStateOf(account.username) }
     var password by remember(accountId) { mutableStateOf("") }
     var saved by remember(accountId) { mutableStateOf(false) }
-    var identities by remember(accountId) { mutableStateOf(account.resolvedIdentities()) }
+    // Distinct from [saved]: [dirty] starts false and only flips true on an actual edit, so it can
+    // drive the "unsaved changes" cue and the confirm-on-back without firing on first open.
+    var dirty by remember(accountId) { mutableStateOf(false) }
+    fun markEdited() { saved = false; dirty = true }
+    // MANUAL identities only (never the server-merged list). Saving writes exactly this list back,
+    // so server aliases keep re-merging live and self-correct when the server later drops one.
+    // Seed a single editable default only when there is nothing at all to send as (no manual and
+    // no server identity), so a fresh account still opens with one row instead of an empty section.
+    var identities by remember(accountId) {
+        mutableStateOf(
+            account.identities.ifEmpty {
+                if (account.serverIdentities.isEmpty()) {
+                    listOf(
+                        StoredIdentity(
+                            id = java.util.UUID.randomUUID().toString(),
+                            name = account.accountName, email = account.username, signature = account.signature,
+                        ),
+                    )
+                } else {
+                    emptyList()
+                }
+            },
+        )
+    }
     var defaultIdentityId by remember(accountId) { mutableStateOf(account.defaultIdentityId) }
     var syncWindow by remember(accountId) { mutableStateOf(account.syncWindow) }
     var colorArgb by remember(accountId) { mutableStateOf(account.color) }
@@ -1205,7 +1229,29 @@ private fun AccountDetailScreen(
         server.isNotBlank()
     }
 
-    DetailScaffold(title = account.label(), onBack = onBack) { padding ->
+    // Confirm-on-back so unsaved identity/name/server edits are not silently discarded (#9).
+    var confirmDiscard by remember(accountId) { mutableStateOf(false) }
+    fun leaveOrConfirm() { if (dirty) confirmDiscard = true else onBack() }
+    BackHandler(enabled = dirty) { confirmDiscard = true }
+    if (confirmDiscard) {
+        AlertDialog(
+            onDismissRequest = { confirmDiscard = false },
+            title = { Text(stringResource(R.string.settings_discard_changes_title)) },
+            text = { Text(stringResource(R.string.settings_discard_changes_message)) },
+            confirmButton = {
+                TextButton(onClick = { confirmDiscard = false; onBack() }) {
+                    Text(stringResource(R.string.settings_discard), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDiscard = false }) {
+                    Text(stringResource(R.string.settings_cancel))
+                }
+            },
+        )
+    }
+
+    DetailScaffold(title = account.label(), onBack = { leaveOrConfirm() }) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
@@ -1282,7 +1328,7 @@ private fun AccountDetailScreen(
                 SettingTextField(
                     label = stringResource(R.string.settings_display_name_label),
                     value = accountName,
-                    onValueChange = { accountName = it; saved = false },
+                    onValueChange = { accountName = it; markEdited() },
                 )
             }
             SettingsSection(stringResource(R.string.settings_account_colour_section)) {
@@ -1352,13 +1398,13 @@ private fun AccountDetailScreen(
                     SettingTextField(
                         label = stringResource(R.string.settings_imap_server_label),
                         value = imapHost,
-                        onValueChange = { imapHost = it; saved = false; viewModel.clearConnTest() },
+                        onValueChange = { imapHost = it; markEdited(); viewModel.clearConnTest() },
                         keyboardType = KeyboardType.Uri,
                     )
                     SettingTextField(
                         label = stringResource(R.string.settings_imap_port_label),
                         value = imapPort,
-                        onValueChange = { imapPort = it.filter(Char::isDigit); saved = false },
+                        onValueChange = { imapPort = it.filter(Char::isDigit); markEdited() },
                         keyboardType = KeyboardType.Number,
                     )
                     SettingChoiceRow(
@@ -1366,18 +1412,18 @@ private fun AccountDetailScreen(
                         options = listOf(ConnectionSecurity.TLS, ConnectionSecurity.STARTTLS, ConnectionSecurity.NONE),
                         selected = imapSecurity,
                         optionLabel = { securityLabel(context, it) },
-                        onSelect = { imapSecurity = it; saved = false },
+                        onSelect = { imapSecurity = it; markEdited() },
                     )
                     SettingTextField(
                         label = stringResource(R.string.settings_smtp_server_label),
                         value = smtpHost,
-                        onValueChange = { smtpHost = it; saved = false },
+                        onValueChange = { smtpHost = it; markEdited() },
                         keyboardType = KeyboardType.Uri,
                     )
                     SettingTextField(
                         label = stringResource(R.string.settings_smtp_port_label),
                         value = smtpPort,
-                        onValueChange = { smtpPort = it.filter(Char::isDigit); saved = false },
+                        onValueChange = { smtpPort = it.filter(Char::isDigit); markEdited() },
                         keyboardType = KeyboardType.Number,
                     )
                     SettingChoiceRow(
@@ -1385,20 +1431,20 @@ private fun AccountDetailScreen(
                         options = listOf(ConnectionSecurity.TLS, ConnectionSecurity.STARTTLS, ConnectionSecurity.NONE),
                         selected = smtpSecurity,
                         optionLabel = { securityLabel(context, it) },
-                        onSelect = { smtpSecurity = it; saved = false },
+                        onSelect = { smtpSecurity = it; markEdited() },
                     )
                 } else {
                     SettingTextField(
                         label = stringResource(R.string.settings_server_url_label),
                         value = server,
-                        onValueChange = { server = it; saved = false; viewModel.clearConnTest() },
+                        onValueChange = { server = it; markEdited(); viewModel.clearConnTest() },
                         keyboardType = KeyboardType.Uri,
                     )
                 }
                 SettingTextField(
                     label = stringResource(R.string.settings_username_label),
                     value = username,
-                    onValueChange = { username = it; saved = false },
+                    onValueChange = { username = it; markEdited() },
                     keyboardType = KeyboardType.Email,
                 )
                 SettingTextField(
@@ -1411,7 +1457,7 @@ private fun AccountDetailScreen(
                         },
                     ),
                     value = password,
-                    onValueChange = { password = it; saved = false; viewModel.clearConnTest() },
+                    onValueChange = { password = it; markEdited(); viewModel.clearConnTest() },
                     keyboardType = KeyboardType.Password,
                     isPassword = true,
                 )
@@ -1434,6 +1480,61 @@ private fun AccountDetailScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
+                // Two groups, loaded SEPARATELY: server identities are shown read-only (the server
+                // is authoritative for what you may send as); manual identities are editable and are
+                // the only ones written back on save. Never seed the editable list from the merged
+                // resolvedIdentities() — that would freeze server aliases into the manual field.
+                val serverIdentities = account.serverIdentities
+                val serverEmails = remember(serverIdentities) {
+                    serverIdentities.map { it.email.trim().lowercase() }.toSet()
+                }
+                val totalIdentities = serverIdentities.size + identities.size
+
+                // --- From your server (read-only) ---
+                if (serverIdentities.isNotEmpty()) {
+                    Text(
+                        stringResource(R.string.settings_identities_server_group),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    serverIdentities.forEach { identity ->
+                        // Hide a server address the user has overridden with a manual identity of the
+                        // same email: the editable manual row below is what actually applies.
+                        val overridden = identities.any {
+                            it.email.trim().lowercase() == identity.email.trim().lowercase()
+                        }
+                        if (!overridden) {
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Text(
+                                    stringResource(R.string.settings_identity_from_server),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                if (identity.name.isNotBlank()) {
+                                    Text(identity.name, style = MaterialTheme.typography.bodyLarge)
+                                }
+                                Text(
+                                    identity.email,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                // Default is settable on a server identity too (#78). Its id is stable.
+                                DefaultIdentityRadioRow(
+                                    selected = identity.id == defaultIdentityId,
+                                    onSelect = { defaultIdentityId = identity.id; markEdited() },
+                                )
+                                HorizontalDivider(Modifier.padding(top = 12.dp))
+                            }
+                        }
+                    }
+                }
+
+                // --- Your identities (editable) ---
+                Text(
+                    stringResource(R.string.settings_identities_manual_group),
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
                 var importTarget by remember(accountId) { mutableIntStateOf(-1) }
                 val importLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.GetContent(),
@@ -1443,15 +1544,22 @@ private fun AccountDetailScreen(
                             context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
                         }.getOrNull()?.let { html ->
                             identities = identities.mapIndexed { i, id -> if (i == importTarget) id.copy(signature = html) else id }
-                            saved = false
+                            markEdited()
                         }
                     }
                 }
                 identities.forEachIndexed { index, identity ->
                     fun update(transform: (StoredIdentity) -> StoredIdentity) {
                         identities = identities.mapIndexed { i, id -> if (i == index) transform(id) else id }
-                        saved = false
+                        markEdited()
                     }
+                    val trimmedEmail = identity.email.trim()
+                    // Local-only checks: malformed address (blocking error) and a soft, non-blocking
+                    // hint when the address is not one the server advertised (it may reject it).
+                    val emailInvalid = trimmedEmail.isNotBlank() &&
+                        !android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()
+                    val notOnServer = trimmedEmail.isNotBlank() && !emailInvalid &&
+                        serverEmails.isNotEmpty() && trimmedEmail.lowercase() !in serverEmails
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         OutlinedTextField(
                             value = identity.name,
@@ -1465,7 +1573,23 @@ private fun AccountDetailScreen(
                             onValueChange = { v -> update { it.copy(email = v) } },
                             label = { Text(stringResource(R.string.settings_email_address_label)) },
                             singleLine = true,
+                            isError = emailInvalid,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            supportingText = {
+                                Text(
+                                    when {
+                                        emailInvalid -> stringResource(R.string.settings_email_invalid)
+                                        notOnServer -> stringResource(R.string.settings_email_not_server)
+                                        else -> stringResource(R.string.settings_email_supporting)
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (emailInvalid) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                            },
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         )
                         OutlinedTextField(
@@ -1473,31 +1597,22 @@ private fun AccountDetailScreen(
                             onValueChange = { v -> update { it.copy(signature = v) } },
                             label = { Text(stringResource(R.string.settings_signature_label)) },
                             minLines = 2,
+                            supportingText = {
+                                Text(
+                                    stringResource(R.string.settings_signature_supporting),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         )
                         // Default-identity picker: a single radio per account (selecting one clears
                         // the rest, as they share the single [defaultIdentityId]). Keyed by the
                         // stable identity id so it survives server-driven list reordering.
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp)
-                                .selectable(
-                                    selected = identity.id == defaultIdentityId,
-                                    role = Role.RadioButton,
-                                    onClick = { defaultIdentityId = identity.id; saved = false },
-                                ),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(
-                                selected = identity.id == defaultIdentityId,
-                                onClick = { defaultIdentityId = identity.id; saved = false },
-                            )
-                            Text(
-                                stringResource(R.string.settings_identity_default),
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
+                        DefaultIdentityRadioRow(
+                            selected = identity.id == defaultIdentityId,
+                            onSelect = { defaultIdentityId = identity.id; markEdited() },
+                        )
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1505,13 +1620,14 @@ private fun AccountDetailScreen(
                             OutlinedButton(onClick = { importTarget = index; importLauncher.launch("text/html") }) {
                                 Text(stringResource(R.string.settings_import_html))
                             }
-                            if (identities.size > 1) {
+                            // Remove is gated so at least one identity remains across BOTH groups.
+                            if (totalIdentities > 1) {
                                 Spacer(Modifier.weight(1f))
                                 TextButton(onClick = {
                                     // Removing the default identity clears the stored choice.
                                     if (identity.id == defaultIdentityId) defaultIdentityId = null
                                     identities = identities.filterIndexed { i, _ -> i != index }
-                                    saved = false
+                                    markEdited()
                                 }) {
                                     Text(stringResource(R.string.settings_remove), color = MaterialTheme.colorScheme.error)
                                 }
@@ -1520,12 +1636,20 @@ private fun AccountDetailScreen(
                         HorizontalDivider(Modifier.padding(top = 12.dp))
                     }
                 }
+                if (totalIdentities <= 1) {
+                    Text(
+                        stringResource(R.string.settings_identities_min_one),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
                 OutlinedButton(
                     onClick = {
                         identities = identities + StoredIdentity(
                             id = java.util.UUID.randomUUID().toString(), name = "", email = "", signature = "",
                         )
-                        saved = false
+                        markEdited()
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
@@ -1597,15 +1721,27 @@ private fun AccountDetailScreen(
                     )
                     else -> Unit
                 }
+                // Identity/name/server edits persist only on Save (colour/sync autosave); cue the
+                // user so they are not silently lost on back-navigation (#9).
+                if (dirty) {
+                    Text(
+                        stringResource(R.string.settings_unsaved_changes),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                }
                 Button(
                     onClick = {
-                        // Keep blank identities out, and mirror the first signature to the
-                        // legacy account-level field for any back-compat readers.
+                        // Persist ONLY the manual list (server identities re-merge live), dropping
+                        // blank rows. Mirror the first signature to the legacy account-level field
+                        // for any back-compat readers.
                         val cleanIdentities = identities.filter { it.email.isNotBlank() }
-                        // Drop a default pointing at a now-removed/blank identity so it degrades
-                        // to the first rather than persisting a dangling id.
+                        // Keep a default that points at a still-present manual OR server identity;
+                        // otherwise drop it so it degrades to the first rather than dangling.
+                        val serverIds = account.serverIdentities.map { it.id }
                         val cleanDefaultId = defaultIdentityId?.takeIf { id ->
-                            cleanIdentities.any { it.id == id }
+                            cleanIdentities.any { it.id == id } || id in serverIds
                         }
                         if (isImap) {
                             viewModel.save(
@@ -1626,6 +1762,7 @@ private fun AccountDetailScreen(
                         }
                         password = ""
                         saved = true
+                        dirty = false
                         onAccountsChanged()
                     },
                     enabled = canSave,
@@ -2095,6 +2232,35 @@ internal fun DetailScaffold(
         },
         content = content,
     )
+}
+
+/**
+ * The "Default" identity radio + its meaning caption (#78). Shared by the read-only server
+ * group and the editable manual group so both can be chosen as the composer's pre-selection.
+ */
+@Composable
+private fun DefaultIdentityRadioRow(selected: Boolean, onSelect: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text(
+                stringResource(R.string.settings_identity_default),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                stringResource(R.string.settings_identity_default_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 /** One outcome-framed delivery choice (radio + explanation), issue #17. */
