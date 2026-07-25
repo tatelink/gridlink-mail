@@ -45,7 +45,6 @@
     <string name="inbox_delete">Excluir</string>
     <string name="inbox_delete_forever">Eliminar permanentemente</string>
     <string name="inbox_undo">Desfazer</string>
-    <string name="inbox_message_sent">Mensagem enviada</string>
     <string name="inbox_app_name">Sterna Mail</string>
     <string name="inbox_switch_account">Mudar de conta</string>
     <string name="inbox_all_inboxes">Todas as caixas de entrada</string>
@@ -518,6 +517,7 @@
     <string name="status_conversation_archived">Conversa arquivada</string>
     <string name="status_conversation_unarchived">Conversa desarquivada</string>
     <string name="status_message_sent">Mensagem enviada</string>
+    <string name="status_message_queued">A aguardar envio quando houver ligação</string>
     <string name="status_folder_op_failed">Falha na operação da pasta</string>
     <string name="status_attach_failed">Falha ao anexar: %1$s</string>
     <string name="status_open_attachment">Abrir anexo</string>
