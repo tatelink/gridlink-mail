@@ -1308,9 +1308,15 @@ fun InboxScreen(
 
             val refreshState = rememberPullToRefreshState()
             Column(Modifier.fillMaxSize().padding(padding)) {
-            // Event-driven offline line (#65): shown above the list whenever there's no usable
-            // network, so cached mail stays visible (WYSIWYG) but the stale state is honest.
-            if (ui.offline) {
+            // "Can't reach the server" is either event-driven from the connectivity callback
+            // (WiFi/airplane off) or inferred from a failed refresh (#65): the VPN-killswitch case
+            // keeps the WiFi transport up + NOT_VPN, so the callback still reads online — only a
+            // failed request reveals it. Fold both into one condition.
+            val unreachable = ui.offline || ui.error != null
+            // Thin offline line above the list, but only when there are cached rows to sit above
+            // (WYSIWYG). The zero-rows case shows the offline empty-state below instead, so the
+            // two never double up.
+            if (unreachable && pagedEmails.itemCount > 0) {
                 OfflineBanner()
             }
             // A calm, tappable line when a send has permanently failed: route to the outbox.
@@ -1420,7 +1426,7 @@ fun InboxScreen(
                             }
                         }
                     ui.refreshing || refreshLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                    ui.error != null -> PullableCenter {
+                    unreachable -> PullableCenter {
                         EmptyState(
                             art = EmptyArt.OFFLINE,
                             title = stringResource(R.string.empty_offline_title),
