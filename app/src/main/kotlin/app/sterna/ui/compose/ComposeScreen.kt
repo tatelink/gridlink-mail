@@ -560,7 +560,24 @@ fun ComposeScreen(
                         fromOptions.forEach { option ->
                             DropdownMenuItem(
                                 text = { Text(option.identity.display()) },
-                                onClick = { viewModel.selectFrom(option); fromMenu = false },
+                                onClick = {
+                                    // Changing "From" swaps the signature block the composer
+                                    // inserted — but only while it is still there verbatim; an
+                                    // edited or deleted one is left as the user made it (D5). The
+                                    // caret keeps its offset, and the unsaved-changes baseline gets
+                                    // the same swap, so switching identity alone isn't "dirty".
+                                    viewModel.selectFrom(option)?.let { swap ->
+                                        replaceSignatureBlock(body.text, swap.from, swap.to)?.let { rewritten ->
+                                            body = TextFieldValue(
+                                                rewritten,
+                                                TextRange(body.selection.start.coerceAtMost(rewritten.length)),
+                                            )
+                                            replaceSignatureBlock(initialBody, swap.from, swap.to)
+                                                ?.let { initialBody = it }
+                                        }
+                                    }
+                                    fromMenu = false
+                                },
                             )
                         }
                     }

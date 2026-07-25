@@ -71,6 +71,9 @@ data class DraftFields(
 /** A "From" choice: one identity belonging to a specific account. */
 data class FromOption(val accountId: String, val identity: StoredIdentity)
 
+/** The signature change a "From" switch implies: the outgoing identity's text, and the new one's. */
+data class SignatureSwap(val from: String, val to: String)
+
 /**
  * The single #69 rule for "this draft is worth saving": a non-blank subject, a non-blank body, or
  * at least one attachment. Recipients alone, or a wholly empty compose, do not count. Shared by the
@@ -122,12 +125,44 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private val _selectedFrom = MutableStateFlow<FromOption?>(null)
     val selectedFrom: StateFlow<FromOption?> = _selectedFrom.asStateFlow()
 
-    fun selectFrom(option: FromOption) {
+    /**
+     * Switch the sending identity, and report the signature swap it implies (D5), or null when
+     * there is nothing to swap. The signature now lives in the body, so changing "From" must swap
+     * it — but only where the outgoing identity's block is still there verbatim, which the caller
+     * settles with [replaceSignatureBlock]; an edited or deleted block is left exactly as the user
+     * made it.
+     */
+    fun selectFrom(option: FromOption): SignatureSwap? {
+        val previous = selectedIdentity()
         _selectedFrom.value = option
         refreshPgp()
+        val old = signatureTextOf(previous)
+        val new = signatureTextOf(option.identity)
+        return if (old == new || old.isBlank()) null else SignatureSwap(old, new)
     }
 
     private fun selectedIdentity(): StoredIdentity? = _selectedFrom.value?.identity
+
+    /** The identity's plain-text signature, with a legacy raw-HTML one flattened first. */
+    private fun signatureTextOf(identity: StoredIdentity?): String =
+        identity?.withSplitSignature()?.signature.orEmpty()
+
+    /** The identity's HTML signature (imported, or served by JMAP), empty when it is plain text. */
+    private fun signatureHtmlOf(identity: StoredIdentity?): String =
+        identity?.withSplitSignature()?.signatureHtml.orEmpty()
+
+    /**
+     * Whether a reply/forward also opens with the signature, and whether it sits below the quoted
+     * text rather than above it. Both are user settings (defaults: no signature on replies, above
+     * the quote); wired to [SettingsRepository] in the settings phase.
+     */
+    private val signatureInReplies: Boolean get() = false
+    private val signatureBelowQuote: Boolean get() = false
+
+    /** The body a reply/forward opens with: the [quoted] original, plus the signature when D3 is on. */
+    private fun replyBody(quoted: String): String =
+        if (!signatureInReplies) quoted
+        else bodyWithSignature(quoted, signatureTextOf(selectedIdentity()), signatureBelowQuote)
 
     // --- OpenPGP -----------------------------------------------------------------------------
 
@@ -447,13 +482,22 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 cc = cc.orEmpty(),
                 bcc = bcc.orEmpty(),
                 subject = subject.orEmpty(),
-                body = body.orEmpty(),
+                // A fresh mail, so it opens with the signature below whatever the link carried.
+                body = body.orEmpty() + signatureBlock(signatureTextOf(selectedIdentity())),
                 expand = !cc.isNullOrBlank() || !bcc.isNullOrBlank(),
             )
             return
         }
 
-        if (replyToId == null) return
+        // A blank new message: it still opens with the signature in the body, where it can be read
+        // and edited before sending (nothing is appended behind the user's back at send time).
+        // Note that no draft/undo path reaches here — those return above with their own body, which
+        // already contains the signature it was saved with, so it is never inserted twice.
+        if (replyToId == null) {
+            val block = signatureBlock(signatureTextOf(selectedIdentity()))
+            if (block.isNotEmpty()) _prefill.value = DraftFields(to = "", subject = "", body = block)
+            return
+        }
         viewModelScope.launch {
             val credentials = credentials() ?: return@launch
             fun prefillFailed() {
@@ -509,7 +553,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             if (cached == null) {
                 _prefill.value = buildPrefill(original, mode, credentials.username)
             } else {
-                _replyQuote.value = quote(original)
+                // The whole body, not just the quote: the screen swaps it in wholesale, and it must
+                // keep the signature the cache-first prefill already put there.
+                _replyQuote.value = replyBody(quote(original))
             }
         }
     }
@@ -562,7 +608,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 val ccList = parseAddrs(cc)
                 val bccList = parseAddrs(bcc)
                 val identity = selectedIdentity()
-                val (textBody, htmlBody) = bodiesForSend(body, identity?.signature.orEmpty())
+                val (textBody, htmlBody) = bodiesForSend(body, identity)
                 val attachments = _attachments.value
                 val replyTo = inReplyTo
                 val refs = references
@@ -648,7 +694,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 val recipients = parseAddrs(to)
                 require(recipients.isNotEmpty()) { getApplication<Application>().getString(R.string.status_add_recipient) }
                 val identity = selectedIdentity()
-                val (textBody, htmlBody) = bodiesForSend(body, identity?.signature.orEmpty())
+                val (textBody, htmlBody) = bodiesForSend(body, identity)
                 val id = repo.insertScheduledSend(
                     ScheduledSendEntity(
                         accountId = credentials.id,
@@ -675,39 +721,23 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Append the account signature. With no signature the message stays plain text;
-     * with one (which may be HTML), an HTML body is produced (and a plain-text
-     * fallback), separated by the standard "-- " delimiter.
+     * The outgoing (text, html) bodies. The body is sent exactly as the composer shows it — the
+     * signature is already inside it, inserted when compose opened, so nothing is appended here any
+     * more (WYSIWYG). Two things still happen:
+     *  - an HTML alternative is ALWAYS produced, signature or not: a lone text/plain body is subject
+     *    to format=flowed reflow by some servers (e.g. Stalwart), which joins single newlines on
+     *    retrieval and flattens the message to one line. The explicit `<br>` survives that;
+     *  - an imported HTML signature is substituted for its plain block in the html alternative, but
+     *    only while that block is untouched (see [htmlBodyWithSignature]).
+     * For a forward, the carried original is then appended below, identically, to both.
      */
-    private fun bodiesWithSignature(userBody: String, signature: String): Pair<String, String?> {
-        // Always send an HTML alternative (explicit <br>), even with no signature: a text/plain
-        // body is subject to format=flowed reflow by some servers (e.g. Stalwart), which joins
-        // single newlines on retrieval and flattens the message to one line. The <br> survives.
-        if (signature.isBlank()) return userBody to htmlify(userBody)
-        val textSig = if (looksLikeHtml(signature)) stripTags(signature) else signature.trim()
-        val htmlSig = if (looksLikeHtml(signature)) signature.trim() else htmlify(signature.trim())
-        val textBody = "$userBody\n\n-- \n$textSig"
-        val htmlBody = "${htmlify(userBody)}<br><br>-- <br>$htmlSig"
-        return textBody to htmlBody
+    private fun bodiesForSend(userBody: String, identity: StoredIdentity?): Pair<String, String?> {
+        val html = htmlBodyWithSignature(
+            userBody, signatureTextOf(identity), signatureHtmlOf(identity),
+        )
+        val fwd = forwarded ?: return userBody to html
+        return "$userBody\n\n${fwd.text}" to "$html<br><br>${fwd.html}"
     }
-
-    /**
-     * The outgoing (text, html) bodies: the user's note + signature, then — for a forward — the
-     * carried original appended below, identically, to both alternatives. The editable body no
-     * longer holds the original, so there is no duplication. Returns the same pair as
-     * [bodiesWithSignature] when this is not a forward.
-     */
-    private fun bodiesForSend(userBody: String, signature: String): Pair<String, String?> {
-        val (text, html) = bodiesWithSignature(userBody, signature)
-        val fwd = forwarded ?: return text to html
-        return "$text\n\n${fwd.text}" to "${html ?: htmlify(userBody)}<br><br>${fwd.html}"
-    }
-
-    private fun looksLikeHtml(s: String): Boolean = Regex("<[a-zA-Z/!]").containsMatchIn(s)
-    private fun stripTags(s: String): String =
-        s.replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n").replace(Regex("<[^>]+>"), "").trim()
-    private fun htmlify(s: String): String =
-        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
     /**
      * Carry a reopened draft's file attachments back into compose (#63), staged exactly like a
@@ -800,19 +830,20 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         "forward" -> DraftFields(
             to = "",
             subject = withPrefix(original.subject, "Fwd:"),
-            // The editable body starts empty (just the user's note); the original is carried
-            // separately to send time so its formatting survives. See [buildForwarded].
-            body = "",
+            // The editable body starts empty (just the user's note, plus the signature when the
+            // "signature on replies and forwards" setting is on); the original is carried separately
+            // to send time so its formatting survives. See [buildForwarded].
+            body = replyBody(""),
         )
         "replyAll" -> DraftFields(
             to = replyAllRecipients(original, self),
             subject = withPrefix(original.subject, "Re:"),
-            body = if (quoteBody) quote(original) else "",
+            body = replyBody(if (quoteBody) quote(original) else ""),
         )
         else -> DraftFields( // reply
             to = replyRecipient(original),
             subject = withPrefix(original.subject, "Re:"),
-            body = if (quoteBody) quote(original) else "",
+            body = replyBody(if (quoteBody) quote(original) else ""),
         )
     }
 

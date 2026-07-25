@@ -1,5 +1,8 @@
 package app.sterna.ui.compose
 
+import app.sterna.core.data.text.htmlEscape
+import app.sterna.core.data.text.htmlEscapeMultiline
+import app.sterna.core.data.text.htmlToText
 import app.sterna.core.jmap.model.Email
 
 /**
@@ -102,40 +105,6 @@ internal fun imgTagCid(imgTag: String): String? =
     Regex("(?i)\\bsrc\\s*=\\s*[\"']?\\s*cid:([^\"'>\\s]+)").find(imgTag)
         ?.groupValues?.get(1)?.trim()?.trim('<', '>')?.takeIf { it.isNotBlank() }
 
-/** Escape the five characters that are unsafe in HTML text/attribute context. */
-internal fun htmlEscape(s: String): String =
-    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-/** Escape for HTML and turn newlines into &lt;br&gt; so plain text keeps its line breaks. */
-internal fun htmlEscapeMultiline(s: String): String =
-    htmlEscape(s).replace("\n", "<br>")
-
-/**
- * Best-effort HTML→plain-text for quoting or editing an original that has no text/plain part
- * (most modern mail is HTML-only). Converts block boundaries to newlines so the original
- * keeps its paragraphs, instead of collapsing to one line.
- */
-internal fun htmlToText(html: String): String =
-    html
-        .replace(Regex("(?is)<(script|style|head)\\b.*?</\\1>"), "")
-        .replace(Regex("(?i)<br\\s*/?>"), "\n")
-        .replace(Regex("(?i)</(p|div|li|tr|h[1-6]|blockquote|ul|ol|table)\\s*>"), "\n")
-        .replace(Regex("<[^>]+>"), "")
-        .let(::unescapeEntities)
-        .replace(Regex("[ \\t]+\n"), "\n")
-        .replace(Regex("\n{3,}"), "\n\n")
-        .trim()
-
-// &amp; last so an escaped entity like "&amp;lt;" decodes to "&lt;", not "<".
-internal fun unescapeEntities(s: String): String =
-    s.replace("&nbsp;", " ")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
-
 /**
  * The message's body as plain text: its text/plain part, else its HTML converted to text,
  * else the one-line preview as a last resort. Used for quoting a reply and for reopening a
@@ -184,6 +153,85 @@ internal fun draftFieldsOf(o: Email): DraftFields {
         body = originalPlainText(o),
         expand = cc.isNotBlank() || bcc.isNotBlank(),
     )
+}
+
+// --- Signature (pure text, living in the body — WYSIWYG) -----------------------------------------
+// The signature is ordinary text in the editable body, inserted when compose opens, exactly like
+// K-9 and Thunderbird. It is NOT appended at send time any more: what the composer shows is what
+// leaves. Everything here is pure so the insertion, the "is it still intact?" test and the HTML
+// substitution are unit-tested off-device.
+
+/** The standard signature delimiter line (RFC 3676 §4.3): two hyphens and a space. */
+internal const val SIGNATURE_DELIMITER = "-- "
+
+/**
+ * The block a [signature] occupies in a body: a blank line, the delimiter line, then the signature
+ * itself. Empty for a blank signature, so every caller can concatenate unconditionally.
+ */
+internal fun signatureBlock(signature: String): String =
+    if (signature.isBlank()) "" else "\n\n$SIGNATURE_DELIMITER\n${signature.trim()}"
+
+/**
+ * The composer's initial body: the [quoted] original (empty for a new message) with the signature
+ * block placed above it, or below when [signatureBelowQuote] is set. A reply's quote already starts
+ * with its own blank lines, so the caret sits at the top of an empty first line either way.
+ */
+internal fun bodyWithSignature(
+    quoted: String,
+    signature: String,
+    signatureBelowQuote: Boolean = false,
+): String {
+    val block = signatureBlock(signature)
+    if (block.isEmpty()) return quoted
+    return if (signatureBelowQuote) quoted + block else block + quoted
+}
+
+/**
+ * [body] with the block of [oldSignature] swapped for [newSignature]'s — or null when the block is
+ * not there verbatim, which means the user edited (or deleted) it and their text must be left
+ * alone. Used when the "From" identity changes mid-composition (D5). A blank [oldSignature] has no
+ * block to match, so nothing is inserted: text the user has already written is never rearranged.
+ */
+internal fun replaceSignatureBlock(body: String, oldSignature: String, newSignature: String): String? {
+    val at = signatureBlockIndex(body, oldSignature)
+    if (at < 0) return null
+    val end = at + signatureBlock(oldSignature).length
+    return body.substring(0, at) + signatureBlock(newSignature) + body.substring(end)
+}
+
+/**
+ * Where [signature]'s block sits in [body] verbatim, or -1 when it does not. The LAST occurrence
+ * wins, so a reply quoting an older message that ended with the same signature swaps the live block
+ * at the bottom, not the quoted copy above it. The block must also END on a line boundary: text
+ * appended to its last line ("Acme (mobile)") means the user edited it, and an edited signature is
+ * never rewritten nor swapped for its stored HTML.
+ */
+private fun signatureBlockIndex(body: String, signature: String): Int {
+    val block = signatureBlock(signature)
+    if (block.isEmpty()) return -1
+    var at = body.lastIndexOf(block)
+    while (at >= 0) {
+        val end = at + block.length
+        if (end == body.length || body[end] == '\n') return at
+        if (at == 0) return -1
+        at = body.lastIndexOf(block, at - 1)
+    }
+    return -1
+}
+
+/**
+ * The outgoing text/html alternative for [body]. When the identity has an imported HTML signature
+ * ([signatureHtml]) AND the plain [signature]'s block is still in the body untouched, that block —
+ * and only it — is replaced by the HTML version, so the recipient gets the formatted signature.
+ * Once the user edits the block, their text wins in both alternatives (WYSIWYG beats fidelity).
+ */
+internal fun htmlBodyWithSignature(body: String, signature: String, signatureHtml: String): String {
+    if (signatureHtml.isBlank()) return htmlEscapeMultiline(body)
+    val at = signatureBlockIndex(body, signature)
+    if (at < 0) return htmlEscapeMultiline(body)
+    return htmlEscapeMultiline(body.substring(0, at)) +
+        "<br><br>$SIGNATURE_DELIMITER<br>" + signatureHtml.trim() +
+        htmlEscapeMultiline(body.substring(at + signatureBlock(signature).length))
 }
 
 // --- Reply / reply-all / forward header derivation (pure, so it works from a cached list row) ---

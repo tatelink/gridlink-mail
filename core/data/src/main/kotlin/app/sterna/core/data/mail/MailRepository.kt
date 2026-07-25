@@ -3878,7 +3878,15 @@ class MailRepository(
         runCatching {
             val serverIdentities = client.getIdentities(session, accountId, auth)
                 .filter { it.email.isNotBlank() }
-                .map { StoredIdentity(id = it.id, name = it.name.orEmpty(), email = it.email, signature = it.textSignature.orEmpty()) }
+                .map {
+                    StoredIdentity(
+                        id = it.id,
+                        name = it.name.orEmpty(),
+                        email = it.email,
+                        signature = it.textSignature.orEmpty(),
+                        signatureHtml = it.htmlSignature.orEmpty(),
+                    ).withSplitSignature()
+                }
             accountStore.setServerIdentities(credentials.id, serverIdentities)
         }
         val mailboxes = client.getMailboxes(session, accountId, auth)

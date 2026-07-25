@@ -377,7 +377,8 @@
     <string name="settings_email_supporting">Obrigatório. As identidades vazias são descartadas ao guardar.</string>
     <string name="settings_email_invalid">Introduza um endereço de e-mail válido.</string>
     <string name="settings_email_not_server">O seu servidor pode recusar o envio a partir deste endereço.</string>
-    <string name="settings_signature_supporting">O HTML é guardado tal como está e mostrado ao enviar.</string>
+    <string name="settings_signature_supporting">Texto simples, adicionado ao corpo da mensagem ao escrever: pode editá-lo ou removê-lo aí como qualquer outro texto.</string>
+    <string name="settings_signature_supporting_html">Está guardada uma versão HTML; é enviada tal como está se não alterar a assinatura na mensagem.</string>
     <string name="settings_unsaved_changes">Alterações não guardadas</string>
     <string name="settings_discard_changes_title">Descartar alterações?</string>
     <string name="settings_discard_changes_message">Tem alterações de identidade ou de conta não guardadas. Sair sem guardar?</string>

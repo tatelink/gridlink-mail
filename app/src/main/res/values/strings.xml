@@ -461,7 +461,8 @@
     <string name="settings_email_invalid">Enter a valid email address.</string>
     <string name="settings_email_not_server">Your server may reject sending from this address.</string>
     <string name="settings_signature_label">Signature (plain text or HTML)</string>
-    <string name="settings_signature_supporting">HTML is stored as is and shown when you send.</string>
+    <string name="settings_signature_supporting">Plain text, added to the message body when you write — edit or remove it there like any other text.</string>
+    <string name="settings_signature_supporting_html">An HTML version is saved; it is sent as is if you don\'t change the signature in the message.</string>
     <string name="settings_import_html">Import HTML</string>
     <string name="settings_remove">Remove</string>
     <string name="settings_add_identity">Add identity</string>

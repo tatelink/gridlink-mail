@@ -124,6 +124,7 @@ import app.sterna.core.data.settings.SwipeAction
 import app.sterna.core.data.settings.ThemeMode
 import app.sterna.core.data.settings.DeliveryMode
 import app.sterna.core.data.settings.NotificationContent
+import app.sterna.core.data.text.htmlToText
 import app.sterna.push.PushController
 import app.sterna.push.PushStatus
 import app.sterna.ui.appLabelOf
@@ -1174,19 +1175,24 @@ private fun AccountDetailScreen(
     // no server identity), so a fresh account still opens with one row instead of an empty section.
     var identities by remember(accountId) {
         mutableStateOf(
-            // Self-heal pollution from the old merge-on-save fold before showing the raw list.
-            StoredAccount.normalizeManualIdentities(account.identities, account.serverIdentities).ifEmpty {
-                if (account.serverIdentities.isEmpty()) {
-                    listOf(
-                        StoredIdentity(
-                            id = java.util.UUID.randomUUID().toString(),
-                            name = account.accountName, email = account.username, signature = account.signature,
-                        ),
-                    )
-                } else {
-                    emptyList()
-                }
-            },
+            // Self-heal pollution from the old merge-on-save fold before showing the raw list, and
+            // split a legacy signature that holds raw HTML in the plain-text field (what the old
+            // "Import HTML" wrote) so the editor shows text, not tag soup — the HTML is kept in
+            // signatureHtml and still sent.
+            StoredAccount.normalizeManualIdentities(account.identities, account.serverIdentities)
+                .map { it.withSplitSignature() }
+                .ifEmpty {
+                    if (account.serverIdentities.isEmpty()) {
+                        listOf(
+                            StoredIdentity(
+                                id = java.util.UUID.randomUUID().toString(),
+                                name = account.accountName, email = account.username, signature = account.signature,
+                            ).withSplitSignature(),
+                        )
+                    } else {
+                        emptyList()
+                    }
+                },
         )
     }
     var defaultIdentityId by remember(accountId) { mutableStateOf(account.defaultIdentityId) }
@@ -1505,7 +1511,7 @@ private fun AccountDetailScreen(
                 fun overrideServer(server: StoredIdentity, transform: (StoredIdentity) -> StoredIdentity) {
                     val emailKey = server.email.trim().lowercase()
                     val idx = identities.indexOfFirst { it.email.trim().lowercase() == emailKey }
-                    val base = if (idx >= 0) identities[idx] else server
+                    val base = (if (idx >= 0) identities[idx] else server).withSplitSignature()
                     val updated = transform(base)
                     identities = if (idx >= 0) {
                         identities.mapIndexed { i, e -> if (i == idx) updated else e }
@@ -1538,10 +1544,13 @@ private fun AccountDetailScreen(
                     )
                     serverIdentities.forEach { server ->
                         val emailKey = server.email.trim().lowercase()
-                        // Show the manual override's values if one exists, else the server's own.
+                        // Show the manual override's values if one exists, else the server's own
+                        // (split, so a signature the server sends as HTML is shown as text).
                         val override = identities.firstOrNull { it.email.trim().lowercase() == emailKey }
-                        val name = override?.name ?: server.name
-                        val signature = override?.signature ?: server.signature
+                        val shown = (override ?: server).withSplitSignature()
+                        val name = shown.name
+                        val signature = shown.signature
+                        val hasHtmlSignature = shown.signatureHtml.isNotBlank()
                         val rowId = override?.id ?: server.id
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                             Text(
@@ -1565,12 +1574,23 @@ private fun AccountDetailScreen(
                             )
                             OutlinedTextField(
                                 value = signature,
-                                onValueChange = { v -> overrideServer(server) { it.copy(signature = v) } },
+                                // Editing the text drops the imported HTML: it no longer matches
+                                // what will be inserted in the composer, so keeping it would send
+                                // something other than what the user typed.
+                                onValueChange = { v ->
+                                    overrideServer(server) { it.copy(signature = v, signatureHtml = "") }
+                                },
                                 label = { Text(stringResource(R.string.settings_signature_label)) },
                                 minLines = 2,
                                 supportingText = {
                                     Text(
-                                        stringResource(R.string.settings_signature_supporting),
+                                        stringResource(
+                                            if (hasHtmlSignature) {
+                                                R.string.settings_signature_supporting_html
+                                            } else {
+                                                R.string.settings_signature_supporting
+                                            },
+                                        ),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -1584,7 +1604,13 @@ private fun AccountDetailScreen(
                             )
                             OutlinedButton(
                                 onClick = {
-                                    pendingImport = { html -> overrideServer(server) { it.copy(signature = html) } }
+                                    // Both halves: the flattened text the composer inserts and edits,
+                                    // and the HTML sent as-is while that block comes back untouched.
+                                    pendingImport = { html ->
+                                        overrideServer(server) {
+                                            it.copy(signature = htmlToText(html), signatureHtml = html)
+                                        }
+                                    }
                                     importLauncher.launch("text/html")
                                 },
                                 modifier = Modifier.padding(top = 12.dp),
@@ -1650,12 +1676,19 @@ private fun AccountDetailScreen(
                         )
                         OutlinedTextField(
                             value = identity.signature,
-                            onValueChange = { v -> update { it.copy(signature = v) } },
+                            // Editing the text drops the imported HTML (see the server group above).
+                            onValueChange = { v -> update { it.copy(signature = v, signatureHtml = "") } },
                             label = { Text(stringResource(R.string.settings_signature_label)) },
                             minLines = 2,
                             supportingText = {
                                 Text(
-                                    stringResource(R.string.settings_signature_supporting),
+                                    stringResource(
+                                        if (identity.signatureHtml.isNotBlank()) {
+                                            R.string.settings_signature_supporting_html
+                                        } else {
+                                            R.string.settings_signature_supporting
+                                        },
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -1674,7 +1707,9 @@ private fun AccountDetailScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             OutlinedButton(onClick = {
-                                pendingImport = { html -> update { it.copy(signature = html) } }
+                                pendingImport = { html ->
+                                    update { it.copy(signature = htmlToText(html), signatureHtml = html) }
+                                }
                                 importLauncher.launch("text/html")
                             }) {
                                 Text(stringResource(R.string.settings_import_html))
