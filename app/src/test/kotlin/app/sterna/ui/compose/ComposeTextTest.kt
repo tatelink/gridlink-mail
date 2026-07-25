@@ -247,7 +247,7 @@ class ComposeTextTest {
     }
 
     @Test fun replyAllIncludesSenderToAndCcButNotSelf() {
-        val all = replyAllRecipients(originalToReply, self = "me@example.com")
+        val all = replyAllRecipients(originalToReply, setOf("me@example.com"))
         assertEquals("alice@example.com, bob@example.com, carol@example.com", all)
     }
 
@@ -256,7 +256,37 @@ class ComposeTextTest {
             cc = listOf(EmailAddress(email = "ME@Example.com"), EmailAddress(email = "alice@example.com")),
         )
         // "ME@Example.com" == self (ignore case) is removed; the duplicate alice is collapsed.
-        assertEquals("alice@example.com, bob@example.com", replyAllRecipients(o, self = "me@example.com"))
+        assertEquals("alice@example.com, bob@example.com", replyAllRecipients(o, setOf("me@example.com")))
+    }
+
+    @Test fun replyAllExcludesEveryAliasOfTheAccount() {
+        // Three addresses on the account: none of them may end up in the recipients (B5). The
+        // original was sent to two of them and Cc'd the third.
+        val mine = setOf("me@example.com", "Alias@Example.com", "third@example.com")
+        val o = Email(
+            id = "m2",
+            from = listOf(EmailAddress(email = "alice@example.com")),
+            to = listOf(
+                EmailAddress(email = "me@example.com"),
+                EmailAddress(email = "alias@example.com"),
+                EmailAddress(email = "bob@example.com"),
+            ),
+            cc = listOf(EmailAddress(email = "THIRD@example.com")),
+        )
+        assertEquals("alice@example.com, bob@example.com", replyAllRecipients(o, mine))
+    }
+
+    @Test fun replyAllToYourOwnAliasStillAnswersTheSender() {
+        // The original came FROM one of your aliases: it drops out of the recipients too.
+        val o = Email(
+            id = "m3",
+            from = listOf(EmailAddress(email = "alias@example.com")),
+            to = listOf(EmailAddress(email = "bob@example.com")),
+        )
+        assertEquals(
+            "bob@example.com",
+            replyAllRecipients(o, setOf("me@example.com", "alias@example.com")),
+        )
     }
 
     @Test fun subjectGetsRePrefixOnlyWhenMissing() {
@@ -279,5 +309,72 @@ class ComposeTextTest {
 
     @Test fun quoteWaitsUntilHeaderPrefillApplied() {
         assertFalse(canApplyReplyQuote(applied = false, bodyText = "", initialBody = ""))
+    }
+
+    // --- Quoting cuts the sender's signature off (D4), on a strict delimiter only ---
+
+    @Test fun quotedOriginalStopsAtTheSignatureDelimiter() {
+        val original = "Sounds good.\n\n-- \nAlice\nAcme Ltd\n+33 1 23 45 67 89"
+        assertEquals("Sounds good.", cutAtSignatureDelimiter(original))
+    }
+
+    @Test fun theTwoHyphenFormWithoutTrailingSpaceAlsoCuts() {
+        assertEquals("Sounds good.", cutAtSignatureDelimiter("Sounds good.\n\n--\nAlice"))
+    }
+
+    @Test fun aDecorativeRuleIsNotADelimiter() {
+        val original = "Part one\n----------\nPart two"
+        assertEquals(original, cutAtSignatureDelimiter(original))
+    }
+
+    @Test fun aLineMerelyStartingWithHyphensIsNotADelimiter() {
+        val original = "Agenda\n--- end ---\nSee you"
+        assertEquals(original, cutAtSignatureDelimiter(original))
+        assertEquals("a\n-- b\nc", cutAtSignatureDelimiter("a\n-- b\nc"))
+    }
+
+    @Test fun theFirstDelimiterWins() {
+        assertEquals("Body", cutAtSignatureDelimiter("Body\n-- \nSig one\n-- \nSig two"))
+    }
+
+    @Test fun anOriginalWithoutASignatureIsQuotedWhole() {
+        assertEquals("Just a line", cutAtSignatureDelimiter("Just a line"))
+    }
+
+    @Test fun quotingCutsTheSignatureButReopeningADraftDoesNot() {
+        val mail = Email(
+            id = "q1",
+            textBody = listOf(EmailBodyPart(partId = "1", type = "text/plain")),
+            bodyValues = mapOf("1" to EmailBodyValue("Hello\n\n-- \nAlice")),
+        )
+        assertEquals("Hello", quotedOriginalText(mail))
+        // A draft is the user's own text: cutting it at its delimiter would delete their signature.
+        assertEquals("Hello\n\n-- \nAlice", draftFieldsOf(mail).body)
+    }
+
+    // --- Forwarded header: labels translated, format untouched (D7) ---
+
+    @Test fun forwardedHeaderUsesTheSuppliedLabels() {
+        val blocks = buildForwardedBlocks(
+            from = "Alice", subject = "Notes", date = "4 juil. 2026, 09:12", to = "Bob",
+            originalText = "body", originalHtml = null,
+            labels = ForwardLabels(from = "De", subject = "Objet", date = "Date", to = "À"),
+        )
+        assertTrue(blocks.text.contains("De: Alice"))
+        assertTrue(blocks.text.contains("Objet: Notes"))
+        assertTrue(blocks.text.contains("Date: 4 juil. 2026, 09:12"))
+        assertTrue(blocks.text.contains("À: Bob"))
+        assertTrue(blocks.html.contains("Objet: Notes"))
+    }
+
+    @Test fun forwardedHeaderKeepsItsDashedLineAndFieldOrder() {
+        val blocks = buildForwardedBlocks(
+            from = "Alice", subject = "Notes", date = "d", to = "Bob",
+            originalText = "body", originalHtml = null,
+            labels = ForwardLabels(from = "De", subject = "Objet", date = "Date", to = "À"),
+        )
+        assertTrue(blocks.text.startsWith("---------- Forwarded message ----------\n"))
+        val order = listOf("De:", "Objet:", "Date:", "À:").map { blocks.text.indexOf(it) }
+        assertEquals(order.sorted(), order)
     }
 }

@@ -20,6 +20,9 @@
     <string name="compose_remove">Убрать</string>
     <string name="compose_attachment_fallback">вложение</string>
     <string name="compose_body_placeholder">Напишите письмо</string>
+    <string name="compose_quote_attribution">%1$s, %2$s написал(а):</string>
+    <string name="compose_quote_someone">кто-то</string>
+    <string name="compose_forward_date">Дата</string>
     <string name="compose_could_not_send">Не удалось отправить: %1$s</string>
     <string name="compose_prefill_failed">Не удалось загрузить исходное сообщение.</string>
     <string name="compose_scheduled_toast">Запланировано — %1$s</string>

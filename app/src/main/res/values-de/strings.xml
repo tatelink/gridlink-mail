@@ -20,6 +20,9 @@
     <string name="compose_remove">Entfernen</string>
     <string name="compose_attachment_fallback">Anhang</string>
     <string name="compose_body_placeholder">E-Mail verfassen</string>
+    <string name="compose_quote_attribution">Am %1$s schrieb %2$s:</string>
+    <string name="compose_quote_someone">jemand</string>
+    <string name="compose_forward_date">Datum</string>
     <string name="compose_could_not_send">Senden fehlgeschlagen: %1$s</string>
     <string name="compose_prefill_failed">Ursprüngliche Nachricht konnte nicht geladen werden.</string>
     <string name="compose_scheduled_toast">Geplant — %1$s</string>

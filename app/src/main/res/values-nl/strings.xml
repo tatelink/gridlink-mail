@@ -20,6 +20,9 @@
     <string name="compose_remove">Verwijderen</string>
     <string name="compose_attachment_fallback">bijlage</string>
     <string name="compose_body_placeholder">E-mail opstellen</string>
+    <string name="compose_quote_attribution">Op %1$s schreef %2$s:</string>
+    <string name="compose_quote_someone">iemand</string>
+    <string name="compose_forward_date">Datum</string>
     <string name="compose_could_not_send">Kon niet verzenden: %1$s</string>
     <string name="compose_prefill_failed">Kon het oorspronkelijke bericht niet laden.</string>
     <string name="compose_scheduled_toast">Gepland — %1$s</string>

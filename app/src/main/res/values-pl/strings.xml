@@ -20,6 +20,9 @@
     <string name="compose_remove">Usuń</string>
     <string name="compose_attachment_fallback">załącznik</string>
     <string name="compose_body_placeholder">Napisz wiadomość</string>
+    <string name="compose_quote_attribution">Dnia %1$s, %2$s napisał(a):</string>
+    <string name="compose_quote_someone">ktoś</string>
+    <string name="compose_forward_date">Data</string>
     <string name="compose_could_not_send">Nie udało się wysłać: %1$s</string>
     <string name="compose_prefill_failed">Nie udało się wczytać oryginalnej wiadomości.</string>
     <string name="compose_scheduled_toast">Zaplanowano — %1$s</string>

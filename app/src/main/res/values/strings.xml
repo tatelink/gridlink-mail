@@ -20,6 +20,11 @@
     <string name="compose_remove">Remove</string>
     <string name="compose_attachment_fallback">attachment</string>
     <string name="compose_body_placeholder">Compose email</string>
+    <!-- Attribution line above a quoted reply: %1$s is the date, %2$s the sender. -->
+    <string name="compose_quote_attribution">On %1$s, %2$s wrote:</string>
+    <string name="compose_quote_someone">someone</string>
+    <!-- "Date" label in the forwarded-message header (From/Subject/Date/To). -->
+    <string name="compose_forward_date">Date</string>
     <string name="compose_could_not_send">Could not send: %1$s</string>
     <string name="compose_could_not_save">Could not save the draft: %1$s</string>
     <string name="compose_prefill_failed">Couldn\'t load the original message.</string>

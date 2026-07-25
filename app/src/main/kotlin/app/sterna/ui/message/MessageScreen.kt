@@ -128,6 +128,7 @@ import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.ui.components.Monogram
 import app.sterna.util.LinkCleaner
+import app.sterna.util.MailDates
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 import java.io.ByteArrayInputStream
@@ -2678,17 +2679,12 @@ internal fun reflowFormatFlowed(text: String): String {
     return sb.toString()
 }
 
-private val fullFormatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", appLocale)
+// Date formatting lives in [MailDates] — the composer writes the same formatted date into a reply's
+// attribution and a forward's header, and the two must not drift.
+private fun formatFull(iso: String?): String = MailDates.formatFull(iso)
 
-private fun formatFull(iso: String?): String = formatWith(iso, fullFormatter)
-
-private fun formatWith(iso: String?, formatter: DateTimeFormatter): String {
-    if (iso.isNullOrBlank()) return ""
-    val instant = runCatching { Instant.parse(iso) }
-        .recoverCatching { OffsetDateTime.parse(iso).toInstant() }
-        .getOrNull() ?: return ""
-    return instant.atZone(ZoneId.systemDefault()).format(formatter)
-}
+private fun formatWith(iso: String?, formatter: DateTimeFormatter): String =
+    MailDates.formatWith(iso, formatter)
 
 /** Snooze presets → (label, epoch-millis), computed in the device's time zone. */
 /** Snooze presets (label → epoch-millis). Shared by the message view and the inbox selection menu. */

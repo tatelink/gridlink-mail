@@ -48,6 +48,19 @@ internal data class ForwardedBlocks(val text: String, val html: String)
 private const val FORWARD_HEADER = "---------- Forwarded message ----------"
 
 /**
+ * The four field labels of the forwarded-message header, translated. The dashed line and the field
+ * order are a de-facto standard other clients recognise and are deliberately NOT translated; the
+ * labels are just text a human reads, so they follow the app's language (D7). Defaults keep the
+ * English wording for tests and any caller without a Context.
+ */
+internal data class ForwardLabels(
+    val from: String = "From",
+    val subject: String = "Subject",
+    val date: String = "Date",
+    val to: String = "To",
+)
+
+/**
  * Build the text + HTML "forwarded message" blocks for a forwarded original. [originalText] is the
  * original already flattened to plain text (for the text/plain alternative); [originalHtml], when
  * non-null, is the original's HTML, preserved verbatim except that script/style/head blocks are
@@ -63,21 +76,22 @@ internal fun buildForwardedBlocks(
     originalHtml: String?,
     /** Content-IDs whose inline image is actually carried by the forward; their `<img cid:>` is kept. */
     carriedCids: Set<String> = emptySet(),
+    labels: ForwardLabels = ForwardLabels(),
 ): ForwardedBlocks {
     val text = buildString {
         append(FORWARD_HEADER).append('\n')
-        append("From: ").append(from).append('\n')
-        append("Subject: ").append(subject).append('\n')
-        append("Date: ").append(date).append('\n')
-        append("To: ").append(to).append("\n\n")
+        append(labels.from).append(": ").append(from).append('\n')
+        append(labels.subject).append(": ").append(subject).append('\n')
+        append(labels.date).append(": ").append(date).append('\n')
+        append(labels.to).append(": ").append(to).append("\n\n")
         append(originalText)
     }
     val html = buildString {
         append(FORWARD_HEADER).append("<br>")
-        append("From: ").append(htmlEscape(from)).append("<br>")
-        append("Subject: ").append(htmlEscape(subject)).append("<br>")
-        append("Date: ").append(htmlEscape(date)).append("<br>")
-        append("To: ").append(htmlEscape(to)).append("<br><br>")
+        append(htmlEscape(labels.from)).append(": ").append(htmlEscape(from)).append("<br>")
+        append(htmlEscape(labels.subject)).append(": ").append(htmlEscape(subject)).append("<br>")
+        append(htmlEscape(labels.date)).append(": ").append(htmlEscape(date)).append("<br>")
+        append(htmlEscape(labels.to)).append(": ").append(htmlEscape(to)).append("<br><br>")
         append(if (originalHtml != null) cleanForwardedHtml(originalHtml, carriedCids) else htmlEscapeMultiline(originalText))
     }
     return ForwardedBlocks(text, html)
@@ -121,6 +135,25 @@ internal fun originalPlainText(o: Email): String {
     }
     o.htmlContent()?.takeIf { it.isNotBlank() }?.let { return htmlToText(it) }
     return o.preview.orEmpty()
+}
+
+/**
+ * The original as it should be QUOTED in a reply: its plain text, cut at the sender's signature
+ * delimiter (D4). Standard netiquette, and the fix for signatures piling up over a three-message
+ * exchange. The cut is strict — a line that is exactly "-- " or "--" — so a decorative "----------"
+ * or a "--- end ---" never truncates the message.
+ *
+ * Only the QUOTE is cut: reopening a draft ([draftFieldsOf]) and forwarding both keep the whole
+ * body, since there the signature is the user's own text or the message being passed on.
+ */
+internal fun quotedOriginalText(o: Email): String = cutAtSignatureDelimiter(originalPlainText(o))
+
+/** [text] up to (excluding) the first line that is exactly "-- " or "--", trailing blanks trimmed. */
+internal fun cutAtSignatureDelimiter(text: String): String {
+    val lines = text.split("\n")
+    val at = lines.indexOfFirst { it == SIGNATURE_DELIMITER || it == "--" || it == "-- \r" || it == "--\r" }
+    if (at < 0) return text
+    return lines.take(at).joinToString("\n").trimEnd()
 }
 
 /**
@@ -244,14 +277,17 @@ internal fun replyRecipient(o: Email): String =
     o.from.firstOrNull()?.email.orEmpty()
 
 /**
- * The recipients of a reply-all: the sender plus everyone on the original's To and Cc, minus
- * [self] (don't reply to yourself) and blanks/duplicates, joined for the recipient field.
+ * The recipients of a reply-all: the sender plus everyone on the original's To and Cc, minus your
+ * OWN addresses and blanks/duplicates, joined for the recipient field. [selves] is every address the
+ * account can send as (login + all its identities), not just the login: an account with aliases used
+ * to reply to its own other alias (B5). Compared case-insensitively, on the bare address.
  */
-internal fun replyAllRecipients(o: Email, self: String): String {
+internal fun replyAllRecipients(o: Email, selves: Collection<String>): String {
+    val mine = selves.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
     val all = (listOf(replyRecipient(o)) + o.to.map { it.email } + o.cc.map { it.email })
         .map { it.trim() }
-        .filter { it.isNotEmpty() && !it.equals(self, ignoreCase = true) }
-        .distinct()
+        .filter { it.isNotEmpty() && it.lowercase() !in mine }
+        .distinctBy { it.lowercase() }
     return all.joinToString(", ")
 }
 

@@ -20,6 +20,9 @@
     <string name="compose_remove">Retirer</string>
     <string name="compose_attachment_fallback">pièce jointe</string>
     <string name="compose_body_placeholder">Rédigez votre message</string>
+    <string name="compose_quote_attribution">Le %1$s, %2$s a écrit :</string>
+    <string name="compose_quote_someone">quelqu\'un</string>
+    <string name="compose_forward_date">Date</string>
     <string name="compose_could_not_send">Échec de l\'envoi : %1$s</string>
     <string name="compose_could_not_save">Échec de l\'enregistrement du brouillon : %1$s</string>
     <string name="compose_prefill_failed">Impossible de charger le message d\'origine.</string>

@@ -29,6 +29,7 @@ import app.sterna.send.SendOutbox
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.net.hasUsableNetwork
+import app.sterna.util.MailDates
 import kotlinx.coroutines.Dispatchers
 import java.io.File
 import kotlinx.coroutines.Job
@@ -356,6 +357,17 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private fun parseAddrs(s: String): List<String> =
         s.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
 
+    /**
+     * Every address that IS the user on this account: the login plus each of its identities (server
+     * and manual). A reply-all must exclude them all — an account with a second alias used to reply
+     * to itself, because only the login was filtered (B5).
+     */
+    private fun selves(credentials: AccountCredentials): Set<String> =
+        (listOf(credentials.username) + store.identities(credentials.id).map { it.email })
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+
     /** Upload a picked document and add it to the outgoing attachments. */
     fun attach(uri: Uri) {
         val app = getApplication<Application>()
@@ -513,7 +525,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             // offline reply to a never-opened mail). No quote yet; the body is enriched below.
             val cached = runCatching { repo.cachedEmail(replyToId) }.getOrNull()
             if (cached != null) {
-                _prefill.value = buildPrefill(cached, mode, credentials.username, quoteBody = false)
+                _prefill.value = buildPrefill(cached, mode, selves(credentials), quoteBody = false)
                 if (mode != "forward") {
                     // Threading ids aren't cached on the list row (empty here) — the fetch below
                     // supplies the real ones; keep whatever the cache has meanwhile.
@@ -538,7 +550,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             if (mode == "forward") {
                 // A forward's editable body stays empty; the original is carried at send time. Its
                 // "Fwd: …" subject came from the cache above — set it now only if nothing was cached.
-                if (cached == null) _prefill.value = buildPrefill(original, mode, credentials.username)
+                if (cached == null) _prefill.value = buildPrefill(original, mode, selves(credentials))
                 runCatching { forwarded = buildForwarded(credentials, original) }
                     .onFailure { prefillFailed() }
                 return@launch
@@ -551,7 +563,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             inReplyTo = original.messageId
             references = original.references + original.messageId
             if (cached == null) {
-                _prefill.value = buildPrefill(original, mode, credentials.username)
+                _prefill.value = buildPrefill(original, mode, selves(credentials))
             } else {
                 // The whole body, not just the quote: the screen swaps it in wholesale, and it must
                 // keep the signature the cache-first prefill already put there.
@@ -826,7 +838,12 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      * headers are still prefilled from the cached row, but the quoted body is skipped rather than
      * quoting the truncated preview. Ignored for a forward (its body is empty here anyway).
      */
-    private fun buildPrefill(original: Email, mode: String?, self: String, quoteBody: Boolean = true): DraftFields = when (mode) {
+    private fun buildPrefill(
+        original: Email,
+        mode: String?,
+        selves: Collection<String>,
+        quoteBody: Boolean = true,
+    ): DraftFields = when (mode) {
         "forward" -> DraftFields(
             to = "",
             subject = withPrefix(original.subject, "Fwd:"),
@@ -836,7 +853,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             body = replyBody(""),
         )
         "replyAll" -> DraftFields(
-            to = replyAllRecipients(original, self),
+            to = replyAllRecipients(original, selves),
             subject = withPrefix(original.subject, "Re:"),
             body = replyBody(if (quoteBody) quote(original) else ""),
         )
@@ -847,11 +864,19 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
+    /**
+     * The quoted original for a reply: a localised attribution line with the date formatted for the
+     * device (it used to paste the raw ISO timestamp and an English "On …, … wrote:"), then the
+     * original prefixed with "> " — cut at the sender's signature delimiter, so a long exchange does
+     * not accumulate one signature per round (D4).
+     */
     private fun quote(o: Email): String {
-        val sender = o.from.firstOrNull()?.display() ?: "someone"
-        val text = originalPlainText(o)
-        val quoted = text.lineSequence().joinToString("\n") { "> $it" }
-        return "\n\nOn ${o.receivedAt.orEmpty()}, $sender wrote:\n$quoted"
+        val app = getApplication<Application>()
+        val sender = o.from.firstOrNull()?.display() ?: app.getString(R.string.compose_quote_someone)
+        val date = MailDates.formatFull(o.receivedAt)
+        val attribution = app.getString(R.string.compose_quote_attribution, date, sender)
+        val quoted = quotedOriginalText(o).lineSequence().joinToString("\n") { "> $it" }
+        return "\n\n$attribution\n$quoted"
     }
 
     /**
@@ -885,14 +910,23 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         }
         if (staged.isNotEmpty()) _attachments.value = _attachments.value + staged
 
+        val app = getApplication<Application>()
         return buildForwardedBlocks(
             from = o.from.joinToString { it.display() },
             subject = o.subject.orEmpty(),
-            date = o.receivedAt.orEmpty(),
+            date = MailDates.formatFull(o.receivedAt),
             to = o.to.joinToString { it.display() },
+            // The whole original is forwarded, signature included: it is the message being passed
+            // on, not a quote of it.
             originalText = originalPlainText(o),
             originalHtml = o.htmlContent()?.takeIf { it.isNotBlank() },
             carriedCids = carriedCids,
+            labels = ForwardLabels(
+                from = app.getString(R.string.compose_from),
+                subject = app.getString(R.string.compose_subject),
+                date = app.getString(R.string.compose_forward_date),
+                to = app.getString(R.string.compose_to),
+            ),
         )
     }
 

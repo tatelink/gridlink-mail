@@ -20,6 +20,9 @@
     <string name="compose_remove">Remover</string>
     <string name="compose_attachment_fallback">anexo</string>
     <string name="compose_body_placeholder">Escreva o e-mail</string>
+    <string name="compose_quote_attribution">A %1$s, %2$s escreveu:</string>
+    <string name="compose_quote_someone">alguém</string>
+    <string name="compose_forward_date">Data</string>
     <string name="compose_could_not_send">Não foi possível enviar: %1$s</string>
     <string name="compose_prefill_failed">Não foi possível carregar a mensagem original.</string>
     <string name="compose_scheduled_toast">Agendado — %1$s</string>

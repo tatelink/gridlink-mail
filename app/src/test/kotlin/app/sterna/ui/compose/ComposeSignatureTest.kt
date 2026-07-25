@@ -109,12 +109,22 @@ class ComposeSignatureTest {
         assertEquals("Hi Bob,", htmlBodyWithSignature("Hi Bob,", sig, "<b>Alex</b>"))
     }
 
-    @Test fun textAfterTheSignatureIsKeptWhenSubstituting() {
-        // Signature below the quote: what follows the block must survive the substitution.
-        val body = bodyWithSignature("Hi\n\n> quoted", sig, signatureBelowQuote = false)
+    @Test fun theQuoteBelowTheSignatureSurvivesTheSubstitution() {
+        // Signature above the quote (the default): what follows the block must come through.
+        val body = bodyWithSignature("\n\nOn …, Alice wrote:\n> hi", sig)
         assertEquals(
-            "<br><br>-- <br><b>Alex</b>Hi<br><br>&gt; quoted",
+            "<br><br>-- <br><b>Alex</b><br><br>On …, Alice wrote:<br>&gt; hi",
             htmlBodyWithSignature(body, sig, "<b>Alex</b>"),
+        )
+    }
+
+    @Test fun aSignatureRunOnByTheUserIsNotSubstituted() {
+        // Text appended to the signature's last line means the user edited it: no substitution,
+        // and the plain text they typed is what the recipient sees in both alternatives.
+        val edited = "Hi" + bodyWithSignature("", sig) + " (mobile)"
+        assertEquals(
+            "Hi<br><br>-- <br>Alex Rivera<br>Acme (mobile)",
+            htmlBodyWithSignature(edited, sig, "<b>Alex</b>"),
         )
     }
 
