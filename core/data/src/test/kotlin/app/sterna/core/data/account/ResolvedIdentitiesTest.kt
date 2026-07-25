@@ -148,6 +148,51 @@ class ResolvedIdentitiesTest {
         assertEquals(listOf("manual"), cleaned.map { it.id })
     }
 
+    // --- #79: editing a server identity's name/signature via a manual override ---
+
+    @Test fun serverSignatureEdit_persistedAsOverride_thatWins() {
+        // The editor upserts an override (server id + email, edited signature). It must survive the
+        // save-time normalize (it differs from the server value) and win in resolvedIdentities().
+        val server = id("s", "admin@masto.top", name = "Admin", signature = "old-sig")
+        val edited = id("s", "admin@masto.top", name = "Admin", signature = "new-sig")
+
+        val cleaned = StoredAccount.normalizeManualIdentities(listOf(edited), listOf(server))
+        assertEquals(listOf("s"), cleaned.map { it.id }) // override kept (signature differs)
+
+        val acc = account(manual = cleaned, server = listOf(server))
+        val resolved = acc.resolvedIdentities()
+        assertEquals(1, resolved.size)
+        assertEquals("new-sig", resolved[0].signature) // #79: the edited signature applies
+    }
+
+    @Test fun pristineServerIdentity_notPersisted_andSelfCorrects() {
+        // An override identical to the server value (user opened but did not really change it) is a
+        // frozen copy: dropped on save, so the server identity keeps self-correcting.
+        val server = id("s", "admin@masto.top", name = "Admin", signature = "sig")
+        val pristine = id("s", "admin@masto.top", name = "Admin", signature = "sig")
+
+        val cleaned = StoredAccount.normalizeManualIdentities(listOf(pristine), listOf(server))
+        assertTrue(cleaned.isEmpty()) // not persisted
+
+        val saved = account(manual = cleaned, server = listOf(server))
+        assertTrue(saved.resolvedIdentities().any { it.email == "admin@masto.top" })
+        // Server later drops it: with no frozen manual copy it disappears.
+        assertFalse(saved.copy(serverIdentities = emptyList()).resolvedIdentities()
+            .any { it.email == "admin@masto.top" })
+    }
+
+    @Test fun purelyManualIdentity_unaffectedByNormalizeAndResolve() {
+        val server = id("s", "admin@masto.top", name = "Admin", signature = "sig")
+        val manual = id("mine", "me@example.test", name = "Me", signature = "my-sig")
+
+        val cleaned = StoredAccount.normalizeManualIdentities(listOf(manual), listOf(server))
+        assertEquals(listOf("mine"), cleaned.map { it.id })
+
+        val resolved = account(manual = cleaned, server = listOf(server)).resolvedIdentities()
+        assertEquals(listOf("me@example.test", "admin@masto.top"), resolved.map { it.email })
+        assertEquals("my-sig", resolved.first { it.email == "me@example.test" }.signature)
+    }
+
     @Test fun distinctServerIdentities_collapsesByteDuplicates_keepsDistinct() {
         // Server returns two byte-identical admin rows + one distinct address (the masto.top quirk).
         val dup1 = id("s1", "admin@masto.top", name = "Admin")

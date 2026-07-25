@@ -92,7 +92,6 @@ import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -1492,67 +1491,120 @@ private fun AccountDetailScreen(
                 val serverEmails = remember(serverIdentities) {
                     serverIdentities.map { it.email.trim().lowercase() }.toSet()
                 }
-                val totalIdentities = serverIdentities.size + identities.size
+                // Purely-manual identities = editable entries whose email is NOT a server address.
+                // Entries whose email IS a server address are overrides for a server identity and are
+                // surfaced in the server group only (one edit surface per address; no duplicate row,
+                // no group-hopping as the user types).
+                val purelyManual = identities.filter { it.email.trim().lowercase() !in serverEmails }
+                val totalIdentities = serverIdentities.size + purelyManual.size
 
-                // --- From your server (read-only) ---
+                // Edit the name/signature of a server identity by upserting a manual override for its
+                // email, seeded from the server values (so editing one field keeps the other) and
+                // reusing the server id (so the #78 default keeps resolving after an edit). Because
+                // resolvedIdentities() is manual-first, the override wins — this is the #79 fix.
+                fun overrideServer(server: StoredIdentity, transform: (StoredIdentity) -> StoredIdentity) {
+                    val emailKey = server.email.trim().lowercase()
+                    val idx = identities.indexOfFirst { it.email.trim().lowercase() == emailKey }
+                    val base = if (idx >= 0) identities[idx] else server
+                    val updated = transform(base)
+                    identities = if (idx >= 0) {
+                        identities.mapIndexed { i, e -> if (i == idx) updated else e }
+                    } else {
+                        identities + updated
+                    }
+                    markEdited()
+                }
+
+                // One file picker shared by every row; the pending action captures which row applies.
+                var pendingImport by remember(accountId) { mutableStateOf<((String) -> Unit)?>(null) }
+                val importLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.GetContent(),
+                ) { uri ->
+                    val apply = pendingImport
+                    if (uri != null && apply != null) {
+                        runCatching {
+                            context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+                        }.getOrNull()?.let(apply)
+                    }
+                    pendingImport = null
+                }
+
+                // --- From your server (email read-only; name + signature editable, #79) ---
                 if (serverIdentities.isNotEmpty()) {
                     Text(
                         stringResource(R.string.settings_identities_server_group),
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
-                    serverIdentities.forEach { identity ->
-                        // Hide a server address the user has overridden with a manual identity of the
-                        // same email: the editable manual row below is what actually applies.
-                        val overridden = identities.any {
-                            it.email.trim().lowercase() == identity.email.trim().lowercase()
-                        }
-                        if (!overridden) {
-                            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                Text(
-                                    stringResource(R.string.settings_identity_from_server),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                                if (identity.name.isNotBlank()) {
-                                    Text(identity.name, style = MaterialTheme.typography.bodyLarge)
-                                }
-                                Text(
-                                    identity.email,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                // Default is settable on a server identity too (#78). Its id is stable.
-                                DefaultIdentityRadioRow(
-                                    selected = identity.id == defaultIdentityId,
-                                    onSelect = { defaultIdentityId = identity.id; markEdited() },
-                                )
-                                HorizontalDivider(Modifier.padding(top = 12.dp))
+                    serverIdentities.forEach { server ->
+                        val emailKey = server.email.trim().lowercase()
+                        // Show the manual override's values if one exists, else the server's own.
+                        val override = identities.firstOrNull { it.email.trim().lowercase() == emailKey }
+                        val name = override?.name ?: server.name
+                        val signature = override?.signature ?: server.signature
+                        val rowId = override?.id ?: server.id
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(
+                                stringResource(R.string.settings_identity_from_server),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            OutlinedTextField(
+                                value = name,
+                                onValueChange = { v -> overrideServer(server) { it.copy(name = v) } },
+                                label = { Text(stringResource(R.string.settings_display_name_label)) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            )
+                            // Email is server-authoritative: shown, not editable.
+                            Text(
+                                server.email,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                            OutlinedTextField(
+                                value = signature,
+                                onValueChange = { v -> overrideServer(server) { it.copy(signature = v) } },
+                                label = { Text(stringResource(R.string.settings_signature_label)) },
+                                minLines = 2,
+                                supportingText = {
+                                    Text(
+                                        stringResource(R.string.settings_signature_supporting),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            )
+                            // Default is settable on a server identity too (#78); id is stable.
+                            DefaultIdentityRadioRow(
+                                selected = defaultIdentityId == rowId || defaultIdentityId == server.id,
+                                onSelect = { defaultIdentityId = rowId; markEdited() },
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    pendingImport = { html -> overrideServer(server) { it.copy(signature = html) } }
+                                    importLauncher.launch("text/html")
+                                },
+                                modifier = Modifier.padding(top = 12.dp),
+                            ) {
+                                Text(stringResource(R.string.settings_import_html))
                             }
+                            HorizontalDivider(Modifier.padding(top = 12.dp))
                         }
                     }
                 }
 
-                // --- Your identities (editable) ---
+                // --- Your identities (purely-manual, fully editable) ---
                 Text(
                     stringResource(R.string.settings_identities_manual_group),
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
-                var importTarget by remember(accountId) { mutableIntStateOf(-1) }
-                val importLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.GetContent(),
-                ) { uri ->
-                    if (uri != null && importTarget in identities.indices) {
-                        runCatching {
-                            context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
-                        }.getOrNull()?.let { html ->
-                            identities = identities.mapIndexed { i, id -> if (i == importTarget) id.copy(signature = html) else id }
-                            markEdited()
-                        }
-                    }
-                }
                 identities.forEachIndexed { index, identity ->
+                    // Server-email overrides are rendered in the server group above, not here.
+                    if (identity.email.trim().lowercase() in serverEmails) return@forEachIndexed
                     fun update(transform: (StoredIdentity) -> StoredIdentity) {
                         identities = identities.mapIndexed { i, id -> if (i == index) transform(id) else id }
                         markEdited()
@@ -1621,7 +1673,10 @@ private fun AccountDetailScreen(
                             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            OutlinedButton(onClick = { importTarget = index; importLauncher.launch("text/html") }) {
+                            OutlinedButton(onClick = {
+                                pendingImport = { html -> update { it.copy(signature = html) } }
+                                importLauncher.launch("text/html")
+                            }) {
                                 Text(stringResource(R.string.settings_import_html))
                             }
                             // Remove is gated so at least one identity remains across BOTH groups.
