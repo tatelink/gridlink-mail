@@ -57,6 +57,9 @@ data class MailUi(
     val mailboxes: List<Mailbox>,
     val refreshing: Boolean,
     val error: String?,
+    /** Event-driven "no usable network" flag from [ConnectivityWatcher] (#65): true the moment
+     *  WiFi/mobile drops, without waiting for a refresh to fail. Drives the offline banner. */
+    val offline: Boolean = false,
     /** Inline search-on-the-list state. */
     val searching: Boolean = false,
     val searchQuery: String = "",
@@ -528,6 +531,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         repo.observeUnifiedInboxUnread(store.allInboxScopes())
     }
 
+    /** Codeberg #65: the offline empty state promises a resync, so watch the network and re-run
+     *  the current view's refresh once connectivity actually returns; its [online] flow also
+     *  drives the offline banner directly (event-driven, not inferred from a failed refresh).
+     *  Declared before [state] so its flow is available when the combined state is built. */
+    private val connectivity = ConnectivityWatcher(application) { onReconnected() }
+    private var reconnectJob: Job? = null
+
     private val baseState = combine(mailboxes, selection, meta, status, unifiedUnread) { mailboxes, sel, meta, status, unifiedUnread ->
         Base(
             mailboxes = mailboxes,
@@ -542,7 +552,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    val state: StateFlow<MailUi> = combine(baseState, searchState, settings.sortOrder, unreadOnly) { base, search, sortOrder, unreadOnly ->
+    val state: StateFlow<MailUi> = combine(baseState, searchState, settings.sortOrder, unreadOnly, connectivity.online) { base, search, sortOrder, unreadOnly, online ->
         MailUi(
             accountName = base.accountName,
             mailboxName = base.mailboxName,
@@ -554,6 +564,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             mailboxes = base.mailboxes,
             refreshing = base.refreshing,
             error = base.error,
+            offline = !online,
             searching = search.active,
             searchQuery = search.query,
             searchLoading = search.loading,
@@ -573,13 +584,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             mailboxes = emptyList(),
             refreshing = true,
             error = null,
+            offline = !connectivity.online.value,
         ),
     )
-
-    /** Codeberg #65: the offline empty state promises a resync, so watch the default network
-     *  and re-run the current view's refresh once connectivity actually returns. */
-    private val connectivity = ConnectivityWatcher(application) { onReconnected() }
-    private var reconnectJob: Job? = null
 
     init {
         refresh()

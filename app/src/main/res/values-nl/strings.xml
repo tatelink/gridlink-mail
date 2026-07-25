@@ -564,6 +564,7 @@
     <string name="outbox_edit">Bewerken</string>
     <string name="outbox_delete">Verwijderen</string>
     <string name="outbox_banner_failed">Sommige berichten zijn niet verzonden. Tik om te bekijken.</string>
+    <string name="offline_banner">Je bent offline</string>
 
     <!-- Conversations -->
     <string name="settings_conversation_section">Gesprekken</string>

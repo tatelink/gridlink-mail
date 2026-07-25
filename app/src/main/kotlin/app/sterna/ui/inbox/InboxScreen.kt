@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -1307,6 +1308,11 @@ fun InboxScreen(
 
             val refreshState = rememberPullToRefreshState()
             Column(Modifier.fillMaxSize().padding(padding)) {
+            // Event-driven offline line (#65): shown above the list whenever there's no usable
+            // network, so cached mail stays visible (WYSIWYG) but the stale state is honest.
+            if (ui.offline) {
+                OfflineBanner()
+            }
             // A calm, tappable line when a send has permanently failed: route to the outbox.
             if (outboxHasFailures) {
                 OutboxFailureBanner(onClick = onOpenOutbox)
@@ -2058,6 +2064,30 @@ fun mailboxDisplayName(role: String?, name: String): String = when (role) {
     "flagged" -> stringResource(R.string.folder_flagged)
     "important" -> stringResource(R.string.folder_important)
     else -> name
+}
+
+/** A discreet, non-tappable banner shown above the list while there's no usable network (#65).
+ *  Same visual weight as [OutboxFailureBanner] but a calmer surface tone: offline is a state, not
+ *  a failure, and cached mail stays readable below it. */
+@Composable
+private fun OfflineBanner() {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.CloudOff, contentDescription = null)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                stringResource(R.string.offline_banner),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
 }
 
 /** A discreet, tappable banner shown above the list when a send has permanently failed. */

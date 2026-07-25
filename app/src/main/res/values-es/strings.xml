@@ -564,6 +564,7 @@
     <string name="outbox_edit">Editar</string>
     <string name="outbox_delete">Eliminar</string>
     <string name="outbox_banner_failed">Algunos mensajes no se enviaron. Toca para revisar.</string>
+    <string name="offline_banner">Estás sin conexión</string>
     <string name="settings_conversation_section">Conversaciones</string>
     <string name="settings_conversation_title">Vista de conversación</string>
     <string name="settings_conversation_subtitle">Agrupa los mensajes de un mismo hilo en una sola fila, con un contador.</string>

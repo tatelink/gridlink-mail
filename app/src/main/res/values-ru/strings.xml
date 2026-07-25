@@ -564,6 +564,7 @@
     <string name="outbox_edit">Изменить</string>
     <string name="outbox_delete">Удалить</string>
     <string name="outbox_banner_failed">Некоторые сообщения не отправлены. Нажмите, чтобы проверить.</string>
+    <string name="offline_banner">Вы не в сети</string>
     <string name="settings_conversation_section">Беседы</string>
     <string name="settings_conversation_title">Просмотр беседы</string>
     <string name="settings_conversation_subtitle">Объединять сообщения одной цепочки в одну строку с указанием количества.</string>

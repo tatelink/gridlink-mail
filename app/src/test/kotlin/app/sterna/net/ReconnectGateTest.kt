@@ -81,4 +81,40 @@ class ReconnectGateTest {
         gate.onLost(1L)
         assertTrue(gate.onAvailable(1L))
     }
+
+    // --- The published `online` state that drives the offline banner (#65) ---
+
+    @Test fun `online reflects the seed`() {
+        assertTrue(ReconnectGate(online = true).online.value)
+        assertFalse(ReconnectGate(online = false).online.value)
+    }
+
+    @Test fun `losing the last network flips online to false`() {
+        val gate = ReconnectGate(online = true)
+        gate.onAvailable(1L)
+        gate.onLost(1L)
+        assertFalse(gate.online.value)
+    }
+
+    @Test fun `a single loss after a seeded-online start goes offline`() {
+        // WiFi off while idle: framework never replayed onAvailable, so the set is empty.
+        val gate = ReconnectGate(online = true)
+        gate.onLost(1L)
+        assertFalse(gate.online.value)
+    }
+
+    @Test fun `a Wi-Fi to mobile handover stays online`() {
+        val gate = ReconnectGate(online = true)
+        gate.onAvailable(1L) // Wi-Fi
+        gate.onAvailable(2L) // mobile announced before Wi-Fi is reported lost
+        gate.onLost(1L)
+        assertTrue(gate.online.value)
+    }
+
+    @Test fun `online returns to true when a network comes back`() {
+        val gate = ReconnectGate(online = false)
+        assertFalse(gate.online.value)
+        gate.onAvailable(1L)
+        assertTrue(gate.online.value)
+    }
 }
