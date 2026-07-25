@@ -212,3 +212,12 @@ internal fun withPrefix(subject: String?, prefix: String): String {
     val s = subject.orEmpty()
     return if (s.startsWith(prefix, ignoreCase = true)) s else "$prefix $s"
 }
+
+/**
+ * Whether the reply's quoted original (fetched in the background, after the headers) may be dropped
+ * into the body. Only once the header prefill has been [applied], and only while the body still
+ * equals its [initialBody] baseline — so a late-arriving quote never clobbers text the user has
+ * already started typing.
+ */
+internal fun canApplyReplyQuote(applied: Boolean, bodyText: String, initialBody: String): Boolean =
+    applied && bodyText == initialBody
