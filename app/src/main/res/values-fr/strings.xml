@@ -385,9 +385,9 @@
     <string name="settings_cached_messages">Messages en cache</string>
     <string name="settings_clear_account_cache">Vider le cache de ce compte</string>
     <string name="settings_pgp_section">Chiffrement OpenPGP</string>
-    <string name="settings_pgp_enable_title">Utiliser OpenPGP</string>
+    <string name="settings_pgp_enable_title">Signer, chiffrer et lire les messages avec OpenKeychain</string>
     <string name="settings_pgp_enable_subtitle">Signer et chiffrer les mails avec OpenKeychain</string>
-    <string name="settings_pgp_key_title">Votre clé de signature</string>
+    <string name="settings_pgp_key_title">Votre identifiant de clé</string>
     <string name="settings_pgp_key_none">Aucune clé sélectionnée</string>
     <string name="settings_pgp_choose_key">Choisir la clé</string>
     <string name="settings_pgp_encrypt_default_title">Chiffrer par défaut</string>
@@ -672,7 +672,7 @@
     <string name="settings_mark_read_title">Marquer comme lu lors de</string>
     <string name="settings_mark_read_deleting">la suppression</string>
     <string name="settings_mark_read_archiving">l’archivage</string>
-    <string name="settings_mark_read_moving">un déplacement hors de la boîte de réception</string>
+    <string name="settings_mark_read_moving">un déplacement vers un autre dossier</string>
     <string name="settings_mark_read_never">jamais</string>
     <string name="settings_about_section">À propos</string>
     <string name="settings_about_version">Version</string>
