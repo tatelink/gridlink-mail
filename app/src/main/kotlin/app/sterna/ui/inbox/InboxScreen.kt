@@ -165,7 +165,10 @@ import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.data.settings.SwipeAction
 import app.sterna.core.data.mail.InboxRow
 import app.sterna.core.jmap.model.Email
+import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.Mailbox
+import app.sterna.core.data.account.StoredAccount
+import app.sterna.core.data.account.StoredIdentity
 import app.sterna.R
 import app.sterna.ui.components.EmailListItem
 import app.sterna.ui.components.EmptyArt
@@ -1216,7 +1219,9 @@ fun InboxScreen(
                     unarchiveContext = isUnarchiveContext(ui),
                     trashContext = isTrashContext(ui),
                     // Search results keep the sender line whatever folder they came from.
-                    showRecipients = !fromSearch && isOwnMailContext(ui),
+                    // Decided per row by authorship, so a self-authored mail (e.g. one moved to
+                    // Trash) still shows who it went TO, not the self sender (Codeberg #69).
+                    showRecipients = !fromSearch && isOwnMessage(email, ui, accounts),
                     // A collapsed conversation acts on the whole thread; a flat row on its one message.
                     onSwipe = { action ->
                         if (expandable) performThreadSwipe(action, email, viewModel, ui)
@@ -1270,7 +1275,9 @@ fun InboxScreen(
                         leftAction = swipe.left,
                         unarchiveContext = isUnarchiveContext(ui),
                         trashContext = isTrashContext(ui),
-                        showRecipients = isOwnMailContext(ui),
+                        // Per child: a self reply inside an incoming conversation shows "To: …"
+                        // even when the thread itself isn't in Sent/Drafts (Codeberg #69).
+                        showRecipientsFor = { child -> isOwnMessage(child, ui, accounts) },
                         highlightId = highlightId,
                         selectionActive = selectionActive,
                         selectedIds = selectedIds,
@@ -1801,6 +1808,30 @@ private fun isOwnMailContext(ui: MailUi): Boolean {
     return role == "sent" || role == "drafts"
 }
 
+/**
+ * True when [from] (a message's sender) is one of the user's own send-as [identities], matched
+ * case-insensitively on the bare address — i.e. the message was written by the user, so it should
+ * show who it went TO rather than the (self) sender wherever it is read. A blank/absent sender is
+ * never self-authored. Mirrors [app.sterna.ui.message.MessageViewModel]'s own per-message test.
+ */
+internal fun isSelfAuthored(from: List<EmailAddress>, identities: List<StoredIdentity>): Boolean {
+    val sender = from.firstOrNull()?.email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
+    return identities.any { it.email.trim().lowercase() == sender }
+}
+
+/**
+ * Whether a row should render as the user's own outgoing mail (show "To: …" instead of the self
+ * sender). True in the Sent/Drafts folders (the author is always yourself there, Codeberg #59) OR
+ * when the message is self-authored by address — so a draft/sent mail moved to Trash still reads
+ * correctly (Codeberg #69), and a self reply inside an incoming conversation shows its recipients
+ * too. Identities are resolved from the row's OWN account, correct for the unified/multi-account
+ * inbox. (An address shared by two accounts could match either identity list, which merely mirrors
+ * what the reader itself shows — acceptable.)
+ */
+private fun isOwnMessage(email: Email, ui: MailUi, accounts: List<StoredAccount>): Boolean =
+    isOwnMailContext(ui) ||
+        isSelfAuthored(email.from, accounts.firstOrNull { it.id == email.accountId }?.resolvedIdentities().orEmpty())
+
 /** True when the visible folder is Drafts, where tapping a row edits it in compose (#63). */
 private fun isDraftsContext(ui: MailUi): Boolean =
     ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "drafts"
@@ -1870,7 +1901,8 @@ private fun ThreadChildren(
     leftAction: SwipeAction,
     unarchiveContext: Boolean,
     trashContext: Boolean,
-    showRecipients: Boolean,
+    /** Decided per child so a self reply in an incoming conversation shows "To: …" (Codeberg #69). */
+    showRecipientsFor: (Email) -> Boolean,
     highlightId: String?,
     selectionActive: Boolean,
     selectedIds: Set<String>,
@@ -1902,7 +1934,7 @@ private fun ThreadChildren(
                             leftAction = leftAction,
                             unarchiveContext = unarchiveContext,
                             trashContext = trashContext,
-                            showRecipients = showRecipients,
+                            showRecipients = showRecipientsFor(child),
                             onSwipe = { action -> onSwipeChild(action, child) },
                             // Children join multi-select like top-level rows: long-press enters
                             // selection on this one message, a tap in selection mode toggles it.
