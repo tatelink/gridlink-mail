@@ -456,6 +456,7 @@
     <string name="settings_import_html">Import HTML</string>
     <string name="settings_remove">Remove</string>
     <string name="settings_add_identity">Add identity</string>
+    <string name="settings_identity_default">Default</string>
     <string name="settings_sync_section">Sync</string>
     <string name="settings_messages_to_sync_title">Messages to sync</string>
     <string name="settings_sync_last_30_days">Last 30 days</string>

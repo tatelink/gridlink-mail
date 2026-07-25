@@ -253,6 +253,23 @@ class AccountStore(context: Context) {
         saveAccounts(accounts().map { if (it.id == accountId) it.copy(serverIdentities = identities) else it })
     }
 
+    /** The account's chosen default sending identity id, or null if none set / unknown id. */
+    fun defaultIdentityId(accountId: String?): String? =
+        (accountId?.let { account(it) } ?: currentAccount())?.defaultIdentityId
+
+    /** Persist (or clear, with null) the account's default sending identity, keyed by identity id. */
+    fun setDefaultIdentity(accountId: String, identityId: String?) {
+        saveAccounts(accounts().map { if (it.id == accountId) it.copy(defaultIdentityId = identityId) else it })
+    }
+
+    /**
+     * The identity that should be pre-selected when composing for [accountId]: the one whose id
+     * matches the stored [defaultIdentityId], or the first resolved identity when none is set or
+     * the stored id no longer exists among the current (merged manual + server) identities.
+     */
+    fun defaultIdentity(accountId: String?): StoredIdentity? =
+        (accountId?.let { account(it) } ?: currentAccount())?.defaultIdentity()
+
     /** The per-account sync window (defaults to 90 days for unknown ids). */
     fun syncWindow(id: String): SyncWindow = account(id)?.syncWindow ?: SyncWindow.DAYS_90
 

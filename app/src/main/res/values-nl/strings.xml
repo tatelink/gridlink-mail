@@ -368,6 +368,7 @@
     <string name="settings_import_html">HTML importeren</string>
     <string name="settings_remove">Verwijderen</string>
     <string name="settings_add_identity">Identiteit toevoegen</string>
+    <string name="settings_identity_default">Standaard</string>
     <string name="settings_sync_section">Synchronisatie</string>
     <string name="settings_messages_to_sync_title">Te synchroniseren berichten</string>
     <string name="settings_sync_last_30_days">Laatste 30 dagen</string>

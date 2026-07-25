@@ -368,6 +368,7 @@
     <string name="settings_import_html">Importuj HTML</string>
     <string name="settings_remove">Usuń</string>
     <string name="settings_add_identity">Dodaj tożsamość</string>
+    <string name="settings_identity_default">Domyślna</string>
     <string name="settings_sync_section">Synchronizacja</string>
     <string name="settings_messages_to_sync_title">Wiadomości do synchronizacji</string>
     <string name="settings_sync_last_30_days">Ostatnie 30 dni</string>

@@ -1165,6 +1165,7 @@ private fun AccountDetailScreen(
     var password by remember(accountId) { mutableStateOf("") }
     var saved by remember(accountId) { mutableStateOf(false) }
     var identities by remember(accountId) { mutableStateOf(account.resolvedIdentities()) }
+    var defaultIdentityId by remember(accountId) { mutableStateOf(account.defaultIdentityId) }
     var syncWindow by remember(accountId) { mutableStateOf(account.syncWindow) }
     var colorArgb by remember(accountId) { mutableStateOf(account.color) }
     var notificationsEnabled by remember(accountId) { mutableStateOf(account.notificationsEnabled) }
@@ -1474,6 +1475,29 @@ private fun AccountDetailScreen(
                             minLines = 2,
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         )
+                        // Default-identity picker: a single radio per account (selecting one clears
+                        // the rest, as they share the single [defaultIdentityId]). Keyed by the
+                        // stable identity id so it survives server-driven list reordering.
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                                .selectable(
+                                    selected = identity.id == defaultIdentityId,
+                                    role = Role.RadioButton,
+                                    onClick = { defaultIdentityId = identity.id; saved = false },
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = identity.id == defaultIdentityId,
+                                onClick = { defaultIdentityId = identity.id; saved = false },
+                            )
+                            Text(
+                                stringResource(R.string.settings_identity_default),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1484,6 +1508,8 @@ private fun AccountDetailScreen(
                             if (identities.size > 1) {
                                 Spacer(Modifier.weight(1f))
                                 TextButton(onClick = {
+                                    // Removing the default identity clears the stored choice.
+                                    if (identity.id == defaultIdentityId) defaultIdentityId = null
                                     identities = identities.filterIndexed { i, _ -> i != index }
                                     saved = false
                                 }) {
@@ -1576,11 +1602,17 @@ private fun AccountDetailScreen(
                         // Keep blank identities out, and mirror the first signature to the
                         // legacy account-level field for any back-compat readers.
                         val cleanIdentities = identities.filter { it.email.isNotBlank() }
+                        // Drop a default pointing at a now-removed/blank identity so it degrades
+                        // to the first rather than persisting a dangling id.
+                        val cleanDefaultId = defaultIdentityId?.takeIf { id ->
+                            cleanIdentities.any { it.id == id }
+                        }
                         if (isImap) {
                             viewModel.save(
                                 accountId, accountName, server, username, password,
                                 signature = cleanIdentities.firstOrNull()?.signature ?: "",
                                 identities = cleanIdentities,
+                                defaultIdentityId = cleanDefaultId,
                                 imapHost = imapHost, imapPort = imapPort.toIntOrNull(), imapSecurity = imapSecurity,
                                 smtpHost = smtpHost, smtpPort = smtpPort.toIntOrNull(), smtpSecurity = smtpSecurity,
                             )
@@ -1589,6 +1621,7 @@ private fun AccountDetailScreen(
                                 accountId, accountName, server, username, password,
                                 signature = cleanIdentities.firstOrNull()?.signature ?: "",
                                 identities = cleanIdentities,
+                                defaultIdentityId = cleanDefaultId,
                             )
                         }
                         password = ""

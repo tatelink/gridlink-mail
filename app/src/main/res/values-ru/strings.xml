@@ -368,6 +368,7 @@
     <string name="settings_import_html">Импортировать HTML</string>
     <string name="settings_remove">Удалить</string>
     <string name="settings_add_identity">Добавить личность</string>
+    <string name="settings_identity_default">По умолчанию</string>
     <string name="settings_sync_section">Синхронизация</string>
     <string name="settings_messages_to_sync_title">Письма для синхронизации</string>
     <string name="settings_sync_last_30_days">Последние 30 дней</string>

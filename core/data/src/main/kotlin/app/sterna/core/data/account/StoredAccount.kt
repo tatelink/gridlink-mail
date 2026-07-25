@@ -33,6 +33,13 @@ data class StoredAccount(
      */
     val serverIdentities: List<StoredIdentity> = emptyList(),
     /**
+     * The user-chosen default sending identity, keyed by [StoredIdentity.id] (stable, so it
+     * survives the identity list being reordered by server discovery on connect). null = no
+     * explicit choice; the composer then falls back to the first resolved identity. An id that
+     * no longer matches any resolved identity also degrades to the first (see [AccountStore]).
+     */
+    val defaultIdentityId: String? = null,
+    /**
      * True for a freshly imported account (K-9 / backup) that still needs its one-time sign-in.
      * Drives the "accounts to sign in" list; cleared once the user signs it in or dismisses it.
      * The account stays inert (no stored credential) until sign-in regardless of this flag.
@@ -73,4 +80,14 @@ data class StoredAccount(
             .ifEmpty {
                 listOf(StoredIdentity(id = "default", name = accountName, email = username, signature = signature))
             }
+
+    /**
+     * The identity to pre-select when composing: the one matching [defaultIdentityId], or the first
+     * resolved identity when no default is set or its id no longer exists among current identities
+     * (so it degrades gracefully after a server-driven identity refresh).
+     */
+    fun defaultIdentity(): StoredIdentity? {
+        val resolved = resolvedIdentities()
+        return resolved.firstOrNull { it.id == defaultIdentityId } ?: resolved.firstOrNull()
+    }
 }

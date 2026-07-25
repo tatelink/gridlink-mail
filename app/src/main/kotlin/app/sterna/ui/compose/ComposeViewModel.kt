@@ -373,7 +373,14 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         }
         _fromOptions.value = options
         val preferred = accountId ?: store.load()?.id
-        _selectedFrom.value = options.firstOrNull { it.accountId == preferred } ?: options.firstOrNull()
+        // Prefer the preferred account's chosen default identity (keyed by stable id), then any
+        // identity of that account, then the very first option. A reply/forward/restore path below
+        // overrides this initial pick when it sets _selectedFrom explicitly.
+        val defaultIdentityId = preferred?.let { store.defaultIdentityId(it) }
+        _selectedFrom.value =
+            options.firstOrNull { it.accountId == preferred && it.identity.id == defaultIdentityId }
+                ?: options.firstOrNull { it.accountId == preferred }
+                ?: options.firstOrNull()
         refreshPgp()
 
         // Reopening an undone send: restore every field the user had, including the
