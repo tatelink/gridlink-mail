@@ -438,23 +438,54 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
         if (replyToId == null) return
         viewModelScope.launch {
-            try {
-                val credentials = credentials() ?: return@launch
-                val original = repo.fetchEmail(credentials, replyToId)
-                _prefill.value = buildPrefill(original, mode, credentials.username)
-                if (mode == "forward") {
-                    // Carry the original to send time instead of flattening it into the editor.
-                    forwarded = buildForwarded(credentials, original)
-                } else {
-                    inReplyTo = original.messageId
-                    references = original.references + original.messageId
-                }
-            } catch (_: Throwable) {
-                // The original couldn't be loaded: leave the fields blank, but tell the user so a
-                // reply/forward that lost its recipient and quoted text isn't a silent surprise.
+            val credentials = credentials() ?: return@launch
+            fun prefillFailed() {
                 _attachmentStatus.value =
                     getApplication<Application>().getString(R.string.compose_prefill_failed)
             }
+            // The full original is needed only for the quoted body (reply) or the carried original
+            // (forward). To/Subject/threading of a reply come from headers alone, which the cached
+            // list row already holds — so fetch the full original, but don't let a failed fetch
+            // blank the reply's recipient and subject (Codeberg: offline reply to a never-opened
+            // mail). Online, the fetch succeeds and behaviour is unchanged.
+            val original = runCatching { repo.fetchEmail(credentials, replyToId) }.getOrNull()
+
+            if (mode == "forward") {
+                // A forward genuinely needs the body; with no original there is nothing to carry, so
+                // degrade with the notice rather than open a forward that has lost its content.
+                if (original == null) {
+                    prefillFailed()
+                    return@launch
+                }
+                _prefill.value = buildPrefill(original, mode, credentials.username)
+                // Carry the original to send time instead of flattening it into the editor.
+                runCatching { forwarded = buildForwarded(credentials, original) }
+                    .onFailure { prefillFailed() }
+                return@launch
+            }
+
+            // Reply / reply-all.
+            if (original != null) {
+                _prefill.value = buildPrefill(original, mode, credentials.username)
+                inReplyTo = original.messageId
+                references = original.references + original.messageId
+                return@launch
+            }
+            // Offline and never opened: the full body isn't available, but the cached list row still
+            // carries the sender, recipients and subject — enough to address the reply correctly.
+            // Prefill those from the cache and skip the quote (don't quote the truncated preview),
+            // saying so, rather than blanking To/Subject.
+            val cached = runCatching { repo.cachedEmail(replyToId) }.getOrNull()
+            if (cached == null) {
+                prefillFailed()
+                return@launch
+            }
+            _prefill.value = buildPrefill(cached, mode, credentials.username, quoteBody = false)
+            // Threading headers aren't cached on the list row (they stay empty here); a full fetch
+            // would supply them, so an offline reply just isn't threaded — acceptable degradation.
+            inReplyTo = cached.messageId
+            references = cached.references + cached.messageId
+            prefillFailed()
         }
     }
 
@@ -732,7 +763,13 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun buildPrefill(original: Email, mode: String?, self: String): DraftFields = when (mode) {
+    /**
+     * Initial fields for a reply/reply-all/forward of [original]. [quoteBody] is set false when the
+     * original's full body couldn't be loaded (offline reply to a never-opened mail): the To/Subject
+     * headers are still prefilled from the cached row, but the quoted body is skipped rather than
+     * quoting the truncated preview. Ignored for a forward (its body is empty here anyway).
+     */
+    private fun buildPrefill(original: Email, mode: String?, self: String, quoteBody: Boolean = true): DraftFields = when (mode) {
         "forward" -> DraftFields(
             to = "",
             subject = withPrefix(original.subject, "Fwd:"),
@@ -743,29 +780,13 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         "replyAll" -> DraftFields(
             to = replyAllRecipients(original, self),
             subject = withPrefix(original.subject, "Re:"),
-            body = quote(original),
+            body = if (quoteBody) quote(original) else "",
         )
         else -> DraftFields( // reply
             to = replyRecipient(original),
             subject = withPrefix(original.subject, "Re:"),
-            body = quote(original),
+            body = if (quoteBody) quote(original) else "",
         )
-    }
-
-    private fun replyRecipient(o: Email): String =
-        o.from.firstOrNull()?.email.orEmpty()
-
-    private fun replyAllRecipients(o: Email, self: String): String {
-        val all = (listOf(replyRecipient(o)) + o.to.map { it.email } + o.cc.map { it.email })
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && !it.equals(self, ignoreCase = true) }
-            .distinct()
-        return all.joinToString(", ")
-    }
-
-    private fun withPrefix(subject: String?, prefix: String): String {
-        val s = subject.orEmpty()
-        return if (s.startsWith(prefix, ignoreCase = true)) s else "$prefix $s"
     }
 
     private fun quote(o: Email): String {
