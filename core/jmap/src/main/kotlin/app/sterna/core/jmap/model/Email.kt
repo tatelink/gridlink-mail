@@ -106,6 +106,13 @@ data class Email(
     val isFlagged: Boolean get() = keywords["\$flagged"] == true
 
     /**
+     * Whether this is a draft ($draft keyword). A trashed draft keeps the keyword even though it
+     * has left the Drafts folder, so the list row can flag it as a draft anywhere it surfaces —
+     * otherwise, since 1.3.11 shows its recipient, it is indistinguishable from a sent mail (#69).
+     */
+    val isDraft: Boolean get() = keywords["\$draft"] == true
+
+    /**
      * The HTML body content, if the message has a genuine `text/html` part.
      *
      * JMAP servers (per RFC 8621 §4.1.4) fill `htmlBody` with the `text/plain` part when a

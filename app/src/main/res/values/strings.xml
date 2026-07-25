@@ -142,6 +142,7 @@
     <string name="a11y_favourite">Add to favourites</string>
     <string name="a11y_unfavourite">Remove from favourites</string>
     <string name="a11y_has_attachment">Has attachment</string>
+    <string name="draft_label">Draft</string>
     <string name="a11y_conversation_pill">Conversation, %1$d messages</string>
     <string name="a11y_conversation_expanded">Expanded</string>
     <string name="a11y_conversation_collapsed">Collapsed</string>

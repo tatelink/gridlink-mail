@@ -157,6 +157,12 @@ fun EmailListItem(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                // A trashed draft now shows its recipient like a sent mail (#69, 1.3.11), so mark
+                // it "(Draft)" wherever it surfaces (Trash especially) to keep the two apart.
+                if (email.isDraft) {
+                    Spacer(Modifier.width(6.dp))
+                    DraftLabel()
+                }
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = receivedLabel,
@@ -330,6 +336,25 @@ private fun ThreadPill(
             )
         }
     }
+}
+
+/**
+ * A light "(Draft)" chip on a list row whose message is a draft (#69). Matches the static
+ * [ThreadPill]'s muted weight so it reads as a marker, not an action; purely informational, so it
+ * carries no click or extra semantics (the label text is read out as part of the row).
+ */
+@Composable
+private fun DraftLabel() {
+    Text(
+        text = stringResource(R.string.draft_label),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 6.dp, vertical = 1.dp),
+    )
 }
 
 private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm", appLocale)

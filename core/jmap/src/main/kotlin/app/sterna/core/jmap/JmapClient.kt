@@ -1481,7 +1481,10 @@ class JmapClient internal constructor(
             putJsonObject("create") {
                 putJsonObject("draft") {
                     putJsonArray("from") { addJsonObject { addAddress(from) } }
-                    putJsonArray("to") { to.forEach { addJsonObject { addAddress(it) } } }
+                    // A draft may legitimately have no recipient yet (#69). Emit "to" only when
+                    // there is one — an empty "to": [] is rejected on create by strict servers
+                    // (e.g. Stalwart), which is what blocked saving a recipient-less draft.
+                    if (to.isNotEmpty()) putJsonArray("to") { to.forEach { addJsonObject { addAddress(it) } } }
                     if (cc.isNotEmpty()) putJsonArray("cc") { cc.forEach { addJsonObject { addAddress(it) } } }
                     if (bcc.isNotEmpty()) putJsonArray("bcc") { bcc.forEach { addJsonObject { addAddress(it) } } }
                     put("subject", subject)

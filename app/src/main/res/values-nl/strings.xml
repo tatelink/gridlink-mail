@@ -627,6 +627,7 @@
     <string name="a11y_favourite">Aan favorieten toevoegen</string>
     <string name="a11y_unfavourite">Uit favorieten verwijderen</string>
     <string name="a11y_has_attachment">Heeft een bijlage</string>
+    <string name="draft_label">Concept</string>
     <string name="a11y_conversation_pill">Gesprek, %1$d berichten</string>
     <string name="a11y_conversation_expanded">Uitgevouwen</string>
     <string name="a11y_conversation_collapsed">Samengevouwen</string>
