@@ -175,10 +175,14 @@ fun EmailListItem(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                // Conversation pill — only when the thread has 2+ messages. The in-view count
-                // plus a chevron that unfolds the thread inline; tappable when a handler is
-                // given (the browse list), otherwise a static count badge (e.g. search results).
-                if (threadExpandable) {
+                // Conversation pill — only when 2+ of the thread's messages are actually in
+                // this view. The pill is gated on both [threadExpandable] (a real thread
+                // account-wide) and [threadCount] > 1: without the count guard a thread whose
+                // other messages sit outside this and the Sent view (e.g. Trash) would show a
+                // bogus "(1)" pill (Codeberg #75). The in-view count plus a chevron that unfolds
+                // the thread inline; tappable when a handler is given (the browse list),
+                // otherwise a static count badge (e.g. search results).
+                if (threadExpandable && threadCount > 1) {
                     Spacer(Modifier.width(6.dp))
                     ThreadPill(
                         count = threadCount,
@@ -282,6 +286,8 @@ private fun ThreadPill(
     expanded: Boolean,
     onToggleExpand: (() -> Unit)?,
 ) {
+    // Belt-and-suspenders: never render a "(1)" (or empty) pill — a conversation is 2+ messages.
+    if (count <= 1) return
     val motionOn = rememberMotionEnabled()
     val rotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
