@@ -622,6 +622,7 @@
     <string name="a11y_favourite">Zu Favoriten hinzufügen</string>
     <string name="a11y_unfavourite">Aus Favoriten entfernen</string>
     <string name="a11y_has_attachment">Hat einen Anhang</string>
+    <string name="draft_label">Entwurf</string>
     <string name="a11y_conversation_pill">Unterhaltung, %1$d Nachrichten</string>
     <string name="a11y_conversation_expanded">Ausgeklappt</string>
     <string name="a11y_conversation_collapsed">Eingeklappt</string>

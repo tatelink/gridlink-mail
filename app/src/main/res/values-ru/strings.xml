@@ -623,6 +623,7 @@
     <string name="a11y_favourite">Добавить в избранное</string>
     <string name="a11y_unfavourite">Удалить из избранного</string>
     <string name="a11y_has_attachment">Есть вложение</string>
+    <string name="draft_label">Черновик</string>
     <string name="a11y_conversation_pill">Переписка, сообщений: %1$d</string>
     <string name="a11y_conversation_expanded">Развёрнуто</string>
     <string name="a11y_conversation_collapsed">Свёрнуто</string>

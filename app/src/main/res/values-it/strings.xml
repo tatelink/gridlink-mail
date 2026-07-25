@@ -622,6 +622,7 @@
     <string name="a11y_favourite">Aggiungi ai preferiti</string>
     <string name="a11y_unfavourite">Rimuovi dai preferiti</string>
     <string name="a11y_has_attachment">Contiene un allegato</string>
+    <string name="draft_label">Bozza</string>
     <string name="a11y_conversation_pill">Conversazione, %1$d messaggi</string>
     <string name="a11y_conversation_expanded">Espansa</string>
     <string name="a11y_conversation_collapsed">Compressa</string>

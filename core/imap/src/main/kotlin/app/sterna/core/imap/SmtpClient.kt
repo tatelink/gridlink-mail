@@ -170,7 +170,9 @@ object OutgoingMime {
         ).format(DateTimeFormatter.RFC_1123_DATE_TIME)
         return buildString {
             append("From: ${headerSafe(m.from)}\r\n")
-            append("To: ${m.to.joinToString(", ") { headerSafe(it) }}\r\n")
+            // A draft may have no recipient yet (#69); an empty "To:" header is malformed, so omit
+            // it entirely. A real send always has recipients, so this only affects saved drafts.
+            if (m.to.isNotEmpty()) append("To: ${m.to.joinToString(", ") { headerSafe(it) }}\r\n")
             if (m.cc.isNotEmpty()) append("Cc: ${m.cc.joinToString(", ") { headerSafe(it) }}\r\n")
             append("Subject: ${encodeHeader(m.subject)}\r\n")
             append("Date: $date\r\n")

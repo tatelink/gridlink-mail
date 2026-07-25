@@ -622,6 +622,7 @@
     <string name="a11y_favourite">Dodaj do ulubionych</string>
     <string name="a11y_unfavourite">Usuń z ulubionych</string>
     <string name="a11y_has_attachment">Zawiera załącznik</string>
+    <string name="draft_label">Wersja robocza</string>
     <string name="a11y_conversation_pill">Rozmowa, %1$d wiadomości</string>
     <string name="a11y_conversation_expanded">Rozwinięto</string>
     <string name="a11y_conversation_collapsed">Zwinięto</string>

@@ -622,6 +622,7 @@
     <string name="a11y_favourite">Añadir a favoritos</string>
     <string name="a11y_unfavourite">Quitar de favoritos</string>
     <string name="a11y_has_attachment">Tiene un archivo adjunto</string>
+    <string name="draft_label">Borrador</string>
     <string name="a11y_conversation_pill">Conversación, %1$d mensajes</string>
     <string name="a11y_conversation_expanded">Expandida</string>
     <string name="a11y_conversation_collapsed">Contraída</string>

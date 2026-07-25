@@ -30,6 +30,27 @@ internal fun recordRecipients(id: String, to: List<EmailAddress>) {
     if (to.isNotEmpty()) recentRecipients[id] = to
 }
 
+/**
+ * The `$draft` keyword of cached list rows, kept in memory only — the `emails` table stores just
+ * `seen`/`flagged`, so a column would mean a schema bump. Recorded whenever a live fetch passes
+ * through [toEntity], replayed by [toEmail] so a trashed draft can still be flagged "(Draft)" in
+ * the list (#69). After process death a row falls back to no flag until the folder's next refresh —
+ * the same lifecycle as the remembered recipients above.
+ */
+private val recentDrafts: MutableSet<String> = Collections.synchronizedSet(
+    Collections.newSetFromMap(
+        object : LinkedHashMap<String, Boolean>(64, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>): Boolean =
+                size > RECIPIENTS_MAX
+        },
+    ),
+)
+
+/** Remember whether email [id] is a draft, so [toEmail] can replay the `$draft` keyword. */
+internal fun recordDraft(id: String, isDraft: Boolean) {
+    if (isDraft) recentDrafts.add(id) else recentDrafts.remove(id)
+}
+
 /** Map a grouped conversation row to the domain [InboxRow] (unread = any in thread). */
 internal fun ConversationRow.toInboxRow(): InboxRow =
     InboxRow(
@@ -41,8 +62,9 @@ internal fun ConversationRow.toInboxRow(): InboxRow =
 
 internal fun Email.toEntity(accountId: String, mailboxId: String): EmailEntity {
     val sender = from.firstOrNull()
-    // Recipients don't fit the row schema — remember them aside for [toEmail] to replay.
+    // Recipients and the draft flag don't fit the row schema — remember them aside for [toEmail].
     recordRecipients(id, to)
+    recordDraft(id, isDraft)
     return EmailEntity(
         id = id,
         accountId = accountId,
@@ -78,6 +100,7 @@ internal fun EmailEntity.toEmail(): Email = Email(
     keywords = buildMap {
         if (seen) put("\$seen", true)
         if (flagged) put("\$flagged", true)
+        if (id in recentDrafts) put("\$draft", true)
     },
 )
 
@@ -124,6 +147,7 @@ internal fun FtsHit.toEmail(): Email = Email(
     keywords = buildMap {
         if (seen) put("\$seen", true)
         if (flagged) put("\$flagged", true)
+        if (emailId in recentDrafts) put("\$draft", true)
     },
 )
 

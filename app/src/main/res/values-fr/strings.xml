@@ -636,6 +636,7 @@
     <string name="a11y_favourite">Ajouter aux favoris</string>
     <string name="a11y_unfavourite">Retirer des favoris</string>
     <string name="a11y_has_attachment">Contient une pièce jointe</string>
+    <string name="draft_label">Brouillon</string>
     <string name="a11y_conversation_pill">Conversation, %1$d messages</string>
     <string name="a11y_conversation_expanded">Développée</string>
     <string name="a11y_conversation_collapsed">Réduite</string>
