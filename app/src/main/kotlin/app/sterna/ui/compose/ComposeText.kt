@@ -185,3 +185,30 @@ internal fun draftFieldsOf(o: Email): DraftFields {
         expand = cc.isNotBlank() || bcc.isNotBlank(),
     )
 }
+
+// --- Reply / reply-all / forward header derivation (pure, so it works from a cached list row) ---
+// These need only the original's headers (sender, recipients, subject) — never its body — so a
+// reply/reply-all can be addressed correctly even offline from the cached row of a mail that was
+// never opened (the quoted body is added separately, and skipped when the body isn't available).
+
+/** The lone recipient of a plain reply: the original's sender (its first From address). */
+internal fun replyRecipient(o: Email): String =
+    o.from.firstOrNull()?.email.orEmpty()
+
+/**
+ * The recipients of a reply-all: the sender plus everyone on the original's To and Cc, minus
+ * [self] (don't reply to yourself) and blanks/duplicates, joined for the recipient field.
+ */
+internal fun replyAllRecipients(o: Email, self: String): String {
+    val all = (listOf(replyRecipient(o)) + o.to.map { it.email } + o.cc.map { it.email })
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !it.equals(self, ignoreCase = true) }
+        .distinct()
+    return all.joinToString(", ")
+}
+
+/** [subject] with [prefix] ("Re:"/"Fwd:") prepended, unless it already carries it (any case). */
+internal fun withPrefix(subject: String?, prefix: String): String {
+    val s = subject.orEmpty()
+    return if (s.startsWith(prefix, ignoreCase = true)) s else "$prefix $s"
+}

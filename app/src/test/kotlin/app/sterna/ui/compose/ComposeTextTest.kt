@@ -224,4 +224,45 @@ class ComposeTextTest {
     @Test fun newMailAndForwardLeaveTheBodyUnfocused() {
         assertEquals(null, initialBodyCaret(bodyLength = 0, isDraft = false, isReply = false))
     }
+
+    // --- Reply / reply-all header derivation (works from a cached row, so offline replies address) ---
+
+    private val originalToReply = Email(
+        id = "m1",
+        subject = "Project Phoenix",
+        from = listOf(EmailAddress(name = "Alice", email = "alice@example.com")),
+        to = listOf(
+            EmailAddress(email = "me@example.com"),
+            EmailAddress(name = "Bob", email = "bob@example.com"),
+        ),
+        cc = listOf(EmailAddress(email = "carol@example.com")),
+    )
+
+    @Test fun replyGoesToTheOriginalSender() {
+        assertEquals("alice@example.com", replyRecipient(originalToReply))
+    }
+
+    @Test fun replyRecipientEmptyWhenSenderUnknown() {
+        assertEquals("", replyRecipient(Email(id = "x")))
+    }
+
+    @Test fun replyAllIncludesSenderToAndCcButNotSelf() {
+        val all = replyAllRecipients(originalToReply, self = "me@example.com")
+        assertEquals("alice@example.com, bob@example.com, carol@example.com", all)
+    }
+
+    @Test fun replyAllDropsSelfCaseInsensitivelyAndDeduplicates() {
+        val o = originalToReply.copy(
+            cc = listOf(EmailAddress(email = "ME@Example.com"), EmailAddress(email = "alice@example.com")),
+        )
+        // "ME@Example.com" == self (ignore case) is removed; the duplicate alice is collapsed.
+        assertEquals("alice@example.com, bob@example.com", replyAllRecipients(o, self = "me@example.com"))
+    }
+
+    @Test fun subjectGetsRePrefixOnlyWhenMissing() {
+        assertEquals("Re: Project Phoenix", withPrefix("Project Phoenix", "Re:"))
+        assertEquals("Re: Project Phoenix", withPrefix("Re: Project Phoenix", "Re:"))
+        assertEquals("RE: already", withPrefix("RE: already", "Re:")) // existing prefix kept, any case
+        assertEquals("Fwd: ", withPrefix(null, "Fwd:"))
+    }
 }
