@@ -271,7 +271,10 @@ private fun MainNavHost(
                     }
                 },
                 onCompose = { if (entry.lifecycleIsResumed()) nav.navigate("compose") },
-                onReopenDraft = { if (entry.lifecycleIsResumed()) nav.navigate("compose?restore=true") },
+                // Reopening an undone send is a deliberate one-shot driven off the restored-draft
+                // flow, not a stale list tap, so it must not be gated by the resumed-entry guard
+                // (which was dropping it and leaving the message parked with no compose to return to).
+                onReopenDraft = { nav.navigate("compose?restore=true") },
                 // A message tapped in the Drafts folder opens in compose for editing (#63),
                 // not in the reader — sending or re-saving then replaces the stored draft.
                 onEditDraft = { id, accountId ->

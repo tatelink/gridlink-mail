@@ -563,9 +563,12 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     ),
                     draft = draft,
                 ) {
-                    // Undo within the window: drop the queued row so nothing is sent.
-                    Outbox.cancel(app, id)
+                    // Undo within the window: drop the queued row so nothing is sent, and nothing
+                    // stays parked in the Outbox. Delete the row first (the user-visible artifact),
+                    // then cancel its worker; should the cancel be a no-op, a later worker run finds
+                    // no row and simply exits.
                     repo.deleteOutbox(id)
+                    Outbox.cancel(app, id)
                 }
                 _state.value = ComposeState.Done
             } catch (t: Throwable) {

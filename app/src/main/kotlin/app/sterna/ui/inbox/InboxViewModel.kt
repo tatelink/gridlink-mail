@@ -125,6 +125,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     val outboxPending: StateFlow<SendOutbox.Pending?> = outbox.pending
     fun undoSend() = outbox.undo()
 
+    /**
+     * The draft handed back when the user undoes a send, waiting to reopen compose. Driving the
+     * reopen off this flow (rather than firing it inline from the snackbar's Undo handler) makes
+     * it deterministic: `undoSend()` clears `outboxPending`, which tears down the very snackbar
+     * coroutine that used to also trigger the reopen, so that navigation could be dropped. A
+     * dedicated collector, gated on nothing but this flow, always reopens compose.
+     */
+    val restoredDraft: StateFlow<SendOutbox.ComposeDraft?> = outbox.restored
+
     /** Discreet badge: how many outbox items are pending or failed (the undo window is silent). */
     val outboxCount: StateFlow<Int> = repo.outboxActiveCount().stateIn(
         scope = viewModelScope,
