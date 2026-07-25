@@ -5,6 +5,9 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Pure "was offline → back online" state machine behind the auto-refresh on reconnect
@@ -17,23 +20,31 @@ import android.net.NetworkRequest
  * is never a reconnect. Seeded with the connectivity known at registration, so the callbacks
  * the framework replays for already-connected networks aren't one either (the screen's own
  * initial load covers those).
+ *
+ * Beyond the "came back" edge that drives the resync, it also *publishes* the current online
+ * value as [online] (#65: WiFi-off while the app is idle triggers no refresh, so the offline
+ * state has to be event-driven, not inferred from a failed refresh).
  */
-internal class ReconnectGate(private var online: Boolean) {
+internal class ReconnectGate(online: Boolean) {
     /** Every network currently satisfying the request. */
     private val networks = mutableSetOf<Long>()
+
+    private val _online = MutableStateFlow(online)
+    /** The current connectivity, so the UI can show offline without waiting for a failed refresh. */
+    val online: StateFlow<Boolean> = _online.asStateFlow()
 
     /** A network became usable. True only on a genuine offline → online transition. */
     fun onAvailable(handle: Long): Boolean {
         networks += handle
-        if (online) return false
-        online = true
+        if (_online.value) return false
+        _online.value = true
         return true
     }
 
     /** A network stopped satisfying the request: offline once the last one is gone. */
     fun onLost(handle: Long) {
         networks -= handle
-        if (networks.isEmpty()) online = false
+        if (networks.isEmpty()) _online.value = false
     }
 }
 
@@ -60,6 +71,9 @@ internal class ReconnectGate(private var online: Boolean) {
 class ConnectivityWatcher(context: Context, private val onReconnect: () -> Unit) {
     private val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
     private val gate = ReconnectGate(online = hasUsableNetwork(context))
+
+    /** Live connectivity, seeded from the transports up at construction; drives the offline UI. */
+    val online: StateFlow<Boolean> = gate.online
 
     private val request = NetworkRequest.Builder()
         .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
