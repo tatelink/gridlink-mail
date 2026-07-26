@@ -25,7 +25,9 @@
     <string name="compose_quote_not_added">Цитата не добавлена: вы уже начали писать.</string>
     <string name="compose_forward_date">Дата</string>
     <string name="compose_could_not_send">Не удалось отправить: %1$s</string>
+    <string name="compose_could_not_save">Не удалось сохранить черновик: %1$s</string>
     <string name="compose_prefill_failed">Не удалось загрузить исходное сообщение.</string>
+    <string name="compose_draft_original_kept">Сохранено как новый черновик. Оригинал оставлен, потому что эта копия смогла перенести не всё, что в нём было.</string>
     <string name="compose_scheduled_toast">Запланировано — %1$s</string>
     <string name="compose_discard_title">Удалить сообщение?</string>
     <string name="compose_discard_message">Вы не сохранили изменения.</string>
@@ -138,6 +140,7 @@
     <string name="message_retry">Повторить</string>
     <string name="message_unknown_sender">(отправитель неизвестен)</string>
     <string name="message_no_subject">(без темы)</string>
+    <string name="list_to_recipients">Кому: %1$s</string>
     <string name="message_attachments">Вложения (%1$d)</string>
     <string name="message_attachment_fallback">вложение</string>
     <string name="message_participants_title">Участники</string>
@@ -371,6 +374,7 @@
     <string name="settings_server_url_label">URL сервера</string>
     <string name="settings_username_label">Имя пользователя</string>
     <string name="settings_password_label">Пароль (оставьте пустым, чтобы сохранить текущий)</string>
+    <string name="settings_api_token_label">Токен API (оставьте пустым, чтобы сохранить текущий)</string>
     <string name="settings_protocol_section">Протокол</string>
     <string name="settings_protocol_imap_smtp">IMAP / SMTP</string>
     <string name="settings_protocol_jmap">JMAP</string>
@@ -423,6 +427,7 @@
     <string name="settings_pgp_encrypt_default_title">Шифровать по умолчанию</string>
     <string name="settings_pgp_encrypt_default_subtitle">Начинать новые письма зашифрованными, когда у каждого получателя есть ключ, иначе отправлять обычно</string>
     <string name="settings_pgp_missing_help">Sterna использует приложение OpenKeychain для управления ключами и шифрования писем. Установите его, чтобы включить OpenPGP.</string>
+    <string name="settings_pgp_provider_required">Не действует: требуется OpenKeychain</string>
     <string name="settings_pgp_install">Установить OpenKeychain</string>
     <string name="settings_pgp_error">Ошибка провайдера OpenPGP</string>
     <string name="message_pgp_encrypted_title">Зашифрованное письмо</string>
@@ -469,6 +474,11 @@
     <string name="connect_jmap_server">Сервер JMAP</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
     <string name="connect_jmap_autodiscover_hint">Просто введите адрес электронной почты и пароль — Sterna Mail сам найдёт ваш сервер.</string>
+    <string name="connect_auth_method">Войти через</string>
+    <string name="connect_auth_api_token">Токен API</string>
+    <string name="connect_api_token_hint">Вставьте токен API, созданный вашим провайдером (например, Fastmail), вместо пароля. Поле сервера можно оставить пустым или вставить URL его сессии.</string>
+    <string name="connect_token_rejected">Сервер отклонил токен API. Проверьте, что он действителен и разрешает доступ к почте.</string>
+    <string name="connect_fastmail_token_hint">Fastmail требует токен API — выберите выше «Токен API».</string>
     <string name="connect_advanced_show">Дополнительные настройки</string>
     <string name="connect_advanced_hide">Скрыть дополнительные настройки</string>
     <string name="connect_discovering">Поиск вашего сервера…</string>
@@ -610,6 +620,8 @@
     <string name="settings_conversation_section">Беседы</string>
     <string name="settings_conversation_title">Просмотр беседы</string>
     <string name="settings_conversation_subtitle">Объединять сообщения одной цепочки в одну строку с указанием количества.</string>
+    <string name="settings_unarchive_on_reply_title">Извлекать из архива при новом ответе</string>
+    <string name="settings_unarchive_on_reply_subtitle">Когда приходит новый ответ, возвращать архивированные письма переписки во Входящие.</string>
 
     <string name="compose_many_recipients_title">Отправить многим адресатам?</string>
     <string name="compose_many_recipients_message">Это сообщение получат %1$d адресатов.</string>
@@ -700,6 +712,11 @@
     <string name="compose_contacts_priming_body">Автодополнять получателей из контактов этого устройства. Sterna Mail читает их только на устройстве и никогда не отправляет.</string>
     <string name="compose_contacts_priming_enable">Включить</string>
     <string name="compose_contacts_priming_not_now">Не сейчас</string>
+    <string name="settings_mark_read_title">Отмечать прочитанным при</string>
+    <string name="settings_mark_read_deleting">удалении</string>
+    <string name="settings_mark_read_archiving">архивировании</string>
+    <string name="settings_mark_read_moving">перемещении в другую папку</string>
+    <string name="settings_mark_read_never">никогда</string>
     <string name="settings_about_section">О приложении</string>
     <string name="settings_about_version">Версия</string>
     <string name="settings_about_source">Исходный код</string>

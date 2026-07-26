@@ -25,7 +25,9 @@
     <string name="compose_quote_not_added">Mensagem citada não adicionada: já tinha começado a escrever.</string>
     <string name="compose_forward_date">Data</string>
     <string name="compose_could_not_send">Não foi possível enviar: %1$s</string>
+    <string name="compose_could_not_save">Não foi possível salvar o rascunho: %1$s</string>
     <string name="compose_prefill_failed">Não foi possível carregar a mensagem original.</string>
+    <string name="compose_draft_original_kept">Salvo como um novo rascunho. O original foi mantido, porque esta cópia não conseguia levar tudo o que ele continha.</string>
     <string name="compose_scheduled_toast">Agendado — %1$s</string>
     <string name="compose_discard_title">Descartar mensagem?</string>
     <string name="compose_discard_message">Você não guardou as suas alterações.</string>
@@ -138,6 +140,7 @@
     <string name="message_retry">Tentar novamente</string>
     <string name="message_unknown_sender">(remetente desconhecido)</string>
     <string name="message_no_subject">(sem assunto)</string>
+    <string name="list_to_recipients">Para: %1$s</string>
     <string name="message_attachments">Anexos (%1$d)</string>
     <string name="message_attachment_fallback">anexo</string>
     <string name="message_participants_title">Participantes</string>
@@ -371,6 +374,7 @@
     <string name="settings_server_url_label">URL do servidor</string>
     <string name="settings_username_label">Nome de usuário</string>
     <string name="settings_password_label">Senha (deixe em branco para manter a atual)</string>
+    <string name="settings_api_token_label">Token de API (deixe em branco para manter o atual)</string>
     <string name="settings_protocol_section">Protocolo</string>
     <string name="settings_protocol_imap_smtp">IMAP / SMTP</string>
     <string name="settings_protocol_jmap">JMAP</string>
@@ -423,6 +427,7 @@
     <string name="settings_pgp_encrypt_default_title">Criptografar por padrão</string>
     <string name="settings_pgp_encrypt_default_subtitle">Iniciar novas mensagens cifradas quando cada destinatário tem uma chave; caso contrário, enviar normalmente</string>
     <string name="settings_pgp_missing_help">O Sterna usa o aplicativo OpenKeychain para gerenciar chaves e criptografar mensagens. Instale-o para ativar o OpenPGP.</string>
+    <string name="settings_pgp_provider_required">Sem efeito: é necessário o OpenKeychain</string>
     <string name="settings_pgp_install">Obter OpenKeychain</string>
     <string name="settings_pgp_error">Erro do provedor OpenPGP</string>
     <string name="message_pgp_encrypted_title">Mensagem criptografada</string>
@@ -469,6 +474,11 @@
     <string name="connect_jmap_server">Servidor JMAP</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
     <string name="connect_jmap_autodiscover_hint">Basta inserir o seu e-mail e a palavra-passe — o Sterna Mail encontrará o seu servidor automaticamente.</string>
+    <string name="connect_auth_method">Iniciar sessão com</string>
+    <string name="connect_auth_api_token">Token de API</string>
+    <string name="connect_api_token_hint">Cole um token de API gerado pelo seu fornecedor (p. ex. Fastmail) em vez de uma palavra-passe. Pode deixar o servidor vazio ou colar o URL da sessão.</string>
+    <string name="connect_token_rejected">O servidor recusou o token de API. Verifique se é válido e se permite o acesso ao correio.</string>
+    <string name="connect_fastmail_token_hint">O Fastmail exige um token de API — escolha \"Token de API\" acima.</string>
     <string name="connect_advanced_show">Definições avançadas</string>
     <string name="connect_advanced_hide">Ocultar definições avançadas</string>
     <string name="connect_discovering">A localizar o seu servidor…</string>
@@ -610,6 +620,8 @@
     <string name="settings_conversation_section">Conversas</string>
     <string name="settings_conversation_title">Vista de conversa</string>
     <string name="settings_conversation_subtitle">Agrupar mensagens da mesma conversa numa linha, com uma contagem.</string>
+    <string name="settings_unarchive_on_reply_title">Desarquivar ao chegar uma resposta</string>
+    <string name="settings_unarchive_on_reply_subtitle">Quando chega uma nova resposta, trazer de volta à caixa de entrada as mensagens arquivadas da conversa.</string>
     <string name="compose_many_recipients_title">Enviar para muitas pessoas?</string>
     <string name="compose_many_recipients_message">Esta mensagem será enviada para %1$d destinatários.</string>
     <string name="compose_many_recipients_send">Enviar a todos</string>
@@ -703,6 +715,11 @@
     <string name="compose_contacts_priming_body">Autocompletar destinatários a partir dos contatos deste aparelho. O Sterna Mail os lê apenas no aparelho e nunca os envia.</string>
     <string name="compose_contacts_priming_enable">Ativar</string>
     <string name="compose_contacts_priming_not_now">Agora não</string>
+    <string name="settings_mark_read_title">Marcar como lida ao</string>
+    <string name="settings_mark_read_deleting">excluir</string>
+    <string name="settings_mark_read_archiving">arquivar</string>
+    <string name="settings_mark_read_moving">mover para outra pasta</string>
+    <string name="settings_mark_read_never">nunca</string>
     <string name="settings_about_section">Sobre</string>
     <string name="settings_about_version">Versão</string>
     <string name="settings_about_source">Código-fonte</string>
