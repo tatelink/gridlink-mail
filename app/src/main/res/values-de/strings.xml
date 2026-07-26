@@ -382,7 +382,13 @@
     <string name="settings_import_html">HTML importieren</string>
     <string name="settings_remove">Entfernen</string>
     <string name="settings_add_identity">Identität hinzufügen</string>
-    <string name="settings_identity_default">Standard</string>
+    <string name="settings_identity_default_sender">Standardabsender</string>
+    <string name="settings_identity_new">Neue Identität</string>
+    <string name="settings_identity_signature_text">Signatur: Text</string>
+    <string name="settings_identity_signature_html">Signatur: HTML</string>
+    <string name="settings_identity_signature_none">Keine Signatur</string>
+    <string name="settings_identity_expand">Details anzeigen</string>
+    <string name="settings_identity_collapse">Details ausblenden</string>
     <string name="settings_email_supporting">Erforderlich. Leere Identitäten werden beim Speichern verworfen.</string>
     <string name="settings_email_invalid">Gib eine gültige E-Mail-Adresse ein.</string>
     <string name="settings_email_not_server">Dein Server lehnt das Senden von dieser Adresse möglicherweise ab.</string>

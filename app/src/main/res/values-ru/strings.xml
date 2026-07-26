@@ -382,7 +382,13 @@
     <string name="settings_import_html">Импортировать HTML</string>
     <string name="settings_remove">Удалить</string>
     <string name="settings_add_identity">Добавить личность</string>
-    <string name="settings_identity_default">По умолчанию</string>
+    <string name="settings_identity_default_sender">Отправитель по умолчанию</string>
+    <string name="settings_identity_new">Новая личность</string>
+    <string name="settings_identity_signature_text">Подпись: текст</string>
+    <string name="settings_identity_signature_html">Подпись: HTML</string>
+    <string name="settings_identity_signature_none">Без подписи</string>
+    <string name="settings_identity_expand">Показать подробности</string>
+    <string name="settings_identity_collapse">Скрыть подробности</string>
     <string name="settings_email_supporting">Обязательно. Пустые личности удаляются при сохранении.</string>
     <string name="settings_email_invalid">Введите корректный адрес эл. почты.</string>
     <string name="settings_email_not_server">Ваш сервер может отклонить отправку с этого адреса.</string>

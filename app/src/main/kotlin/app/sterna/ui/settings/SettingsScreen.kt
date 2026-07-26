@@ -55,6 +55,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BeachAccess
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
@@ -1522,6 +1524,20 @@ private fun AccountDetailScreen(
                 val purelyManual = identities.filter { it.email.trim().lowercase() !in serverEmails }
                 val totalIdentities = serverIdentities.size + purelyManual.size
 
+                // Folding (#13): stacked full cards made it impossible to tell which field belonged
+                // to which address. Only the default sender opens — "what is open is what I write
+                // with" — and the rest fold to one line. Display only: computed once per account,
+                // never saved, so reopening the screen re-derives it.
+                var expandedRows by remember(accountId) {
+                    val rows = serverIdentities.map { server ->
+                        val emailKey = server.email.trim().lowercase()
+                        val overrideId = identities
+                            .firstOrNull { it.email.trim().lowercase() == emailKey }?.id
+                        IdentityRowRef(overrideId ?: server.id, listOf(server.id))
+                    } + purelyManual.map { IdentityRowRef(it.id) }
+                    mutableStateOf(setOfNotNull(initialExpandedIdentityId(rows, defaultIdentityId)))
+                }
+
                 // Edit the name/signature of a server identity by upserting a manual override for its
                 // email, seeded from the server values (so editing one field keeps the other) and
                 // reusing the server id (so the #78 default keeps resolving after an edit). Because
@@ -1570,70 +1586,80 @@ private fun AccountDetailScreen(
                         val signature = shown.signature
                         val hasHtmlSignature = shown.signatureHtml.isNotBlank()
                         val rowId = override?.id ?: server.id
+                        val isDefault = defaultIdentityId == rowId || defaultIdentityId == server.id
+                        val expanded = rowId in expandedRows
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                            Text(
-                                stringResource(R.string.settings_identity_from_server),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
+                            // The address heads the row and stays visible folded or not: it is what
+                            // tells the reader whose fields these are.
+                            IdentityRowHeader(
+                                email = server.email,
+                                isDefault = isDefault,
+                                signature = signatureStateOf(signature, shown.signatureHtml),
+                                expanded = expanded,
+                                onToggle = { expandedRows = expandedRows.toggleIdentityRow(rowId) },
                             )
-                            OutlinedTextField(
-                                value = name,
-                                onValueChange = { v -> overrideServer(server) { it.copy(name = v) } },
-                                label = { Text(stringResource(R.string.settings_display_name_label)) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            )
-                            // Email is server-authoritative: shown, not editable.
-                            Text(
-                                server.email,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 8.dp),
-                            )
-                            OutlinedTextField(
-                                value = signature,
-                                // Editing the text drops the imported HTML: it no longer matches
-                                // what will be inserted in the composer, so keeping it would send
-                                // something other than what the user typed.
-                                onValueChange = { v ->
-                                    overrideServer(server) { it.copy(signature = v, signatureHtml = "") }
-                                },
-                                label = { Text(stringResource(R.string.settings_signature_label)) },
-                                minLines = 2,
-                                supportingText = {
-                                    Text(
-                                        stringResource(
-                                            if (hasHtmlSignature) {
-                                                R.string.settings_signature_supporting_html
-                                            } else {
-                                                R.string.settings_signature_supporting
-                                            },
-                                        ),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            )
-                            // Default is settable on a server identity too (#78); id is stable.
-                            DefaultIdentityRadioRow(
-                                selected = defaultIdentityId == rowId || defaultIdentityId == server.id,
-                                onSelect = { defaultIdentityId = rowId; markEdited() },
-                            )
-                            OutlinedButton(
-                                onClick = {
-                                    // Both halves: the flattened text the composer inserts and edits,
-                                    // and the HTML sent as-is while that block comes back untouched.
-                                    pendingImport = { html ->
-                                        overrideServer(server) {
-                                            it.copy(signature = htmlToText(html), signatureHtml = html)
+                            if (expanded) {
+                                // Says why there is no address field here: the server owns it.
+                                Text(
+                                    stringResource(R.string.settings_identity_from_server),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                // Default is settable on a server identity too (#78); id is stable.
+                                // It sits right under the address, above the fields: below the
+                                // signature field it read as if it qualified the signature.
+                                DefaultIdentityRadioRow(
+                                    selected = isDefault,
+                                    onSelect = { defaultIdentityId = rowId; markEdited() },
+                                )
+                                OutlinedTextField(
+                                    value = name,
+                                    onValueChange = { v -> overrideServer(server) { it.copy(name = v) } },
+                                    label = { Text(stringResource(R.string.settings_display_name_label)) },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                )
+                                OutlinedTextField(
+                                    value = signature,
+                                    // Editing the text drops the imported HTML: it no longer matches
+                                    // what will be inserted in the composer, so keeping it would send
+                                    // something other than what the user typed.
+                                    onValueChange = { v ->
+                                        overrideServer(server) { it.copy(signature = v, signatureHtml = "") }
+                                    },
+                                    label = { Text(stringResource(R.string.settings_signature_label)) },
+                                    minLines = 2,
+                                    supportingText = {
+                                        Text(
+                                            stringResource(
+                                                if (hasHtmlSignature) {
+                                                    R.string.settings_signature_supporting_html
+                                                } else {
+                                                    R.string.settings_signature_supporting
+                                                },
+                                            ),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                )
+                                OutlinedButton(
+                                    onClick = {
+                                        // Both halves: the flattened text the composer inserts and
+                                        // edits, and the HTML sent as-is while that block comes back
+                                        // untouched.
+                                        pendingImport = { html ->
+                                            overrideServer(server) {
+                                                it.copy(signature = htmlToText(html), signatureHtml = html)
+                                            }
                                         }
-                                    }
-                                    importLauncher.launch("text/html")
-                                },
-                                modifier = Modifier.padding(top = 12.dp),
-                            ) {
-                                Text(stringResource(R.string.settings_import_html))
+                                        importLauncher.launch("text/html")
+                                    },
+                                    modifier = Modifier.padding(top = 12.dp),
+                                ) {
+                                    Text(stringResource(R.string.settings_import_html))
+                                }
                             }
                             HorizontalDivider(Modifier.padding(top = 12.dp))
                         }
@@ -1660,88 +1686,106 @@ private fun AccountDetailScreen(
                         !android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()
                     val notOnServer = trimmedEmail.isNotBlank() && !emailInvalid &&
                         serverEmails.isNotEmpty() && trimmedEmail.lowercase() !in serverEmails
+                    val expanded = identity.id in expandedRows
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        OutlinedTextField(
-                            value = identity.name,
-                            onValueChange = { v -> update { it.copy(name = v) } },
-                            label = { Text(stringResource(R.string.settings_display_name_label)) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+                        IdentityRowHeader(
+                            email = trimmedEmail,
+                            isDefault = identity.id == defaultIdentityId,
+                            signature = signatureStateOf(identity.signature, identity.signatureHtml),
+                            expanded = expanded,
+                            onToggle = { expandedRows = expandedRows.toggleIdentityRow(identity.id) },
                         )
-                        OutlinedTextField(
-                            value = identity.email,
-                            onValueChange = { v -> update { it.copy(email = v) } },
-                            label = { Text(stringResource(R.string.settings_email_address_label)) },
-                            singleLine = true,
-                            isError = emailInvalid,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                            supportingText = {
-                                Text(
-                                    when {
-                                        emailInvalid -> stringResource(R.string.settings_email_invalid)
-                                        notOnServer -> stringResource(R.string.settings_email_not_server)
-                                        else -> stringResource(R.string.settings_email_supporting)
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (emailInvalid) {
-                                        MaterialTheme.colorScheme.error
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        )
-                        OutlinedTextField(
-                            value = identity.signature,
-                            // Editing the text drops the imported HTML (see the server group above).
-                            onValueChange = { v -> update { it.copy(signature = v, signatureHtml = "") } },
-                            label = { Text(stringResource(R.string.settings_signature_label)) },
-                            minLines = 2,
-                            supportingText = {
-                                Text(
-                                    stringResource(
-                                        if (identity.signatureHtml.isNotBlank()) {
-                                            R.string.settings_signature_supporting_html
-                                        } else {
-                                            R.string.settings_signature_supporting
+                        if (expanded) {
+                            // Default-identity picker: a single radio per account (selecting one
+                            // clears the rest, as they share the single [defaultIdentityId]). Keyed
+                            // by the stable identity id so it survives server-driven list
+                            // reordering. Placed under the address and above the fields (#13):
+                            // sitting under the signature field it read as a property of the
+                            // signature rather than of the identity.
+                            DefaultIdentityRadioRow(
+                                selected = identity.id == defaultIdentityId,
+                                onSelect = { defaultIdentityId = identity.id; markEdited() },
+                            )
+                            OutlinedTextField(
+                                value = identity.name,
+                                onValueChange = { v -> update { it.copy(name = v) } },
+                                label = { Text(stringResource(R.string.settings_display_name_label)) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            )
+                            OutlinedTextField(
+                                value = identity.email,
+                                onValueChange = { v -> update { it.copy(email = v) } },
+                                label = { Text(stringResource(R.string.settings_email_address_label)) },
+                                singleLine = true,
+                                isError = emailInvalid,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                supportingText = {
+                                    Text(
+                                        when {
+                                            emailInvalid -> stringResource(R.string.settings_email_invalid)
+                                            notOnServer -> stringResource(R.string.settings_email_not_server)
+                                            else -> stringResource(R.string.settings_email_supporting)
                                         },
-                                    ),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        )
-                        // Default-identity picker: a single radio per account (selecting one clears
-                        // the rest, as they share the single [defaultIdentityId]). Keyed by the
-                        // stable identity id so it survives server-driven list reordering.
-                        DefaultIdentityRadioRow(
-                            selected = identity.id == defaultIdentityId,
-                            onSelect = { defaultIdentityId = identity.id; markEdited() },
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            OutlinedButton(onClick = {
-                                pendingImport = { html ->
-                                    update { it.copy(signature = htmlToText(html), signatureHtml = html) }
-                                }
-                                importLauncher.launch("text/html")
-                            }) {
-                                Text(stringResource(R.string.settings_import_html))
-                            }
-                            // Remove is gated so at least one identity remains across BOTH groups.
-                            if (totalIdentities > 1) {
-                                Spacer(Modifier.weight(1f))
-                                TextButton(onClick = {
-                                    // Removing the default identity clears the stored choice.
-                                    if (identity.id == defaultIdentityId) defaultIdentityId = null
-                                    identities = identities.filterIndexed { i, _ -> i != index }
-                                    markEdited()
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (emailInvalid) {
+                                            MaterialTheme.colorScheme.error
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            )
+                            OutlinedTextField(
+                                value = identity.signature,
+                                // Editing the text drops the imported HTML (see the server group).
+                                onValueChange = { v ->
+                                    update { it.copy(signature = v, signatureHtml = "") }
+                                },
+                                label = { Text(stringResource(R.string.settings_signature_label)) },
+                                minLines = 2,
+                                supportingText = {
+                                    Text(
+                                        stringResource(
+                                            if (identity.signatureHtml.isNotBlank()) {
+                                                R.string.settings_signature_supporting_html
+                                            } else {
+                                                R.string.settings_signature_supporting
+                                            },
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                OutlinedButton(onClick = {
+                                    pendingImport = { html ->
+                                        update { it.copy(signature = htmlToText(html), signatureHtml = html) }
+                                    }
+                                    importLauncher.launch("text/html")
                                 }) {
-                                    Text(stringResource(R.string.settings_remove), color = MaterialTheme.colorScheme.error)
+                                    Text(stringResource(R.string.settings_import_html))
+                                }
+                                // Remove is gated so one identity remains across BOTH groups.
+                                if (totalIdentities > 1) {
+                                    Spacer(Modifier.weight(1f))
+                                    TextButton(onClick = {
+                                        // Removing the default identity clears the stored choice.
+                                        if (identity.id == defaultIdentityId) defaultIdentityId = null
+                                        identities = identities.filterIndexed { i, _ -> i != index }
+                                        markEdited()
+                                    }) {
+                                        Text(
+                                            stringResource(R.string.settings_remove),
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1758,9 +1802,12 @@ private fun AccountDetailScreen(
                 }
                 OutlinedButton(
                     onClick = {
-                        identities = identities + StoredIdentity(
+                        val added = StoredIdentity(
                             id = java.util.UUID.randomUUID().toString(), name = "", email = "", signature = "",
                         )
+                        identities = identities + added
+                        // A row you just asked for opens: a new folded blank line would be a dead end.
+                        expandedRows = expandedRows + added.id
                         markEdited()
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -2350,7 +2397,75 @@ internal fun DetailScaffold(
 }
 
 /**
- * The "Default" identity radio + its meaning caption (#78). Shared by the read-only server
+ * The always-visible head of an identity row (#13): the address, the "default sender" badge when it
+ * applies, and — while folded — what the signature holds. Tapping anywhere on it folds or unfolds
+ * the row. Shared by both groups so a folded row looks the same wherever it comes from.
+ */
+@Composable
+private fun IdentityRowHeader(
+    email: String,
+    isDefault: Boolean,
+    signature: SignatureState,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    // A row added but not filled in yet still needs something to tap.
+                    email.ifBlank { stringResource(R.string.settings_identity_new) },
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (isDefault) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        stringResource(R.string.settings_identity_default_sender),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clip(MaterialTheme.shapes.small)
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
+            if (!expanded) {
+                Text(
+                    stringResource(
+                        when (signature) {
+                            SignatureState.HTML -> R.string.settings_identity_signature_html
+                            SignatureState.TEXT -> R.string.settings_identity_signature_text
+                            SignatureState.NONE -> R.string.settings_identity_signature_none
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Icon(
+            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = stringResource(
+                if (expanded) R.string.settings_identity_collapse else R.string.settings_identity_expand,
+            ),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * The "Default sender" identity radio + its meaning caption (#78). Shared by the read-only server
  * group and the editable manual group so both can be chosen as the composer's pre-selection.
  */
 @Composable
@@ -2366,7 +2481,7 @@ private fun DefaultIdentityRadioRow(selected: Boolean, onSelect: () -> Unit) {
         Spacer(Modifier.width(8.dp))
         Column {
             Text(
-                stringResource(R.string.settings_identity_default),
+                stringResource(R.string.settings_identity_default_sender),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(

@@ -477,7 +477,13 @@
     <string name="settings_import_html">Import HTML</string>
     <string name="settings_remove">Remove</string>
     <string name="settings_add_identity">Add identity</string>
-    <string name="settings_identity_default">Default</string>
+    <string name="settings_identity_default_sender">Default sender</string>
+    <string name="settings_identity_new">New identity</string>
+    <string name="settings_identity_signature_text">Signature: text</string>
+    <string name="settings_identity_signature_html">Signature: HTML</string>
+    <string name="settings_identity_signature_none">No signature</string>
+    <string name="settings_identity_expand">Show details</string>
+    <string name="settings_identity_collapse">Hide details</string>
     <string name="settings_unsaved_changes">Unsaved changes</string>
     <string name="settings_discard_changes_title">Discard changes?</string>
     <string name="settings_discard_changes_message">You have unsaved identity or account changes. Leave without saving?</string>
