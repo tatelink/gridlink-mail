@@ -1,6 +1,8 @@
 package app.sterna.net
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -116,5 +118,54 @@ class ReconnectGateTest {
         assertFalse(gate.online.value)
         gate.onAvailable(1L)
         assertTrue(gate.online.value)
+    }
+
+    // --- The reconnect refresh schedule, and which failure the banner is allowed to show ---
+
+    @Test fun `the first attempt only waits for the settle`() {
+        assertEquals(1_500L, ReconnectRefresh.delayBeforeMs(0))
+    }
+
+    @Test fun `the gaps between retries widen`() {
+        val gaps = (1 until ReconnectRefresh.MAX_TRIES).map { ReconnectRefresh.delayBeforeMs(it) }
+        assertEquals(gaps.sorted(), gaps)
+        assertTrue(gaps.first() < gaps.last())
+    }
+
+    @Test fun `the schedule covers a tunnel that takes twenty seconds to come back up`() {
+        val total = (0 until ReconnectRefresh.MAX_TRIES).sumOf { ReconnectRefresh.delayBeforeMs(it) }
+        assertTrue("only $total ms of cover", total >= 20_000L)
+    }
+
+    @Test fun `the gap is capped, never unbounded`() {
+        val last = ReconnectRefresh.delayBeforeMs(ReconnectRefresh.MAX_TRIES - 1)
+        assertEquals(last, ReconnectRefresh.delayBeforeMs(99))
+        assertTrue(last <= 12_000L)
+    }
+
+    @Test fun `every attempt waits, so the sequence can never spin`() {
+        (0..99).forEach { assertTrue(ReconnectRefresh.delayBeforeMs(it) > 0L) }
+    }
+
+    @Test fun `a failure with an attempt still to come is not shown`() {
+        // The network is back: the banner describes the present, not a refresh we are retrying.
+        (0 until ReconnectRefresh.MAX_TRIES - 1).forEach { attempt ->
+            assertTrue(ReconnectRefresh.retrying(attempt))
+            assertNull(ReconnectRefresh.errorAfterAttempt(attempt, "Connection reset"))
+        }
+    }
+
+    @Test fun `the last failure is reported honestly`() {
+        val last = ReconnectRefresh.MAX_TRIES - 1
+        assertFalse(ReconnectRefresh.retrying(last))
+        assertEquals("500 Internal Server Error", ReconnectRefresh.errorAfterAttempt(last, "500 Internal Server Error"))
+    }
+
+    @Test fun `a successful last attempt leaves no error behind`() {
+        assertNull(ReconnectRefresh.errorAfterAttempt(ReconnectRefresh.MAX_TRIES - 1, null))
+    }
+
+    @Test fun `more than one attempt is made`() {
+        assertTrue(ReconnectRefresh.MAX_TRIES > 1)
     }
 }

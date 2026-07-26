@@ -69,6 +69,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Snooze
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Unarchive
@@ -178,6 +179,7 @@ import app.sterna.ui.components.TernRefreshIndicator
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.components.accountColorOf
 import app.sterna.ui.components.verticalScrollbar
+import app.sterna.ui.isOutgoingFolder
 import app.sterna.ui.rememberMotionEnabled
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
@@ -199,9 +201,10 @@ private val watchMenuHiddenRoles = setOf("inbox", "sent", "drafts", "trash", "ju
 @Composable
 fun InboxScreen(
     onOpenEmail: (emailId: String, accountId: String?, index: Int, fromSearch: Boolean) -> Unit,
-    /** Open a single thread's reading view anchored on one message (no list paging) — used
-     *  when tapping a message inside an inline-expanded conversation. */
-    onOpenThreadMessage: (emailId: String, accountId: String?) -> Unit,
+    /** Open the reading view on one message of an inline-expanded conversation. The thread key
+     *  and the message's position within the unfolded conversation travel along, so the reader
+     *  pages over that conversation — and only that conversation — instead of the list. */
+    onOpenThreadMessage: (emailId: String, accountId: String?, threadKey: String, index: Int) -> Unit,
     onCompose: () -> Unit,
     /** Reopen compose with the draft of a send the user just undid. */
     onReopenDraft: () -> Unit,
@@ -210,6 +213,7 @@ fun InboxScreen(
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenScheduled: () -> Unit,
+    onOpenSnoozed: () -> Unit,
     onOpenOutbox: () -> Unit,
     accounts: List<app.sterna.core.data.account.StoredAccount>,
     currentAccountId: String,
@@ -969,21 +973,26 @@ fun InboxScreen(
                                         leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
                                         onClick = { selMenu = false; viewModel.selectAll() },
                                     )
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(stringResource(if (inJunk) R.string.message_not_spam else R.string.message_report_spam))
-                                        },
-                                        leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
-                                        onClick = {
-                                            selMenu = false
-                                            if (inJunk) viewModel.notSpamSelected() else viewModel.reportSpamSelected()
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.message_snooze)) },
-                                        leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
-                                        onClick = { selSnooze = true },
-                                    )
+                                    // Spam-reporting and snoozing act on incoming mail; in Drafts
+                                    // and Sent the selection is the user's own outgoing mail, so
+                                    // neither is offered there (Codeberg #82).
+                                    if (!isOutgoingFolder(currentRole)) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(stringResource(if (inJunk) R.string.message_not_spam else R.string.message_report_spam))
+                                            },
+                                            leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
+                                            onClick = {
+                                                selMenu = false
+                                                if (inJunk) viewModel.notSpamSelected() else viewModel.reportSpamSelected()
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.message_snooze)) },
+                                            leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                                            onClick = { selSnooze = true },
+                                        )
+                                    }
                                 }
                             }
                         },
@@ -1153,6 +1162,13 @@ fun InboxScreen(
                                         leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
                                         onClick = { overflowOpen = false; onOpenScheduled() },
                                     )
+                                    // Where snoozed messages can be found again (Codeberg #82) —
+                                    // right beside the other "waiting on a clock" list.
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.inbox_snoozed)) },
+                                        leadingIcon = { Icon(Icons.Filled.Snooze, contentDescription = null) },
+                                        onClick = { overflowOpen = false; onOpenSnoozed() },
+                                    )
                                 }
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.inbox_outbox)) },
@@ -1294,7 +1310,12 @@ fun InboxScreen(
                         selectedIds = selectedIds,
                         onOpenChild = { child ->
                             viewModel.onEmailOpened(child.id)
-                            onOpenThreadMessage(child.id, child.accountId)
+                            // Position in the unfolded conversation: the representative holds
+                            // slot 0, the members follow in the order shown. Only a fallback —
+                            // the reader resolves the opening page by id first.
+                            val childIndex = threadMembers[threadKey].orEmpty()
+                                .indexOfFirst { it.id == child.id } + 1
+                            onOpenThreadMessage(child.id, child.accountId, threadKey, childIndex)
                         },
                         onSwipeChild = { action, child -> performSwipe(action, child, viewModel, ui) },
                         onToggleChildFavourite = { child -> viewModel.toggleChildFlag(child) },

@@ -82,7 +82,13 @@ data class StoredAccount(
         (identities + serverIdentities)
             .distinctBy { it.email.trim().lowercase() }
             .ifEmpty {
-                listOf(StoredIdentity(id = "default", name = accountName, email = username, signature = signature))
+                // The legacy account-level signature may itself be raw HTML (it seeded the old
+                // "Import HTML" field), so split it like any other: plain text for the composer,
+                // HTML for the outgoing html alternative.
+                listOf(
+                    StoredIdentity(id = "default", name = accountName, email = username, signature = signature)
+                        .withSplitSignature(),
+                )
             }
 
     /**
@@ -101,17 +107,20 @@ data class StoredAccount(
          * wrote the merged server+manual list back into the manual field on every Save, so server
          * identities piled up as frozen copies and byte-identical rows accumulated). Pure and
          * order-preserving so the editor can seed with it and Save can persist the cleaned result:
-         *  1. collapse byte-identical duplicates, keyed by (email, name, signature);
-         *  2. drop a manual entry that matches a server identity on email AND name AND signature
-         *     (a frozen copy — not an intentional override). A manual entry sharing only the email
-         *     but differing in name or signature is a genuine override and is kept (it still wins
-         *     over the server one in [resolvedIdentities]).
+         *  1. collapse byte-identical duplicates, keyed by (email, name, signature, signatureHtml);
+         *  2. drop a manual entry that matches a server identity on email AND name AND both
+         *     signatures (a frozen copy — not an intentional override). A manual entry sharing only
+         *     the email but differing in name or signature is a genuine override and is kept (it
+         *     still wins over the server one in [resolvedIdentities]).
          */
         fun normalizeManualIdentities(
             manual: List<StoredIdentity>,
             server: List<StoredIdentity>,
         ): List<StoredIdentity> {
-            fun key(i: StoredIdentity) = Triple(i.email.trim().lowercase(), i.name, i.signature)
+            // The html signature is part of the key: two identities that differ only by it are
+            // genuinely different, and must not be folded into one.
+            fun key(i: StoredIdentity) =
+                listOf(i.email.trim().lowercase(), i.name, i.signature, i.signatureHtml)
             val serverKeys = server.map(::key).toSet()
             return manual
                 .filterNot { key(it) in serverKeys }

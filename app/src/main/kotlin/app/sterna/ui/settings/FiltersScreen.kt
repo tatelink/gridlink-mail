@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -230,7 +231,13 @@ private fun RuleEditScreen(
         onBack = { onCommit(rule) },
     ) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                // Keep the rule form scrollable above the keyboard so the focused name/value
+                // field stays visible while typing (#52) — same recipe as the connect screen.
+                .imePadding()
+                .verticalScroll(rememberScrollState()),
         ) {
             OutlinedTextField(
                 value = rule.name,

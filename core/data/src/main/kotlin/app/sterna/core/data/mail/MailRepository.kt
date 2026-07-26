@@ -26,11 +26,13 @@ import app.sterna.core.data.db.OutboxAttachment
 import app.sterna.core.data.db.OutboxAttachments
 import app.sterna.core.data.db.OutboxDao
 import app.sterna.core.data.db.OutboxEntity
+import app.sterna.core.data.db.OutboxLogic
 import app.sterna.core.data.db.OutboxState
 import app.sterna.core.data.db.ScheduledSendDao
 import app.sterna.core.data.db.ScheduledSendEntity
 import app.sterna.core.data.db.SnoozedDao
 import app.sterna.core.data.db.SnoozedEntity
+import app.sterna.core.data.db.SnoozedListRow
 import app.sterna.core.data.db.ContactRow
 import app.sterna.core.data.db.RecentContactDao
 import app.sterna.core.data.db.RecentContactEntity
@@ -177,6 +179,15 @@ private const val UNREAD_RESOLVE_MAX = 10_000
 private const val SET_SEEN_BATCH = 500
 
 /**
+ * The predicate that hides messages snoozed into the future — they re-appear on their own once
+ * the deadline passes, and immediately once the `snoozed` row goes (cancelling a snooze).
+ * One definition, shared by the flat list and the conversation query, so both hide exactly the
+ * same rows and a test can exercise the real thing.
+ */
+internal const val NOT_SNOOZED_PREDICATE =
+    "id NOT IN (SELECT emailId FROM snoozed WHERE until > (CAST(strftime('%s','now') AS INTEGER) * 1000))"
+
+/**
  * Build the dynamic ORDER BY / WHERE for the paged list. Favourites (flagged)
  * always pin to the top, then the chosen [sort]; [unreadOnly] adds a seen filter.
  * Mailbox ids are bound as parameters; the sort expression is a fixed whitelist
@@ -203,8 +214,7 @@ private fun pagingQuery(
         SortOrder.UNREAD_FIRST -> "seen ASC, sortKey DESC"
     }
     // Hide messages snoozed into the future (re-appear once their time passes).
-    val notSnoozed = " AND id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
-        "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
+    val notSnoozed = " AND $NOT_SNOOZED_PREDICATE"
     val sql = "SELECT * FROM emails WHERE mailboxId IN ($placeholders)$accountFilter$seenFilter$notSnoozed ORDER BY $orderBy"
     return SimpleSQLiteQuery(sql, (mailboxIds + listOfNotNull(accountId)).toTypedArray())
 }
@@ -263,8 +273,7 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
     val sentAlternatives = " OR (accountId = ? AND mailboxId = ?)".repeat(sentMailboxCount)
     val accountInner = if (hasAccountId) " AND accountId = ?" else ""
     val accountOuter = if (hasAccountId) " AND e.accountId = ?" else ""
-    val notSnoozed = "id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
-        "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
+    val notSnoozed = NOT_SNOOZED_PREDICATE
     val having = if (unreadOnly) " HAVING MIN(seen) = 0" else ""
     val orderBy = "e.flagged DESC, " + when (sort) {
         SortOrder.DATE_DESC -> "e.sortKey DESC"
@@ -2468,6 +2477,14 @@ class MailRepository(
         return snoozedDao.all().filter { it.until > now }.mapTo(mutableSetOf()) { it.emailId }
     }
 
+    /** The deadline of the active snooze on [emailId], or null when it is not snoozed (a lapsed
+     *  row counts as not snoozed — same predicate as the list SQL). */
+    suspend fun snoozedUntil(emailId: String): Long? =
+        snoozedDao.byId(emailId)?.until?.takeIf { it > System.currentTimeMillis() }
+
+    /** Live list of snoozed messages with their cached headers, for the "Snoozed" screen. */
+    fun snoozedFlow(): Flow<List<SnoozedListRow>> = snoozedDao.observeAll()
+
     /** A single cached email by id (e.g. to notify when a snooze fires). */
     suspend fun cachedEmail(emailId: String): Email? = cachedEmailsByIds(setOf(emailId)).firstOrNull()
 
@@ -3485,8 +3502,8 @@ class MailRepository(
     /** All outbox items, newest send order last. */
     fun outboxFlow(): Flow<List<OutboxEntity>> = outboxDao.observeAll()
 
-    /** Count of pending/failed items for the discreet badge (excludes the silent undo window). */
-    fun outboxActiveCount(): Flow<Int> = outboxDao.observeActiveCount()
+    /** Count of pending/failed items for the discreet badge (excludes a running undo window). */
+    fun outboxActiveCount(): Flow<Int> = OutboxLogic.badgeCount(outboxDao.observeBadgeItems())
 
     suspend fun outboxItem(id: Long): OutboxEntity? = outboxDao.byId(id)
 
@@ -3878,7 +3895,15 @@ class MailRepository(
         runCatching {
             val serverIdentities = client.getIdentities(session, accountId, auth)
                 .filter { it.email.isNotBlank() }
-                .map { StoredIdentity(id = it.id, name = it.name.orEmpty(), email = it.email, signature = it.textSignature.orEmpty()) }
+                .map {
+                    StoredIdentity(
+                        id = it.id,
+                        name = it.name.orEmpty(),
+                        email = it.email,
+                        signature = it.textSignature.orEmpty(),
+                        signatureHtml = it.htmlSignature.orEmpty(),
+                    ).withSplitSignature()
+                }
             accountStore.setServerIdentities(credentials.id, serverIdentities)
         }
         val mailboxes = client.getMailboxes(session, accountId, auth)

@@ -43,6 +43,8 @@ data class SettingsBackup(
     val markReadOnArchive: Boolean? = null,
     val markReadOnMove: Boolean? = null,
     val unarchiveOnReply: Boolean? = null,
+    val signatureOnReplies: Boolean? = null,
+    val signatureBelowQuote: Boolean? = null,
     /** [DeliveryMode] name (Instant / Battery saver). */
     val deliveryMode: String? = null,
     val notificationContent: String? = null,

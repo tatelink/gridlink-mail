@@ -57,6 +57,7 @@ import app.sterna.ui.message.MessageScreen
 import app.sterna.ui.message.NavFadeGuard
 import app.sterna.ui.outbox.OutboxScreen
 import app.sterna.ui.scheduled.ScheduledSendsScreen
+import app.sterna.ui.snoozed.SnoozedScreen
 import app.sterna.ui.search.SearchScreen
 import app.sterna.ui.onboarding.WelcomeScreen
 import app.sterna.ui.settings.SettingsScreen
@@ -263,11 +264,16 @@ private fun MainNavHost(
                         nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}&index=$index&src=$src")
                     }
                 },
-                // A message tapped inside an inline-expanded conversation opens it standalone
-                // (single-message reader, no list paging — src/index omitted).
-                onOpenThreadMessage = { id, accountId ->
+                // A message tapped inside an inline-expanded conversation reads in the context
+                // of THAT conversation: the thread key + the tapped message's position travel
+                // along, so the reader swipes between the conversation's messages and stops at
+                // its ends instead of spilling into the list (Codeberg #13).
+                onOpenThreadMessage = { id, accountId, threadKey, index ->
                     if (entry.lifecycleIsResumed()) {
-                        nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}")
+                        nav.navigate(
+                            "message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}" +
+                                "&index=$index&src=thread&thread=${Uri.encode(threadKey)}",
+                        )
                     }
                 },
                 onCompose = { if (entry.lifecycleIsResumed()) nav.navigate("compose") },
@@ -285,6 +291,7 @@ private fun MainNavHost(
                 onOpenSettings = { if (entry.lifecycleIsResumed()) nav.navigate("settings") },
                 onOpenSearch = { if (entry.lifecycleIsResumed()) nav.navigate("search") },
                 onOpenScheduled = { if (entry.lifecycleIsResumed()) nav.navigate("scheduled") },
+                onOpenSnoozed = { if (entry.lifecycleIsResumed()) nav.navigate("snoozed") },
                 onOpenOutbox = { if (entry.lifecycleIsResumed()) nav.navigate("outbox") },
                 accounts = accounts,
                 currentAccountId = currentAccountId,
@@ -293,14 +300,17 @@ private fun MainNavHost(
             )
         }
         composable(
-            route = "message/{emailId}?accountId={accountId}&index={index}&src={src}",
+            route = "message/{emailId}?accountId={accountId}&index={index}&src={src}&thread={thread}",
             arguments = listOf(
                 navArgument("emailId") { type = NavType.StringType },
                 navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
-                // Position of the tapped entry in the originating list, and which list it
-                // was ("list" = paged browse, "search" = inline search; absent = no list).
+                // Position of the tapped entry in the originating context, and which context it
+                // was ("list" = paged browse, "search" = inline search, "thread" = an unfolded
+                // conversation; absent = no context, a lone message).
                 navArgument("index") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("src") { type = NavType.StringType; nullable = true; defaultValue = null },
+                // Which conversation, when src=thread.
+                navArgument("thread") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
             // Opening and closing a message keep a soft cross-fade (matching the previous
             // default), while the rest of the app navigates instantly — except on devices the
@@ -322,6 +332,16 @@ private fun MainNavHost(
             } else {
                 null
             }
+            // Opened from an unfolded conversation: page over that conversation's messages,
+            // taken from the expansion the list already holds in memory (no new query).
+            // Snapshotted once for the reading session, like the search results above, so a
+            // background thread completion can't shift the pages under the reader's fingers.
+            val threadKey = entry.arguments?.getString("thread")?.let { Uri.decode(it) }?.ifBlank { null }
+            val threadEntries = if (src == "thread" && threadKey != null) {
+                remember(inboxViewModel, threadKey) { inboxViewModel.threadEntries(threadKey) }
+            } else {
+                null
+            }
             // The fades above composite this whole destination through an offscreen graphics
             // layer while they run; the reader's body WebView must not draw its hardware GL
             // functor into that layer (null-SkSurface SIGSEGV on many HWUI builds — Codeberg
@@ -337,6 +357,7 @@ private fun MainNavHost(
                     initialIndex = index,
                     listSource = listSource,
                     searchResults = searchResults,
+                    threadEntries = threadEntries,
                     // Guard both actions on the message entry being resumed: during its fade-out
                     // pop the screen is still composed and its Back arrow still tappable, so an
                     // unguarded onBack would popBackStack a second time and empty the stack
@@ -437,6 +458,9 @@ private fun MainNavHost(
         }
         composable("scheduled") { entry ->
             ScheduledSendsScreen(onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() })
+        }
+        composable("snoozed") { entry ->
+            SnoozedScreen(onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() })
         }
         composable("outbox") { entry ->
             OutboxScreen(

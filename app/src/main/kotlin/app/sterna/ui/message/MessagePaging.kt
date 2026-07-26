@@ -16,6 +16,16 @@ object MessagePaging {
     }
 
     /**
+     * Whether the reader can step back / forward from [page] in a context of [pageCount]
+     * messages — i.e. whether the position line's chevrons are live or greyed out. The pager
+     * does not wrap and does not run past its context, so both are false at the matching end,
+     * and both are false when there is only one message.
+     */
+    fun hasPrevious(page: Int, pageCount: Int): Boolean = page > 0 && pageCount > 1
+
+    fun hasNext(page: Int, pageCount: Int): Boolean = page < pageCount - 1 && pageCount > 1
+
+    /**
      * Merge the live paged entries into the reading session's sticky entry list.
      *
      * The pager must never drop or shift an entry it has already shown: with the unread

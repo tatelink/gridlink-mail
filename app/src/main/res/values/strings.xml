@@ -20,6 +20,12 @@
     <string name="compose_remove">Remove</string>
     <string name="compose_attachment_fallback">attachment</string>
     <string name="compose_body_placeholder">Compose email</string>
+    <!-- Attribution line above a quoted reply: %1$s is the date, %2$s the sender. -->
+    <string name="compose_quote_attribution">On %1$s, %2$s wrote:</string>
+    <string name="compose_quote_someone">someone</string>
+    <string name="compose_quote_not_added">Quoted message not added: you had already started writing.</string>
+    <!-- "Date" label in the forwarded-message header (From/Subject/Date/To). -->
+    <string name="compose_forward_date">Date</string>
     <string name="compose_could_not_send">Could not send: %1$s</string>
     <string name="compose_could_not_save">Could not save the draft: %1$s</string>
     <string name="compose_prefill_failed">Couldn\'t load the original message.</string>
@@ -101,6 +107,13 @@
     <string name="scheduled_empty">No scheduled messages.</string>
     <string name="scheduled_cancel">Cancel scheduled send</string>
     <string name="scheduled_send_at">Sends %1$s</string>
+    <string name="inbox_snoozed">Snoozed messages</string>
+    <string name="snoozed_title">Snoozed</string>
+    <string name="snoozed_empty">No snoozed messages.</string>
+    <string name="snoozed_cancel">Cancel snooze</string>
+    <string name="snoozed_reschedule">Change snooze time</string>
+    <string name="snoozed_returns">Returns %1$s</string>
+    <string name="snooze_current">Snoozed until %1$s</string>
     <!-- Outbox (persistent send queue) -->
     <string name="inbox_outbox">Outbox</string>
     <string name="outbox_title">Outbox</string>
@@ -172,6 +185,10 @@
     <string name="message_mark_unread">Mark unread</string>
     <string name="message_delete">Delete</string>
     <string name="message_more">More</string>
+    <string name="message_position">%1$d / %2$d</string>
+    <string name="message_position_spoken">Message %1$d of %2$d</string>
+    <string name="message_previous">Previous message</string>
+    <string name="message_next">Next message</string>
     <string name="message_reply">Reply</string>
     <string name="message_reply_all">Reply all</string>
     <string name="message_forward">Forward</string>
@@ -250,8 +267,8 @@
     <string name="settings_accounts_summary">Add, switch, server settings</string>
     <string name="settings_appearance_title">Appearance</string>
     <string name="settings_appearance_summary">Theme, density, language</string>
-    <string name="settings_reading_title">Reading</string>
-    <string name="settings_reading_summary">Swipe actions</string>
+    <string name="settings_reading_title">Reading and writing</string>
+    <string name="settings_reading_summary">Swipe actions, signature</string>
     <string name="settings_notifications_title">Notifications</string>
     <string name="settings_notifications_summary">Push scope, new mail</string>
     <string name="settings_vacation_title">Vacation responder</string>
@@ -303,7 +320,7 @@
     <string name="settings_preview_one_line">1 line</string>
     <string name="settings_preview_three_lines">3 lines</string>
     <string name="settings_preview_five_lines">5 lines</string>
-    <string name="settings_reading_screen_title">Reading</string>
+    <string name="settings_reading_screen_title">Reading and writing</string>
     <string name="settings_message_section">Message</string>
     <string name="settings_text_size_title">Text size</string>
     <string name="settings_text_size_small">Small</string>
@@ -316,6 +333,11 @@
     <string name="settings_unarchive_on_reply_title">Unarchive on new reply</string>
     <string name="settings_unarchive_on_reply_subtitle">When a new reply arrives, bring the conversation’s archived messages back to the inbox.</string>
     <string name="settings_swipe_actions_section">Swipe actions</string>
+    <string name="settings_signature_section">Signature</string>
+    <string name="settings_signature_on_replies_title">Signature in replies</string>
+    <string name="settings_signature_on_replies_subtitle">Add it when you reply to or forward a message too</string>
+    <string name="settings_signature_below_quote_title">Signature below the quoted text</string>
+    <string name="settings_signature_below_quote_subtitle">In a reply, put it under the quoted message instead of above it</string>
     <string name="settings_swipe_right_title">Swipe right</string>
     <string name="settings_swipe_left_title">Swipe left</string>
     <string name="settings_swipe_nothing">Nothing</string>
@@ -461,14 +483,21 @@
     <string name="settings_email_invalid">Enter a valid email address.</string>
     <string name="settings_email_not_server">Your server may reject sending from this address.</string>
     <string name="settings_signature_label">Signature (plain text or HTML)</string>
-    <string name="settings_signature_supporting">HTML is stored as is and shown when you send.</string>
+    <string name="settings_signature_supporting">Plain text, added to the message body when you write — edit or remove it there like any other text.</string>
+    <string name="settings_signature_supporting_html">An HTML version is saved; it is sent as is if you don\'t change the signature in the message.</string>
     <string name="settings_import_html">Import HTML</string>
     <string name="settings_remove">Remove</string>
     <string name="settings_add_identity">Add identity</string>
-    <string name="settings_identity_default">Default</string>
+    <string name="settings_identity_default_sender">Default sender</string>
+    <string name="settings_identity_new">New identity</string>
+    <string name="settings_identity_signature_text">Signature: text</string>
+    <string name="settings_identity_signature_html">Signature: HTML</string>
+    <string name="settings_identity_signature_none">No signature</string>
+    <string name="settings_identity_expand">Show details</string>
+    <string name="settings_identity_collapse">Hide details</string>
     <string name="settings_unsaved_changes">Unsaved changes</string>
-    <string name="settings_discard_changes_title">Discard changes?</string>
-    <string name="settings_discard_changes_message">You have unsaved identity or account changes. Leave without saving?</string>
+    <string name="settings_save_changes_title">Save changes?</string>
+    <string name="settings_save_changes_message">You haven\'t saved your identity or account changes.</string>
     <string name="settings_discard">Discard</string>
     <string name="settings_sync_section">Sync</string>
     <string name="settings_messages_to_sync_title">Messages to sync</string>

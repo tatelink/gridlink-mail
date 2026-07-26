@@ -10,4 +10,6 @@ data class Identity(
     val email: String = "",
     val replyTo: List<EmailAddress>? = null,
     val textSignature: String? = null,
+    /** The identity's HTML signature (RFC 8621 §6): sent as-is in the html alternative. */
+    val htmlSignature: String? = null,
 )
