@@ -69,6 +69,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Snooze
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Unarchive
@@ -178,6 +179,7 @@ import app.sterna.ui.components.TernRefreshIndicator
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.components.accountColorOf
 import app.sterna.ui.components.verticalScrollbar
+import app.sterna.ui.isOutgoingFolder
 import app.sterna.ui.rememberMotionEnabled
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
@@ -211,6 +213,7 @@ fun InboxScreen(
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenScheduled: () -> Unit,
+    onOpenSnoozed: () -> Unit,
     onOpenOutbox: () -> Unit,
     accounts: List<app.sterna.core.data.account.StoredAccount>,
     currentAccountId: String,
@@ -970,21 +973,26 @@ fun InboxScreen(
                                         leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
                                         onClick = { selMenu = false; viewModel.selectAll() },
                                     )
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(stringResource(if (inJunk) R.string.message_not_spam else R.string.message_report_spam))
-                                        },
-                                        leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
-                                        onClick = {
-                                            selMenu = false
-                                            if (inJunk) viewModel.notSpamSelected() else viewModel.reportSpamSelected()
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.message_snooze)) },
-                                        leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
-                                        onClick = { selSnooze = true },
-                                    )
+                                    // Spam-reporting and snoozing act on incoming mail; in Drafts
+                                    // and Sent the selection is the user's own outgoing mail, so
+                                    // neither is offered there (Codeberg #82).
+                                    if (!isOutgoingFolder(currentRole)) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(stringResource(if (inJunk) R.string.message_not_spam else R.string.message_report_spam))
+                                            },
+                                            leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
+                                            onClick = {
+                                                selMenu = false
+                                                if (inJunk) viewModel.notSpamSelected() else viewModel.reportSpamSelected()
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.message_snooze)) },
+                                            leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                                            onClick = { selSnooze = true },
+                                        )
+                                    }
                                 }
                             }
                         },
@@ -1153,6 +1161,13 @@ fun InboxScreen(
                                         text = { Text(stringResource(R.string.inbox_scheduled)) },
                                         leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
                                         onClick = { overflowOpen = false; onOpenScheduled() },
+                                    )
+                                    // Where snoozed messages can be found again (Codeberg #82) —
+                                    // right beside the other "waiting on a clock" list.
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.inbox_snoozed)) },
+                                        leadingIcon = { Icon(Icons.Filled.Snooze, contentDescription = null) },
+                                        onClick = { overflowOpen = false; onOpenSnoozed() },
                                     )
                                 }
                                 DropdownMenuItem(

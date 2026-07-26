@@ -580,6 +580,13 @@
     <string name="scheduled_empty">Nessun messaggio programmato.</string>
     <string name="scheduled_cancel">Annulla invio programmato</string>
     <string name="scheduled_send_at">Invio %1$s</string>
+    <string name="inbox_snoozed">Messaggi posticipati</string>
+    <string name="snoozed_title">Posticipati</string>
+    <string name="snoozed_empty">Nessun messaggio posticipato.</string>
+    <string name="snoozed_cancel">Annulla il rinvio</string>
+    <string name="snoozed_reschedule">Cambia orario</string>
+    <string name="snoozed_returns">Torna %1$s</string>
+    <string name="snooze_current">Posticipato a %1$s</string>
     <!-- Outbox (persistent send queue) -->
     <string name="inbox_outbox">Posta in uscita</string>
     <string name="outbox_title">Posta in uscita</string>

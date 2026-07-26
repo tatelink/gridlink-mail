@@ -107,6 +107,13 @@
     <string name="scheduled_empty">No scheduled messages.</string>
     <string name="scheduled_cancel">Cancel scheduled send</string>
     <string name="scheduled_send_at">Sends %1$s</string>
+    <string name="inbox_snoozed">Snoozed messages</string>
+    <string name="snoozed_title">Snoozed</string>
+    <string name="snoozed_empty">No snoozed messages.</string>
+    <string name="snoozed_cancel">Cancel snooze</string>
+    <string name="snoozed_reschedule">Change snooze time</string>
+    <string name="snoozed_returns">Returns %1$s</string>
+    <string name="snooze_current">Snoozed until %1$s</string>
     <!-- Outbox (persistent send queue) -->
     <string name="inbox_outbox">Outbox</string>
     <string name="outbox_title">Outbox</string>
