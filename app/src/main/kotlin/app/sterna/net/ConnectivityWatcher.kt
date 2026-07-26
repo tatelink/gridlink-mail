@@ -49,6 +49,46 @@ internal class ReconnectGate(online: Boolean) {
 }
 
 /**
+ * How the refresh that follows a reconnect is paced, kept pure so the schedule is testable
+ * (#65 follow-up).
+ *
+ * [ConnectivityWatcher] fires as soon as a real transport is up, deliberately without waiting for
+ * the system's captive-portal validation (see its doc). On a phone whose traffic runs through an
+ * always-on VPN the transport is back several seconds before the tunnel has re-handshaked, so a
+ * single refresh fired at that moment fails — and its error used to strand the "you're offline"
+ * banner (which reads `offline || error`) until the user pulled to refresh. The sequence therefore
+ * makes a few attempts with a widening gap, and only the *last* failure is the user's to see.
+ *
+ * Bounded and edge-triggered on purpose: it runs once per offline → online transition, never as a
+ * periodic poll.
+ */
+internal object ReconnectRefresh {
+    /** Attempts made per reconnect; the last one is the one whose failure is reported. */
+    const val MAX_TRIES = 4
+
+    /** Short settle before the first attempt, so a flapping link coalesces into one refresh. */
+    private const val SETTLE_MS = 1_500L
+
+    /** Widening gaps between the retries, capped — together they cover ~22 s of tunnel come-up. */
+    private val GAPS_MS = longArrayOf(3_000L, 6_000L, 12_000L)
+
+    /** How long to wait before attempt [attempt] (0-based). */
+    fun delayBeforeMs(attempt: Int): Long =
+        if (attempt <= 0) SETTLE_MS else GAPS_MS[minOf(attempt - 1, GAPS_MS.lastIndex)]
+
+    /** True while another attempt is still coming, so the failure isn't final. */
+    fun retrying(attempt: Int): Boolean = attempt < MAX_TRIES - 1
+
+    /**
+     * The error the UI should hold after attempt [attempt] failed with [error]: none while a
+     * retry is still pending — the banner must describe the present ("back, reconciling"), not a
+     * failure we are about to retry — and the real error once the attempts are exhausted.
+     */
+    fun errorAfterAttempt(attempt: Int, error: String?): String? =
+        if (retrying(attempt)) null else error
+}
+
+/**
  * Watches connectivity and calls [onReconnect] when it actually comes back, so the offline
  * empty state's promise ("we'll sync as soon as you're back") is kept. Register with [start],
  * and always [stop] when the owner goes away — the callback outlives it otherwise.
