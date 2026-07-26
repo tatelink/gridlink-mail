@@ -39,6 +39,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -1279,7 +1280,14 @@ private fun AccountDetailScreen(
 
     DetailScaffold(title = account.label(), onBack = { leaveOrConfirm() }) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                // Keep the form scrollable above the keyboard so the focused field (server,
+                // password, a signature far down the identity list…) stays visible while
+                // typing (#52) — same recipe as the connect screen.
+                .imePadding()
+                .verticalScroll(rememberScrollState()),
         ) {
             // An imported account has no stored credential yet: sign it in first. OAuth accounts
             // (Microsoft) run a browser device flow here; BASIC accounts use the password field +
@@ -2227,7 +2235,9 @@ private fun BoxScope.VacationNote(text: String, onRetry: (() -> Unit)? = null) {
 
 @Composable
 private fun VacationForm(state: VacationUiState, viewModel: VacationViewModel) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    // imePadding before verticalScroll: the keyboard shrinks the scrolling viewport instead of
+    // covering it, so the focused subject/message field stays visible while typing (#52).
+    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())) {
         if (state.accountLabel.isNotBlank()) {
             Text(
                 stringResource(R.string.settings_vacation_account, state.accountLabel),
