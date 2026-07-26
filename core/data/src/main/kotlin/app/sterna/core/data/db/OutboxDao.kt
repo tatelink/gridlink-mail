@@ -6,6 +6,15 @@ import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * The two fields the outbox badge needs, so counting never loads message bodies.
+ * See [OutboxLogic.badgeCount] for why the deadline, not the state, decides silence.
+ */
+data class OutboxBadgeItem(
+    val state: OutboxState,
+    val notBeforeMillis: Long,
+)
+
 @Dao
 interface OutboxDao {
     @Insert
@@ -27,9 +36,14 @@ interface OutboxDao {
     @Query("SELECT * FROM outbox WHERE state IN ('HELD', 'QUEUED', 'SENDING') ORDER BY createdAtMillis ASC")
     suspend fun unfinished(): List<OutboxEntity>
 
-    /** Count for the discreet badge: pending or failed, excluding the silent undo window. */
-    @Query("SELECT COUNT(*) FROM outbox WHERE state != 'HELD'")
-    fun observeActiveCount(): Flow<Int>
+    /**
+     * Badge inputs: the state and the hold deadline of every row. The count itself is computed in
+     * [OutboxLogic.badgeCount] rather than in SQL, because a row parked as HELD offline never
+     * changes state — a `state != 'HELD'` count stayed at zero while the message sat in the
+     * Outbox (#70), and SQL can't re-emit on the mere passing of the undo window anyway.
+     */
+    @Query("SELECT state, notBeforeMillis FROM outbox")
+    fun observeBadgeItems(): Flow<List<OutboxBadgeItem>>
 
     @Query("UPDATE outbox SET state = :state, attemptCount = :attemptCount, lastError = :lastError, lastAttemptMillis = :lastAttemptMillis WHERE id = :id")
     suspend fun updateState(
