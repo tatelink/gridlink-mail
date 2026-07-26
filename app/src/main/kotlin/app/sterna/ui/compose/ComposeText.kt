@@ -209,17 +209,49 @@ internal fun cutAtSignatureDelimiter(text: String): String {
     return lines.take(at).joinToString("\n").trimEnd()
 }
 
+/** The field a freshly opened composer puts the keyboard in. */
+internal enum class ComposeFocus { RECIPIENTS, SUBJECT, BODY }
+
 /**
- * Where the caret starts in a prefilled body, or null to leave the body alone (the recipient field
- * takes the focus instead). Reopening a draft resumes after its last character, so writing carries
- * on where it stopped; a reply starts at the very top, above the quoted original — the quotation
- * sits below two blank lines, which is exactly where the answer goes. A forward (empty body, empty
- * To) and a fresh mail keep the focus on the recipients (#63).
+ * Which field opens focused. The single rule, in one place — the composable only obeys it.
+ *
+ * A reopened draft and a reply already have their recipients, so they open on the body (#63);
+ * everything else opened from inside the app — a fresh mail, a forward, a restored undo-send —
+ * opens on the recipients, which is what still has to be typed.
+ *
+ * A composer opened from OUTSIDE with fields already filled in is the exception (#83): a
+ * `mailto:` link addresses the mail for you, so landing on To means everything typed goes into a
+ * field that is already correct. The focus goes to the first field the link left empty — the
+ * subject when the link only names a recipient, the body once it carries a subject too. A link
+ * with no recipient at all (and a system "Share", which reuses this path with an empty To) still
+ * opens on the recipients, since that is genuinely the first thing missing.
+ *
+ * [linkTo] and [linkSubject] are the raw prefill values the composer was opened with, empty or
+ * null when it was not opened from a link.
  */
-internal fun initialBodyCaret(bodyLength: Int, isDraft: Boolean, isReply: Boolean): Int? = when {
+internal fun initialComposeFocus(
+    isDraft: Boolean,
+    isReply: Boolean,
+    linkTo: String?,
+    linkSubject: String?,
+): ComposeFocus = when {
+    isDraft || isReply -> ComposeFocus.BODY
+    linkTo.isNullOrBlank() -> ComposeFocus.RECIPIENTS
+    linkSubject.isNullOrBlank() -> ComposeFocus.SUBJECT
+    else -> ComposeFocus.BODY
+}
+
+/**
+ * Where the caret starts in a prefilled body, or null when [focus] is not the body (that field
+ * takes the keyboard instead). Reopening a draft resumes after its last character, so writing
+ * carries on where it stopped. Every other body-focused compose starts at the very top: a reply
+ * sits above the quoted original, and a `mailto:` link's body sits ABOVE the signature the prefill
+ * already put there — offset 0 is what keeps the user from typing under their own signature (#83).
+ */
+internal fun initialBodyCaret(bodyLength: Int, focus: ComposeFocus, isDraft: Boolean): Int? = when {
+    focus != ComposeFocus.BODY -> null
     isDraft -> bodyLength
-    isReply -> 0
-    else -> null
+    else -> 0
 }
 
 /**

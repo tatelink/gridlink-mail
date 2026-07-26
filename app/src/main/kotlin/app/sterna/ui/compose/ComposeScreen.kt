@@ -273,6 +273,17 @@ fun ComposeScreen(
         }
     }
 
+    // Which field opens focused — decided once, from how this composer was opened, before the
+    // prefill parameters are shadowed by the editable state below. See [initialComposeFocus].
+    val initialFocus = remember {
+        initialComposeFocus(
+            isDraft = draftId != null,
+            isReply = replyTo != null && mode != "forward",
+            linkTo = to,
+            linkSubject = subject,
+        )
+    }
+
     var to by rememberSaveable { mutableStateOf("") }
     var cc by rememberSaveable { mutableStateOf("") }
     var bcc by rememberSaveable { mutableStateOf("") }
@@ -298,9 +309,11 @@ fun ComposeScreen(
     val scope = rememberCoroutineScope()
 
     // Land in the recipient field with the keyboard up, unless the recipients are already filled
-    // (a reply, or a reopened draft) — then the body takes the focus, see the prefill below.
-    // The To field opens and self-focuses via its `autoFocus` flag further down.
+    // (a reply, a reopened draft, or a mailto: link) — then the subject or the body takes the
+    // focus, see the prefill below. The To field opens and self-focuses via its `autoFocus` flag
+    // further down.
     val toFocus = remember { FocusRequester() }
+    val subjectFocus = remember { FocusRequester() }
     val bodyFocus = remember { FocusRequester() }
 
     LaunchedEffect(prefill) {
@@ -316,18 +329,25 @@ fun ComposeScreen(
                 // continues; it used to sit at offset 0 by accident of the String field.
                 subject = TextFieldValue(it.subject, TextRange(it.subject.length))
                 // Open with the caret where the writing continues, and the keyboard up: after the
-                // last character of a reopened draft, above the quoted original of a reply (#63).
+                // last character of a reopened draft, above the quoted original of a reply (#63),
+                // above the signature for a mailto: link that already carries a subject (#83).
                 val caret = initialBodyCaret(
                     bodyLength = it.body.length,
+                    focus = initialFocus,
                     isDraft = draftId != null,
-                    isReply = replyTo != null && mode != "forward",
                 )
                 body = TextFieldValue(it.body, TextRange(caret ?: 0))
                 initialTo = prefilledTo
                 initialSubject = it.subject
                 initialBody = it.body
                 applied = true
-                if (caret != null) runCatching { bodyFocus.requestFocus() }
+                // The To field self-focuses on first composition; the other two are asked here,
+                // once the prefill they open on is actually in place.
+                when (initialFocus) {
+                    ComposeFocus.BODY -> runCatching { bodyFocus.requestFocus() }
+                    ComposeFocus.SUBJECT -> runCatching { subjectFocus.requestFocus() }
+                    ComposeFocus.RECIPIENTS -> Unit
+                }
             }
         }
     }
@@ -641,8 +661,9 @@ fun ComposeScreen(
                 onClearSuggestions = viewModel::clearSuggestions,
                 focusRequester = toFocus,
                 // Whenever the recipients still have to be typed: a fresh mail and a forward. A
-                // reply and a reopened draft already have them, and focus the body instead (#63).
-                autoFocus = draftId == null && (replyTo == null || mode == "forward"),
+                // reply and a reopened draft already have them, and focus the body instead (#63);
+                // a mailto: link has them too, and focuses the first field it left empty (#83).
+                autoFocus = initialFocus == ComposeFocus.RECIPIENTS,
                 missingKey = missingKeyFor,
                 trailing = {
                     IconButton(onClick = { expanded = !expanded }) {
@@ -667,7 +688,12 @@ fun ComposeScreen(
             }
             // Subject has no fixed label: the localized string is the in-field placeholder, so the
             // subject starts further left than the labelled recipient rows (K-9 style).
-            ComposeField(subject, { subject = it }, placeholder = stringResource(R.string.compose_subject))
+            ComposeField(
+                subject,
+                { subject = it },
+                placeholder = stringResource(R.string.compose_subject),
+                focusRequester = subjectFocus,
+            )
             // Only when the body is actually being encrypted to someone (a recipient has a key),
             // so a fresh encrypt-by-default compose with no recipients doesn't claim it yet (#35).
             if (pgpMode == PgpMode.ENCRYPT && recipientKeys.values.any { it }) {
