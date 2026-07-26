@@ -1524,7 +1524,7 @@ private fun AccountDetailScreen(
                 val purelyManual = identities.filter { it.email.trim().lowercase() !in serverEmails }
                 val totalIdentities = serverIdentities.size + purelyManual.size
 
-                // Folding (#13): stacked full cards made it impossible to tell which field belonged
+                // Folding: stacked full cards made it impossible to tell which field belonged
                 // to which address. Only the default sender opens — "what is open is what I write
                 // with" — and the rest fold to one line. Display only: computed once per account,
                 // never saved, so reopening the screen re-derives it.
@@ -1699,7 +1699,7 @@ private fun AccountDetailScreen(
                             // Default-identity picker: a single radio per account (selecting one
                             // clears the rest, as they share the single [defaultIdentityId]). Keyed
                             // by the stable identity id so it survives server-driven list
-                            // reordering. Placed under the address and above the fields (#13):
+                            // reordering. Placed under the address and above the fields:
                             // sitting under the signature field it read as a property of the
                             // signature rather than of the identity.
                             DefaultIdentityRadioRow(
@@ -2397,7 +2397,7 @@ internal fun DetailScaffold(
 }
 
 /**
- * The always-visible head of an identity row (#13): the address, the "default sender" badge when it
+ * The always-visible head of an identity row: the address, the "default sender" badge when it
  * applies, and — while folded — what the signature holds. Tapping anywhere on it folds or unfolds
  * the row. Shared by both groups so a folded row looks the same wherever it comes from.
  */
