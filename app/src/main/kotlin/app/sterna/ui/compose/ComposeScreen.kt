@@ -91,6 +91,10 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
@@ -272,7 +276,9 @@ fun ComposeScreen(
     var to by rememberSaveable { mutableStateOf("") }
     var cc by rememberSaveable { mutableStateOf("") }
     var bcc by rememberSaveable { mutableStateOf("") }
-    var subject by rememberSaveable { mutableStateOf("") }
+    // Like the body, the subject carries its caret (a TextFieldValue, not a bare String) so a tap
+    // before its first character can put the cursor at the very start (#26).
+    var subject by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     // The body carries its caret with it (a TextFieldValue, not a bare String), so a prefilled
     // compose can open with the cursor where writing continues (#63).
     var body by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
@@ -306,7 +312,9 @@ fun ComposeScreen(
                 cc = if (it.cc.isNotBlank()) it.cc.trimEnd(',', ';', ' ') + ", " else ""
                 bcc = if (it.bcc.isNotBlank()) it.bcc.trimEnd(',', ';', ' ') + ", " else ""
                 if (it.expand) expanded = true
-                subject = it.subject
+                // Caret at the end of the prefilled subject ("Re: …"), which is where an edit
+                // continues; it used to sit at offset 0 by accident of the String field.
+                subject = TextFieldValue(it.subject, TextRange(it.subject.length))
                 // Open with the caret where the writing continues, and the keyboard up: after the
                 // last character of a reopened draft, above the quoted original of a reply (#63).
                 val caret = initialBodyCaret(
@@ -346,11 +354,11 @@ fun ComposeScreen(
     // The Save-as-draft icon greys out (disabled) while there is nothing worth saving — the same
     // #69 rule the save itself uses (draftHasContent), so the button's state matches what tapping it
     // would do. Recomputed on each edit to subject/body/attachments (all observed state).
-    val canSaveDraft = draftHasContent(subject, body.text, attachments.isNotEmpty())
+    val canSaveDraft = draftHasContent(subject.text, body.text, attachments.isNotEmpty())
 
     // Unsaved-changes guard: prompt before discarding non-empty, unsent edits.
     val dirty = to != initialTo || cc.isNotBlank() || bcc.isNotBlank() ||
-        subject != initialSubject || body.text != initialBody || attachments.isNotEmpty()
+        subject.text != initialSubject || body.text != initialBody || attachments.isNotEmpty()
     var showDiscard by remember { mutableStateOf(false) }
     val attemptClose = { if (dirty && !sending) showDiscard = true else onCancel() }
 
@@ -364,12 +372,12 @@ fun ComposeScreen(
     // absent = not yet checked, allowed — the send resolves keys and reports precisely).
     val keysReady = pgpMode != PgpMode.ENCRYPT || allRecipients.none { recipientKeys[it] == false }
     val canSend = recipientTokens(to).isNotEmpty() && allRecipients.all(::isValidEmail) && keysReady
-    val sendNow = { viewModel.send(to, cc, bcc, subject, body.text) }
+    val sendNow = { viewModel.send(to, cc, bcc, subject.text, body.text) }
     val proceedAfterAttachment = {
         if (recipientCount >= MANY_RECIPIENTS) showManyRecipients = true else sendNow()
     }
     val attemptSend = {
-        if (attachments.isEmpty() && mentionsAttachment("$subject\n${body.text}")) {
+        if (attachments.isEmpty() && mentionsAttachment("${subject.text}\n${body.text}")) {
             showForgotAttachment = true
         } else {
             proceedAfterAttachment()
@@ -424,7 +432,7 @@ fun ComposeScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showDiscard = false
-                    viewModel.saveDraft(to, cc, bcc, subject, body.text)
+                    viewModel.saveDraft(to, cc, bcc, subject.text, body.text)
                 }) { Text(stringResource(R.string.compose_discard_save)) }
             },
             dismissButton = {
@@ -486,7 +494,7 @@ fun ComposeScreen(
                     val encryptingNow = pgpMode == PgpMode.ENCRYPT
                     if (!encryptingNow) {
                         IconButton(
-                            onClick = { viewModel.saveDraft(to, cc, bcc, subject, body.text) },
+                            onClick = { viewModel.saveDraft(to, cc, bcc, subject.text, body.text) },
                             enabled = !sending && canSaveDraft,
                         ) {
                             Icon(Icons.Filled.Save, contentDescription = stringResource(R.string.compose_save_draft))
@@ -505,7 +513,7 @@ fun ComposeScreen(
                                     text = { Text(label) },
                                     onClick = {
                                         scheduleMenu = false
-                                        viewModel.scheduleSend(to, cc, bcc, subject, body.text, millis)
+                                        viewModel.scheduleSend(to, cc, bcc, subject.text, body.text, millis)
                                         Toast.makeText(
                                             context,
                                             context.getString(R.string.compose_scheduled_toast, label),
@@ -788,8 +796,8 @@ fun ComposeScreen(
  */
 @Composable
 private fun ComposeField(
-    value: String,
-    onValueChange: (String) -> Unit,
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
     placeholder: String,
     keyboardType: KeyboardType = KeyboardType.Text,
     focusRequester: FocusRequester? = null,
@@ -799,14 +807,19 @@ private fun ComposeField(
     // line is the tap target (#26).
     val localFocus = remember { FocusRequester() }
     val focus = focusRequester ?: localFocus
+    val geometry = remember { HeaderTapGeometry() }
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) { focus.requestFocus() }
+                .headerTapRow(geometry) {
+                    // Before the first character (here: the row's left inset) the caret goes to the
+                    // very start; anywhere else the field keeps the caret it had (#26).
+                    geometry.caretFor(value.text.length)?.let { caret ->
+                        onValueChange(value.copy(selection = TextRange(caret)))
+                    }
+                    focus.requestFocus()
+                }
                 // At least a 48dp tap target even when the field is empty (accessibility).
                 .heightIn(min = 48.dp)
                 // Content is inset while the divider below runs full width (#26 follow-up).
@@ -820,11 +833,12 @@ private fun ComposeField(
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
                 modifier = Modifier
+                    .headerTapText(geometry)
                     .weight(1f)
                     .padding(vertical = 10.dp)
                     .focusRequester(focus),
                 decorationBox = { inner ->
-                    if (value.isEmpty()) {
+                    if (value.text.isEmpty()) {
                         Text(
                             placeholder,
                             style = MaterialTheme.typography.bodyLarge,
@@ -888,6 +902,16 @@ private fun RecipientChipsField(
     var wasFocused by remember { mutableStateOf(false) }
     val localFocus = remember { FocusRequester() }
     val focus = focusRequester ?: localFocus
+    val geometry = remember { HeaderTapGeometry() }
+    // The inline input carries its caret (a TextFieldValue), so a tap before its first character can
+    // put the cursor at the start (#26). The parent string stays the single source of truth: as soon
+    // as the derived [input] differs, the field is rebuilt around it with the caret at the end.
+    var inputState by remember { mutableStateOf(TextFieldValue()) }
+    val inputValue = if (inputState.text == input) {
+        inputState
+    } else {
+        TextFieldValue(input, TextRange(input.length))
+    }
     val chipScroll = rememberScrollState()
     // Collapse to a one-line summary past what fits without scrolling (about two per line).
     val collapsed = !expanded && chips.size > 2
@@ -901,10 +925,18 @@ private fun RecipientChipsField(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) { expanded = true }
+                .headerTapRow(geometry) {
+                    expanded = true
+                    // An already-expanded field doesn't re-run the effect below, so ask here too —
+                    // this is the case where a tap on the label used to do nothing at all (#26).
+                    runCatching { focus.requestFocus() }
+                    // On the label, or in the empty space left of what is being typed: caret to the
+                    // start of that text. Committed chips aren't text, and an empty input has no
+                    // start to aim at, so both leave the caret alone.
+                    geometry.caretFor(inputValue.text.length)?.let { caret ->
+                        inputState = inputValue.copy(selection = TextRange(caret))
+                    }
+                }
                 // At least a 48dp tap target even when the field is empty/collapsed (accessibility).
                 .heightIn(min = 48.dp)
                 // Content is inset while the divider below runs full width (#26 follow-up).
@@ -975,14 +1007,17 @@ private fun RecipientChipsField(
                 // line (and no stray blinking cursor) — it collapses to its chips.
                 if (expanded) {
                   BasicTextField(
-                    value = input,
-                    onValueChange = { raw ->
+                    value = inputValue,
+                    onValueChange = { typed ->
+                        val raw = typed.text
                         val last = raw.lastOrNull()
                         if (last == ',' || last == ';' || last == ' ' || last == '\n') {
                             val token = raw.dropLast(1).trim()
+                            inputState = TextFieldValue()
                             onValueChange(rebuild(if (token.isNotEmpty()) chips + token else chips, ""))
                             onClearSuggestions()
                         } else {
+                            inputState = typed
                             onValueChange(rebuild(chips, raw))
                             onSuggest(raw)
                         }
@@ -992,6 +1027,7 @@ private fun RecipientChipsField(
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier
+                        .headerTapText(geometry)
                         // Fill the rest of the line so a tap in the empty area past the last chip
                         // lands the caret at the end; wrap to a new line once space runs short.
                         .weight(1f)
@@ -1064,6 +1100,52 @@ private fun RecipientChipsField(
         }
     }
 }
+
+/**
+ * Where a header row was last pressed and where its editable text starts — the two things needed to
+ * tell a tap on the label (or on the empty space before the first character) from a tap on the text
+ * itself. Filled in by [headerTapRow] and [headerTapText], read by the row's click handler, never
+ * during composition: plain fields, no snapshot state.
+ */
+private class HeaderTapGeometry {
+    /** Last press, in the row's coordinates. */
+    var pressX: Float = Float.NaN
+
+    /** Row and editable-text origins in root coordinates; their difference is row-local. */
+    var rowX: Float = Float.NaN
+    var textX: Float = Float.NaN
+
+    /** The caret a tap should force in a field holding [textLength] characters, or null for none. */
+    fun caretFor(textLength: Int): Int? = headerTapCaret(pressX, textX - rowX, textLength)
+}
+
+/**
+ * The whole header row is the field's tap target (#26). Watches the pointer on the way down
+ * WITHOUT consuming it, so a tap that lands on the text is still handled by the field exactly as
+ * before (caret under the finger, selection, handles), and records where it landed so [onTap] can
+ * put the caret at the start of the text when the tap fell before it. Still a plain `clickable`,
+ * so what TalkBack sees of the row is unchanged.
+ */
+@Composable
+private fun Modifier.headerTapRow(geometry: HeaderTapGeometry, onTap: () -> Unit): Modifier = this
+    .onGloballyPositioned { geometry.rowX = it.positionInRoot().x }
+    .pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                awaitPointerEvent(PointerEventPass.Initial).changes.forEach { change ->
+                    if (change.pressed && !change.previousPressed) geometry.pressX = change.position.x
+                }
+            }
+        }
+    }
+    .clickable(
+        interactionSource = remember { MutableInteractionSource() },
+        indication = null,
+    ) { onTap() }
+
+/** Marks the editable text of a header row, so [headerTapRow] can tell a tap before it apart. */
+private fun Modifier.headerTapText(geometry: HeaderTapGeometry): Modifier =
+    onGloballyPositioned { geometry.textX = it.positionInRoot().x }
 
 @Composable
 private fun FieldLabel(text: String) {
