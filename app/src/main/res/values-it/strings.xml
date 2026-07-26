@@ -397,7 +397,7 @@
     <string name="settings_unsaved_changes">Modifiche non salvate</string>
     <string name="settings_save_changes_title">Salvare le modifiche?</string>
     <string name="settings_save_changes_message">Non hai salvato le modifiche di identità o account.</string>
-    <string name="settings_discard">Annulla</string>
+    <string name="settings_discard">Scarta</string>
     <string name="settings_sync_section">Sincronizzazione</string>
     <string name="settings_messages_to_sync_title">Messaggi da sincronizzare</string>
     <string name="settings_sync_last_30_days">Ultimi 30 giorni</string>
