@@ -117,6 +117,10 @@
     <string name="message_mark_unread">Oznacz jako nieprzeczytane</string>
     <string name="message_delete">Usuń</string>
     <string name="message_more">Więcej</string>
+    <string name="message_position">%1$d / %2$d</string>
+    <string name="message_position_spoken">Wiadomość %1$d z %2$d</string>
+    <string name="message_previous">Poprzednia wiadomość</string>
+    <string name="message_next">Następna wiadomość</string>
     <string name="message_reply">Odpowiedz</string>
     <string name="message_reply_all">Odpowiedz wszystkim</string>
     <string name="message_forward">Przekaż</string>

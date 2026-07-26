@@ -49,6 +49,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Forward
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.ReplyAll
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -91,6 +93,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,6 +107,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -130,6 +134,7 @@ import app.sterna.ui.components.Monogram
 import app.sterna.util.LinkCleaner
 import app.sterna.util.MailDates
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import java.io.ByteArrayInputStream
 import java.time.Instant
@@ -276,6 +281,9 @@ fun MessageScreen(
                 pageCount = threadEntries.size,
                 initialPage = initialPage,
                 entryAt = { i -> threadEntries.getOrNull(i) },
+                // A conversation has a known, small number of messages, so the reader can say
+                // where in it you are — and offer the two chevrons for people who don't swipe.
+                showPosition = true,
                 onBack = onBack,
                 onReply = onReply,
                 onDelete = onDelete,
@@ -310,6 +318,10 @@ private fun MessagePager(
     pageCount: Int,
     initialPage: Int,
     entryAt: (Int) -> Pair<String, String?>?,
+    /** Show the "2 / 5" position line with its two chevrons (conversation context only —
+     *  the list context is unbounded and pages more entries in as you go, so a running
+     *  total there would be both wrong and restless). */
+    showPosition: Boolean = false,
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
     onDelete: (Email) -> Unit,
@@ -329,8 +341,25 @@ private fun MessagePager(
     LaunchedEffect(pagerState.settledPage) {
         if (entryAt(pagerState.settledPage) == null) activeMessage = null
     }
+    val scope = rememberCoroutineScope()
     Scaffold(
-        topBar = { MessageTopBar(activeMessage, onBack, onReply, onDelete, onArchive) },
+        topBar = {
+            Column {
+                MessageTopBar(activeMessage, onBack, onReply, onDelete, onArchive)
+                // The position line belongs to the header, under the app bar rather than in its
+                // title slot: the toolbar already carries five actions, and on a narrow screen a
+                // counter squeezed between them would clip. It is part of the FIXED chrome, so it
+                // never translates with the swipe. Hidden outright for a one-message context, so
+                // nothing about the reader changes where there is nowhere to page to.
+                if (showPosition && pageCount > 1) {
+                    MessagePositionBar(
+                        page = pagerState.currentPage,
+                        pageCount = pageCount,
+                        onGo = { target -> scope.launch { pagerState.animateScrollToPage(target) } },
+                    )
+                }
+            }
+        },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             HorizontalPager(
@@ -378,6 +407,51 @@ private fun MessagePager(
                     ReplyForwardBar { mode -> onReply(mode, active.emailId, active.accountId) }
                 }
             }
+        }
+    }
+}
+
+/**
+ * "2 / 5" between two chevrons, telling the reader where they are in the conversation they
+ * opened the message from, and letting them step through it by tap as well as by swipe. The
+ * chevrons grey out at the ends — the pager stops there, and the bar says so before the gesture
+ * has to (the swipe remains the primary way through; this makes it discoverable, not redundant).
+ */
+@Composable
+private fun MessagePositionBar(
+    page: Int,
+    pageCount: Int,
+    onGo: (Int) -> Unit,
+) {
+    val hasPrevious = MessagePaging.hasPrevious(page, pageCount)
+    val hasNext = MessagePaging.hasNext(page, pageCount)
+    val spokenPosition = stringResource(R.string.message_position_spoken, page + 1, pageCount)
+    Row(
+        // Same container colour as the app bar above it, so the header reads as one block.
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = { onGo(page - 1) }, enabled = hasPrevious) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                contentDescription = stringResource(R.string.message_previous),
+            )
+        }
+        Text(
+            text = stringResource(R.string.message_position, page + 1, pageCount),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // Read out as a sentence rather than "2 slash 5".
+            modifier = Modifier.clearAndSetSemantics {
+                contentDescription = spokenPosition
+            },
+        )
+        IconButton(onClick = { onGo(page + 1) }, enabled = hasNext) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = stringResource(R.string.message_next),
+            )
         }
     }
 }

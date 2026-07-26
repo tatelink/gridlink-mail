@@ -117,6 +117,10 @@
     <string name="message_mark_unread">Als ongelezen markeren</string>
     <string name="message_delete">Verwijderen</string>
     <string name="message_more">Meer</string>
+    <string name="message_position">%1$d / %2$d</string>
+    <string name="message_position_spoken">Bericht %1$d van %2$d</string>
+    <string name="message_previous">Vorig bericht</string>
+    <string name="message_next">Volgend bericht</string>
     <string name="message_reply">Beantwoorden</string>
     <string name="message_reply_all">Allen beantwoorden</string>
     <string name="message_forward">Doorsturen</string>
