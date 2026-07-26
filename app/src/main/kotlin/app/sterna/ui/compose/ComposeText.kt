@@ -223,6 +223,26 @@ internal fun initialBodyCaret(bodyLength: Int, isDraft: Boolean, isReply: Boolea
 }
 
 /**
+ * Where a tap on a header row (To / Cc / Bcc / Subject) puts the caret, or null to leave the caret
+ * where it is and let the field decide. [tapX] is the horizontal position of the press and
+ * [textStartX] the left edge of the editable text, both in the row's own coordinates;
+ * [textLength] is how long that text is.
+ *
+ * A tap before the text — on the field's label, or in the empty space that precedes the first
+ * character — means "put the cursor at the very beginning", which otherwise takes pixel-perfect
+ * aim just left of the first glyph (#26). A tap on the text never reaches this decision (the field
+ * consumes it and the caret lands under the finger), and a tap past the end of the text forces
+ * nothing either, so it keeps the caret at the end. An empty field has no beginning to aim at, and
+ * geometry that isn't known yet (a field not laid out) can't be judged: neither forces anything.
+ */
+internal fun headerTapCaret(tapX: Float, textStartX: Float, textLength: Int): Int? = when {
+    textLength <= 0 -> null
+    !tapX.isFinite() || !textStartX.isFinite() -> null
+    tapX < textStartX -> 0
+    else -> null
+}
+
+/**
  * Compose's initial fields when reopening a saved draft for editing (#63): every addressing
  * field as typed-out addresses, the subject verbatim, and the body flattened to the plain-text
  * editor's format. Cc/Bcc are revealed when the draft used them.

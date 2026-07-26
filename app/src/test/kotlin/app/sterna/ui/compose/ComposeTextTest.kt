@@ -225,6 +225,40 @@ class ComposeTextTest {
         assertEquals(null, initialBodyCaret(bodyLength = 0, isDraft = false, isReply = false))
     }
 
+    // --- Where a tap on a header row puts the caret (#26) ---
+    //
+    // Geometry of a To row on a 1080px-wide phone: the row starts at x=0, the label spans 42→168
+    // and the editable text starts at 200.
+
+    @Test fun tapOnTheLabelGoesToTheStartOfTheText() {
+        assertEquals(0, headerTapCaret(tapX = 100f, textStartX = 200f, textLength = 21))
+    }
+
+    @Test fun tapJustBeforeTheFirstCharacterGoesToTheStart() {
+        assertEquals(0, headerTapCaret(tapX = 199f, textStartX = 200f, textLength = 21))
+    }
+
+    @Test fun tapOnTheTextItselfIsLeftToTheField() {
+        // The leading edge belongs to the field: from there on the caret lands under the finger.
+        assertEquals(null, headerTapCaret(tapX = 200f, textStartX = 200f, textLength = 21))
+        assertEquals(null, headerTapCaret(tapX = 260f, textStartX = 200f, textLength = 21))
+    }
+
+    @Test fun tapPastTheEndOfTheTextIsLeftToTheField() {
+        // Empty space after the text: the field keeps its own handling, i.e. the caret at the end.
+        assertEquals(null, headerTapCaret(tapX = 900f, textStartX = 200f, textLength = 21))
+    }
+
+    @Test fun tapOnAnEmptyFieldForcesNothing() {
+        assertEquals(null, headerTapCaret(tapX = 100f, textStartX = 200f, textLength = 0))
+    }
+
+    @Test fun unknownGeometryForcesNothing() {
+        // Before the first layout, or a field whose text isn't composed (a collapsed chip row).
+        assertEquals(null, headerTapCaret(tapX = Float.NaN, textStartX = 200f, textLength = 21))
+        assertEquals(null, headerTapCaret(tapX = 100f, textStartX = Float.NaN, textLength = 21))
+    }
+
     // --- Reply / reply-all header derivation (works from a cached row, so offline replies address) ---
 
     private val originalToReply = Email(
