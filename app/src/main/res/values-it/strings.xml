@@ -395,9 +395,9 @@
     <string name="settings_signature_supporting">Testo semplice, aggiunto al corpo del messaggio quando scrivi: puoi modificarlo o eliminarlo come qualsiasi altro testo.</string>
     <string name="settings_signature_supporting_html">È salvata una versione HTML: viene inviata così com\'è se non modifichi la firma nel messaggio.</string>
     <string name="settings_unsaved_changes">Modifiche non salvate</string>
-    <string name="settings_discard_changes_title">Annullare le modifiche?</string>
-    <string name="settings_discard_changes_message">Hai modifiche di identità o account non salvate. Uscire senza salvare?</string>
-    <string name="settings_discard">Annulla</string>
+    <string name="settings_save_changes_title">Salvare le modifiche?</string>
+    <string name="settings_save_changes_message">Non hai salvato le modifiche di identità o account.</string>
+    <string name="settings_discard">Scarta</string>
     <string name="settings_sync_section">Sincronizzazione</string>
     <string name="settings_messages_to_sync_title">Messaggi da sincronizzare</string>
     <string name="settings_sync_last_30_days">Ultimi 30 giorni</string>

@@ -395,8 +395,8 @@
     <string name="settings_signature_supporting">Zwykły tekst, dodawany do treści wiadomości podczas pisania — możesz go tam edytować lub usunąć jak każdy inny tekst.</string>
     <string name="settings_signature_supporting_html">Zapisano wersję HTML; zostanie wysłana bez zmian, jeśli nie zmodyfikujesz podpisu w wiadomości.</string>
     <string name="settings_unsaved_changes">Niezapisane zmiany</string>
-    <string name="settings_discard_changes_title">Odrzucić zmiany?</string>
-    <string name="settings_discard_changes_message">Masz niezapisane zmiany tożsamości lub konta. Wyjść bez zapisywania?</string>
+    <string name="settings_save_changes_title">Zapisać zmiany?</string>
+    <string name="settings_save_changes_message">Nie zapisano zmian tożsamości ani konta.</string>
     <string name="settings_discard">Odrzuć</string>
     <string name="settings_sync_section">Synchronizacja</string>
     <string name="settings_messages_to_sync_title">Wiadomości do synchronizacji</string>

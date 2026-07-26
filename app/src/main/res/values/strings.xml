@@ -485,8 +485,8 @@
     <string name="settings_identity_expand">Show details</string>
     <string name="settings_identity_collapse">Hide details</string>
     <string name="settings_unsaved_changes">Unsaved changes</string>
-    <string name="settings_discard_changes_title">Discard changes?</string>
-    <string name="settings_discard_changes_message">You have unsaved identity or account changes. Leave without saving?</string>
+    <string name="settings_save_changes_title">Save changes?</string>
+    <string name="settings_save_changes_message">You haven\'t saved your identity or account changes.</string>
     <string name="settings_discard">Discard</string>
     <string name="settings_sync_section">Sync</string>
     <string name="settings_messages_to_sync_title">Messages to sync</string>

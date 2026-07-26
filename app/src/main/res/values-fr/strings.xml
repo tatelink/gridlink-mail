@@ -399,8 +399,8 @@
     <string name="settings_signature_supporting">Texte brut, ajouté au corps du message à la rédaction : modifiable ou supprimable comme n\'importe quel autre texte.</string>
     <string name="settings_signature_supporting_html">Une version HTML est enregistrée ; elle est envoyée telle quelle si vous ne modifiez pas la signature dans le message.</string>
     <string name="settings_unsaved_changes">Modifications non enregistrées</string>
-    <string name="settings_discard_changes_title">Abandonner les modifications ?</string>
-    <string name="settings_discard_changes_message">Vous avez des modifications d\'identité ou de compte non enregistrées. Quitter sans enregistrer ?</string>
+    <string name="settings_save_changes_title">Enregistrer les modifications ?</string>
+    <string name="settings_save_changes_message">Vous n\'avez pas enregistré vos modifications d\'identité ou de compte.</string>
     <string name="settings_discard">Abandonner</string>
     <string name="settings_sync_section">Synchronisation</string>
     <string name="settings_messages_to_sync_title">Messages à synchroniser</string>
