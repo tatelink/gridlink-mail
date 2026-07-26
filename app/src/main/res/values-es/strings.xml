@@ -117,6 +117,10 @@
     <string name="message_mark_unread">Marcar como no leído</string>
     <string name="message_delete">Eliminar</string>
     <string name="message_more">Más</string>
+    <string name="message_position">%1$d / %2$d</string>
+    <string name="message_position_spoken">Mensaje %1$d de %2$d</string>
+    <string name="message_previous">Mensaje anterior</string>
+    <string name="message_next">Mensaje siguiente</string>
     <string name="message_reply">Responder</string>
     <string name="message_reply_all">Responder a todos</string>
     <string name="message_forward">Reenviar</string>

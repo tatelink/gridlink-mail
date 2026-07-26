@@ -23,6 +23,25 @@ internal object ConversationExpansion {
         all.filter { it.id != representativeId }
 
     /**
+     * The messages of an unfolded conversation, in the order the list shows them: the
+     * representative on the collapsed row first, then the members listed beneath it (see
+     * [membersBelow] / [mergeMembers], which order them newest-first). Each entry pairs the
+     * message id with its owning account, which is what the reading view's pager needs.
+     *
+     * This is the swipe context for a message opened from inside a conversation: the pager
+     * runs over exactly what the unfolded conversation showed, and stops at its ends.
+     * Deduped by id so a member copy of the representative — a merge that raced a refresh —
+     * can never produce two pages for the same message.
+     */
+    fun threadEntries(
+        representativeId: String,
+        representativeAccountId: String?,
+        members: List<Email>,
+    ): List<Pair<String, String?>> =
+        (listOf(representativeId to representativeAccountId) + members.map { it.id to it.accountId })
+            .distinctBy { it.first }
+
+    /**
      * The server-fetched thread members an unfolded conversation may DISPLAY: those living in
      * one of the [allowed] mailboxes (the viewed folder(s) plus the account's Sent folder).
      * A wire member carries no local mailboxId, so membership is judged on its server

@@ -178,6 +178,10 @@
     <string name="message_mark_unread">Mark unread</string>
     <string name="message_delete">Delete</string>
     <string name="message_more">More</string>
+    <string name="message_position">%1$d / %2$d</string>
+    <string name="message_position_spoken">Message %1$d of %2$d</string>
+    <string name="message_previous">Previous message</string>
+    <string name="message_next">Next message</string>
     <string name="message_reply">Reply</string>
     <string name="message_reply_all">Reply all</string>
     <string name="message_forward">Forward</string>

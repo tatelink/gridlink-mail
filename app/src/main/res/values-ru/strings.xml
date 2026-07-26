@@ -117,6 +117,10 @@
     <string name="message_mark_unread">Отметить непрочитанным</string>
     <string name="message_delete">Удалить</string>
     <string name="message_more">Ещё</string>
+    <string name="message_position">%1$d / %2$d</string>
+    <string name="message_position_spoken">Письмо %1$d из %2$d</string>
+    <string name="message_previous">Предыдущее письмо</string>
+    <string name="message_next">Следующее письмо</string>
     <string name="message_reply">Ответить</string>
     <string name="message_reply_all">Ответить всем</string>
     <string name="message_forward">Переслать</string>
