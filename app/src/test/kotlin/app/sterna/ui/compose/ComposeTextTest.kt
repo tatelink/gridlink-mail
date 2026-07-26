@@ -211,18 +211,83 @@ class ComposeTextTest {
         assertFalse(fields.expand)
     }
 
-    // --- Where the caret lands when compose opens prefilled (#63) ---
+    // --- Which field opens focused (#63, #83) ---
+    //
+    // "link" here is the prefill a mailto: URI (or a system Share) arrives with; it is null on
+    // every composer opened from inside the app.
+
+    private fun focusOf(
+        isDraft: Boolean = false,
+        isReply: Boolean = false,
+        linkTo: String? = null,
+        linkSubject: String? = null,
+    ) = initialComposeFocus(isDraft, isReply, linkTo, linkSubject)
+
+    // The four rows of the #83 table.
+
+    @Test fun mailtoWithOnlyARecipientOpensOnTheSubject() {
+        assertEquals(ComposeFocus.SUBJECT, focusOf(linkTo = "foo@example.com"))
+    }
+
+    @Test fun mailtoWithASubjectOpensOnTheBody() {
+        assertEquals(ComposeFocus.BODY, focusOf(linkTo = "foo@example.com", linkSubject = "Hello"))
+    }
+
+    // A link that also carries a body changes nothing — the subject is what decides, so a link
+    // with a body but NO subject still stops at the subject, the first field it left empty.
+    @Test fun mailtoWithABodyButNoSubjectOpensOnTheSubject() {
+        assertEquals(ComposeFocus.SUBJECT, focusOf(linkTo = "foo@example.com", linkSubject = ""))
+    }
+
+    @Test fun mailtoWithNoRecipientOpensOnTheRecipients() {
+        assertEquals(ComposeFocus.RECIPIENTS, focusOf(linkTo = "", linkSubject = "Hello"))
+    }
+
+    // A system "Share" reuses the mailto: path with an empty To — it must keep landing on the
+    // recipients, which is exactly what it is still missing.
+    @Test fun sharedTextOpensOnTheRecipients() {
+        assertEquals(ComposeFocus.RECIPIENTS, focusOf(linkTo = null, linkSubject = "Photo"))
+    }
+
+    // The four in-app ways of opening the composer, unchanged.
+
+    @Test fun freshMailOpensOnTheRecipients() {
+        assertEquals(ComposeFocus.RECIPIENTS, focusOf())
+    }
+
+    @Test fun replyOpensOnTheBody() {
+        assertEquals(ComposeFocus.BODY, focusOf(isReply = true))
+    }
+
+    @Test fun reopenedDraftOpensOnTheBody() {
+        assertEquals(ComposeFocus.BODY, focusOf(isDraft = true))
+    }
+
+    @Test fun forwardOpensOnTheRecipients() {
+        // A forward is neither a draft nor a reply and carries no link prefill.
+        assertEquals(ComposeFocus.RECIPIENTS, focusOf())
+    }
+
+    // --- Where the caret lands when compose opens prefilled (#63, #83) ---
 
     @Test fun reopenedDraftResumesAfterItsLastCharacter() {
-        assertEquals(12, initialBodyCaret(bodyLength = 12, isDraft = true, isReply = false))
+        assertEquals(12, initialBodyCaret(bodyLength = 12, focus = ComposeFocus.BODY, isDraft = true))
     }
 
     @Test fun replyStartsAboveTheQuotedOriginal() {
-        assertEquals(0, initialBodyCaret(bodyLength = 200, isDraft = false, isReply = true))
+        assertEquals(0, initialBodyCaret(bodyLength = 200, focus = ComposeFocus.BODY, isDraft = false))
     }
 
-    @Test fun newMailAndForwardLeaveTheBodyUnfocused() {
-        assertEquals(null, initialBodyCaret(bodyLength = 0, isDraft = false, isReply = false))
+    // The #83 trap: the body a mailto: link opens on already holds the signature, so the caret
+    // must be at the very top or the user types under their own signature.
+    @Test fun mailtoBodyStartsAboveTheSignature() {
+        val body = "" + signatureBlock("Alex\nAcme")
+        assertEquals(0, initialBodyCaret(bodyLength = body.length, focus = ComposeFocus.BODY, isDraft = false))
+    }
+
+    @Test fun aSubjectOrRecipientFocusLeavesTheBodyAlone() {
+        assertEquals(null, initialBodyCaret(bodyLength = 40, focus = ComposeFocus.SUBJECT, isDraft = false))
+        assertEquals(null, initialBodyCaret(bodyLength = 0, focus = ComposeFocus.RECIPIENTS, isDraft = false))
     }
 
     // --- Where a tap on a header row puts the caret (#26) ---
