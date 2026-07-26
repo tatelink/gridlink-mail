@@ -395,8 +395,8 @@
     <string name="settings_signature_supporting">Texto simples, adicionado ao corpo da mensagem ao escrever: pode editá-lo ou removê-lo aí como qualquer outro texto.</string>
     <string name="settings_signature_supporting_html">Está guardada uma versão HTML; é enviada tal como está se não alterar a assinatura na mensagem.</string>
     <string name="settings_unsaved_changes">Alterações não guardadas</string>
-    <string name="settings_discard_changes_title">Descartar alterações?</string>
-    <string name="settings_discard_changes_message">Tem alterações de identidade ou de conta não guardadas. Sair sem guardar?</string>
+    <string name="settings_save_changes_title">Guardar as alterações?</string>
+    <string name="settings_save_changes_message">Não guardou as alterações de identidade ou de conta.</string>
     <string name="settings_discard">Descartar</string>
     <string name="settings_sync_section">Sincronização</string>
     <string name="settings_messages_to_sync_title">Mensagens a sincronizar</string>

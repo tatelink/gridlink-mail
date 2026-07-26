@@ -395,8 +395,8 @@
     <string name="settings_signature_supporting">Platte tekst, bij het opstellen aan de berichttekst toegevoegd: daar te bewerken of te verwijderen als elke andere tekst.</string>
     <string name="settings_signature_supporting_html">Er is een HTML-versie opgeslagen; die wordt ongewijzigd verzonden als je de ondertekening in het bericht niet aanpast.</string>
     <string name="settings_unsaved_changes">Niet-opgeslagen wijzigingen</string>
-    <string name="settings_discard_changes_title">Wijzigingen negeren?</string>
-    <string name="settings_discard_changes_message">Je hebt niet-opgeslagen identiteits- of accountwijzigingen. Verlaten zonder opslaan?</string>
+    <string name="settings_save_changes_title">Wijzigingen opslaan?</string>
+    <string name="settings_save_changes_message">Je hebt je identiteits- of accountwijzigingen niet opgeslagen.</string>
     <string name="settings_discard">Negeren</string>
     <string name="settings_sync_section">Synchronisatie</string>
     <string name="settings_messages_to_sync_title">Te synchroniseren berichten</string>

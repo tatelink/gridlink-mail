@@ -395,8 +395,8 @@
     <string name="settings_signature_supporting">Обычный текст, добавляется в письмо при написании — там его можно изменить или удалить, как любой другой текст.</string>
     <string name="settings_signature_supporting_html">Сохранена HTML-версия: она отправляется как есть, если вы не измените подпись в письме.</string>
     <string name="settings_unsaved_changes">Несохранённые изменения</string>
-    <string name="settings_discard_changes_title">Отменить изменения?</string>
-    <string name="settings_discard_changes_message">Есть несохранённые изменения личности или учётной записи. Выйти без сохранения?</string>
+    <string name="settings_save_changes_title">Сохранить изменения?</string>
+    <string name="settings_save_changes_message">Изменения личности или учётной записи не сохранены.</string>
     <string name="settings_discard">Отменить</string>
     <string name="settings_sync_section">Синхронизация</string>
     <string name="settings_messages_to_sync_title">Письма для синхронизации</string>

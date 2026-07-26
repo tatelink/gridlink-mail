@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -1157,6 +1159,7 @@ private fun AccountsScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AccountDetailScreen(
     accountId: String,
@@ -1248,30 +1251,69 @@ private fun AccountDetailScreen(
         onDispose { viewModel.resetAccountSignIn() }
     }
 
-    val canSave = username.isNotBlank() && if (isImap) {
-        imapHost.isNotBlank() && imapPort.toIntOrNull() != null &&
-            smtpHost.isNotBlank() && smtpPort.toIntOrNull() != null
-    } else {
-        server.isNotBlank()
+    val canSave = canSaveAccount(
+        username = username, isImap = isImap, server = server,
+        imapHost = imapHost, imapPort = imapPort, smtpHost = smtpHost, smtpPort = smtpPort,
+    )
+
+    // The screen's one Save action: the button at the bottom and the exit dialog (#34) both call
+    // it, so saving on the way out writes exactly what the button would have written.
+    fun saveAccountEdits() {
+        val fields = accountSaveFields(identities, account.serverIdentities, defaultIdentityId)
+        if (isImap) {
+            viewModel.save(
+                accountId, accountName, server, username, password,
+                signature = fields.signature,
+                identities = fields.identities,
+                defaultIdentityId = fields.defaultIdentityId,
+                imapHost = imapHost, imapPort = imapPort.toIntOrNull(), imapSecurity = imapSecurity,
+                smtpHost = smtpHost, smtpPort = smtpPort.toIntOrNull(), smtpSecurity = smtpSecurity,
+            )
+        } else {
+            viewModel.save(
+                accountId, accountName, server, username, password,
+                signature = fields.signature,
+                identities = fields.identities,
+                defaultIdentityId = fields.defaultIdentityId,
+            )
+        }
+        password = ""
+        saved = true
+        dirty = false
+        onAccountsChanged()
     }
 
     // Confirm-on-back so unsaved identity/name/server edits are not silently discarded (#9).
-    var confirmDiscard by remember(accountId) { mutableStateOf(false) }
-    fun leaveOrConfirm() { if (dirty) confirmDiscard = true else onBack() }
-    BackHandler(enabled = dirty) { confirmDiscard = true }
-    if (confirmDiscard) {
+    var confirmExit by remember(accountId) { mutableStateOf(false) }
+    fun leaveOrConfirm() { if (dirty) confirmExit = true else onBack() }
+    BackHandler(enabled = dirty) { confirmExit = true }
+    if (confirmExit) {
         AlertDialog(
-            onDismissRequest = { confirmDiscard = false },
-            title = { Text(stringResource(R.string.settings_discard_changes_title)) },
-            text = { Text(stringResource(R.string.settings_discard_changes_message)) },
+            onDismissRequest = { confirmExit = false },
+            title = { Text(stringResource(R.string.settings_save_changes_title)) },
+            text = { Text(stringResource(R.string.settings_save_changes_message)) },
+            // AlertDialog has two button slots and this exit needs three answers, so all three go
+            // in the confirm slot as a FlowRow: one line where the labels fit, wrapped where they
+            // don't (German, Russian), never truncated. Save last, as the confirming action.
             confirmButton = {
-                TextButton(onClick = { confirmDiscard = false; onBack() }) {
-                    Text(stringResource(R.string.settings_discard), color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDiscard = false }) {
-                    Text(stringResource(R.string.settings_cancel))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    TextButton(onClick = { confirmExit = false }) {
+                        Text(stringResource(R.string.settings_cancel))
+                    }
+                    TextButton(onClick = { confirmExit = false; onBack() }) {
+                        Text(stringResource(R.string.settings_discard), color = MaterialTheme.colorScheme.error)
+                    }
+                    // Disabled rather than hidden when the form can't be written: the reason is on
+                    // the screen behind, and hiding it would look like the offer moved.
+                    TextButton(
+                        onClick = { confirmExit = false; saveAccountEdits(); onBack() },
+                        enabled = canSave,
+                    ) {
+                        Text(stringResource(R.string.settings_save))
+                    }
                 }
             },
         )
@@ -1891,42 +1933,7 @@ private fun AccountDetailScreen(
                     )
                 }
                 Button(
-                    onClick = {
-                        // Persist ONLY the manual list (server identities re-merge live), dropping
-                        // blank rows and healing any old-fold pollution so storage stays clean.
-                        // Mirror the first signature to the legacy account-level field for back-compat.
-                        val cleanIdentities = StoredAccount.normalizeManualIdentities(
-                            identities.filter { it.email.isNotBlank() },
-                            account.serverIdentities,
-                        )
-                        // Keep a default that points at a still-present manual OR server identity;
-                        // otherwise drop it so it degrades to the first rather than dangling.
-                        val serverIds = account.serverIdentities.map { it.id }
-                        val cleanDefaultId = defaultIdentityId?.takeIf { id ->
-                            cleanIdentities.any { it.id == id } || id in serverIds
-                        }
-                        if (isImap) {
-                            viewModel.save(
-                                accountId, accountName, server, username, password,
-                                signature = cleanIdentities.firstOrNull()?.signature ?: "",
-                                identities = cleanIdentities,
-                                defaultIdentityId = cleanDefaultId,
-                                imapHost = imapHost, imapPort = imapPort.toIntOrNull(), imapSecurity = imapSecurity,
-                                smtpHost = smtpHost, smtpPort = smtpPort.toIntOrNull(), smtpSecurity = smtpSecurity,
-                            )
-                        } else {
-                            viewModel.save(
-                                accountId, accountName, server, username, password,
-                                signature = cleanIdentities.firstOrNull()?.signature ?: "",
-                                identities = cleanIdentities,
-                                defaultIdentityId = cleanDefaultId,
-                            )
-                        }
-                        password = ""
-                        saved = true
-                        dirty = false
-                        onAccountsChanged()
-                    },
+                    onClick = { saveAccountEdits() },
                     enabled = canSave,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
