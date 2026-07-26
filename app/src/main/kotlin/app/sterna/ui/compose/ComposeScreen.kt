@@ -373,8 +373,9 @@ fun ComposeScreen(
 
     // The Save-as-draft icon greys out (disabled) while there is nothing worth saving — the same
     // #69 rule the save itself uses (draftHasContent), so the button's state matches what tapping it
-    // would do. Recomputed on each edit to subject/body/attachments (all observed state).
-    val canSaveDraft = draftHasContent(subject.text, body.text, attachments.isNotEmpty())
+    // would do. A typed recipient counts, so the icon lights up as soon as an address is entered.
+    // Recomputed on each edit to recipients/subject/body/attachments (all observed state).
+    val canSaveDraft = draftHasContent(to, cc, bcc, subject.text, body.text, attachments.isNotEmpty())
 
     // Unsaved-changes guard: prompt before discarding non-empty, unsent edits.
     val dirty = to != initialTo || cc.isNotBlank() || bcc.isNotBlank() ||
