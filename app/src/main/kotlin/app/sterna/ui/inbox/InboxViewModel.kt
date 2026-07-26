@@ -258,6 +258,24 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Thread keys already completed from the server this session — fetched at most once each. */
     private val completedThreads = mutableSetOf<String>()
 
+    /**
+     * The representative (id + owning account) of each expanded thread key — the message shown
+     * on the collapsed row, which [_threadMembers] deliberately excludes. Recorded on expand so
+     * [threadEntries] can hand the reading view the WHOLE conversation, representative included,
+     * without re-querying anything.
+     */
+    private val threadReps = mutableMapOf<String, Pair<String, String?>>()
+
+    /**
+     * The conversation a message was opened from, as the reading view's swipe context: the
+     * unfolded thread's messages in list order (representative first). Empty when the thread
+     * is unknown — the reader then falls back to showing the single message it was given.
+     */
+    fun threadEntries(key: String): List<Pair<String, String?>> {
+        val (repId, repAccountId) = threadReps[key] ?: return emptyList()
+        return ConversationExpansion.threadEntries(repId, repAccountId, _threadMembers.value[key].orEmpty())
+    }
+
     /** The thread an email belongs to: its threadId, or its own id when thread-less. */
     private fun threadKeyOf(email: Email): String = ConversationExpansion.threadKey(email.threadId, email.id)
 
@@ -273,6 +291,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         _expandedThreads.value = _expandedThreads.value + key
+        threadReps[key] = rep.id to rep.accountId
         viewModelScope.launch { expandThread(rep, key) }
     }
 
@@ -728,6 +747,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _expandedThreads.value = emptySet()
         _threadMembers.value = emptyMap()
         completedThreads.clear()
+        threadReps.clear()
     }
 
     /** Swipe action: toggle read/unread (cache update drives the list). */
@@ -907,6 +927,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _expandedThreads.value = _expandedThreads.value - key
         _threadMembers.value = _threadMembers.value - key
         completedThreads -= key
+        threadReps -= key
     }
 
     /**

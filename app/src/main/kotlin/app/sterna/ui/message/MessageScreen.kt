@@ -167,13 +167,17 @@ val LocalNavTransitionActive = compositionLocalOf { false }
 
 /**
  * The reading view. A [HorizontalPager] lets the user swipe left/right between the entries
- * of the list they came from, in the same order and context (mailbox / unified inbox, sort,
- * unread filter, or active search). Three sources feed it:
+ * of the context they came from, in the same order (mailbox / unified inbox, sort, unread
+ * filter, active search, or one conversation). Four sources feed it:
  *
  *  - [listSource]: the inbox's own paged flow (shared, so swiping near the end pages older
  *    mail in from the server exactly as scrolling the list does);
  *  - [searchResults]: the bounded, in-memory results when a search was active;
- *  - neither: a single message (opened from a context without a list, e.g. global search).
+ *  - [threadEntries]: the messages of an unfolded conversation, when the message was opened
+ *    from inside one (Codeberg #13) — the swipe stays inside that conversation and stops at
+ *    its ends rather than spilling into the list behind it;
+ *  - none of them: a single message (opened from a context without a list, e.g. a
+ *    notification or global search).
  *
  * Each page owns its own [MessageViewModel] (and its account context), so Reply/Forward,
  * back, and mark-as-read stay correct per entry. Mark-as-read fires on settle, never while
@@ -187,6 +191,7 @@ fun MessageScreen(
     initialIndex: Int,
     listSource: kotlinx.coroutines.flow.Flow<androidx.paging.PagingData<app.sterna.core.data.mail.InboxRow>>?,
     searchResults: List<Email>?,
+    threadEntries: List<Pair<String, String?>>? = null,
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
     onDelete: (Email) -> Unit,
@@ -253,6 +258,24 @@ fun MessageScreen(
                 pageCount = searchResults.size,
                 initialPage = initialPage,
                 entryAt = { i -> searchResults.getOrNull(i)?.let { it.id to it.accountId } },
+                onBack = onBack,
+                onReply = onReply,
+                onDelete = onDelete,
+                onArchive = onArchive,
+                onComposeTo = onComposeTo,
+            )
+        }
+        // Opened from an unfolded conversation: page over that conversation only. The entries
+        // are a snapshot of what the unfolded conversation showed, so the count is bounded and
+        // the pager cannot run past the first or last message of the thread (Codeberg #13).
+        !threadEntries.isNullOrEmpty() -> {
+            val initialPage = remember(threadEntries) {
+                MessagePaging.resolveInitialPage(threadEntries.map { it.first }, anchorEmailId, initialIndex)
+            }
+            MessagePager(
+                pageCount = threadEntries.size,
+                initialPage = initialPage,
+                entryAt = { i -> threadEntries.getOrNull(i) },
                 onBack = onBack,
                 onReply = onReply,
                 onDelete = onDelete,
