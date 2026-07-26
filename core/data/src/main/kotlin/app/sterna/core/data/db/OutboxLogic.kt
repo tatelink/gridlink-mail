@@ -1,5 +1,12 @@
 package app.sterna.core.data.db
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+
 /**
  * Pure outbox decisions, kept out of the worker/UI so they can be unit-tested on the JVM:
  * when an item is due to send, what happens after a failed attempt, and how the badge counts.
@@ -18,8 +25,41 @@ object OutboxLogic {
     /** After a failed attempt: retry while under the cap, otherwise give up (park as FAILED). */
     fun shouldRetry(attemptCount: Int): Boolean = attemptCount < MAX_ATTEMPTS
 
-    /** Items shown on the badge: anything pending or failed, but not the silent undo window. */
-    fun activeCount(states: List<OutboxState>): Int = states.count { it != OutboxState.HELD }
+    /**
+     * Items shown on the badge: anything pending or failed, plus a HELD row whose undo window has
+     * already elapsed. The window, not the state, decides silence: offline the delivery worker is
+     * gated on connectivity and never runs, so nothing takes the row out of HELD and the message
+     * waited in the Outbox with no dot and no counter (#70).
+     */
+    fun activeCount(items: List<OutboxBadgeItem>, now: Long): Int =
+        items.count { it.state != OutboxState.HELD || now >= it.notBeforeMillis }
+
+    /** The earliest undo window still running, i.e. when the badge must next be recomputed. */
+    fun nextWindowEnd(items: List<OutboxBadgeItem>, now: Long): Long? = items
+        .filter { it.state == OutboxState.HELD && it.notBeforeMillis > now }
+        .minOfOrNull { it.notBeforeMillis }
+
+    /**
+     * The badge count over time. Room re-emits on every outbox change, and each emission schedules
+     * exactly one wake-up: the end of the earliest undo window still running. So the badge appears
+     * the moment the window closes and disappears the moment the row leaves, with no polling.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun badgeCount(
+        items: Flow<List<OutboxBadgeItem>>,
+        now: () -> Long = System::currentTimeMillis,
+    ): Flow<Int> = items
+        .flatMapLatest { rows ->
+            flow {
+                while (true) {
+                    val instant = now()
+                    emit(activeCount(rows, instant))
+                    val next = nextWindowEnd(rows, instant) ?: break
+                    delay(next - instant)
+                }
+            }
+        }
+        .distinctUntilChanged()
 
     /** Items needing the failure banner. */
     fun failedCount(states: List<OutboxState>): Int = states.count { it == OutboxState.FAILED }

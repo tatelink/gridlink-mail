@@ -26,6 +26,7 @@ import app.sterna.core.data.db.OutboxAttachment
 import app.sterna.core.data.db.OutboxAttachments
 import app.sterna.core.data.db.OutboxDao
 import app.sterna.core.data.db.OutboxEntity
+import app.sterna.core.data.db.OutboxLogic
 import app.sterna.core.data.db.OutboxState
 import app.sterna.core.data.db.ScheduledSendDao
 import app.sterna.core.data.db.ScheduledSendEntity
@@ -3501,8 +3502,8 @@ class MailRepository(
     /** All outbox items, newest send order last. */
     fun outboxFlow(): Flow<List<OutboxEntity>> = outboxDao.observeAll()
 
-    /** Count of pending/failed items for the discreet badge (excludes the silent undo window). */
-    fun outboxActiveCount(): Flow<Int> = outboxDao.observeActiveCount()
+    /** Count of pending/failed items for the discreet badge (excludes a running undo window). */
+    fun outboxActiveCount(): Flow<Int> = OutboxLogic.badgeCount(outboxDao.observeBadgeItems())
 
     suspend fun outboxItem(id: Long): OutboxEntity? = outboxDao.byId(id)
 
