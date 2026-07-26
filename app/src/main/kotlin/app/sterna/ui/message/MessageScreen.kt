@@ -130,7 +130,10 @@ import app.sterna.core.data.calendar.ParsedEvent
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
+import android.text.format.DateUtils
 import app.sterna.ui.components.Monogram
+import app.sterna.ui.isOutgoingFolder
+import app.sterna.ui.snoozed.SnoozeDeadlineHeader
 import app.sterna.util.LinkCleaner
 import app.sterna.util.MailDates
 import kotlinx.coroutines.delay
@@ -589,6 +592,8 @@ private fun MessageActions(
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val inJunk by viewModel.inJunk.collectAsStateWithLifecycle()
+    val folderRole by viewModel.mailboxRole.collectAsStateWithLifecycle()
+    val snoozedUntil by viewModel.snoozedUntil.collectAsStateWithLifecycle()
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
     // Per-message manual override; the sender allowlist auto-shows without it.
     val manualShow by viewModel.manualShowImages.collectAsStateWithLifecycle()
@@ -672,6 +677,17 @@ private fun MessageActions(
         shape = MaterialTheme.shapes.medium,
     ) {
         if (snoozeSubmenu) {
+            // An already-snoozed message opens this menu with its deadline spelled out, rather
+            // than a mute list of delays (Codeberg #82).
+            snoozedUntil?.let { at ->
+                SnoozeDeadlineHeader(
+                    DateUtils.formatDateTime(
+                        context,
+                        at,
+                        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_MONTH,
+                    ),
+                )
+            }
             snoozePresets(context).forEach { (label, until) ->
                 DropdownMenuItem(
                     text = { Text(label) },
@@ -728,39 +744,43 @@ private fun MessageActions(
                 leadingIcon = { Icon(Icons.Filled.MarkEmailUnread, contentDescription = null) },
                 onClick = { menuOpen = false; viewModel.markUnread(onBack) },
             )
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        stringResource(
-                            if (inJunk) R.string.message_not_spam
-                            else R.string.message_report_spam,
-                        ),
-                    )
-                },
-                leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
-                onClick = {
-                    menuOpen = false
-                    // Confirm the move once it lands, naming the destination
-                    // folder — junk → Inbox ("Not spam"), inbox → Spam.
-                    val destName = context.getString(
-                        if (inJunk) R.string.folder_inbox else R.string.folder_junk,
-                    )
-                    val confirmMove: () -> Unit = {
-                        Toast.makeText(
-                            context,
-                            context.getString(R.string.status_moved_to_folder, destName),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        onBack()
-                    }
-                    if (inJunk) viewModel.notSpam(confirmMove) else viewModel.reportSpam(confirmMove)
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.message_snooze)) },
-                leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
-                onClick = { snoozeSubmenu = true },
-            )
+            // Spam-reporting and snoozing act on incoming mail; in Drafts and Sent the open
+            // message is the user's own outgoing mail, so neither is offered (Codeberg #82).
+            if (!isOutgoingFolder(folderRole)) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(
+                                if (inJunk) R.string.message_not_spam
+                                else R.string.message_report_spam,
+                            ),
+                        )
+                    },
+                    leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        // Confirm the move once it lands, naming the destination
+                        // folder — junk → Inbox ("Not spam"), inbox → Spam.
+                        val destName = context.getString(
+                            if (inJunk) R.string.folder_inbox else R.string.folder_junk,
+                        )
+                        val confirmMove: () -> Unit = {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.status_moved_to_folder, destName),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            onBack()
+                        }
+                        if (inJunk) viewModel.notSpam(confirmMove) else viewModel.reportSpam(confirmMove)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.message_snooze)) },
+                    leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                    onClick = { snoozeSubmenu = true },
+                )
+            }
             // Read-only raw-headers view (issue #60). Headers are fetched on demand here, so
             // the normal reader path never pulls them.
             DropdownMenuItem(

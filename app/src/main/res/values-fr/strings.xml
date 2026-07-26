@@ -596,6 +596,13 @@
     <string name="scheduled_empty">Aucun message programmé.</string>
     <string name="scheduled_cancel">Annuler l\'envoi programmé</string>
     <string name="scheduled_send_at">Envoi %1$s</string>
+    <string name="inbox_snoozed">Messages reportés</string>
+    <string name="snoozed_title">Reportés</string>
+    <string name="snoozed_empty">Aucun message reporté.</string>
+    <string name="snoozed_cancel">Annuler le report</string>
+    <string name="snoozed_reschedule">Modifier l\'échéance</string>
+    <string name="snoozed_returns">Revient %1$s</string>
+    <string name="snooze_current">Reporté à %1$s</string>
     <!-- Outbox (persistent send queue) -->
     <string name="inbox_outbox">Boîte d\'envoi</string>
     <string name="outbox_title">Boîte d\'envoi</string>

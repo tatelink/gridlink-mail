@@ -586,6 +586,13 @@
     <string name="scheduled_empty">Geen geplande berichten.</string>
     <string name="scheduled_cancel">Geplande verzending annuleren</string>
     <string name="scheduled_send_at">Verzendt %1$s</string>
+    <string name="inbox_snoozed">Gesnoozede berichten</string>
+    <string name="snoozed_title">Gesnoozed</string>
+    <string name="snoozed_empty">Geen gesnoozede berichten.</string>
+    <string name="snoozed_cancel">Snooze annuleren</string>
+    <string name="snoozed_reschedule">Tijdstip wijzigen</string>
+    <string name="snoozed_returns">Komt %1$s terug</string>
+    <string name="snooze_current">Gesnoozed tot %1$s</string>
     <!-- Outbox (persistent send queue) -->
     <string name="inbox_outbox">Postvak uit</string>
     <string name="outbox_title">Postvak uit</string>

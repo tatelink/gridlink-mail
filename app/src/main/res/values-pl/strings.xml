@@ -586,6 +586,13 @@
     <string name="scheduled_empty">Brak zaplanowanych wiadomości.</string>
     <string name="scheduled_cancel">Anuluj zaplanowane wysłanie</string>
     <string name="scheduled_send_at">Wysyłka %1$s</string>
+    <string name="inbox_snoozed">Odłożone wiadomości</string>
+    <string name="snoozed_title">Odłożone</string>
+    <string name="snoozed_empty">Brak odłożonych wiadomości.</string>
+    <string name="snoozed_cancel">Anuluj odłożenie</string>
+    <string name="snoozed_reschedule">Zmień termin</string>
+    <string name="snoozed_returns">Wróci %1$s</string>
+    <string name="snooze_current">Odłożone do %1$s</string>
     <!-- Outbox (persistent send queue) -->
     <string name="inbox_outbox">Skrzynka nadawcza</string>
     <string name="outbox_title">Skrzynka nadawcza</string>

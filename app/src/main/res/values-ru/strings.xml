@@ -586,6 +586,13 @@
     <string name="scheduled_empty">Нет отложенных сообщений.</string>
     <string name="scheduled_cancel">Отменить отложенную отправку</string>
     <string name="scheduled_send_at">Отправка %1$s</string>
+    <string name="inbox_snoozed">Отложенные письма</string>
+    <string name="snoozed_title">Отложенные письма</string>
+    <string name="snoozed_empty">Нет отложенных писем.</string>
+    <string name="snoozed_cancel">Отменить откладывание</string>
+    <string name="snoozed_reschedule">Изменить время</string>
+    <string name="snoozed_returns">Вернётся %1$s</string>
+    <string name="snooze_current">Отложено до %1$s</string>
     <!-- Outbox (persistent send queue) -->
     <string name="inbox_outbox">Исходящие</string>
     <string name="outbox_title">Исходящие</string>
