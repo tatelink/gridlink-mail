@@ -84,15 +84,6 @@ sealed interface SignatureChange {
     data class Insert(val signature: String, val belowQuote: Boolean) : SignatureChange
 }
 
-/**
- * The single #69 rule for "this draft is worth saving": a non-blank subject, a non-blank body, or
- * at least one attachment. Recipients alone, or a wholly empty compose, do not count. Shared by the
- * [ComposeViewModel] save gate and the ComposeScreen toolbar, so the greyed-out Save icon and the
- * actual save-or-skip decision can never drift apart.
- */
-internal fun draftHasContent(subject: String, body: String, hasAttachment: Boolean): Boolean =
-    subject.isNotBlank() || body.isNotBlank() || hasAttachment
-
 class ComposeViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
@@ -390,9 +381,6 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     private fun credentials(): AccountCredentials? =
         (_selectedFrom.value?.accountId ?: accountId)?.let { store.credentials(it) } ?: store.load()
-
-    private fun parseAddrs(s: String): List<String> =
-        s.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
 
     /**
      * Every address that IS the user on this account: the login plus each of its identities (server
@@ -809,20 +797,26 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * A draft is worth persisting only if it carries real content: a non-blank subject, a non-blank
-     * body, or at least one attachment (#69). Recipients alone, or a wholly empty compose, do not
-     * count — saving one only litters Drafts with an empty shell. Delegates to [draftHasContent] so
-     * this save gate and the toolbar's greyed-out Save icon share one rule (no drift).
+     * A draft is worth persisting only if it carries real content: a recipient, a non-blank
+     * subject, a non-blank body, or at least one attachment (#69). A wholly empty compose does
+     * not count — saving one only litters Drafts with an empty shell. Delegates to
+     * [draftHasContent] so this save gate and the toolbar's greyed-out Save icon share one rule
+     * (no drift).
      */
-    private fun hasDraftContent(subject: String, body: String): Boolean =
-        draftHasContent(subject, body, _attachments.value.isNotEmpty())
+    private fun hasDraftContent(
+        to: String,
+        cc: String,
+        bcc: String,
+        subject: String,
+        body: String,
+    ): Boolean = draftHasContent(to, cc, bcc, subject, body, _attachments.value.isNotEmpty())
 
     fun saveDraft(to: String, cc: String, bcc: String, subject: String, body: String) {
         // Empty by the #69 rule: persist nothing. A brand-new compose leaves no trace at all (no
         // server create, no local row, no outbox entry); an opened draft the user has emptied has
         // its original deleted so no empty shell lingers in Drafts (or reappears on sync). Either
         // way the screen then closes exactly as a normal save would.
-        if (!hasDraftContent(subject, body)) {
+        if (!hasDraftContent(to, cc, bcc, subject, body)) {
             val original = editingDraftId
             if (original == null) {
                 _state.value = ComposeState.Done
@@ -858,8 +852,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             try {
                 val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
-                val recipients = to.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
-                op(credentials, recipients)
+                op(credentials, parseAddrs(to))
                 _state.value = ComposeState.Done
             } catch (t: Throwable) {
                 // Saving a draft, not sending: the error banner must say so (#63 — a failed

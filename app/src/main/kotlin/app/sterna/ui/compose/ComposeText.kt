@@ -241,6 +241,39 @@ internal fun draftFieldsOf(o: Email): DraftFields {
     )
 }
 
+/**
+ * Split an addressing field into its trimmed, non-empty address tokens (comma or semicolon
+ * separated). A field holding only blanks or stray separators yields nothing — the one place the
+ * app decides what counts as "an address was typed here", so the send path, the draft save and the
+ * #69 content rule below cannot disagree.
+ */
+internal fun parseAddrs(s: String): List<String> =
+    s.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+
+/**
+ * The single #69 rule for "this draft is worth saving": at least one real recipient in To, Cc or
+ * Bcc, a non-blank subject, a non-blank body, or an attachment.
+ *
+ * A typed address IS content — that is the #69 bug: a compose holding only a recipient was judged
+ * empty, so tapping "Save draft" in the leave dialog closed the screen and persisted nothing, a
+ * silent loss dressed up as a successful save. Blanks still do not count (hence [parseAddrs], not
+ * isNotBlank), and neither does a wholly empty compose: opening one and leaving must go on leaving
+ * no trace anywhere, and an existing draft emptied out must go on being deleted (the 1.3.12 fix).
+ *
+ * Shared by the [ComposeViewModel] save gate and the ComposeScreen toolbar, so the greyed-out Save
+ * icon and the actual save-or-skip decision can never drift apart.
+ */
+internal fun draftHasContent(
+    to: String,
+    cc: String,
+    bcc: String,
+    subject: String,
+    body: String,
+    hasAttachment: Boolean,
+): Boolean =
+    parseAddrs(to).isNotEmpty() || parseAddrs(cc).isNotEmpty() || parseAddrs(bcc).isNotEmpty() ||
+        subject.isNotBlank() || body.isNotBlank() || hasAttachment
+
 // --- Signature (pure text, living in the body — WYSIWYG) -----------------------------------------
 // The signature is ordinary text in the editable body, inserted when compose opens, exactly like
 // K-9 and Thunderbird. It is NOT appended at send time any more: what the composer shows is what
