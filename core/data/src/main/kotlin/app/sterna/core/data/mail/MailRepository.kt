@@ -154,6 +154,31 @@ private const val PREFETCH_COUNT = 20
 /** Max cached message bodies kept per account (LRU); bounds on-device storage. */
 private const val BODY_CACHE_CAP = 100
 
+/**
+ * Largest body row we will write (characters of JSON, body + inline images). SQLite's cursor
+ * window is 2 MB by default, and a row past it can be inserted but never read back — every
+ * later read throws. Staying well under keeps the cache readable; a body over this is served
+ * from the network each time instead, which is slower but always works.
+ */
+internal const val MAX_CACHED_BODY_CHARS = 1_000_000
+
+/** Whether a body row of this size may be written without becoming unreadable later. */
+internal fun fitsBodyCache(bodyJson: String, inlineImagesJson: String): Boolean =
+    bodyJson.length + inlineImagesJson.length <= MAX_CACHED_BODY_CHARS
+
+/**
+ * Read a cached row through [read]; if reading it fails at all, drop it via [purge] and report a
+ * miss. An unreadable row must cost a refetch, never a message that can no longer be opened —
+ * SQLite throws on reading a row past its cursor window, and it throws again on every retry.
+ */
+internal suspend fun <T> readCachedOrPurge(
+    read: suspend () -> T?,
+    purge: suspend () -> Unit,
+): T? = runCatching { read() }.getOrElse {
+    runCatching { purge() }
+    null
+}
+
 /** Max full-text search matches returned to the UI. */
 private const val LOCAL_SEARCH_LIMIT = 100
 
@@ -1835,16 +1860,25 @@ class MailRepository(
         return MimeParser.decodeBytes(encoded, cte)
     }
 
-    /** [accountId]'s cached body for [emailId], or null if not yet fetched/prefetched. No network. */
-    suspend fun cachedMessage(accountId: String, emailId: String): MessageBody? {
-        val row = emailBodyDao.byId(accountId, emailId) ?: return null
-        return runCatching {
+    /**
+     * [accountId]'s cached body for [emailId], or null if not yet fetched/prefetched. No network.
+     *
+     * The READ is inside the guard, not just the decoding: a row whose JSON is past SQLite's
+     * cursor window throws on every read (SQLiteBlobTooBigException), and with the read left
+     * outside, that exception escaped all the way to the reader — the message was then
+     * permanently unopenable, not just uncached. A row we cannot read is dropped so the next
+     * open refetches it.
+     */
+    suspend fun cachedMessage(accountId: String, emailId: String): MessageBody? = readCachedOrPurge(
+        read = {
+            val row = emailBodyDao.byId(accountId, emailId) ?: return@readCachedOrPurge null
             MessageBody(
                 email = cacheJson.decodeFromString(Email.serializer(), row.bodyJson),
                 inlineImages = cacheJson.decodeFromString(inlineImagesSerializer, row.inlineImagesJson),
             )
-        }.getOrNull()
-    }
+        },
+        purge = { emailBodyDao.deleteById(accountId, emailId) },
+    )
 
     /** Inline images present if the body needs them; downloads + persists them on first open. */
     private suspend fun ensureInlineImages(
@@ -1886,7 +1920,13 @@ class MailRepository(
         return map
     }
 
-    /** Persist a fetched body (and any inline images) to the cache, then LRU-prune the account. */
+    /**
+     * Persist a fetched body (and any inline images) to the cache, then LRU-prune the account.
+     *
+     * A row bigger than SQLite's cursor window can be written but never read back, so an
+     * oversized body is simply not cached: it costs a refetch on every open, which is the honest
+     * price, where writing it would poison the cache with a row that throws on every read.
+     */
     private suspend fun persistBody(
         accountId: String,
         emailId: String,
@@ -1894,12 +1934,15 @@ class MailRepository(
         inlineImages: Map<String, String>,
     ) {
         runCatching {
+            val bodyJson = cacheJson.encodeToString(Email.serializer(), email)
+            val inlineJson = cacheJson.encodeToString(inlineImagesSerializer, inlineImages)
+            if (!fitsBodyCache(bodyJson, inlineJson)) return
             emailBodyDao.upsert(
                 EmailBodyEntity(
                     id = emailId,
                     accountId = accountId,
-                    bodyJson = cacheJson.encodeToString(Email.serializer(), email),
-                    inlineImagesJson = cacheJson.encodeToString(inlineImagesSerializer, inlineImages),
+                    bodyJson = bodyJson,
+                    inlineImagesJson = inlineJson,
                     fetchedAt = System.currentTimeMillis(),
                 ),
             )
