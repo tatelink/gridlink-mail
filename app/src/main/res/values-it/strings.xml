@@ -405,6 +405,8 @@
     <string name="settings_email_not_server">Il tuo server potrebbe rifiutare l\'invio da questo indirizzo.</string>
     <string name="settings_signature_supporting">Testo semplice, aggiunto al corpo del messaggio quando scrivi: puoi modificarlo o eliminarlo come qualsiasi altro testo.</string>
     <string name="settings_signature_supporting_html">È salvata una versione HTML: viene inviata così com\'è se non modifichi la firma nel messaggio.</string>
+    <string name="settings_signature_preview_title">In un messaggio apparirà così:</string>
+    <string name="settings_signature_duplicate_delimiter">La tua firma inizia già con una riga «-- », quindi comparirà due volte.</string>
     <string name="settings_unsaved_changes">Modifiche non salvate</string>
     <string name="settings_save_changes_title">Salvare le modifiche?</string>
     <string name="settings_save_changes_message">Non hai salvato le modifiche di identità o account.</string>

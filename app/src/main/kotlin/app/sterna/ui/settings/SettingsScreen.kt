@@ -106,6 +106,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -1704,6 +1705,7 @@ private fun AccountDetailScreen(
                                     },
                                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                                 )
+                                SignaturePreview(signature)
                                 OutlinedButton(
                                     onClick = {
                                         // Both halves: the flattened text the composer inserts and
@@ -1820,6 +1822,7 @@ private fun AccountDetailScreen(
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                             )
+                            SignaturePreview(identity.signature)
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -2488,6 +2491,45 @@ private fun IdentityRowHeader(
             ),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * What the signature will look like in a message, delimiter included (#90). Read-only, and nothing
+ * here is stored: the "-- " line is added when the body is built, so the field holds the signature
+ * alone and this is the only place the writer gets to see the whole thing.
+ *
+ * A signature that already begins with a delimiter of its own is shown as it will be sent — two
+ * delimiter lines, one above the other — plus a line saying so. It is NOT stripped: the field holds
+ * what the user typed, and the app does not quietly edit their text. Shown only once there is a
+ * signature; a blank one adds nothing to a message and has nothing to preview.
+ */
+@Composable
+private fun SignaturePreview(signature: String) {
+    val preview = signaturePreview(signature) ?: return
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Text(
+            stringResource(R.string.settings_signature_preview_title),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            preview,
+            style = MaterialTheme.typography.bodySmall,
+            // Monospace: the delimiter is two hyphens AND a trailing space, and a proportional
+            // face makes that line hard to tell from a decorative dash rule.
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        if (signatureHasOwnDelimiter(signature)) {
+            Text(
+                stringResource(R.string.settings_signature_duplicate_delimiter),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
     }
 }
 

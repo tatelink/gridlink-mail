@@ -405,6 +405,8 @@
     <string name="settings_email_not_server">Dein Server lehnt das Senden von dieser Adresse möglicherweise ab.</string>
     <string name="settings_signature_supporting">Reiner Text, beim Schreiben in den Nachrichtentext eingefügt — dort wie jeder andere Text änderbar oder löschbar.</string>
     <string name="settings_signature_supporting_html">Eine HTML-Version ist gespeichert; sie wird unverändert gesendet, sofern Sie die Signatur in der Nachricht nicht ändern.</string>
+    <string name="settings_signature_preview_title">In einer Nachricht sieht das so aus:</string>
+    <string name="settings_signature_duplicate_delimiter">Ihre Signatur beginnt bereits mit einer Zeile „-- “, sie erscheint daher doppelt.</string>
     <string name="settings_unsaved_changes">Nicht gespeicherte Änderungen</string>
     <string name="settings_save_changes_title">Änderungen speichern?</string>
     <string name="settings_save_changes_message">Du hast deine Identitäts- oder Kontoänderungen nicht gespeichert.</string>

@@ -405,6 +405,8 @@
     <string name="settings_email_not_server">Twój serwer może odrzucić wysyłanie z tego adresu.</string>
     <string name="settings_signature_supporting">Zwykły tekst, dodawany do treści wiadomości podczas pisania — możesz go tam edytować lub usunąć jak każdy inny tekst.</string>
     <string name="settings_signature_supporting_html">Zapisano wersję HTML; zostanie wysłana bez zmian, jeśli nie zmodyfikujesz podpisu w wiadomości.</string>
+    <string name="settings_signature_preview_title">W wiadomości będzie to wyglądać tak:</string>
+    <string name="settings_signature_duplicate_delimiter">Twój podpis już zaczyna się wierszem „-- ”, więc pojawi się dwa razy.</string>
     <string name="settings_unsaved_changes">Niezapisane zmiany</string>
     <string name="settings_save_changes_title">Zapisać zmiany?</string>
     <string name="settings_save_changes_message">Nie zapisano zmian tożsamości ani konta.</string>

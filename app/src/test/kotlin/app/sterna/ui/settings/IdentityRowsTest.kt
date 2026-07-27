@@ -1,14 +1,17 @@
 package app.sterna.ui.settings
 
+import app.sterna.ui.compose.bodyWithSignature
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * The Identities editor opens on the default sender and folds the rest away. These cover the
- * opening rule (default, fallback, single row), the collapsed row's signature summary, and the fact
- * that folding is a plain display toggle.
+ * opening rule (default, fallback, single row), the collapsed row's signature summary, the fact
+ * that folding is a plain display toggle, and the signature preview that shows the "-- " delimiter
+ * the field itself never holds (#90).
  */
 class IdentityRowsTest {
 
@@ -80,5 +83,42 @@ class IdentityRowsTest {
         val opened = setOf("srv-1").toggleIdentityRow("man-3")
         assertEquals(setOf("srv-1", "man-3"), opened)
         assertEquals(setOf("srv-1"), opened.toggleIdentityRow("man-3"))
+    }
+
+    // --- The "-- " delimiter is shown, never stored (#90) --------------------------------------
+
+    @Test fun thePreviewShowsTheDelimiterTheFieldDoesNotHold() {
+        assertEquals("-- \nAlex Rivera\nAcme", signaturePreview("Alex Rivera\nAcme"))
+    }
+
+    @Test fun aBlankSignatureHasNothingToPreview() {
+        assertNull(signaturePreview(""))
+        assertNull(signaturePreview("   \n \n "))
+    }
+
+    @Test fun thePreviewIsExactlyWhatTheComposerWillInsert() {
+        // The one thing that must not drift: what is shown here is the block the composer appends,
+        // minus only the blank line that separates it from the message above.
+        val signature = "Alex Rivera\nAcme"
+        val body = bodyWithSignature(quoted = "", signature = signature)
+        assertEquals("\n\n" + signaturePreview(signature), body)
+        assertTrue(body.endsWith(signaturePreview(signature)!!))
+    }
+
+    @Test fun aDelimiterTypedByHandIsShownDoubled() {
+        // Not stripped — the field holds the user's own text — but the preview makes it plain.
+        assertEquals("-- \n-- \nAlex Rivera", signaturePreview("-- \nAlex Rivera"))
+        assertTrue(signatureHasOwnDelimiter("-- \nAlex Rivera"))
+        // Without the trailing space, and under a stray blank line the block would strip anyway.
+        assertTrue(signatureHasOwnDelimiter("--\nAlex Rivera"))
+        assertTrue(signatureHasOwnDelimiter("\n\n-- \nAlex Rivera"))
+    }
+
+    @Test fun ordinaryDashesAreNotADuplicateDelimiter() {
+        assertFalse(signatureHasOwnDelimiter("Alex Rivera\n-- \nAcme"))
+        assertFalse(signatureHasOwnDelimiter("---------- Acme ----------"))
+        assertFalse(signatureHasOwnDelimiter("--- Alex"))
+        assertFalse(signatureHasOwnDelimiter("Alex Rivera"))
+        assertFalse(signatureHasOwnDelimiter(""))
     }
 }
