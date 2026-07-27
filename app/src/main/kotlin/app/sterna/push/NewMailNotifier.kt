@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.settings.NotificationContent
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.jmap.model.Email
@@ -145,7 +146,9 @@ object NewMailNotifier {
         val lastPass = prefs(context).getLong(tsKey(accountId, mailboxId), 0L)
         val floor = if (lastPass > 0) lastPass - NOTIFY_HORIZON_MS else Long.MIN_VALUE
         val selfMoved = (context.applicationContext as Application).container.mailRepository.recentLocalMoves
-        return emails.filter { it.id !in known && receivedAfter(it, floor) && it.id !in selfMoved }
+        return emails.filter {
+            it.id !in known && receivedAfter(it, floor) && EmailKey(accountId, it.id) !in selfMoved
+        }
     }
 
     /**

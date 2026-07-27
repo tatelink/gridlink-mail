@@ -2044,7 +2044,7 @@ class MailRepository(
                 if (mb == dest) { noop = true; return@let } // already in the archive/all folder
                 imap.move(credentials, mb, uid, dest)?.let {
                     lastImapMove[emailId] = ImapLoc(dest, it)
-                    recentLocalMoves.mark(ImapMailService.emailId(credentials.id, dest, it))
+                    recentLocalMoves.mark(credentials.id, ImapMailService.emailId(credentials.id, dest, it))
                 }
             }
             emailDao.deleteById(credentials.id, emailId)
@@ -2068,7 +2068,7 @@ class MailRepository(
             pruneServerGone(credentials.id, listOf(emailId))
             return null
         }
-        recentLocalMoves.mark(emailId)
+        recentLocalMoves.mark(credentials.id, emailId)
         emailDao.deleteById(credentials.id, emailId)
         adjustCountsForRemoval(listOfNotNull(row), target)
         advanceEmailState(newState, credentials.id, mb)
@@ -2103,7 +2103,7 @@ class MailRepository(
                 if (mb == targetMailboxId) return@let true
                 imap.move(credentials, mb, uid, targetMailboxId)?.let {
                     lastImapMove[emailId] = ImapLoc(targetMailboxId, it)
-                    recentLocalMoves.mark(ImapMailService.emailId(credentials.id, targetMailboxId, it))
+                    recentLocalMoves.mark(credentials.id, ImapMailService.emailId(credentials.id, targetMailboxId, it))
                 }
                 false
             } ?: false
@@ -2122,7 +2122,7 @@ class MailRepository(
             pruneServerGone(credentials.id, listOf(emailId))
             return null
         }
-        recentLocalMoves.mark(emailId)
+        recentLocalMoves.mark(credentials.id, emailId)
         emailDao.deleteById(credentials.id, emailId)
         adjustCountsForRemoval(listOfNotNull(moved), targetMailboxId)
         advanceEmailState(newState, credentials.id, mb)
@@ -2202,7 +2202,7 @@ class MailRepository(
                 uidToId.forEach { (uid, id) ->
                     mapping[uid]?.let {
                         lastImapMove[id] = ImapLoc(dest, it)
-                        recentLocalMoves.mark(ImapMailService.emailId(credentials.id, dest, it))
+                        recentLocalMoves.mark(credentials.id, ImapMailService.emailId(credentials.id, dest, it))
                     }
                     emailDao.deleteById(credentials.id, id)
                     succeeded += id
@@ -2237,7 +2237,7 @@ class MailRepository(
         return runCatching { client.move(ctx.session, ctx.accountId, emailIds, target, ctx.auth) }
             .map { result ->
                 val moved = emailIds.filter { it in result.done }.toSet()
-                moved.forEach { recentLocalMoves.mark(it); emailDao.deleteById(localAccountId, it) }
+                moved.forEach { recentLocalMoves.mark(localAccountId, it); emailDao.deleteById(localAccountId, it) }
                 adjustCountsForRemoval(rows.filter { it.id in moved }, target)
                 // notFound rejections are ghosts (destroyed server-side): prune their rows so
                 // they leave the list, but keep them in `failed` — nothing was moved to [target],
@@ -2363,7 +2363,7 @@ class MailRepository(
         if (moved.isEmpty()) return emptyList()
         // Self-moves too: the caller folds them into the baseline unannounced already, but a
         // concurrent pass on another watched folder must not see them as fresh either.
-        moved.forEach { recentLocalMoves.mark(it.id) }
+        moved.forEach { recentLocalMoves.mark(credentials.id, it.id) }
         val refiled = moved.map { it.copy(mailboxId = inbox) }
         emailDao.upsertAll(refiled)
         adjustCountsForRemoval(moved, inbox)
@@ -2748,7 +2748,7 @@ class MailRepository(
                         .takeIf { it.isNotEmpty() }
                         ?.let { fetched ->
                             emailDao.upsertAll(fetched)
-                            fetched.forEach { markRecentlyMutated(credentials.id, it.id); recentLocalMoves.mark(it.id) }
+                            fetched.forEach { markRecentlyMutated(credentials.id, it.id); recentLocalMoves.mark(credentials.id, it.id) }
                         }
                 }
             }
@@ -2768,7 +2768,7 @@ class MailRepository(
             restored += ids
             // The move-back is a self-move into the source folder (often the watched Inbox):
             // the next notifier pass must not announce the restored rows as new arrivals.
-            ids.forEach { recentLocalMoves.mark(it) }
+            ids.forEach { recentLocalMoves.mark(credentials.id, it) }
             val fetched = runCatching { client.getEmailsByIds(ctx.session, ctx.accountId, ids, ctx.auth) }.getOrDefault(emptyList())
             if (fetched.isNotEmpty()) {
                 emailDao.upsertAll(fetched.map { it.toEntity(ctx.credentials.id, source) })
@@ -2820,7 +2820,7 @@ class MailRepository(
                 if (mb != trash) {
                     imap.move(credentials, mb, uid, trash)?.let {
                         lastImapMove[emailId] = ImapLoc(trash, it)
-                        recentLocalMoves.mark(ImapMailService.emailId(credentials.id, trash, it))
+                        recentLocalMoves.mark(credentials.id, ImapMailService.emailId(credentials.id, trash, it))
                     }
                 }
             }
@@ -2844,7 +2844,7 @@ class MailRepository(
             pruneServerGone(credentials.id, listOf(emailId))
             return null
         }
-        recentLocalMoves.mark(emailId)
+        recentLocalMoves.mark(credentials.id, emailId)
         emailDao.deleteById(credentials.id, emailId)
         adjustCountsForRemoval(listOfNotNull(row), trash)
         advanceEmailState(newState, credentials.id, mb)
