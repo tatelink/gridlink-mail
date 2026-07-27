@@ -24,11 +24,13 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -125,6 +127,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -142,7 +145,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -153,7 +158,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -264,6 +271,16 @@ fun InboxScreen(
     }
     val snackbarHostState = remember { SnackbarHostState() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    // Codeberg #30: the rows hand a narrow strip at the start edge back to the drawer's own
+    // drag — but only in three-button navigation, where Android reports no gesture inset
+    // there. Under gesture navigation that edge is the system back gesture: the strip is
+    // 0-wide and inert, and the app declares no exclusion zone to fight for it. Read here,
+    // above the Scaffold, so no consumed inset can make the edge look free.
+    val density = LocalDensity.current
+    val edgeBandPx = drawerBandPx(
+        systemGestureInsetPx = WindowInsets.systemGestures.getLeft(density, LocalLayoutDirection.current),
+        bandPx = with(density) { DRAWER_EDGE_BAND_DP.dp.toPx() },
+    )
     // Hoisted strings for snackbars shown from non-composable LaunchedEffect coroutines.
     val undoLabel = stringResource(R.string.inbox_undo)
     val context = LocalContext.current
@@ -1321,6 +1338,7 @@ fun InboxScreen(
                     entryIndex = entryIndex,
                     highlighted = email.id == highlightId,
                     onHighlightShown = viewModel::clearHighlight,
+                    drawerBandPx = edgeBandPx,
                     modifier = rowModifier,
                 )
                 if (expandable) {
@@ -1353,6 +1371,7 @@ fun InboxScreen(
                         onEnterSelectionChild = { child -> viewModel.enterSelection(child) },
                         onToggleSelectChild = { child -> viewModel.toggleSelect(child) },
                         onHighlightShown = viewModel::clearHighlight,
+                        drawerBandPx = edgeBandPx,
                     )
                 }
                 HorizontalDivider()
@@ -1619,11 +1638,17 @@ private fun SwipeableEmailRow(
     entryIndex: Int = 0,
     highlighted: Boolean = false,
     onHighlightShown: () -> Unit = {},
+    /** Width of the start-edge strip left to the drawer's own drag; 0 where the system
+     *  owns that edge (gesture navigation). See [DrawerGesture]. */
+    drawerBandPx: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val motionOn = rememberMotionEnabled()
     val offsetX = remember { Animatable(0f) }
     var rowWidth by remember { mutableIntStateOf(0) }
+    // Where this row starts in the window, so the edge strip is measured from the screen
+    // edge and not from the row's own left — conversation children are indented.
+    var rowLeftPx by remember { mutableFloatStateOf(0f) }
 
     // The drag handler below lives in a pointerInput block that only restarts when the
     // configured actions change — it must NOT capture onSwipe directly. The paged row
@@ -1656,17 +1681,23 @@ private fun SwipeableEmailRow(
                 alpha = enter.value
                 translationY = (1f - enter.value) * 14.dp.toPx()
             }
+            .onGloballyPositioned { rowLeftPx = it.positionInWindow().x }
             .onSizeChanged { rowWidth = it.width }
-            .pointerInput(gesturesEnabled, rightAction, leftAction) {
+            .pointerInput(gesturesEnabled, rightAction, leftAction, drawerBandPx) {
                 if (!gesturesEnabled) return@pointerInput
                 val slop = viewConfiguration.touchSlop
                 val minOffset = if (leftAction == SwipeAction.NONE) 0f else -rowWidth.toFloat()
                 val maxOffset = if (rightAction == SwipeAction.NONE) 0f else rowWidth.toFloat()
                 coroutineScope {
                     while (true) {
-                        val pointerId = awaitPointerEventScope {
-                            awaitFirstDown(requireUnconsumed = false).id
+                        val down = awaitPointerEventScope {
+                            awaitFirstDown(requireUnconsumed = false)
                         }
+                        val pointerId = down.id
+                        // Codeberg #30: a drag STARTING in the start-edge strip belongs to
+                        // the drawer, so nothing here consumes it (the strip is 0-wide, and
+                        // this never triggers, wherever the system owns that edge).
+                        if (startsInDrawerBand(rowLeftPx + down.position.x, drawerBandPx)) continue
                         // Direction-lock: only treat this as a swipe once it is clearly
                         // more horizontal than vertical, otherwise leave the gesture to
                         // the list's vertical scroll. This stops accidental swipes when
@@ -1684,6 +1715,12 @@ private fun SwipeableEmailRow(
                                     return@awaitPointerEventScope false
                                 }
                                 if (abs(dx) > slop * SWIPE_SLOP_FACTOR && abs(dx) > abs(dy)) {
+                                    // Codeberg #30: a direction with no action assigned has
+                                    // nothing to do with this drag — leave it unconsumed so
+                                    // the drawer, whose own drag spans the content, takes it.
+                                    if (!rowKeepsDrag(dx, rightAction, leftAction)) {
+                                        return@awaitPointerEventScope false
+                                    }
                                     change.consume()
                                     return@awaitPointerEventScope true
                                 }
@@ -1998,6 +2035,9 @@ private fun ThreadChildren(
     onEnterSelectionChild: (Email) -> Unit,
     onToggleSelectChild: (Email) -> Unit,
     onHighlightShown: () -> Unit,
+    /** The drawer's start-edge strip, applied to the children too — measured from the
+     *  window edge, so the indent doesn't shift it (see [DrawerGesture]). */
+    drawerBandPx: Float,
 ) {
     val motionOn = rememberMotionEnabled()
     AnimatedVisibility(
@@ -2035,6 +2075,7 @@ private fun ThreadChildren(
                             threadCount = 1,
                             highlighted = child.id == highlightId,
                             onHighlightShown = onHighlightShown,
+                            drawerBandPx = drawerBandPx,
                             modifier = Modifier.weight(1f),
                         )
                     }
