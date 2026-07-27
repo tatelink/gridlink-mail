@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import app.sterna.container
+import app.sterna.push.NewMailNotifier
 import app.sterna.push.Notifications
 
 /**
@@ -18,7 +19,25 @@ class SnoozeWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val container = (applicationContext as Application).container
         val email = container.mailRepository.cachedEmail(accountId, emailId)
         container.mailRepository.unsnooze(accountId, emailId)
-        if (email != null) Notifications.notifyNewMail(applicationContext, email, accountId)
+        if (email != null) {
+            // Obey the same notification settings as arriving mail (Codeberg #84): the
+            // wake-up used to post with the defaults, so it showed sender and subject on the
+            // lock screen even when the user had asked for neither, and rang through a
+            // quiet-hours window. No folder sub-text: nothing arrived in a folder here, the
+            // message simply returns where it already was.
+            // The account's "new mail notifications" switch is deliberately NOT consulted:
+            // a snooze is a reminder the user scheduled themselves, not new mail, and
+            // dropping it silently because arrivals are muted would lose it for good.
+            val (silent, content) = NewMailNotifier.options(applicationContext)
+            Notifications.notifyNewMail(
+                applicationContext,
+                email,
+                accountId,
+                silent = silent,
+                folderName = null,
+                content = content,
+            )
+        }
         return Result.success()
     }
 
