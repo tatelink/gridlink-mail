@@ -44,6 +44,13 @@ class DownloadLimitsTest {
         assertTrue(DownloadLimits.allows(twentyMb, DownloadLimits.ATTACHMENT_MAX_BYTES))
     }
 
+    @Test fun anInviteIsCappedBelowWhatTheReaderWouldParse() {
+        // Downloading more than the parser will accept only buys the buffer that OOMs the app.
+        assertTrue(DownloadLimits.CALENDAR_MAX_BYTES < DownloadLimits.INLINE_IMAGE_MAX_BYTES)
+        assertFalse(DownloadLimits.allows(30L * 1024 * 1024, DownloadLimits.CALENDAR_MAX_BYTES))
+        assertTrue(DownloadLimits.allows(12_000, DownloadLimits.CALENDAR_MAX_BYTES))
+    }
+
     @Test fun anUnstatedSizeIsNotATicket() {
         // A server that announces nothing passes this gate — the read is capped anyway.
         assertTrue(DownloadLimits.allows(0, DownloadLimits.INLINE_IMAGE_MAX_BYTES))

@@ -19,6 +19,7 @@ import app.sterna.core.data.calendar.ICalendar
 import app.sterna.core.data.calendar.ParsedEvent
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.jmap.ContentTooLargeException
+import app.sterna.core.jmap.DownloadLimits
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailHeader
@@ -557,7 +558,11 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             try {
                 val credentials = credentials()
                     ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
-                val bytes = repo.downloadAttachment(credentials, part, msg.id)
+                // Fetched because the message is open, not because anyone asked: bounded like
+                // the invitation the parser will accept, not like a tapped attachment.
+                val bytes = repo.downloadAttachment(
+                    credentials, part, msg.id, DownloadLimits.CALENDAR_MAX_BYTES,
+                )
                 val charset = runCatching {
                     java.nio.charset.Charset.forName(part.charset ?: "UTF-8")
                 }.getOrDefault(Charsets.UTF_8)

@@ -33,6 +33,13 @@ object DownloadLimits {
     const val ATTACHMENT_MAX_BYTES = 50L * 1024 * 1024
 
     /**
+     * Calendar invite fetched on open to draw the event card: 2 MB. Real invitations are a few
+     * kilobytes and the reader refuses to parse one over 1 MiB anyway, so downloading more than
+     * this only buys the buffer that would run the app out of memory.
+     */
+    const val CALENDAR_MAX_BYTES = 2L * 1024 * 1024
+
+    /**
      * Whether a part announcing [size] bytes may be downloaded under [maxBytes]. A size of 0 (or
      * negative) means the server didn't say — those pass here and are caught while reading, by
      * the same ceiling.
