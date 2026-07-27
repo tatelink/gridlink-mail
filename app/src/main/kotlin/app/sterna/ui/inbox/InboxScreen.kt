@@ -717,7 +717,17 @@ fun InboxScreen(
                             modifier = Modifier
                                 .graphicsLayer { translationX = accountOffset.value }
                                 .clickable {
-                                    onOpenAccountSettings(currentAccountId)
+                                    // A shared account sends you to its LOGIN's settings: that is
+                                    // where its commands actually live (credential, protocol, sign
+                                    // out — it has none of its own, and it disappears when the
+                                    // owner unshares or the login goes). Otherwise this tap would
+                                    // walk straight back into the editor the accounts screen
+                                    // deliberately no longer offers it (issue #31).
+                                    onOpenAccountSettings(
+                                        currentAccount
+                                            ?.let { StoredAccount.settingsTargetId(it, accounts) }
+                                            ?: currentAccountId,
+                                    )
                                     scope.launch { drawerState.close() }
                                 },
                         )

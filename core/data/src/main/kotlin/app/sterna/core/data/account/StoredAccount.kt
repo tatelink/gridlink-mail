@@ -166,6 +166,24 @@ data class StoredAccount(
             }
 
         /**
+         * The account whose settings screen a UI shortcut should open for [account]: itself when it
+         * is a login, its login when it is delegated (issue #31).
+         *
+         * Not a fallback — the login IS where a shared account's commands live. A shared account has
+         * no credential, no protocol and no sign-out of its own; it borrows the login's, and it goes
+         * away when the owner unshares or when the login is signed out. Sending the shortcut there
+         * keeps the rule the accounts screen already applies (a delegated account exposes no command
+         * it cannot honour) from being sidestepped in two taps.
+         *
+         * A blank or dangling [loginId] falls back to [account] itself rather than to nothing, so
+         * the shortcut always opens something instead of going dead.
+         */
+        fun settingsTargetId(account: StoredAccount, all: List<StoredAccount>): String =
+            account.loginId
+                ?.takeIf { login -> login.isNotBlank() && all.any { it.id == login } }
+                ?: account.id
+
+        /**
          * Heal the MANUAL identity list of pollution left by the old merge-on-save fold (which
          * wrote the merged server+manual list back into the manual field on every Save, so server
          * identities piled up as frozen copies and byte-identical rows accumulated). Pure and

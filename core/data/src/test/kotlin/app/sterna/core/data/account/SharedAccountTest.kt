@@ -64,6 +64,23 @@ class SharedAccountTest {
         assertEquals(emptyList<String>(), StoredAccount.sharedLabelsUnder(login(), listOf(login())))
     }
 
+    @Test fun aLoginsSettingsShortcutOpensItself() {
+        assertEquals("login-uuid", StoredAccount.settingsTargetId(login(), listOf(login(), delegated())))
+    }
+
+    @Test fun aSharedAccountsSettingsShortcutOpensItsLogin() {
+        assertEquals("login-uuid", StoredAccount.settingsTargetId(delegated(), listOf(login(), delegated())))
+    }
+
+    @Test fun aBlankOrDanglingLoginFallsBackToTheAccountItself() {
+        // Never resolve to nothing: a dead shortcut is worse than one that opens the account.
+        val blank = delegated().copy(loginId = "  ")
+        val dangling = delegated().copy(loginId = "gone-uuid")
+
+        assertEquals("jordan-uuid", StoredAccount.settingsTargetId(blank, listOf(login(), blank)))
+        assertEquals("jordan-uuid", StoredAccount.settingsTargetId(dangling, listOf(dangling)))
+    }
+
     @Test fun aSharedAccountNeverNestsFurther() {
         // Delegated accounts get no row of their own in the accounts screen, so they list nothing.
         assertEquals(emptyList<String>(), StoredAccount.sharedLabelsUnder(delegated(), listOf(login(), delegated())))
