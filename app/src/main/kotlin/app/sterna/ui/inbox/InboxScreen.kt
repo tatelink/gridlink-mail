@@ -1178,7 +1178,8 @@ fun InboxScreen(
                                 Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.inbox_search))
                             }
                             var overflowOpen by remember { mutableStateOf(false) }
-                            val isTrash = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
+                            val currentRole = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
+                            val isTrash = currentRole == "trash"
                             // The menu must be boxed WITH its button. A DropdownMenu anchors on
                             // the layout node that contains it, not on the button that opens it;
                             // emitted straight into the app bar's actions row, its anchor was the
@@ -1220,11 +1221,18 @@ fun InboxScreen(
                                         leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
                                         onClick = { viewModel.selectAll(); overflowOpen = false },
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.inbox_mark_all_read)) },
-                                        leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
-                                        onClick = { viewModel.markAllRead(); overflowOpen = false },
-                                    )
+                                    // Unread state is meaningless in Drafts and Sent — the mail
+                                    // there is your own — so the bulk mark-as-read is dropped in
+                                    // those two folders, like the other incoming-only actions
+                                    // (Codeberg #82). It stays in Trash: a deleted message can
+                                    // legitimately still be unread.
+                                    if (!isOutgoingFolder(currentRole)) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.inbox_mark_all_read)) },
+                                            leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
+                                            onClick = { viewModel.markAllRead(); overflowOpen = false },
+                                        )
+                                    }
                                     // The Trash trades the scheduled-messages shortcut for "Empty trash",
                                     // which is appended below rather than taking this slot.
                                     if (!isTrash) {
