@@ -5,8 +5,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Which folders drop the incoming-mail-only actions (Snooze, Report spam) — Codeberg #82:
- * you do not snooze a draft, nor report your own sent message as spam.
+ * Which folders drop the incoming-mail-only actions (Snooze, Report spam, Mark all read) —
+ * Codeberg #82: you do not snooze a draft, nor report your own sent message as spam, nor
+ * mark as read a folder where unread state is meaningless.
  */
 class FolderActionsTest {
 
