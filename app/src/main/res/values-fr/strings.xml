@@ -572,6 +572,7 @@
     <string name="status_message_queued">En attente d\'envoi, dès la reconnexion</string>
     <string name="status_folder_op_failed">Échec de l\'opération sur le dossier</string>
     <string name="status_attach_failed">Échec de la pièce jointe : %1$s</string>
+    <string name="status_attach_offline">Vous êtes hors ligne. Ajouter une pièce jointe demande une connexion, réessayez dès votre retour.</string>
     <string name="status_open_attachment">Ouvrir la pièce jointe</string>
     <string name="status_removed_account">Compte supprimé</string>
     <string name="status_attaching">Ajout en cours…</string>

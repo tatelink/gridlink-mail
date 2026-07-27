@@ -572,6 +572,7 @@
     <string name="status_message_queued">Esperando para enviar cuando haya conexión</string>
     <string name="status_folder_op_failed">La operación con la carpeta falló</string>
     <string name="status_attach_failed">Error al adjuntar: %1$s</string>
+    <string name="status_attach_offline">Estás sin conexión. Adjuntar un archivo requiere conexión, inténtalo de nuevo cuando vuelvas.</string>
     <string name="status_open_attachment">Abrir adjunto</string>
     <string name="status_removed_account">Cuenta eliminada</string>
     <string name="status_attaching">Adjuntando…</string>

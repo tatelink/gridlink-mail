@@ -572,6 +572,7 @@
     <string name="status_message_queued">Wartet auf Versand, sobald verbunden</string>
     <string name="status_folder_op_failed">Ordnervorgang fehlgeschlagen</string>
     <string name="status_attach_failed">Anhängen fehlgeschlagen: %1$s</string>
+    <string name="status_attach_offline">Du bist offline. Ein Anhang braucht eine Verbindung, versuche es erneut, sobald du zurück bist.</string>
     <string name="status_open_attachment">Anhang öffnen</string>
     <string name="status_removed_account">Konto entfernt</string>
     <string name="status_attaching">Wird angehängt…</string>

@@ -572,6 +572,7 @@
     <string name="status_message_queued">Wacht op verzending zodra er verbinding is</string>
     <string name="status_folder_op_failed">Mapbewerking mislukt</string>
     <string name="status_attach_failed">Bijvoegen mislukt: %1$s</string>
+    <string name="status_attach_offline">Je bent offline. Een bijlage heeft verbinding nodig, probeer het opnieuw zodra je weer verbonden bent.</string>
     <string name="status_open_attachment">Bijlage openen</string>
     <string name="status_removed_account">Account verwijderd</string>
     <string name="status_attaching">Bijvoegen…</string>

@@ -572,6 +572,7 @@
     <string name="status_message_queued">Oczekuje na wysłanie po połączeniu</string>
     <string name="status_folder_op_failed">Operacja na folderze nie powiodła się</string>
     <string name="status_attach_failed">Załączanie nie powiodło się: %1$s</string>
+    <string name="status_attach_offline">Jesteś offline. Załącznik wymaga połączenia, spróbuj ponownie, gdy wrócisz do sieci.</string>
     <string name="status_open_attachment">Otwórz załącznik</string>
     <string name="status_removed_account">Konto usunięte</string>
     <string name="status_attaching">Załączanie…</string>

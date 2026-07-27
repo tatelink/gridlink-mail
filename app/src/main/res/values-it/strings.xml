@@ -572,6 +572,7 @@
     <string name="status_message_queued">In attesa di invio quando c\'è connessione</string>
     <string name="status_folder_op_failed">Operazione sulla cartella non riuscita</string>
     <string name="status_attach_failed">Allegato non riuscito: %1$s</string>
+    <string name="status_attach_offline">Sei offline. Allegare un file richiede una connessione, riprova non appena torni online.</string>
     <string name="status_open_attachment">Apri allegato</string>
     <string name="status_removed_account">Account rimosso</string>
     <string name="status_attaching">Allegando…</string>
