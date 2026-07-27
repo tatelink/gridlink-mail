@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -68,6 +69,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Snooze
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Unarchive
@@ -167,7 +169,10 @@ import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.mail.InboxRow
 import app.sterna.core.data.mail.emailKey
 import app.sterna.core.jmap.model.Email
+import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.Mailbox
+import app.sterna.core.data.account.StoredAccount
+import app.sterna.core.data.account.StoredIdentity
 import app.sterna.R
 import app.sterna.ui.components.EmailListItem
 import app.sterna.ui.components.EmptyArt
@@ -176,6 +181,7 @@ import app.sterna.ui.components.TernRefreshIndicator
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.components.accountColorOf
 import app.sterna.ui.components.verticalScrollbar
+import app.sterna.ui.isOutgoingFolder
 import app.sterna.ui.rememberMotionEnabled
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
@@ -197,9 +203,10 @@ private val watchMenuHiddenRoles = setOf("inbox", "sent", "drafts", "trash", "ju
 @Composable
 fun InboxScreen(
     onOpenEmail: (emailId: String, accountId: String?, index: Int, fromSearch: Boolean) -> Unit,
-    /** Open a single thread's reading view anchored on one message (no list paging) — used
-     *  when tapping a message inside an inline-expanded conversation. */
-    onOpenThreadMessage: (emailId: String, accountId: String?) -> Unit,
+    /** Open the reading view on one message of an inline-expanded conversation. The thread key
+     *  and the message's position within the unfolded conversation travel along, so the reader
+     *  pages over that conversation — and only that conversation — instead of the list. */
+    onOpenThreadMessage: (emailId: String, accountId: String?, threadKey: String, index: Int) -> Unit,
     onCompose: () -> Unit,
     /** Reopen compose with the draft of a send the user just undid. */
     onReopenDraft: () -> Unit,
@@ -208,6 +215,7 @@ fun InboxScreen(
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenScheduled: () -> Unit,
+    onOpenSnoozed: () -> Unit,
     onOpenOutbox: () -> Unit,
     accounts: List<app.sterna.core.data.account.StoredAccount>,
     currentAccountId: String,
@@ -239,6 +247,7 @@ fun InboxScreen(
     val pendingFolderDelete by viewModel.pendingFolderDelete.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
+    val restoredDraft by viewModel.restoredDraft.collectAsStateWithLifecycle()
     val outboxCount by viewModel.outboxCount.collectAsStateWithLifecycle()
     val outboxHasFailures by viewModel.outboxHasFailures.collectAsStateWithLifecycle()
     val highlightId by viewModel.highlightId.collectAsStateWithLifecycle()
@@ -257,7 +266,6 @@ fun InboxScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     // Hoisted strings for snackbars shown from non-composable LaunchedEffect coroutines.
     val undoLabel = stringResource(R.string.inbox_undo)
-    val messageSentLabel = stringResource(R.string.inbox_message_sent)
     val context = LocalContext.current
 
     // When the user switches accounts, re-point the inbox at the new one (skip the first
@@ -486,19 +494,29 @@ fun InboxScreen(
         } else viewModel.clearUndo()
     }
 
-    // Undo-send: while a message is held in the outbox, offer an Undo. The snackbar is
-    // dismissed automatically when the hold-back elapses (pending clears → effect restarts).
+    // Undo-send: while a message is held in the outbox, offer an Undo. The label is set at send
+    // time — "Message sent" when it went out, or a queued/offline notice when it only parked in the
+    // Outbox (#70) — so the snackbar reflects what actually happened rather than always "sent". The
+    // snackbar is dismissed automatically when the hold-back elapses (pending clears → restart).
     LaunchedEffect(outboxPending) {
-        outboxPending ?: return@LaunchedEffect
+        val pending = outboxPending ?: return@LaunchedEffect
         val result = snackbarHostState.showSnackbar(
-            message = messageSentLabel,
+            message = pending.label,
             actionLabel = undoLabel,
             duration = SnackbarDuration.Indefinite,
         )
         if (result == SnackbarResult.ActionPerformed) {
+            // Drop the queued row and hand the draft back; the reopen is driven separately by the
+            // restoredDraft collector below, so it can't be lost when this coroutine is torn down.
             viewModel.undoSend()
-            onReopenDraft() // bring the held draft back to compose instead of dropping it
         }
+    }
+    // Reopen compose with the draft of an undone send. Kept out of the Undo snackbar handler above:
+    // undoSend() clears outboxPending, which cancels that handler's coroutine, so reopening from
+    // there raced the teardown (offline especially, where Undo is the normal path) and could be
+    // silently dropped. This mirrors the Outbox screen's edit-reopen, which is already reliable.
+    LaunchedEffect(restoredDraft) {
+        if (restoredDraft != null) onReopenDraft()
     }
     // A send that failed past its retries is no longer a transient snackbar: it stays in the
     // outbox and is surfaced by the badge + failure banner below.
@@ -957,21 +975,26 @@ fun InboxScreen(
                                         leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
                                         onClick = { selMenu = false; viewModel.selectAll() },
                                     )
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(stringResource(if (inJunk) R.string.message_not_spam else R.string.message_report_spam))
-                                        },
-                                        leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
-                                        onClick = {
-                                            selMenu = false
-                                            if (inJunk) viewModel.notSpamSelected() else viewModel.reportSpamSelected()
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.message_snooze)) },
-                                        leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
-                                        onClick = { selSnooze = true },
-                                    )
+                                    // Spam-reporting and snoozing act on incoming mail; in Drafts
+                                    // and Sent the selection is the user's own outgoing mail, so
+                                    // neither is offered there (Codeberg #82).
+                                    if (!isOutgoingFolder(currentRole)) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(stringResource(if (inJunk) R.string.message_not_spam else R.string.message_report_spam))
+                                            },
+                                            leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
+                                            onClick = {
+                                                selMenu = false
+                                                if (inJunk) viewModel.notSpamSelected() else viewModel.reportSpamSelected()
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.message_snooze)) },
+                                            leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                                            onClick = { selSnooze = true },
+                                        )
+                                    }
                                 }
                             }
                         },
@@ -1141,6 +1164,13 @@ fun InboxScreen(
                                         leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
                                         onClick = { overflowOpen = false; onOpenScheduled() },
                                     )
+                                    // Where snoozed messages can be found again (Codeberg #82) —
+                                    // right beside the other "waiting on a clock" list.
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.inbox_snoozed)) },
+                                        leadingIcon = { Icon(Icons.Filled.Snooze, contentDescription = null) },
+                                        onClick = { overflowOpen = false; onOpenSnoozed() },
+                                    )
                                 }
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.inbox_outbox)) },
@@ -1218,7 +1248,9 @@ fun InboxScreen(
                     unarchiveContext = isUnarchiveContext(ui),
                     trashContext = isTrashContext(ui),
                     // Search results keep the sender line whatever folder they came from.
-                    showRecipients = !fromSearch && isOwnMailContext(ui),
+                    // Decided per row by authorship, so a self-authored mail (e.g. one moved to
+                    // Trash) still shows who it went TO, not the self sender (Codeberg #69).
+                    showRecipients = !fromSearch && isOwnMessage(email, ui, accounts),
                     // A collapsed conversation acts on the whole thread; a flat row on its one message.
                     onSwipe = { action ->
                         if (expandable) performThreadSwipe(action, email, viewModel, ui)
@@ -1272,13 +1304,20 @@ fun InboxScreen(
                         leftAction = swipe.left,
                         unarchiveContext = isUnarchiveContext(ui),
                         trashContext = isTrashContext(ui),
-                        showRecipients = isOwnMailContext(ui),
+                        // Per child: a self reply inside an incoming conversation shows "To: …"
+                        // even when the thread itself isn't in Sent/Drafts (Codeberg #69).
+                        showRecipientsFor = { child -> isOwnMessage(child, ui, accounts) },
                         highlightId = highlightId,
                         selectionActive = selectionActive,
                         selectedKeys = selectedKeys,
                         onOpenChild = { child ->
                             viewModel.onEmailOpened(child.id)
-                            onOpenThreadMessage(child.id, child.accountId)
+                            // Position in the unfolded conversation: the representative holds
+                            // slot 0, the members follow in the order shown. Only a fallback —
+                            // the reader resolves the opening page by id first.
+                            val childIndex = threadMembers[threadKey].orEmpty()
+                                .indexOfFirst { it.id == child.id } + 1
+                            onOpenThreadMessage(child.id, child.accountId, threadKey, childIndex)
                         },
                         onSwipeChild = { action, child -> performSwipe(action, child, viewModel, ui) },
                         onToggleChildFavourite = { child -> viewModel.toggleChildFlag(child) },
@@ -1292,6 +1331,17 @@ fun InboxScreen(
 
             val refreshState = rememberPullToRefreshState()
             Column(Modifier.fillMaxSize().padding(padding)) {
+            // "Can't reach the server" is either event-driven from the connectivity callback
+            // (WiFi/airplane off) or inferred from a failed refresh (#65): the VPN-killswitch case
+            // keeps the WiFi transport up + NOT_VPN, so the callback still reads online — only a
+            // failed request reveals it. Fold both into one condition.
+            val unreachable = ui.offline || ui.error != null
+            // Thin offline line above the list, but only when there are cached rows to sit above
+            // (WYSIWYG). The zero-rows case shows the offline empty-state below instead, so the
+            // two never double up.
+            if (unreachable && pagedEmails.itemCount > 0) {
+                OfflineBanner()
+            }
             // A calm, tappable line when a send has permanently failed: route to the outbox.
             if (outboxHasFailures) {
                 OutboxFailureBanner(onClick = onOpenOutbox)
@@ -1399,7 +1449,7 @@ fun InboxScreen(
                             }
                         }
                     ui.refreshing || refreshLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                    ui.error != null -> PullableCenter {
+                    unreachable -> PullableCenter {
                         EmptyState(
                             art = EmptyArt.OFFLINE,
                             title = stringResource(R.string.empty_offline_title),
@@ -1803,6 +1853,42 @@ private fun isOwnMailContext(ui: MailUi): Boolean {
     return role == "sent" || role == "drafts"
 }
 
+/**
+ * True when [from] (a message's sender) is one of the user's own send-as [identities], matched
+ * case-insensitively on the bare address — i.e. the message was written by the user, so it should
+ * show who it went TO rather than the (self) sender wherever it is read. A blank/absent sender is
+ * never self-authored. Mirrors [app.sterna.ui.message.MessageViewModel]'s own per-message test.
+ */
+internal fun isSelfAuthored(from: List<EmailAddress>, identities: List<StoredIdentity>): Boolean {
+    val sender = from.firstOrNull()?.email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
+    return identities.any { it.email.trim().lowercase() == sender }
+}
+
+/**
+ * Whether a row should render as the user's own outgoing mail (show "To: …" instead of the self
+ * sender). True in the Sent/Drafts folders (the author is always yourself there, Codeberg #59) OR
+ * when the message is self-authored by address — so a draft/sent mail moved to Trash still reads
+ * correctly (Codeberg #69), and a self reply inside an incoming conversation shows its recipients
+ * too. Identities are resolved from the row's OWN account, correct for the unified/multi-account
+ * inbox. (An address shared by two accounts could match either identity list, which merely mirrors
+ * what the reader itself shows — acceptable.)
+ */
+private fun isOwnMessage(email: Email, ui: MailUi, accounts: List<StoredAccount>): Boolean =
+    isOwnMailContext(ui) || isSelfAuthored(email.from, sendAsIdentities(email, accounts))
+
+/**
+ * The addresses the row's own account can send as. Mirrors AccountStore.identities: a linked
+ * sub-account whose own address the session never advertised resolves to nothing and falls back
+ * to its LOGIN's identities (issue #31) — which is what it actually sends as — instead of
+ * matching nothing at all.
+ */
+private fun sendAsIdentities(email: Email, accounts: List<StoredAccount>): List<StoredIdentity> {
+    val own = accounts.firstOrNull { it.id == email.accountId } ?: return emptyList()
+    return own.resolvedIdentities().ifEmpty {
+        own.loginId?.let { login -> accounts.firstOrNull { it.id == login }?.resolvedIdentities() }.orEmpty()
+    }
+}
+
 /** True when the visible folder is Drafts, where tapping a row edits it in compose (#63). */
 private fun isDraftsContext(ui: MailUi): Boolean =
     ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "drafts"
@@ -1872,7 +1958,8 @@ private fun ThreadChildren(
     leftAction: SwipeAction,
     unarchiveContext: Boolean,
     trashContext: Boolean,
-    showRecipients: Boolean,
+    /** Decided per child so a self reply in an incoming conversation shows "To: …" (Codeberg #69). */
+    showRecipientsFor: (Email) -> Boolean,
     highlightId: String?,
     selectionActive: Boolean,
     selectedKeys: Set<EmailKey>,
@@ -1904,7 +1991,7 @@ private fun ThreadChildren(
                             leftAction = leftAction,
                             unarchiveContext = unarchiveContext,
                             trashContext = trashContext,
-                            showRecipients = showRecipients,
+                            showRecipients = showRecipientsFor(child),
                             onSwipe = { action -> onSwipeChild(action, child) },
                             // Children join multi-select like top-level rows: long-press enters
                             // selection on this one message, a tap in selection mode toggles it.
@@ -2018,6 +2105,30 @@ fun mailboxDisplayName(role: String?, name: String): String = when (role) {
     "flagged" -> stringResource(R.string.folder_flagged)
     "important" -> stringResource(R.string.folder_important)
     else -> name
+}
+
+/** A discreet, non-tappable banner shown above the list while there's no usable network (#65).
+ *  Same visual weight as [OutboxFailureBanner] but a calmer surface tone: offline is a state, not
+ *  a failure, and cached mail stays readable below it. */
+@Composable
+private fun OfflineBanner() {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.CloudOff, contentDescription = null)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                stringResource(R.string.offline_banner),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
 }
 
 /** A discreet, tappable banner shown above the list when a send has permanently failed. */

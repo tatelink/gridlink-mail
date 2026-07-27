@@ -53,6 +53,17 @@ class OutgoingMimeTest {
         assertTrue(mime.contains("To: bob@example.com"))
     }
 
+    @Test
+    fun emptyRecipientsOmitsToHeader() {
+        // A draft may have no recipient yet (#69): the To header must be omitted entirely, not
+        // emitted empty ("To: "), which is malformed and made recipient-less drafts unsaveable.
+        val mime = OutgoingMime.build(msg(to = emptyList()))
+        assertFalse("no To header when there is no recipient", mime.contains("To:"))
+        // The rest of the message still builds normally.
+        assertTrue(mime.contains("From: alice@example.com"))
+        assertTrue(mime.contains("Subject: Hi"))
+    }
+
     private fun htmlMsg(attachments: List<OutgoingAttachment>) = OutgoingMessage(
         from = "alice@example.com",
         to = listOf("bob@example.com"),
@@ -119,5 +130,56 @@ class OutgoingMimeTest {
         val evil = image.copy(cid = "logo@x\r\nBcc: victim@evil.com")
         val mime = OutgoingMime.build(htmlMsg(listOf(evil)))
         assertFalse("CRLF in cid stripped", mime.contains("\nBcc:"))
+    }
+
+    // --- From/address display-name encoding (#77) ---
+
+    @Test
+    fun addressNoNameIsBareAddr() {
+        assertEquals("alice@example.com", OutgoingMime.formatAddress(null, "alice@example.com"))
+        assertEquals("alice@example.com", OutgoingMime.formatAddress("   ", "alice@example.com"))
+    }
+
+    @Test
+    fun addressPlainAsciiNameStaysUnquotedAtom() {
+        assertEquals(
+            "Alice Smith <alice@example.com>",
+            OutgoingMime.formatAddress("Alice Smith", "alice@example.com"),
+        )
+    }
+
+    @Test
+    fun addressNameWithSpecialsIsQuoted() {
+        // A display name set to the email address holds '@' and '.', both RFC 5322 specials.
+        assertEquals(
+            "\"alice@example.com\" <alice@example.com>",
+            OutgoingMime.formatAddress("alice@example.com", "alice@example.com"),
+        )
+    }
+
+    @Test
+    fun addressNameWithQuoteAndBackslashIsEscaped() {
+        // Backslash escaped first, then the double quote.
+        assertEquals(
+            "\"a\\\\b\\\"c\" <alice@example.com>",
+            OutgoingMime.formatAddress("a\\b\"c", "alice@example.com"),
+        )
+    }
+
+    @Test
+    fun addressNonAsciiNameIsRfc2047EncodedNotQuoted() {
+        val out = OutgoingMime.formatAddress("Éloïse", "eloise@example.com")
+        assertTrue("RFC 2047 encoded-word", out.startsWith("=?utf-8?B?"))
+        assertTrue("addr appended", out.endsWith("?= <eloise@example.com>"))
+        assertFalse("encoded-word is not also quoted", out.contains("\""))
+    }
+
+    @Test
+    fun fromWithEmailAsNameQuotedInBuiltMime() {
+        val mime = OutgoingMime.build(
+            msg().copy(from = OutgoingMime.formatAddress("alice@example.com", "alice@example.com")),
+        )
+        val fromLine = mime.lineSequence().first { it.startsWith("From:") }
+        assertEquals("From: \"alice@example.com\" <alice@example.com>", fromLine)
     }
 }

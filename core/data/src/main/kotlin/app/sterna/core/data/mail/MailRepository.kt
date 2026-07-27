@@ -27,11 +27,13 @@ import app.sterna.core.data.db.OutboxAttachment
 import app.sterna.core.data.db.OutboxAttachments
 import app.sterna.core.data.db.OutboxDao
 import app.sterna.core.data.db.OutboxEntity
+import app.sterna.core.data.db.OutboxLogic
 import app.sterna.core.data.db.OutboxState
 import app.sterna.core.data.db.ScheduledSendDao
 import app.sterna.core.data.db.ScheduledSendEntity
 import app.sterna.core.data.db.SnoozedDao
 import app.sterna.core.data.db.SnoozedEntity
+import app.sterna.core.data.db.SnoozedListRow
 import app.sterna.core.data.db.ContactRow
 import app.sterna.core.data.db.RecentContactDao
 import app.sterna.core.data.db.RecentContactEntity
@@ -301,11 +303,16 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
 }
 
 /**
- * The snooze filter for rows of [table] (a name or alias in scope). Correlated on accountId as
- * well as the email id: snoozes are keyed per account (issue #31), so one account snoozing an id
- * must not hide a same-id message of a sibling account sharing the server.
+ * The predicate that hides messages snoozed into the future, for rows of [table] (a table name or
+ * an alias in scope) — they re-appear on their own once the deadline passes, and immediately once
+ * the `snoozed` row goes (cancelling a snooze). One definition, shared by the flat list and the
+ * conversation query, so both hide exactly the same rows and a test can exercise the real thing.
+ *
+ * Correlated on accountId as well as the email id: snoozes are keyed per account (issue #31), so
+ * one account snoozing an id must not hide a same-id message of a sibling account sharing the
+ * server.
  */
-private fun notSnoozedSql(table: String): String =
+internal fun notSnoozedSql(table: String): String =
     "NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = $table.id " +
         "AND snoozed.accountId = $table.accountId AND snoozed.until > " +
         "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
@@ -2529,6 +2536,15 @@ class MailRepository(
             .mapTo(mutableSetOf()) { it.emailId }
     }
 
+    /** The deadline of the active snooze on [accountId]'s [emailId], or null when it is not
+     *  snoozed (a lapsed row counts as not snoozed — same predicate as the list SQL). Snoozes are
+     *  keyed per account (issue #31), so the lookup carries the account. */
+    suspend fun snoozedUntil(accountId: String, emailId: String): Long? =
+        snoozedDao.byId(accountId, emailId)?.until?.takeIf { it > System.currentTimeMillis() }
+
+    /** Live list of snoozed messages with their cached headers, for the "Snoozed" screen. */
+    fun snoozedFlow(): Flow<List<SnoozedListRow>> = snoozedDao.observeAll()
+
     /** A single cached email of one account by id (e.g. to notify when a snooze fires). */
     suspend fun cachedEmail(accountId: String, emailId: String): Email? =
         emailDao.emailsByIds(accountId, listOf(emailId)).firstOrNull()?.toEmail()
@@ -3291,10 +3307,13 @@ class MailRepository(
         dateMillis = System.currentTimeMillis(),
     )
 
+    // The From is a string-built header on the IMAP/SMTP path, so the display name must be
+    // RFC 5322-quoted (specials like the '@'/'.' of an email-address name) or RFC 2047-encoded
+    // (non-ASCII) here — OutgoingMime.formatAddress does that. JMAP sends a structured {name,
+    // email} and is unaffected (#77).
     private fun formatFrom(name: String?, email: String?): String? = when {
         email.isNullOrBlank() -> null
-        name.isNullOrBlank() -> email
-        else -> "$name <$email>"
+        else -> OutgoingMime.formatAddress(name, email)
     }
 
     /**
@@ -3619,8 +3638,8 @@ class MailRepository(
     /** All outbox items, newest send order last. */
     fun outboxFlow(): Flow<List<OutboxEntity>> = outboxDao.observeAll()
 
-    /** Count of pending/failed items for the discreet badge (excludes the silent undo window). */
-    fun outboxActiveCount(): Flow<Int> = outboxDao.observeActiveCount()
+    /** Count of pending/failed items for the discreet badge (excludes a running undo window). */
+    fun outboxActiveCount(): Flow<Int> = OutboxLogic.badgeCount(outboxDao.observeBadgeItems())
 
     suspend fun outboxItem(id: Long): OutboxEntity? = outboxDao.byId(id)
 
@@ -4063,7 +4082,15 @@ class MailRepository(
         runCatching {
             val serverIdentities = client.getIdentities(session, accountId, auth)
                 .filter { it.email.isNotBlank() }
-                .map { StoredIdentity(id = it.id, name = it.name.orEmpty(), email = it.email, signature = it.textSignature.orEmpty()) }
+                .map {
+                    StoredIdentity(
+                        id = it.id,
+                        name = it.name.orEmpty(),
+                        email = it.email,
+                        signature = it.textSignature.orEmpty(),
+                        signatureHtml = it.htmlSignature.orEmpty(),
+                    ).withSplitSignature()
+                }
             accountStore.setServerIdentities(credentials.id, serverIdentities)
         }
         val mailboxes = client.getMailboxes(session, accountId, auth)

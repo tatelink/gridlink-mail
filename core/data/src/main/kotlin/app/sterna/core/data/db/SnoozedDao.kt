@@ -3,6 +3,7 @@ package app.sterna.core.data.db
 import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SnoozedDao {
@@ -23,4 +24,23 @@ interface SnoozedDao {
     // Purge a pruned account's snoozes with the rest of its cache (issue #31).
     @Query("DELETE FROM snoozed WHERE accountId = :accountId")
     suspend fun deleteForAccount(accountId: String)
+
+    /**
+     * The snoozed messages with the headers the "Snoozed" screen shows. A LEFT JOIN, so a row
+     * whose email has since fallen out of the short cache window still lists (with a blank
+     * subject/sender) and can still be cancelled — the snooze itself is what we track.
+     *
+     * Joined on the account as well as the id: email ids are unique only within their account
+     * (issue #31), so an id-only join would pair a snooze with a sibling account's message —
+     * and emit one duplicate list row per colliding account.
+     */
+    @Query(
+        """
+        SELECT s.emailId AS emailId, s.accountId AS accountId, s.until AS until,
+               e.subject AS subject, e.fromName AS fromName, e.fromEmail AS fromEmail
+        FROM snoozed s LEFT JOIN emails e ON e.id = s.emailId AND e.accountId = s.accountId
+        ORDER BY s.until ASC
+        """,
+    )
+    fun observeAll(): Flow<List<SnoozedListRow>>
 }

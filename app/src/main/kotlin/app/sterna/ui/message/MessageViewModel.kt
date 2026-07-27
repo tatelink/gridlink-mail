@@ -23,6 +23,7 @@ import app.sterna.core.jmap.model.EmailHeader
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -161,18 +162,32 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _messages.value = _messages.value.map { if (it.id == id) transform(it) else it }
     }
 
+    /** Role of the folder the opened message is filed under, the single source of truth behind
+     *  the folder-dependent reader actions (spam ↔ not-spam, destroy vs. move-to-Trash, and the
+     *  actions Drafts/Sent must not offer at all — Codeberg #82). */
+    private val _mailboxRole = MutableStateFlow<String?>(null)
+    val mailboxRole = _mailboxRole.asStateFlow()
+
     /** Whether the opened message is in the Junk folder (drives Report spam ↔ Not spam). */
-    private val _inJunk = MutableStateFlow(false)
-    val inJunk = _inJunk.asStateFlow()
+    val inJunk = _mailboxRole
+        .map { it == "junk" }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** True when the open message sits in Trash, so the reader's delete destroys (Codeberg #23). */
-    private val _inTrash = MutableStateFlow(false)
-    val inTrash = _inTrash.asStateFlow()
+    val inTrash = _mailboxRole
+        .map { it == "trash" }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** True when the open message is the user's own outgoing mail, so the header names the
      *  recipients instead of the sender — yourself (Codeberg #59). */
     private val _ownMessage = MutableStateFlow(false)
     val ownMessage = _ownMessage.asStateFlow()
+
+    /** Deadline of the snooze in force on the open message, or null when it is not snoozed.
+     *  Lets the Snooze menu say WHEN the message comes back instead of listing mute delays
+     *  (Codeberg #82). A snoozed message is still reachable — e.g. from search. */
+    private val _snoozedUntil = MutableStateFlow<Long?>(null)
+    val snoozedUntil = _snoozedUntil.asStateFlow()
 
     /** The folder the open message is filed under, resolved reliably (the body fetch can drop it).
      *  Handed to the inbox's delete so it can tell move-to-Trash from a permanent destroy (#23). */
@@ -259,9 +274,9 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         anchorMarked = false
         _state.value = MessageState.Loading
         _messages.value = emptyList()
-        _inJunk.value = false
-        _inTrash.value = false
+        _mailboxRole.value = null
         _ownMessage.value = false
+        _snoozedUntil.value = null
         _mailboxId.value = null
         _calendar.value = null
         calendarLoadedFor = null
@@ -271,6 +286,10 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _manualShowImages.value = false
         _headers.value = null
         viewModelScope.launch {
+            // Account-scoped: a snooze belongs to one account's message (issue #31).
+            _snoozedUntil.value = runCatching {
+                credentials()?.let { repo.snoozedUntil(it.id, emailId) }
+            }.getOrNull()
             // Paint the cached header (sender/subject/preview) immediately so the screen shows
             // the tapped message at once; the body fills in when the fetch returns. Header-only
             // (body = null) — the body itself is rendered a single time, by the WebView.
@@ -282,8 +301,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 _messages.value = listOf(ThreadMessage(id = cached.id, header = cached))
                 _state.value = MessageState.Loaded(cached)
                 val role = repo.mailboxRole(cached.accountId ?: accountId, cached.mailboxId)
-                _inJunk.value = role == "junk"
-                _inTrash.value = role == "trash"
+                _mailboxRole.value = role
                 _ownMessage.value = isOwnMessage(cached, role)
                 _mailboxId.value = cached.mailboxId
             }
@@ -310,8 +328,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                     ),
                 )
                 val anchorRole = repo.mailboxRole(anchor.accountId, anchor.mailboxId ?: listEmail?.mailboxId)
-                _inJunk.value = anchorRole == "junk"
-                _inTrash.value = anchorRole == "trash"
+                _mailboxRole.value = anchorRole
                 _ownMessage.value = isOwnMessage(anchor, anchorRole)
                 _mailboxId.value = anchor.mailboxId ?: listEmail?.mailboxId
                 // OpenPGP: reflect the crypto state; a decrypt is attempted once the
@@ -582,7 +599,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             runCatching {
                 repo.snooze(email.id, credentials.id, until)
                 Snoozes.enqueue(getApplication(), email.id, credentials.id, until)
-            }
+            }.onSuccess { _snoozedUntil.value = until }
             onDone()
         }
     }

@@ -104,4 +104,64 @@ class ConversationExpansionTest {
         val scoped = ConversationExpansion.membersInScope(fetched, allowed = setOf("inbox", "sent"))
         assertEquals(listOf("in1"), scoped.map { it.id })
     }
+
+    // --- threadEntries: the reading view's swipe context (Codeberg #13) ---
+
+    @Test fun `thread entries lead with the representative, then the members in list order`() {
+        val members = listOf(Email(id = "m2"), Email(id = "m1"))
+        val entries = ConversationExpansion.threadEntries("m3", "acc", members)
+        assertEquals(listOf("m3", "m2", "m1"), entries.map { it.first })
+    }
+
+    @Test fun `thread entries carry each message's own account`() {
+        // A unified-view conversation belongs to one account; the members' accountId is what
+        // the reader's per-page ViewModel needs to load and act on the right mailbox.
+        val members = listOf(Email(id = "m2", accountId = "acc"))
+        val entries = ConversationExpansion.threadEntries("m3", "acc", members)
+        assertEquals(listOf("acc", "acc"), entries.map { it.second })
+    }
+
+    @Test fun `a member with no account keeps a null account rather than borrowing one`() {
+        val entries = ConversationExpansion.threadEntries("m3", "acc", listOf(Email(id = "m2")))
+        assertEquals(listOf("acc" as String?, null), entries.map { it.second })
+    }
+
+    @Test fun `a single-message conversation is just the representative`() {
+        val entries = ConversationExpansion.threadEntries("only", "acc", emptyList())
+        assertEquals(listOf("only"), entries.map { it.first })
+    }
+
+    @Test fun `the representative is never listed twice`() {
+        // Defensive: a merge racing a refresh could leave the rep among the members.
+        val members = listOf(Email(id = "m3"), Email(id = "m2"))
+        val entries = ConversationExpansion.threadEntries("m3", "acc", members)
+        assertEquals(listOf("m3", "m2"), entries.map { it.first })
+    }
+
+    @Test fun `the entries feed straight into the pager's opening page`() {
+        // The tapped message is the second member — page 2 of a 3-message conversation.
+        val members = listOf(Email(id = "m2"), Email(id = "m1"))
+        val entries = ConversationExpansion.threadEntries("m3", "acc", members)
+        assertEquals(
+            2,
+            app.sterna.ui.message.MessagePaging.resolveInitialPage(
+                entries.map { it.first },
+                anchorId = "m1",
+                fallbackIndex = 2,
+            ),
+        )
+    }
+
+    @Test fun `opening on the representative lands on the first page`() {
+        val members = listOf(Email(id = "m2"), Email(id = "m1"))
+        val entries = ConversationExpansion.threadEntries("m3", "acc", members)
+        assertEquals(
+            0,
+            app.sterna.ui.message.MessagePaging.resolveInitialPage(
+                entries.map { it.first },
+                anchorId = "m3",
+                fallbackIndex = 0,
+            ),
+        )
+    }
 }

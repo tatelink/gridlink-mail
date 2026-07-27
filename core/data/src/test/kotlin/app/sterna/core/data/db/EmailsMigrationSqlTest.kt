@@ -1,18 +1,29 @@
 package app.sterna.core.data.db
 
+import androidx.sqlite.db.SupportSQLiteDatabase
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.lang.reflect.Proxy
 import java.sql.Connection
 import java.sql.DriverManager
 
 /**
- * Runs the 14→15 rebuilds ([MIGRATION_14_15]) against a real SQLite engine to confirm they
- * (a) preserve every row of `emails`, `email_bodies` and `snoozed` and (b) widen each primary
- * key to `(accountId, <email id>)` so two accounts of one login (issue #31) can each hold a
- * message that shares a JMAP email id.
+ * Runs the REAL migration objects against a real SQLite engine, starting from the schema a
+ * PUBLISHED install actually carries.
+ *
+ * The upgrade path that matters is **v15 → v16**: v15 is 1.3.11–1.3.13 (the FTS rebuild of #71),
+ * which is what every current user runs. [MIGRATION_15_16] widens the primary keys of `emails`,
+ * `email_bodies` and `snoozed` to `(accountId, <email id>)` so two accounts of one login (issue
+ * #31) can each hold a message sharing a JMAP email id. The tests check that it (a) preserves
+ * every row of every table — user data (snoozed, outbox, scheduled sends) above all — (b) widens
+ * the keys, and (c) leaves the search index working.
+ *
+ * The migrations are executed through their own [MIGRATION_14_15] / [MIGRATION_15_16] objects
+ * (via a tiny [SupportSQLiteDatabase] proxy that forwards `execSQL` to JDBC), not through a copy
+ * of their statements, so the test cannot drift from the code that ships.
  */
 class EmailsMigrationSqlTest {
     private lateinit var db: Connection
@@ -24,58 +35,123 @@ class EmailsMigrationSqlTest {
 
     @After fun tearDown() = db.close()
 
-    /** The pre-composite tables (== released v14 / 1.3.10 shape): primary key on the email id alone. */
-    private val v13EmailsCreate =
+    // --- the published schemas -----------------------------------------------------------------
+
+    /** `emails` as released up to v15: primary key on the email id alone. */
+    private val publishedEmailsCreate =
         "CREATE TABLE `emails` (" +
             "`id` TEXT NOT NULL PRIMARY KEY, `accountId` TEXT NOT NULL, `mailboxId` TEXT NOT NULL, " +
             "`threadId` TEXT, `subject` TEXT, `preview` TEXT, `receivedAt` TEXT, `fromName` TEXT, " +
             "`fromEmail` TEXT, `seen` INTEGER NOT NULL, `flagged` INTEGER NOT NULL, " +
             "`hasAttachment` INTEGER NOT NULL, `sortKey` INTEGER NOT NULL)"
-    private val v13BodiesCreate =
+    private val publishedBodiesCreate =
         "CREATE TABLE `email_bodies` (" +
             "`id` TEXT NOT NULL PRIMARY KEY, `accountId` TEXT NOT NULL, `bodyJson` TEXT NOT NULL, " +
             "`inlineImagesJson` TEXT NOT NULL, `fetchedAt` INTEGER NOT NULL)"
-    private val v13SnoozedCreate =
+    private val publishedSnoozedCreate =
         "CREATE TABLE `snoozed` (" +
             "`emailId` TEXT NOT NULL PRIMARY KEY, `accountId` TEXT NOT NULL, `until` INTEGER NOT NULL)"
+    private val publishedMailboxesCreate =
+        "CREATE TABLE `mailboxes` (" +
+            "`accountId` TEXT NOT NULL, `id` TEXT NOT NULL, `name` TEXT NOT NULL, `role` TEXT, " +
+            "`parentId` TEXT, `sortOrder` INTEGER NOT NULL, `totalEmails` INTEGER NOT NULL, " +
+            "`unreadEmails` INTEGER NOT NULL, PRIMARY KEY(`accountId`, `id`))"
+    private val publishedScheduledCreate =
+        "CREATE TABLE `scheduled_sends` (" +
+            "`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, `accountId` TEXT NOT NULL, " +
+            "`recipients` TEXT NOT NULL, `cc` TEXT, `bcc` TEXT, `subject` TEXT NOT NULL, " +
+            "`textBody` TEXT NOT NULL, `htmlBody` TEXT, `fromName` TEXT, `fromEmail` TEXT, " +
+            "`inReplyTo` TEXT, `references` TEXT, `sendAtMillis` INTEGER NOT NULL, " +
+            "`draftEmailId` TEXT)"
+    private val publishedContactsCreate =
+        "CREATE TABLE `recent_contacts` (" +
+            "`email` TEXT NOT NULL PRIMARY KEY, `name` TEXT, `lastSeen` INTEGER NOT NULL)"
 
-    private fun seedV13() {
+    /**
+     * The v14 shape of the search index: the SAME columns as v15, but built with
+     * `remove_diacritics=2` — the tokenizer argument 1.3.11 had to abandon (#71). Only used by
+     * the chained 14 → 15 → 16 test; unsupported on old SQLite, fine on the JVM driver.
+     */
+    private val v14FtsCreate = EMAIL_FTS_CREATE_SQL.replace("remove_diacritics=1", "remove_diacritics=2")
+
+    /** Seed a database in the PUBLISHED v15 shape, with a row in every table. */
+    private fun seedV15(ftsCreateSql: String = EMAIL_FTS_CREATE_SQL) {
         db.createStatement().use { st ->
-            st.executeUpdate(v13EmailsCreate)
-            st.executeUpdate(v13BodiesCreate)
+            st.executeUpdate(publishedEmailsCreate)
+            st.executeUpdate("CREATE INDEX `index_emails_mailboxId` ON `emails` (`mailboxId`)")
+            st.executeUpdate(publishedBodiesCreate)
             st.executeUpdate("CREATE INDEX `index_email_bodies_accountId` ON `email_bodies` (`accountId`)")
-            st.executeUpdate(v13SnoozedCreate)
+            st.executeUpdate(publishedSnoozedCreate)
+            st.executeUpdate(publishedMailboxesCreate)
+            st.executeUpdate(OUTBOX_CREATE_SQL)
+            st.executeUpdate("ALTER TABLE `outbox` ADD COLUMN `pgpMode` TEXT")
+            st.executeUpdate("ALTER TABLE `outbox` ADD COLUMN `pgpEntityPath` TEXT")
+            st.executeUpdate("ALTER TABLE `outbox` ADD COLUMN `draftEmailId` TEXT")
+            st.executeUpdate(publishedScheduledCreate)
+            st.executeUpdate(publishedContactsCreate)
+            st.executeUpdate(ftsCreateSql)
+
             st.executeUpdate(
-                "INSERT INTO `emails` (`id`, `accountId`, `mailboxId`, `subject`, `seen`, `flagged`, " +
-                    "`hasAttachment`, `sortKey`) VALUES ('e1', 'accA', 'mb1', 'Hello', 0, 0, 0, 100)",
+                "INSERT INTO `emails` (`id`, `accountId`, `mailboxId`, `subject`, `fromName`, " +
+                    "`fromEmail`, `seen`, `flagged`, `hasAttachment`, `sortKey`) " +
+                    "VALUES ('e1', 'accA', 'mb1', 'Hello', 'Alex', 'alex@example.org', 0, 0, 0, 100)",
             )
             st.executeUpdate(
                 "INSERT INTO `emails` (`id`, `accountId`, `mailboxId`, `subject`, `seen`, `flagged`, " +
                     "`hasAttachment`, `sortKey`) VALUES ('e2', 'accA', 'mb1', 'World', 1, 0, 0, 200)",
             )
             st.executeUpdate("INSERT INTO `email_bodies` VALUES ('e1', 'accA', '{}', '{}', 42)")
+            // User data that a destructive fallback would destroy: a snooze, a queued send and a
+            // scheduled send.
             st.executeUpdate("INSERT INTO `snoozed` VALUES ('e2', 'accA', 99999)")
+            st.executeUpdate(
+                "INSERT INTO `outbox` (`accountId`, `recipients`, `subject`, `textBody`, " +
+                    "`attachmentsJson`, `createdAtMillis`, `notBeforeMillis`, `state`, `attemptCount`) " +
+                    "VALUES ('accA', 'bob@example.org', 'Queued', 'body', '[]', 1, 2, 'QUEUED', 0)",
+            )
+            st.executeUpdate(
+                "INSERT INTO `scheduled_sends` (`accountId`, `recipients`, `subject`, `textBody`, " +
+                    "`htmlBody`, `fromName`, `fromEmail`, `inReplyTo`, `references`, `sendAtMillis`) " +
+                    "VALUES ('accA', 'bob@example.org', 'Later', 'body', NULL, NULL, NULL, NULL, NULL, 500)",
+            )
+            st.executeUpdate("INSERT INTO `mailboxes` VALUES ('accA', 'mb1', 'Inbox', 'inbox', NULL, 0, 2, 1)")
+            st.executeUpdate("INSERT INTO `recent_contacts` VALUES ('bob@example.org', 'Bob', 7)")
+            st.executeUpdate(
+                "INSERT INTO `email_fts`(emailId, accountId, mailboxId, threadId, subject, sender, " +
+                    "body, preview, receivedAt, fromName, fromEmail, seen, flagged, hasAttachment, sortKey) " +
+                    "VALUES ('e1', 'accA', 'mb1', NULL, 'Hello', 'Alex alex@example.org', '', NULL, " +
+                    "NULL, 'Alex', 'alex@example.org', 0, 0, 0, 100)",
+            )
         }
     }
 
-    /** Apply the exact statements [MIGRATION_14_15] runs. */
-    private fun runMigration() {
-        fun rebuild(table: String, createSql: String, columns: String) {
-            db.createStatement().use { st ->
-                st.executeUpdate(createSql.replace("`$table`", "`${table}_new`"))
-                st.executeUpdate("INSERT INTO `${table}_new` ($columns) SELECT $columns FROM `$table`")
-                st.executeUpdate("DROP TABLE `$table`")
-                st.executeUpdate("ALTER TABLE `${table}_new` RENAME TO `$table`")
+    // --- running the real Migration objects ----------------------------------------------------
+
+    /**
+     * A [SupportSQLiteDatabase] that only knows how to `execSQL` onto the JDBC connection —
+     * enough to run a [androidx.room.migration.Migration], and enough to fail loudly if a
+     * migration ever starts using another method.
+     */
+    private fun supportDb(): SupportSQLiteDatabase =
+        Proxy.newProxyInstance(
+            SupportSQLiteDatabase::class.java.classLoader,
+            arrayOf(SupportSQLiteDatabase::class.java),
+        ) { _, method, args ->
+            when {
+                method.name == "execSQL" && args?.size == 1 -> {
+                    db.createStatement().use { it.executeUpdate(args[0] as String) }
+                    null
+                }
+                method.name == "toString" -> "SupportSQLiteDatabase(jdbc)"
+                method.name == "hashCode" -> System.identityHashCode(this)
+                method.name == "equals" -> false
+                else -> error("Unexpected SupportSQLiteDatabase.${method.name} in a migration")
             }
-        }
-        rebuild("emails", EMAILS_CREATE_SQL, EMAILS_COLUMNS)
-        db.createStatement().use { st ->
-            st.executeUpdate(EMAILS_MAILBOX_INDEX_SQL)
-            st.executeUpdate("DROP INDEX IF EXISTS `index_email_bodies_accountId`")
-        }
-        rebuild("email_bodies", EMAIL_BODIES_CREATE_SQL, EMAIL_BODIES_COLUMNS)
-        rebuild("snoozed", SNOOZED_CREATE_SQL, SNOOZED_COLUMNS)
-    }
+        } as SupportSQLiteDatabase
+
+    private fun migrate15to16() = MIGRATION_15_16.migrate(supportDb())
+
+    private fun migrate14to15() = MIGRATION_14_15.migrate(supportDb())
 
     private fun count(sql: String): Int = db.createStatement().use { st ->
         st.executeQuery(sql).use { rs ->
@@ -84,44 +160,75 @@ class EmailsMigrationSqlTest {
         }
     }
 
-    @Test fun preservesRowsAndColumns() {
-        seedV13()
-        runMigration()
-
+    private fun columnsOf(table: String): Set<String> {
         val columns = mutableSetOf<String>()
         db.createStatement().use { st ->
-            st.executeQuery("PRAGMA table_info(`emails`)").use { rs ->
+            st.executeQuery("PRAGMA table_info(`$table`)").use { rs ->
                 while (rs.next()) columns += rs.getString("name")
             }
         }
+        return columns
+    }
+
+    /** PRAGMA reports the pk position (1-based) per column; 0 means "not part of the PK". */
+    private fun pkPositions(table: String): Map<String, Int> {
+        val pkPos = mutableMapOf<String, Int>()
+        db.createStatement().use { st ->
+            st.executeQuery("PRAGMA table_info(`$table`)").use { rs ->
+                while (rs.next()) pkPos[rs.getString("name")] = rs.getInt("pk")
+            }
+        }
+        return pkPos
+    }
+
+    // --- v15 → v16: the upgrade every published install takes -----------------------------------
+
+    @Test fun v15to16_preservesRowsAndColumns() {
+        seedV15()
+        migrate15to16()
+
         assertEquals(
             setOf(
                 "id", "accountId", "mailboxId", "threadId", "subject", "preview", "receivedAt",
                 "fromName", "fromEmail", "seen", "flagged", "hasAttachment", "sortKey",
             ),
-            columns,
+            columnsOf("emails"),
         )
 
         assertEquals(2, count("SELECT COUNT(*) FROM `emails`"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `emails` WHERE `id` = 'e1' AND `subject` = 'Hello' AND `sortKey` = 100"))
         assertEquals(1, count("SELECT COUNT(*) FROM `email_bodies` WHERE `fetchedAt` = 42"))
         // Snoozes are user data: the row must survive the rebuild bit-for-bit.
         assertEquals(1, count("SELECT COUNT(*) FROM `snoozed` WHERE `emailId` = 'e2' AND `until` = 99999"))
     }
 
-    @Test fun primaryKeysBecomeAccountIdThenEmailId() {
-        seedV13()
-        runMigration()
+    @Test fun v15to16_keepsUnsentMailAndTheRestOfTheDatabase() {
+        seedV15()
+        migrate15to16()
 
-        // PRAGMA reports the pk position (1-based) per column; 0 means "not part of the PK".
-        fun pkPositions(table: String): Map<String, Int> {
-            val pkPos = mutableMapOf<String, Int>()
-            db.createStatement().use { st ->
-                st.executeQuery("PRAGMA table_info(`$table`)").use { rs ->
-                    while (rs.next()) pkPos[rs.getString("name")] = rs.getInt("pk")
-                }
-            }
-            return pkPos
-        }
+        // Queued and scheduled mail is unsent USER data — the whole reason this migration exists
+        // instead of a destructive fallback.
+        assertEquals(1, count("SELECT COUNT(*) FROM `outbox` WHERE `subject` = 'Queued' AND `state` = 'QUEUED'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `scheduled_sends` WHERE `subject` = 'Later' AND `sendAtMillis` = 500"))
+        // Tables the migration does not touch stay exactly as they were.
+        assertEquals(1, count("SELECT COUNT(*) FROM `mailboxes` WHERE `accountId` = 'accA' AND `id` = 'mb1'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `recent_contacts` WHERE `email` = 'bob@example.org'"))
+    }
+
+    @Test fun v15to16_leavesTheSearchIndexIntactAndSearchable() {
+        seedV15()
+        migrate15to16()
+
+        // `email_fts` is a STANDALONE FTS4 table (no content= link to `emails`, no triggers), so
+        // rebuilding `emails` under it must neither drop it nor empty it.
+        assertEquals(1, count("SELECT COUNT(*) FROM `email_fts`"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `email_fts` WHERE `email_fts` MATCH 'Hell*'"))
+    }
+
+    @Test fun v15to16_primaryKeysBecomeAccountIdThenEmailId() {
+        seedV15()
+        migrate15to16()
+
         assertEquals(1, pkPositions("emails")["accountId"])
         assertEquals(2, pkPositions("emails")["id"])
         assertEquals(1, pkPositions("email_bodies")["accountId"])
@@ -130,9 +237,22 @@ class EmailsMigrationSqlTest {
         assertEquals(2, pkPositions("snoozed")["emailId"])
     }
 
-    @Test fun sameEmailIdCoexistsAcrossAccounts() {
-        seedV13()
-        runMigration()
+    @Test fun v15to16_keepsTheMailboxIndexRoomExpects() {
+        seedV15()
+        migrate15to16()
+
+        val indexes = mutableSetOf<String>()
+        db.createStatement().use { st ->
+            st.executeQuery("PRAGMA index_list(`emails`)").use { rs ->
+                while (rs.next()) indexes += rs.getString("name")
+            }
+        }
+        assertTrue("index_emails_mailboxId must exist after the rebuild", "index_emails_mailboxId" in indexes)
+    }
+
+    @Test fun v15to16_sameEmailIdCoexistsAcrossAccounts() {
+        seedV15()
+        migrate15to16()
 
         // A second account (sub-account of the same login) caches a message whose JMAP id equals
         // an existing row's id. Under the old single-column PKs these INSERTs would have collided;
@@ -151,9 +271,9 @@ class EmailsMigrationSqlTest {
         assertEquals(2, count("SELECT COUNT(*) FROM `snoozed` WHERE `emailId` = 'e2'"))
     }
 
-    @Test fun duplicateCompositeKeyIsRejected() {
-        seedV13()
-        runMigration()
+    @Test fun v15to16_duplicateCompositeKeyIsRejected() {
+        seedV15()
+        migrate15to16()
 
         var conflicted = false
         try {
@@ -167,5 +287,25 @@ class EmailsMigrationSqlTest {
             conflicted = true
         }
         assertTrue("Re-inserting the same (accountId, id) must violate the composite PK", conflicted)
+    }
+
+    // --- v14 → v15 → v16: an install that skipped 1.3.11–1.3.13 ---------------------------------
+
+    @Test fun v14to16_chainedMigrationsPreserveEverything() {
+        // Same tables, but the v14 search index (remove_diacritics=2) the FTS migration rebuilds.
+        seedV15(ftsCreateSql = v14FtsCreate)
+
+        migrate14to15()
+        migrate15to16()
+
+        // The FTS rebuild repopulated the index from `emails`, and the key widening followed
+        // without disturbing it.
+        assertEquals(2, count("SELECT COUNT(*) FROM `email_fts`"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `email_fts` WHERE `email_fts` MATCH 'World*'"))
+        assertEquals(2, count("SELECT COUNT(*) FROM `emails`"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `snoozed` WHERE `emailId` = 'e2'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `outbox` WHERE `subject` = 'Queued'"))
+        assertEquals(1, pkPositions("emails")["accountId"])
+        assertEquals(2, pkPositions("emails")["id"])
     }
 }

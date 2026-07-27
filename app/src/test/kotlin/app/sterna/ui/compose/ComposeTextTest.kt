@@ -211,17 +211,269 @@ class ComposeTextTest {
         assertFalse(fields.expand)
     }
 
-    // --- Where the caret lands when compose opens prefilled (#63) ---
+    // --- Which field opens focused (#63, #83) ---
+    //
+    // "link" here is the prefill a mailto: URI (or a system Share) arrives with; it is null on
+    // every composer opened from inside the app.
+
+    private fun focusOf(
+        isDraft: Boolean = false,
+        isReply: Boolean = false,
+        linkTo: String? = null,
+        linkSubject: String? = null,
+    ) = initialComposeFocus(isDraft, isReply, linkTo, linkSubject)
+
+    // The four rows of the #83 table.
+
+    @Test fun mailtoWithOnlyARecipientOpensOnTheSubject() {
+        assertEquals(ComposeFocus.SUBJECT, focusOf(linkTo = "foo@example.com"))
+    }
+
+    @Test fun mailtoWithASubjectOpensOnTheBody() {
+        assertEquals(ComposeFocus.BODY, focusOf(linkTo = "foo@example.com", linkSubject = "Hello"))
+    }
+
+    // A link that also carries a body changes nothing — the subject is what decides, so a link
+    // with a body but NO subject still stops at the subject, the first field it left empty.
+    @Test fun mailtoWithABodyButNoSubjectOpensOnTheSubject() {
+        assertEquals(ComposeFocus.SUBJECT, focusOf(linkTo = "foo@example.com", linkSubject = ""))
+    }
+
+    @Test fun mailtoWithNoRecipientOpensOnTheRecipients() {
+        assertEquals(ComposeFocus.RECIPIENTS, focusOf(linkTo = "", linkSubject = "Hello"))
+    }
+
+    // A system "Share" reuses the mailto: path with an empty To — it must keep landing on the
+    // recipients, which is exactly what it is still missing.
+    @Test fun sharedTextOpensOnTheRecipients() {
+        assertEquals(ComposeFocus.RECIPIENTS, focusOf(linkTo = null, linkSubject = "Photo"))
+    }
+
+    // The four in-app ways of opening the composer, unchanged.
+
+    @Test fun freshMailOpensOnTheRecipients() {
+        assertEquals(ComposeFocus.RECIPIENTS, focusOf())
+    }
+
+    @Test fun replyOpensOnTheBody() {
+        assertEquals(ComposeFocus.BODY, focusOf(isReply = true))
+    }
+
+    @Test fun reopenedDraftOpensOnTheBody() {
+        assertEquals(ComposeFocus.BODY, focusOf(isDraft = true))
+    }
+
+    @Test fun forwardOpensOnTheRecipients() {
+        // A forward is neither a draft nor a reply and carries no link prefill.
+        assertEquals(ComposeFocus.RECIPIENTS, focusOf())
+    }
+
+    // --- Where the caret lands when compose opens prefilled (#63, #83) ---
 
     @Test fun reopenedDraftResumesAfterItsLastCharacter() {
-        assertEquals(12, initialBodyCaret(bodyLength = 12, isDraft = true, isReply = false))
+        assertEquals(12, initialBodyCaret(bodyLength = 12, focus = ComposeFocus.BODY, isDraft = true))
     }
 
     @Test fun replyStartsAboveTheQuotedOriginal() {
-        assertEquals(0, initialBodyCaret(bodyLength = 200, isDraft = false, isReply = true))
+        assertEquals(0, initialBodyCaret(bodyLength = 200, focus = ComposeFocus.BODY, isDraft = false))
     }
 
-    @Test fun newMailAndForwardLeaveTheBodyUnfocused() {
-        assertEquals(null, initialBodyCaret(bodyLength = 0, isDraft = false, isReply = false))
+    // The #83 trap: the body a mailto: link opens on already holds the signature, so the caret
+    // must be at the very top or the user types under their own signature.
+    @Test fun mailtoBodyStartsAboveTheSignature() {
+        val body = "" + signatureBlock("Alex\nAcme")
+        assertEquals(0, initialBodyCaret(bodyLength = body.length, focus = ComposeFocus.BODY, isDraft = false))
+    }
+
+    @Test fun aSubjectOrRecipientFocusLeavesTheBodyAlone() {
+        assertEquals(null, initialBodyCaret(bodyLength = 40, focus = ComposeFocus.SUBJECT, isDraft = false))
+        assertEquals(null, initialBodyCaret(bodyLength = 0, focus = ComposeFocus.RECIPIENTS, isDraft = false))
+    }
+
+    // --- Where a tap on a header row puts the caret (#26) ---
+    //
+    // Geometry of a To row on a 1080px-wide phone: the row starts at x=0, the label spans 42→168
+    // and the editable text starts at 200.
+
+    @Test fun tapOnTheLabelGoesToTheStartOfTheText() {
+        assertEquals(0, headerTapCaret(tapX = 100f, textStartX = 200f, textLength = 21))
+    }
+
+    @Test fun tapJustBeforeTheFirstCharacterGoesToTheStart() {
+        assertEquals(0, headerTapCaret(tapX = 199f, textStartX = 200f, textLength = 21))
+    }
+
+    @Test fun tapOnTheTextItselfIsLeftToTheField() {
+        // The leading edge belongs to the field: from there on the caret lands under the finger.
+        assertEquals(null, headerTapCaret(tapX = 200f, textStartX = 200f, textLength = 21))
+        assertEquals(null, headerTapCaret(tapX = 260f, textStartX = 200f, textLength = 21))
+    }
+
+    @Test fun tapPastTheEndOfTheTextIsLeftToTheField() {
+        // Empty space after the text: the field keeps its own handling, i.e. the caret at the end.
+        assertEquals(null, headerTapCaret(tapX = 900f, textStartX = 200f, textLength = 21))
+    }
+
+    @Test fun tapOnAnEmptyFieldForcesNothing() {
+        assertEquals(null, headerTapCaret(tapX = 100f, textStartX = 200f, textLength = 0))
+    }
+
+    @Test fun unknownGeometryForcesNothing() {
+        // Before the first layout, or a field whose text isn't composed (a collapsed chip row).
+        assertEquals(null, headerTapCaret(tapX = Float.NaN, textStartX = 200f, textLength = 21))
+        assertEquals(null, headerTapCaret(tapX = 100f, textStartX = Float.NaN, textLength = 21))
+    }
+
+    // --- Reply / reply-all header derivation (works from a cached row, so offline replies address) ---
+
+    private val originalToReply = Email(
+        id = "m1",
+        subject = "Project Phoenix",
+        from = listOf(EmailAddress(name = "Alice", email = "alice@example.com")),
+        to = listOf(
+            EmailAddress(email = "me@example.com"),
+            EmailAddress(name = "Bob", email = "bob@example.com"),
+        ),
+        cc = listOf(EmailAddress(email = "carol@example.com")),
+    )
+
+    @Test fun replyGoesToTheOriginalSender() {
+        assertEquals("alice@example.com", replyRecipient(originalToReply))
+    }
+
+    @Test fun replyRecipientEmptyWhenSenderUnknown() {
+        assertEquals("", replyRecipient(Email(id = "x")))
+    }
+
+    @Test fun replyAllIncludesSenderToAndCcButNotSelf() {
+        val all = replyAllRecipients(originalToReply, setOf("me@example.com"))
+        assertEquals("alice@example.com, bob@example.com, carol@example.com", all)
+    }
+
+    @Test fun replyAllDropsSelfCaseInsensitivelyAndDeduplicates() {
+        val o = originalToReply.copy(
+            cc = listOf(EmailAddress(email = "ME@Example.com"), EmailAddress(email = "alice@example.com")),
+        )
+        // "ME@Example.com" == self (ignore case) is removed; the duplicate alice is collapsed.
+        assertEquals("alice@example.com, bob@example.com", replyAllRecipients(o, setOf("me@example.com")))
+    }
+
+    @Test fun replyAllExcludesEveryAliasOfTheAccount() {
+        // Three addresses on the account: none of them may end up in the recipients (B5). The
+        // original was sent to two of them and Cc'd the third.
+        val mine = setOf("me@example.com", "Alias@Example.com", "third@example.com")
+        val o = Email(
+            id = "m2",
+            from = listOf(EmailAddress(email = "alice@example.com")),
+            to = listOf(
+                EmailAddress(email = "me@example.com"),
+                EmailAddress(email = "alias@example.com"),
+                EmailAddress(email = "bob@example.com"),
+            ),
+            cc = listOf(EmailAddress(email = "THIRD@example.com")),
+        )
+        assertEquals("alice@example.com, bob@example.com", replyAllRecipients(o, mine))
+    }
+
+    @Test fun replyAllToYourOwnAliasStillAnswersTheSender() {
+        // The original came FROM one of your aliases: it drops out of the recipients too.
+        val o = Email(
+            id = "m3",
+            from = listOf(EmailAddress(email = "alias@example.com")),
+            to = listOf(EmailAddress(email = "bob@example.com")),
+        )
+        assertEquals(
+            "bob@example.com",
+            replyAllRecipients(o, setOf("me@example.com", "alias@example.com")),
+        )
+    }
+
+    @Test fun subjectGetsRePrefixOnlyWhenMissing() {
+        assertEquals("Re: Project Phoenix", withPrefix("Project Phoenix", "Re:"))
+        assertEquals("Re: Project Phoenix", withPrefix("Re: Project Phoenix", "Re:"))
+        assertEquals("RE: already", withPrefix("RE: already", "Re:")) // existing prefix kept, any case
+        assertEquals("Fwd: ", withPrefix(null, "Fwd:"))
+    }
+
+    // --- Late-arriving quote must not clobber the user's typing (cache-first ordering) ---
+
+    @Test fun quoteAppliesOntoTheUntouchedInitialBody() {
+        // Header prefill applied, body still equals its baseline ("" for a reply) → apply the quote.
+        assertTrue(canApplyReplyQuote(applied = true, bodyText = "", initialBody = ""))
+    }
+
+    @Test fun quoteSkippedWhenUserHasStartedTyping() {
+        assertFalse(canApplyReplyQuote(applied = true, bodyText = "Hi there", initialBody = ""))
+    }
+
+    @Test fun quoteWaitsUntilHeaderPrefillApplied() {
+        assertFalse(canApplyReplyQuote(applied = false, bodyText = "", initialBody = ""))
+    }
+
+    // --- Quoting cuts the sender's signature off (D4), on a strict delimiter only ---
+
+    @Test fun quotedOriginalStopsAtTheSignatureDelimiter() {
+        val original = "Sounds good.\n\n-- \nAlice\nAcme Ltd\n+33 1 23 45 67 89"
+        assertEquals("Sounds good.", cutAtSignatureDelimiter(original))
+    }
+
+    @Test fun theTwoHyphenFormWithoutTrailingSpaceAlsoCuts() {
+        assertEquals("Sounds good.", cutAtSignatureDelimiter("Sounds good.\n\n--\nAlice"))
+    }
+
+    @Test fun aDecorativeRuleIsNotADelimiter() {
+        val original = "Part one\n----------\nPart two"
+        assertEquals(original, cutAtSignatureDelimiter(original))
+    }
+
+    @Test fun aLineMerelyStartingWithHyphensIsNotADelimiter() {
+        val original = "Agenda\n--- end ---\nSee you"
+        assertEquals(original, cutAtSignatureDelimiter(original))
+        assertEquals("a\n-- b\nc", cutAtSignatureDelimiter("a\n-- b\nc"))
+    }
+
+    @Test fun theFirstDelimiterWins() {
+        assertEquals("Body", cutAtSignatureDelimiter("Body\n-- \nSig one\n-- \nSig two"))
+    }
+
+    @Test fun anOriginalWithoutASignatureIsQuotedWhole() {
+        assertEquals("Just a line", cutAtSignatureDelimiter("Just a line"))
+    }
+
+    @Test fun quotingCutsTheSignatureButReopeningADraftDoesNot() {
+        val mail = Email(
+            id = "q1",
+            textBody = listOf(EmailBodyPart(partId = "1", type = "text/plain")),
+            bodyValues = mapOf("1" to EmailBodyValue("Hello\n\n-- \nAlice")),
+        )
+        assertEquals("Hello", quotedOriginalText(mail))
+        // A draft is the user's own text: cutting it at its delimiter would delete their signature.
+        assertEquals("Hello\n\n-- \nAlice", draftFieldsOf(mail).body)
+    }
+
+    // --- Forwarded header: labels translated, format untouched (D7) ---
+
+    @Test fun forwardedHeaderUsesTheSuppliedLabels() {
+        val blocks = buildForwardedBlocks(
+            from = "Alice", subject = "Notes", date = "4 juil. 2026, 09:12", to = "Bob",
+            originalText = "body", originalHtml = null,
+            labels = ForwardLabels(from = "De", subject = "Objet", date = "Date", to = "À"),
+        )
+        assertTrue(blocks.text.contains("De: Alice"))
+        assertTrue(blocks.text.contains("Objet: Notes"))
+        assertTrue(blocks.text.contains("Date: 4 juil. 2026, 09:12"))
+        assertTrue(blocks.text.contains("À: Bob"))
+        assertTrue(blocks.html.contains("Objet: Notes"))
+    }
+
+    @Test fun forwardedHeaderKeepsItsDashedLineAndFieldOrder() {
+        val blocks = buildForwardedBlocks(
+            from = "Alice", subject = "Notes", date = "d", to = "Bob",
+            originalText = "body", originalHtml = null,
+            labels = ForwardLabels(from = "De", subject = "Objet", date = "Date", to = "À"),
+        )
+        assertTrue(blocks.text.startsWith("---------- Forwarded message ----------\n"))
+        val order = listOf("De:", "Objet:", "Date:", "À:").map { blocks.text.indexOf(it) }
+        assertEquals(order.sorted(), order)
     }
 }

@@ -10,6 +10,7 @@ import app.sterna.R
 import app.sterna.folders.FolderDeleteWorker
 import app.sterna.mail.MessageDestroyWorker
 import app.sterna.net.ConnectivityWatcher
+import app.sterna.net.ReconnectRefresh
 import app.sterna.push.FetchAndNotify
 import app.sterna.push.NewMailNotifier
 import app.sterna.push.Notifications
@@ -59,6 +60,9 @@ data class MailUi(
     val mailboxes: List<Mailbox>,
     val refreshing: Boolean,
     val error: String?,
+    /** Event-driven "no usable network" flag from [ConnectivityWatcher] (#65): true the moment
+     *  WiFi/mobile drops, without waiting for a refresh to fail. Drives the offline banner. */
+    val offline: Boolean = false,
     /** Inline search-on-the-list state. */
     val searching: Boolean = false,
     val searchQuery: String = "",
@@ -126,6 +130,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Undo-send: a message held in the outbox during its cancellable window. */
     val outboxPending: StateFlow<SendOutbox.Pending?> = outbox.pending
     fun undoSend() = outbox.undo()
+
+    /**
+     * The draft handed back when the user undoes a send, waiting to reopen compose. Driving the
+     * reopen off this flow (rather than firing it inline from the snackbar's Undo handler) makes
+     * it deterministic: `undoSend()` clears `outboxPending`, which tears down the very snackbar
+     * coroutine that used to also trigger the reopen, so that navigation could be dropped. A
+     * dedicated collector, gated on nothing but this flow, always reopens compose.
+     */
+    val restoredDraft: StateFlow<SendOutbox.ComposeDraft?> = outbox.restored
 
     /** Discreet badge: how many outbox items are pending or failed (the undo window is silent). */
     val outboxCount: StateFlow<Int> = repo.outboxActiveCount().stateIn(
@@ -248,6 +261,24 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Thread keys already completed from the server this session — fetched at most once each. */
     private val completedThreads = mutableSetOf<String>()
 
+    /**
+     * The representative (id + owning account) of each expanded thread key — the message shown
+     * on the collapsed row, which [_threadMembers] deliberately excludes. Recorded on expand so
+     * [threadEntries] can hand the reading view the WHOLE conversation, representative included,
+     * without re-querying anything.
+     */
+    private val threadReps = mutableMapOf<String, Pair<String, String?>>()
+
+    /**
+     * The conversation a message was opened from, as the reading view's swipe context: the
+     * unfolded thread's messages in list order (representative first). Empty when the thread
+     * is unknown — the reader then falls back to showing the single message it was given.
+     */
+    fun threadEntries(key: String): List<Pair<String, String?>> {
+        val (repId, repAccountId) = threadReps[key] ?: return emptyList()
+        return ConversationExpansion.threadEntries(repId, repAccountId, _threadMembers.value[key].orEmpty())
+    }
+
     /** The thread an email belongs to: its threadId, or its own id when thread-less. */
     private fun threadKeyOf(email: Email): String = ConversationExpansion.threadKey(email.threadId, email.id)
 
@@ -263,6 +294,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         _expandedThreads.value = _expandedThreads.value + key
+        threadReps[key] = rep.id to rep.accountId
         viewModelScope.launch { expandThread(rep, key) }
     }
 
@@ -527,6 +559,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         repo.observeUnifiedInboxUnread(store.allInboxScopes())
     }
 
+    /** Codeberg #65: the offline empty state promises a resync, so watch the network and re-run
+     *  the current view's refresh once connectivity actually returns; its [online] flow also
+     *  drives the offline banner directly (event-driven, not inferred from a failed refresh).
+     *  Declared before [state] so its flow is available when the combined state is built. */
+    private val connectivity = ConnectivityWatcher(application) { onReconnected() }
+    private var reconnectJob: Job? = null
+
     private val baseState = combine(mailboxes, selection, meta, status, unifiedUnread) { mailboxes, sel, meta, status, unifiedUnread ->
         Base(
             mailboxes = mailboxes,
@@ -541,7 +580,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    val state: StateFlow<MailUi> = combine(baseState, searchState, settings.sortOrder, unreadOnly) { base, search, sortOrder, unreadOnly ->
+    val state: StateFlow<MailUi> = combine(baseState, searchState, settings.sortOrder, unreadOnly, connectivity.online) { base, search, sortOrder, unreadOnly, online ->
         MailUi(
             accountName = base.accountName,
             mailboxName = base.mailboxName,
@@ -553,6 +592,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             mailboxes = base.mailboxes,
             refreshing = base.refreshing,
             error = base.error,
+            offline = !online,
             searching = search.active,
             searchQuery = search.query,
             searchLoading = search.loading,
@@ -572,13 +612,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             mailboxes = emptyList(),
             refreshing = true,
             error = null,
+            offline = !connectivity.online.value,
         ),
     )
-
-    /** Codeberg #65: the offline empty state promises a resync, so watch the default network
-     *  and re-run the current view's refresh once connectivity actually returns. */
-    private val connectivity = ConnectivityWatcher(application) { onReconnected() }
-    private var reconnectJob: Job? = null
 
     init {
         refresh()
@@ -595,25 +631,43 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Refresh a beat after the network came back — debounced, so a flapping connection
-     * coalesces into a single reconcile (and [refresh] itself cancels-and-replaces any
-     * refresh already in flight).
+     * Refresh a beat after the network came back — settled, so a flapping connection coalesces
+     * into a single reconcile (and [refresh] itself cancels-and-replaces any refresh already in
+     * flight), then retried a few times on a widening gap ([ReconnectRefresh]).
+     *
+     * The offline banner reads `offline || error`, so an error left over from a refresh that
+     * failed *during* the outage survives the outage itself and keeps the banner up until some
+     * later refresh happens to succeed (the user pulling to refresh). Connectivity coming back
+     * makes that error stale, so drop it right away; the attempts below put a real one back if
+     * the server is genuinely unreachable.
      */
     private fun onReconnected() {
         reconnectJob?.cancel()
+        clearRefreshError()
         reconnectJob = viewModelScope.launch {
-            delay(RECONNECT_DEBOUNCE_MS)
             // The watcher fires as soon as a transport is up, without waiting for the system's
             // captive-portal validation (#65: users who block those probes never get it). The
-            // link may not be routable for a beat, so if the first refresh lands too early,
-            // retry a couple of times before giving up rather than stranding the offline state.
-            repeat(RECONNECT_MAX_TRIES) { attempt ->
+            // link may not be routable for a beat — a VPN tunnel takes seconds to re-handshake —
+            // so an early attempt is expected to fail and is retried rather than reported.
+            repeat(ReconnectRefresh.MAX_TRIES) { attempt ->
+                delay(ReconnectRefresh.delayBeforeMs(attempt))
                 refresh()
-                refreshJob?.join()
-                if (status.value.error == null) return@launch
-                if (attempt < RECONNECT_MAX_TRIES - 1) delay(RECONNECT_RETRY_GAP_MS)
+                val mine = refreshJob
+                mine?.join()
+                // Someone refreshed on top of us (a pull, an account switch): that result is the
+                // one the user is looking at — leave it alone and stop retrying behind their back.
+                if (refreshJob !== mine) return@launch
+                val error = status.value.error ?: return@launch
+                status.value = status.value.copy(
+                    error = ReconnectRefresh.errorAfterAttempt(attempt, error),
+                )
             }
         }
+    }
+
+    /** Drop a stale refresh failure, leaving the in-flight state alone. */
+    private fun clearRefreshError() {
+        if (status.value.error != null) status.value = status.value.copy(error = null)
     }
 
     /**
@@ -720,6 +774,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _expandedThreads.value = emptySet()
         _threadMembers.value = emptyMap()
         completedThreads.clear()
+        threadReps.clear()
     }
 
     /** Swipe action: toggle read/unread (cache update drives the list). */
@@ -900,6 +955,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _expandedThreads.value = _expandedThreads.value - key
         _threadMembers.value = _threadMembers.value - key
         completedThreads -= key
+        threadReps -= key
     }
 
     /**
@@ -1621,14 +1677,6 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         const val UNIFIED_LABEL = "All inboxes"
         const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
         const val PURGE_HOLD_BACK_MS = 5_000L
-
-        /** Settling time after the network returns, before the reconnect refresh fires. */
-        const val RECONNECT_DEBOUNCE_MS = 1_500L
-
-        /** Reconnect refresh attempts, and the gap between them, to ride out a link that is up
-         *  but not yet routable (validation is intentionally not awaited — #65). */
-        const val RECONNECT_MAX_TRIES = 3
-        const val RECONNECT_RETRY_GAP_MS = 3_000L
 
         /** Most threads re-completed per action — bounds the Thread/get fan-out on a select-all. */
         const val MAX_THREAD_COMPLETIONS = 10

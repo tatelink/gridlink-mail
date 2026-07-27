@@ -49,6 +49,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Forward
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.ReplyAll
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -91,6 +93,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,6 +107,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -126,9 +130,14 @@ import app.sterna.core.data.calendar.ParsedEvent
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
+import android.text.format.DateUtils
 import app.sterna.ui.components.Monogram
+import app.sterna.ui.isOutgoingFolder
+import app.sterna.ui.snoozed.SnoozeDeadlineHeader
 import app.sterna.util.LinkCleaner
+import app.sterna.util.MailDates
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import java.io.ByteArrayInputStream
 import java.time.Instant
@@ -165,14 +174,25 @@ private const val FORCE_SOFTWARE_LAYER = false
 val LocalNavTransitionActive = compositionLocalOf { false }
 
 /**
+ * The identity of a pager entry — (email id, owning account) — as one string. Same-server accounts
+ * under a single login can hold messages with identical ids (issue #31) and the unified inbox shows
+ * them side by side, so the pager identifies its entries by the pair, never by the id alone.
+ */
+private fun pagerKey(entry: Pair<String, String?>): String = "${entry.second.orEmpty()}\u0000${entry.first}"
+
+/**
  * The reading view. A [HorizontalPager] lets the user swipe left/right between the entries
- * of the list they came from, in the same order and context (mailbox / unified inbox, sort,
- * unread filter, or active search). Three sources feed it:
+ * of the context they came from, in the same order (mailbox / unified inbox, sort, unread
+ * filter, active search, or one conversation). Four sources feed it:
  *
  *  - [listSource]: the inbox's own paged flow (shared, so swiping near the end pages older
  *    mail in from the server exactly as scrolling the list does);
  *  - [searchResults]: the bounded, in-memory results when a search was active;
- *  - neither: a single message (opened from a context without a list, e.g. global search).
+ *  - [threadEntries]: the messages of an unfolded conversation, when the message was opened
+ *    from inside one (Codeberg #13) — the swipe stays inside that conversation and stops at
+ *    its ends rather than spilling into the list behind it;
+ *  - none of them: a single message (opened from a context without a list, e.g. a
+ *    notification or global search).
  *
  * Each page owns its own [MessageViewModel] (and its account context), so Reply/Forward,
  * back, and mark-as-read stay correct per entry. Mark-as-read fires on settle, never while
@@ -186,6 +206,7 @@ fun MessageScreen(
     initialIndex: Int,
     listSource: kotlinx.coroutines.flow.Flow<androidx.paging.PagingData<app.sterna.core.data.mail.InboxRow>>?,
     searchResults: List<Email>?,
+    threadEntries: List<Pair<String, String?>>? = null,
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
     onDelete: (Email) -> Unit,
@@ -204,18 +225,25 @@ fun MessageScreen(
             // older mail paged in) still merge in at their live position.
             val liveEntries = items.itemSnapshotList.items.map { it.email.id to it.email.accountId }
             var entries by remember { mutableStateOf(listOf<Pair<String, String?>>()) }
-            entries = MessagePaging.mergeEntries(entries, liveEntries) { it.first }
+            // Identified by (account, id), never by the bare id: in the unified inbox two accounts
+            // of one login can list a message under the SAME server id (issue #31), and a bare key
+            // would swallow the second row in the merge below and bind its page to the first one's.
+            entries = MessagePaging.mergeEntries(entries, liveEntries, ::pagerKey)
             if (entries.isEmpty()) {
                 // The shared paged flow replays its cached pages within a frame or two; show a
                 // brief loader until the entry list is known so the pager opens on the right page.
                 MessageLoadingScaffold(onBack)
             } else {
-                // Resolve the opening page once: by the anchor's id when it's in the loaded
+                // Resolve the opening page once: by the anchor's key when it's in the loaded
                 // window (robust to the list having shifted), else the tapped index.
                 val initialPage = remember {
-                    MessagePaging.resolveInitialPage(entries.map { it.first }, anchorEmailId, initialIndex)
+                    MessagePaging.resolveInitialPage(
+                        entries.map(::pagerKey),
+                        pagerKey(anchorEmailId to anchorAccountId),
+                        initialIndex,
+                    )
                 }
-                val liveIndexById = liveEntries.withIndex().associate { (i, e) -> e.first to i }
+                val liveIndexById = liveEntries.withIndex().associate { (i, e) -> pagerKey(e) to i }
                 MessagePager(
                     pageCount = entries.size,
                     initialPage = initialPage,
@@ -231,7 +259,7 @@ fun MessageScreen(
                             // during drainChanges — before recomposition rebuilds liveIndexById —
                             // while the presenter is transiently EMPTY (Codeberg #13: reader
                             // delete threw Index: 0, Size: 0 here).
-                            liveIndexById[entry.first]
+                            liveIndexById[pagerKey(entry)]
                                 ?.takeIf { it < items.itemCount }
                                 ?.let { liveIndex -> items[liveIndex] }
                         }
@@ -246,12 +274,37 @@ fun MessageScreen(
         }
         !searchResults.isNullOrEmpty() -> {
             val initialPage = remember(searchResults) {
-                MessagePaging.resolveInitialPage(searchResults.map { it.id }, anchorEmailId, initialIndex)
+                MessagePaging.resolveInitialPage(
+                    searchResults.map { pagerKey(it.id to it.accountId) },
+                    pagerKey(anchorEmailId to anchorAccountId),
+                    initialIndex,
+                )
             }
             MessagePager(
                 pageCount = searchResults.size,
                 initialPage = initialPage,
                 entryAt = { i -> searchResults.getOrNull(i)?.let { it.id to it.accountId } },
+                onBack = onBack,
+                onReply = onReply,
+                onDelete = onDelete,
+                onArchive = onArchive,
+                onComposeTo = onComposeTo,
+            )
+        }
+        // Opened from an unfolded conversation: page over that conversation only. The entries
+        // are a snapshot of what the unfolded conversation showed, so the count is bounded and
+        // the pager cannot run past the first or last message of the thread (Codeberg #13).
+        !threadEntries.isNullOrEmpty() -> {
+            val initialPage = remember(threadEntries) {
+                MessagePaging.resolveInitialPage(threadEntries.map { it.first }, anchorEmailId, initialIndex)
+            }
+            MessagePager(
+                pageCount = threadEntries.size,
+                initialPage = initialPage,
+                entryAt = { i -> threadEntries.getOrNull(i) },
+                // A conversation has a known, small number of messages, so the reader can say
+                // where in it you are — and offer the two chevrons for people who don't swipe.
+                showPosition = true,
                 onBack = onBack,
                 onReply = onReply,
                 onDelete = onDelete,
@@ -286,6 +339,10 @@ private fun MessagePager(
     pageCount: Int,
     initialPage: Int,
     entryAt: (Int) -> Pair<String, String?>?,
+    /** Show the "2 / 5" position line with its two chevrons (conversation context only —
+     *  the list context is unbounded and pages more entries in as you go, so a running
+     *  total there would be both wrong and restless). */
+    showPosition: Boolean = false,
     onBack: () -> Unit,
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
     onDelete: (Email) -> Unit,
@@ -305,8 +362,25 @@ private fun MessagePager(
     LaunchedEffect(pagerState.settledPage) {
         if (entryAt(pagerState.settledPage) == null) activeMessage = null
     }
+    val scope = rememberCoroutineScope()
     Scaffold(
-        topBar = { MessageTopBar(activeMessage, onBack, onReply, onDelete, onArchive) },
+        topBar = {
+            Column {
+                MessageTopBar(activeMessage, onBack, onReply, onDelete, onArchive)
+                // The position line belongs to the header, under the app bar rather than in its
+                // title slot: the toolbar already carries five actions, and on a narrow screen a
+                // counter squeezed between them would clip. It is part of the FIXED chrome, so it
+                // never translates with the swipe. Hidden outright for a one-message context, so
+                // nothing about the reader changes where there is nowhere to page to.
+                if (showPosition && pageCount > 1) {
+                    MessagePositionBar(
+                        page = pagerState.currentPage,
+                        pageCount = pageCount,
+                        onGo = { target -> scope.launch { pagerState.animateScrollToPage(target) } },
+                    )
+                }
+            }
+        },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             HorizontalPager(
@@ -354,6 +428,51 @@ private fun MessagePager(
                     ReplyForwardBar { mode -> onReply(mode, active.emailId, active.accountId) }
                 }
             }
+        }
+    }
+}
+
+/**
+ * "2 / 5" between two chevrons, telling the reader where they are in the conversation they
+ * opened the message from, and letting them step through it by tap as well as by swipe. The
+ * chevrons grey out at the ends — the pager stops there, and the bar says so before the gesture
+ * has to (the swipe remains the primary way through; this makes it discoverable, not redundant).
+ */
+@Composable
+private fun MessagePositionBar(
+    page: Int,
+    pageCount: Int,
+    onGo: (Int) -> Unit,
+) {
+    val hasPrevious = MessagePaging.hasPrevious(page, pageCount)
+    val hasNext = MessagePaging.hasNext(page, pageCount)
+    val spokenPosition = stringResource(R.string.message_position_spoken, page + 1, pageCount)
+    Row(
+        // Same container colour as the app bar above it, so the header reads as one block.
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = { onGo(page - 1) }, enabled = hasPrevious) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                contentDescription = stringResource(R.string.message_previous),
+            )
+        }
+        Text(
+            text = stringResource(R.string.message_position, page + 1, pageCount),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // Read out as a sentence rather than "2 slash 5".
+            modifier = Modifier.clearAndSetSemantics {
+                contentDescription = spokenPosition
+            },
+        )
+        IconButton(onClick = { onGo(page + 1) }, enabled = hasNext) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = stringResource(R.string.message_next),
+            )
         }
     }
 }
@@ -491,6 +610,8 @@ private fun MessageActions(
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val inJunk by viewModel.inJunk.collectAsStateWithLifecycle()
+    val folderRole by viewModel.mailboxRole.collectAsStateWithLifecycle()
+    val snoozedUntil by viewModel.snoozedUntil.collectAsStateWithLifecycle()
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
     // Per-message manual override; the sender allowlist auto-shows without it.
     val manualShow by viewModel.manualShowImages.collectAsStateWithLifecycle()
@@ -574,6 +695,17 @@ private fun MessageActions(
         shape = MaterialTheme.shapes.medium,
     ) {
         if (snoozeSubmenu) {
+            // An already-snoozed message opens this menu with its deadline spelled out, rather
+            // than a mute list of delays (Codeberg #82).
+            snoozedUntil?.let { at ->
+                SnoozeDeadlineHeader(
+                    DateUtils.formatDateTime(
+                        context,
+                        at,
+                        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_MONTH,
+                    ),
+                )
+            }
             snoozePresets(context).forEach { (label, until) ->
                 DropdownMenuItem(
                     text = { Text(label) },
@@ -630,39 +762,43 @@ private fun MessageActions(
                 leadingIcon = { Icon(Icons.Filled.MarkEmailUnread, contentDescription = null) },
                 onClick = { menuOpen = false; viewModel.markUnread(onBack) },
             )
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        stringResource(
-                            if (inJunk) R.string.message_not_spam
-                            else R.string.message_report_spam,
-                        ),
-                    )
-                },
-                leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
-                onClick = {
-                    menuOpen = false
-                    // Confirm the move once it lands, naming the destination
-                    // folder — junk → Inbox ("Not spam"), inbox → Spam.
-                    val destName = context.getString(
-                        if (inJunk) R.string.folder_inbox else R.string.folder_junk,
-                    )
-                    val confirmMove: () -> Unit = {
-                        Toast.makeText(
-                            context,
-                            context.getString(R.string.status_moved_to_folder, destName),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        onBack()
-                    }
-                    if (inJunk) viewModel.notSpam(confirmMove) else viewModel.reportSpam(confirmMove)
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.message_snooze)) },
-                leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
-                onClick = { snoozeSubmenu = true },
-            )
+            // Spam-reporting and snoozing act on incoming mail; in Drafts and Sent the open
+            // message is the user's own outgoing mail, so neither is offered (Codeberg #82).
+            if (!isOutgoingFolder(folderRole)) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(
+                                if (inJunk) R.string.message_not_spam
+                                else R.string.message_report_spam,
+                            ),
+                        )
+                    },
+                    leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        // Confirm the move once it lands, naming the destination
+                        // folder — junk → Inbox ("Not spam"), inbox → Spam.
+                        val destName = context.getString(
+                            if (inJunk) R.string.folder_inbox else R.string.folder_junk,
+                        )
+                        val confirmMove: () -> Unit = {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.status_moved_to_folder, destName),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            onBack()
+                        }
+                        if (inJunk) viewModel.notSpam(confirmMove) else viewModel.reportSpam(confirmMove)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.message_snooze)) },
+                    leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                    onClick = { snoozeSubmenu = true },
+                )
+            }
             // Read-only raw-headers view (issue #60). Headers are fetched on demand here, so
             // the normal reader path never pulls them.
             DropdownMenuItem(
@@ -822,6 +958,14 @@ private fun MessageContent(
     }
 }
 
+/**
+ * How long a present-but-not-yet-revealed message body may stay hidden behind the spinner before
+ * the reader shows it anyway. Comfortably past the normal path (page load, then a height poll that
+ * caps at ~1s), so a legitimately slow body still reveals itself the accurate way and this never
+ * fires; it only catches a body whose height report was lost for good.
+ */
+private const val BODY_REVEAL_FAILSAFE_MS = 2_500L
+
 @Composable
 private fun ConversationBody(
     messages: List<ThreadMessage>,
@@ -848,16 +992,18 @@ private fun ConversationBody(
     // (swipe-between-messages on the body — #6). The header is an OVERLAY that collapses (slides up)
     // in lock-step with the body scroll; the Reply/Forward bar overlays the bottom, revealed only at
     // the end (it never occupies scroll space, so it can't shrink the body into a show/hide loop).
-    // Key on whether the body has ARRIVED. The body loads async, so the first composition of a
-    // cold-opened mail has full == null (header-only — see MessageViewModel). Keyed on msg.id alone,
-    // showBar/bodyReady would latch that body-less initial value (true = shown) and never reset when
-    // the body arrived, so the Reply/Forward bar flashed in at load on every cold open — but NOT via
-    // swipe, where the prewarmed page already had its body (full != null → init false). Including
-    // `hasBody` in the key resets them to hidden once the body is present (the scroll logic then
-    // drives the reveal); a genuinely body-less mail keeps them shown.
-    val hasBody = full != null
-    var bodyReady by remember(msg.id, hasBody) { mutableStateOf(!hasBody) }
-    var showBar by remember(msg.id, hasBody) { mutableStateOf(!hasBody) }
+    // Both start HIDDEN and are only revealed once the body has ARRIVED and laid out. The body loads
+    // async, so a cold open first paints a cached header-only frame (full == null — see
+    // MessageViewModel) before the fetch returns. Initialising these to `!hasBody` (= shown) for that
+    // frame made the Reply/Forward bar flash in on the header-only frame and then reset to hidden when
+    // the body arrived. That brief show->hide was absorbed by the bar's fade, so it was invisible with
+    // animations ON, but with the OS "Remove animations" setting ON (animator duration scale 0) the
+    // fade is instant and the flash rendered as a blink (Codeberg #63). Starting hidden removes the
+    // transient entirely: once the body is ready the scroll-end logic below drives the one clean
+    // reveal. (On a successful load the body always becomes non-null, so there is no resting
+    // header-only state to keep shown — the WebView's onReady/onScroll always take over.)
+    var bodyReady by remember(msg.id) { mutableStateOf(false) }
+    var showBar by remember(msg.id) { mutableStateOf(false) }
     // The VISIBLE Reply/Forward bar is fixed chrome at the pager level (outside the horizontal
     // swipe — #62): this page only reports whether its resting/scroll state wants the bar, and
     // the chrome follows the SETTLED page's value. The invisible measuring copy below stays
@@ -871,6 +1017,21 @@ private fun ConversationBody(
     val scrollY = remember(msg.id) { mutableIntStateOf(0) }
     var spinnerDue by remember(msg.id) { mutableStateOf(false) }
     LaunchedEffect(msg.id) { delay(500); spinnerDue = true }
+    // Failsafe reveal. [bodyReady] is driven by ONE height poll, started by the WebView's
+    // onPageFinished; a load that is superseded before it finishes never delivers that callback,
+    // and nothing re-arms the poll. When that happened the body stayed at alpha 0 behind the
+    // spinner for the whole life of the page — no wait, no refresh and no retry ever got it back;
+    // only closing and reopening the message did. It hit the page the reader OPENS ON far more
+    // often than a page swiped into, because the settled page is also the one that runs the
+    // OpenPGP auto-decrypt, and each crypto state it goes through resizes the header, which
+    // re-keys the document below it and cancels the load in flight.
+    // Readiness only exists to avoid showing a half-laid-out body, so past a grace period show it
+    // regardless: a late reveal is a blink, a body that never arrives is mail that cannot be read.
+    LaunchedEffect(msg.id, full != null) {
+        if (full == null) return@LaunchedEffect
+        delay(BODY_REVEAL_FAILSAFE_MS)
+        bodyReady = true
+    }
     val revealThresholdPx = with(density) { 4.dp.roundToPx() }
     // The body reserves exactly the overlaying Reply/Forward bar's measured height (see the invisible
     // measuring copy below) plus a little clearance, so the bar never covers the last line when it
@@ -2048,6 +2209,18 @@ private class BodyWebView(context: Context) : WebView(context) {
      *  not-yet-settled content. */
     var settleToken: Any? = null
 
+    /** Invoked once the view actually has a size. The body is revealed off a height poll started
+     *  by `onPageFinished`; that poll reads the content range, which is floored at the view's own
+     *  height and is therefore ZERO for as long as the view has not been laid out. A poll that ran
+     *  entirely inside that window learned nothing, and no second poll was ever started. This gives
+     *  the host a second, layout-driven chance to notice the body is there. */
+    var onSized: (() -> Unit)? = null
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w > 0 && h > 0) onSized?.invoke()
+    }
+
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var downX = 0f
     private var downY = 0f
@@ -2087,6 +2260,13 @@ private class BodyWebView(context: Context) : WebView(context) {
     /** Visible content height (device px): the WebView viewport minus its padding. */
     fun visibleExtentPx(): Int = computeVerticalScrollExtent()
 }
+
+/**
+ * How long after a document load the body's height report may go missing before the WebView takes
+ * the height from the view itself. Sits just past the post-load height poll's own window (~30 ticks
+ * of 32ms), so the accurate report always wins when it comes at all.
+ */
+private const val HEIGHT_REPORT_BACKSTOP_MS = 1_200L
 
 @Composable
 private fun EmailWebView(
@@ -2209,6 +2389,12 @@ private fun EmailWebView(
             // Report scroll on each internal scroll, but only once reporting is enabled (after the
             // load settles, below), so load-time scroll-resets don't flash the bar.
             webView.onScrolled = { if (webView.reportingEnabled) reportScroll(webView) }
+            // Second chance to notice the body is laid out: the post-load height poll can run and
+            // expire entirely while the view still has no size (nothing it reads can be non-zero
+            // then), and it is never restarted. Getting a size is exactly the event it was missing.
+            webView.onSized = {
+                if (heightPx <= 0) heightPx = webView.contentRangePx().coerceAtLeast(webView.height)
+            }
             // update() runs on every recomposition; only (re)load when the document
             // actually changed, otherwise expanding one card reloads (and flickers)
             // every other open body in the conversation. blockRemote is part of the
@@ -2260,6 +2446,18 @@ private fun EmailWebView(
                     webView.postDelayed({ settlePoll(triesLeft - 1) }, 50)
                 }
                 webView.postDelayed({ settlePoll(50) }, 50)
+                // Re-arm the height report from the LOAD, not just from onPageFinished. The report
+                // is what reveals the body, and it only ever rode on onPageFinished — which a load
+                // superseded by a newer one (a resized header re-keys the document) never delivers,
+                // leaving nothing to start the poll and no way back. The load itself always
+                // happens, so hang a backstop off it: if nothing has reported by the time the
+                // poll's own window has elapsed, take the height from the view. Token-guarded like
+                // the settle poll, so a superseded load's backstop stands down for the newer one's.
+                webView.postDelayed({
+                    if (webView.settleToken === settleToken && webView.parent != null && heightPx <= 0) {
+                        heightPx = webView.contentRangePx().coerceAtLeast(webView.height).coerceAtLeast(1)
+                    }
+                }, HEIGHT_REPORT_BACKSTOP_MS)
             }
         },
     )
@@ -2303,7 +2501,8 @@ private class BlockingWebViewClient : WebViewClient() {
     /** Reports the final (possibly cleaned) URL to open; the composable decides how. */
     var onOpenUrl: (Uri) -> Unit = {}
 
-    /** Reports the rendered content height (Android px) so the view can size to it. */
+    /** Reports the rendered content height (Android px). The host does not size anything from
+     *  it — it uses it purely as "the body has laid out, reveal it" (see [BodyReveal]). */
     var onContentHeight: (Int) -> Unit = {}
 
     override fun onPageFinished(view: WebView?, url: String?) {
@@ -2324,21 +2523,20 @@ private class BlockingWebViewClient : WebViewClient() {
             val px = (wv as? BodyWebView)?.contentRangePx()
                 ?: (wv.contentHeight * wv.resources.displayMetrics.density).toInt()
             if (px > maxSeen) maxSeen = px
-            if (px > 0 && px == last) {
-                onContentHeight(px)
-                return
+            // Some bodies (deeply nested tables + inline images) never settle — the range
+            // oscillates between several values in a relayout loop. Reporting the LAST reading
+            // could pin a too-short height and cut off the tail; the cap reports the TALLEST seen
+            // so the whole body fits (and is correctly scrollable). A little trailing slack is
+            // harmless; lost content is not. And the cap ALWAYS reports, even when every reading
+            // was zero (see [BodyReveal]): this poll is the only thing that reveals the body, so
+            // giving up silently hid the mail for good.
+            when (val step = BodyReveal.step(px, last, maxSeen, triesLeft, wv.height)) {
+                is HeightPoll.Report -> onContentHeight(step.px)
+                HeightPoll.Retry -> {
+                    last = px
+                    wv.postDelayed({ poll(triesLeft - 1) }, 32)
+                }
             }
-            if (triesLeft <= 0) {
-                // Some bodies (deeply nested tables + inline images) never settle — the range
-                // oscillates between several values in a relayout loop. Reporting the LAST reading
-                // could pin a too-short height and cut off the tail; report the TALLEST seen so the
-                // whole body fits (and is correctly scrollable). A little trailing slack is harmless;
-                // lost content is not.
-                if (maxSeen > 0) onContentHeight(maxSeen)
-                return
-            }
-            last = px
-            wv.postDelayed({ poll(triesLeft - 1) }, 32)
         }
         wv.post { last = -1; maxSeen = 0; poll(30) }
     }
@@ -2676,17 +2874,12 @@ internal fun reflowFormatFlowed(text: String): String {
     return sb.toString()
 }
 
-private val fullFormatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", appLocale)
+// Date formatting lives in [MailDates] — the composer writes the same formatted date into a reply's
+// attribution and a forward's header, and the two must not drift.
+private fun formatFull(iso: String?): String = MailDates.formatFull(iso)
 
-private fun formatFull(iso: String?): String = formatWith(iso, fullFormatter)
-
-private fun formatWith(iso: String?, formatter: DateTimeFormatter): String {
-    if (iso.isNullOrBlank()) return ""
-    val instant = runCatching { Instant.parse(iso) }
-        .recoverCatching { OffsetDateTime.parse(iso).toInstant() }
-        .getOrNull() ?: return ""
-    return instant.atZone(ZoneId.systemDefault()).format(formatter)
-}
+private fun formatWith(iso: String?, formatter: DateTimeFormatter): String =
+    MailDates.formatWith(iso, formatter)
 
 /** Snooze presets → (label, epoch-millis), computed in the device's time zone. */
 /** Snooze presets (label → epoch-millis). Shared by the message view and the inbox selection menu. */

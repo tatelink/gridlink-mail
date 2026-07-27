@@ -46,6 +46,13 @@ data class StoredAccount(
      */
     val serverIdentities: List<StoredIdentity> = emptyList(),
     /**
+     * The user-chosen default sending identity, keyed by [StoredIdentity.id] (stable, so it
+     * survives the identity list being reordered by server discovery on connect). null = no
+     * explicit choice; the composer then falls back to the first resolved identity. An id that
+     * no longer matches any resolved identity also degrades to the first (see [AccountStore]).
+     */
+    val defaultIdentityId: String? = null,
+    /**
      * True for a freshly imported account (K-9 / backup) that still needs its one-time sign-in.
      * Drives the "accounts to sign in" list; cleared once the user signs it in or dismisses it.
      * The account stays inert (no stored credential) until sign-in regardless of this flag.
@@ -82,9 +89,13 @@ data class StoredAccount(
     fun label(): String = accountName.ifBlank { username }
 
     /**
-     * Identities to send as. Server-provided identities come first (the server decides
-     * what you may send as), with any manually-configured ones merged on top, deduped by
-     * address. Falls back to a single default derived from the account when none exist.
+     * Identities to send as: the merge of manual [identities] and server-discovered
+     * [serverIdentities], deduped by address. Manual identities come FIRST so a manual
+     * entry with the same address as a server one wins (lets the user customise the name
+     * or signature of a server address). Pristine server addresses with no manual override
+     * still appear, and self-correct when the server later drops them (they are never
+     * frozen into [identities] on save). Falls back to a single default derived from the
+     * account when both lists are empty.
      *
      * A linked sub-account can't fetch server identities (Identity/get is member-only —
      * "You are not an owner", issue #31) and its [username] is the LOGIN's address, so the
@@ -94,17 +105,71 @@ data class StoredAccount(
      * [AccountStore.identities] can fall back to the login's identities.
      */
     fun resolvedIdentities(): List<StoredIdentity> =
-        (serverIdentities + identities)
+        (identities + serverIdentities)
             .distinctBy { it.email.trim().lowercase() }
             .ifEmpty {
                 if (isLinked) {
+                    // A delegated sub-account has no signature of its own to split: all we can
+                    // trust here is the address the session advertises for it (issue #31).
                     listOfNotNull(
                         accountName.trim()
                             .takeIf { it.matches(Regex("[^@\\s]+@[^@\\s]+")) }
                             ?.let { StoredIdentity(id = "delegated", name = "", email = it) },
                     )
                 } else {
-                    listOf(StoredIdentity(id = "default", name = accountName, email = username, signature = signature))
+                    // The legacy account-level signature may itself be raw HTML (it seeded the old
+                    // "Import HTML" field), so split it like any other: plain text for the composer,
+                    // HTML for the outgoing html alternative.
+                    listOf(
+                        StoredIdentity(id = "default", name = accountName, email = username, signature = signature)
+                            .withSplitSignature(),
+                    )
                 }
             }
+
+    /**
+     * The identity to pre-select when composing: the one matching [defaultIdentityId], or the first
+     * resolved identity when no default is set or its id no longer exists among current identities
+     * (so it degrades gracefully after a server-driven identity refresh).
+     */
+    fun defaultIdentity(): StoredIdentity? {
+        val resolved = resolvedIdentities()
+        return resolved.firstOrNull { it.id == defaultIdentityId } ?: resolved.firstOrNull()
+    }
+
+    companion object {
+        /**
+         * Heal the MANUAL identity list of pollution left by the old merge-on-save fold (which
+         * wrote the merged server+manual list back into the manual field on every Save, so server
+         * identities piled up as frozen copies and byte-identical rows accumulated). Pure and
+         * order-preserving so the editor can seed with it and Save can persist the cleaned result:
+         *  1. collapse byte-identical duplicates, keyed by (email, name, signature, signatureHtml);
+         *  2. drop a manual entry that matches a server identity on email AND name AND both
+         *     signatures (a frozen copy — not an intentional override). A manual entry sharing only
+         *     the email but differing in name or signature is a genuine override and is kept (it
+         *     still wins over the server one in [resolvedIdentities]).
+         */
+        fun normalizeManualIdentities(
+            manual: List<StoredIdentity>,
+            server: List<StoredIdentity>,
+        ): List<StoredIdentity> {
+            // The html signature is part of the key: two identities that differ only by it are
+            // genuinely different, and must not be folded into one.
+            fun key(i: StoredIdentity) =
+                listOf(i.email.trim().lowercase(), i.name, i.signature, i.signatureHtml)
+            val serverKeys = server.map(::key).toSet()
+            return manual
+                .filterNot { key(it) in serverKeys }
+                .distinctBy(::key)
+        }
+
+        /**
+         * Server identities deduped by address for DISPLAY, keeping the first occurrence. Some
+         * servers return byte-identical duplicates from JMAP Identity/get; [resolvedIdentities]
+         * already collapses them by email, so the editor's read-only server group must do the same
+         * to stay consistent with the composer's From picker. Genuinely distinct addresses stay.
+         */
+        fun distinctServerIdentities(server: List<StoredIdentity>): List<StoredIdentity> =
+            server.distinctBy { it.email.trim().lowercase() }
+    }
 }

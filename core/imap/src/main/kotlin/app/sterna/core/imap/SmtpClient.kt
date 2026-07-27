@@ -146,7 +146,9 @@ class SmtpClient {
     private fun buildMime(m: OutgoingMessage): String = OutgoingMime.build(m)
 
     private fun addressOnly(address: String): String {
-        val lt = address.indexOf('<')
+        // Use the LAST '<' so a display name that itself contains '<' (e.g. a quoted phrase)
+        // can't hijack the envelope address; the real addr-spec is the final <...>.
+        val lt = address.lastIndexOf('<')
         return if (lt >= 0) address.substring(lt + 1).substringBefore('>').trim() else address.trim()
     }
 
@@ -168,7 +170,9 @@ object OutgoingMime {
         ).format(DateTimeFormatter.RFC_1123_DATE_TIME)
         return buildString {
             append("From: ${headerSafe(m.from)}\r\n")
-            append("To: ${m.to.joinToString(", ") { headerSafe(it) }}\r\n")
+            // A draft may have no recipient yet (#69); an empty "To:" header is malformed, so omit
+            // it entirely. A real send always has recipients, so this only affects saved drafts.
+            if (m.to.isNotEmpty()) append("To: ${m.to.joinToString(", ") { headerSafe(it) }}\r\n")
             if (m.cc.isNotEmpty()) append("Cc: ${m.cc.joinToString(", ") { headerSafe(it) }}\r\n")
             append("Subject: ${encodeHeader(m.subject)}\r\n")
             append("Date: $date\r\n")
@@ -307,4 +311,33 @@ object OutgoingMime {
         } else {
             "=?utf-8?B?${Base64.getEncoder().encodeToString(value.toByteArray(Charsets.UTF_8))}?="
         }
+
+    /** RFC 5322 "specials": their presence in a display name forces a quoted-string. */
+    private val ADDRESS_SPECIALS = "()<>[]:;@\\,.\"".toSet()
+
+    /**
+     * Build a header-correct RFC 5322 mailbox from a display name + address: the bare
+     * [address] when there is no name, otherwise `phrase <address>`. The phrase is emitted
+     * as a bare atom when it is plain ASCII with no specials, as a quoted-string when it
+     * holds ASCII specials or edge whitespace (escaping `\` first, then `"`), or as an
+     * RFC 2047 encoded-word when it is non-ASCII. The result is already quoted/encoded as
+     * needed, so callers must NOT quote or RFC 2047-encode it again (no double-encoding);
+     * running [headerSafe] over the whole value stays fine as encoded-words and
+     * quoted-strings are plain ASCII.
+     */
+    fun formatAddress(name: String?, address: String): String {
+        if (name.isNullOrBlank()) return address
+        return "${encodePhrase(name)} <$address>"
+    }
+
+    /** Encode a display-name phrase as atom / quoted-string / RFC 2047 encoded-word. */
+    private fun encodePhrase(phrase: String): String = when {
+        // Non-ASCII (or control chars) -> RFC 2047 encoded-word, itself a valid atom.
+        phrase.any { it.code !in 32..126 } -> encodeHeader(phrase)
+        // ASCII specials or leading/trailing space -> quoted-string (escape \ then ").
+        phrase.any { it in ADDRESS_SPECIALS } || phrase != phrase.trim() ->
+            "\"" + phrase.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        // Plain atom(s) -> unchanged.
+        else -> phrase
+    }
 }

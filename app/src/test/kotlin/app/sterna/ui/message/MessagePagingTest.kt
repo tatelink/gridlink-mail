@@ -1,6 +1,8 @@
 package app.sterna.ui.message
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MessagePagingTest {
@@ -29,6 +31,35 @@ class MessagePagingTest {
     @Test fun `null gaps in the loaded window are skipped when matching`() {
         val withGaps = listOf<String?>(null, "b", null, "d")
         assertEquals(3, MessagePaging.resolveInitialPage(withGaps, anchorId = "d", fallbackIndex = 0))
+    }
+
+    // --- hasPrevious / hasNext: the position line's chevrons (Codeberg #13) ---
+
+    @Test fun `both chevrons are live in the middle of a conversation`() {
+        assertTrue(MessagePaging.hasPrevious(page = 1, pageCount = 3))
+        assertTrue(MessagePaging.hasNext(page = 1, pageCount = 3))
+    }
+
+    @Test fun `the first message greys out the previous chevron only`() {
+        assertFalse(MessagePaging.hasPrevious(page = 0, pageCount = 3))
+        assertTrue(MessagePaging.hasNext(page = 0, pageCount = 3))
+    }
+
+    @Test fun `the last message greys out the next chevron only`() {
+        assertTrue(MessagePaging.hasPrevious(page = 2, pageCount = 3))
+        assertFalse(MessagePaging.hasNext(page = 2, pageCount = 3))
+    }
+
+    @Test fun `a two-message conversation is live at both ends in turn`() {
+        assertFalse(MessagePaging.hasPrevious(page = 0, pageCount = 2))
+        assertTrue(MessagePaging.hasNext(page = 0, pageCount = 2))
+        assertTrue(MessagePaging.hasPrevious(page = 1, pageCount = 2))
+        assertFalse(MessagePaging.hasNext(page = 1, pageCount = 2))
+    }
+
+    @Test fun `a lone message has nowhere to go in either direction`() {
+        assertFalse(MessagePaging.hasPrevious(page = 0, pageCount = 1))
+        assertFalse(MessagePaging.hasNext(page = 0, pageCount = 1))
     }
 
     // --- mergeEntries: the reading session's sticky entry list ---

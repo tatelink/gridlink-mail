@@ -6,6 +6,16 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+// Side-by-side test app: build any variant with -PtestApp to get `app.sterna.test`, a separate
+// package that installs NEXT TO the production app instead of overwriting it (own data, own
+// launcher entry). On-device checks go through it, so production stays the Obtainium-tracked
+// install and version codes are never inflated just to reinstall.
+//
+// The property is absent by default and everything below is gated on it, so the production
+// recipe is untouched: same applicationId, same versionName, same resources, same merged
+// manifest. F-Droid rebuilds this repo without the property and must get the same bytes.
+val testApp = providers.gradleProperty("testApp").isPresent
+
 android {
     namespace = "app.sterna"
     compileSdk = 36
@@ -14,12 +24,32 @@ android {
         applicationId = "app.sterna"
         minSdk = 26
         targetSdk = 36
-        versionCode = 156
-        versionName = "1.3.10"
+        versionCode = 159
+        versionName = "1.3.13"
         // Shown on the Settings About row. Bump alongside versionCode/versionName at each
         // release (a static literal, so builds stay reproducible — never derive from clock).
-        buildConfigField("String", "VERSION_DATE", "\"2026-07-24\"")
+        buildConfigField("String", "VERSION_DATE", "\"2026-07-26\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // The launcher/settings/notification label. Substituted verbatim into the manifest,
+        // so without -PtestApp the merged manifest still reads android:label="@string/app_name"
+        // (localised as before).
+        manifestPlaceholders["appLabel"] = "@string/app_name"
+        if (testApp) {
+            applicationIdSuffix = ".test"
+            manifestPlaceholders["appLabel"] = "Sterna (test)"
+            // About row reads e.g. "1.3.13-test": tells the two apart from the inside.
+            // A suffix only — versionName/versionCode themselves are never bumped for a test.
+            versionNameSuffix = "-test"
+        }
+    }
+
+    // Distinct launcher icon for the test app: one drawable overriding the adaptive icon's
+    // background layer (the tern silhouette and monochrome layer are untouched). Registered on
+    // the build-type source sets only under -PtestApp — build-type resources win over main —
+    // so the production build never sees src/testApp/res at all.
+    if (testApp) {
+        sourceSets.getByName("debug").res.srcDir("src/testApp/res")
+        sourceSets.getByName("release").res.srcDir("src/testApp/res")
     }
 
     // Reproducible builds: the compiled ART baseline profile (assets/dexopt/baseline.prof)

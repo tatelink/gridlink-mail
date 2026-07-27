@@ -32,6 +32,32 @@ internal fun recordRecipients(accountId: String, id: String, to: List<EmailAddre
     if (to.isNotEmpty()) recentRecipients["$accountId\u0000$id"] = to
 }
 
+/**
+ * The `$draft` keyword of cached list rows, kept in memory only — the `emails` table stores just
+ * `seen`/`flagged`, so a column would mean a schema bump. Recorded whenever a live fetch passes
+ * through [toEntity], replayed by [toEmail] so a trashed draft can still be flagged "(Draft)" in
+ * the list (#69). After process death a row falls back to no flag until the folder's next refresh —
+ * the same lifecycle as the remembered recipients above.
+ */
+private val recentDrafts: MutableSet<String> = Collections.synchronizedSet(
+    Collections.newSetFromMap(
+        object : LinkedHashMap<String, Boolean>(64, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>): Boolean =
+                size > RECIPIENTS_MAX
+        },
+    ),
+)
+
+/** Remember whether [accountId]'s email [id] is a draft, so [toEmail] can replay the `$draft`
+ *  keyword. Keyed by (accountId, id) like the recipients above: JMAP ids are unique only within
+ *  their account (issue #31), so a bare id would flag a sibling account's message as a draft. */
+internal fun recordDraft(accountId: String, id: String, isDraft: Boolean) {
+    val key = draftKey(accountId, id)
+    if (isDraft) recentDrafts.add(key) else recentDrafts.remove(key)
+}
+
+private fun draftKey(accountId: String, id: String) = "$accountId\u0000$id"
+
 /** Map a grouped conversation row to the domain [InboxRow] (unread = any in thread). */
 internal fun ConversationRow.toInboxRow(): InboxRow =
     InboxRow(
@@ -43,8 +69,9 @@ internal fun ConversationRow.toInboxRow(): InboxRow =
 
 internal fun Email.toEntity(accountId: String, mailboxId: String): EmailEntity {
     val sender = from.firstOrNull()
-    // Recipients don't fit the row schema — remember them aside for [toEmail] to replay.
+    // Recipients and the draft flag don't fit the row schema — remember them aside for [toEmail].
     recordRecipients(accountId, id, to)
+    recordDraft(accountId, id, isDraft)
     return EmailEntity(
         id = id,
         accountId = accountId,
@@ -80,6 +107,7 @@ internal fun EmailEntity.toEmail(): Email = Email(
     keywords = buildMap {
         if (seen) put("\$seen", true)
         if (flagged) put("\$flagged", true)
+        if (draftKey(accountId, id) in recentDrafts) put("\$draft", true)
     },
 )
 
@@ -126,6 +154,7 @@ internal fun FtsHit.toEmail(): Email = Email(
     keywords = buildMap {
         if (seen) put("\$seen", true)
         if (flagged) put("\$flagged", true)
+        if (draftKey(accountId, emailId) in recentDrafts) put("\$draft", true)
     },
 )
 
