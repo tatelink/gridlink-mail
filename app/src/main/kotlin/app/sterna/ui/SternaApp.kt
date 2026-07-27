@@ -237,11 +237,30 @@ private fun MainNavHost(
                 "&subject=${Uri.encode(m.subject)}&body=${Uri.encode(m.body)}",
         )
     }
+    // The inbox's own ViewModel — the very instance the inbox screen and the reader share — so
+    // the notification path can ask what the list behind is currently showing. Deliberately NOT
+    // remembered and NOT collected as state: it is looked up afresh on each recomposition (a
+    // notification arriving recomposes this, since it flows in as [pendingEmailOpen]) and read
+    // imperatively inside the effect, so it neither subscribes this host to every list update
+    // nor caches a stale answer. Null only until the NavHost has composed its start destination,
+    // i.e. the first composition of a cold start — where the list is a plain folder anyway (the
+    // unified selection is not restored across a process death).
+    val listHostEntry = runCatching { nav.getBackStackEntry("inbox") }.getOrNull()
+    val listViewModel: InboxViewModel? = listHostEntry?.let { viewModel(it) }
     // A tapped new-mail notification opens that specific message, standalone (no list paging),
     // even when the app was already running (Codeberg #17 follow-up). Same consume-once pattern.
+    // Opening it also makes the message's own account current (issue #31 follow-up), so Back
+    // returns to the mailbox that was just read instead of another account's — see
+    // [NotificationAccountSwitch] for when that switch is deliberately skipped.
     LaunchedEffect(pendingEmailOpen) {
         val target = pendingEmailOpen ?: return@LaunchedEffect
         onEmailOpenConsumed()
+        NotificationAccountSwitch.resolve(
+            notificationAccountId = target.accountId,
+            currentAccountId = currentAccountId,
+            knownAccountIds = accounts.map { it.id },
+            unifiedView = listViewModel?.state?.value?.unified == true,
+        )?.let(onSwitchAccount)
         nav.navigate(
             "message/${Uri.encode(target.emailId)}?accountId=${Uri.encode(target.accountId.orEmpty())}",
         )
