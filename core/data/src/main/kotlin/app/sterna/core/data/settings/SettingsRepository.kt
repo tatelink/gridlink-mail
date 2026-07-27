@@ -168,6 +168,18 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_SIGNATURE_BELOW_QUOTE] = enabled }
     }
 
+    /** Whether the composer puts the standard "-- " delimiter line above the signature. ON by
+     *  default: that line is what other mail apps recognise a signature by, so it stays there
+     *  unless the user says otherwise. Turned off, the signature field holds EXACTLY what goes
+     *  into the message, so any separator — or none at all — can be typed there (Codeberg #90).
+     *  Independent of [signatureOnReplies] and [signatureBelowQuote]: those say when and where
+     *  the signature is inserted, this one says what the block looks like. */
+    val signatureDelimiter: Flow<Boolean> = dataStore.data.map { it[KEY_SIGNATURE_DELIMITER] ?: true }
+
+    suspend fun setSignatureDelimiter(enabled: Boolean) {
+        dataStore.edit { it[KEY_SIGNATURE_DELIMITER] = enabled }
+    }
+
     /** Reading text size for the message body. */
     val messageTextSize: Flow<MessageTextSize> = dataStore.data.map { prefs ->
         prefs[KEY_MESSAGE_TEXT_SIZE]?.let { runCatching { MessageTextSize.valueOf(it) }.getOrNull() }
@@ -278,6 +290,7 @@ class SettingsRepository(context: Context) {
         unarchiveOnReply = unarchiveOnReply.first(),
         signatureOnReplies = signatureOnReplies.first(),
         signatureBelowQuote = signatureBelowQuote.first(),
+        signatureDelimiter = signatureDelimiter.first(),
         deliveryMode = deliveryMode.first().name,
         notificationContent = notificationContent.first().name,
     )
@@ -306,6 +319,7 @@ class SettingsRepository(context: Context) {
         backup.unarchiveOnReply?.let { setUnarchiveOnReply(it) }
         backup.signatureOnReplies?.let { setSignatureOnReplies(it) }
         backup.signatureBelowQuote?.let { setSignatureBelowQuote(it) }
+        backup.signatureDelimiter?.let { setSignatureDelimiter(it) }
         backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
         backup.notificationContent?.let { v -> runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }
     }
@@ -368,6 +382,7 @@ class SettingsRepository(context: Context) {
         private val KEY_UNARCHIVE_ON_REPLY = booleanPreferencesKey("unarchive_on_reply")
         private val KEY_SIGNATURE_ON_REPLIES = booleanPreferencesKey("signature_on_replies")
         private val KEY_SIGNATURE_BELOW_QUOTE = booleanPreferencesKey("signature_below_quote")
+        private val KEY_SIGNATURE_DELIMITER = booleanPreferencesKey("signature_delimiter")
         private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         private val KEY_HAS_SEEN_WELCOME = booleanPreferencesKey("has_seen_welcome")

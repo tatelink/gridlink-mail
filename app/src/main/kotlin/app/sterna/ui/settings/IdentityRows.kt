@@ -58,9 +58,13 @@ internal fun signatureStateOf(signature: String, signatureHtml: String): Signatu
  * (#90). This is the answer to that: show it, store nothing. Derived from [signatureBlock] itself
  * (minus the blank line that separates the block from the message above it), so the preview and the
  * real thing cannot drift apart.
+ *
+ * [delimiter] is the "Separator line above the signature" setting: with it off the app adds nothing
+ * and the preview is the signature alone, which is precisely what will be sent. Keeping the preview
+ * derived from [signatureBlock] is what makes that true by construction rather than by agreement.
  */
-internal fun signaturePreview(signature: String): String? =
-    signatureBlock(signature).trimStart('\n').takeIf { it.isNotEmpty() }
+internal fun signaturePreview(signature: String, delimiter: Boolean): String? =
+    signatureBlock(signature, delimiter).trimStart('\n').takeIf { it.isNotEmpty() }
 
 /**
  * Whether [signature] already opens with a delimiter line of its own — the typed "-- " that the
@@ -72,8 +76,12 @@ internal fun signaturePreview(signature: String): String? =
  * TRIMMED signature, exactly as [signatureBlock] builds it, so a delimiter typed under a blank line
  * — which the block strips, leaving the two delimiters adjacent — is caught too. A trailing space
  * makes no difference either: "--" alone is the same duplicate as the full "-- ".
+ *
+ * With [delimiter] off the app adds none of its own, so there is nothing to stack and nothing to
+ * warn about: a typed "-- " is then simply the separator the user chose (#90).
  */
-internal fun signatureHasOwnDelimiter(signature: String): Boolean {
+internal fun signatureHasOwnDelimiter(signature: String, delimiter: Boolean): Boolean {
+    if (!delimiter) return false
     val first = signature.trim().lineSequence().firstOrNull() ?: return false
     return first.trimEnd() == SIGNATURE_DELIMITER.trimEnd()
 }

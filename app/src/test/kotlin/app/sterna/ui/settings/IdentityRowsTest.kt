@@ -88,37 +88,59 @@ class IdentityRowsTest {
     // --- The "-- " delimiter is shown, never stored (#90) --------------------------------------
 
     @Test fun thePreviewShowsTheDelimiterTheFieldDoesNotHold() {
-        assertEquals("-- \nAlex Rivera\nAcme", signaturePreview("Alex Rivera\nAcme"))
+        assertEquals("-- \nAlex Rivera\nAcme", signaturePreview("Alex Rivera\nAcme", delimiter = true))
     }
 
     @Test fun aBlankSignatureHasNothingToPreview() {
-        assertNull(signaturePreview(""))
-        assertNull(signaturePreview("   \n \n "))
+        assertNull(signaturePreview("", delimiter = true))
+        assertNull(signaturePreview("   \n \n ", delimiter = true))
+        assertNull(signaturePreview("", delimiter = false))
+        assertNull(signaturePreview("   \n \n ", delimiter = false))
     }
 
     @Test fun thePreviewIsExactlyWhatTheComposerWillInsert() {
         // The one thing that must not drift: what is shown here is the block the composer appends,
-        // minus only the blank line that separates it from the message above.
+        // minus only the blank line that separates it from the message above. True in BOTH
+        // positions of the delimiter switch — the preview is derived from the same function.
         val signature = "Alex Rivera\nAcme"
-        val body = bodyWithSignature(quoted = "", signature = signature)
-        assertEquals("\n\n" + signaturePreview(signature), body)
-        assertTrue(body.endsWith(signaturePreview(signature)!!))
+        for (delimiter in listOf(true, false)) {
+            val body = bodyWithSignature(quoted = "", signature = signature, delimiter = delimiter)
+            assertEquals("\n\n" + signaturePreview(signature, delimiter), body)
+            assertTrue(body.endsWith(signaturePreview(signature, delimiter)!!))
+        }
     }
 
     @Test fun aDelimiterTypedByHandIsShownDoubled() {
         // Not stripped — the field holds the user's own text — but the preview makes it plain.
-        assertEquals("-- \n-- \nAlex Rivera", signaturePreview("-- \nAlex Rivera"))
-        assertTrue(signatureHasOwnDelimiter("-- \nAlex Rivera"))
+        assertEquals("-- \n-- \nAlex Rivera", signaturePreview("-- \nAlex Rivera", delimiter = true))
+        assertTrue(signatureHasOwnDelimiter("-- \nAlex Rivera", delimiter = true))
         // Without the trailing space, and under a stray blank line the block would strip anyway.
-        assertTrue(signatureHasOwnDelimiter("--\nAlex Rivera"))
-        assertTrue(signatureHasOwnDelimiter("\n\n-- \nAlex Rivera"))
+        assertTrue(signatureHasOwnDelimiter("--\nAlex Rivera", delimiter = true))
+        assertTrue(signatureHasOwnDelimiter("\n\n-- \nAlex Rivera", delimiter = true))
     }
 
     @Test fun ordinaryDashesAreNotADuplicateDelimiter() {
-        assertFalse(signatureHasOwnDelimiter("Alex Rivera\n-- \nAcme"))
-        assertFalse(signatureHasOwnDelimiter("---------- Acme ----------"))
-        assertFalse(signatureHasOwnDelimiter("--- Alex"))
-        assertFalse(signatureHasOwnDelimiter("Alex Rivera"))
-        assertFalse(signatureHasOwnDelimiter(""))
+        assertFalse(signatureHasOwnDelimiter("Alex Rivera\n-- \nAcme", delimiter = true))
+        assertFalse(signatureHasOwnDelimiter("---------- Acme ----------", delimiter = true))
+        assertFalse(signatureHasOwnDelimiter("--- Alex", delimiter = true))
+        assertFalse(signatureHasOwnDelimiter("Alex Rivera", delimiter = true))
+        assertFalse(signatureHasOwnDelimiter("", delimiter = true))
+    }
+
+    // --- The delimiter switched off (#90) ------------------------------------------------------
+
+    @Test fun withTheDelimiterOffThePreviewIsTheSignatureAlone() {
+        assertEquals("Alex Rivera\nAcme", signaturePreview("Alex Rivera\nAcme", delimiter = false))
+        // Whatever separator was typed into the field is shown, and only it.
+        assertEquals("__\nAlex Rivera", signaturePreview("__\nAlex Rivera", delimiter = false))
+    }
+
+    @Test fun withTheDelimiterOffThereIsNoDuplicateToWarnAbout() {
+        // A typed "-- " is then the user's chosen separator, not a second copy of the app's: the
+        // preview shows one line and the warning has nothing left to say.
+        assertEquals("-- \nAlex Rivera", signaturePreview("-- \nAlex Rivera", delimiter = false))
+        assertFalse(signatureHasOwnDelimiter("-- \nAlex Rivera", delimiter = false))
+        assertFalse(signatureHasOwnDelimiter("--\nAlex Rivera", delimiter = false))
+        assertFalse(signatureHasOwnDelimiter("\n\n-- \nAlex Rivera", delimiter = false))
     }
 }

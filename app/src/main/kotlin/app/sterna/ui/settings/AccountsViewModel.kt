@@ -35,6 +35,14 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     private val storage = application.container.storageRepository
     private val mail = application.container.mailRepository
     private val pgp = application.container.pgpEngine
+    private val settings = application.container.settingsRepository
+
+    /** The "Separator line above the signature" setting (#90), so the identity editor's signature
+     *  preview shows what the composer will actually write — with the "-- " line or without it.
+     *  Read here rather than in the composable: the preview must never claim a shape the composer
+     *  does not produce. */
+    val signatureDelimiter: StateFlow<Boolean> = settings.signatureDelimiter
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
     /** Live from the store, not a snapshot refreshed after this screen's own edits: the same
      *  screen also has to follow writes it did not make — discovery adding or pruning a shared

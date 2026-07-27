@@ -338,9 +338,18 @@ internal const val SIGNATURE_DELIMITER = "-- "
 /**
  * The block a [signature] occupies in a body: a blank line, the delimiter line, then the signature
  * itself. Empty for a blank signature, so every caller can concatenate unconditionally.
+ *
+ * [delimiter] is the "Separator line above the signature" setting (#90), on by default. Turned off,
+ * the block is the blank line and the signature alone: the signature field then holds EXACTLY what
+ * goes into the message, so whoever wants "__", a rule, or nothing at all types it there. The
+ * setting governs what is WRITTEN; both shapes are still recognised when reading a body back (see
+ * [signatureBlockAt]).
  */
-internal fun signatureBlock(signature: String): String =
-    if (signature.isBlank()) "" else "\n\n$SIGNATURE_DELIMITER\n${signature.trim()}"
+internal fun signatureBlock(signature: String, delimiter: Boolean): String = when {
+    signature.isBlank() -> ""
+    delimiter -> "\n\n$SIGNATURE_DELIMITER\n${signature.trim()}"
+    else -> "\n\n${signature.trim()}"
+}
 
 /**
  * The composer's initial body: the [quoted] original (empty for a new message) with the signature
@@ -351,8 +360,9 @@ internal fun bodyWithSignature(
     quoted: String,
     signature: String,
     signatureBelowQuote: Boolean = false,
+    delimiter: Boolean,
 ): String {
-    val block = signatureBlock(signature)
+    val block = signatureBlock(signature, delimiter)
     if (block.isEmpty()) return quoted
     return if (signatureBelowQuote) quoted + block else block + quoted
 }
@@ -374,8 +384,9 @@ internal fun insertSignatureBlock(
     signature: String,
     quoted: String = "",
     signatureBelowQuote: Boolean = false,
+    delimiter: Boolean,
 ): String {
-    val block = signatureBlock(signature)
+    val block = signatureBlock(signature, delimiter)
     if (block.isEmpty()) return body
     if (signatureBelowQuote || quoted.isEmpty() || !body.endsWith(quoted)) return body + block
     return body.dropLast(quoted.length) + block + quoted
@@ -386,24 +397,52 @@ internal fun insertSignatureBlock(
  * not there verbatim, which means the user edited (or deleted) it and their text must be left
  * alone. Used when the "From" identity changes mid-composition (D5). A blank [oldSignature] has no
  * block to match: that case is [insertSignatureBlock]'s, not this one's.
+ *
+ * The old block is looked up in BOTH shapes ([signatureBlockAt]); the new one is written in the
+ * shape [delimiter] asks for, so after the swap the body reads exactly as a composer opened today
+ * would have written it.
  */
-internal fun replaceSignatureBlock(body: String, oldSignature: String, newSignature: String): String? {
-    val at = signatureBlockIndex(body, oldSignature)
-    if (at < 0) return null
-    val end = at + signatureBlock(oldSignature).length
-    return body.substring(0, at) + signatureBlock(newSignature) + body.substring(end)
+internal fun replaceSignatureBlock(
+    body: String,
+    oldSignature: String,
+    newSignature: String,
+    delimiter: Boolean,
+): String? {
+    val found = signatureBlockAt(body, oldSignature, delimiter) ?: return null
+    return body.substring(0, found.start) +
+        signatureBlock(newSignature, delimiter) +
+        body.substring(found.end)
 }
 
+/** Where a signature block was found in a body, and in which shape it was written. */
+private data class SignatureBlockMatch(val start: Int, val end: Int, val withDelimiter: Boolean)
+
 /**
- * Where [signature]'s block sits in [body] verbatim, or -1 when it does not. The LAST occurrence
+ * Where [signature]'s block sits in [body] verbatim, or null when it does not. The LAST occurrence
  * wins, so a reply quoting an older message that ended with the same signature swaps the live block
  * at the bottom, not the quoted copy above it. The block must also END on a line boundary: text
  * appended to its last line ("Acme (mobile)") means the user edited it, and an edited signature is
  * never rewritten nor swapped for its stored HTML.
+ *
+ * BOTH shapes are recognised — with and without the delimiter line — whatever the setting currently
+ * says (#90). A draft written with the delimiter and reopened after the setting was turned off (or
+ * the reverse) would otherwise stop being found, and the two features built on this lookup would go
+ * quiet without a word: the identity swap would decline every time ("the user edited it"), and the
+ * imported HTML signature would stop being substituted into the html alternative. The shape named
+ * by [delimiter] is tried FIRST, so an ambiguous body resolves to what the composer writes today.
  */
-private fun signatureBlockIndex(body: String, signature: String): Int {
-    val block = signatureBlock(signature)
-    if (block.isEmpty()) return -1
+private fun signatureBlockAt(body: String, signature: String, delimiter: Boolean): SignatureBlockMatch? {
+    for (withDelimiter in listOf(delimiter, !delimiter)) {
+        val block = signatureBlock(signature, withDelimiter)
+        if (block.isEmpty()) return null
+        val at = lastBlockIndex(body, block)
+        if (at >= 0) return SignatureBlockMatch(at, at + block.length, withDelimiter)
+    }
+    return null
+}
+
+/** The last occurrence of [block] in [body] that ends on a line boundary, or -1. */
+private fun lastBlockIndex(body: String, block: String): Int {
     var at = body.lastIndexOf(block)
     while (at >= 0) {
         val end = at + block.length
@@ -419,14 +458,24 @@ private fun signatureBlockIndex(body: String, signature: String): Int {
  * ([signatureHtml]) AND the plain [signature]'s block is still in the body untouched, that block —
  * and only it — is replaced by the HTML version, so the recipient gets the formatted signature.
  * Once the user edits the block, their text wins in both alternatives (WYSIWYG beats fidelity).
+ *
+ * The delimiter line is emitted only when the block found in the body actually carries one — which,
+ * for a body the composer just built, is exactly what [delimiter] says. Mirroring the body rather
+ * than the setting is deliberate: the two alternatives of one message must say the same thing, and
+ * a body written before the setting was flipped still holds the other shape (#90).
  */
-internal fun htmlBodyWithSignature(body: String, signature: String, signatureHtml: String): String {
+internal fun htmlBodyWithSignature(
+    body: String,
+    signature: String,
+    signatureHtml: String,
+    delimiter: Boolean,
+): String {
     if (signatureHtml.isBlank()) return htmlEscapeMultiline(body)
-    val at = signatureBlockIndex(body, signature)
-    if (at < 0) return htmlEscapeMultiline(body)
-    return htmlEscapeMultiline(body.substring(0, at)) +
-        "<br><br>$SIGNATURE_DELIMITER<br>" + signatureHtml.trim() +
-        htmlEscapeMultiline(body.substring(at + signatureBlock(signature).length))
+    val found = signatureBlockAt(body, signature, delimiter) ?: return htmlEscapeMultiline(body)
+    val head = if (found.withDelimiter) "<br><br>$SIGNATURE_DELIMITER<br>" else "<br><br>"
+    return htmlEscapeMultiline(body.substring(0, found.start)) +
+        head + signatureHtml.trim() +
+        htmlEscapeMultiline(body.substring(found.end))
 }
 
 // --- Reply / reply-all / forward header derivation (pure, so it works from a cached list row) ---

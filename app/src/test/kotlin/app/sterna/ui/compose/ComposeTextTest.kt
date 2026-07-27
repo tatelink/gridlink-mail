@@ -282,7 +282,7 @@ class ComposeTextTest {
     // The #83 trap: the body a mailto: link opens on already holds the signature, so the caret
     // must be at the very top or the user types under their own signature.
     @Test fun mailtoBodyStartsAboveTheSignature() {
-        val body = "" + signatureBlock("Alex\nAcme")
+        val body = "" + signatureBlock("Alex\nAcme", delimiter = true)
         assertEquals(0, initialBodyCaret(bodyLength = body.length, focus = ComposeFocus.BODY, isDraft = false))
     }
 

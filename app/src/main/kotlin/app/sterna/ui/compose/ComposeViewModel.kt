@@ -80,8 +80,16 @@ data class FromOption(val accountId: String, val identity: StoredIdentity)
  * new identity's signature is [Insert]ed where the prefill would have put it.
  */
 sealed interface SignatureChange {
-    data class Swap(val from: String, val to: String) : SignatureChange
-    data class Insert(val signature: String, val belowQuote: Boolean) : SignatureChange
+    /** Whether the block is rewritten with the standard "-- " delimiter line (#90). Carried here
+     *  because the rewrite happens in the screen, while the setting lives in DataStore. */
+    val delimiter: Boolean
+
+    data class Swap(val from: String, val to: String, override val delimiter: Boolean) : SignatureChange
+    data class Insert(
+        val signature: String,
+        val belowQuote: Boolean,
+        override val delimiter: Boolean,
+    ) : SignatureChange
 }
 
 class ComposeViewModel(application: Application) : AndroidViewModel(application) {
@@ -148,12 +156,14 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         val old = signatureTextOf(previous)
         val new = signatureTextOf(option.identity)
         if (old == new) return null
-        if (old.isNotBlank()) return SignatureChange.Swap(old, new)
+        val delimiter = settings.signatureDelimiter.first()
+        if (old.isNotBlank()) return SignatureChange.Swap(old, new, delimiter)
         if (new.isBlank()) return null
         if (isReplyOrForward && !settings.signatureOnReplies.first()) return null
         return SignatureChange.Insert(
             signature = new,
             belowQuote = isReplyOrForward && settings.signatureBelowQuote.first(),
+            delimiter = delimiter,
         )
     }
 
@@ -179,9 +189,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     /**
      * The body a reply/forward opens with: the [quoted] original, plus the signature when
-     * "Signature in replies" is on, above or below the quote per the second setting (Settings →
-     * Reading and writing). Both are read from DataStore here, inside the prefill coroutine, rather
-     * than from a cached snapshot — so a composer opened moments after launch still honours them.
+     * "Signature in replies" is on, above or below the quote per the second setting, with or
+     * without the "-- " delimiter line per the third (Settings → Reading and writing). All three
+     * are read from DataStore here, inside the prefill coroutine, rather than from a cached
+     * snapshot — so a composer opened moments after launch still honours them.
      */
     private suspend fun replyBody(quoted: String): String =
         if (!settings.signatureOnReplies.first()) {
@@ -191,6 +202,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 quoted,
                 signatureTextOf(selectedIdentity()),
                 settings.signatureBelowQuote.first(),
+                settings.signatureDelimiter.first(),
             )
         }
 
@@ -533,15 +545,23 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         if (!to.isNullOrBlank() || !cc.isNullOrBlank() || !bcc.isNullOrBlank() ||
             !subject.isNullOrBlank() || !body.isNullOrBlank()
         ) {
-            _prefill.value = DraftFields(
-                to = to.orEmpty(),
-                cc = cc.orEmpty(),
-                bcc = bcc.orEmpty(),
-                subject = subject.orEmpty(),
-                // A fresh mail, so it opens with the signature below whatever the link carried.
-                body = body.orEmpty() + signatureBlock(signatureTextOf(selectedIdentity())),
-                expand = !cc.isNullOrBlank() || !bcc.isNullOrBlank(),
-            )
+            // Launched, not inline: the delimiter setting lives in DataStore and reading it
+            // suspends. The screen already applies the prefill from a LaunchedEffect, so it lands
+            // the same way a reply's does.
+            viewModelScope.launch {
+                _prefill.value = DraftFields(
+                    to = to.orEmpty(),
+                    cc = cc.orEmpty(),
+                    bcc = bcc.orEmpty(),
+                    subject = subject.orEmpty(),
+                    // A fresh mail, so it opens with the signature below whatever the link carried.
+                    body = body.orEmpty() + signatureBlock(
+                        signatureTextOf(selectedIdentity()),
+                        settings.signatureDelimiter.first(),
+                    ),
+                    expand = !cc.isNullOrBlank() || !bcc.isNullOrBlank(),
+                )
+            }
             return
         }
 
@@ -550,8 +570,13 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         // Note that no draft/undo path reaches here — those return above with their own body, which
         // already contains the signature it was saved with, so it is never inserted twice.
         if (replyToId == null) {
-            val block = signatureBlock(signatureTextOf(selectedIdentity()))
-            if (block.isNotEmpty()) _prefill.value = DraftFields(to = "", subject = "", body = block)
+            viewModelScope.launch {
+                val block = signatureBlock(
+                    signatureTextOf(selectedIdentity()),
+                    settings.signatureDelimiter.first(),
+                )
+                if (block.isNotEmpty()) _prefill.value = DraftFields(to = "", subject = "", body = block)
+            }
             return
         }
         viewModelScope.launch {
@@ -799,9 +824,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      *    only while that block is untouched (see [htmlBodyWithSignature]).
      * For a forward, the carried original is then appended below, identically, to both.
      */
-    private fun bodiesForSend(userBody: String, identity: StoredIdentity?): Pair<String, String?> {
+    private suspend fun bodiesForSend(userBody: String, identity: StoredIdentity?): Pair<String, String?> {
         val html = htmlBodyWithSignature(
             userBody, signatureTextOf(identity), signatureHtmlOf(identity),
+            settings.signatureDelimiter.first(),
         )
         val fwd = forwarded ?: return userBody to html
         return "$userBody\n\n${fwd.text}" to "$html<br><br>${fwd.html}"
