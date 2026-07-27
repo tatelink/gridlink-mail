@@ -290,10 +290,14 @@ fun InboxScreen(
         viewModel.clearMessage()
     }
 
-    // Back exits multi-select mode first.
-    BackHandler(enabled = selectionActive) { viewModel.clearSelection() }
-    // From any non-inbox folder, Back returns to the Inbox instead of leaving the app.
-    BackHandler(enabled = !selectionActive && !ui.atInbox) { viewModel.showInbox() }
+    // Back peels the list's modes off one at a time before the app is left; the order lives in
+    // [inboxBackAction] so exactly one handler is ever enabled (LEAVE_APP enables none, and the
+    // system does its usual thing). Search is one of those modes, not a screen: Back closes it
+    // and gives the list back instead of minimising the app (Codeberg #86).
+    val backAction = inboxBackAction(selectionActive, ui.searching, ui.atInbox)
+    BackHandler(enabled = backAction == InboxBackAction.CLEAR_SELECTION) { viewModel.clearSelection() }
+    BackHandler(enabled = backAction == InboxBackAction.CLOSE_SEARCH) { viewModel.setSearchActive(false) }
+    BackHandler(enabled = backAction == InboxBackAction.SHOW_INBOX) { viewModel.showInbox() }
 
     // Move-to-folder picker for the current selection. System folders lead in a fixed order
     // (Inbox, Drafts, Sent, Spam, Archive, Trash), custom folders follow in their own order (#25).
