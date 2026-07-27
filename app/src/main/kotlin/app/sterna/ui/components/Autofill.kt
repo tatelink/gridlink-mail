@@ -32,7 +32,16 @@ fun Modifier.autofill(
         .onGloballyPositioned { node.boundingBox = it.boundsInWindow() }
         .onFocusChanged { state ->
             autofill?.run {
-                if (state.isFocused) requestAutofillForNode(node) else cancelAutofillForNode(node)
+                // requestAutofill() requires the node's bounding box, which only exists once
+                // onGloballyPositioned has run. On slow devices a field can take focus before
+                // its first layout pass (Android 8.1, tiny screens), and asking then throws
+                // IllegalStateException("requestAutofill called before onChildPositioned()").
+                // Skip the request in that window; the next focus gain fills as usual.
+                if (state.isFocused) {
+                    if (node.boundingBox != null) requestAutofillForNode(node)
+                } else {
+                    cancelAutofillForNode(node)
+                }
             }
         }
 }
