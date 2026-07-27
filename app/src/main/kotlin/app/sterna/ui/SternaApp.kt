@@ -64,6 +64,7 @@ import app.sterna.ui.settings.SettingsScreen
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -92,7 +93,7 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
 
     // null while the flag is still loading from DataStore, so first launch shows the welcome
     // (not a flash of the connect screen) and a returning user never flashes the welcome.
-    val hasSeenWelcome: kotlinx.coroutines.flow.StateFlow<Boolean?> =
+    val hasSeenWelcome: StateFlow<Boolean?> =
         settings.hasSeenWelcome.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun markWelcomeSeen() {
@@ -103,7 +104,12 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
         refresh()
     }
 
-    fun accounts(): List<StoredAccount> = accountStore.accounts()
+    /**
+     * The accounts to list, live from the store rather than read once per composition: a mailbox
+     * shared with the login shows up as soon as discovery persists it, and one whose share was
+     * revoked leaves the selector on the same pass — no account switch, no restart (issue #31).
+     */
+    val accounts: StateFlow<List<StoredAccount>> = accountStore.accountsFlow
 
     fun refresh() {
         // Only an account with a stored credential counts as authenticated. Freshly imported,
@@ -137,6 +143,7 @@ fun SternaApp(
 ) {
     RequestNotificationPermission()
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val hasSeenWelcome by viewModel.hasSeenWelcome.collectAsStateWithLifecycle()
     val appLock = (LocalContext.current.applicationContext as Application).container.appLock
     val locked by appLock.locked.collectAsStateWithLifecycle()
@@ -169,7 +176,7 @@ fun SternaApp(
             // the inbox re-points (InboxScreen reacts via onAccountChanged) WITHOUT recreating
             // the screen — which lets the drawer's account carousel stay open across a switch.
             is RootState.Authenticated -> MainNavHost(
-                accounts = viewModel.accounts(),
+                accounts = accounts,
                 currentAccountId = s.accountId,
                 onSwitchAccount = viewModel::switchAccount,
                 onAccountsChanged = viewModel::refresh,
@@ -230,14 +237,52 @@ private fun MainNavHost(
                 "&subject=${Uri.encode(m.subject)}&body=${Uri.encode(m.body)}",
         )
     }
+    // The inbox's own ViewModel — the very instance the inbox screen and the reader share — so
+    // the notification path can ask what the list behind is currently showing. Deliberately NOT
+    // remembered and NOT collected as state: it is looked up afresh on each recomposition (a
+    // notification arriving recomposes this, since it flows in as [pendingEmailOpen]) and read
+    // imperatively inside the effect, so it neither subscribes this host to every list update
+    // nor caches a stale answer. Null only until the NavHost has composed its start destination,
+    // i.e. the first composition of a cold start — where the list is a plain folder anyway (the
+    // unified selection is not restored across a process death).
+    val listHostEntry = runCatching { nav.getBackStackEntry("inbox") }.getOrNull()
+    val listViewModel: InboxViewModel? = listHostEntry?.let { viewModel(it) }
+    // The folder half of the same rule (issue #91), handed to the list below rather than applied
+    // here: the verdict needs the account's folder list, which the list itself owns and which is
+    // not loaded at this instant when the account has just been switched. Held as its own
+    // one-shot because on a COLD start opened from a notification [listViewModel] is still null
+    // in the composition that consumes the tap (the NavHost has not composed its start
+    // destination yet) — this waits for the composition where it is, instead of being dropped.
+    var pendingFolderOpen by remember { mutableStateOf<EmailOpenTarget?>(null) }
     // A tapped new-mail notification opens that specific message, standalone (no list paging),
     // even when the app was already running (Codeberg #17 follow-up). Same consume-once pattern.
+    // Opening it also makes the message's own account current (issue #31 follow-up), so Back
+    // returns to the mailbox that was just read instead of another account's — see
+    // [NotificationAccountSwitch] for when that switch is deliberately skipped.
     LaunchedEffect(pendingEmailOpen) {
         val target = pendingEmailOpen ?: return@LaunchedEffect
         onEmailOpenConsumed()
+        NotificationAccountSwitch.resolve(
+            notificationAccountId = target.accountId,
+            currentAccountId = currentAccountId,
+            knownAccountIds = accounts.map { it.id },
+            unifiedView = listViewModel?.state?.value?.unified == true,
+        )?.let(onSwitchAccount)
+        // Both ids or nothing: the folder is judged inside its own account (two accounts on the
+        // same server routinely share mailbox ids), and a notification old enough to carry
+        // neither predates both extras.
+        pendingFolderOpen = target.takeIf { it.accountId != null && it.mailboxId != null }
         nav.navigate(
             "message/${Uri.encode(target.emailId)}?accountId=${Uri.encode(target.accountId.orEmpty())}",
         )
+    }
+    // Keyed on [listViewModel] as well, so the request is handed over in the first composition
+    // where the list exists rather than lost on a cold start.
+    LaunchedEffect(pendingFolderOpen, listViewModel) {
+        val target = pendingFolderOpen ?: return@LaunchedEffect
+        val list = listViewModel ?: return@LaunchedEffect
+        pendingFolderOpen = null
+        list.showFolderFromNotification(target.accountId.orEmpty(), target.mailboxId.orEmpty())
     }
     // Devices that SIGSEGV'd inside a message fade (the #10 GL-functor bug) have the fade
     // latched off by the crash sentinel — they navigate instantly instead of crashing.

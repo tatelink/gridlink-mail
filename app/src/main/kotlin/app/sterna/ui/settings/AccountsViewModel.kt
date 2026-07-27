@@ -35,9 +35,19 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     private val storage = application.container.storageRepository
     private val mail = application.container.mailRepository
     private val pgp = application.container.pgpEngine
+    private val settings = application.container.settingsRepository
 
-    private val _accounts = MutableStateFlow(store.accounts())
-    val accounts = _accounts.asStateFlow()
+    /** The "Separator line above the signature" setting (#90), so the identity editor's signature
+     *  preview shows what the composer will actually write — with the "-- " line or without it.
+     *  Read here rather than in the composable: the preview must never claim a shape the composer
+     *  does not produce. */
+    val signatureDelimiter: StateFlow<Boolean> = settings.signatureDelimiter
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    /** Live from the store, not a snapshot refreshed after this screen's own edits: the same
+     *  screen also has to follow writes it did not make — discovery adding or pruning a shared
+     *  account under a login (issue #31) changes what "Shared accounts: …" must say. */
+    val accounts: StateFlow<List<StoredAccount>> = store.accountsFlow
 
     private val _currentId = MutableStateFlow(store.currentId())
     val currentId = _currentId.asStateFlow()
@@ -119,9 +129,8 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** Re-read the store after any change so the UI reflects the latest state. */
+    /** Re-read the selected account after any change ([accounts] itself follows the store). */
     fun refresh() {
-        _accounts.value = store.accounts()
         _currentId.value = store.currentId()
     }
 
@@ -339,20 +348,33 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         refresh()
     }
 
-    /** Sign out and purge that account's cached mail + the attachment cache. */
+    /**
+     * Sign out and purge that account's cached mail + the attachment cache. Signing out a login
+     * cascades to the JMAP sub-accounts linked to it (issue #31): they share its credential, so
+     * they cannot outlive it — each has its cache, notification baseline and push torn down too.
+     */
     fun signOut(id: String) {
-        // UnifiedPush teardown needs the credentials, so it runs before removal.
-        store.allCredentials().firstOrNull { it.id == id }?.let {
-            getApplication<Application>().container.unifiedPushManager.teardown(it)
+        val app = getApplication<Application>()
+        // Everything this sign-out will remove, resolved BEFORE removal so UnifiedPush teardown
+        // (which needs the credentials) and the cache purge can run per removed account.
+        val target = store.account(id)
+        val toRemove = buildList {
+            add(id)
+            if (target != null && !target.isLinked) addAll(store.linkedAccounts(id).map { it.id })
+        }.distinct()
+        store.allCredentials().filter { it.id in toRemove }.forEach {
+            app.container.unifiedPushManager.teardown(it)
         }
-        store.remove(id)
-        NewMailNotifier.clear(getApplication(), id)
+        val removed = store.removeCascading(id).ifEmpty { toRemove }
+        removed.forEach { NewMailNotifier.clear(app, it) }
         refresh()
         mail.resetSyncState()
         viewModelScope.launch {
-            mail.disconnectImap(id)
-            storage.purgeAccount(id)
+            removed.forEach {
+                mail.disconnectImap(it)
+                storage.purgeAccount(it)
+            }
         }
-        PushController.apply(getApplication(), userInitiated = true)
+        PushController.apply(app, userInitiated = true)
     }
 }

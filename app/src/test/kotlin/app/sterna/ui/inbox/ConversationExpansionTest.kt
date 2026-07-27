@@ -1,6 +1,7 @@
 package app.sterna.ui.inbox
 
 import app.sterna.core.jmap.model.Email
+import app.sterna.core.jmap.model.EmailAddress
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -53,21 +54,53 @@ class ConversationExpansionTest {
         assertEquals(listOf("c2", "old2", "old1"), merged.map { it.id })
     }
 
-    @Test fun `merge dedups by id and prefers the fetched copy`() {
-        val cached = listOf(Email(id = "m1", subject = "stale"))
-        val fetched = listOf(Email(id = "m1", subject = "fresh"))
+    @Test fun `merge dedups by id and keeps the copy already on screen`() {
+        val cached = listOf(Email(id = "m1", subject = "on screen"))
+        val fetched = listOf(Email(id = "m1", subject = "from the wire"))
         val merged = ConversationExpansion.mergeMembers(cached, fetched, representativeId = "rep")
         assertEquals(1, merged.size)
-        assertEquals("fresh", merged[0].subject)
+        assertEquals("on screen", merged[0].subject)
     }
 
     @Test fun `merge never lets the fetched copy null out cached identity fields`() {
         val cached = listOf(Email(id = "m1", accountId = "acc", mailboxId = "trash"))
-        val fetched = listOf(Email(id = "m1", subject = "fresh"))
+        val fetched = listOf(Email(id = "m1", subject = "from the wire"))
         val merged = ConversationExpansion.mergeMembers(cached, fetched, representativeId = "rep")
         assertEquals("acc", merged[0].accountId)
         assertEquals("trash", merged[0].mailboxId)
-        assertEquals("fresh", merged[0].subject)
+    }
+
+    // --- the unfolded rows must not be redrawn under the user (Codeberg #63) ---
+
+    @Test fun `merge does not add recipients to a member already on screen`() {
+        // The #63 blink: a cache row carries no recipients, so a self-authored member renders with
+        // the sender fallback; the wire copy has them, and adopting it flipped the row's name line
+        // to "To: …" a beat after the conversation unfolded.
+        val cached = listOf(Email(id = "sent1", from = listOf(EmailAddress(email = "me@x.test"))))
+        val fetched = listOf(
+            Email(
+                id = "sent1",
+                from = listOf(EmailAddress(email = "me@x.test")),
+                to = listOf(EmailAddress(email = "bob@x.test")),
+            ),
+        )
+        val merged = ConversationExpansion.mergeMembers(cached, fetched, representativeId = "rep")
+        assertEquals(emptyList<String>(), merged[0].to.map { it.email })
+    }
+
+    @Test fun `merge does not revert a star applied while the fetch was in flight`() {
+        val cached = listOf(Email(id = "m1", keywords = mapOf("\$flagged" to true)))
+        val fetched = listOf(Email(id = "m1", keywords = emptyMap()))
+        val merged = ConversationExpansion.mergeMembers(cached, fetched, representativeId = "rep")
+        assertEquals(true, merged[0].isFlagged)
+    }
+
+    @Test fun `a member the cache never had still arrives complete`() {
+        // Append-only holds only for rows already drawn: a message outside the cache window is
+        // new to the list, so it is shown exactly as the server sent it, recipients included.
+        val fetched = listOf(Email(id = "old1", to = listOf(EmailAddress(email = "bob@x.test"))))
+        val merged = ConversationExpansion.mergeMembers(emptyList(), fetched, representativeId = "rep")
+        assertEquals(listOf("bob@x.test"), merged[0].to.map { it.email })
     }
 
     @Test fun `merge with no fetched members keeps the cached list (offline)`() {

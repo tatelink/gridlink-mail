@@ -76,9 +76,81 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
 }
 
 /**
- * Additive 13→14: `outbox` and `scheduled_sends` gain `draftEmailId` — the server draft an
- * edited message came from, destroyed once the send succeeds so no duplicate lingers in
- * Drafts (#63). Both tables hold unsent user mail — never rebuilt destructively.
+ * SQL that creates the `emails` table with the composite `(accountId, id)` primary key. Kept as a
+ * constant so the 15→16 migration and a plain JVM unit test build the exact table that migration
+ * must produce (column set, nullability and PK order; column order is irrelevant to Room's
+ * validation, the PK column order is not).
+ *
+ * This is the **v16** shape, deliberately frozen: [MIGRATION_16_17] adds `recipientsJson` on top
+ * with an `ALTER TABLE`, so folding that column in here would make the ALTER fail on a duplicate
+ * column for anyone coming from v15. The table Room validates at open time is this plus the 16→17
+ * column.
+ */
+const val EMAILS_CREATE_SQL: String =
+    "CREATE TABLE IF NOT EXISTS `emails` (" +
+        "`id` TEXT NOT NULL, " +
+        "`accountId` TEXT NOT NULL, " +
+        "`mailboxId` TEXT NOT NULL, " +
+        "`threadId` TEXT, " +
+        "`subject` TEXT, " +
+        "`preview` TEXT, " +
+        "`receivedAt` TEXT, " +
+        "`fromName` TEXT, " +
+        "`fromEmail` TEXT, " +
+        "`seen` INTEGER NOT NULL, " +
+        "`flagged` INTEGER NOT NULL, " +
+        "`hasAttachment` INTEGER NOT NULL, " +
+        "`sortKey` INTEGER NOT NULL, " +
+        "PRIMARY KEY(`accountId`, `id`))"
+
+/** The index Room derives from `@Index("mailboxId")` on `emails` (name: `index_<table>_<column>`). */
+const val EMAILS_MAILBOX_INDEX_SQL: String =
+    "CREATE INDEX IF NOT EXISTS `index_emails_mailboxId` ON `emails` (`mailboxId`)"
+
+/** The `email_bodies` table with the composite key ([EmailBodyEntity]); shared with the JVM test. */
+const val EMAIL_BODIES_CREATE_SQL: String =
+    "CREATE TABLE IF NOT EXISTS `email_bodies` (" +
+        "`id` TEXT NOT NULL, " +
+        "`accountId` TEXT NOT NULL, " +
+        "`bodyJson` TEXT NOT NULL, " +
+        "`inlineImagesJson` TEXT NOT NULL, " +
+        "`fetchedAt` INTEGER NOT NULL, " +
+        "PRIMARY KEY(`accountId`, `id`))"
+
+/** The `snoozed` table with the composite key ([SnoozedEntity]); shared with the JVM test. */
+const val SNOOZED_CREATE_SQL: String =
+    "CREATE TABLE IF NOT EXISTS `snoozed` (" +
+        "`emailId` TEXT NOT NULL, " +
+        "`accountId` TEXT NOT NULL, " +
+        "`until` INTEGER NOT NULL, " +
+        "PRIMARY KEY(`accountId`, `emailId`))"
+
+/** Ordered column lists of the three rebuilt tables (identical in v13 and v14 — only the PK changes). */
+const val EMAILS_COLUMNS: String =
+    "`id`, `accountId`, `mailboxId`, `threadId`, `subject`, `preview`, `receivedAt`, " +
+        "`fromName`, `fromEmail`, `seen`, `flagged`, `hasAttachment`, `sortKey`"
+const val EMAIL_BODIES_COLUMNS: String = "`id`, `accountId`, `bodyJson`, `inlineImagesJson`, `fetchedAt`"
+const val SNOOZED_COLUMNS: String = "`emailId`, `accountId`, `until`"
+
+/**
+ * Rebuild [table] under its new composite-key DDL [createSql], copying every row over by explicit
+ * [columns] (never positionally). Old single-column keys were globally unique, so no collision is
+ * possible on the way in.
+ */
+private fun SupportSQLiteDatabase.rebuildTable(table: String, createSql: String, columns: String) {
+    execSQL(createSql.replace("`$table`", "`${table}_new`"))
+    execSQL("INSERT INTO `${table}_new` ($columns) SELECT $columns FROM `$table`")
+    execSQL("DROP TABLE `$table`")
+    execSQL("ALTER TABLE `${table}_new` RENAME TO `$table`")
+}
+
+/**
+ * Additive 13→14 (released as 1.3.10): `outbox` and `scheduled_sends` gain `draftEmailId` — the
+ * server draft an edited message came from, destroyed once the send succeeds so no duplicate
+ * lingers in Drafts (#63). Both tables hold unsent user mail — never rebuilt destructively.
+ *
+ * This is the RELEASED v14 schema. The multi-account composite-key change (issue #31) is layered
+ * on top as [MIGRATION_15_16], not folded in here.
  */
 val MIGRATION_13_14 = object : Migration(13, 14) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -138,5 +210,57 @@ val MIGRATION_14_15 = object : Migration(14, 15) {
                 "preview, receivedAt, fromName, fromEmail, seen, flagged, hasAttachment, sortKey " +
                 "FROM emails",
         )
+    }
+}
+
+/**
+ * 15→16: widen the primary keys of `emails`, `email_bodies` and `snoozed` from the email id alone
+ * to the composite `(accountId, id)` — a JMAP email id is unique only within its JMAP account
+ * (RFC 8620 §1.6.2), so two accounts under one login (issue #31) can each hold a message with the
+ * same id; a single-column key let one account's sync clobber (or serve back) the other's row.
+ *
+ * Layered on top of the RELEASED v15 schema (1.3.11's FTS rebuild), not folded into it: real
+ * installs are on v15, and that is the upgrade path every user takes.
+ *
+ * Non-destructive: every existing row is copied over verbatim. The v15 tables already carry a
+ * non-null, populated `accountId` column (present since before 1.3.10) — the single pre-multi-
+ * account login wrote its own accountId into every cache row — so the rebuild simply promotes
+ * that existing value into the composite key; no backfill of a missing column is needed. Old
+ * single-column ids were globally unique, so no collision is possible on the way in. `snoozed`
+ * is user data, so preserving it is mandatory; the caches merely avoid a pointless re-download.
+ *
+ * `email_fts` is left untouched: it is a standalone FTS4 table (no `content=` link to `emails`,
+ * no triggers), so rebuilding `emails` under it neither drops nor invalidates the search index.
+ */
+val MIGRATION_15_16 = object : Migration(15, 16) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.rebuildTable("emails", EMAILS_CREATE_SQL, EMAILS_COLUMNS)
+        db.execSQL(EMAILS_MAILBOX_INDEX_SQL)
+        // The old accountId index is subsumed by the new key's prefix.
+        db.execSQL("DROP INDEX IF EXISTS `index_email_bodies_accountId`")
+        db.rebuildTable("email_bodies", EMAIL_BODIES_CREATE_SQL, EMAIL_BODIES_COLUMNS)
+        db.rebuildTable("snoozed", SNOOZED_CREATE_SQL, SNOOZED_COLUMNS)
+    }
+}
+
+/**
+ * Additive 16→17: `emails` gains `recipientsJson`, the message's `To:` addresses
+ * ([EmailRecipients], see [EmailEntity.recipientsJson]).
+ *
+ * Sent/Drafts rows show who the mail went TO instead of its sender (#59), but the recipients only
+ * ever lived in a process-lifetime memo — so from a cold cache the row fell back to the sender and
+ * was corrected a network round-trip later, which is the flicker #63 reported. Persisting them
+ * makes the row right from the first frame, offline included.
+ *
+ * A plain `ALTER TABLE … ADD COLUMN`, layered on top of [MIGRATION_15_16] rather than folded into
+ * it: v16 is already carried by test installs (and covered by `EmailsMigrationSqlTest` from a real
+ * v15 schema), and rewriting a released migration in place would fail Room's identity check on the
+ * next launch. Nullable with no default, so every existing row keeps its data and simply reads back
+ * as "no recipients" — the pre-v17 behaviour. No backfill: the addresses are not held locally, so
+ * an old row gains them at its next sync.
+ */
+val MIGRATION_16_17 = object : Migration(16, 17) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `emails` ADD COLUMN `recipientsJson` TEXT")
     }
 }

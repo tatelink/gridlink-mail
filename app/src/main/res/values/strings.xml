@@ -101,13 +101,19 @@
     <string name="inbox_more">More</string>
     <string name="inbox_select_all">Select all</string>
     <string name="inbox_mark_all_read">Mark all read</string>
-    <string name="inbox_scheduled">Scheduled messages</string>
+    <!-- Overflow-menu entry. Kept to one word: a DropdownMenu is as wide as its
+         longest entry, and this one used to set the width of the whole menu.
+         Deliberately NOT merged with scheduled_title (the screen's own title):
+         a menu label and a screen title may need to diverge later. -->
+    <string name="inbox_scheduled">Scheduled</string>
     <string name="inbox_empty_trash">Empty trash</string>
     <string name="scheduled_title">Scheduled</string>
     <string name="scheduled_empty">No scheduled messages.</string>
     <string name="scheduled_cancel">Cancel scheduled send</string>
     <string name="scheduled_send_at">Sends %1$s</string>
-    <string name="inbox_snoozed">Snoozed messages</string>
+    <!-- Overflow-menu entry, one word for the same reason as inbox_scheduled: it sits
+         right beside it and would otherwise become the new width-setting entry. -->
+    <string name="inbox_snoozed">Snoozed</string>
     <string name="snoozed_title">Snoozed</string>
     <string name="snoozed_empty">No snoozed messages.</string>
     <string name="snoozed_cancel">Cancel snooze</string>
@@ -126,6 +132,8 @@
     <string name="outbox_retry">Retry</string>
     <string name="outbox_edit">Edit</string>
     <string name="outbox_delete">Delete</string>
+    <string name="outbox_delete_title">Delete this message?</string>
+    <string name="outbox_delete_body">It hasn\'t been sent and isn\'t saved anywhere else. The message and its attachments will be lost.</string>
     <string name="outbox_banner_failed">Some messages didn\'t send. Tap to review.</string>
     <string name="offline_banner">You\'re offline</string>
     <string name="inbox_compose">Compose</string>
@@ -216,6 +224,8 @@
     <string name="participants_from">From</string>
     <string name="participants_to">To</string>
     <string name="participants_cc">Cc</string>
+    <!-- Which of your own addresses the message was addressed to (multi-alias accounts) -->
+    <string name="participants_received_at">Received at</string>
     <string name="participant_add_to_contacts">Add to contacts</string>
     <string name="participant_compose">Write to this contact</string>
     <string name="participant_copy_address">Copy address</string>
@@ -263,6 +273,10 @@
     <string name="settings_cancel">Cancel</string>
     <string name="settings_clear">Clear</string>
     <string name="settings_current_account">Current account</string>
+    <!-- Delegated (shared) accounts: a quiet subtitle in the drawer's account switcher, and the
+         mention under a login's row in Settings > Accounts (%1$s = the shared addresses). -->
+    <string name="account_shared">Shared account</string>
+    <string name="settings_shared_accounts_under">Shared accounts: %1$s</string>
     <string name="settings_accounts_title">Accounts</string>
     <string name="settings_accounts_summary">Add, switch, server settings</string>
     <string name="settings_appearance_title">Appearance</string>
@@ -338,6 +352,8 @@
     <string name="settings_signature_on_replies_subtitle">Add it when you reply to or forward a message too</string>
     <string name="settings_signature_below_quote_title">Signature below the quoted text</string>
     <string name="settings_signature_below_quote_subtitle">In a reply, put it under the quoted message instead of above it</string>
+    <string name="settings_signature_delimiter_title">Separator line above the signature</string>
+    <string name="settings_signature_delimiter_subtitle">Other mail apps recognise your signature by this “-- ” line and can hide it when quoting your message; without it they no longer can, and the signature field then holds exactly what is sent.</string>
     <string name="settings_swipe_right_title">Swipe right</string>
     <string name="settings_swipe_left_title">Swipe left</string>
     <string name="settings_swipe_nothing">Nothing</string>
@@ -485,6 +501,8 @@
     <string name="settings_signature_label">Signature (plain text or HTML)</string>
     <string name="settings_signature_supporting">Plain text, added to the message body when you write — edit or remove it there like any other text.</string>
     <string name="settings_signature_supporting_html">An HTML version is saved; it is sent as is if you don\'t change the signature in the message.</string>
+    <string name="settings_signature_preview_title">In a message it will read:</string>
+    <string name="settings_signature_duplicate_delimiter">Your signature already starts with a “-- ” line, so it will appear twice.</string>
     <string name="settings_import_html">Import HTML</string>
     <string name="settings_remove">Remove</string>
     <string name="settings_add_identity">Add identity</string>

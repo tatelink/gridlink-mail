@@ -3,6 +3,7 @@ package app.sterna.core.data.mail
 import app.sterna.core.data.db.ConversationRow
 import app.sterna.core.data.db.EmailEntity
 import app.sterna.core.data.db.EmailFtsEntity
+import app.sterna.core.data.db.EmailRecipients
 import app.sterna.core.data.db.FtsHit
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
@@ -11,45 +12,34 @@ import java.time.OffsetDateTime
 import java.util.Collections
 
 /**
- * Recipients of cached list rows, kept in memory only: the `emails` table predates them
- * and a column would mean a schema bump. Recorded whenever a live fetch passes through
- * [toEntity], replayed by [toEmail] so Sent/Drafts rows can show "To: …" (Codeberg #59).
- * After process death a row falls back to its sender until the folder's next refresh.
- */
-private const val RECIPIENTS_MAX = 2000
-private val recentRecipients: MutableMap<String, List<EmailAddress>> = Collections.synchronizedMap(
-    object : LinkedHashMap<String, List<EmailAddress>>(64, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<EmailAddress>>): Boolean =
-            size > RECIPIENTS_MAX
-    },
-)
-
-/** Record [to] as the remembered recipients of email [id]; a no-op when empty (never
- *  erase an earlier record — some fetch paths hand over an Email without recipients). */
-internal fun recordRecipients(id: String, to: List<EmailAddress>) {
-    if (to.isNotEmpty()) recentRecipients[id] = to
-}
-
-/**
  * The `$draft` keyword of cached list rows, kept in memory only — the `emails` table stores just
- * `seen`/`flagged`, so a column would mean a schema bump. Recorded whenever a live fetch passes
- * through [toEntity], replayed by [toEmail] so a trashed draft can still be flagged "(Draft)" in
- * the list (#69). After process death a row falls back to no flag until the folder's next refresh —
- * the same lifecycle as the remembered recipients above.
+ * `seen`/`flagged`. Recorded whenever a live fetch passes through [toEntity], replayed by [toEmail]
+ * so a trashed draft can still be flagged "(Draft)" in the list (#69). After process death a row
+ * falls back to no flag until the folder's next refresh.
+ *
+ * The recipients were memoised the same way until schema v17; they are now a real column
+ * ([EmailEntity.recipientsJson]), so they survive process death and a Sent/Drafts row carries its
+ * "To: …" from the very first frame, offline included (#63).
  */
+private const val RECENT_DRAFTS_MAX = 2000
 private val recentDrafts: MutableSet<String> = Collections.synchronizedSet(
     Collections.newSetFromMap(
         object : LinkedHashMap<String, Boolean>(64, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>): Boolean =
-                size > RECIPIENTS_MAX
+                size > RECENT_DRAFTS_MAX
         },
     ),
 )
 
-/** Remember whether email [id] is a draft, so [toEmail] can replay the `$draft` keyword. */
-internal fun recordDraft(id: String, isDraft: Boolean) {
-    if (isDraft) recentDrafts.add(id) else recentDrafts.remove(id)
+/** Remember whether [accountId]'s email [id] is a draft, so [toEmail] can replay the `$draft`
+ *  keyword. Keyed by (accountId, id): JMAP ids are unique only within their account (issue #31),
+ *  so a bare id would flag a sibling account's message as a draft. */
+internal fun recordDraft(accountId: String, id: String, isDraft: Boolean) {
+    val key = draftKey(accountId, id)
+    if (isDraft) recentDrafts.add(key) else recentDrafts.remove(key)
 }
+
+private fun draftKey(accountId: String, id: String) = "$accountId\u0000$id"
 
 /** Map a grouped conversation row to the domain [InboxRow] (unread = any in thread). */
 internal fun ConversationRow.toInboxRow(): InboxRow =
@@ -62,9 +52,8 @@ internal fun ConversationRow.toInboxRow(): InboxRow =
 
 internal fun Email.toEntity(accountId: String, mailboxId: String): EmailEntity {
     val sender = from.firstOrNull()
-    // Recipients and the draft flag don't fit the row schema — remember them aside for [toEmail].
-    recordRecipients(id, to)
-    recordDraft(id, isDraft)
+    // The draft flag still doesn't fit the row schema — remember it aside for [toEmail].
+    recordDraft(accountId, id, isDraft)
     return EmailEntity(
         id = id,
         accountId = accountId,
@@ -79,6 +68,10 @@ internal fun Email.toEntity(accountId: String, mailboxId: String): EmailEntity {
         flagged = isFlagged,
         hasAttachment = hasAttachment,
         sortKey = epochMillis(receivedAt),
+        // Persisted since v17: every fetch path that caches a row asks the server for `to`, so
+        // what lands here is the message's real recipient set — empty included (a draft with no
+        // addressee yet), which is exactly what the row should then show.
+        recipientsJson = EmailRecipients.encode(to),
     )
 }
 
@@ -95,12 +88,12 @@ internal fun EmailEntity.toEmail(): Email = Email(
     } else {
         emptyList()
     },
-    to = recentRecipients[id].orEmpty(),
+    to = EmailRecipients.decode(recipientsJson),
     hasAttachment = hasAttachment,
     keywords = buildMap {
         if (seen) put("\$seen", true)
         if (flagged) put("\$flagged", true)
-        if (id in recentDrafts) put("\$draft", true)
+        if (draftKey(accountId, id) in recentDrafts) put("\$draft", true)
     },
 )
 
@@ -147,7 +140,7 @@ internal fun FtsHit.toEmail(): Email = Email(
     keywords = buildMap {
         if (seen) put("\$seen", true)
         if (flagged) put("\$flagged", true)
-        if (emailId in recentDrafts) put("\$draft", true)
+        if (draftKey(accountId, emailId) in recentDrafts) put("\$draft", true)
     },
 )
 

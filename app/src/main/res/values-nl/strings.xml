@@ -147,6 +147,7 @@
     <string name="participants_from">Van</string>
     <string name="participants_to">Aan</string>
     <string name="participants_cc">Cc</string>
+    <string name="participants_received_at">Ontvangen op</string>
     <string name="participant_add_to_contacts">Aan contacten toevoegen</string>
     <string name="participant_compose">Naar dit contact schrijven</string>
     <string name="participant_copy_address">Adres kopiëren</string>
@@ -191,6 +192,8 @@
     <string name="settings_cancel">Annuleren</string>
     <string name="settings_clear">Wissen</string>
     <string name="settings_current_account">Huidig account</string>
+    <string name="account_shared">Gedeeld account</string>
+    <string name="settings_shared_accounts_under">Gedeelde accounts: %1$s</string>
     <string name="settings_accounts_title">Accounts</string>
     <string name="settings_accounts_summary">Toevoegen, wisselen, serverinstellingen</string>
     <string name="settings_appearance_title">Weergave</string>
@@ -252,6 +255,8 @@
     <string name="settings_signature_on_replies_subtitle">Ook toevoegen bij beantwoorden of doorsturen</string>
     <string name="settings_signature_below_quote_title">Ondertekening onder de geciteerde tekst</string>
     <string name="settings_signature_below_quote_subtitle">Zet die in een antwoord onder het geciteerde bericht in plaats van erboven</string>
+    <string name="settings_signature_delimiter_title">Scheidingsregel boven de ondertekening</string>
+    <string name="settings_signature_delimiter_subtitle">Andere e-mailapps herkennen je ondertekening aan deze regel “-- ” en kunnen die verbergen bij het citeren van je bericht; zonder die regel kan dat niet meer, en het ondertekeningsveld bevat dan precies wat er wordt verzonden.</string>
     <string name="settings_swipe_right_title">Naar rechts vegen</string>
     <string name="settings_swipe_left_title">Naar links vegen</string>
     <string name="settings_swipe_nothing">Niets</string>
@@ -402,6 +407,8 @@
     <string name="settings_email_not_server">Je server kan verzenden vanaf dit adres weigeren.</string>
     <string name="settings_signature_supporting">Platte tekst, bij het opstellen aan de berichttekst toegevoegd: daar te bewerken of te verwijderen als elke andere tekst.</string>
     <string name="settings_signature_supporting_html">Er is een HTML-versie opgeslagen; die wordt ongewijzigd verzonden als je de ondertekening in het bericht niet aanpast.</string>
+    <string name="settings_signature_preview_title">In een bericht ziet dat er zo uit:</string>
+    <string name="settings_signature_duplicate_delimiter">Je ondertekening begint al met een regel “-- ”, dus die verschijnt twee keer.</string>
     <string name="settings_unsaved_changes">Niet-opgeslagen wijzigingen</string>
     <string name="settings_save_changes_title">Wijzigingen opslaan?</string>
     <string name="settings_save_changes_message">Je hebt je identiteits- of accountwijzigingen niet opgeslagen.</string>
@@ -591,12 +598,12 @@
     <string name="compose_forgot_attachment_send">Toch verzenden</string>
     <string name="compose_forgot_attachment_back">Terug</string>
     <string name="inbox_search_in">Zoeken in %1$s</string>
-    <string name="inbox_scheduled">Geplande berichten</string>
+    <string name="inbox_scheduled">Gepland</string>
     <string name="scheduled_title">Gepland</string>
     <string name="scheduled_empty">Geen geplande berichten.</string>
     <string name="scheduled_cancel">Geplande verzending annuleren</string>
     <string name="scheduled_send_at">Verzendt %1$s</string>
-    <string name="inbox_snoozed">Gesnoozede berichten</string>
+    <string name="inbox_snoozed">Gesnoozed</string>
     <string name="snoozed_title">Gesnoozed</string>
     <string name="snoozed_empty">Geen gesnoozede berichten.</string>
     <string name="snoozed_cancel">Snooze annuleren</string>
@@ -615,6 +622,8 @@
     <string name="outbox_retry">Opnieuw</string>
     <string name="outbox_edit">Bewerken</string>
     <string name="outbox_delete">Verwijderen</string>
+    <string name="outbox_delete_title">Dit bericht verwijderen?</string>
+    <string name="outbox_delete_body">Het is niet verzonden en staat nergens anders opgeslagen. Het bericht en de bijlagen gaan verloren.</string>
     <string name="outbox_banner_failed">Sommige berichten zijn niet verzonden. Tik om te bekijken.</string>
     <string name="offline_banner">Je bent offline</string>
 

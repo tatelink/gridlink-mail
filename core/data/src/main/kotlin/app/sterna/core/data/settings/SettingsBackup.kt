@@ -45,6 +45,8 @@ data class SettingsBackup(
     val unarchiveOnReply: Boolean? = null,
     val signatureOnReplies: Boolean? = null,
     val signatureBelowQuote: Boolean? = null,
+    /** Whether the composer adds the standard "-- " delimiter line above the signature (#90). */
+    val signatureDelimiter: Boolean? = null,
     /** [DeliveryMode] name (Instant / Battery saver). */
     val deliveryMode: String? = null,
     val notificationContent: String? = null,

@@ -1,5 +1,6 @@
 package app.sterna.ui.compose
 
+import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
@@ -281,7 +282,7 @@ class ComposeTextTest {
     // The #83 trap: the body a mailto: link opens on already holds the signature, so the caret
     // must be at the very top or the user types under their own signature.
     @Test fun mailtoBodyStartsAboveTheSignature() {
-        val body = "" + signatureBlock("Alex\nAcme")
+        val body = "" + signatureBlock("Alex\nAcme", delimiter = true)
         assertEquals(0, initialBodyCaret(bodyLength = body.length, focus = ComposeFocus.BODY, isDraft = false))
     }
 
@@ -386,6 +387,121 @@ class ComposeTextTest {
             "bob@example.com",
             replyAllRecipients(o, setOf("me@example.com", "alias@example.com")),
         )
+    }
+
+    // --- Which of your addresses received the mail, and the identity it makes you reply as (#81) ---
+
+    private fun identity(address: String, name: String = "") =
+        StoredIdentity(id = address, name = name, email = address)
+
+    /** An account with three send-as addresses; only "alias@example.com" is on this original. */
+    private val aliasOptions = listOf(
+        FromOption("acc", identity("me@example.com")),
+        FromOption("acc", identity("alias@example.com")),
+        FromOption("acc", identity("third@example.com")),
+    )
+
+    @Test fun receivingAddressNamesTheAliasInTo() {
+        assertEquals("me@example.com", receivingAddress(originalToReply, setOf("me@example.com")))
+    }
+
+    @Test fun receivingAddressPrefersToOverCc() {
+        val o = originalToReply.copy(
+            to = listOf(EmailAddress(email = "me@example.com")),
+            cc = listOf(EmailAddress(email = "alias@example.com")),
+        )
+        assertEquals("me@example.com", receivingAddress(o, setOf("alias@example.com", "me@example.com")))
+    }
+
+    @Test fun receivingAddressFallsBackToCc() {
+        val o = originalToReply.copy(
+            to = listOf(EmailAddress(email = "bob@example.com")),
+            cc = listOf(EmailAddress(email = "alias@example.com")),
+        )
+        assertEquals("alias@example.com", receivingAddress(o, setOf("me@example.com", "alias@example.com")))
+    }
+
+    @Test fun receivingAddressKeepsTheOriginalSpelling() {
+        // Matched case-insensitively, but reported as the message spells it (it is shown verbatim).
+        val o = originalToReply.copy(to = listOf(EmailAddress(email = "Alias@Example.com")))
+        assertEquals("Alias@Example.com", receivingAddress(o, setOf("alias@example.com")))
+    }
+
+    @Test fun receivingAddressUnknownForAListOrABcc() {
+        // None of your addresses is named: a mailing-list post, or a delivery you were Bcc'd on.
+        val o = originalToReply.copy(
+            to = listOf(EmailAddress(email = "list@example.org")),
+            cc = emptyList(),
+        )
+        assertEquals(null, receivingAddress(o, setOf("me@example.com", "alias@example.com")))
+        assertEquals(null, receivingAddress(o, emptySet()))
+    }
+
+    @Test fun replyPreselectsTheIdentityTheMailCameInOn() {
+        val o = originalToReply.copy(
+            to = listOf(EmailAddress(email = "Alias@Example.com"), EmailAddress(email = "bob@example.com")),
+        )
+        assertEquals(
+            FromOption("acc", identity("alias@example.com")),
+            receivingFromOption(aliasOptions, "acc", o),
+        )
+    }
+
+    @Test fun replyPreselectsFromCcWhenTheAliasIsOnlyThere() {
+        val o = originalToReply.copy(
+            to = listOf(EmailAddress(email = "bob@example.com")),
+            cc = listOf(EmailAddress(email = "third@example.com")),
+        )
+        assertEquals(
+            FromOption("acc", identity("third@example.com")),
+            receivingFromOption(aliasOptions, "acc", o),
+        )
+    }
+
+    @Test fun replyKeepsTheDefaultIdentityWhenNoAddressOfYoursIsNamed() {
+        // Null = "nothing to preselect": the caller leaves the account's default identity alone.
+        val o = originalToReply.copy(
+            to = listOf(EmailAddress(email = "list@example.org")),
+            cc = emptyList(),
+        )
+        assertEquals(null, receivingFromOption(aliasOptions, "acc", o))
+    }
+
+    @Test fun replyNeverSwitchesToAnotherAccountsIdentity() {
+        // The mail was addressed to an identity of a DIFFERENT account: replying stays on its own.
+        val options = aliasOptions + FromOption("other", identity("work@example.com"))
+        val o = originalToReply.copy(to = listOf(EmailAddress(email = "work@example.com")), cc = emptyList())
+        assertEquals(null, receivingFromOption(options, "acc", o))
+        assertEquals(
+            FromOption("other", identity("work@example.com")),
+            receivingFromOption(options, "other", o),
+        )
+    }
+
+    @Test fun replyPreselectsForADelegatedSubAccount() {
+        // A shared mailbox: its options are the addresses the store resolves FOR it (its own here),
+        // under the sub-account's own id — the login's identity must not be picked instead.
+        val options = listOf(
+            FromOption("login", identity("me@example.com")),
+            FromOption("sub", identity("shared@example.com")),
+        )
+        val o = originalToReply.copy(to = listOf(EmailAddress(email = "shared@example.com")), cc = emptyList())
+        assertEquals(
+            FromOption("sub", identity("shared@example.com")),
+            receivingFromOption(options, "sub", o),
+        )
+    }
+
+    @Test fun replyAllStillExcludesEveryAliasIncludingTheOneNowSending() {
+        // The B5 guarantee, with #81 on top: the mail came in on alias@, so the reply goes out from
+        // alias@ — and NONE of the account's addresses (alias@ included) may land in the recipients.
+        val o = originalToReply.copy(
+            to = listOf(EmailAddress(email = "alias@example.com"), EmailAddress(email = "bob@example.com")),
+            cc = listOf(EmailAddress(email = "me@example.com")),
+        )
+        val mine = aliasOptions.map { it.identity.email }
+        assertEquals(FromOption("acc", identity("alias@example.com")), receivingFromOption(aliasOptions, "acc", o))
+        assertEquals("alice@example.com, bob@example.com", replyAllRecipients(o, mine))
     }
 
     @Test fun subjectGetsRePrefixOnlyWhenMissing() {

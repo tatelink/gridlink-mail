@@ -174,6 +174,13 @@ private const val FORCE_SOFTWARE_LAYER = false
 val LocalNavTransitionActive = compositionLocalOf { false }
 
 /**
+ * The identity of a pager entry — (email id, owning account) — as one string. Same-server accounts
+ * under a single login can hold messages with identical ids (issue #31) and the unified inbox shows
+ * them side by side, so the pager identifies its entries by the pair, never by the id alone.
+ */
+private fun pagerKey(entry: Pair<String, String?>): String = "${entry.second.orEmpty()}\u0000${entry.first}"
+
+/**
  * The reading view. A [HorizontalPager] lets the user swipe left/right between the entries
  * of the context they came from, in the same order (mailbox / unified inbox, sort, unread
  * filter, active search, or one conversation). Four sources feed it:
@@ -218,18 +225,25 @@ fun MessageScreen(
             // older mail paged in) still merge in at their live position.
             val liveEntries = items.itemSnapshotList.items.map { it.email.id to it.email.accountId }
             var entries by remember { mutableStateOf(listOf<Pair<String, String?>>()) }
-            entries = MessagePaging.mergeEntries(entries, liveEntries) { it.first }
+            // Identified by (account, id), never by the bare id: in the unified inbox two accounts
+            // of one login can list a message under the SAME server id (issue #31), and a bare key
+            // would swallow the second row in the merge below and bind its page to the first one's.
+            entries = MessagePaging.mergeEntries(entries, liveEntries, ::pagerKey)
             if (entries.isEmpty()) {
                 // The shared paged flow replays its cached pages within a frame or two; show a
                 // brief loader until the entry list is known so the pager opens on the right page.
                 MessageLoadingScaffold(onBack)
             } else {
-                // Resolve the opening page once: by the anchor's id when it's in the loaded
+                // Resolve the opening page once: by the anchor's key when it's in the loaded
                 // window (robust to the list having shifted), else the tapped index.
                 val initialPage = remember {
-                    MessagePaging.resolveInitialPage(entries.map { it.first }, anchorEmailId, initialIndex)
+                    MessagePaging.resolveInitialPage(
+                        entries.map(::pagerKey),
+                        pagerKey(anchorEmailId to anchorAccountId),
+                        initialIndex,
+                    )
                 }
-                val liveIndexById = liveEntries.withIndex().associate { (i, e) -> e.first to i }
+                val liveIndexById = liveEntries.withIndex().associate { (i, e) -> pagerKey(e) to i }
                 MessagePager(
                     pageCount = entries.size,
                     initialPage = initialPage,
@@ -245,7 +259,7 @@ fun MessageScreen(
                             // during drainChanges — before recomposition rebuilds liveIndexById —
                             // while the presenter is transiently EMPTY (Codeberg #13: reader
                             // delete threw Index: 0, Size: 0 here).
-                            liveIndexById[entry.first]
+                            liveIndexById[pagerKey(entry)]
                                 ?.takeIf { it < items.itemCount }
                                 ?.let { liveIndex -> items[liveIndex] }
                         }
@@ -260,7 +274,11 @@ fun MessageScreen(
         }
         !searchResults.isNullOrEmpty() -> {
             val initialPage = remember(searchResults) {
-                MessagePaging.resolveInitialPage(searchResults.map { it.id }, anchorEmailId, initialIndex)
+                MessagePaging.resolveInitialPage(
+                    searchResults.map { pagerKey(it.id to it.accountId) },
+                    pagerKey(anchorEmailId to anchorAccountId),
+                    initialIndex,
+                )
             }
             MessagePager(
                 pageCount = searchResults.size,
@@ -883,6 +901,7 @@ private fun MessageContent(
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     val calendar by viewModel.calendar.collectAsStateWithLifecycle()
     val ownMessage by viewModel.ownMessage.collectAsStateWithLifecycle()
+    val deliveredTo by viewModel.deliveredTo.collectAsStateWithLifecycle()
     val crypto by viewModel.crypto.collectAsStateWithLifecycle()
     // OpenKeychain's passphrase/key dialogs round-trip through this launcher.
     val pgpLauncher = rememberPgpInteractionLauncher { data ->
@@ -928,6 +947,7 @@ private fun MessageContent(
                 onBarVisibleChanged = viewModel::setReplyBarVisible,
                 onComposeTo = onComposeTo,
                 showRecipients = ownMessage,
+                deliveredTo = deliveredTo,
                 crypto = crypto,
                 onCryptoAction = {
                     when (val c = crypto) {
@@ -962,6 +982,7 @@ private fun ConversationBody(
     onBarVisibleChanged: (Boolean) -> Unit,
     onComposeTo: (address: String) -> Unit,
     showRecipients: Boolean = false,
+    deliveredTo: String? = null,
     crypto: CryptoUiState = CryptoUiState.None,
     onCryptoAction: () -> Unit = {},
 ) {
@@ -1093,7 +1114,7 @@ private fun ConversationBody(
         ) {
             MessageHeader(
                 msg, full, attachmentStatus, onOpenAttachment, calendar, onRespondToInvite,
-                onComposeTo, showRecipients, crypto, onCryptoAction,
+                onComposeTo, showRecipients, deliveredTo, crypto, onCryptoAction,
             )
         }
         // Spinner until the body has laid out (cached/prefetched mail beats the 500ms, so none flashes).
@@ -1158,6 +1179,7 @@ private fun MessageHeader(
     onRespondToInvite: (String) -> Unit,
     onComposeTo: (address: String) -> Unit,
     showRecipients: Boolean = false,
+    deliveredTo: String? = null,
     crypto: CryptoUiState = CryptoUiState.None,
     onCryptoAction: () -> Unit = {},
 ) {
@@ -1292,6 +1314,7 @@ private fun MessageHeader(
             from = msg.header.from,
             to = full?.to ?: emptyList(),
             cc = full?.cc ?: emptyList(),
+            deliveredTo = deliveredTo,
             onComposeTo = { address -> showParticipants = false; onComposeTo(address) },
             onDismiss = { showParticipants = false },
         )
@@ -1300,7 +1323,8 @@ private fun MessageHeader(
 
 /**
  * Slide-up panel listing every participant of the open message, grouped From / To / Cc, each with
- * their full address and actions (add to contacts, write to, copy address, copy name + address).
+ * their full address and actions (add to contacts, write to, copy address, copy name + address),
+ * above them [deliveredTo]: which of the reader's OWN addresses received it (#81).
  * Opened by tapping the sender in [MessageHeader]. To/Cc come from the full body, so they are empty
  * until it has loaded.
  */
@@ -1310,6 +1334,7 @@ private fun ParticipantsSheet(
     from: List<EmailAddress>,
     to: List<EmailAddress>,
     cc: List<EmailAddress>,
+    deliveredTo: String?,
     onComposeTo: (address: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1325,11 +1350,38 @@ private fun ParticipantsSheet(
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             )
+            // First, because it is the one line the panel is opened for on a multi-alias account:
+            // scanning a long To/Cc list for your own address is exactly what this spares (#81).
+            ReceivedAtGroup(deliveredTo)
             ParticipantGroup(R.string.participants_from, from, onComposeTo)
             ParticipantGroup(R.string.participants_to, to, onComposeTo)
             ParticipantGroup(R.string.participants_cc, cc, onComposeTo)
         }
     }
+}
+
+/**
+ * Which of YOUR addresses the message came in on (Codeberg #81). An account with several aliases
+ * cannot tell that from the To/Cc lists above — it has to spot its own address among the others —
+ * and it is what decides the identity a reply goes out under. One label, one address, no actions:
+ * writing to yourself is not what this is for. Absent (nothing rendered) when no address of the
+ * account is named, i.e. a mailing list or a Bcc delivery.
+ */
+@Composable
+private fun ReceivedAtGroup(address: String?) {
+    if (address.isNullOrBlank()) return
+    HorizontalDivider()
+    Text(
+        stringResource(R.string.participants_received_at),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+    )
+    Text(
+        address,
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
+    )
 }
 
 /** One labelled block (From / To / Cc) in [ParticipantsSheet]; renders nothing when [people] empty. */

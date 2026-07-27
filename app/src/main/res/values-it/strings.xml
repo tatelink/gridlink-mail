@@ -147,6 +147,7 @@
     <string name="participants_from">Da</string>
     <string name="participants_to">A</string>
     <string name="participants_cc">Cc</string>
+    <string name="participants_received_at">Ricevuto su</string>
     <string name="participant_add_to_contacts">Aggiungi ai contatti</string>
     <string name="participant_compose">Scrivi a questo contatto</string>
     <string name="participant_copy_address">Copia indirizzo</string>
@@ -191,6 +192,8 @@
     <string name="settings_cancel">Annulla</string>
     <string name="settings_clear">Cancella</string>
     <string name="settings_current_account">Account attuale</string>
+    <string name="account_shared">Account condiviso</string>
+    <string name="settings_shared_accounts_under">Account condivisi: %1$s</string>
     <string name="settings_accounts_title">Account</string>
     <string name="settings_accounts_summary">Aggiungi, cambia, impostazioni server</string>
     <string name="settings_appearance_title">Aspetto</string>
@@ -252,6 +255,8 @@
     <string name="settings_signature_on_replies_subtitle">Aggiungerla anche quando rispondi o inoltri un messaggio</string>
     <string name="settings_signature_below_quote_title">Firma sotto il testo citato</string>
     <string name="settings_signature_below_quote_subtitle">In una risposta, metterla sotto il messaggio citato anziché sopra</string>
+    <string name="settings_signature_delimiter_title">Riga separatrice prima della firma</string>
+    <string name="settings_signature_delimiter_subtitle">Le altre app di posta riconoscono la tua firma da questa riga «-- » e possono nasconderla quando citano il tuo messaggio; senza di essa non possono più, e il campo firma contiene allora esattamente ciò che viene inviato.</string>
     <string name="settings_swipe_right_title">Scorri a destra</string>
     <string name="settings_swipe_left_title">Scorri a sinistra</string>
     <string name="settings_swipe_nothing">Niente</string>
@@ -402,6 +407,8 @@
     <string name="settings_email_not_server">Il tuo server potrebbe rifiutare l\'invio da questo indirizzo.</string>
     <string name="settings_signature_supporting">Testo semplice, aggiunto al corpo del messaggio quando scrivi: puoi modificarlo o eliminarlo come qualsiasi altro testo.</string>
     <string name="settings_signature_supporting_html">È salvata una versione HTML: viene inviata così com\'è se non modifichi la firma nel messaggio.</string>
+    <string name="settings_signature_preview_title">In un messaggio apparirà così:</string>
+    <string name="settings_signature_duplicate_delimiter">La tua firma inizia già con una riga «-- », quindi comparirà due volte.</string>
     <string name="settings_unsaved_changes">Modifiche non salvate</string>
     <string name="settings_save_changes_title">Salvare le modifiche?</string>
     <string name="settings_save_changes_message">Non hai salvato le modifiche di identità o account.</string>
@@ -591,12 +598,12 @@
     <string name="compose_forgot_attachment_send">Invia comunque</string>
     <string name="compose_forgot_attachment_back">Torna indietro</string>
     <string name="inbox_search_in">Cerca in %1$s</string>
-    <string name="inbox_scheduled">Messaggi programmati</string>
+    <string name="inbox_scheduled">Programmati</string>
     <string name="scheduled_title">Programmati</string>
     <string name="scheduled_empty">Nessun messaggio programmato.</string>
     <string name="scheduled_cancel">Annulla invio programmato</string>
     <string name="scheduled_send_at">Invio %1$s</string>
-    <string name="inbox_snoozed">Messaggi posticipati</string>
+    <string name="inbox_snoozed">Posticipati</string>
     <string name="snoozed_title">Posticipati</string>
     <string name="snoozed_empty">Nessun messaggio posticipato.</string>
     <string name="snoozed_cancel">Annulla il rinvio</string>
@@ -615,6 +622,8 @@
     <string name="outbox_retry">Riprova</string>
     <string name="outbox_edit">Modifica</string>
     <string name="outbox_delete">Elimina</string>
+    <string name="outbox_delete_title">Eliminare questo messaggio?</string>
+    <string name="outbox_delete_body">Non è stato inviato e non è salvato da nessun\'altra parte. Il messaggio e i suoi allegati andranno persi.</string>
     <string name="outbox_banner_failed">Alcuni messaggi non sono partiti. Tocca per controllare.</string>
     <string name="offline_banner">Sei offline</string>
     <string name="settings_conversation_section">Conversazioni</string>

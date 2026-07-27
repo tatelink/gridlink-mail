@@ -4,6 +4,7 @@ import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.db.EmailEntity
+import app.sterna.core.data.db.EmailRecipients
 import app.sterna.core.data.db.MailboxEntity
 import app.sterna.core.imap.ImapClient
 import app.sterna.core.imap.ImapIdleConnection
@@ -333,9 +334,6 @@ class ImapMailService(
 
     private fun ImapMessage.toEntity(accountId: String, mailboxId: String): EmailEntity {
         val id = emailId(accountId, mailboxId, uid)
-        // Envelope recipients don't fit the row schema — remembered aside so Sent/Drafts
-        // rows can show "To: …" (Codeberg #59), like the JMAP path in EmailMapper.
-        recordRecipients(id, to.map { EmailAddress(name = it.name, email = it.email.orEmpty()) })
         return EmailEntity(
             id = id,
             accountId = accountId,
@@ -350,6 +348,11 @@ class ImapMailService(
             flagged = flagged,
             hasAttachment = hasAttachment,
             sortKey = dateMillis,
+            // Envelope recipients, persisted since schema v17 so Sent/Drafts rows can show
+            // "To: …" from the cold cache (Codeberg #59/#63) — like the JMAP path in EmailMapper.
+            recipientsJson = EmailRecipients.encode(
+                to.map { EmailAddress(name = it.name, email = it.email.orEmpty()) },
+            ),
         )
     }
 

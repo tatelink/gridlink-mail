@@ -22,14 +22,16 @@ class UnreadBadgeSqlTest {
     private val threadBadgeSql =
         "SELECT accountId, mailboxId, COUNT(*) AS count FROM (" +
             "SELECT accountId, mailboxId, COALESCE(threadId, id) AS tk FROM emails " +
-            "WHERE id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
+            "WHERE NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
+            "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
             "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
             "GROUP BY accountId, mailboxId, tk HAVING MIN(seen) = 0" +
             ") GROUP BY accountId, mailboxId"
 
     private val messageBadgeSql =
         "SELECT accountId, mailboxId, COUNT(*) AS count FROM emails " +
-            "WHERE seen = 0 AND id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
+            "WHERE seen = 0 AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
+            "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
             "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
             "GROUP BY accountId, mailboxId"
 
@@ -40,13 +42,14 @@ class UnreadBadgeSqlTest {
             st.executeUpdate(
                 """
                 CREATE TABLE emails(
-                    id TEXT PRIMARY KEY, accountId TEXT, mailboxId TEXT, threadId TEXT,
+                    id TEXT, accountId TEXT, mailboxId TEXT, threadId TEXT,
                     subject TEXT, preview TEXT, receivedAt TEXT, fromName TEXT, fromEmail TEXT,
-                    seen INTEGER, flagged INTEGER, hasAttachment INTEGER, sortKey INTEGER
+                    seen INTEGER, flagged INTEGER, hasAttachment INTEGER, sortKey INTEGER,
+                    PRIMARY KEY(accountId, id)
                 )
                 """.trimIndent(),
             )
-            st.executeUpdate("CREATE TABLE snoozed(emailId TEXT PRIMARY KEY, until INTEGER)")
+            st.executeUpdate("CREATE TABLE snoozed(emailId TEXT, accountId TEXT, until INTEGER, PRIMARY KEY(accountId, emailId))")
         }
     }
 
@@ -65,9 +68,9 @@ class UnreadBadgeSqlTest {
         }
     }
 
-    private fun snooze(id: String, untilMillis: Long) {
-        db.prepareStatement("INSERT INTO snoozed VALUES(?, ?)").use {
-            it.setString(1, id); it.setLong(2, untilMillis); it.executeUpdate()
+    private fun snooze(id: String, untilMillis: Long, accountId: String = "acc") {
+        db.prepareStatement("INSERT INTO snoozed VALUES(?, ?, ?)").use {
+            it.setString(1, id); it.setString(2, accountId); it.setLong(3, untilMillis); it.executeUpdate()
         }
     }
 
@@ -166,6 +169,17 @@ class UnreadBadgeSqlTest {
             mapOf(("accA" to "inbox") to 1, ("accB" to "inbox") to 2),
             counts(messageBadgeSql),
         )
+    }
+
+    @Test fun snoozeInOneAccountKeepsTheSiblingAccountsBadge() {
+        // Sub-accounts of one login (issue #31) can mint the SAME email id: account A
+        // snoozing its "e1" must clear only its own badge, not account B's.
+        insert("e1", threadId = null, seen = 0, sortKey = 100, accountId = "accA")
+        insert("e1", threadId = null, seen = 0, sortKey = 200, accountId = "accB")
+        snooze("e1", untilMillis = Long.MAX_VALUE, accountId = "accA")
+
+        assertEquals(mapOf(("accB" to "inbox") to 1), counts(threadBadgeSql))
+        assertEquals(mapOf(("accB" to "inbox") to 1), counts(messageBadgeSql))
     }
 
     @Test fun messageBadgeCountsUnreadMessagesPerFolder() {

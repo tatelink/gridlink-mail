@@ -80,8 +80,16 @@ data class FromOption(val accountId: String, val identity: StoredIdentity)
  * new identity's signature is [Insert]ed where the prefill would have put it.
  */
 sealed interface SignatureChange {
-    data class Swap(val from: String, val to: String) : SignatureChange
-    data class Insert(val signature: String, val belowQuote: Boolean) : SignatureChange
+    /** Whether the block is rewritten with the standard "-- " delimiter line (#90). Carried here
+     *  because the rewrite happens in the screen, while the setting lives in DataStore. */
+    val delimiter: Boolean
+
+    data class Swap(val from: String, val to: String, override val delimiter: Boolean) : SignatureChange
+    data class Insert(
+        val signature: String,
+        val belowQuote: Boolean,
+        override val delimiter: Boolean,
+    ) : SignatureChange
 }
 
 class ComposeViewModel(application: Application) : AndroidViewModel(application) {
@@ -148,12 +156,14 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         val old = signatureTextOf(previous)
         val new = signatureTextOf(option.identity)
         if (old == new) return null
-        if (old.isNotBlank()) return SignatureChange.Swap(old, new)
+        val delimiter = settings.signatureDelimiter.first()
+        if (old.isNotBlank()) return SignatureChange.Swap(old, new, delimiter)
         if (new.isBlank()) return null
         if (isReplyOrForward && !settings.signatureOnReplies.first()) return null
         return SignatureChange.Insert(
             signature = new,
             belowQuote = isReplyOrForward && settings.signatureBelowQuote.first(),
+            delimiter = delimiter,
         )
     }
 
@@ -179,9 +189,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     /**
      * The body a reply/forward opens with: the [quoted] original, plus the signature when
-     * "Signature in replies" is on, above or below the quote per the second setting (Settings →
-     * Reading and writing). Both are read from DataStore here, inside the prefill coroutine, rather
-     * than from a cached snapshot — so a composer opened moments after launch still honours them.
+     * "Signature in replies" is on, above or below the quote per the second setting, with or
+     * without the "-- " delimiter line per the third (Settings → Reading and writing). All three
+     * are read from DataStore here, inside the prefill coroutine, rather than from a cached
+     * snapshot — so a composer opened moments after launch still honours them.
      */
     private suspend fun replyBody(quoted: String): String =
         if (!settings.signatureOnReplies.first()) {
@@ -191,6 +202,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 quoted,
                 signatureTextOf(selectedIdentity()),
                 settings.signatureBelowQuote.first(),
+                settings.signatureDelimiter.first(),
             )
         }
 
@@ -393,6 +405,25 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             .filter { it.isNotEmpty() }
             .toSet()
 
+    /**
+     * Reply/forward from the address the original was addressed to (#81): pre-select [accountId]'s
+     * identity that appears in [original]'s To, else its Cc. Leaves the selection alone when none
+     * does (mailing list, Bcc), so the account's default identity stands, exactly as before.
+     *
+     * Deliberately NOT a change to the reply-all recipients: [selves] still excludes every address
+     * of the account, the one now sending included (B5) — replying to an alias must not put another
+     * of your own aliases in To. Nor does this touch the undo-send restore path, which re-selects
+     * the identity the user actually sent under and returns before reaching here.
+     */
+    private fun preselectReceivingIdentity(accountId: String, original: Email) {
+        receivingFromOption(_fromOptions.value, accountId, original)?.let { option ->
+            if (option != _selectedFrom.value) {
+                _selectedFrom.value = option
+                refreshPgp()
+            }
+        }
+    }
+
     /** Upload a picked document and add it to the outgoing attachments. */
     fun attach(uri: Uri) {
         val app = getApplication<Application>()
@@ -514,15 +545,23 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         if (!to.isNullOrBlank() || !cc.isNullOrBlank() || !bcc.isNullOrBlank() ||
             !subject.isNullOrBlank() || !body.isNullOrBlank()
         ) {
-            _prefill.value = DraftFields(
-                to = to.orEmpty(),
-                cc = cc.orEmpty(),
-                bcc = bcc.orEmpty(),
-                subject = subject.orEmpty(),
-                // A fresh mail, so it opens with the signature below whatever the link carried.
-                body = body.orEmpty() + signatureBlock(signatureTextOf(selectedIdentity())),
-                expand = !cc.isNullOrBlank() || !bcc.isNullOrBlank(),
-            )
+            // Launched, not inline: the delimiter setting lives in DataStore and reading it
+            // suspends. The screen already applies the prefill from a LaunchedEffect, so it lands
+            // the same way a reply's does.
+            viewModelScope.launch {
+                _prefill.value = DraftFields(
+                    to = to.orEmpty(),
+                    cc = cc.orEmpty(),
+                    bcc = bcc.orEmpty(),
+                    subject = subject.orEmpty(),
+                    // A fresh mail, so it opens with the signature below whatever the link carried.
+                    body = body.orEmpty() + signatureBlock(
+                        signatureTextOf(selectedIdentity()),
+                        settings.signatureDelimiter.first(),
+                    ),
+                    expand = !cc.isNullOrBlank() || !bcc.isNullOrBlank(),
+                )
+            }
             return
         }
 
@@ -531,8 +570,13 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         // Note that no draft/undo path reaches here — those return above with their own body, which
         // already contains the signature it was saved with, so it is never inserted twice.
         if (replyToId == null) {
-            val block = signatureBlock(signatureTextOf(selectedIdentity()))
-            if (block.isNotEmpty()) _prefill.value = DraftFields(to = "", subject = "", body = block)
+            viewModelScope.launch {
+                val block = signatureBlock(
+                    signatureTextOf(selectedIdentity()),
+                    settings.signatureDelimiter.first(),
+                )
+                if (block.isNotEmpty()) _prefill.value = DraftFields(to = "", subject = "", body = block)
+            }
             return
         }
         viewModelScope.launch {
@@ -548,8 +592,15 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             // fast: it blocks on the connection timeout (~10s), so waiting on it to build the
             // headers is exactly the bug — the recipient/subject must appear at once (Codeberg:
             // offline reply to a never-opened mail). No quote yet; the body is enriched below.
-            val cached = runCatching { repo.cachedEmail(replyToId) }.getOrNull()
+            // Account-scoped lookup: the cache is keyed (accountId, id) and a bare id would hand
+            // back a sibling sub-account's message under the same id (issue #31).
+            val cached = runCatching { repo.cachedEmail(credentials.id, replyToId) }.getOrNull()
             if (cached != null) {
+                // BEFORE the prefill: the identity decides which signature the body opens with, so
+                // the alias must be picked first or the body would carry the default one (#81).
+                // The cached row only ever remembers To (never Cc), hence the second attempt below
+                // on the fetched original.
+                preselectReceivingIdentity(credentials.id, cached)
                 _prefill.value = buildPrefill(cached, mode, selves(credentials), quoteBody = false)
                 if (mode != "forward") {
                     // Threading ids aren't cached on the list row (empty here) — the fetch below
@@ -571,6 +622,11 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 prefillFailed()
                 return@launch
             }
+
+            // The fetched original has the complete To AND Cc, so it can settle the sending identity
+            // the cached row could not (#81). Still before any body is (re)built below, so whatever
+            // signature lands belongs to the identity finally selected.
+            preselectReceivingIdentity(credentials.id, original)
 
             if (mode == "forward") {
                 // A forward's editable body stays empty; the original is carried at send time. Its
@@ -768,9 +824,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      *    only while that block is untouched (see [htmlBodyWithSignature]).
      * For a forward, the carried original is then appended below, identically, to both.
      */
-    private fun bodiesForSend(userBody: String, identity: StoredIdentity?): Pair<String, String?> {
+    private suspend fun bodiesForSend(userBody: String, identity: StoredIdentity?): Pair<String, String?> {
         val html = htmlBodyWithSignature(
             userBody, signatureTextOf(identity), signatureHtmlOf(identity),
+            settings.signatureDelimiter.first(),
         )
         val fwd = forwarded ?: return userBody to html
         return "$userBody\n\n${fwd.text}" to "$html<br><br>${fwd.html}"
@@ -829,13 +886,17 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             // Keep a reply draft threaded, carry the attachments the chips are showing into the
             // saved copy, and replace the draft being edited (#63) rather than piling up a copy
             // per save — unless the copy can't hold everything the original did, in which case
-            // the repository keeps the original and says so here.
+            // the repository keeps the original and says so here. Carry the composer's chosen From
+            // so a delegated sub-account's draft is saved under the identity it will send as, never
+            // the login's address (issue #31).
+            val identity = selectedIdentity()
             val outcome = repo.saveDraft(
                 credentials, recipients, subject, body, parseAddrs(cc), parseAddrs(bcc),
                 inReplyTo = inReplyTo, references = references,
                 replacesEmailId = editingDraftId,
                 attachments = _attachments.value,
                 bodyIsLossy = editingDraftLossy,
+                fromName = identity?.name, fromEmail = identity?.email,
             )
             if (outcome == DraftSaveOutcome.ORIGINAL_KEPT) {
                 _notices.tryEmit(R.string.compose_draft_original_kept)

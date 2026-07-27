@@ -147,6 +147,7 @@
     <string name="participants_from">De</string>
     <string name="participants_to">Para</string>
     <string name="participants_cc">Cc</string>
+    <string name="participants_received_at">Recebido em</string>
     <string name="participant_add_to_contacts">Adicionar aos contactos</string>
     <string name="participant_compose">Escrever a este contacto</string>
     <string name="participant_copy_address">Copiar endereço</string>
@@ -191,6 +192,8 @@
     <string name="settings_cancel">Cancelar</string>
     <string name="settings_clear">Limpar</string>
     <string name="settings_current_account">Conta atual</string>
+    <string name="account_shared">Conta partilhada</string>
+    <string name="settings_shared_accounts_under">Contas partilhadas: %1$s</string>
     <string name="settings_accounts_title">Contas</string>
     <string name="settings_accounts_summary">Adicionar, trocar, configurações do servidor</string>
     <string name="settings_appearance_title">Aparência</string>
@@ -252,6 +255,8 @@
     <string name="settings_signature_on_replies_subtitle">Adicioná-la também ao responder ou reencaminhar</string>
     <string name="settings_signature_below_quote_title">Assinatura abaixo do texto citado</string>
     <string name="settings_signature_below_quote_subtitle">Numa resposta, colocá-la sob a mensagem citada em vez de acima</string>
+    <string name="settings_signature_delimiter_title">Linha separadora antes da assinatura</string>
+    <string name="settings_signature_delimiter_subtitle">Outras aplicações de correio reconhecem a sua assinatura por esta linha «-- » e conseguem ocultá-la ao citar a sua mensagem; sem ela deixam de conseguir, e o campo da assinatura passa a conter exactamente o que é enviado.</string>
     <string name="settings_swipe_right_title">Deslizar para a direita</string>
     <string name="settings_swipe_left_title">Deslizar para a esquerda</string>
     <string name="settings_swipe_nothing">Nada</string>
@@ -402,6 +407,8 @@
     <string name="settings_email_not_server">O seu servidor pode recusar o envio a partir deste endereço.</string>
     <string name="settings_signature_supporting">Texto simples, adicionado ao corpo da mensagem ao escrever: pode editá-lo ou removê-lo aí como qualquer outro texto.</string>
     <string name="settings_signature_supporting_html">Está guardada uma versão HTML; é enviada tal como está se não alterar a assinatura na mensagem.</string>
+    <string name="settings_signature_preview_title">Numa mensagem ficará assim:</string>
+    <string name="settings_signature_duplicate_delimiter">A sua assinatura já começa por uma linha «-- », por isso aparecerá duas vezes.</string>
     <string name="settings_unsaved_changes">Alterações não guardadas</string>
     <string name="settings_save_changes_title">Guardar as alterações?</string>
     <string name="settings_save_changes_message">Não guardou as alterações de identidade ou de conta.</string>
@@ -591,12 +598,12 @@
     <string name="compose_forgot_attachment_send">Enviar mesmo assim</string>
     <string name="compose_forgot_attachment_back">Voltar</string>
     <string name="inbox_search_in">Pesquisar em %1$s</string>
-    <string name="inbox_scheduled">Mensagens agendadas</string>
+    <string name="inbox_scheduled">Agendadas</string>
     <string name="scheduled_title">Agendadas</string>
     <string name="scheduled_empty">Nenhuma mensagem agendada.</string>
     <string name="scheduled_cancel">Cancelar envio agendado</string>
     <string name="scheduled_send_at">Envia %1$s</string>
-    <string name="inbox_snoozed">Mensagens adiadas</string>
+    <string name="inbox_snoozed">Adiadas</string>
     <string name="snoozed_title">Adiadas</string>
     <string name="snoozed_empty">Nenhuma mensagem adiada.</string>
     <string name="snoozed_cancel">Cancelar o adiamento</string>
@@ -615,6 +622,8 @@
     <string name="outbox_retry">Tentar de novo</string>
     <string name="outbox_edit">Editar</string>
     <string name="outbox_delete">Eliminar</string>
+    <string name="outbox_delete_title">Eliminar esta mensagem?</string>
+    <string name="outbox_delete_body">Ela não foi enviada e não está guardada em nenhum outro lugar. A mensagem e seus anexos serão perdidos.</string>
     <string name="outbox_banner_failed">Algumas mensagens não foram enviadas. Toque para rever.</string>
     <string name="offline_banner">Está offline</string>
     <string name="settings_conversation_section">Conversas</string>

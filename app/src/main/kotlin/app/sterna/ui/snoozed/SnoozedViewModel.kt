@@ -32,9 +32,9 @@ class SnoozedViewModel(application: Application) : AndroidViewModel(application)
      * the WorkManager job, otherwise a ghost wake-up would still fire (and notify) at the old
      * deadline for a message that is no longer snoozed.
      */
-    fun cancel(emailId: String) {
-        Snoozes.cancel(getApplication(), emailId)
-        viewModelScope.launch { repo.unsnooze(emailId) }
+    fun cancel(accountId: String, emailId: String) {
+        Snoozes.cancel(getApplication(), accountId, emailId)
+        viewModelScope.launch { repo.unsnooze(accountId, emailId) }
     }
 
     /** Move a snooze to a new deadline: same write as snoozing, and the unique work is replaced. */

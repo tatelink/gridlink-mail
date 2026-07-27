@@ -23,13 +23,14 @@ class ConversationSqlTest {
             st.executeUpdate(
                 """
                 CREATE TABLE emails(
-                    id TEXT PRIMARY KEY, accountId TEXT, mailboxId TEXT, threadId TEXT,
+                    id TEXT, accountId TEXT, mailboxId TEXT, threadId TEXT,
                     subject TEXT, preview TEXT, receivedAt TEXT, fromName TEXT, fromEmail TEXT,
-                    seen INTEGER, flagged INTEGER, hasAttachment INTEGER, sortKey INTEGER
+                    seen INTEGER, flagged INTEGER, hasAttachment INTEGER, sortKey INTEGER,
+                    PRIMARY KEY(accountId, id)
                 )
                 """.trimIndent(),
             )
-            st.executeUpdate("CREATE TABLE snoozed(emailId TEXT PRIMARY KEY, until INTEGER)")
+            st.executeUpdate("CREATE TABLE snoozed(emailId TEXT, accountId TEXT, until INTEGER, PRIMARY KEY(accountId, emailId))")
         }
     }
 
@@ -48,9 +49,9 @@ class ConversationSqlTest {
         }
     }
 
-    private fun snooze(id: String, untilMillis: Long) {
-        db.prepareStatement("INSERT INTO snoozed VALUES(?, ?)").use {
-            it.setString(1, id); it.setLong(2, untilMillis); it.executeUpdate()
+    private fun snooze(id: String, untilMillis: Long, accountId: String = "acc") {
+        db.prepareStatement("INSERT INTO snoozed VALUES(?, ?, ?)").use {
+            it.setString(1, id); it.setString(2, accountId); it.setLong(3, untilMillis); it.executeUpdate()
         }
     }
 
@@ -129,6 +130,39 @@ class ConversationSqlTest {
             ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
         }
         assertEquals(listOf("a1"), rows) // only account A's mail; b1 is excluded
+    }
+
+    /** Single-account bound run for [accountId]'s "inbox"; returns the row ids. */
+    private fun runScoped(accountId: String): List<String> {
+        val sql = conversationSql(mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false, hasAccountId = true)
+        return db.prepareStatement(sql).use { ps ->
+            ps.setString(1, "inbox"); ps.setString(2, accountId)
+            ps.setString(3, "inbox"); ps.setString(4, accountId)
+            ps.setString(5, "inbox"); ps.setString(6, accountId)
+            ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
+        }
+    }
+
+    @Test fun sameEmailIdAcrossAccountsStaysScoped() {
+        // Two sub-accounts of one login (issue #31) whose server minted the SAME email id
+        // in the SAME-named mailbox — the composite (accountId, id) key case. Each scoped
+        // view must show exactly its own row.
+        insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 100, accountId = "accA")
+        insert("e1", threadId = null, seen = 1, flagged = 0, sortKey = 200, accountId = "accB")
+
+        assertEquals(listOf("e1"), runScoped("accA"))
+        assertEquals(listOf("e1"), runScoped("accB"))
+    }
+
+    @Test fun snoozeIsScopedToItsAccount() {
+        // Account A snoozes its "e1"; account B's message that happens to share the id
+        // (same-server sub-accounts, issue #31) must stay visible.
+        insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 100, accountId = "accA")
+        insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 200, accountId = "accB")
+        snooze("e1", untilMillis = Long.MAX_VALUE, accountId = "accA")
+
+        assertEquals(emptyList<String>(), runScoped("accA")) // snoozed away
+        assertEquals(listOf("e1"), runScoped("accB")) // untouched by A's snooze
     }
 
     /** Run the SQL as bound in production for the Inbox of account "acc" with a Sent folder:

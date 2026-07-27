@@ -147,6 +147,7 @@
     <string name="participants_from">Von</string>
     <string name="participants_to">An</string>
     <string name="participants_cc">Cc</string>
+    <string name="participants_received_at">Empfangen an</string>
     <string name="participant_add_to_contacts">Zu Kontakten hinzufügen</string>
     <string name="participant_compose">Diesem Kontakt schreiben</string>
     <string name="participant_copy_address">Adresse kopieren</string>
@@ -191,6 +192,8 @@
     <string name="settings_cancel">Abbrechen</string>
     <string name="settings_clear">Löschen</string>
     <string name="settings_current_account">Aktuelles Konto</string>
+    <string name="account_shared">Geteiltes Konto</string>
+    <string name="settings_shared_accounts_under">Geteilte Konten: %1$s</string>
     <string name="settings_accounts_title">Konten</string>
     <string name="settings_accounts_summary">Hinzufügen, wechseln, Servereinstellungen</string>
     <string name="settings_appearance_title">Darstellung</string>
@@ -252,6 +255,8 @@
     <string name="settings_signature_on_replies_subtitle">Auch beim Antworten und Weiterleiten einfügen</string>
     <string name="settings_signature_below_quote_title">Signatur unter dem zitierten Text</string>
     <string name="settings_signature_below_quote_subtitle">In einer Antwort unter die zitierte Nachricht setzen statt darüber</string>
+    <string name="settings_signature_delimiter_title">Trennzeile vor der Signatur</string>
+    <string name="settings_signature_delimiter_subtitle">Andere E-Mail-Programme erkennen Ihre Signatur an dieser Zeile „-- “ und können sie beim Zitieren Ihrer Nachricht ausblenden; ohne sie geht das nicht mehr, und das Signaturfeld enthält dann genau das, was gesendet wird.</string>
     <string name="settings_swipe_right_title">Nach rechts wischen</string>
     <string name="settings_swipe_left_title">Nach links wischen</string>
     <string name="settings_swipe_nothing">Keine</string>
@@ -402,6 +407,8 @@
     <string name="settings_email_not_server">Dein Server lehnt das Senden von dieser Adresse möglicherweise ab.</string>
     <string name="settings_signature_supporting">Reiner Text, beim Schreiben in den Nachrichtentext eingefügt — dort wie jeder andere Text änderbar oder löschbar.</string>
     <string name="settings_signature_supporting_html">Eine HTML-Version ist gespeichert; sie wird unverändert gesendet, sofern Sie die Signatur in der Nachricht nicht ändern.</string>
+    <string name="settings_signature_preview_title">In einer Nachricht sieht das so aus:</string>
+    <string name="settings_signature_duplicate_delimiter">Ihre Signatur beginnt bereits mit einer Zeile „-- “, sie erscheint daher doppelt.</string>
     <string name="settings_unsaved_changes">Nicht gespeicherte Änderungen</string>
     <string name="settings_save_changes_title">Änderungen speichern?</string>
     <string name="settings_save_changes_message">Du hast deine Identitäts- oder Kontoänderungen nicht gespeichert.</string>
@@ -591,12 +598,12 @@
     <string name="compose_forgot_attachment_send">Trotzdem senden</string>
     <string name="compose_forgot_attachment_back">Zurück</string>
     <string name="inbox_search_in">%1$s durchsuchen</string>
-    <string name="inbox_scheduled">Geplante Nachrichten</string>
+    <string name="inbox_scheduled">Geplant</string>
     <string name="scheduled_title">Geplant</string>
     <string name="scheduled_empty">Keine geplanten Nachrichten.</string>
     <string name="scheduled_cancel">Geplanten Versand abbrechen</string>
     <string name="scheduled_send_at">Wird %1$s gesendet</string>
-    <string name="inbox_snoozed">Zurückgestellte Nachrichten</string>
+    <string name="inbox_snoozed">Zurückgestellt</string>
     <string name="snoozed_title">Zurückgestellt</string>
     <string name="snoozed_empty">Keine zurückgestellten Nachrichten.</string>
     <string name="snoozed_cancel">Zurückstellen aufheben</string>
@@ -615,6 +622,8 @@
     <string name="outbox_retry">Wiederholen</string>
     <string name="outbox_edit">Bearbeiten</string>
     <string name="outbox_delete">Löschen</string>
+    <string name="outbox_delete_title">Diese Nachricht löschen?</string>
+    <string name="outbox_delete_body">Sie wurde nicht gesendet und ist nirgendwo sonst gespeichert. Die Nachricht und ihre Anhänge gehen verloren.</string>
     <string name="outbox_banner_failed">Einige Nachrichten wurden nicht gesendet. Zum Prüfen tippen.</string>
     <string name="offline_banner">Du bist offline</string>
     <string name="settings_conversation_section">Konversationen</string>

@@ -76,38 +76,44 @@ object Notifications {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-    /** [folderName] marks non-inbox mail (multi-folder watch, issue #16); null for the inbox.
-     *  [content] controls how much of the mail shows on the lock screen (Codeberg #25). */
+    /**
+     * [folderName] marks non-inbox mail (multi-folder watch, issue #16); null for the inbox.
+     * [mailboxId] is the same folder's id, carried in the tap intent so opening the notification
+     * puts the list on the folder the message actually lives in (issue #91) — null when the
+     * caller has none to give. Unlike [folderName] it is NOT null for the inbox: the list has to
+     * be able to switch back TO the inbox from another folder just as much as away from it.
+     * [silent] (quiet hours) and [content] (how much of the mail shows on the lock screen,
+     * Codeberg #25) are deliberately WITHOUT defaults: they are user settings, and the
+     * defaults let the snooze wake-up post loudly with sender and subject against the
+     * user's explicit choice (Codeberg #84). Read them via [NewMailNotifier.options].
+     */
     fun notifyNewMail(
         context: Context,
         email: Email,
         accountId: String,
-        silent: Boolean = false,
-        folderName: String? = null,
-        content: NotificationContent = NotificationContent.SENDER_AND_SUBJECT,
+        silent: Boolean,
+        folderName: String?,
+        mailboxId: String?,
+        content: NotificationContent,
     ) {
-        val sender = email.from.firstOrNull()?.display() ?: context.getString(R.string.notif_new_message)
-        val subject = email.subject?.takeIf { it.isNotBlank() } ?: context.getString(R.string.message_no_subject)
-        // What the notification reveals, per the privacy setting: sender + subject,
-        // sender with a generic line, or just a generic "New message" with nothing identifying.
         val generic = context.getString(R.string.notif_new_message)
-        val title = if (content == NotificationContent.NONE) generic else sender
-        val text = when (content) {
-            NotificationContent.SENDER_AND_SUBJECT -> subject
-            NotificationContent.SENDER_ONLY -> generic
-            NotificationContent.NONE -> null
-        }
-        // The expanded (shade/lock-screen) state shows the full subject — never the body
-        // preview, which "Sender + subject" was leaking to the notification drawer while
-        // the heads-up popup correctly showed the subject (Codeberg #57).
-        val bigText = if (content == NotificationContent.SENDER_AND_SUBJECT) subject else null
+        val sender = email.from.firstOrNull()?.display() ?: generic
+        val subject = email.subject?.takeIf { it.isNotBlank() } ?: context.getString(R.string.message_no_subject)
+        // What the notification reveals, per the privacy setting — the rule itself lives in
+        // [MailNotificationText] so it is testable, and so no caller can post with the
+        // defaults and leak what the user asked to hide (Codeberg #84). The expanded state
+        // shows the full subject, never a body preview (Codeberg #57).
+        val (title, text, bigText) = MailNotificationText.resolve(content, sender, subject, generic)
         val notifId = email.id.hashCode()
         // Carry the message identity so a tap opens THAT email, not just the inbox — even when
         // the app is already running (singleTask → onNewIntent routes it). Codeberg #17 follow-up.
+        // Its account (#31) and its folder (#91) travel along so the list underneath ends up
+        // where the message is, and Back lands in a list that holds it.
         val intent = Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             .putExtra(MainActivity.EXTRA_OPEN_EMAIL_ID, email.id)
             .putExtra(MainActivity.EXTRA_OPEN_ACCOUNT_ID, accountId)
+            .apply { if (mailboxId != null) putExtra(MainActivity.EXTRA_OPEN_MAILBOX_ID, mailboxId) }
         val pending = PendingIntent.getActivity(
             context,
             notifId,

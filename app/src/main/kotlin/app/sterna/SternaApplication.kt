@@ -69,6 +69,9 @@ class AppContainer(context: Context) {
         }
         // Let the data layer arm the delivery worker from any send call site (compose, RSVP, …).
         mailRepository.outboxScheduler = OutboxScheduler { id, delay -> Outbox.enqueue(appContext, id, delay) }
+        // A linked sub-account pruned on reconcile (access revoked, Codeberg #31) drops its
+        // notification baselines too, exactly like a sign-out — the data layer cannot reach them.
+        mailRepository.onAccountPruned = { app.sterna.push.NewMailNotifier.clear(appContext, it) }
         // Re-arm any send left mid-flight (WorkManager persists jobs, but re-checking is a safety net).
         appScope.launch {
             mailRepository.unfinishedOutbox().forEach { item ->

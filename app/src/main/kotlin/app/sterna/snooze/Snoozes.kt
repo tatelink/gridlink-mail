@@ -15,12 +15,14 @@ object Snoozes {
             .setInitialDelay(delay, TimeUnit.MILLISECONDS)
             .setInputData(workDataOf(SnoozeWorker.KEY_ID to emailId, SnoozeWorker.KEY_ACCOUNT to accountId))
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(workName(emailId), ExistingWorkPolicy.REPLACE, request)
+        WorkManager.getInstance(context).enqueueUniqueWork(workName(accountId, emailId), ExistingWorkPolicy.REPLACE, request)
     }
 
-    fun cancel(context: Context, emailId: String) {
-        WorkManager.getInstance(context).cancelUniqueWork(workName(emailId))
+    fun cancel(context: Context, accountId: String, emailId: String) {
+        WorkManager.getInstance(context).cancelUniqueWork(workName(accountId, emailId))
     }
 
-    private fun workName(emailId: String) = "snooze-$emailId"
+    // The account is part of the name: email ids can collide between same-server accounts
+    // (issue #31), and a colliding name would let one account's snooze REPLACE the other's.
+    private fun workName(accountId: String, emailId: String) = "snooze-$accountId-$emailId"
 }

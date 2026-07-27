@@ -138,7 +138,7 @@ fun SnoozedScreen(
                             }
                         }
                     }
-                    IconButton(onClick = { viewModel.cancel(item.emailId) }) {
+                    IconButton(onClick = { viewModel.cancel(item.accountId, item.emailId) }) {
                         Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.snoozed_cancel))
                     }
                 }

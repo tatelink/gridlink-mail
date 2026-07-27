@@ -284,6 +284,65 @@ class JmapClientTest {
         assertEquals(0, server.requestCount) // capability gate skips the network
     }
 
+    // ---- on-behalf sending seams (issue #31) ----
+
+    @Test fun sendEmail_returnsTheCreatedEmailId() = runBlocking {
+        server.enqueue(MockResponse().setBody(SEND_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+
+        val emailId = client.sendEmail(
+            session = session,
+            accountId = "acc1",
+            auth = BasicAuth("u", "p"),
+            identityId = "i1",
+            from = app.sterna.core.jmap.model.EmailAddress(name = "Jordan", email = "jordan@example.org"),
+            to = listOf(app.sterna.core.jmap.model.EmailAddress(email = "dest@example.org")),
+            subject = "Hi",
+            textBody = "Hello",
+            draftMailboxId = "mbDrafts",
+            sentMailboxId = "mbSent",
+        )
+
+        assertEquals("e123", emailId)
+    }
+
+    @Test fun copyEmailToAccount_copiesThenDestroysTheRealIdExplicitly() = runBlocking {
+        server.enqueue(MockResponse().setBody(COPY_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+
+        client.copyEmailToAccount(
+            session = session,
+            auth = BasicAuth("u", "p"),
+            fromAccountId = "s",
+            toAccountId = "sub",
+            emailId = "e123",
+            mailboxId = "mbSent",
+        )
+
+        val sent = server.takeRequest().body.readUtf8()
+        assertTrue(sent.contains("Email/copy"))
+        assertTrue(sent.contains("\"fromAccountId\":\"s\""))
+        assertTrue(sent.contains("\"accountId\":\"sub\""))
+        // Regression guard: the destroy must name the real Email id in a second, explicit
+        // Email/set — Stalwart's onSuccessDestroyOriginal targets the creation id and
+        // silently leaves the original behind.
+        assertTrue(sent.contains("\"destroy\":[\"e123\"]"))
+        assertTrue(!sent.contains("onSuccessDestroyOriginal"))
+    }
+
+    @Test fun copyEmailToAccount_throwsWhenTheCopyIsRefused() {
+        server.enqueue(MockResponse().setBody(COPY_NOTCREATED_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        try {
+            runBlocking {
+                client.copyEmailToAccount(session, BasicAuth("u", "p"), "s", "sub", "e123", "mbSent")
+            }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertTrue(e.message!!.contains("Could not file the sent copy"))
+        }
+    }
+
     // --- saveDraft (#63: reopen/edit/replace saved drafts) ---
 
     @Test fun saveDraft_sendsThreadingHeadersAndReturnsCreatedId() = runBlocking {
@@ -487,6 +546,47 @@ class JmapClientTest {
                   "accountId": "acc1",
                   "notUpdated": { "e1": { "type": "notFound" } }
                 }, "s0"]
+              ]
+            }
+        """
+
+        const val SEND_JSON = """
+            {
+              "methodResponses": [
+                ["Email/set", {
+                  "accountId": "acc1",
+                  "created": { "draft": { "id": "e123", "threadId": "t1", "blobId": "b1" } }
+                }, "e0"],
+                ["EmailSubmission/set", {
+                  "accountId": "acc1",
+                  "created": { "sub": { "id": "sub1", "undoStatus": "final" } }
+                }, "s0"]
+              ]
+            }
+        """
+
+        const val COPY_JSON = """
+            {
+              "methodResponses": [
+                ["Email/copy", {
+                  "fromAccountId": "s",
+                  "accountId": "sub",
+                  "created": { "copy": { "id": "e999", "threadId": "t9", "blobId": "b9" } }
+                }, "c0"],
+                ["Email/set", { "accountId": "s", "destroyed": ["e123"] }, "d0"]
+              ]
+            }
+        """
+
+        const val COPY_NOTCREATED_JSON = """
+            {
+              "methodResponses": [
+                ["Email/copy", {
+                  "fromAccountId": "s",
+                  "accountId": "sub",
+                  "notCreated": { "copy": { "type": "notFound" } }
+                }, "c0"],
+                ["Email/set", { "accountId": "s", "notDestroyed": { "e123": { "type": "notFound" } } }, "d0"]
               ]
             }
         """

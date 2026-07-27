@@ -30,8 +30,10 @@ interface EmailFtsDao {
     @Query("DELETE FROM email_fts WHERE accountId = :accountId")
     suspend fun clearAccount(accountId: String)
 
-    @Query("DELETE FROM email_fts WHERE emailId IN (:ids)")
-    suspend fun deleteByIds(ids: List<String>)
+    // Deletes are scoped by accountId: email ids collide across accounts (issue #31), and an
+    // unscoped delete-by-id would silently drop another account's index rows.
+    @Query("DELETE FROM email_fts WHERE accountId = :accountId AND emailId IN (:ids)")
+    suspend fun deleteByIds(accountId: String, ids: List<String>)
 
     @Insert
     suspend fun insert(rows: List<EmailFtsEntity>)
@@ -40,11 +42,16 @@ interface EmailFtsDao {
     @Transaction
     suspend fun upsert(rows: List<EmailFtsEntity>) {
         if (rows.isEmpty()) return
-        deleteByIds(rows.map { it.emailId })
+        rows.groupBy { it.accountId }.forEach { (accountId, group) ->
+            deleteByIds(accountId, group.map { it.emailId })
+        }
         insert(rows)
     }
 
-    @Query("DELETE FROM email_fts WHERE emailId IN (SELECT id FROM emails)")
+    @Query(
+        "DELETE FROM email_fts WHERE EXISTS (SELECT 1 FROM emails " +
+            "WHERE emails.id = email_fts.emailId AND emails.accountId = email_fts.accountId)",
+    )
     suspend fun deleteCachedRows()
 
     @Query(

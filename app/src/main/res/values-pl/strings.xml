@@ -147,6 +147,7 @@
     <string name="participants_from">Od</string>
     <string name="participants_to">Do</string>
     <string name="participants_cc">DW</string>
+    <string name="participants_received_at">Odebrano na adres</string>
     <string name="participant_add_to_contacts">Dodaj do kontaktów</string>
     <string name="participant_compose">Napisz do tego kontaktu</string>
     <string name="participant_copy_address">Kopiuj adres</string>
@@ -191,6 +192,8 @@
     <string name="settings_cancel">Anuluj</string>
     <string name="settings_clear">Wyczyść</string>
     <string name="settings_current_account">Bieżące konto</string>
+    <string name="account_shared">Konto udostępnione</string>
+    <string name="settings_shared_accounts_under">Konta udostępnione: %1$s</string>
     <string name="settings_accounts_title">Konta</string>
     <string name="settings_accounts_summary">Dodawanie, przełączanie, ustawienia serwera</string>
     <string name="settings_appearance_title">Wygląd</string>
@@ -252,6 +255,8 @@
     <string name="settings_signature_on_replies_subtitle">Dodawaj go także przy odpowiadaniu i przekazywaniu</string>
     <string name="settings_signature_below_quote_title">Podpis pod cytowanym tekstem</string>
     <string name="settings_signature_below_quote_subtitle">W odpowiedzi umieszczaj go pod cytowaną wiadomością zamiast nad nią</string>
+    <string name="settings_signature_delimiter_title">Wiersz oddzielający przed podpisem</string>
+    <string name="settings_signature_delimiter_subtitle">Inne programy pocztowe rozpoznają Twój podpis po tym wierszu „-- ” i potrafią go ukryć przy cytowaniu wiadomości; bez niego już nie potrafią, a pole podpisu zawiera wtedy dokładnie to, co zostanie wysłane.</string>
     <string name="settings_swipe_right_title">Przesunięcie w prawo</string>
     <string name="settings_swipe_left_title">Przesunięcie w lewo</string>
     <string name="settings_swipe_nothing">Brak</string>
@@ -402,6 +407,8 @@
     <string name="settings_email_not_server">Twój serwer może odrzucić wysyłanie z tego adresu.</string>
     <string name="settings_signature_supporting">Zwykły tekst, dodawany do treści wiadomości podczas pisania — możesz go tam edytować lub usunąć jak każdy inny tekst.</string>
     <string name="settings_signature_supporting_html">Zapisano wersję HTML; zostanie wysłana bez zmian, jeśli nie zmodyfikujesz podpisu w wiadomości.</string>
+    <string name="settings_signature_preview_title">W wiadomości będzie to wyglądać tak:</string>
+    <string name="settings_signature_duplicate_delimiter">Twój podpis już zaczyna się wierszem „-- ”, więc pojawi się dwa razy.</string>
     <string name="settings_unsaved_changes">Niezapisane zmiany</string>
     <string name="settings_save_changes_title">Zapisać zmiany?</string>
     <string name="settings_save_changes_message">Nie zapisano zmian tożsamości ani konta.</string>
@@ -591,12 +598,12 @@
     <string name="compose_forgot_attachment_send">Wyślij mimo to</string>
     <string name="compose_forgot_attachment_back">Wróć</string>
     <string name="inbox_search_in">Szukaj w %1$s</string>
-    <string name="inbox_scheduled">Zaplanowane wiadomości</string>
+    <string name="inbox_scheduled">Zaplanowane</string>
     <string name="scheduled_title">Zaplanowane</string>
     <string name="scheduled_empty">Brak zaplanowanych wiadomości.</string>
     <string name="scheduled_cancel">Anuluj zaplanowane wysłanie</string>
     <string name="scheduled_send_at">Wysyłka %1$s</string>
-    <string name="inbox_snoozed">Odłożone wiadomości</string>
+    <string name="inbox_snoozed">Odłożone</string>
     <string name="snoozed_title">Odłożone</string>
     <string name="snoozed_empty">Brak odłożonych wiadomości.</string>
     <string name="snoozed_cancel">Anuluj odłożenie</string>
@@ -615,6 +622,8 @@
     <string name="outbox_retry">Ponów</string>
     <string name="outbox_edit">Edytuj</string>
     <string name="outbox_delete">Usuń</string>
+    <string name="outbox_delete_title">Usunąć tę wiadomość?</string>
+    <string name="outbox_delete_body">Nie została wysłana i nie jest nigdzie indziej zapisana. Wiadomość i jej załączniki zostaną utracone.</string>
     <string name="outbox_banner_failed">Niektóre wiadomości nie zostały wysłane. Dotknij, aby sprawdzić.</string>
     <string name="offline_banner">Jesteś offline</string>
     <string name="settings_conversation_section">Konwersacje</string>

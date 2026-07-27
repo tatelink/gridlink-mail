@@ -58,13 +58,16 @@ class FolderDeleteWorker(context: Context, params: WorkerParameters) : Coroutine
                 .setInputData(workDataOf(KEY_ACCOUNT_ID to accountId, KEY_MAILBOX_ID to mailboxId))
                 .build()
             WorkManager.getInstance(context)
-                .enqueueUniqueWork(workName(mailboxId), ExistingWorkPolicy.REPLACE, request)
+                .enqueueUniqueWork(workName(accountId, mailboxId), ExistingWorkPolicy.REPLACE, request)
         }
 
-        fun cancel(context: Context, mailboxId: String) {
-            WorkManager.getInstance(context).cancelUniqueWork(workName(mailboxId))
+        fun cancel(context: Context, accountId: String, mailboxId: String) {
+            WorkManager.getInstance(context).cancelUniqueWork(workName(accountId, mailboxId))
         }
 
-        private fun workName(mailboxId: String) = "folder-delete-$mailboxId"
+        // The account is part of the name: mailbox ids can collide between same-server accounts
+        // (e.g. Stalwart, issue #31), and a colliding name would let one account's folder delete
+        // REPLACE or cancel the other's pending one.
+        private fun workName(accountId: String, mailboxId: String) = "folder-delete-$accountId-$mailboxId"
     }
 }

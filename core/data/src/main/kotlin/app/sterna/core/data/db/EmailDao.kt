@@ -44,12 +44,17 @@ interface EmailDao {
     @Query("SELECT * FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId ORDER BY sortKey DESC")
     suspend fun getByMailbox(accountId: String, mailboxId: String): List<EmailEntity>
 
-    /** The cached mailbox an email lives in (used to advance that mailbox's sync cursor). */
-    @Query("SELECT mailboxId FROM emails WHERE id = :id LIMIT 1")
-    suspend fun mailboxOf(id: String): String?
+    // The id-keyed reads/writes below are scoped by accountId as well: with the composite
+    // (accountId, id) key (issue #31) an email id is no longer unique across accounts, and
+    // an unscoped UPDATE/DELETE would bleed into a same-server sibling account's row that
+    // happens to share the id.
 
-    @Query("SELECT seen FROM emails WHERE id = :id LIMIT 1")
-    suspend fun seenOf(id: String): Boolean?
+    /** The cached mailbox an email lives in (used to advance that mailbox's sync cursor). */
+    @Query("SELECT mailboxId FROM emails WHERE accountId = :accountId AND id = :id LIMIT 1")
+    suspend fun mailboxOf(accountId: String, id: String): String?
+
+    @Query("SELECT seen FROM emails WHERE accountId = :accountId AND id = :id LIMIT 1")
+    suspend fun seenOf(accountId: String, id: String): Boolean?
 
     @Upsert
     suspend fun upsertAll(emails: List<EmailEntity>)
@@ -69,17 +74,17 @@ interface EmailDao {
     )
     suspend fun deleteNotInSparing(accountId: String, mailboxId: String, keepIds: List<String>, spareIds: List<String>)
 
-    @Query("UPDATE emails SET seen = :seen WHERE id = :id")
-    suspend fun setSeen(id: String, seen: Boolean)
+    @Query("UPDATE emails SET seen = :seen WHERE accountId = :accountId AND id = :id")
+    suspend fun setSeen(accountId: String, id: String, seen: Boolean)
 
-    @Query("UPDATE emails SET flagged = :flagged WHERE id = :id")
-    suspend fun setFlagged(id: String, flagged: Boolean)
+    @Query("UPDATE emails SET flagged = :flagged WHERE accountId = :accountId AND id = :id")
+    suspend fun setFlagged(accountId: String, id: String, flagged: Boolean)
 
-    @Query("DELETE FROM emails WHERE id = :id")
-    suspend fun deleteById(id: String)
+    @Query("DELETE FROM emails WHERE accountId = :accountId AND id = :id")
+    suspend fun deleteById(accountId: String, id: String)
 
-    @Query("DELETE FROM emails WHERE id IN (:ids)")
-    suspend fun deleteByIds(ids: List<String>)
+    @Query("DELETE FROM emails WHERE accountId = :accountId AND id IN (:ids)")
+    suspend fun deleteByIds(accountId: String, ids: List<String>)
 
     /** Cached message count for one account's mailbox (end-of-pagination check). */
     @Query("SELECT COUNT(*) FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId")
@@ -114,9 +119,14 @@ interface EmailDao {
     @Query("SELECT id FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId")
     suspend fun idsForMailbox(accountId: String, mailboxId: String): List<String>
 
-    /** Cached rows by id (for bulk actions on a selection). */
+    /** Cached rows by id across accounts (unified-view selections; callers disambiguate
+     *  by the returned rows' accountId). */
     @Query("SELECT * FROM emails WHERE id IN (:ids)")
     suspend fun emailsByIds(ids: List<String>): List<EmailEntity>
+
+    /** Cached rows by id within one account (bulk actions running under its credentials). */
+    @Query("SELECT * FROM emails WHERE accountId = :accountId AND id IN (:ids)")
+    suspend fun emailsByIds(accountId: String, ids: List<String>): List<EmailEntity>
 
     /** One account's cached members of the given threads that are filed under [mailboxId]
      *  (Codeberg #50: the archived members of threads that just received a new reply).
@@ -149,10 +159,13 @@ interface EmailDao {
      * accounts can share mailbox/thread ids). Reactive: Room re-emits on any emails/snoozed
      * change, so the badge is live with no manual nudge.
      */
+    // The snooze filters below correlate on accountId too: snoozes are keyed per account
+    // (issue #31), so account A snoozing id X must not hide account B's same-id message.
     @Query(
         "SELECT accountId, mailboxId, COUNT(*) AS count FROM (" +
             "SELECT accountId, mailboxId, COALESCE(threadId, id) AS tk FROM emails " +
-            "WHERE id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
+            "WHERE NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
+            "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
             "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
             "GROUP BY accountId, mailboxId, tk HAVING MIN(seen) = 0" +
             ") GROUP BY accountId, mailboxId",
@@ -166,7 +179,8 @@ interface EmailDao {
      */
     @Query(
         "SELECT accountId, mailboxId, COUNT(*) AS count FROM emails " +
-            "WHERE seen = 0 AND id NOT IN (SELECT emailId FROM snoozed WHERE until > " +
+            "WHERE seen = 0 AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
+            "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
             "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
             "GROUP BY accountId, mailboxId",
     )

@@ -54,10 +54,17 @@ class MailFetchWorker(context: Context, params: WorkerParameters) : CoroutineWor
                     .onFailure { Log.w(TAG, "Safety poll failed for account ${credentials.id}", it) }
                 continue
             }
-            if (pushLive && credentials.protocol != MailProtocol.IMAP) continue
-            if (pushLive && store.watchedFolders(credentials.id).isEmpty()) continue
+            // A linked sub-account gets no live push of its own (issue #31): Stalwart only
+            // delivers StateChanges for the login's member accounts (member_of), never for
+            // ACL-shared accounts (access_to) — the kind sub-account discovery surfaces. A
+            // live EventSource on the login therefore does NOT cover it: poll it here every
+            // cycle like a push-less account (per-folder baselines dedupe this against the
+            // catch-up fan-out that runs whenever the login's own push wakes).
+            val linked = store.account(credentials.id)?.isLinked == true
+            if (pushLive && !linked && credentials.protocol != MailProtocol.IMAP) continue
+            if (pushLive && !linked && store.watchedFolders(credentials.id).isEmpty()) continue
             runCatching {
-                FetchAndNotify.run(applicationContext, credentials, includeInbox = !pushLive)
+                FetchAndNotify.run(applicationContext, credentials, includeInbox = !pushLive || linked)
             }.onFailure { Log.w(TAG, "Fallback fetch failed for account ${credentials.id}", it) }
         }
         return Result.success()

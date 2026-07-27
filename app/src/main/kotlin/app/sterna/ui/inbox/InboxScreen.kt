@@ -24,11 +24,13 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -125,6 +127,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -142,7 +145,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -153,7 +158,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -165,7 +172,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.data.settings.SwipeAction
+import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.mail.InboxRow
+import app.sterna.core.data.mail.emailKey
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.Mailbox
@@ -225,7 +234,7 @@ fun InboxScreen(
     val pagedEmails = viewModel.pagedEmails.collectAsLazyPagingItems()
     val swipe by viewModel.swipeConfig.collectAsStateWithLifecycle()
     val selectionActive by viewModel.selectionActive.collectAsStateWithLifecycle()
-    val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
+    val selectedKeys by viewModel.selectedKeys.collectAsStateWithLifecycle()
     val selectionAllRead by viewModel.selectionAllRead.collectAsStateWithLifecycle()
     // Inline conversation expansion: which threads are unfolded, and their lazily-loaded members.
     val expandedThreads by viewModel.expandedThreads.collectAsStateWithLifecycle()
@@ -262,6 +271,16 @@ fun InboxScreen(
     }
     val snackbarHostState = remember { SnackbarHostState() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    // Codeberg #30: the rows hand a narrow strip at the start edge back to the drawer's own
+    // drag — but only in three-button navigation, where Android reports no gesture inset
+    // there. Under gesture navigation that edge is the system back gesture: the strip is
+    // 0-wide and inert, and the app declares no exclusion zone to fight for it. Read here,
+    // above the Scaffold, so no consumed inset can make the edge look free.
+    val density = LocalDensity.current
+    val edgeBandPx = drawerBandPx(
+        systemGestureInsetPx = WindowInsets.systemGestures.getLeft(density, LocalLayoutDirection.current),
+        bandPx = with(density) { DRAWER_EDGE_BAND_DP.dp.toPx() },
+    )
     // Hoisted strings for snackbars shown from non-composable LaunchedEffect coroutines.
     val undoLabel = stringResource(R.string.inbox_undo)
     val context = LocalContext.current
@@ -288,10 +307,14 @@ fun InboxScreen(
         viewModel.clearMessage()
     }
 
-    // Back exits multi-select mode first.
-    BackHandler(enabled = selectionActive) { viewModel.clearSelection() }
-    // From any non-inbox folder, Back returns to the Inbox instead of leaving the app.
-    BackHandler(enabled = !selectionActive && !ui.atInbox) { viewModel.showInbox() }
+    // Back peels the list's modes off one at a time before the app is left; the order lives in
+    // [inboxBackAction] so exactly one handler is ever enabled (LEAVE_APP enables none, and the
+    // system does its usual thing). Search is one of those modes, not a screen: Back closes it
+    // and gives the list back instead of minimising the app (Codeberg #86).
+    val backAction = inboxBackAction(selectionActive, ui.searching, ui.atInbox)
+    BackHandler(enabled = backAction == InboxBackAction.CLEAR_SELECTION) { viewModel.clearSelection() }
+    BackHandler(enabled = backAction == InboxBackAction.CLOSE_SEARCH) { viewModel.setSearchActive(false) }
+    BackHandler(enabled = backAction == InboxBackAction.SHOW_INBOX) { viewModel.showInbox() }
 
     // Move-to-folder picker for the current selection. System folders lead in a fixed order
     // (Inbox, Drafts, Sent, Spam, Archive, Trash), custom folders follow in their own order (#25).
@@ -613,7 +636,7 @@ fun InboxScreen(
         var prevKey: String? = null
         var wasAtTop = true
         snapshotFlow {
-            val key = if (pagedEmails.itemCount > 0) pagedEmails.peek(0)?.email?.id else null
+            val key = if (pagedEmails.itemCount > 0) pagedEmails.peek(0)?.email?.let { "${it.accountId}|${it.id}" } else null
             val atTop = listState.firstVisibleItemIndex == 0 &&
                 listState.firstVisibleItemScrollOffset == 0
             key to atTop
@@ -715,7 +738,17 @@ fun InboxScreen(
                             modifier = Modifier
                                 .graphicsLayer { translationX = accountOffset.value }
                                 .clickable {
-                                    onOpenAccountSettings(currentAccountId)
+                                    // A shared account sends you to its LOGIN's settings: that is
+                                    // where its commands actually live (credential, protocol, sign
+                                    // out — it has none of its own, and it disappears when the
+                                    // owner unshares or the login goes). Otherwise this tap would
+                                    // walk straight back into the editor the accounts screen
+                                    // deliberately no longer offers it (issue #31).
+                                    onOpenAccountSettings(
+                                        currentAccount
+                                            ?.let { StoredAccount.settingsTargetId(it, accounts) }
+                                            ?: currentAccountId,
+                                    )
                                     scope.launch { drawerState.close() }
                                 },
                         )
@@ -758,7 +791,22 @@ fun InboxScreen(
                                 .padding(start = 28.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
                         ) {
                             Monogram(seed = label, label = label, color = accountColorOf(account.color))
-                            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Column {
+                                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                // A delegated account switches like any other, so it keeps its row
+                                // here — but it does not BEHAVE like any other (you send as someone
+                                // else, rights may be partial, it vanishes if the owner unshares),
+                                // so it says so quietly (issue #31).
+                                if (account.isShared) {
+                                    Text(
+                                        stringResource(R.string.account_shared),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -899,7 +947,7 @@ fun InboxScreen(
                             // A check + the count: compact and language-proof (the old
                             // "N sélectionné(s)" wrapped to three lines here). The full
                             // localized label is kept for screen readers.
-                            val countLabel = stringResource(R.string.inbox_selected_count, selectedIds.size)
+                            val countLabel = stringResource(R.string.inbox_selected_count, selectedKeys.size)
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.clearAndSetSemantics { contentDescription = countLabel },
@@ -910,7 +958,7 @@ fun InboxScreen(
                                     modifier = Modifier.size(22.dp),
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Text(selectedIds.size.toString(), maxLines = 1)
+                                Text(selectedKeys.size.toString(), maxLines = 1)
                             }
                         },
                         actions = {
@@ -951,47 +999,53 @@ fun InboxScreen(
                             var selMenu by remember { mutableStateOf(false) }
                             var selSnooze by remember { mutableStateOf(false) }
                             val selContext = LocalContext.current
-                            IconButton(onClick = { selMenu = true }) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
-                            }
-                            DropdownMenu(
-                                expanded = selMenu,
-                                onDismissRequest = { selMenu = false; selSnooze = false },
-                                shape = MaterialTheme.shapes.medium,
-                            ) {
-                                if (selSnooze) {
-                                    snoozePresets(selContext).forEach { (label, until) ->
+                            // Boxed with its button for the anchoring reason spelled out on the
+                            // browse-bar overflow menu (#74). This one swaps its whole content
+                            // for the snooze presets, so unboxed it could even jump sideways
+                            // while open, as the two sets of labels are not the same width.
+                            Box {
+                                IconButton(onClick = { selMenu = true }) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
+                                }
+                                DropdownMenu(
+                                    expanded = selMenu,
+                                    onDismissRequest = { selMenu = false; selSnooze = false },
+                                    shape = MaterialTheme.shapes.medium,
+                                ) {
+                                    if (selSnooze) {
+                                        snoozePresets(selContext).forEach { (label, until) ->
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                onClick = { selMenu = false; selSnooze = false; viewModel.snoozeSelected(until) },
+                                            )
+                                        }
+                                    } else {
+                                        val inJunk = currentRole == "junk"
                                         DropdownMenuItem(
-                                            text = { Text(label) },
-                                            onClick = { selMenu = false; selSnooze = false; viewModel.snoozeSelected(until) },
+                                            text = { Text(stringResource(R.string.inbox_select_all)) },
+                                            leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
+                                            onClick = { selMenu = false; viewModel.selectAll() },
                                         )
-                                    }
-                                } else {
-                                    val inJunk = currentRole == "junk"
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.inbox_select_all)) },
-                                        leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
-                                        onClick = { selMenu = false; viewModel.selectAll() },
-                                    )
-                                    // Spam-reporting and snoozing act on incoming mail; in Drafts
-                                    // and Sent the selection is the user's own outgoing mail, so
-                                    // neither is offered there (Codeberg #82).
-                                    if (!isOutgoingFolder(currentRole)) {
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(stringResource(if (inJunk) R.string.message_not_spam else R.string.message_report_spam))
-                                            },
-                                            leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
-                                            onClick = {
-                                                selMenu = false
-                                                if (inJunk) viewModel.notSpamSelected() else viewModel.reportSpamSelected()
-                                            },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.message_snooze)) },
-                                            leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
-                                            onClick = { selSnooze = true },
-                                        )
+                                        // Spam-reporting and snoozing act on incoming mail; in Drafts
+                                        // and Sent the selection is the user's own outgoing mail, so
+                                        // neither is offered there (Codeberg #82).
+                                        if (!isOutgoingFolder(currentRole)) {
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(stringResource(if (inJunk) R.string.message_not_spam else R.string.message_report_spam))
+                                                },
+                                                leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
+                                                onClick = {
+                                                    selMenu = false
+                                                    if (inJunk) viewModel.notSpamSelected() else viewModel.reportSpamSelected()
+                                                },
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.message_snooze)) },
+                                                leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                                                onClick = { selSnooze = true },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1101,109 +1155,127 @@ fun InboxScreen(
                                 )
                             }
                             var sortOpen by remember { mutableStateOf(false) }
-                            IconButton(onClick = { sortOpen = true }) {
-                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.inbox_sort))
-                            }
-                            DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }, shape = MaterialTheme.shapes.medium) {
-                                SortOrder.entries.forEach { order ->
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(sortLabel(order))) },
-                                        leadingIcon = {
-                                            if (order == ui.sortOrder) Icon(Icons.Filled.Check, contentDescription = null)
-                                        },
-                                        onClick = { viewModel.setSortOrder(order); sortOpen = false },
-                                    )
+                            // Boxed with its button for the anchoring reason spelled out on the
+                            // overflow menu below (#74); the sort labels are short, so this menu
+                            // was always on the wrong side of that threshold.
+                            Box {
+                                IconButton(onClick = { sortOpen = true }) {
+                                    Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.inbox_sort))
+                                }
+                                DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }, shape = MaterialTheme.shapes.medium) {
+                                    SortOrder.entries.forEach { order ->
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(sortLabel(order))) },
+                                            leadingIcon = {
+                                                if (order == ui.sortOrder) Icon(Icons.Filled.Check, contentDescription = null)
+                                            },
+                                            onClick = { viewModel.setSortOrder(order); sortOpen = false },
+                                        )
+                                    }
                                 }
                             }
                             IconButton(onClick = { viewModel.setSearchActive(true) }) {
                                 Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.inbox_search))
                             }
                             var overflowOpen by remember { mutableStateOf(false) }
-                            IconButton(onClick = { overflowOpen = true }) {
-                                BadgedBox(
-                                    badge = {
-                                        // Discreet dot when the outbox has pending or failed items;
-                                        // error-tinted if any failed, otherwise the neutral accent.
-                                        if (outboxCount > 0) {
-                                            Badge(
-                                                containerColor = if (outboxHasFailures) {
-                                                    MaterialTheme.colorScheme.error
-                                                } else {
-                                                    MaterialTheme.colorScheme.primary
-                                                },
-                                            )
-                                        }
-                                    },
-                                ) {
-                                    Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
-                                }
-                            }
                             val isTrash = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
-                            // Frequent actions first, nearest the anchor; the rarely-visited
-                            // Outbox comes after them (#48). In the Trash the destructive
-                            // "Empty trash" is pushed to the very bottom, so the third slot
-                            // keeps the harmless entry the finger expects everywhere else.
-                            DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, shape = MaterialTheme.shapes.medium) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.inbox_select_all)) },
-                                    leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
-                                    onClick = { viewModel.selectAll(); overflowOpen = false },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.inbox_mark_all_read)) },
-                                    leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
-                                    onClick = { viewModel.markAllRead(); overflowOpen = false },
-                                )
-                                // The Trash trades the scheduled-messages shortcut for "Empty trash",
-                                // which is appended below rather than taking this slot.
-                                if (!isTrash) {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.inbox_scheduled)) },
-                                        leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
-                                        onClick = { overflowOpen = false; onOpenScheduled() },
-                                    )
-                                    // Where snoozed messages can be found again (Codeberg #82) —
-                                    // right beside the other "waiting on a clock" list.
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.inbox_snoozed)) },
-                                        leadingIcon = { Icon(Icons.Filled.Snooze, contentDescription = null) },
-                                        onClick = { overflowOpen = false; onOpenSnoozed() },
-                                    )
+                            // The menu must be boxed WITH its button. A DropdownMenu anchors on
+                            // the layout node that contains it, not on the button that opens it;
+                            // emitted straight into the app bar's actions row, its anchor was the
+                            // whole icon cluster. Compose then tries "menu start at anchor start"
+                            // first, so any menu narrower than that cluster opened under the
+                            // leftmost icon instead of under this button — and the Trash menu,
+                            // which drops the scheduled and snoozed entries, is exactly the short
+                            // one, which is why it alone looked out of place (#74). With the box
+                            // the anchor is the 48dp button: the start candidate can never fit,
+                            // so the menu always ends flush with the button, in every folder and
+                            // whatever the labels' length.
+                            Box {
+                                IconButton(onClick = { overflowOpen = true }) {
+                                    BadgedBox(
+                                        badge = {
+                                            // Discreet dot when the outbox has pending or failed items;
+                                            // error-tinted if any failed, otherwise the neutral accent.
+                                            if (outboxCount > 0) {
+                                                Badge(
+                                                    containerColor = if (outboxHasFailures) {
+                                                        MaterialTheme.colorScheme.error
+                                                    } else {
+                                                        MaterialTheme.colorScheme.primary
+                                                    },
+                                                )
+                                            }
+                                        },
+                                    ) {
+                                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
+                                    }
                                 }
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.inbox_outbox)) },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
-                                    trailingIcon = {
-                                        if (outboxCount > 0) {
-                                            Badge(
-                                                containerColor = if (outboxHasFailures) {
-                                                    MaterialTheme.colorScheme.error
-                                                } else {
-                                                    MaterialTheme.colorScheme.primary
-                                                },
-                                            ) { Text(outboxCount.toString()) }
-                                        }
-                                    },
-                                    onClick = { overflowOpen = false; onOpenOutbox() },
-                                )
-                                // Destructive, so it sits last (#48).
-                                if (isTrash) {
+                                // Frequent actions first, nearest the anchor; the rarely-visited
+                                // Outbox comes after them (#48). In the Trash the destructive
+                                // "Empty trash" is pushed to the very bottom, so the third slot
+                                // keeps the harmless entry the finger expects everywhere else.
+                                DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, shape = MaterialTheme.shapes.medium) {
                                     DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                stringResource(R.string.inbox_empty_trash),
-                                                color = MaterialTheme.colorScheme.error,
-                                            )
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Filled.DeleteSweep,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.error,
-                                            )
-                                        },
-                                        onClick = { overflowOpen = false; viewModel.emptyTrash() },
+                                        text = { Text(stringResource(R.string.inbox_select_all)) },
+                                        leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
+                                        onClick = { viewModel.selectAll(); overflowOpen = false },
                                     )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.inbox_mark_all_read)) },
+                                        leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
+                                        onClick = { viewModel.markAllRead(); overflowOpen = false },
+                                    )
+                                    // The Trash trades the scheduled-messages shortcut for "Empty trash",
+                                    // which is appended below rather than taking this slot.
+                                    if (!isTrash) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.inbox_scheduled)) },
+                                            leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                                            onClick = { overflowOpen = false; onOpenScheduled() },
+                                        )
+                                        // Where snoozed messages can be found again (Codeberg #82) —
+                                        // right beside the other "waiting on a clock" list.
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.inbox_snoozed)) },
+                                            leadingIcon = { Icon(Icons.Filled.Snooze, contentDescription = null) },
+                                            onClick = { overflowOpen = false; onOpenSnoozed() },
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.inbox_outbox)) },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
+                                        trailingIcon = {
+                                            if (outboxCount > 0) {
+                                                Badge(
+                                                    containerColor = if (outboxHasFailures) {
+                                                        MaterialTheme.colorScheme.error
+                                                    } else {
+                                                        MaterialTheme.colorScheme.primary
+                                                    },
+                                                ) { Text(outboxCount.toString()) }
+                                            }
+                                        },
+                                        onClick = { overflowOpen = false; onOpenOutbox() },
+                                    )
+                                    // Destructive, so it sits last (#48).
+                                    if (isTrash) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    stringResource(R.string.inbox_empty_trash),
+                                                    color = MaterialTheme.colorScheme.error,
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Filled.DeleteSweep,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                )
+                                            },
+                                            onClick = { overflowOpen = false; viewModel.emptyTrash() },
+                                        )
+                                    }
                                 }
                             }
                         },
@@ -1257,7 +1329,7 @@ fun InboxScreen(
                     onClick = {
                         if (selectionActive) {
                             // A collapsed conversation selects/deselects all its members at once.
-                            if (expandable) viewModel.toggleSelectThread(email) else viewModel.toggleSelect(email.id)
+                            if (expandable) viewModel.toggleSelectThread(email) else viewModel.toggleSelect(email)
                         } else if (!fromSearch && !expandable && isDraftsContext(ui)) {
                             // In the Drafts folder a tap EDITS the draft (#63): open it in
                             // compose, prefilled — not in the read-only reader.
@@ -1268,7 +1340,7 @@ fun InboxScreen(
                         }
                     },
                     onLongClick = {
-                        if (expandable) viewModel.enterSelectionThread(email) else viewModel.enterSelection(email.id)
+                        if (expandable) viewModel.enterSelectionThread(email) else viewModel.enterSelection(email)
                     },
                     onToggleFavourite = {
                         val favouriting = !email.isFlagged
@@ -1276,7 +1348,7 @@ fun InboxScreen(
                         // Favourites pin to the top — scroll there so it's visibly landing.
                         if (favouriting) scope.launch { listState.animateScrollToItem(0) }
                     },
-                    selected = email.id in selectedIds,
+                    selected = email.emailKey() in selectedKeys,
                     gesturesEnabled = !selectionActive,
                     unread = row.unread,
                     threadCount = row.threadCount,
@@ -1290,6 +1362,7 @@ fun InboxScreen(
                     entryIndex = entryIndex,
                     highlighted = email.id == highlightId,
                     onHighlightShown = viewModel::clearHighlight,
+                    drawerBandPx = edgeBandPx,
                     modifier = rowModifier,
                 )
                 if (expandable) {
@@ -1307,7 +1380,7 @@ fun InboxScreen(
                         showRecipientsFor = { child -> isOwnMessage(child, ui, accounts) },
                         highlightId = highlightId,
                         selectionActive = selectionActive,
-                        selectedIds = selectedIds,
+                        selectedKeys = selectedKeys,
                         onOpenChild = { child ->
                             viewModel.onEmailOpened(child.id)
                             // Position in the unfolded conversation: the representative holds
@@ -1319,9 +1392,10 @@ fun InboxScreen(
                         },
                         onSwipeChild = { action, child -> performSwipe(action, child, viewModel, ui) },
                         onToggleChildFavourite = { child -> viewModel.toggleChildFlag(child) },
-                        onEnterSelectionChild = { child -> viewModel.enterSelection(child.id) },
-                        onToggleSelectChild = { child -> viewModel.toggleSelect(child.id) },
+                        onEnterSelectionChild = { child -> viewModel.enterSelection(child) },
+                        onToggleSelectChild = { child -> viewModel.toggleSelect(child) },
                         onHighlightShown = viewModel::clearHighlight,
+                        drawerBandPx = edgeBandPx,
                     )
                 }
                 HorizontalDivider()
@@ -1377,7 +1451,7 @@ fun InboxScreen(
                                         .padding(horizontal = 16.dp, vertical = 6.dp),
                                 )
                                 LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
-                                    itemsIndexed(ui.searchResults, key = { _, it -> it.id }) { index, email ->
+                                    itemsIndexed(ui.searchResults, key = { _, it -> "${it.accountId}|${it.id}" }) { index, email ->
                                         emailRow(InboxRow(email, threadCount = 1, unread = !email.isSeen), Modifier.animateItem(), false, index, true)
                                     }
                                 }
@@ -1398,7 +1472,7 @@ fun InboxScreen(
                         ) {
                             items(
                                 count = pagedEmails.itemCount,
-                                key = pagedEmails.itemKey { it.email.id },
+                                key = pagedEmails.itemKey { "${it.email.accountId}|${it.email.id}" },
                             ) { index ->
                                 // animateItem keeps each row identified across Paging snapshot
                                 // swaps so a read/unread toggle re-binds in place instead of
@@ -1588,11 +1662,17 @@ private fun SwipeableEmailRow(
     entryIndex: Int = 0,
     highlighted: Boolean = false,
     onHighlightShown: () -> Unit = {},
+    /** Width of the start-edge strip left to the drawer's own drag; 0 where the system
+     *  owns that edge (gesture navigation). See [DrawerGesture]. */
+    drawerBandPx: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val motionOn = rememberMotionEnabled()
     val offsetX = remember { Animatable(0f) }
     var rowWidth by remember { mutableIntStateOf(0) }
+    // Where this row starts in the window, so the edge strip is measured from the screen
+    // edge and not from the row's own left — conversation children are indented.
+    var rowLeftPx by remember { mutableFloatStateOf(0f) }
 
     // The drag handler below lives in a pointerInput block that only restarts when the
     // configured actions change — it must NOT capture onSwipe directly. The paged row
@@ -1625,17 +1705,23 @@ private fun SwipeableEmailRow(
                 alpha = enter.value
                 translationY = (1f - enter.value) * 14.dp.toPx()
             }
+            .onGloballyPositioned { rowLeftPx = it.positionInWindow().x }
             .onSizeChanged { rowWidth = it.width }
-            .pointerInput(gesturesEnabled, rightAction, leftAction) {
+            .pointerInput(gesturesEnabled, rightAction, leftAction, drawerBandPx) {
                 if (!gesturesEnabled) return@pointerInput
                 val slop = viewConfiguration.touchSlop
                 val minOffset = if (leftAction == SwipeAction.NONE) 0f else -rowWidth.toFloat()
                 val maxOffset = if (rightAction == SwipeAction.NONE) 0f else rowWidth.toFloat()
                 coroutineScope {
                     while (true) {
-                        val pointerId = awaitPointerEventScope {
-                            awaitFirstDown(requireUnconsumed = false).id
+                        val down = awaitPointerEventScope {
+                            awaitFirstDown(requireUnconsumed = false)
                         }
+                        val pointerId = down.id
+                        // Codeberg #30: a drag STARTING in the start-edge strip belongs to
+                        // the drawer, so nothing here consumes it (the strip is 0-wide, and
+                        // this never triggers, wherever the system owns that edge).
+                        if (startsInDrawerBand(rowLeftPx + down.position.x, drawerBandPx)) continue
                         // Direction-lock: only treat this as a swipe once it is clearly
                         // more horizontal than vertical, otherwise leave the gesture to
                         // the list's vertical scroll. This stops accidental swipes when
@@ -1653,6 +1739,12 @@ private fun SwipeableEmailRow(
                                     return@awaitPointerEventScope false
                                 }
                                 if (abs(dx) > slop * SWIPE_SLOP_FACTOR && abs(dx) > abs(dy)) {
+                                    // Codeberg #30: a direction with no action assigned has
+                                    // nothing to do with this drag — leave it unconsumed so
+                                    // the drawer, whose own drag spans the content, takes it.
+                                    if (!rowKeepsDrag(dx, rightAction, leftAction)) {
+                                        return@awaitPointerEventScope false
+                                    }
                                     change.consume()
                                     return@awaitPointerEventScope true
                                 }
@@ -1872,8 +1964,20 @@ internal fun isSelfAuthored(from: List<EmailAddress>, identities: List<StoredIde
  * what the reader itself shows — acceptable.)
  */
 private fun isOwnMessage(email: Email, ui: MailUi, accounts: List<StoredAccount>): Boolean =
-    isOwnMailContext(ui) ||
-        isSelfAuthored(email.from, accounts.firstOrNull { it.id == email.accountId }?.resolvedIdentities().orEmpty())
+    isOwnMailContext(ui) || isSelfAuthored(email.from, sendAsIdentities(email, accounts))
+
+/**
+ * The addresses the row's own account can send as. Mirrors AccountStore.identities: a linked
+ * sub-account whose own address the session never advertised resolves to nothing and falls back
+ * to its LOGIN's identities (issue #31) — which is what it actually sends as — instead of
+ * matching nothing at all.
+ */
+private fun sendAsIdentities(email: Email, accounts: List<StoredAccount>): List<StoredIdentity> {
+    val own = accounts.firstOrNull { it.id == email.accountId } ?: return emptyList()
+    return own.resolvedIdentities().ifEmpty {
+        own.loginId?.let { login -> accounts.firstOrNull { it.id == login }?.resolvedIdentities() }.orEmpty()
+    }
+}
 
 /** True when the visible folder is Drafts, where tapping a row edits it in compose (#63). */
 private fun isDraftsContext(ui: MailUi): Boolean =
@@ -1948,13 +2052,16 @@ private fun ThreadChildren(
     showRecipientsFor: (Email) -> Boolean,
     highlightId: String?,
     selectionActive: Boolean,
-    selectedIds: Set<String>,
+    selectedKeys: Set<EmailKey>,
     onOpenChild: (Email) -> Unit,
     onSwipeChild: (SwipeAction, Email) -> Unit,
     onToggleChildFavourite: (Email) -> Unit,
     onEnterSelectionChild: (Email) -> Unit,
     onToggleSelectChild: (Email) -> Unit,
     onHighlightShown: () -> Unit,
+    /** The drawer's start-edge strip, applied to the children too — measured from the
+     *  window edge, so the indent doesn't shift it (see [DrawerGesture]). */
+    drawerBandPx: Float,
 ) {
     val motionOn = rememberMotionEnabled()
     AnimatedVisibility(
@@ -1964,7 +2071,7 @@ private fun ThreadChildren(
     ) {
         Column(Modifier.background(MaterialTheme.colorScheme.surface)) {
             members.forEach { child ->
-                key(child.id) {
+                key(child.accountId, child.id) {
                     val ownerAccount = if (unified) accounts.firstOrNull { it.id == child.accountId } else null
                     // Indented so the children read as belonging to the conversation above.
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1986,12 +2093,13 @@ private fun ThreadChildren(
                             // Children carry the same favourite star and attachment indicator as
                             // top-level rows, so the unfolded preview matches the collapsed one.
                             onToggleFavourite = { onToggleChildFavourite(child) },
-                            selected = child.id in selectedIds,
+                            selected = child.emailKey() in selectedKeys,
                             gesturesEnabled = !selectionActive,
                             unread = !child.isSeen,
                             threadCount = 1,
                             highlighted = child.id == highlightId,
                             onHighlightShown = onHighlightShown,
+                            drawerBandPx = drawerBandPx,
                             modifier = Modifier.weight(1f),
                         )
                     }

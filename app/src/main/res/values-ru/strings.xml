@@ -147,6 +147,7 @@
     <string name="participants_from">От</string>
     <string name="participants_to">Кому</string>
     <string name="participants_cc">Копия</string>
+    <string name="participants_received_at">Получено на адрес</string>
     <string name="participant_add_to_contacts">Добавить в контакты</string>
     <string name="participant_compose">Написать этому контакту</string>
     <string name="participant_copy_address">Копировать адрес</string>
@@ -191,6 +192,8 @@
     <string name="settings_cancel">Отмена</string>
     <string name="settings_clear">Очистить</string>
     <string name="settings_current_account">Текущий аккаунт</string>
+    <string name="account_shared">Общий аккаунт</string>
+    <string name="settings_shared_accounts_under">Общие аккаунты: %1$s</string>
     <string name="settings_accounts_title">Аккаунты</string>
     <string name="settings_accounts_summary">Добавление, переключение, настройки сервера</string>
     <string name="settings_appearance_title">Внешний вид</string>
@@ -252,6 +255,8 @@
     <string name="settings_signature_on_replies_subtitle">Добавлять её и при ответе или пересылке</string>
     <string name="settings_signature_below_quote_title">Подпись под цитируемым текстом</string>
     <string name="settings_signature_below_quote_subtitle">В ответе размещать её под цитатой, а не над ней</string>
+    <string name="settings_signature_delimiter_title">Строка-разделитель перед подписью</string>
+    <string name="settings_signature_delimiter_subtitle">Другие почтовые программы узнают вашу подпись по этой строке «-- » и могут скрывать её при цитировании письма; без неё они этого больше не смогут, а поле подписи будет содержать ровно то, что уходит в письме.</string>
     <string name="settings_swipe_right_title">Смахивание вправо</string>
     <string name="settings_swipe_left_title">Смахивание влево</string>
     <string name="settings_swipe_nothing">Ничего</string>
@@ -402,6 +407,8 @@
     <string name="settings_email_not_server">Ваш сервер может отклонить отправку с этого адреса.</string>
     <string name="settings_signature_supporting">Обычный текст, добавляется в письмо при написании — там его можно изменить или удалить, как любой другой текст.</string>
     <string name="settings_signature_supporting_html">Сохранена HTML-версия: она отправляется как есть, если вы не измените подпись в письме.</string>
+    <string name="settings_signature_preview_title">В письме это будет выглядеть так:</string>
+    <string name="settings_signature_duplicate_delimiter">Ваша подпись уже начинается со строки «-- », поэтому она появится дважды.</string>
     <string name="settings_unsaved_changes">Несохранённые изменения</string>
     <string name="settings_save_changes_title">Сохранить изменения?</string>
     <string name="settings_save_changes_message">Изменения личности или учётной записи не сохранены.</string>
@@ -591,12 +598,14 @@
     <string name="compose_forgot_attachment_send">Всё равно отправить</string>
     <string name="compose_forgot_attachment_back">Вернуться</string>
     <string name="inbox_search_in">Поиск в %1$s</string>
-    <string name="inbox_scheduled">Отложенные сообщения</string>
+    <!-- Deliberately not "Отложенные" like scheduled_title: the same menu also lists
+         the snoozed messages, which are the ones really called "Отложенные" in Russian. -->
+    <string name="inbox_scheduled">Запланированные</string>
     <string name="scheduled_title">Отложенные</string>
     <string name="scheduled_empty">Нет отложенных сообщений.</string>
     <string name="scheduled_cancel">Отменить отложенную отправку</string>
     <string name="scheduled_send_at">Отправка %1$s</string>
-    <string name="inbox_snoozed">Отложенные письма</string>
+    <string name="inbox_snoozed">Отложенные</string>
     <string name="snoozed_title">Отложенные письма</string>
     <string name="snoozed_empty">Нет отложенных писем.</string>
     <string name="snoozed_cancel">Отменить откладывание</string>
@@ -615,6 +624,8 @@
     <string name="outbox_retry">Повторить</string>
     <string name="outbox_edit">Изменить</string>
     <string name="outbox_delete">Удалить</string>
+    <string name="outbox_delete_title">Удалить это сообщение?</string>
+    <string name="outbox_delete_body">Оно не было отправлено и нигде больше не сохранено. Сообщение и вложения будут потеряны.</string>
     <string name="outbox_banner_failed">Некоторые сообщения не отправлены. Нажмите, чтобы проверить.</string>
     <string name="offline_banner">Вы не в сети</string>
     <string name="settings_conversation_section">Беседы</string>

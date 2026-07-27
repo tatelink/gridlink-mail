@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.settings.NotificationContent
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.jmap.model.Email
 import kotlinx.coroutines.flow.first
@@ -174,10 +175,14 @@ object NewMailNotifier {
         val active = Notifications.activeChildIds(context, credentials.id)
         val readIds = emails.filter { it.isSeen && it.id.hashCode() in active }.map { it.id }
         if (newMail.isNotEmpty() || readIds.isNotEmpty()) {
-            val silent = quietHoursActive(context)
-            val content = (context.applicationContext as Application).container
-                .settingsRepository.notificationContent.first()
-            newMail.forEach { Notifications.notifyNewMail(context, it, credentials.id, silent, folderName, content) }
+            val (silent, content) = options(context)
+            newMail.forEach {
+                // [mailboxId] is the folder this diff pass is for, i.e. where the mail arrived —
+                // so the tap can put the list there (issue #91). Passed for the inbox too, where
+                // [folderName] is deliberately null: the sub-text is about marking non-inbox
+                // mail, the id is about where Back must land.
+                Notifications.notifyNewMail(context, it, credentials.id, silent, folderName, mailboxId, content)
+            }
             readIds.forEach { Notifications.cancelChild(context, it) }
             // Rebuilt from ALL active children so successive per-folder passes accumulate
             // instead of the last folder overwriting the whole account's summary.
@@ -191,6 +196,23 @@ object NewMailNotifier {
         if (floorMs == Long.MIN_VALUE) return true
         val received = email.receivedAt ?: return true
         return runCatching { Instant.parse(received).toEpochMilli() >= floorMs }.getOrDefault(true)
+    }
+
+    /**
+     * The user settings every posted mail notification must obey: [silent] for the
+     * quiet-hours window, [content] for how much the notification may reveal.
+     */
+    data class Options(val silent: Boolean, val content: NotificationContent)
+
+    /**
+     * Reads both notification settings for the moment the notification is posted. Shared
+     * with the snooze wake-up ([app.sterna.snooze.SnoozeWorker], Codeberg #84) so the two
+     * paths cannot drift apart — the wake-up used to post with the function defaults and
+     * so ignored both quiet hours and the content setting.
+     */
+    suspend fun options(context: Context): Options {
+        val settings = (context.applicationContext as Application).container.settingsRepository
+        return Options(quietHoursActive(context), settings.notificationContent.first())
     }
 
     /** Whether new mail should be posted silently right now (quiet-hours window). */

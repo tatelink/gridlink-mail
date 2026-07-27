@@ -156,13 +156,17 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             }
             val credentials = AccountCredentials(resolved, address, token, id = existing?.id.orEmpty(), authType = AuthType.API_TOKEN)
             val meta = container.mailRepository.refresh(credentials)
-            if (existing != null) {
+            val accountId = if (existing != null) {
                 container.accountStore.updatePassword(existing.id, token)
                 container.accountStore.setCurrent(existing.id)
+                existing.id
             } else {
                 container.accountStore.add(resolved, address, token, accountName.trim(), authType = AuthType.API_TOKEN)
             }
             container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
+            // Surface linked sub-accounts before navigating, like the password path (#31):
+            // a token login's sub-accounts resolve Bearer auth via the login.
+            container.mailRepository.reconcileLinkedAccountsAfterAdd(accountId)
             _state.value = ConnectState.Connected
         } catch (t: Throwable) {
             // A 401/403 with a token means the token itself was rejected — say so.
@@ -547,8 +551,11 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             val credentials = AccountCredentials(server, username.trim(), password)
             val meta = container.mailRepository.refresh(credentials)
             // Only persist once we know they work. A blank name falls back to the address.
-            container.accountStore.add(server, username, password, accountName.trim())
+            val id = container.accountStore.add(server, username, password, accountName.trim())
             container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
+            // Surface linked sub-accounts before navigating, so the accounts list the flow
+            // lands on is already complete (#31).
+            container.mailRepository.reconcileLinkedAccountsAfterAdd(id)
             _state.value = ConnectState.Connected
         } catch (t: Throwable) {
             // Fastmail's endpoint refuses password auth outright (API tokens only, #54):
