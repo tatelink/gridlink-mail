@@ -57,24 +57,33 @@ internal object ConversationExpansion {
 
     /**
      * Merge the instantly-shown [cached] members with the [fetched] full-thread members from the
-     * server: dedup by id (the fresher [fetched] copy wins), drop the representative
-     * ([representativeId]) already shown at the top, and order newest-first by receivedAt — so a
-     * server completion fills in received messages missing from the cache window without
-     * reordering or duplicating what is already on screen.
+     * server, drop the representative ([representativeId]) already shown at the top, and order
+     * newest-first by receivedAt.
+     *
+     * The merge is APPEND-ONLY: a member the list is already showing keeps the copy it was drawn
+     * with, and only ids the cache had no row for are added. The server completion exists to fill
+     * in messages that fell outside the folder's short cache window — adding rows, not redrawing
+     * the ones under the user's eyes.
+     *
+     * Rewriting them used to be visible (Codeberg #63). A cache row cannot carry recipients (the
+     * `emails` table has no `to` column — see EmailMapper's in-memory memo), so after a cold start
+     * a self-authored member renders with the sender fallback; the wire copy does carry them, and
+     * swapping it in flipped that row's name line from the (self) sender to "To: …" — with the
+     * monogram changing letter and colour with it — a beat after the conversation unfolded. The
+     * expand animation absorbed that swap, so it was invisible with animations ON; with the OS
+     * "Remove animations" setting ON the rows are instantly at rest and it rendered as a blink.
+     * Keeping the drawn copy also stops a late completion from reverting an optimistic star or
+     * read toggle applied to a member while the fetch was in flight.
+     *
+     * The wire copies are still persisted by the caller, so the cache — and the recipients memo
+     * warmed on the way in — are complete for the next read; only the snapshot on screen is left
+     * alone. Keeping the cached copy also keeps the local accountId/mailboxId that action routing
+     * (account pick, destroy-vs-move) depends on and that a wire member has no way to supply.
      */
     fun mergeMembers(cached: List<Email>, fetched: List<Email>, representativeId: String): List<Email> {
         val byId = LinkedHashMap<String, Email>()
         cached.forEach { byId[it.id] = it }
-        // The fetched copy refreshes content (keywords, headers, mailboxIds) but comes off the
-        // wire without local identity — it must never null out the cached accountId/mailboxId
-        // that action routing (account pick, destroy-vs-move) depends on.
-        fetched.forEach { f ->
-            val c = byId[f.id]
-            byId[f.id] = if (c == null) f else f.copy(
-                accountId = f.accountId ?: c.accountId,
-                mailboxId = f.mailboxId ?: c.mailboxId,
-            )
-        }
+        fetched.forEach { f -> if (!byId.containsKey(f.id)) byId[f.id] = f }
         return byId.values
             .filter { it.id != representativeId }
             .sortedByDescending { it.receivedAt ?: "" }
