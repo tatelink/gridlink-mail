@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -477,8 +478,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     // The drawer shows the CURRENT account's folders: the cache now keeps every account's
     // rows side by side, so the flow re-scopes when the user switches accounts.
+    // Codeberg #89: the folder list is also where a folder VANISHING is observed — deleted
+    // from the drawer here, or from another client and dropped by the next folder sync. When
+    // the one on screen goes, fall back to the Inbox instead of leaving the app parked in a
+    // folder that no longer exists. Hung off this flow (not off the combined [state]) so it
+    // runs once per actual folder-list change and adds no second collection of the cache.
     private val mailboxes = currentAccountId.flatMapLatest { accountId ->
         if (accountId == null) flowOf(emptyList()) else repo.observeMailboxes(accountId)
+    }.onEach { folders ->
+        if (selectionIsGone((selection.value as? Sel.Folder)?.id, folders)) showInbox()
     }
     private val searchState = MutableStateFlow(SearchUi())
     private var searchJob: Job? = null
