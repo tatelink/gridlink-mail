@@ -101,7 +101,11 @@
     <string name="inbox_more">More</string>
     <string name="inbox_select_all">Select all</string>
     <string name="inbox_mark_all_read">Mark all read</string>
-    <string name="inbox_scheduled">Scheduled messages</string>
+    <!-- Overflow-menu entry. Kept to one word: a DropdownMenu is as wide as its
+         longest entry, and this one used to set the width of the whole menu.
+         Deliberately NOT merged with scheduled_title (the screen's own title):
+         a menu label and a screen title may need to diverge later. -->
+    <string name="inbox_scheduled">Scheduled</string>
     <string name="inbox_empty_trash">Empty trash</string>
     <string name="scheduled_title">Scheduled</string>
     <string name="scheduled_empty">No scheduled messages.</string>

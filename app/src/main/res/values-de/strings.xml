@@ -598,7 +598,7 @@
     <string name="compose_forgot_attachment_send">Trotzdem senden</string>
     <string name="compose_forgot_attachment_back">Zurück</string>
     <string name="inbox_search_in">%1$s durchsuchen</string>
-    <string name="inbox_scheduled">Geplante Nachrichten</string>
+    <string name="inbox_scheduled">Geplant</string>
     <string name="scheduled_title">Geplant</string>
     <string name="scheduled_empty">Keine geplanten Nachrichten.</string>
     <string name="scheduled_cancel">Geplanten Versand abbrechen</string>

@@ -598,7 +598,7 @@
     <string name="compose_forgot_attachment_send">Enviar de todos modos</string>
     <string name="compose_forgot_attachment_back">Volver</string>
     <string name="inbox_search_in">Buscar en %1$s</string>
-    <string name="inbox_scheduled">Mensajes programados</string>
+    <string name="inbox_scheduled">Programados</string>
     <string name="scheduled_title">Programados</string>
     <string name="scheduled_empty">No hay mensajes programados.</string>
     <string name="scheduled_cancel">Cancelar envío programado</string>

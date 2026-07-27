@@ -598,7 +598,7 @@
     <string name="compose_forgot_attachment_send">Toch verzenden</string>
     <string name="compose_forgot_attachment_back">Terug</string>
     <string name="inbox_search_in">Zoeken in %1$s</string>
-    <string name="inbox_scheduled">Geplande berichten</string>
+    <string name="inbox_scheduled">Gepland</string>
     <string name="scheduled_title">Gepland</string>
     <string name="scheduled_empty">Geen geplande berichten.</string>
     <string name="scheduled_cancel">Geplande verzending annuleren</string>
