@@ -572,6 +572,7 @@
     <string name="status_message_queued">Ожидает отправки при подключении</string>
     <string name="status_folder_op_failed">Не удалось выполнить операцию с папкой</string>
     <string name="status_attach_failed">Не удалось прикрепить: %1$s</string>
+    <string name="status_attach_offline">Вы не в сети. Для вложения нужно подключение, попробуйте снова, когда вернётесь в сеть.</string>
     <string name="status_open_attachment">Открыть вложение</string>
     <string name="status_removed_account">Аккаунт удалён</string>
     <string name="status_attaching">Прикрепление…</string>

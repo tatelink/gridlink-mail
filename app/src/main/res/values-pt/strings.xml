@@ -572,6 +572,7 @@
     <string name="status_message_queued">A aguardar envio quando houver ligação</string>
     <string name="status_folder_op_failed">Falha na operação da pasta</string>
     <string name="status_attach_failed">Falha ao anexar: %1$s</string>
+    <string name="status_attach_offline">Está offline. Anexar um ficheiro precisa de ligação, tente novamente assim que voltar.</string>
     <string name="status_open_attachment">Abrir anexo</string>
     <string name="status_removed_account">Conta removida</string>
     <string name="status_attaching">Anexando…</string>

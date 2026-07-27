@@ -5,6 +5,10 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import java.io.InterruptedIOException
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -156,3 +160,46 @@ fun hasUsableNetwork(context: Context): Boolean {
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
     }
 }
+
+/** How far the cause chain is followed before giving up; guards against a self-referencing cause. */
+private const val MAX_CAUSE_HOPS = 8
+
+/**
+ * Whether [t] is the transport failing rather than the file or the server saying no.
+ *
+ * Matched on the exception **type**, never on its text: that sentence is written by the platform
+ * resolver, and it changes with the Android version and the system language — a substring test
+ * would quietly stop matching on somebody else's phone. The types are the ones OkHttp lets through
+ * untouched: no such host ([UnknownHostException]), no route or refused ([SocketException] and its
+ * children), timed out ([SocketTimeoutException], an [InterruptedIOException]).
+ *
+ * Deliberately narrower than "any [java.io.IOException]". Reading the picked file happens in the
+ * same `try` as the upload, and an unreadable one raises a `FileNotFoundException` that has nothing
+ * to do with connectivity; a TLS failure (`SSLException`) is left out for the same reason — a
+ * rejected certificate is a real problem whose technical text is the only clue the reader gets.
+ *
+ * The cause chain is walked because the transport failure often arrives wrapped (JmapException).
+ */
+internal fun isNetworkFailure(t: Throwable): Boolean {
+    var error: Throwable? = t
+    var hops = 0
+    while (error != null && hops++ < MAX_CAUSE_HOPS) {
+        if (error is UnknownHostException || error is SocketException || error is InterruptedIOException) {
+            return true
+        }
+        error = error.cause
+    }
+    return false
+}
+
+/**
+ * Whether a failure should be told as "you are offline" instead of shown as its exception text.
+ *
+ * Both halves must hold: the failure died on the transport ([isNetworkFailure]) **and** [online] —
+ * read from the app's one connectivity check, [hasUsableNetwork], the same one that picks
+ * "Sending…" over "queued" at send time (#70) — says there is no usable network. Being offline is
+ * a claim about the device, so it is only made when the device confirms it: a server that is down
+ * while the phone is on Wi-Fi, or a VPN killswitch swallowing the traffic, keeps the technical
+ * message, which is both honest and the more useful text for whoever can read it.
+ */
+internal fun isOfflineFailure(t: Throwable, online: Boolean): Boolean = !online && isNetworkFailure(t)

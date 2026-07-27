@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sterna.container
@@ -29,6 +30,7 @@ import app.sterna.send.SendOutbox
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.net.hasUsableNetwork
+import app.sterna.net.isOfflineFailure
 import app.sterna.util.MailDates
 import kotlinx.coroutines.Dispatchers
 import java.io.File
@@ -442,8 +444,18 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 _attachments.value = _attachments.value + part
                 _attachmentStatus.value = null
             } catch (t: Throwable) {
-                _attachmentStatus.value =
-                    getApplication<Application>().getString(R.string.status_attach_failed, t.message ?: "error")
+                // The exception text is a resolver/HTTP string; keep it in logcat, where diagnosis
+                // needs it, whichever of the two messages the user ends up reading.
+                Log.w(TAG, "Attachment failed", t)
+                // Offline, the upload the picker triggers cannot go anywhere, and the raw
+                // "Unable to resolve host …" told the reader nothing they could act on. Say what
+                // happened in a sentence instead — but only when connectivity confirms it (see
+                // isOfflineFailure); every other failure keeps its technical message.
+                _attachmentStatus.value = if (isOfflineFailure(t, online = hasUsableNetwork(app))) {
+                    app.getString(R.string.status_attach_offline)
+                } else {
+                    app.getString(R.string.status_attach_failed, t.message ?: "error")
+                }
             }
         }
     }
@@ -1139,6 +1151,8 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private companion object {
+        const val TAG = "ComposeViewModel"
+
         const val RECIPIENT_KEYS_DEBOUNCE_MS = 500L
 
         /** v1 cap: the whole entity is signed/encrypted in memory. */

@@ -708,6 +708,10 @@
     <string name="status_message_queued">Waiting to send when connected</string>
     <string name="status_folder_op_failed">Folder operation failed</string>
     <string name="status_attach_failed">Attach failed: %1$s</string>
+    <!-- Shown instead of status_attach_failed when the attachment died on the transport AND the
+         device has no usable network: an attachment is uploaded as soon as it is picked, so with
+         no connection it cannot be added at all, and the raw resolver text said nothing usable. -->
+    <string name="status_attach_offline">You\'re offline. Attaching a file needs a connection, so try again once you\'re back.</string>
     <string name="status_open_attachment">Open attachment</string>
     <string name="status_removed_account">Removed account</string>
     <string name="status_attaching">Attaching…</string>
