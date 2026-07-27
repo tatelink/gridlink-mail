@@ -603,7 +603,7 @@
     <string name="scheduled_empty">Aucun message programmé.</string>
     <string name="scheduled_cancel">Annuler l\'envoi programmé</string>
     <string name="scheduled_send_at">Envoi %1$s</string>
-    <string name="inbox_snoozed">Messages reportés</string>
+    <string name="inbox_snoozed">Reportés</string>
     <string name="snoozed_title">Reportés</string>
     <string name="snoozed_empty">Aucun message reporté.</string>
     <string name="snoozed_cancel">Annuler le report</string>

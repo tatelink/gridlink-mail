@@ -111,7 +111,9 @@
     <string name="scheduled_empty">No scheduled messages.</string>
     <string name="scheduled_cancel">Cancel scheduled send</string>
     <string name="scheduled_send_at">Sends %1$s</string>
-    <string name="inbox_snoozed">Snoozed messages</string>
+    <!-- Overflow-menu entry, one word for the same reason as inbox_scheduled: it sits
+         right beside it and would otherwise become the new width-setting entry. -->
+    <string name="inbox_snoozed">Snoozed</string>
     <string name="snoozed_title">Snoozed</string>
     <string name="snoozed_empty">No snoozed messages.</string>
     <string name="snoozed_cancel">Cancel snooze</string>
