@@ -940,6 +940,14 @@ private fun MessageContent(
     }
 }
 
+/**
+ * How long a present-but-not-yet-revealed message body may stay hidden behind the spinner before
+ * the reader shows it anyway. Comfortably past the normal path (page load, then a height poll that
+ * caps at ~1s), so a legitimately slow body still reveals itself the accurate way and this never
+ * fires; it only catches a body whose height report was lost for good.
+ */
+private const val BODY_REVEAL_FAILSAFE_MS = 2_500L
+
 @Composable
 private fun ConversationBody(
     messages: List<ThreadMessage>,
@@ -991,6 +999,21 @@ private fun ConversationBody(
     val scrollY = remember(msg.id) { mutableIntStateOf(0) }
     var spinnerDue by remember(msg.id) { mutableStateOf(false) }
     LaunchedEffect(msg.id) { delay(500); spinnerDue = true }
+    // Failsafe reveal. [bodyReady] is driven by ONE height poll, started by the WebView's
+    // onPageFinished; a load that is superseded before it finishes never delivers that callback,
+    // and nothing re-arms the poll. When that happened the body stayed at alpha 0 behind the
+    // spinner for the whole life of the page — no wait, no refresh and no retry ever got it back;
+    // only closing and reopening the message did. It hit the page the reader OPENS ON far more
+    // often than a page swiped into, because the settled page is also the one that runs the
+    // OpenPGP auto-decrypt, and each crypto state it goes through resizes the header, which
+    // re-keys the document below it and cancels the load in flight.
+    // Readiness only exists to avoid showing a half-laid-out body, so past a grace period show it
+    // regardless: a late reveal is a blink, a body that never arrives is mail that cannot be read.
+    LaunchedEffect(msg.id, full != null) {
+        if (full == null) return@LaunchedEffect
+        delay(BODY_REVEAL_FAILSAFE_MS)
+        bodyReady = true
+    }
     val revealThresholdPx = with(density) { 4.dp.roundToPx() }
     // The body reserves exactly the overlaying Reply/Forward bar's measured height (see the invisible
     // measuring copy below) plus a little clearance, so the bar never covers the last line when it
@@ -2168,6 +2191,18 @@ private class BodyWebView(context: Context) : WebView(context) {
      *  not-yet-settled content. */
     var settleToken: Any? = null
 
+    /** Invoked once the view actually has a size. The body is revealed off a height poll started
+     *  by `onPageFinished`; that poll reads the content range, which is floored at the view's own
+     *  height and is therefore ZERO for as long as the view has not been laid out. A poll that ran
+     *  entirely inside that window learned nothing, and no second poll was ever started. This gives
+     *  the host a second, layout-driven chance to notice the body is there. */
+    var onSized: (() -> Unit)? = null
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w > 0 && h > 0) onSized?.invoke()
+    }
+
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var downX = 0f
     private var downY = 0f
@@ -2207,6 +2242,13 @@ private class BodyWebView(context: Context) : WebView(context) {
     /** Visible content height (device px): the WebView viewport minus its padding. */
     fun visibleExtentPx(): Int = computeVerticalScrollExtent()
 }
+
+/**
+ * How long after a document load the body's height report may go missing before the WebView takes
+ * the height from the view itself. Sits just past the post-load height poll's own window (~30 ticks
+ * of 32ms), so the accurate report always wins when it comes at all.
+ */
+private const val HEIGHT_REPORT_BACKSTOP_MS = 1_200L
 
 @Composable
 private fun EmailWebView(
@@ -2329,6 +2371,12 @@ private fun EmailWebView(
             // Report scroll on each internal scroll, but only once reporting is enabled (after the
             // load settles, below), so load-time scroll-resets don't flash the bar.
             webView.onScrolled = { if (webView.reportingEnabled) reportScroll(webView) }
+            // Second chance to notice the body is laid out: the post-load height poll can run and
+            // expire entirely while the view still has no size (nothing it reads can be non-zero
+            // then), and it is never restarted. Getting a size is exactly the event it was missing.
+            webView.onSized = {
+                if (heightPx <= 0) heightPx = webView.contentRangePx().coerceAtLeast(webView.height)
+            }
             // update() runs on every recomposition; only (re)load when the document
             // actually changed, otherwise expanding one card reloads (and flickers)
             // every other open body in the conversation. blockRemote is part of the
@@ -2380,6 +2428,18 @@ private fun EmailWebView(
                     webView.postDelayed({ settlePoll(triesLeft - 1) }, 50)
                 }
                 webView.postDelayed({ settlePoll(50) }, 50)
+                // Re-arm the height report from the LOAD, not just from onPageFinished. The report
+                // is what reveals the body, and it only ever rode on onPageFinished — which a load
+                // superseded by a newer one (a resized header re-keys the document) never delivers,
+                // leaving nothing to start the poll and no way back. The load itself always
+                // happens, so hang a backstop off it: if nothing has reported by the time the
+                // poll's own window has elapsed, take the height from the view. Token-guarded like
+                // the settle poll, so a superseded load's backstop stands down for the newer one's.
+                webView.postDelayed({
+                    if (webView.settleToken === settleToken && webView.parent != null && heightPx <= 0) {
+                        heightPx = webView.contentRangePx().coerceAtLeast(webView.height).coerceAtLeast(1)
+                    }
+                }, HEIGHT_REPORT_BACKSTOP_MS)
             }
         },
     )
@@ -2423,7 +2483,8 @@ private class BlockingWebViewClient : WebViewClient() {
     /** Reports the final (possibly cleaned) URL to open; the composable decides how. */
     var onOpenUrl: (Uri) -> Unit = {}
 
-    /** Reports the rendered content height (Android px) so the view can size to it. */
+    /** Reports the rendered content height (Android px). The host does not size anything from
+     *  it — it uses it purely as "the body has laid out, reveal it" (see [BodyReveal]). */
     var onContentHeight: (Int) -> Unit = {}
 
     override fun onPageFinished(view: WebView?, url: String?) {
@@ -2444,21 +2505,20 @@ private class BlockingWebViewClient : WebViewClient() {
             val px = (wv as? BodyWebView)?.contentRangePx()
                 ?: (wv.contentHeight * wv.resources.displayMetrics.density).toInt()
             if (px > maxSeen) maxSeen = px
-            if (px > 0 && px == last) {
-                onContentHeight(px)
-                return
+            // Some bodies (deeply nested tables + inline images) never settle — the range
+            // oscillates between several values in a relayout loop. Reporting the LAST reading
+            // could pin a too-short height and cut off the tail; the cap reports the TALLEST seen
+            // so the whole body fits (and is correctly scrollable). A little trailing slack is
+            // harmless; lost content is not. And the cap ALWAYS reports, even when every reading
+            // was zero (see [BodyReveal]): this poll is the only thing that reveals the body, so
+            // giving up silently hid the mail for good.
+            when (val step = BodyReveal.step(px, last, maxSeen, triesLeft, wv.height)) {
+                is HeightPoll.Report -> onContentHeight(step.px)
+                HeightPoll.Retry -> {
+                    last = px
+                    wv.postDelayed({ poll(triesLeft - 1) }, 32)
+                }
             }
-            if (triesLeft <= 0) {
-                // Some bodies (deeply nested tables + inline images) never settle — the range
-                // oscillates between several values in a relayout loop. Reporting the LAST reading
-                // could pin a too-short height and cut off the tail; report the TALLEST seen so the
-                // whole body fits (and is correctly scrollable). A little trailing slack is harmless;
-                // lost content is not.
-                if (maxSeen > 0) onContentHeight(maxSeen)
-                return
-            }
-            last = px
-            wv.postDelayed({ poll(triesLeft - 1) }, 32)
         }
         wv.post { last = -1; maxSeen = 0; poll(30) }
     }
