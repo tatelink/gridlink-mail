@@ -426,13 +426,13 @@
     <string name="settings_cached_messages">Berichten in cache</string>
     <string name="settings_clear_account_cache">Cache van dit account wissen</string>
     <string name="settings_pgp_section">OpenPGP-versleuteling</string>
-    <string name="settings_pgp_enable_title">E-mails ondertekenen, versleutelen en lezen met OpenKeychain</string>
-    <string name="settings_pgp_enable_subtitle">E-mail ondertekenen en versleutelen met OpenKeychain</string>
+    <string name="settings_pgp_enable_title">OpenPGP gebruiken</string>
+    <string name="settings_pgp_enable_subtitle">E-mails ondertekenen, versleutelen en lezen met OpenKeychain</string>
     <string name="settings_pgp_key_title">Uw sleutel-ID</string>
     <string name="settings_pgp_key_none">Geen sleutel geselecteerd</string>
     <string name="settings_pgp_choose_key">Sleutel kiezen</string>
     <string name="settings_pgp_encrypt_default_title">Standaard versleutelen</string>
-    <string name="settings_pgp_encrypt_default_subtitle">Nieuwe berichten versleuteld beginnen als elke ontvanger een sleutel heeft, anders normaal verzenden</string>
+    <string name="settings_pgp_encrypt_default_subtitle">Nieuwe berichten beginnen versleuteld als elke ontvanger een sleutel heeft, en onversleuteld als er een ontbreekt</string>
     <string name="settings_pgp_missing_help">Sterna gebruikt de OpenKeychain-app om sleutels te beheren en berichten te versleutelen. Installeer deze om OpenPGP in te schakelen.</string>
     <string name="settings_pgp_provider_required">Niet actief: OpenKeychain vereist</string>
     <string name="settings_pgp_install">OpenKeychain installeren</string>
