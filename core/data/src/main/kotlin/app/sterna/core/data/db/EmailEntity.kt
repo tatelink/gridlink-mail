@@ -32,4 +32,18 @@ data class EmailEntity(
     val hasAttachment: Boolean,
     /** Epoch millis derived from receivedAt, for ordering. */
     val sortKey: Long,
+    /**
+     * The message's `To:` recipients, JSON-encoded by [EmailRecipients] (added in schema v17).
+     *
+     * In Sent/Drafts a row shows who the mail went TO rather than its sender — your own name
+     * teaches nothing (Codeberg #59). Those recipients used to live only in a process-lifetime
+     * memo, so a row rendered from the cold cache fell back to the sender until the folder's
+     * next refresh replaced it, which is what #63 saw blink. Persisted, the row is right from
+     * the first frame, offline included.
+     *
+     * Null on rows cached before v17 and on messages with no recipient (a draft still being
+     * written): both decode to an empty list, i.e. exactly the old fallback. There is no
+     * backfill — the addresses aren't held locally, so old rows gain them at their next sync.
+     */
+    val recipientsJson: String? = null,
 )

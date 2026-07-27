@@ -77,9 +77,14 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
 
 /**
  * SQL that creates the `emails` table with the composite `(accountId, id)` primary key. Kept as a
- * constant so the 15→16 migration and a plain JVM unit test build the exact table Room expects
- * (column set, nullability and PK order must match [EmailEntity], or Room's open-time schema check
- * fails). Column order is irrelevant to Room's validation; the PK column order is not.
+ * constant so the 15→16 migration and a plain JVM unit test build the exact table that migration
+ * must produce (column set, nullability and PK order; column order is irrelevant to Room's
+ * validation, the PK column order is not).
+ *
+ * This is the **v16** shape, deliberately frozen: [MIGRATION_16_17] adds `recipientsJson` on top
+ * with an `ALTER TABLE`, so folding that column in here would make the ALTER fail on a duplicate
+ * column for anyone coming from v15. The table Room validates at open time is this plus the 16→17
+ * column.
  */
 const val EMAILS_CREATE_SQL: String =
     "CREATE TABLE IF NOT EXISTS `emails` (" +
@@ -235,5 +240,27 @@ val MIGRATION_15_16 = object : Migration(15, 16) {
         db.execSQL("DROP INDEX IF EXISTS `index_email_bodies_accountId`")
         db.rebuildTable("email_bodies", EMAIL_BODIES_CREATE_SQL, EMAIL_BODIES_COLUMNS)
         db.rebuildTable("snoozed", SNOOZED_CREATE_SQL, SNOOZED_COLUMNS)
+    }
+}
+
+/**
+ * Additive 16→17: `emails` gains `recipientsJson`, the message's `To:` addresses
+ * ([EmailRecipients], see [EmailEntity.recipientsJson]).
+ *
+ * Sent/Drafts rows show who the mail went TO instead of its sender (#59), but the recipients only
+ * ever lived in a process-lifetime memo — so from a cold cache the row fell back to the sender and
+ * was corrected a network round-trip later, which is the flicker #63 reported. Persisting them
+ * makes the row right from the first frame, offline included.
+ *
+ * A plain `ALTER TABLE … ADD COLUMN`, layered on top of [MIGRATION_15_16] rather than folded into
+ * it: v16 is already carried by test installs (and covered by `EmailsMigrationSqlTest` from a real
+ * v15 schema), and rewriting a released migration in place would fail Room's identity check on the
+ * next launch. Nullable with no default, so every existing row keeps its data and simply reads back
+ * as "no recipients" — the pre-v17 behaviour. No backfill: the addresses are not held locally, so
+ * an old row gains them at its next sync.
+ */
+val MIGRATION_16_17 = object : Migration(16, 17) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `emails` ADD COLUMN `recipientsJson` TEXT")
     }
 }

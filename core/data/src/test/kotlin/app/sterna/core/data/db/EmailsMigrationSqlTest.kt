@@ -1,6 +1,7 @@
 package app.sterna.core.data.db
 
 import androidx.sqlite.db.SupportSQLiteDatabase
+import app.sterna.core.jmap.model.EmailAddress
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -21,9 +22,15 @@ import java.sql.DriverManager
  * every row of every table — user data (snoozed, outbox, scheduled sends) above all — (b) widens
  * the keys, and (c) leaves the search index working.
  *
- * The migrations are executed through their own [MIGRATION_14_15] / [MIGRATION_15_16] objects
- * (via a tiny [SupportSQLiteDatabase] proxy that forwards `execSQL` to JDBC), not through a copy
- * of their statements, so the test cannot drift from the code that ships.
+ * On top of that, **v16 → v17** ([MIGRATION_16_17]) adds `emails.recipientsJson` — the message's
+ * `To:` addresses, persisted so a Sent/Drafts row shows "To: …" from the cold cache instead of
+ * being corrected a network round-trip later (#63). Those tests start from a real v16 database
+ * (the published v15 schema with [MIGRATION_15_16] applied) and check that the column appears,
+ * that nothing else moves, and that the value round-trips through [EmailRecipients].
+ *
+ * The migrations are executed through their own [MIGRATION_14_15] / [MIGRATION_15_16] /
+ * [MIGRATION_16_17] objects (via a tiny [SupportSQLiteDatabase] proxy that forwards `execSQL` to
+ * JDBC), not through a copy of their statements, so the test cannot drift from the code that ships.
  */
 class EmailsMigrationSqlTest {
     private lateinit var db: Connection
@@ -152,6 +159,8 @@ class EmailsMigrationSqlTest {
     private fun migrate15to16() = MIGRATION_15_16.migrate(supportDb())
 
     private fun migrate14to15() = MIGRATION_14_15.migrate(supportDb())
+
+    private fun migrate16to17() = MIGRATION_16_17.migrate(supportDb())
 
     private fun count(sql: String): Int = db.createStatement().use { st ->
         st.executeQuery(sql).use { rs ->
@@ -296,6 +305,103 @@ class EmailsMigrationSqlTest {
             conflicted = true
         }
         assertTrue("Re-inserting the same (accountId, id) must violate the composite PK", conflicted)
+    }
+
+    // --- v16 → v17: the To: recipients become a real column (#63) -------------------------------
+
+    /** A v16 database: the published v15 schema with [MIGRATION_15_16] already applied. */
+    private fun seedV16() {
+        seedV15()
+        migrate15to16()
+    }
+
+    private fun stringOrNull(sql: String): String? = db.createStatement().use { st ->
+        st.executeQuery(sql).use { rs ->
+            assertTrue(rs.next())
+            rs.getString(1)
+        }
+    }
+
+    @Test fun v16to17_addsTheRecipientsColumnAndKeepsEveryRow() {
+        seedV16()
+        migrate16to17()
+
+        assertEquals(
+            setOf(
+                "id", "accountId", "mailboxId", "threadId", "subject", "preview", "receivedAt",
+                "fromName", "fromEmail", "seen", "flagged", "hasAttachment", "sortKey",
+                "recipientsJson",
+            ),
+            columnsOf("emails"),
+        )
+
+        // Purely additive: every cached row and every scrap of user data survives untouched.
+        assertEquals(2, count("SELECT COUNT(*) FROM `emails`"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `emails` WHERE `id` = 'e1' AND `subject` = 'Hello' AND `sortKey` = 100"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `email_bodies` WHERE `fetchedAt` = 42"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `snoozed` WHERE `emailId` = 'e2' AND `until` = 99999"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `outbox` WHERE `subject` = 'Queued'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `scheduled_sends` WHERE `subject` = 'Later'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `email_fts` WHERE `email_fts` MATCH 'Hell*'"))
+    }
+
+    @Test fun v16to17_leavesTheCompositeKeyAndIndexAlone() {
+        seedV16()
+        migrate16to17()
+
+        // Room re-checks keys and indexes at open time; an ALTER must disturb neither.
+        assertEquals(1, pkPositions("emails")["accountId"])
+        assertEquals(2, pkPositions("emails")["id"])
+        assertEquals(0, pkPositions("emails")["recipientsJson"])
+        val indexes = mutableSetOf<String>()
+        db.createStatement().use { st ->
+            st.executeQuery("PRAGMA index_list(`emails`)").use { rs ->
+                while (rs.next()) indexes += rs.getString("name")
+            }
+        }
+        assertTrue("index_emails_mailboxId must survive the ALTER", "index_emails_mailboxId" in indexes)
+    }
+
+    @Test fun v16to17_preExistingRowsReadBackAsNoRecipients() {
+        seedV16()
+        migrate16to17()
+
+        // No backfill (the addresses aren't held locally): an old row is simply NULL, which the
+        // codec turns into an empty list — exactly the pre-v17 "fall back to the sender" state.
+        assertEquals(2, count("SELECT COUNT(*) FROM `emails` WHERE `recipientsJson` IS NULL"))
+        assertEquals(emptyList<Any>(), EmailRecipients.decode(stringOrNull("SELECT `recipientsJson` FROM `emails` WHERE `id` = 'e1'")))
+    }
+
+    @Test fun v16to17_newRowsRoundTripTheirRecipients() {
+        seedV16()
+        migrate16to17()
+
+        val recipients = listOf(
+            EmailAddress(name = "Bob", email = "bob@example.org"),
+            EmailAddress(email = "carol@example.org"),
+        )
+        db.prepareStatement("UPDATE `emails` SET `recipientsJson` = ? WHERE `id` = 'e1'").use { st ->
+            st.setString(1, EmailRecipients.encode(recipients))
+            st.executeUpdate()
+        }
+
+        assertEquals(recipients, EmailRecipients.decode(stringOrNull("SELECT `recipientsJson` FROM `emails` WHERE `id` = 'e1'")))
+        // The sibling row is untouched.
+        assertEquals(null, stringOrNull("SELECT `recipientsJson` FROM `emails` WHERE `id` = 'e2'"))
+    }
+
+    @Test fun v15to17_chainedFromAPublishedInstall() {
+        seedV15()
+
+        migrate15to16()
+        migrate16to17()
+
+        assertTrue("recipientsJson" in columnsOf("emails"))
+        assertEquals(2, count("SELECT COUNT(*) FROM `emails`"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `snoozed` WHERE `emailId` = 'e2'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `outbox` WHERE `subject` = 'Queued'"))
+        assertEquals(1, pkPositions("emails")["accountId"])
+        assertEquals(2, pkPositions("emails")["id"])
     }
 
     // --- v14 → v15 → v16: an install that skipped 1.3.11–1.3.13 ---------------------------------
