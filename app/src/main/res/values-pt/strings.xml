@@ -426,13 +426,13 @@
     <string name="settings_cached_messages">Mensagens em cache</string>
     <string name="settings_clear_account_cache">Limpar o cache desta conta</string>
     <string name="settings_pgp_section">Criptografia OpenPGP</string>
-    <string name="settings_pgp_enable_title">Assinar, criptografar e ler mensagens com o OpenKeychain</string>
-    <string name="settings_pgp_enable_subtitle">Assinar e criptografar e-mails com o OpenKeychain</string>
+    <string name="settings_pgp_enable_title">Usar o OpenPGP</string>
+    <string name="settings_pgp_enable_subtitle">Assinar, criptografar e ler mensagens com o OpenKeychain</string>
     <string name="settings_pgp_key_title">Seu ID de chave</string>
     <string name="settings_pgp_key_none">Nenhuma chave selecionada</string>
     <string name="settings_pgp_choose_key">Escolher chave</string>
     <string name="settings_pgp_encrypt_default_title">Criptografar por padrão</string>
-    <string name="settings_pgp_encrypt_default_subtitle">Iniciar novas mensagens cifradas quando cada destinatário tem uma chave; caso contrário, enviar normalmente</string>
+    <string name="settings_pgp_encrypt_default_subtitle">As novas mensagens começam cifradas quando cada destinatário tem uma chave, e sem cifra se faltar alguma</string>
     <string name="settings_pgp_missing_help">O Sterna usa o aplicativo OpenKeychain para gerenciar chaves e criptografar mensagens. Instale-o para ativar o OpenPGP.</string>
     <string name="settings_pgp_provider_required">Sem efeito: é necessário o OpenKeychain</string>
     <string name="settings_pgp_install">Obter OpenKeychain</string>

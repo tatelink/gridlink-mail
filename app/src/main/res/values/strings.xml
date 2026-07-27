@@ -530,13 +530,13 @@
     <string name="settings_cached_messages">Cached messages</string>
     <string name="settings_clear_account_cache">Clear this account\'s cache</string>
     <string name="settings_pgp_section">OpenPGP encryption</string>
-    <string name="settings_pgp_enable_title">Sign, encrypt and read mail with OpenKeychain</string>
-    <string name="settings_pgp_enable_subtitle">Sign and encrypt mail with OpenKeychain</string>
+    <string name="settings_pgp_enable_title">Use OpenPGP</string>
+    <string name="settings_pgp_enable_subtitle">Sign, encrypt and read mail with OpenKeychain</string>
     <string name="settings_pgp_key_title">Your Key ID</string>
     <string name="settings_pgp_key_none">No key selected</string>
     <string name="settings_pgp_choose_key">Choose key</string>
     <string name="settings_pgp_encrypt_default_title">Encrypt by default</string>
-    <string name="settings_pgp_encrypt_default_subtitle">Start new messages encrypted when every recipient has a key, and send normally otherwise</string>
+    <string name="settings_pgp_encrypt_default_subtitle">New messages start encrypted when every recipient has a key, and unencrypted when one is missing</string>
     <string name="settings_pgp_missing_help">Sterna uses the OpenKeychain app to manage keys and encrypt messages. Install it to enable OpenPGP.</string>
     <string name="settings_pgp_provider_required">Not in effect: OpenKeychain required</string>
     <string name="settings_pgp_install">Get OpenKeychain</string>

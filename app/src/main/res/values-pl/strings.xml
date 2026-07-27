@@ -426,13 +426,13 @@
     <string name="settings_cached_messages">Wiadomości w pamięci podręcznej</string>
     <string name="settings_clear_account_cache">Wyczyść pamięć podręczną tego konta</string>
     <string name="settings_pgp_section">Szyfrowanie OpenPGP</string>
-    <string name="settings_pgp_enable_title">Podpisuj, szyfruj i odczytuj wiadomości za pomocą OpenKeychain</string>
-    <string name="settings_pgp_enable_subtitle">Podpisuj i szyfruj pocztę za pomocą OpenKeychain</string>
+    <string name="settings_pgp_enable_title">Używaj OpenPGP</string>
+    <string name="settings_pgp_enable_subtitle">Podpisuj, szyfruj i odczytuj wiadomości za pomocą OpenKeychain</string>
     <string name="settings_pgp_key_title">Twój identyfikator klucza</string>
     <string name="settings_pgp_key_none">Nie wybrano klucza</string>
     <string name="settings_pgp_choose_key">Wybierz klucz</string>
     <string name="settings_pgp_encrypt_default_title">Szyfruj domyślnie</string>
-    <string name="settings_pgp_encrypt_default_subtitle">Rozpoczynaj nowe wiadomości zaszyfrowane, gdy każdy odbiorca ma klucz; w przeciwnym razie wyślij normalnie</string>
+    <string name="settings_pgp_encrypt_default_subtitle">Nowe wiadomości zaczynają się zaszyfrowane, gdy każdy odbiorca ma klucz, i niezaszyfrowane, gdy któregoś brakuje</string>
     <string name="settings_pgp_missing_help">Sterna używa aplikacji OpenKeychain do zarządzania kluczami i szyfrowania wiadomości. Zainstaluj ją, aby włączyć OpenPGP.</string>
     <string name="settings_pgp_provider_required">Bez efektu: wymagany OpenKeychain</string>
     <string name="settings_pgp_install">Zainstaluj OpenKeychain</string>
