@@ -632,11 +632,14 @@ fun ComposeScreen(
                                             when (val change = viewModel.selectFrom(option, isReplyOrForward)) {
                                                 null -> return@launch
                                                 is SignatureChange.Swap -> { text ->
-                                                    replaceSignatureBlock(text, change.from, change.to)
+                                                    replaceSignatureBlock(
+                                                        text, change.from, change.to, change.delimiter,
+                                                    )
                                                 }
                                                 is SignatureChange.Insert -> { text ->
                                                     insertSignatureBlock(
                                                         text, change.signature, quoted, change.belowQuote,
+                                                        change.delimiter,
                                                     )
                                                 }
                                             }

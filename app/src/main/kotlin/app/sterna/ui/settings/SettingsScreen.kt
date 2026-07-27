@@ -465,6 +465,7 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val unarchiveOnReply by viewModel.unarchiveOnReply.collectAsStateWithLifecycle()
     val signatureOnReplies by viewModel.signatureOnReplies.collectAsStateWithLifecycle()
     val signatureBelowQuote by viewModel.signatureBelowQuote.collectAsStateWithLifecycle()
+    val signatureDelimiter by viewModel.signatureDelimiter.collectAsStateWithLifecycle()
     val options = listOf(
         SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
     )
@@ -533,8 +534,9 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     onSelect = viewModel::setSwipeLeft,
                 )
             }
-            // When the signature is inserted, and where. WHAT it says is per identity
-            // (Accounts → identity). The two switches are independent: neither greys out the other.
+            // When the signature is inserted, where, and what the block looks like. WHAT it says is
+            // per identity (Accounts → identity). The three switches are independent: none of them
+            // greys out another.
             SettingsSection(stringResource(R.string.settings_signature_section)) {
                 SettingSwitch(
                     title = stringResource(R.string.settings_signature_on_replies_title),
@@ -547,6 +549,15 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     subtitle = stringResource(R.string.settings_signature_below_quote_subtitle),
                     checked = signatureBelowQuote,
                     onCheckedChange = viewModel::setSignatureBelowQuote,
+                )
+                // On by default, and the subtitle says what turning it off costs: the "-- " line is
+                // what other mail apps recognise a signature by. Off, the signature field holds
+                // exactly what is sent, so any separator (or none) can be typed there (#90).
+                SettingSwitch(
+                    title = stringResource(R.string.settings_signature_delimiter_title),
+                    subtitle = stringResource(R.string.settings_signature_delimiter_subtitle),
+                    checked = signatureDelimiter,
+                    onCheckedChange = viewModel::setSignatureDelimiter,
                 )
             }
         }
@@ -1184,6 +1195,9 @@ private fun AccountDetailScreen(
     // OAUTH→BASIC re-renders this screen with the new authType; the editor field states below stay
     // keyed by accountId only, so a re-fetch of the same account never resets the user's edits.
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    // What the composer will do with the "-- " line, so the signature preview below shows the real
+    // thing rather than a fixed shape (#90).
+    val signatureDelimiter by viewModel.signatureDelimiter.collectAsStateWithLifecycle()
     val snapshot = remember(accountId) { viewModel.account(accountId) }
     val account = accounts.firstOrNull { it.id == accountId } ?: snapshot
     if (account == null) {
@@ -1705,7 +1719,7 @@ private fun AccountDetailScreen(
                                     },
                                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                                 )
-                                SignaturePreview(signature)
+                                SignaturePreview(signature, signatureDelimiter)
                                 OutlinedButton(
                                     onClick = {
                                         // Both halves: the flattened text the composer inserts and
@@ -1822,7 +1836,7 @@ private fun AccountDetailScreen(
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                             )
-                            SignaturePreview(identity.signature)
+                            SignaturePreview(identity.signature, signatureDelimiter)
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -2503,10 +2517,15 @@ private fun IdentityRowHeader(
  * delimiter lines, one above the other — plus a line saying so. It is NOT stripped: the field holds
  * what the user typed, and the app does not quietly edit their text. Shown only once there is a
  * signature; a blank one adds nothing to a message and has nothing to preview.
+ *
+ * [delimiter] is the "Separator line above the signature" setting: with it off the app adds no line
+ * of its own, so the preview is the signature alone and the duplicate warning has nothing left to
+ * warn about (#90). The preview is derived from the same [signatureBlock] the composer uses, so it
+ * cannot claim a shape the message will not have.
  */
 @Composable
-private fun SignaturePreview(signature: String) {
-    val preview = signaturePreview(signature) ?: return
+private fun SignaturePreview(signature: String, delimiter: Boolean) {
+    val preview = signaturePreview(signature, delimiter) ?: return
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         Text(
             stringResource(R.string.settings_signature_preview_title),
@@ -2522,7 +2541,7 @@ private fun SignaturePreview(signature: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp),
         )
-        if (signatureHasOwnDelimiter(signature)) {
+        if (signatureHasOwnDelimiter(signature, delimiter)) {
             Text(
                 stringResource(R.string.settings_signature_duplicate_delimiter),
                 style = MaterialTheme.typography.bodySmall,

@@ -377,6 +377,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setSignatureBelowQuote(enabled) }
     }
 
+    val signatureDelimiter = settings.signatureDelimiter.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = true,
+    )
+
+    fun setSignatureDelimiter(enabled: Boolean) {
+        viewModelScope.launch { settings.setSignatureDelimiter(enabled) }
+    }
+
     val messageTextSize = settings.messageTextSize.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
