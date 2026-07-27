@@ -1167,91 +1167,104 @@ fun InboxScreen(
                                 Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.inbox_search))
                             }
                             var overflowOpen by remember { mutableStateOf(false) }
-                            IconButton(onClick = { overflowOpen = true }) {
-                                BadgedBox(
-                                    badge = {
-                                        // Discreet dot when the outbox has pending or failed items;
-                                        // error-tinted if any failed, otherwise the neutral accent.
-                                        if (outboxCount > 0) {
-                                            Badge(
-                                                containerColor = if (outboxHasFailures) {
-                                                    MaterialTheme.colorScheme.error
-                                                } else {
-                                                    MaterialTheme.colorScheme.primary
-                                                },
-                                            )
-                                        }
-                                    },
-                                ) {
-                                    Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
-                                }
-                            }
                             val isTrash = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
-                            // Frequent actions first, nearest the anchor; the rarely-visited
-                            // Outbox comes after them (#48). In the Trash the destructive
-                            // "Empty trash" is pushed to the very bottom, so the third slot
-                            // keeps the harmless entry the finger expects everywhere else.
-                            DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, shape = MaterialTheme.shapes.medium) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.inbox_select_all)) },
-                                    leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
-                                    onClick = { viewModel.selectAll(); overflowOpen = false },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.inbox_mark_all_read)) },
-                                    leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
-                                    onClick = { viewModel.markAllRead(); overflowOpen = false },
-                                )
-                                // The Trash trades the scheduled-messages shortcut for "Empty trash",
-                                // which is appended below rather than taking this slot.
-                                if (!isTrash) {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.inbox_scheduled)) },
-                                        leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
-                                        onClick = { overflowOpen = false; onOpenScheduled() },
-                                    )
-                                    // Where snoozed messages can be found again (Codeberg #82) —
-                                    // right beside the other "waiting on a clock" list.
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.inbox_snoozed)) },
-                                        leadingIcon = { Icon(Icons.Filled.Snooze, contentDescription = null) },
-                                        onClick = { overflowOpen = false; onOpenSnoozed() },
-                                    )
+                            // The menu must be boxed WITH its button. A DropdownMenu anchors on
+                            // the layout node that contains it, not on the button that opens it;
+                            // emitted straight into the app bar's actions row, its anchor was the
+                            // whole icon cluster. Compose then tries "menu start at anchor start"
+                            // first, so any menu narrower than that cluster opened under the
+                            // leftmost icon instead of under this button — and the Trash menu,
+                            // which drops the scheduled and snoozed entries, is exactly the short
+                            // one, which is why it alone looked out of place (#74). With the box
+                            // the anchor is the 48dp button: the start candidate can never fit,
+                            // so the menu always ends flush with the button, in every folder and
+                            // whatever the labels' length.
+                            Box {
+                                IconButton(onClick = { overflowOpen = true }) {
+                                    BadgedBox(
+                                        badge = {
+                                            // Discreet dot when the outbox has pending or failed items;
+                                            // error-tinted if any failed, otherwise the neutral accent.
+                                            if (outboxCount > 0) {
+                                                Badge(
+                                                    containerColor = if (outboxHasFailures) {
+                                                        MaterialTheme.colorScheme.error
+                                                    } else {
+                                                        MaterialTheme.colorScheme.primary
+                                                    },
+                                                )
+                                            }
+                                        },
+                                    ) {
+                                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
+                                    }
                                 }
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.inbox_outbox)) },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
-                                    trailingIcon = {
-                                        if (outboxCount > 0) {
-                                            Badge(
-                                                containerColor = if (outboxHasFailures) {
-                                                    MaterialTheme.colorScheme.error
-                                                } else {
-                                                    MaterialTheme.colorScheme.primary
-                                                },
-                                            ) { Text(outboxCount.toString()) }
-                                        }
-                                    },
-                                    onClick = { overflowOpen = false; onOpenOutbox() },
-                                )
-                                // Destructive, so it sits last (#48).
-                                if (isTrash) {
+                                // Frequent actions first, nearest the anchor; the rarely-visited
+                                // Outbox comes after them (#48). In the Trash the destructive
+                                // "Empty trash" is pushed to the very bottom, so the third slot
+                                // keeps the harmless entry the finger expects everywhere else.
+                                DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }, shape = MaterialTheme.shapes.medium) {
                                     DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                stringResource(R.string.inbox_empty_trash),
-                                                color = MaterialTheme.colorScheme.error,
-                                            )
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Filled.DeleteSweep,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.error,
-                                            )
-                                        },
-                                        onClick = { overflowOpen = false; viewModel.emptyTrash() },
+                                        text = { Text(stringResource(R.string.inbox_select_all)) },
+                                        leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
+                                        onClick = { viewModel.selectAll(); overflowOpen = false },
                                     )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.inbox_mark_all_read)) },
+                                        leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
+                                        onClick = { viewModel.markAllRead(); overflowOpen = false },
+                                    )
+                                    // The Trash trades the scheduled-messages shortcut for "Empty trash",
+                                    // which is appended below rather than taking this slot.
+                                    if (!isTrash) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.inbox_scheduled)) },
+                                            leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                                            onClick = { overflowOpen = false; onOpenScheduled() },
+                                        )
+                                        // Where snoozed messages can be found again (Codeberg #82) —
+                                        // right beside the other "waiting on a clock" list.
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.inbox_snoozed)) },
+                                            leadingIcon = { Icon(Icons.Filled.Snooze, contentDescription = null) },
+                                            onClick = { overflowOpen = false; onOpenSnoozed() },
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.inbox_outbox)) },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
+                                        trailingIcon = {
+                                            if (outboxCount > 0) {
+                                                Badge(
+                                                    containerColor = if (outboxHasFailures) {
+                                                        MaterialTheme.colorScheme.error
+                                                    } else {
+                                                        MaterialTheme.colorScheme.primary
+                                                    },
+                                                ) { Text(outboxCount.toString()) }
+                                            }
+                                        },
+                                        onClick = { overflowOpen = false; onOpenOutbox() },
+                                    )
+                                    // Destructive, so it sits last (#48).
+                                    if (isTrash) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    stringResource(R.string.inbox_empty_trash),
+                                                    color = MaterialTheme.colorScheme.error,
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Filled.DeleteSweep,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                )
+                                            },
+                                            onClick = { overflowOpen = false; viewModel.emptyTrash() },
+                                        )
+                                    }
                                 }
                             }
                         },
