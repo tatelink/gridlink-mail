@@ -466,7 +466,18 @@ fun ComposeScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            // Above the keyboard. What shows here is the security verdict of the lock toggle —
+            // "not encrypted: anyone handling this mail can read it" — and the keyboard is up at
+            // exactly the moment it is tapped (the composer opens focused on the recipients), so
+            // left at the window's bottom edge the warning appeared UNDER the keyboard and was
+            // never seen (#35). Same inset the writing area uses below: whichever of the keyboard
+            // or the navigation bar is taller, never both.
+            SnackbarHost(
+                snackbarHostState,
+                Modifier.windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
+            )
+        },
         // Don't reserve a bottom system-bar (nav-bar) inset here: the body already pads the
         // bottom with max(ime, nav bar) below, and consuming the nav bar twice left a nav-bar-
         // tall composer-coloured strip between the keyboard and the body text (#26).
