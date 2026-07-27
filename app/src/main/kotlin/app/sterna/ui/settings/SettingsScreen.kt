@@ -1126,13 +1126,23 @@ private fun AccountsScreen(
                 }
             }
             // Only signed-in accounts here; the still-inert imported ones live in the section above.
-            items(accounts.filter { !it.importPending }, key = { it.id }) { account ->
+            // Delegated (shared) accounts get no row: this screen manages a LOGIN — server,
+            // credential, protocol, identities, PGP, sync window — and a delegated account owns none
+            // of that, it borrows the login's. It is mentioned under its login instead (issue #31),
+            // so no command here promises what it cannot do: signing out of a shared account is
+            // meaningless (discovery would restore it on the next connect); leaving the login is the
+            // only way to make it go.
+            items(accounts.filter { !it.importPending && !it.isShared }, key = { it.id }) { account ->
+                val sharedLabels = StoredAccount.sharedLabelsUnder(account, accounts)
                 AccountRow(
                     seed = account.username,
                     label = account.label(),
                     email = account.username,
                     isCurrent = account.id == currentId,
                     color = accountColorOf(account.color),
+                    subtitle = sharedLabels.takeIf { it.isNotEmpty() }?.let {
+                        stringResource(R.string.settings_shared_accounts_under, it.joinToString(", "))
+                    },
                     onClick = {
                         // Never switch to an INERT (imported, not-yet-signed-in) account: it has no
                         // credentials and would break the current-account inbox. Still open it so the

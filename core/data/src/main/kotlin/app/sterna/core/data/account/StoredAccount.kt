@@ -85,6 +85,18 @@ data class StoredAccount(
     /** True for a sub-account discovered under another account's login (shares its credential). */
     val isLinked: Boolean get() = loginId != null
 
+    /**
+     * True for a DELEGATED (shared) account: one the login only reaches through someone else's
+     * grant. The rule reads what discovery already persisted — the JMAP session marks such an
+     * account `isPersonal: false` and [AccountStore.reconcileLinkedAccounts] stores it pointing at
+     * the login it borrows via [loginId] — so labelling it in the UI costs no extra request.
+     *
+     * Stricter than [isLinked] on one edge only: a blank [loginId] names no login, so it is read as
+     * absent (standalone). [isLinked] is left alone deliberately — it gates behaviour (push
+     * transport, cascading removal, identity fallback) and this is a display rule.
+     */
+    val isShared: Boolean get() = !loginId.isNullOrBlank()
+
     /** Best label for the account in UI. */
     fun label(): String = accountName.ifBlank { username }
 
@@ -138,6 +150,39 @@ data class StoredAccount(
     }
 
     companion object {
+        /**
+         * Labels of the delegated accounts that borrow [login]'s credential, in stored order — what
+         * the accounts screen mentions under the login's row. A delegated account gets no row of its
+         * own there: it owns none of that screen's settings (server, credential, protocol,
+         * identities, PGP, sync window) and no command there could honestly act on it, sign-out
+         * least of all (discovery would restore it on the next connect). Returns empty for a
+         * standalone login, and for a delegated account (they never nest).
+         */
+        fun sharedLabelsUnder(login: StoredAccount, all: List<StoredAccount>): List<String> =
+            if (login.isShared) {
+                emptyList()
+            } else {
+                all.filter { it.isShared && it.loginId == login.id }.map { it.label() }
+            }
+
+        /**
+         * The account whose settings screen a UI shortcut should open for [account]: itself when it
+         * is a login, its login when it is delegated (issue #31).
+         *
+         * Not a fallback — the login IS where a shared account's commands live. A shared account has
+         * no credential, no protocol and no sign-out of its own; it borrows the login's, and it goes
+         * away when the owner unshares or when the login is signed out. Sending the shortcut there
+         * keeps the rule the accounts screen already applies (a delegated account exposes no command
+         * it cannot honour) from being sidestepped in two taps.
+         *
+         * A blank or dangling [loginId] falls back to [account] itself rather than to nothing, so
+         * the shortcut always opens something instead of going dead.
+         */
+        fun settingsTargetId(account: StoredAccount, all: List<StoredAccount>): String =
+            account.loginId
+                ?.takeIf { login -> login.isNotBlank() && all.any { it.id == login } }
+                ?: account.id
+
         /**
          * Heal the MANUAL identity list of pollution left by the old merge-on-save fold (which
          * wrote the merged server+manual list back into the manual field on every Save, so server

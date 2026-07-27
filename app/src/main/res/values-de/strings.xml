@@ -191,6 +191,8 @@
     <string name="settings_cancel">Abbrechen</string>
     <string name="settings_clear">Löschen</string>
     <string name="settings_current_account">Aktuelles Konto</string>
+    <string name="account_shared">Geteiltes Konto</string>
+    <string name="settings_shared_accounts_under">Geteilte Konten: %1$s</string>
     <string name="settings_accounts_title">Konten</string>
     <string name="settings_accounts_summary">Hinzufügen, wechseln, Servereinstellungen</string>
     <string name="settings_appearance_title">Darstellung</string>

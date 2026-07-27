@@ -191,6 +191,8 @@
     <string name="settings_cancel">Annulla</string>
     <string name="settings_clear">Cancella</string>
     <string name="settings_current_account">Account attuale</string>
+    <string name="account_shared">Account condiviso</string>
+    <string name="settings_shared_accounts_under">Account condivisi: %1$s</string>
     <string name="settings_accounts_title">Account</string>
     <string name="settings_accounts_summary">Aggiungi, cambia, impostazioni server</string>
     <string name="settings_appearance_title">Aspetto</string>

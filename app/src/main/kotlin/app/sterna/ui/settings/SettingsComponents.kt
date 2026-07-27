@@ -270,7 +270,12 @@ fun <T> SettingMultiChoiceDialog(
     )
 }
 
-/** Account list row: monogram · label · email, with a check on the current one. */
+/**
+ * Account list row: monogram · label · email, with a check on the current one.
+ *
+ * [subtitle] is an optional third line in the same quiet style as the email — used to mention the
+ * shared (delegated) accounts a login reaches, which get no row of their own (issue #31).
+ */
 @Composable
 fun AccountRow(
     seed: String,
@@ -279,6 +284,7 @@ fun AccountRow(
     isCurrent: Boolean,
     onClick: () -> Unit,
     color: Color? = null,
+    subtitle: String? = null,
 ) {
     Row(
         modifier = Modifier
@@ -296,6 +302,13 @@ fun AccountRow(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         if (isCurrent) {
             Spacer(Modifier.width(16.dp))
