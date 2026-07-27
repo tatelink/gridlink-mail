@@ -622,6 +622,8 @@
     <string name="outbox_retry">Wiederholen</string>
     <string name="outbox_edit">Bearbeiten</string>
     <string name="outbox_delete">Löschen</string>
+    <string name="outbox_delete_title">Diese Nachricht löschen?</string>
+    <string name="outbox_delete_body">Sie wurde nicht gesendet und ist nirgendwo sonst gespeichert. Die Nachricht und ihre Anhänge gehen verloren.</string>
     <string name="outbox_banner_failed">Einige Nachrichten wurden nicht gesendet. Zum Prüfen tippen.</string>
     <string name="offline_banner">Du bist offline</string>
     <string name="settings_conversation_section">Konversationen</string>
