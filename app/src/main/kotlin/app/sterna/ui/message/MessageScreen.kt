@@ -299,7 +299,17 @@ fun MessageScreen(
         // the pager cannot run past the first or last message of the thread (Codeberg #13).
         !threadEntries.isNullOrEmpty() -> {
             val initialPage = remember(threadEntries) {
-                MessagePaging.resolveInitialPage(threadEntries.map { it.first }, anchorEmailId, initialIndex)
+                // By the pair like the other three branches. A conversation's members are all one
+                // account's (the cached query is account-pinned and the server fetch runs under one
+                // login), so this is defence in depth rather than a second occurrence of #92 — but
+                // if a wrongly keyed conversation is ever handed in, matching the pair FAILS to find
+                // the anchor and falls back to the tapped index, instead of matching a foreign
+                // message that happens to share the id.
+                MessagePaging.resolveInitialPage(
+                    threadEntries.map(::pagerKey),
+                    pagerKey(anchorEmailId to anchorAccountId),
+                    initialIndex,
+                )
             }
             MessagePager(
                 pageCount = threadEntries.size,
