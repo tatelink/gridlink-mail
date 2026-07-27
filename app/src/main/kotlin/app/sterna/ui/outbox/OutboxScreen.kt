@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -22,6 +23,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -44,6 +48,32 @@ fun OutboxScreen(
 ) {
     val items by viewModel.items.collectAsStateWithLifecycle()
     val readyToEdit by viewModel.readyToEdit.collectAsStateWithLifecycle()
+
+    // Id of the item whose Delete button was tapped, awaiting confirmation. A queued message has
+    // never reached the server, so deleting it destroys the only copy along with its attachments —
+    // hence the confirmation. It lives here, in the screen: the repository's deleteOutbox is also
+    // the normal, silent way an item leaves the queue (sent, undone, reopened in the composer) and
+    // must stay silent for those.
+    var pendingDelete by remember { mutableStateOf<Long?>(null) }
+
+    pendingDelete?.let { id ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(stringResource(R.string.outbox_delete_title)) },
+            text = { Text(stringResource(R.string.outbox_delete_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDelete = null
+                    viewModel.delete(id)
+                }) {
+                    Text(stringResource(R.string.outbox_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.inbox_cancel)) }
+            },
+        )
+    }
 
     // Once an item is staged for editing, open compose with the restored draft.
     LaunchedEffect(readyToEdit) {
@@ -111,7 +141,7 @@ fun OutboxScreen(
                         TextButton(onClick = { viewModel.edit(item.id) }) {
                             Text(stringResource(R.string.outbox_edit))
                         }
-                        TextButton(onClick = { viewModel.delete(item.id) }) {
+                        TextButton(onClick = { pendingDelete = item.id }) {
                             Text(
                                 stringResource(R.string.outbox_delete),
                                 color = MaterialTheme.colorScheme.error,

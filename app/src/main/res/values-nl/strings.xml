@@ -622,6 +622,8 @@
     <string name="outbox_retry">Opnieuw</string>
     <string name="outbox_edit">Bewerken</string>
     <string name="outbox_delete">Verwijderen</string>
+    <string name="outbox_delete_title">Dit bericht verwijderen?</string>
+    <string name="outbox_delete_body">Het is niet verzonden en staat nergens anders opgeslagen. Het bericht en de bijlagen gaan verloren.</string>
     <string name="outbox_banner_failed">Sommige berichten zijn niet verzonden. Tik om te bekijken.</string>
     <string name="offline_banner">Je bent offline</string>
 

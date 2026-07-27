@@ -132,6 +132,8 @@
     <string name="outbox_retry">Retry</string>
     <string name="outbox_edit">Edit</string>
     <string name="outbox_delete">Delete</string>
+    <string name="outbox_delete_title">Delete this message?</string>
+    <string name="outbox_delete_body">It hasn\'t been sent and isn\'t saved anywhere else. The message and its attachments will be lost.</string>
     <string name="outbox_banner_failed">Some messages didn\'t send. Tap to review.</string>
     <string name="offline_banner">You\'re offline</string>
     <string name="inbox_compose">Compose</string>
