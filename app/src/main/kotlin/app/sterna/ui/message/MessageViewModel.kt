@@ -21,12 +21,14 @@ import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailHeader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed interface MessageState {
     data object Loading : MessageState
@@ -537,7 +539,11 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 val charset = runCatching {
                     java.nio.charset.Charset.forName(part.charset ?: "UTF-8")
                 }.getOrDefault(Charsets.UTF_8)
-                val event = ICalendar.parse(String(bytes, charset))
+                // Parsing a stranger's .ics is untrusted work on an unbounded input: keep it off
+                // the main thread so a pathological invitation can never freeze the reader.
+                val event = withContext(Dispatchers.Default) {
+                    ICalendar.parse(String(bytes, charset))
+                }
                 _calendar.value = CalendarInvite(
                     loading = false,
                     event = event,

@@ -298,4 +298,88 @@ class ICalendarTest {
         // No physical line may exceed 75 octets (folding inserts CRLF + space).
         ics.split("\r\n").forEach { assertTrue(it.toByteArray().size <= 75) }
     }
+
+    // ---- Unfolding: bounded work on hostile input ------------------------------------------
+
+    @Test fun tabContinuationIsUnfoldedLikeASpace() {
+        val raw = listOf(
+            "BEGIN:VCALENDAR",
+            "BEGIN:VEVENT",
+            "SUMMARY:Budget review for the",
+            "\t next fiscal year",
+            "DESCRIPTION:Agenda:",
+            "\t item one\\, item two",
+            "DTSTART:20260703T140000Z",
+            "END:VEVENT",
+            "END:VCALENDAR",
+        ).joinToString("\r\n")
+        val event = ICalendar.parse(raw)!!
+        assertEquals("Budget review for the next fiscal year", event.title)
+        assertEquals("Agenda: item one, item two", event.description)
+    }
+
+    @Test fun lfOnlyAndCrlfGiveTheSameEvent() {
+        val lines = listOf(
+            "BEGIN:VCALENDAR",
+            "METHOD:REQUEST",
+            "BEGIN:VEVENT",
+            "UID:mixed-endings@example.com",
+            "SUMMARY:All-hands with a very long title that the",
+            " \tsender folded twice",
+            " and again",
+            "ORGANIZER;CN=Chair Person:mailto:chair@example.com",
+            "ATTENDEE;CN=Ann:mailto:ann@example.com",
+            "DTSTART;TZID=Europe/Paris:20260703T140000",
+            "DTEND;TZID=Europe/Paris:20260703T153000",
+            "LOCATION:Room 3",
+            "END:VEVENT",
+            "END:VCALENDAR",
+        )
+        val crlf = ICalendar.parse(lines.joinToString("\r\n"))!!
+        val lf = ICalendar.parse(lines.joinToString("\n"))!!
+        assertEquals(crlf, lf)
+        assertEquals("All-hands with a very long title that the\tsender folded twiceand again", crlf.title)
+        assertEquals("Room 3", crlf.location)
+        assertEquals(1, crlf.attendeeCount)
+        assertEquals("mixed-endings@example.com", crlf.uid)
+    }
+
+    @Test fun aTrailingLineWithoutABreakIsStillRead() {
+        val raw = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260703T140000Z\r\nSUMMARY:Last line"
+        assertEquals("Last line", ICalendar.parse(raw)?.title)
+    }
+
+    @Test fun aFloodOfContinuationsUnfoldsInBoundedTime() {
+        // 250 000 one-character continuation lines: rebuilding the logical line per continuation
+        // is quadratic (tens of billions of character copies) and hangs the reader with no
+        // exception to catch. Unfolding linearly, this is milliseconds.
+        val folds = 250_000
+        val raw = buildString(4 * folds + 128) {
+            append("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260703T140000Z\r\nSUMMARY:x")
+            repeat(folds) { append("\r\n x") }
+            append("\r\nEND:VEVENT\r\nEND:VCALENDAR")
+        }
+        val started = System.nanoTime()
+        val event = ICalendar.parse(raw)!!
+        val elapsedMs = (System.nanoTime() - started) / 1_000_000
+        assertEquals(folds + 1, event.title!!.length)
+        // Deliberately generous: the linear version runs in a few milliseconds, the quadratic
+        // one in minutes. Anything in between is still a red flag, without being CI-flaky.
+        assertTrue("unfolding took ${elapsedMs}ms", elapsedMs < 5_000)
+    }
+
+    @Test fun anAbsurdlyLargeInviteIsRefusedInsteadOfParsed() {
+        val padding = "X".repeat(ICalendar.MAX_SOURCE_CHARS)
+        val raw = ics("BEGIN:VEVENT", "DTSTART:20260703T140000Z", "SUMMARY:$padding", "END:VEVENT")
+        assertTrue(raw.length > ICalendar.MAX_SOURCE_CHARS)
+        assertNull(ICalendar.parse(raw))
+    }
+
+    @Test fun anInviteJustUnderTheCapIsStillParsed() {
+        val padding = "X".repeat(ICalendar.MAX_SOURCE_CHARS / 2)
+        val event = ICalendar.parse(
+            ics("BEGIN:VEVENT", "DTSTART:20260703T140000Z", "SUMMARY:$padding", "END:VEVENT"),
+        )!!
+        assertEquals(padding, event.title)
+    }
 }

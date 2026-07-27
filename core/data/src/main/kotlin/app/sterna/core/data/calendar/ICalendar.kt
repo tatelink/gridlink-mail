@@ -58,9 +58,16 @@ data class Attendee(val email: String, val cn: String?, val raw: String)
  */
 object ICalendar {
 
+    /**
+     * Largest .ics we will read (1 MiB). Real invitations are a few kilobytes; a huge one is
+     * either broken or hostile, and reading it buys nothing — the card is skipped instead.
+     */
+    const val MAX_SOURCE_CHARS = 1024 * 1024
+
     /** Parse [raw] .ics text; returns the first event, or null if there is nothing usable. */
     fun parse(raw: String?): ParsedEvent? {
         if (raw.isNullOrBlank()) return null
+        if (raw.length > MAX_SOURCE_CHARS) return null
         return try {
             val lines = unfold(raw).mapNotNull(::parseLine)
 
@@ -141,17 +148,32 @@ object ICalendar {
     /**
      * RFC 5545 unfolding: a CRLF/LF immediately followed by a space or tab continues the
      * previous logical line, so join it back (dropping the break and the one leading space).
+     *
+     * Each logical line is accumulated in one [StringBuilder] and materialised once. Rebuilding
+     * the string per continuation instead is quadratic, and a .ics made of hundreds of thousands
+     * of one-character continuations then freezes the reader for minutes with no exception to
+     * catch — it is a hang, not a failure.
      */
     private fun unfold(raw: String): List<String> {
-        val normalized = raw.replace("\r\n", "\n").replace('\r', '\n')
         val out = ArrayList<String>()
-        for (line in normalized.split('\n')) {
-            if (out.isNotEmpty() && line.isNotEmpty() && (line[0] == ' ' || line[0] == '\t')) {
-                out[out.lastIndex] = out.last() + line.substring(1)
+        val current = StringBuilder()
+        var started = false
+        var i = 0
+        while (i < raw.length) {
+            var end = i
+            while (end < raw.length && raw[end] != '\n' && raw[end] != '\r') end++
+            if (started && end > i && (raw[i] == ' ' || raw[i] == '\t')) {
+                current.append(raw, i + 1, end) // continuation: drop the single leading space/tab
             } else {
-                out.add(line)
+                if (started) out.add(current.toString())
+                current.setLength(0)
+                current.append(raw, i, end)
+                started = true
             }
+            // CRLF is one break, so is a lone CR or LF.
+            i = if (end + 1 < raw.length && raw[end] == '\r' && raw[end + 1] == '\n') end + 2 else end + 1
         }
+        if (started) out.add(current.toString())
         return out
     }
 
