@@ -273,10 +273,19 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private fun credentials(): AccountCredentials? =
         accountId?.let { store.credentials(it) } ?: store.load()
 
-    /** Loads the conversation once per id (idempotent across recompositions). Does NOT mark
-     *  read — [onActiveChanged] does that when the pager settles on this page. */
+    /** Loads the conversation once per (id, account) pair (idempotent across recompositions).
+     *  Does NOT mark read — [onActiveChanged] does that when the pager settles on this page.
+     *
+     *  The account is part of the guard, not just remembered: JMAP ids are per account, so the
+     *  same id under another account is another message. Comparing the id alone made reopening
+     *  it return immediately and leave the previous account's message on screen (#92) — even
+     *  though [MessageScreen]'s LaunchedEffect(emailId, accountId) had correctly asked again. */
     fun load(emailId: String, accountId: String? = null) {
-        if (loadedId == emailId && _state.value !is MessageState.Error) return
+        if (!MessagePaging.needsLoad(loadedId, this.accountId, emailId, accountId) &&
+            _state.value !is MessageState.Error
+        ) {
+            return
+        }
         loadedId = emailId
         this.accountId = accountId
         anchorMarked = false

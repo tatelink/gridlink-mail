@@ -177,8 +177,11 @@ val LocalNavTransitionActive = compositionLocalOf { false }
  * The identity of a pager entry — (email id, owning account) — as one string. Same-server accounts
  * under a single login can hold messages with identical ids (issue #31) and the unified inbox shows
  * them side by side, so the pager identifies its entries by the pair, never by the id alone.
+ *
+ * The composition lives in [MessagePaging.entryKey] so it can be unit-tested.
  */
-private fun pagerKey(entry: Pair<String, String?>): String = "${entry.second.orEmpty()}\u0000${entry.first}"
+private fun pagerKey(entry: Pair<String, String?>): String =
+    MessagePaging.entryKey(entry.first, entry.second)
 
 /**
  * The reading view. A [HorizontalPager] lets the user swipe left/right between the entries
@@ -386,9 +389,13 @@ private fun MessagePager(
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
-                // Key by entry id so pages keep their identity when rows are inserted around them;
-                // warm one neighbour each side so a swipe reveals the adjacent body without a flash.
-                key = { i -> entryAt(i)?.first ?: "page-$i" },
+                // Key by entry identity — (account, id), never the bare id — so pages keep their
+                // identity when rows are inserted around them; warm one neighbour each side so a
+                // swipe reveals the adjacent body without a flash. The bare id made two messages
+                // of two same-server accounts ONE page for Compose, which then reused the page and
+                // its ViewModel and showed the other account's message (#92). Same granularity for
+                // a single account: the pair differs exactly where the id does.
+                key = { i -> entryAt(i)?.let(::pagerKey) ?: "page-$i" },
                 beyondViewportPageCount = 1,
             ) { page ->
                 val entry = entryAt(page)

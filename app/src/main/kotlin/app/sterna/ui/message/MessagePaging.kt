@@ -3,6 +3,34 @@ package app.sterna.ui.message
 /** Pure helpers for paging between list entries in the reading view (unit-tested). */
 object MessagePaging {
     /**
+     * The identity of one reading-view entry — (owning account, email id) — as a single string.
+     *
+     * JMAP ids are handed out PER ACCOUNT, so two accounts on one server can carry the same
+     * message id; the unified inbox shows both side by side. Every identity check in the reader
+     * (the pager's page key, the sticky merge, the live index, the "already loaded?" guard) goes
+     * through the pair — an id alone let Compose treat two different messages as one page and
+     * show the wrong account's mail (#92).
+     *
+     * The separator is NUL, which no account id or email id can contain, so the mapping from
+     * pair to key is injective: for a single account the keys differ exactly where the ids do,
+     * i.e. the page identity has the same granularity as before.
+     */
+    fun entryKey(emailId: String, accountId: String?): String = "${accountId.orEmpty()}\u0000$emailId"
+
+    /**
+     * Whether the reading view must (re)load, i.e. whether the requested (id, account) pair
+     * differs from the loaded one. The account is part of the question: reopening the same id
+     * under another account is a DIFFERENT message (see [entryKey]), and an id-only guard
+     * returned early and left the previous account's message on screen (#92).
+     */
+    fun needsLoad(
+        loadedId: String?,
+        loadedAccountId: String?,
+        emailId: String,
+        accountId: String?,
+    ): Boolean = loadedId != emailId || loadedAccountId != accountId
+
+    /**
      * The page the pager should open on. Prefer the position of [anchorId] within the
      * ordered entries (robust to the list having shifted since the row was tapped); fall
      * back to [fallbackIndex] when the anchor isn't in the loaded window. The result is
