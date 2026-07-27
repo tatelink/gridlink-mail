@@ -793,18 +793,34 @@ fun ComposeScreen(
                     // tap target) with a bounded height, so the field scrolls its own content and
                     // keeps the cursor in view as you write (#26).
                     .weight(1f)
-                    .padding(horizontal = 16.dp)
-                    .padding(top = 12.dp, bottom = 16.dp)
                     .focusRequester(bodyFocus),
                 decorationBox = { inner ->
-                    if (body.text.isEmpty()) {
-                        Text(
-                            stringResource(R.string.compose_body_placeholder),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    // The margins live INSIDE the field, not around it (#26). The header rows got
+                    // the caret rule in 1.3.13: a tap before the first character of a line means
+                    // "put the cursor at the start of that line", which otherwise takes
+                    // pixel-perfect aim just left of the first glyph. The body needs the same, and
+                    // padding the field from the OUTSIDE kept that margin out of its touch area,
+                    // so the tap did nothing at all. Padding from the inside hands the margin to
+                    // the field, which already resolves such a tap itself: it is coerced into the
+                    // visible text and lands at the start of the tapped line, its own scrolling
+                    // and RTL included. A tap on the text is unchanged, no gesture is intercepted
+                    // and nothing new listens for one, so the body's vertical scrolling (#5, #6,
+                    // #10) is routed exactly as before.
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 12.dp, bottom = 16.dp),
+                    ) {
+                        if (body.text.isEmpty()) {
+                            Text(
+                                stringResource(R.string.compose_body_placeholder),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        inner()
                     }
-                    inner()
                 },
             )
         }
