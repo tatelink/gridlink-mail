@@ -19,6 +19,13 @@ sealed interface SearchState {
     data class Error(val message: String) : SearchState
 }
 
+/**
+ * Lazy-list key for a result row. Account + id, never the id alone: search spans every account
+ * and deduplicates by (accountId, id) on purpose, so the same JMAP id legitimately appears twice
+ * and a duplicate key in a lazy list throws (#92). Same form as the inbox lists.
+ */
+internal fun searchResultKey(email: Email): String = "${email.accountId}|${email.id}"
+
 class SearchViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
