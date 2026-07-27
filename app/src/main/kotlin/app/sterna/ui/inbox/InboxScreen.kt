@@ -999,47 +999,53 @@ fun InboxScreen(
                             var selMenu by remember { mutableStateOf(false) }
                             var selSnooze by remember { mutableStateOf(false) }
                             val selContext = LocalContext.current
-                            IconButton(onClick = { selMenu = true }) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
-                            }
-                            DropdownMenu(
-                                expanded = selMenu,
-                                onDismissRequest = { selMenu = false; selSnooze = false },
-                                shape = MaterialTheme.shapes.medium,
-                            ) {
-                                if (selSnooze) {
-                                    snoozePresets(selContext).forEach { (label, until) ->
+                            // Boxed with its button for the anchoring reason spelled out on the
+                            // browse-bar overflow menu (#74). This one swaps its whole content
+                            // for the snooze presets, so unboxed it could even jump sideways
+                            // while open, as the two sets of labels are not the same width.
+                            Box {
+                                IconButton(onClick = { selMenu = true }) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
+                                }
+                                DropdownMenu(
+                                    expanded = selMenu,
+                                    onDismissRequest = { selMenu = false; selSnooze = false },
+                                    shape = MaterialTheme.shapes.medium,
+                                ) {
+                                    if (selSnooze) {
+                                        snoozePresets(selContext).forEach { (label, until) ->
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                onClick = { selMenu = false; selSnooze = false; viewModel.snoozeSelected(until) },
+                                            )
+                                        }
+                                    } else {
+                                        val inJunk = currentRole == "junk"
                                         DropdownMenuItem(
-                                            text = { Text(label) },
-                                            onClick = { selMenu = false; selSnooze = false; viewModel.snoozeSelected(until) },
+                                            text = { Text(stringResource(R.string.inbox_select_all)) },
+                                            leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
+                                            onClick = { selMenu = false; viewModel.selectAll() },
                                         )
-                                    }
-                                } else {
-                                    val inJunk = currentRole == "junk"
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.inbox_select_all)) },
-                                        leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
-                                        onClick = { selMenu = false; viewModel.selectAll() },
-                                    )
-                                    // Spam-reporting and snoozing act on incoming mail; in Drafts
-                                    // and Sent the selection is the user's own outgoing mail, so
-                                    // neither is offered there (Codeberg #82).
-                                    if (!isOutgoingFolder(currentRole)) {
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(stringResource(if (inJunk) R.string.message_not_spam else R.string.message_report_spam))
-                                            },
-                                            leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
-                                            onClick = {
-                                                selMenu = false
-                                                if (inJunk) viewModel.notSpamSelected() else viewModel.reportSpamSelected()
-                                            },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.message_snooze)) },
-                                            leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
-                                            onClick = { selSnooze = true },
-                                        )
+                                        // Spam-reporting and snoozing act on incoming mail; in Drafts
+                                        // and Sent the selection is the user's own outgoing mail, so
+                                        // neither is offered there (Codeberg #82).
+                                        if (!isOutgoingFolder(currentRole)) {
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(stringResource(if (inJunk) R.string.message_not_spam else R.string.message_report_spam))
+                                                },
+                                                leadingIcon = { Icon(Icons.Filled.Report, contentDescription = null) },
+                                                onClick = {
+                                                    selMenu = false
+                                                    if (inJunk) viewModel.notSpamSelected() else viewModel.reportSpamSelected()
+                                                },
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.message_snooze)) },
+                                                leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                                                onClick = { selSnooze = true },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1149,18 +1155,23 @@ fun InboxScreen(
                                 )
                             }
                             var sortOpen by remember { mutableStateOf(false) }
-                            IconButton(onClick = { sortOpen = true }) {
-                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.inbox_sort))
-                            }
-                            DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }, shape = MaterialTheme.shapes.medium) {
-                                SortOrder.entries.forEach { order ->
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(sortLabel(order))) },
-                                        leadingIcon = {
-                                            if (order == ui.sortOrder) Icon(Icons.Filled.Check, contentDescription = null)
-                                        },
-                                        onClick = { viewModel.setSortOrder(order); sortOpen = false },
-                                    )
+                            // Boxed with its button for the anchoring reason spelled out on the
+                            // overflow menu below (#74); the sort labels are short, so this menu
+                            // was always on the wrong side of that threshold.
+                            Box {
+                                IconButton(onClick = { sortOpen = true }) {
+                                    Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.inbox_sort))
+                                }
+                                DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }, shape = MaterialTheme.shapes.medium) {
+                                    SortOrder.entries.forEach { order ->
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(sortLabel(order))) },
+                                            leadingIcon = {
+                                                if (order == ui.sortOrder) Icon(Icons.Filled.Check, contentDescription = null)
+                                            },
+                                            onClick = { viewModel.setSortOrder(order); sortOpen = false },
+                                        )
+                                    }
                                 }
                             }
                             IconButton(onClick = { viewModel.setSearchActive(true) }) {
