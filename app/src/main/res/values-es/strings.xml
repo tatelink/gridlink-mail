@@ -426,13 +426,13 @@
     <string name="settings_cached_messages">Mensajes en caché</string>
     <string name="settings_clear_account_cache">Vaciar la caché de esta cuenta</string>
     <string name="settings_pgp_section">Cifrado OpenPGP</string>
-    <string name="settings_pgp_enable_title">Firmar, cifrar y leer mensajes con OpenKeychain</string>
-    <string name="settings_pgp_enable_subtitle">Firmar y cifrar el correo con OpenKeychain</string>
+    <string name="settings_pgp_enable_title">Usar OpenPGP</string>
+    <string name="settings_pgp_enable_subtitle">Firmar, cifrar y leer mensajes con OpenKeychain</string>
     <string name="settings_pgp_key_title">Tu ID de clave</string>
     <string name="settings_pgp_key_none">Ninguna clave seleccionada</string>
     <string name="settings_pgp_choose_key">Elegir clave</string>
     <string name="settings_pgp_encrypt_default_title">Cifrar por defecto</string>
-    <string name="settings_pgp_encrypt_default_subtitle">Empezar los mensajes nuevos cifrados cuando todos los destinatarios tienen clave; si no, enviar normalmente</string>
+    <string name="settings_pgp_encrypt_default_subtitle">Los mensajes nuevos empiezan cifrados cuando todos los destinatarios tienen clave, y sin cifrar si falta alguna</string>
     <string name="settings_pgp_missing_help">Sterna usa la aplicación OpenKeychain para gestionar claves y cifrar mensajes. Instálala para activar OpenPGP.</string>
     <string name="settings_pgp_provider_required">Sin efecto: se necesita OpenKeychain</string>
     <string name="settings_pgp_install">Obtener OpenKeychain</string>

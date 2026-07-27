@@ -19,29 +19,35 @@ import java.util.concurrent.ConcurrentHashMap
  * 45 minutes. In-memory only: a process death empties the registry, but the pass that
  * follows a cold start reseeds missing baselines silently anyway, so a lost entry merely
  * re-risks one echo of the old behaviour.
+ *
+ * Entries are keyed by [EmailKey], i.e. ACCOUNT + id, and the registry is process-wide,
+ * spanning every signed-in account. JMAP ids are assigned per account, so a bare id let
+ * archiving message X in account A swallow the notification for a genuinely new message X
+ * in account B for the next 45 minutes. IMAP ids happen to embed their account already, but
+ * both sides pass the pair so there is one form and no id shape to reason about (#92).
  */
 class RecentLocalMoves(
     private val ttlMs: Long = DEFAULT_TTL_MS,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    private val movedAt = ConcurrentHashMap<String, Long>()
+    private val movedAt = ConcurrentHashMap<EmailKey, Long>()
 
-    /** Record that the app itself just moved [emailId] (called on server ack; for IMAP,
-     *  with the message's id AT ITS DESTINATION — an IMAP move changes the id). */
-    fun mark(emailId: String) {
+    /** Record that the app itself just moved [emailId] of [accountId] (called on server ack;
+     *  for IMAP, with the message's id AT ITS DESTINATION — an IMAP move changes the id). */
+    fun mark(accountId: String, emailId: String) {
         val now = clock()
         // Opportunistic prune so a long-lived process doesn't accumulate dead ids.
         movedAt.entries.removeIf { now - it.value > ttlMs }
-        movedAt[emailId] = now
+        movedAt[EmailKey(accountId, emailId)] = now
     }
 
-    /** Whether [emailId] is still inside its self-move window. NON-consuming: a pass may
-     *  consult the same id more than once (threads scan + notify diff), and the id expires
-     *  by TTL, not by first sight. */
-    operator fun contains(emailId: String): Boolean {
-        val at = movedAt[emailId] ?: return false
+    /** Whether [key] is still inside its self-move window. NON-consuming: a pass may
+     *  consult the same message more than once (threads scan + notify diff), and the entry
+     *  expires by TTL, not by first sight. */
+    operator fun contains(key: EmailKey): Boolean {
+        val at = movedAt[key] ?: return false
         if (clock() - at > ttlMs) {
-            movedAt.remove(emailId)
+            movedAt.remove(key)
             return false
         }
         return true

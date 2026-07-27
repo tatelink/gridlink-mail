@@ -22,6 +22,30 @@ object Notifications {
     /** New-mail notifications are grouped per account under this key prefix. */
     private const val GROUP_PREFIX = "mail:"
 
+    /**
+     * The notification id of one message. JMAP ids are assigned PER ACCOUNT, so two accounts on
+     * the same server routinely hand us the same id: keying on the id alone made account B's
+     * notification replace account A's and — because the action intents are built with
+     * FLAG_UPDATE_CURRENT under the same request codes — rewrote A's Mark read / Delete / Reply
+     * buttons to carry B's message. A notification reading as A's then acted on B's mail (#92).
+     */
+    fun childId(accountId: String, emailId: String): Int = "$accountId $emailId".hashCode()
+
+    /**
+     * The id the same message got before [childId] existed. Notifications posted by an older
+     * build are still on screen after an update; without this they could no longer be matched
+     * or cancelled and would sit there forever.
+     */
+    private fun legacyChildId(emailId: String): Int = emailId.hashCode()
+
+    /** Whether [emailId] of [accountId] has a live notification among [active] ids, either form. */
+    fun isChildActive(active: Set<Int>, accountId: String, emailId: String): Boolean =
+        childId(accountId, emailId) in active || legacyChildId(emailId) in active
+
+    /** Request code for an action button's broadcast, unique per account + message + action. */
+    private fun actionRequestCode(accountId: String, emailId: String, action: String): Int =
+        "$accountId $emailId $action".hashCode()
+
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
@@ -104,7 +128,7 @@ object Notifications {
         // defaults and leak what the user asked to hide (Codeberg #84). The expanded state
         // shows the full subject, never a body preview (Codeberg #57).
         val (title, text, bigText) = MailNotificationText.resolve(content, sender, subject, generic)
-        val notifId = email.id.hashCode()
+        val notifId = childId(accountId, email.id)
         // Carry the message identity so a tap opens THAT email, not just the inbox — even when
         // the app is already running (singleTask → onNewIntent routes it). Codeberg #17 follow-up.
         // Its account (#31) and its folder (#91) travel along so the list underneath ends up
@@ -186,8 +210,12 @@ object Notifications {
     }
 
     /** Cancel the per-message notification for [emailId] without touching the group summary. */
-    fun cancelChild(context: Context, emailId: String) {
-        context.getSystemService(NotificationManager::class.java).cancel(emailId.hashCode())
+    fun cancelChild(context: Context, accountId: String, emailId: String) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.cancel(childId(accountId, emailId))
+        // Also the pre-update form, otherwise a notification posted by the previous build
+        // survives every dismissal attempt. Cancelling an id with no live notification is a no-op.
+        manager.cancel(legacyChildId(emailId))
     }
 
     /**
@@ -197,9 +225,9 @@ object Notifications {
      */
     fun dismiss(context: Context, accountId: String, accountLabel: String, emailIds: Collection<String>) {
         val active = activeChildIds(context, accountId)
-        val hit = emailIds.filter { it.hashCode() in active }
+        val hit = emailIds.filter { isChildActive(active, accountId, it) }
         if (hit.isEmpty()) return
-        hit.forEach { cancelChild(context, it) }
+        hit.forEach { cancelChild(context, accountId, it) }
         updateGroupSummary(context, accountId, accountLabel, silent = true)
     }
 
@@ -262,7 +290,7 @@ object Notifications {
     ): NotificationCompat.Action {
         val pending = PendingIntent.getBroadcast(
             context,
-            (emailId + action).hashCode(),
+            actionRequestCode(accountId, emailId, action),
             actionIntent(context, action, emailId, accountId, notifId),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -272,7 +300,7 @@ object Notifications {
     private fun replyAction(context: Context, emailId: String, accountId: String, notifId: Int): NotificationCompat.Action {
         val pending = PendingIntent.getBroadcast(
             context,
-            (emailId + "reply").hashCode(),
+            actionRequestCode(accountId, emailId, NotificationActionReceiver.ACTION_REPLY),
             actionIntent(context, NotificationActionReceiver.ACTION_REPLY, emailId, accountId, notifId),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
         )

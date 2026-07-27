@@ -426,13 +426,13 @@
     <string name="settings_cached_messages">Zwischengespeicherte Nachrichten</string>
     <string name="settings_clear_account_cache">Cache dieses Kontos leeren</string>
     <string name="settings_pgp_section">OpenPGP-Verschlüsselung</string>
-    <string name="settings_pgp_enable_title">E-Mails mit OpenKeychain signieren, verschlüsseln und lesen</string>
-    <string name="settings_pgp_enable_subtitle">E-Mails mit OpenKeychain signieren und verschlüsseln</string>
+    <string name="settings_pgp_enable_title">OpenPGP verwenden</string>
+    <string name="settings_pgp_enable_subtitle">E-Mails mit OpenKeychain signieren, verschlüsseln und lesen</string>
     <string name="settings_pgp_key_title">Ihre Schlüssel-ID</string>
     <string name="settings_pgp_key_none">Kein Schlüssel ausgewählt</string>
     <string name="settings_pgp_choose_key">Schlüssel wählen</string>
     <string name="settings_pgp_encrypt_default_title">Standardmäßig verschlüsseln</string>
-    <string name="settings_pgp_encrypt_default_subtitle">Neue Nachrichten verschlüsselt beginnen, wenn jeder Empfänger einen Schlüssel hat, sonst normal senden</string>
+    <string name="settings_pgp_encrypt_default_subtitle">Neue Nachrichten beginnen verschlüsselt, wenn jeder Empfänger einen Schlüssel hat, und unverschlüsselt, wenn einer fehlt</string>
     <string name="settings_pgp_missing_help">Sterna nutzt die OpenKeychain-App zur Schlüsselverwaltung und Verschlüsselung. Installieren Sie sie, um OpenPGP zu aktivieren.</string>
     <string name="settings_pgp_provider_required">Ohne Wirkung: OpenKeychain erforderlich</string>
     <string name="settings_pgp_install">OpenKeychain installieren</string>

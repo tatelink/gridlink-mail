@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.settings.NotificationContent
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.jmap.model.Email
@@ -145,7 +146,9 @@ object NewMailNotifier {
         val lastPass = prefs(context).getLong(tsKey(accountId, mailboxId), 0L)
         val floor = if (lastPass > 0) lastPass - NOTIFY_HORIZON_MS else Long.MIN_VALUE
         val selfMoved = (context.applicationContext as Application).container.mailRepository.recentLocalMoves
-        return emails.filter { it.id !in known && receivedAfter(it, floor) && it.id !in selfMoved }
+        return emails.filter {
+            it.id !in known && receivedAfter(it, floor) && EmailKey(accountId, it.id) !in selfMoved
+        }
     }
 
     /**
@@ -173,7 +176,9 @@ object NewMailNotifier {
         // another device (a remote read arrives here as a re-synced $seen change) — should
         // have its notification cleared. Only touch ids that still have a live notification.
         val active = Notifications.activeChildIds(context, credentials.id)
-        val readIds = emails.filter { it.isSeen && it.id.hashCode() in active }.map { it.id }
+        val readIds = emails
+            .filter { it.isSeen && Notifications.isChildActive(active, credentials.id, it.id) }
+            .map { it.id }
         if (newMail.isNotEmpty() || readIds.isNotEmpty()) {
             val (silent, content) = options(context)
             newMail.forEach {
@@ -183,7 +188,7 @@ object NewMailNotifier {
                 // mail, the id is about where Back must land.
                 Notifications.notifyNewMail(context, it, credentials.id, silent, folderName, mailboxId, content)
             }
-            readIds.forEach { Notifications.cancelChild(context, it) }
+            readIds.forEach { Notifications.cancelChild(context, credentials.id, it) }
             // Rebuilt from ALL active children so successive per-folder passes accumulate
             // instead of the last folder overwriting the whole account's summary.
             Notifications.updateGroupSummary(context, credentials.id, credentials.username, silent)

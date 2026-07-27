@@ -188,7 +188,7 @@ fun SearchScreen(
                         )
                     } else {
                         LazyColumn(Modifier.fillMaxSize()) {
-                            items(s.emails, key = { it.id }) { email ->
+                            items(s.emails, key = ::searchResultKey) { email ->
                                 EmailListItem(email = email, onClick = { onOpenEmail(email.id, email.accountId) })
                                 HorizontalDivider()
                             }
