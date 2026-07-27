@@ -36,8 +36,10 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     private val mail = application.container.mailRepository
     private val pgp = application.container.pgpEngine
 
-    private val _accounts = MutableStateFlow(store.accounts())
-    val accounts = _accounts.asStateFlow()
+    /** Live from the store, not a snapshot refreshed after this screen's own edits: the same
+     *  screen also has to follow writes it did not make — discovery adding or pruning a shared
+     *  account under a login (issue #31) changes what "Shared accounts: …" must say. */
+    val accounts: StateFlow<List<StoredAccount>> = store.accountsFlow
 
     private val _currentId = MutableStateFlow(store.currentId())
     val currentId = _currentId.asStateFlow()
@@ -119,9 +121,8 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** Re-read the store after any change so the UI reflects the latest state. */
+    /** Re-read the selected account after any change ([accounts] itself follows the store). */
     fun refresh() {
-        _accounts.value = store.accounts()
         _currentId.value = store.currentId()
     }
 

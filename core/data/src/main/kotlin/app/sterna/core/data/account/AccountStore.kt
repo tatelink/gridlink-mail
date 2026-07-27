@@ -3,6 +3,9 @@ package app.sterna.core.data.account
 import android.content.Context
 import android.util.Base64
 import app.sterna.core.data.crypto.KeystoreCrypto
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -112,6 +115,24 @@ fun diffLinkedAccounts(
 }
 
 /**
+ * The account list as an observable value, behind [AccountStore.accountsFlow]. Split out of the
+ * store — which needs Android's SharedPreferences and Keystore — so the emission rule itself can
+ * be unit-tested on the JVM.
+ *
+ * Conflated by [MutableStateFlow]: republishing a list equal to the current one emits nothing, so
+ * the idempotent reconcile that rewrites an unchanged account list costs no recomposition.
+ */
+internal class AccountsState(initial: List<StoredAccount>) {
+    private val state = MutableStateFlow(initial)
+    val flow: StateFlow<List<StoredAccount>> = state.asStateFlow()
+
+    /** Publish the list that was just written to storage. */
+    fun publish(accounts: List<StoredAccount>) {
+        state.value = accounts
+    }
+}
+
+/**
  * Persists one or more accounts. Account metadata is stored as JSON; each
  * password is encrypted via [KeystoreCrypto] and only the ciphertext is written.
  * The single-account methods (load/hasAccount/saveInboxMeta/…) operate on the
@@ -130,7 +151,24 @@ class AccountStore(context: Context) {
         .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
 
+    // Seeded from storage at construction (which also runs the legacy single-account migration),
+    // then kept current by [saveAccounts] — the single choke point every list mutator goes through.
+    private val live = AccountsState(accounts())
+
     // ---- accounts ----
+
+    /**
+     * The account list as a live value, for screens that DISPLAY it (the drawer's account
+     * selector, Settings > Accounts). The prefs blob is per-process and this store is a
+     * singleton, so a flow re-emitted on every write is enough: no polling, no periodic reload.
+     *
+     * Why it exists: the sub-account reconcile (issue #31) adds an account the moment a mailbox is
+     * shared with the login and prunes it when the share is revoked. A list read once at
+     * composition time then showed a mailbox that was gone, and hid one that had arrived, until
+     * the screen was recreated. Equal lists are not re-emitted, so the reconcile's usual no-op
+     * pass recomposes nothing.
+     */
+    val accountsFlow: StateFlow<List<StoredAccount>> get() = live.flow
 
     fun accounts(): List<StoredAccount> {
         migrateIfNeeded()
@@ -466,6 +504,8 @@ class AccountStore(context: Context) {
     fun clear() {
         prefs.edit().clear().apply()
         KeystoreCrypto.deleteKey()
+        // Not a [saveAccounts] path (the whole file goes), so publish the emptied list by hand.
+        live.publish(emptyList())
     }
 
     // ---- current-account convenience (used by existing callers) ----
@@ -805,6 +845,7 @@ class AccountStore(context: Context) {
 
     private fun saveAccounts(list: List<StoredAccount>) {
         prefs.edit().putString(KEY_ACCOUNTS, json.encodeToString(list)).apply()
+        live.publish(list)
     }
 
     private fun writePassword(id: String, password: String) {
@@ -834,7 +875,10 @@ class AccountStore(context: Context) {
 
     private fun passwordKey(id: String) = "pw_$id"
 
-    /** Migrate a pre-multi-account single account into the accounts list once. */
+    /** Migrate a pre-multi-account single account into the accounts list once.
+     *  Writes KEY_ACCOUNTS outside [saveAccounts], but needs no publish: the only call that can
+     *  find anything to migrate is the [live] seeding read in the constructor, whose result
+     *  already includes the migrated account. */
     @Synchronized
     private fun migrateIfNeeded() {
         if (prefs.contains(KEY_ACCOUNTS)) return

@@ -64,6 +64,7 @@ import app.sterna.ui.settings.SettingsScreen
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -92,7 +93,7 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
 
     // null while the flag is still loading from DataStore, so first launch shows the welcome
     // (not a flash of the connect screen) and a returning user never flashes the welcome.
-    val hasSeenWelcome: kotlinx.coroutines.flow.StateFlow<Boolean?> =
+    val hasSeenWelcome: StateFlow<Boolean?> =
         settings.hasSeenWelcome.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun markWelcomeSeen() {
@@ -103,7 +104,12 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
         refresh()
     }
 
-    fun accounts(): List<StoredAccount> = accountStore.accounts()
+    /**
+     * The accounts to list, live from the store rather than read once per composition: a mailbox
+     * shared with the login shows up as soon as discovery persists it, and one whose share was
+     * revoked leaves the selector on the same pass — no account switch, no restart (issue #31).
+     */
+    val accounts: StateFlow<List<StoredAccount>> = accountStore.accountsFlow
 
     fun refresh() {
         // Only an account with a stored credential counts as authenticated. Freshly imported,
@@ -137,6 +143,7 @@ fun SternaApp(
 ) {
     RequestNotificationPermission()
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val hasSeenWelcome by viewModel.hasSeenWelcome.collectAsStateWithLifecycle()
     val appLock = (LocalContext.current.applicationContext as Application).container.appLock
     val locked by appLock.locked.collectAsStateWithLifecycle()
@@ -169,7 +176,7 @@ fun SternaApp(
             // the inbox re-points (InboxScreen reacts via onAccountChanged) WITHOUT recreating
             // the screen — which lets the drawer's account carousel stay open across a switch.
             is RootState.Authenticated -> MainNavHost(
-                accounts = viewModel.accounts(),
+                accounts = accounts,
                 currentAccountId = s.accountId,
                 onSwitchAccount = viewModel::switchAccount,
                 onAccountsChanged = viewModel::refresh,
