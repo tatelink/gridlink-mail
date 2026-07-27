@@ -78,6 +78,10 @@ object Notifications {
 
     /**
      * [folderName] marks non-inbox mail (multi-folder watch, issue #16); null for the inbox.
+     * [mailboxId] is the same folder's id, carried in the tap intent so opening the notification
+     * puts the list on the folder the message actually lives in (issue #91) — null when the
+     * caller has none to give. Unlike [folderName] it is NOT null for the inbox: the list has to
+     * be able to switch back TO the inbox from another folder just as much as away from it.
      * [silent] (quiet hours) and [content] (how much of the mail shows on the lock screen,
      * Codeberg #25) are deliberately WITHOUT defaults: they are user settings, and the
      * defaults let the snooze wake-up post loudly with sender and subject against the
@@ -89,6 +93,7 @@ object Notifications {
         accountId: String,
         silent: Boolean,
         folderName: String?,
+        mailboxId: String?,
         content: NotificationContent,
     ) {
         val generic = context.getString(R.string.notif_new_message)
@@ -102,10 +107,13 @@ object Notifications {
         val notifId = email.id.hashCode()
         // Carry the message identity so a tap opens THAT email, not just the inbox — even when
         // the app is already running (singleTask → onNewIntent routes it). Codeberg #17 follow-up.
+        // Its account (#31) and its folder (#91) travel along so the list underneath ends up
+        // where the message is, and Back lands in a list that holds it.
         val intent = Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             .putExtra(MainActivity.EXTRA_OPEN_EMAIL_ID, email.id)
             .putExtra(MainActivity.EXTRA_OPEN_ACCOUNT_ID, accountId)
+            .apply { if (mailboxId != null) putExtra(MainActivity.EXTRA_OPEN_MAILBOX_ID, mailboxId) }
         val pending = PendingIntent.getActivity(
             context,
             notifId,

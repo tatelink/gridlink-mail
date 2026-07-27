@@ -87,6 +87,7 @@ class MainActivity : AppCompatActivity() {
         val i = intent ?: return
         i.removeExtra(EXTRA_OPEN_EMAIL_ID)
         i.removeExtra(EXTRA_OPEN_ACCOUNT_ID)
+        i.removeExtra(EXTRA_OPEN_MAILBOX_ID)
     }
 
     private fun stripMailtoPayload() {
@@ -103,7 +104,11 @@ class MainActivity : AppCompatActivity() {
     /** The message a tapped new-mail notification wants to open, or null. */
     private fun parseEmailOpen(intent: Intent?): EmailOpenTarget? {
         val emailId = intent?.getStringExtra(EXTRA_OPEN_EMAIL_ID) ?: return null
-        return EmailOpenTarget(emailId, intent.getStringExtra(EXTRA_OPEN_ACCOUNT_ID)?.ifBlank { null })
+        return EmailOpenTarget(
+            emailId = emailId,
+            accountId = intent.getStringExtra(EXTRA_OPEN_ACCOUNT_ID)?.ifBlank { null },
+            mailboxId = intent.getStringExtra(EXTRA_OPEN_MAILBOX_ID)?.ifBlank { null },
+        )
     }
 
     /** RFC 6068 mailto: parsing — addresses plus the optional subject/body/cc/bcc fields. */
@@ -174,6 +179,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_OPEN_EMAIL_ID = "app.sterna.OPEN_EMAIL_ID"
         const val EXTRA_OPEN_ACCOUNT_ID = "app.sterna.OPEN_ACCOUNT_ID"
+        const val EXTRA_OPEN_MAILBOX_ID = "app.sterna.OPEN_MAILBOX_ID"
     }
 }
 
@@ -186,8 +192,14 @@ data class MailtoDraft(
     val body: String,
 )
 
-/** The message a tapped new-mail notification should open (Codeberg #17 follow-up). */
+/**
+ * The message a tapped new-mail notification should open (Codeberg #17 follow-up), and the
+ * context it lives in: its account (#31) and the folder it sits in (#91), so the list underneath
+ * ends up where the message is and Back lands in a list that holds it. Either may be null for a
+ * notification posted by an older version.
+ */
 data class EmailOpenTarget(
     val emailId: String,
     val accountId: String?,
+    val mailboxId: String? = null,
 )

@@ -176,7 +176,13 @@ object NewMailNotifier {
         val readIds = emails.filter { it.isSeen && it.id.hashCode() in active }.map { it.id }
         if (newMail.isNotEmpty() || readIds.isNotEmpty()) {
             val (silent, content) = options(context)
-            newMail.forEach { Notifications.notifyNewMail(context, it, credentials.id, silent, folderName, content) }
+            newMail.forEach {
+                // [mailboxId] is the folder this diff pass is for, i.e. where the mail arrived —
+                // so the tap can put the list there (issue #91). Passed for the inbox too, where
+                // [folderName] is deliberately null: the sub-text is about marking non-inbox
+                // mail, the id is about where Back must land.
+                Notifications.notifyNewMail(context, it, credentials.id, silent, folderName, mailboxId, content)
+            }
             readIds.forEach { Notifications.cancelChild(context, it) }
             // Rebuilt from ALL active children so successive per-folder passes accumulate
             // instead of the last folder overwriting the whole account's summary.
