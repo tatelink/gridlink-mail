@@ -402,6 +402,8 @@
     <string name="settings_email_not_server">Tu servidor podría rechazar el envío desde esta dirección.</string>
     <string name="settings_signature_supporting">Texto sin formato, añadido al cuerpo del mensaje al redactar: puedes editarlo o borrarlo allí como cualquier otro texto.</string>
     <string name="settings_signature_supporting_html">Se ha guardado una versión HTML; se envía tal cual si no modificas la firma en el mensaje.</string>
+    <string name="settings_signature_preview_title">En un mensaje se verá así:</string>
+    <string name="settings_signature_duplicate_delimiter">Tu firma ya empieza por una línea «-- », así que aparecerá dos veces.</string>
     <string name="settings_unsaved_changes">Cambios sin guardar</string>
     <string name="settings_save_changes_title">¿Guardar los cambios?</string>
     <string name="settings_save_changes_message">No has guardado tus cambios de identidad o de cuenta.</string>

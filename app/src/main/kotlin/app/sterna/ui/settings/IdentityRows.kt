@@ -1,8 +1,11 @@
 package app.sterna.ui.settings
 
+import app.sterna.ui.compose.SIGNATURE_DELIMITER
+import app.sterna.ui.compose.signatureBlock
+
 /**
- * Display rules for the Identities editor: which row opens on entry, and what a collapsed row says
- * about its signature.
+ * Display rules for the Identities editor: which row opens on entry, what a collapsed row says
+ * about its signature, and what the signature will look like once the composer adds its delimiter.
  *
  * Everything here is presentation only. Nothing is persisted and nothing touches stored data, so
  * reopening the screen re-derives the same state from the account.
@@ -43,6 +46,36 @@ internal fun signatureStateOf(signature: String, signatureHtml: String): Signatu
     signatureHtml.isNotBlank() -> SignatureState.HTML
     signature.isNotBlank() -> SignatureState.TEXT
     else -> SignatureState.NONE
+}
+
+/**
+ * What the composer will actually put in the message for [signature]: the delimiter line the app
+ * adds itself, then the signature as typed. Null when there is nothing to show, i.e. when a blank
+ * signature adds nothing at all.
+ *
+ * The delimiter is NOT stored in the field — it is added when the body is built ([signatureBlock]),
+ * so whoever types a signature never sees it, types their own, and ends up sending two of them
+ * (#90). This is the answer to that: show it, store nothing. Derived from [signatureBlock] itself
+ * (minus the blank line that separates the block from the message above it), so the preview and the
+ * real thing cannot drift apart.
+ */
+internal fun signaturePreview(signature: String): String? =
+    signatureBlock(signature).trimStart('\n').takeIf { it.isNotEmpty() }
+
+/**
+ * Whether [signature] already opens with a delimiter line of its own — the typed "-- " that the
+ * app's own delimiter would then be stacked on top of. Reported, never removed: the field holds the
+ * user's text and the app does not rewrite it behind their back. The preview shows both lines, so
+ * the duplicate is visible rather than merely announced.
+ *
+ * Only the first line counts: a "--" further down is part of what they wrote. It is read off the
+ * TRIMMED signature, exactly as [signatureBlock] builds it, so a delimiter typed under a blank line
+ * — which the block strips, leaving the two delimiters adjacent — is caught too. A trailing space
+ * makes no difference either: "--" alone is the same duplicate as the full "-- ".
+ */
+internal fun signatureHasOwnDelimiter(signature: String): Boolean {
+    val first = signature.trim().lineSequence().firstOrNull() ?: return false
+    return first.trimEnd() == SIGNATURE_DELIMITER.trimEnd()
 }
 
 /** Expand or collapse [rowId]; the set is the whole state, and it is never saved. */

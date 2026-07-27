@@ -402,6 +402,8 @@
     <string name="settings_email_not_server">Je server kan verzenden vanaf dit adres weigeren.</string>
     <string name="settings_signature_supporting">Platte tekst, bij het opstellen aan de berichttekst toegevoegd: daar te bewerken of te verwijderen als elke andere tekst.</string>
     <string name="settings_signature_supporting_html">Er is een HTML-versie opgeslagen; die wordt ongewijzigd verzonden als je de ondertekening in het bericht niet aanpast.</string>
+    <string name="settings_signature_preview_title">In een bericht ziet dat er zo uit:</string>
+    <string name="settings_signature_duplicate_delimiter">Je ondertekening begint al met een regel “-- ”, dus die verschijnt twee keer.</string>
     <string name="settings_unsaved_changes">Niet-opgeslagen wijzigingen</string>
     <string name="settings_save_changes_title">Wijzigingen opslaan?</string>
     <string name="settings_save_changes_message">Je hebt je identiteits- of accountwijzigingen niet opgeslagen.</string>
