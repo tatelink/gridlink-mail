@@ -306,6 +306,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _replyBarVisible.value = false
         _manualShowImages.value = false
         _headers.value = null
+        _attachmentStatus.value = null
         viewModelScope.launch {
             // Account-scoped: a snooze belongs to one account's message (issue #31).
             _snoozedUntil.value = runCatching {
@@ -368,6 +369,12 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                     }
                     is MessageCrypto.Decrypted -> _crypto.value = CryptoUiState.Decrypted(c)
                     null -> {}
+                }
+                // An inline image we refused to download leaves a hole in the body. Say it —
+                // showing less without a word is how a problem gets hidden.
+                if (anchor.oversizedInlineImageCount() > 0) {
+                    _attachmentStatus.value =
+                        getApplication<Application>().getString(R.string.status_inline_images_too_large)
                 }
                 // A calendar invite (text/calendar part) is fetched + parsed off the body so the
                 // reader can show an event card above it.
@@ -525,6 +532,9 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                     Intent.createChooser(view, app.getString(R.string.status_open_attachment)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
                 _attachmentStatus.value = null
+            } catch (t: ContentTooLargeException) {
+                // Our own refusal, not a failure: say it plainly instead of showing byte counts.
+                _attachmentStatus.value = app.getString(R.string.status_attachment_too_large)
             } catch (t: Throwable) {
                 _attachmentStatus.value =
                     app.getString(R.string.status_open_attachment_failed, t.message ?: "error")

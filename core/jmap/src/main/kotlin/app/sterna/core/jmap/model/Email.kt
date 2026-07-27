@@ -140,6 +140,18 @@ data class Email(
         }
 
     /**
+     * Inline images this message carries that are past what we will load automatically
+     * (see [app.sterna.core.jmap.DownloadLimits]). They are not fetched, so the reader has to
+     * say they are missing rather than quietly render a body with holes in it.
+     */
+    fun oversizedInlineImageCount(): Int = inlineImageParts().count {
+        !app.sterna.core.jmap.DownloadLimits.allows(
+            it.size,
+            app.sterna.core.jmap.DownloadLimits.INLINE_IMAGE_MAX_BYTES,
+        )
+    }
+
+    /**
      * Calendar invite parts (text/calendar, e.g. a meeting REQUEST) that can be fetched —
      * JMAP parts carry a blobId, IMAP parts a partId. Surfaced as an event preview card,
      * not as a plain attachment row (see [fileAttachmentParts]).

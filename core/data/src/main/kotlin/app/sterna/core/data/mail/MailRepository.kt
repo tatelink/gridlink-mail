@@ -1858,7 +1858,13 @@ class MailRepository(
         return cached.copy(inlineImages = inline)
     }
 
-    /** Download a message's inline images as `data:` URIs keyed by Content-ID. */
+    /**
+     * Download a message's inline images as `data:` URIs keyed by Content-ID.
+     *
+     * Nobody asked for these: opening the message is enough, and each one is then base64-encoded
+     * and cached at roughly four times its own weight. Hence the tighter ceiling — an image past
+     * it is not fetched, and the reader says so (see [oversizedInlineImages]).
+     */
     private suspend fun fetchInlineImages(
         credentials: AccountCredentials,
         email: Email,
@@ -1870,7 +1876,9 @@ class MailRepository(
         for (part in parts) {
             val cid = part.cid?.trim()?.trim('<', '>')?.takeIf { it.isNotEmpty() } ?: continue
             runCatching {
-                val bytes = downloadAttachment(credentials, part, emailId)
+                val bytes = downloadAttachment(
+                    credentials, part, emailId, DownloadLimits.INLINE_IMAGE_MAX_BYTES,
+                )
                 val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
                 map[cid] = "data:${part.type ?: "image/jpeg"};base64,$base64"
             }
@@ -3960,10 +3968,16 @@ class MailRepository(
     fun scheduledSendsFlow(): Flow<List<ScheduledSendEntity>> = scheduledSendDao.observeAll()
 
     /** Download an attachment's bytes for the current account. */
+    /**
+     * The bytes of an attachment part. [maxBytes] is the ceiling this particular call accepts —
+     * the caller knows whether the user asked for these bytes (an opened attachment) or whether
+     * the message asked on their behalf (an inline image), and the two deserve different limits.
+     */
     suspend fun downloadAttachment(
         credentials: AccountCredentials,
         part: EmailBodyPart,
         emailId: String,
+        maxBytes: Long = DownloadLimits.ATTACHMENT_MAX_BYTES,
     ): ByteArray {
         // Attachments inside a decrypted OpenPGP message are sliced from the
         // in-memory decrypted entity — they have no fetchable server section.
@@ -3973,9 +3987,20 @@ class MailRepository(
             val section = part.partId ?: error("Attachment has no section.")
             return imap.fetchAttachment(credentials, mb, uid, section, part.encoding)
         }
+        // JMAP announces the part's size in the message itself: refuse before spending the
+        // round-trip, not after buffering the answer.
+        if (!DownloadLimits.allows(part.size, maxBytes)) {
+            throw ContentTooLargeException(
+                "Part is ${part.size} bytes, over the $maxBytes limit.",
+                bytes = part.size,
+                maxBytes = maxBytes,
+            )
+        }
         val ctx = connect(credentials)
         val blobId = part.blobId ?: error("Attachment has no blob.")
-        return client.downloadBlob(ctx.session, ctx.accountId, blobId, part.type, part.name, ctx.auth)
+        return client.downloadBlob(
+            ctx.session, ctx.accountId, blobId, part.type, part.name, ctx.auth, maxBytes,
+        )
     }
 
     /** Upload bytes as an attachment blob; returns a body part ready to attach when sending. */

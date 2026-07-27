@@ -578,6 +578,8 @@
     <string name="status_attaching">Wird angehängt…</string>
     <string name="status_read_file_failed">Die ausgewählte Datei konnte nicht gelesen werden.</string>
     <string name="status_open_attachment_failed">Anhang konnte nicht geöffnet werden: %1$s</string>
+    <string name="status_attachment_too_large">Dieser Anhang ist zu groß, um geöffnet zu werden.</string>
+    <string name="status_inline_images_too_large">Einige Bilder in dieser Nachricht sind zu groß, um angezeigt zu werden.</string>
     <string name="status_message_too_large">Diese Nachricht ist zu groß, um sie anzuzeigen.</string>
     <string name="status_action_failed">Die Aktion konnte nicht abgeschlossen werden.</string>
     <string name="status_restore_failed">Einige Nachrichten konnten nicht wiederhergestellt werden.</string>

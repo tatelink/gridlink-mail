@@ -717,6 +717,8 @@
     <string name="status_attaching">Attaching…</string>
     <string name="status_read_file_failed">Couldn\'t read the selected file.</string>
     <string name="status_open_attachment_failed">Couldn\'t open attachment: %1$s</string>
+    <string name="status_attachment_too_large">This attachment is too large to open.</string>
+    <string name="status_inline_images_too_large">Some images in this message are too large to display.</string>
     <string name="status_message_too_large">This message is too large to display.</string>
     <string name="status_action_failed">Couldn\'t complete the action.</string>
     <string name="status_restore_failed">Couldn\'t restore some messages.</string>
