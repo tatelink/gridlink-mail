@@ -147,6 +147,7 @@
     <string name="participants_from">Od</string>
     <string name="participants_to">Do</string>
     <string name="participants_cc">DW</string>
+    <string name="participants_received_at">Odebrano na adres</string>
     <string name="participant_add_to_contacts">Dodaj do kontaktów</string>
     <string name="participant_compose">Napisz do tego kontaktu</string>
     <string name="participant_copy_address">Kopiuj adres</string>

@@ -147,6 +147,7 @@
     <string name="participants_from">De</string>
     <string name="participants_to">À</string>
     <string name="participants_cc">Cc</string>
+    <string name="participants_received_at">Reçu à l\'adresse</string>
     <string name="participant_add_to_contacts">Ajouter aux contacts</string>
     <string name="participant_compose">Écrire à ce contact</string>
     <string name="participant_copy_address">Copier l\'adresse</string>

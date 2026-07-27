@@ -147,6 +147,7 @@
     <string name="participants_from">Van</string>
     <string name="participants_to">Aan</string>
     <string name="participants_cc">Cc</string>
+    <string name="participants_received_at">Ontvangen op</string>
     <string name="participant_add_to_contacts">Aan contacten toevoegen</string>
     <string name="participant_compose">Naar dit contact schrijven</string>
     <string name="participant_copy_address">Adres kopiëren</string>

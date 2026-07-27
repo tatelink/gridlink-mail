@@ -13,6 +13,7 @@ import app.sterna.container
 import app.sterna.R
 import app.sterna.push.Notifications
 import app.sterna.snooze.Snoozes
+import app.sterna.ui.compose.receivingAddress
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.calendar.ICalendar
 import app.sterna.core.data.calendar.ParsedEvent
@@ -183,6 +184,13 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val _ownMessage = MutableStateFlow(false)
     val ownMessage = _ownMessage.asStateFlow()
 
+    /** Which of the account's own addresses the open message was addressed to, named in the
+     *  participants panel so an account with several aliases can tell which one received it
+     *  (Codeberg #81). Null when none is in To/Cc (mailing list, Bcc) — then nothing is shown
+     *  rather than a guess. */
+    private val _deliveredTo = MutableStateFlow<String?>(null)
+    val deliveredTo = _deliveredTo.asStateFlow()
+
     /** Deadline of the snooze in force on the open message, or null when it is not snoozed.
      *  Lets the Snooze menu say WHEN the message comes back instead of listing mute delays
      *  (Codeberg #82). A snoozed message is still reachable — e.g. from search. */
@@ -276,6 +284,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _messages.value = emptyList()
         _mailboxRole.value = null
         _ownMessage.value = false
+        _deliveredTo.value = null
         _snoozedUntil.value = null
         _mailboxId.value = null
         _calendar.value = null
@@ -303,6 +312,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 val role = repo.mailboxRole(cached.accountId ?: accountId, cached.mailboxId)
                 _mailboxRole.value = role
                 _ownMessage.value = isOwnMessage(cached, role)
+                _deliveredTo.value = receivingAddress(cached, ownAddresses())
                 _mailboxId.value = cached.mailboxId
             }
             try {
@@ -330,6 +340,10 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 val anchorRole = repo.mailboxRole(anchor.accountId, anchor.mailboxId ?: listEmail?.mailboxId)
                 _mailboxRole.value = anchorRole
                 _ownMessage.value = isOwnMessage(anchor, anchorRole)
+                // The fetched original carries the full To AND Cc; the cached row above remembers
+                // To only, so this is where a message addressed to an alias in Cc gets named. Never
+                // erases what the cache already found (#81).
+                _deliveredTo.value = receivingAddress(anchor, ownAddresses()) ?: _deliveredTo.value
                 _mailboxId.value = anchor.mailboxId ?: listEmail?.mailboxId
                 // OpenPGP: reflect the crypto state; a decrypt is attempted once the
                 // page settles in front of the user (see onActiveChanged), not while
@@ -358,6 +372,12 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
 
     /** The anchor as displayed: shown read once it has been settled on (else its true state). */
     private fun anchorDisplay(anchor: Email): Email = if (anchorMarked) anchor.markRead() else anchor
+
+    /** Every address that IS the user on the message's account: its send-as identities plus the
+     *  login it authenticates with. A delegated sub-account needs no special case — the store
+     *  already resolves its own address, or its login's, for it (issue #31). */
+    private fun ownAddresses(): List<String> =
+        store.identities(accountId).map { it.email } + listOfNotNull(credentials()?.username)
 
     /** Whether [email] is the user's own outgoing mail: its from address is one of the account's
      *  send-as identities (case-insensitive), so a sent message is recognised wherever it is read

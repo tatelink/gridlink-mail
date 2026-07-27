@@ -216,6 +216,8 @@
     <string name="participants_from">From</string>
     <string name="participants_to">To</string>
     <string name="participants_cc">Cc</string>
+    <!-- Which of your own addresses the message was addressed to (multi-alias accounts) -->
+    <string name="participants_received_at">Received at</string>
     <string name="participant_add_to_contacts">Add to contacts</string>
     <string name="participant_compose">Write to this contact</string>
     <string name="participant_copy_address">Copy address</string>

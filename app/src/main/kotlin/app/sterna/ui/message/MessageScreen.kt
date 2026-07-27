@@ -901,6 +901,7 @@ private fun MessageContent(
     val attachmentStatus by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     val calendar by viewModel.calendar.collectAsStateWithLifecycle()
     val ownMessage by viewModel.ownMessage.collectAsStateWithLifecycle()
+    val deliveredTo by viewModel.deliveredTo.collectAsStateWithLifecycle()
     val crypto by viewModel.crypto.collectAsStateWithLifecycle()
     // OpenKeychain's passphrase/key dialogs round-trip through this launcher.
     val pgpLauncher = rememberPgpInteractionLauncher { data ->
@@ -946,6 +947,7 @@ private fun MessageContent(
                 onBarVisibleChanged = viewModel::setReplyBarVisible,
                 onComposeTo = onComposeTo,
                 showRecipients = ownMessage,
+                deliveredTo = deliveredTo,
                 crypto = crypto,
                 onCryptoAction = {
                     when (val c = crypto) {
@@ -980,6 +982,7 @@ private fun ConversationBody(
     onBarVisibleChanged: (Boolean) -> Unit,
     onComposeTo: (address: String) -> Unit,
     showRecipients: Boolean = false,
+    deliveredTo: String? = null,
     crypto: CryptoUiState = CryptoUiState.None,
     onCryptoAction: () -> Unit = {},
 ) {
@@ -1111,7 +1114,7 @@ private fun ConversationBody(
         ) {
             MessageHeader(
                 msg, full, attachmentStatus, onOpenAttachment, calendar, onRespondToInvite,
-                onComposeTo, showRecipients, crypto, onCryptoAction,
+                onComposeTo, showRecipients, deliveredTo, crypto, onCryptoAction,
             )
         }
         // Spinner until the body has laid out (cached/prefetched mail beats the 500ms, so none flashes).
@@ -1176,6 +1179,7 @@ private fun MessageHeader(
     onRespondToInvite: (String) -> Unit,
     onComposeTo: (address: String) -> Unit,
     showRecipients: Boolean = false,
+    deliveredTo: String? = null,
     crypto: CryptoUiState = CryptoUiState.None,
     onCryptoAction: () -> Unit = {},
 ) {
@@ -1310,6 +1314,7 @@ private fun MessageHeader(
             from = msg.header.from,
             to = full?.to ?: emptyList(),
             cc = full?.cc ?: emptyList(),
+            deliveredTo = deliveredTo,
             onComposeTo = { address -> showParticipants = false; onComposeTo(address) },
             onDismiss = { showParticipants = false },
         )
@@ -1318,7 +1323,8 @@ private fun MessageHeader(
 
 /**
  * Slide-up panel listing every participant of the open message, grouped From / To / Cc, each with
- * their full address and actions (add to contacts, write to, copy address, copy name + address).
+ * their full address and actions (add to contacts, write to, copy address, copy name + address),
+ * above them [deliveredTo]: which of the reader's OWN addresses received it (#81).
  * Opened by tapping the sender in [MessageHeader]. To/Cc come from the full body, so they are empty
  * until it has loaded.
  */
@@ -1328,6 +1334,7 @@ private fun ParticipantsSheet(
     from: List<EmailAddress>,
     to: List<EmailAddress>,
     cc: List<EmailAddress>,
+    deliveredTo: String?,
     onComposeTo: (address: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1343,11 +1350,38 @@ private fun ParticipantsSheet(
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             )
+            // First, because it is the one line the panel is opened for on a multi-alias account:
+            // scanning a long To/Cc list for your own address is exactly what this spares (#81).
+            ReceivedAtGroup(deliveredTo)
             ParticipantGroup(R.string.participants_from, from, onComposeTo)
             ParticipantGroup(R.string.participants_to, to, onComposeTo)
             ParticipantGroup(R.string.participants_cc, cc, onComposeTo)
         }
     }
+}
+
+/**
+ * Which of YOUR addresses the message came in on (Codeberg #81). An account with several aliases
+ * cannot tell that from the To/Cc lists above — it has to spot its own address among the others —
+ * and it is what decides the identity a reply goes out under. One label, one address, no actions:
+ * writing to yourself is not what this is for. Absent (nothing rendered) when no address of the
+ * account is named, i.e. a mailing list or a Bcc delivery.
+ */
+@Composable
+private fun ReceivedAtGroup(address: String?) {
+    if (address.isNullOrBlank()) return
+    HorizontalDivider()
+    Text(
+        stringResource(R.string.participants_received_at),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+    )
+    Text(
+        address,
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
+    )
 }
 
 /** One labelled block (From / To / Cc) in [ParticipantsSheet]; renders nothing when [people] empty. */
