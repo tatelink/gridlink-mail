@@ -598,12 +598,14 @@
     <string name="compose_forgot_attachment_send">Всё равно отправить</string>
     <string name="compose_forgot_attachment_back">Вернуться</string>
     <string name="inbox_search_in">Поиск в %1$s</string>
-    <string name="inbox_scheduled">Отложенные сообщения</string>
+    <!-- Deliberately not "Отложенные" like scheduled_title: the same menu also lists
+         the snoozed messages, which are the ones really called "Отложенные" in Russian. -->
+    <string name="inbox_scheduled">Запланированные</string>
     <string name="scheduled_title">Отложенные</string>
     <string name="scheduled_empty">Нет отложенных сообщений.</string>
     <string name="scheduled_cancel">Отменить отложенную отправку</string>
     <string name="scheduled_send_at">Отправка %1$s</string>
-    <string name="inbox_snoozed">Отложенные письма</string>
+    <string name="inbox_snoozed">Отложенные</string>
     <string name="snoozed_title">Отложенные письма</string>
     <string name="snoozed_empty">Нет отложенных писем.</string>
     <string name="snoozed_cancel">Отменить откладывание</string>

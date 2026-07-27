@@ -598,12 +598,12 @@
     <string name="compose_forgot_attachment_send">Trotzdem senden</string>
     <string name="compose_forgot_attachment_back">Zurück</string>
     <string name="inbox_search_in">%1$s durchsuchen</string>
-    <string name="inbox_scheduled">Geplante Nachrichten</string>
+    <string name="inbox_scheduled">Geplant</string>
     <string name="scheduled_title">Geplant</string>
     <string name="scheduled_empty">Keine geplanten Nachrichten.</string>
     <string name="scheduled_cancel">Geplanten Versand abbrechen</string>
     <string name="scheduled_send_at">Wird %1$s gesendet</string>
-    <string name="inbox_snoozed">Zurückgestellte Nachrichten</string>
+    <string name="inbox_snoozed">Zurückgestellt</string>
     <string name="snoozed_title">Zurückgestellt</string>
     <string name="snoozed_empty">Keine zurückgestellten Nachrichten.</string>
     <string name="snoozed_cancel">Zurückstellen aufheben</string>

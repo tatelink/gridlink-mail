@@ -598,12 +598,12 @@
     <string name="compose_forgot_attachment_send">Invia comunque</string>
     <string name="compose_forgot_attachment_back">Torna indietro</string>
     <string name="inbox_search_in">Cerca in %1$s</string>
-    <string name="inbox_scheduled">Messaggi programmati</string>
+    <string name="inbox_scheduled">Programmati</string>
     <string name="scheduled_title">Programmati</string>
     <string name="scheduled_empty">Nessun messaggio programmato.</string>
     <string name="scheduled_cancel">Annulla invio programmato</string>
     <string name="scheduled_send_at">Invio %1$s</string>
-    <string name="inbox_snoozed">Messaggi posticipati</string>
+    <string name="inbox_snoozed">Posticipati</string>
     <string name="snoozed_title">Posticipati</string>
     <string name="snoozed_empty">Nessun messaggio posticipato.</string>
     <string name="snoozed_cancel">Annulla il rinvio</string>
