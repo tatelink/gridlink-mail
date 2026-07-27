@@ -370,7 +370,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         val flagged = !child.isFlagged
         _threadMembers.value = _threadMembers.value.mapValues { (_, members) ->
             members.map { m ->
-                if (m.id != child.id) m
+                // Account-qualified, like every other patch of this snapshot: in the unified
+                // view two accounts' conversations can hold the same JMAP id (#92).
+                if (m.emailKey() != child.emailKey()) m
                 else m.copy(
                     keywords = m.keywords.toMutableMap().apply {
                         if (flagged) put("\$flagged", true) else remove("\$flagged")
