@@ -20,6 +20,12 @@ data class MimeBody(
     val html: String?,
     val text: String?,
     val attachments: List<MimeAttachment> = emptyList(),
+    /**
+     * The source was past [MimeParser.MAX_BODY_CHARS] and was not parsed at all. The caller must
+     * say so rather than render an empty message — nothing here was read, nothing is missing
+     * because it wasn't there.
+     */
+    val tooLarge: Boolean = false,
 )
 
 /** How a message carries OpenPGP content. */
@@ -54,9 +60,17 @@ object MimeParser {
 
     /** Bound sibling parts in one multipart so a message with a flood of tiny parts
      *  can't drive quadratic copying / huge allocation. */
-    private const val MAX_PARTS = 1024
+    const val MAX_PARTS = 1024
+
+    /**
+     * Largest message source we will parse (25 MiB). Walking a multipart copies the body at
+     * every level, so a bigger source is an out-of-memory risk before it is a message; past
+     * this the parse is refused and the caller reports it (see [MimeBody.tooLarge]).
+     */
+    const val MAX_BODY_CHARS = 25 * 1024 * 1024
 
     fun parseBody(raw: String): MimeBody {
+        if (raw.length > MAX_BODY_CHARS) return MimeBody(null, null, emptyList(), tooLarge = true)
         val attachments = mutableListOf<MimeAttachment>()
         val (html, text) = walk(raw, prefix = "", attachments = attachments, depth = 0)
         return MimeBody(html, text, attachments)
@@ -82,7 +96,7 @@ object MimeParser {
             val boundary = paramOf(contentType, "boundary") ?: return null to null
             var html: String? = null
             var text: String? = null
-            splitMultipart(body, boundary).take(MAX_PARTS).forEachIndexed { index, sub ->
+            splitMultipart(body, boundary).forEachIndexed { index, sub ->
                 val childPrefix = if (prefix.isEmpty()) "${index + 1}" else "$prefix.${index + 1}"
                 val (h, t) = walk(sub, childPrefix, attachments, depth + 1)
                 if (html == null) html = h
@@ -343,13 +357,27 @@ object MimeParser {
     private fun charsetOf(contentType: String): java.nio.charset.Charset =
         runCatching { charset(paramOf(contentType, "charset") ?: "utf-8") }.getOrDefault(Charsets.UTF_8)
 
+    /**
+     * The children of a multipart body, at most [MAX_PARTS] of them.
+     *
+     * Deliberately not `body.split(delimiter)`: split materialises every segment first, so a
+     * 30 MB body whose boundary repeats a million times allocates a million strings before any
+     * cap can discard them. Here the body is walked with indexOf, a segment only becomes a
+     * String once it is kept, and the walk stops the moment the cap is reached.
+     */
     private fun splitMultipart(body: String, boundary: String): List<String> {
         val delimiter = "--$boundary"
         val parts = mutableListOf<String>()
-        for (seg in body.split(delimiter)) {
-            val trimmed = seg.trimStart('\r', '\n')
-            if (trimmed.isEmpty() || trimmed.startsWith("--")) continue
-            parts.add(trimmed)
+        var start = 0
+        while (parts.size < MAX_PARTS) {
+            val next = body.indexOf(delimiter, start)
+            val end = if (next < 0) body.length else next
+            // A segment that is blank, or the closing "--boundary--", is not a part.
+            var from = start
+            while (from < end && (body[from] == '\r' || body[from] == '\n')) from++
+            if (from < end && !body.startsWith("--", from)) parts.add(body.substring(from, end))
+            if (next < 0) break
+            start = next + delimiter.length
         }
         return parts
     }

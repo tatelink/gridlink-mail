@@ -1,0 +1,41 @@
+package app.sterna.core.jmap
+
+/**
+ * Something a message asked us to load is bigger than we are willing to hold in memory.
+ * Carries the sizes so the caller can say which limit was hit; the user-facing wording is the
+ * caller's business (translated strings live in the app module).
+ */
+class ContentTooLargeException(
+    message: String,
+    /** Announced size in bytes, or -1 when the server didn't say. */
+    val bytes: Long = -1,
+    val maxBytes: Long = -1,
+) : Exception(message)
+
+/**
+ * Ceilings for what a single message may pull into memory over JMAP.
+ *
+ * JMAP downloads have no framing of their own: `downloadBlob` buffers the whole response, so
+ * without a ceiling one message dictates the app's memory. The IMAP side has had this shape for
+ * a while (`ImapParser.MAX_LITERAL`); these are its JMAP counterpart.
+ *
+ * The two limits differ because the two paths differ in consent: an inline image is fetched
+ * automatically the moment a message is opened, and then base64-encoded and cached (roughly four
+ * times its own weight), so it gets the tighter ceiling. An attachment is only fetched when the
+ * user taps it.
+ */
+object DownloadLimits {
+
+    /** Inline (`cid:`) image fetched without the user asking: 10 MB. */
+    const val INLINE_IMAGE_MAX_BYTES = 10L * 1024 * 1024
+
+    /** Attachment the user explicitly opened: 50 MB. */
+    const val ATTACHMENT_MAX_BYTES = 50L * 1024 * 1024
+
+    /**
+     * Whether a part announcing [size] bytes may be downloaded under [maxBytes]. A size of 0 (or
+     * negative) means the server didn't say — those pass here and are caught while reading, by
+     * the same ceiling.
+     */
+    fun allows(size: Long, maxBytes: Long): Boolean = size <= 0L || size <= maxBytes
+}

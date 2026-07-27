@@ -578,6 +578,7 @@
     <string name="status_attaching">Adjuntando…</string>
     <string name="status_read_file_failed">No se pudo leer el archivo seleccionado.</string>
     <string name="status_open_attachment_failed">No se pudo abrir el adjunto: %1$s</string>
+    <string name="status_message_too_large">Este mensaje es demasiado grande para mostrarse.</string>
     <string name="status_action_failed">No se pudo completar la acción.</string>
     <string name="status_restore_failed">No se pudieron restaurar algunos mensajes.</string>
     <string name="status_moved_to_folder">Movido a %1$s</string>

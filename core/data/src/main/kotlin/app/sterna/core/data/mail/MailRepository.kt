@@ -43,6 +43,8 @@ import app.sterna.core.data.pgp.PgpEngine
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.jmap.BasicAuth
+import app.sterna.core.jmap.ContentTooLargeException
+import app.sterna.core.jmap.DownloadLimits
 import app.sterna.core.jmap.BearerAuth
 import app.sterna.core.jmap.DeviceAuthorization
 import app.sterna.core.jmap.DeviceTokenResult
@@ -1537,12 +1539,22 @@ class MailRepository(
         val mailboxId = cached.mailboxId ?: error("Unknown mailbox for message.")
         val uid = ImapMailService.uidOf(emailId) ?: error("Not an IMAP message.")
         val raw = imap.fetchSource(credentials, mailboxId, uid)
+        val body = MimeParser.parseBody(raw)
+        // Refused before parsing: say so rather than render a blank message (the reader turns
+        // this into a translated sentence).
+        if (body.tooLarge) {
+            throw ContentTooLargeException(
+                "Message source is ${raw.length} characters, over the ${MimeParser.MAX_BODY_CHARS} parse limit.",
+                bytes = raw.length.toLong(),
+                maxBytes = MimeParser.MAX_BODY_CHARS.toLong(),
+            )
+        }
         if (markRead && !cached.isSeen) {
             runCatching { setRead(credentials, emailId, seen = true) }
         }
         // The cache holds no threading headers; lift them from the source so a reply
         // built from this email carries In-Reply-To/References.
-        return cached.withBody(MimeParser.parseBody(raw)).copy(
+        return cached.withBody(body).copy(
             messageId = headerIds(MimeParser.headerOf(raw, "Message-ID")),
             references = headerIds(MimeParser.headerOf(raw, "References")),
         )

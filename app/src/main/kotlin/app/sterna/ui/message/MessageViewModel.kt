@@ -18,6 +18,7 @@ import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.calendar.ICalendar
 import app.sterna.core.data.calendar.ParsedEvent
 import app.sterna.core.data.settings.MessageTextSize
+import app.sterna.core.jmap.ContentTooLargeException
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailHeader
@@ -376,9 +377,20 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 // The reader shows the single opened message; the conversation (the rest of the
                 // thread) now lives only in the list's inline unfold, so no thread merge here.
             } catch (t: Throwable) {
-                _state.value = MessageState.Error(t.message ?: t.javaClass.simpleName)
+                _state.value = MessageState.Error(readFailureText(t))
             }
         }
+    }
+
+    /**
+     * What to show when a message won't open. A refusal on our own terms (its source is past what
+     * we are willing to parse) gets a plain sentence; anything else keeps its technical text,
+     * which is what a bug report needs.
+     */
+    private fun readFailureText(t: Throwable): String = when (t) {
+        is ContentTooLargeException ->
+            getApplication<Application>().getString(R.string.status_message_too_large)
+        else -> t.message ?: t.javaClass.simpleName
     }
 
     /** The anchor as displayed: shown read once it has been settled on (else its true state). */
