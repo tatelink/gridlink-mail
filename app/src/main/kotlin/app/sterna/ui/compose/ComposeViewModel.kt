@@ -393,6 +393,25 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             .filter { it.isNotEmpty() }
             .toSet()
 
+    /**
+     * Reply/forward from the address the original was addressed to (#81): pre-select [accountId]'s
+     * identity that appears in [original]'s To, else its Cc. Leaves the selection alone when none
+     * does (mailing list, Bcc), so the account's default identity stands, exactly as before.
+     *
+     * Deliberately NOT a change to the reply-all recipients: [selves] still excludes every address
+     * of the account, the one now sending included (B5) — replying to an alias must not put another
+     * of your own aliases in To. Nor does this touch the undo-send restore path, which re-selects
+     * the identity the user actually sent under and returns before reaching here.
+     */
+    private fun preselectReceivingIdentity(accountId: String, original: Email) {
+        receivingFromOption(_fromOptions.value, accountId, original)?.let { option ->
+            if (option != _selectedFrom.value) {
+                _selectedFrom.value = option
+                refreshPgp()
+            }
+        }
+    }
+
     /** Upload a picked document and add it to the outgoing attachments. */
     fun attach(uri: Uri) {
         val app = getApplication<Application>()
@@ -552,6 +571,11 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             // back a sibling sub-account's message under the same id (issue #31).
             val cached = runCatching { repo.cachedEmail(credentials.id, replyToId) }.getOrNull()
             if (cached != null) {
+                // BEFORE the prefill: the identity decides which signature the body opens with, so
+                // the alias must be picked first or the body would carry the default one (#81).
+                // The cached row only ever remembers To (never Cc), hence the second attempt below
+                // on the fetched original.
+                preselectReceivingIdentity(credentials.id, cached)
                 _prefill.value = buildPrefill(cached, mode, selves(credentials), quoteBody = false)
                 if (mode != "forward") {
                     // Threading ids aren't cached on the list row (empty here) — the fetch below
@@ -573,6 +597,11 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 prefillFailed()
                 return@launch
             }
+
+            // The fetched original has the complete To AND Cc, so it can settle the sending identity
+            // the cached row could not (#81). Still before any body is (re)built below, so whatever
+            // signature lands belongs to the identity finally selected.
+            preselectReceivingIdentity(credentials.id, original)
 
             if (mode == "forward") {
                 // A forward's editable body stays empty; the original is carried at send time. Its

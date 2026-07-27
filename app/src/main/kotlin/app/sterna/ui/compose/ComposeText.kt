@@ -453,6 +453,47 @@ internal fun replyAllRecipients(o: Email, selves: Collection<String>): String {
     return all.joinToString(", ")
 }
 
+/**
+ * Which of your own addresses [o] was delivered to: the first address of the original's To, then
+ * its Cc, that belongs to you ([mine] = the account's identities, plus its login where the caller
+ * knows it). Returned as the original spells it, so it can be shown verbatim; matched
+ * case-insensitively on the bare address, like every other self-comparison here.
+ *
+ * Null when none of your addresses is named — a mailing list, or a Bcc delivery. Callers must treat
+ * that as "unknown" and keep whatever default they had; it is never a reason to guess.
+ */
+internal fun receivingAddress(o: Email, mine: Collection<String>): String? {
+    val ours = mine.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
+    if (ours.isEmpty()) return null
+    return (o.to + o.cc)
+        .map { it.email.trim() }
+        .firstOrNull { it.isNotEmpty() && it.lowercase() in ours }
+}
+
+/**
+ * The "From" identity a reply/forward of [o] should open with: the one identity of [accountId] that
+ * the original was actually delivered to (#81). Without this, an account with several aliases always
+ * replied under its default identity, so mail to an alias silently went back out from another
+ * address.
+ *
+ * Only [accountId]'s own options are considered — replying never hops to another account — and only
+ * addresses that really are a sending option, so the pick is always something the picker can show.
+ * A delegated sub-account needs no special case: its options already carry the addresses
+ * [app.sterna.core.data.account.AccountStore.identities] resolves for it (its own, or its login's).
+ *
+ * Null means "nothing to preselect" (no self address in To/Cc, or none of them is an identity), and
+ * the caller keeps the account's default identity.
+ */
+internal fun receivingFromOption(
+    options: List<FromOption>,
+    accountId: String?,
+    o: Email,
+): FromOption? {
+    val mine = options.filter { it.accountId == accountId }
+    val received = receivingAddress(o, mine.map { it.identity.email })?.lowercase() ?: return null
+    return mine.firstOrNull { it.identity.email.trim().lowercase() == received }
+}
+
 /** [subject] with [prefix] ("Re:"/"Fwd:") prepended, unless it already carries it (any case). */
 internal fun withPrefix(subject: String?, prefix: String): String {
     val s = subject.orEmpty()
