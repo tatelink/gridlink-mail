@@ -237,17 +237,26 @@ class EmailsMigrationSqlTest {
         assertEquals(2, pkPositions("snoozed")["emailId"])
     }
 
-    @Test fun v15to16_keepsTheMailboxIndexRoomExpects() {
+    @Test fun v15to16_leavesExactlyTheIndexesRoomExpects() {
         seedV15()
         migrate15to16()
 
-        val indexes = mutableSetOf<String>()
-        db.createStatement().use { st ->
-            st.executeQuery("PRAGMA index_list(`emails`)").use { rs ->
-                while (rs.next()) indexes += rs.getString("name")
+        fun indexesOf(table: String): Set<String> {
+            val indexes = mutableSetOf<String>()
+            db.createStatement().use { st ->
+                st.executeQuery("PRAGMA index_list(`$table`)").use { rs ->
+                    while (rs.next()) indexes += rs.getString("name")
+                }
             }
+            return indexes
         }
-        assertTrue("index_emails_mailboxId must exist after the rebuild", "index_emails_mailboxId" in indexes)
+        // Room compares the index set at open time: a missing one — or a leftover one — throws
+        // "Migration didn't properly handle" and takes the app down on first launch.
+        assertTrue("index_emails_mailboxId must exist after the rebuild", "index_emails_mailboxId" in indexesOf("emails"))
+        assertTrue(
+            "index_email_bodies_accountId is subsumed by the composite key and must be gone",
+            indexesOf("email_bodies").none { it == "index_email_bodies_accountId" },
+        )
     }
 
     @Test fun v15to16_sameEmailIdCoexistsAcrossAccounts() {
