@@ -28,6 +28,7 @@ import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.Mailbox
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.send.SendOutbox
+import app.sterna.ui.NotificationFolderSwitch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -482,6 +483,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     )
     private val status = MutableStateFlow(Status(refreshing = false, error = null))
 
+    /**
+     * A folder a tapped notification asked the list to show, as (accountId, mailboxId), waiting
+     * for that account's folder list to arrive. Non-null only between the tap and the first
+     * loaded folder list — [applyNotificationFolder] consumes it either way, so it can never
+     * resurface later and yank the user out of a folder they picked themselves. Declared before
+     * the folder flow that reads it, which is the only place it is judged.
+     */
+    private var notificationFolder: Pair<String, String>? = null
+
     // The drawer shows the CURRENT account's folders: the cache now keeps every account's
     // rows side by side, so the flow re-scopes when the user switches accounts.
     // Codeberg #89: the folder list is also where a folder VANISHING is observed — deleted
@@ -492,8 +502,14 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val mailboxes = currentAccountId.flatMapLatest { accountId ->
         if (accountId == null) flowOf(emptyList()) else repo.observeMailboxes(accountId)
     }.onEach { folders ->
+        // Issue #91: a notification opened for a message living in another folder parks its
+        // request here until the folder list it has to be judged against actually exists — see
+        // [showFolderFromNotification]. Before the vanished-folder check, so a folder we are
+        // about to select is never first bounced to the Inbox for being the previous account's.
+        applyNotificationFolder(folders)
         if (selectionIsGone((selection.value as? Sel.Folder)?.id, folders)) showInbox()
     }
+
     private val searchState = MutableStateFlow(SearchUi())
     private var searchJob: Job? = null
 
@@ -765,6 +781,42 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         selection.value = Sel.Folder(mailbox.id)
         meta.value = Meta(store.accountLabel(), mailbox.name, mailbox.unreadEmails)
         refresh()
+    }
+
+    /**
+     * Put the list on the folder a tapped new-mail notification came from (issue #91), so Back
+     * out of the message lands in a list that actually holds it. The account half of the same
+     * rule is [app.sterna.ui.NotificationAccountSwitch], applied by the caller just before this.
+     *
+     * The verdict itself is [app.sterna.ui.NotificationFolderSwitch] and needs the account's
+     * folder list, which is exactly what may not be loaded yet at this instant: a notification
+     * for ANOTHER account switches the account first, and the new account's folders only arrive
+     * a beat later (an empty list means "not known yet", never "the folder is gone"). So the
+     * request is parked and judged on the first loaded folder list — the one already on hand
+     * when the notification is for the current account, the one that follows the switch
+     * otherwise. Consumed on that first verdict whatever it is: a request that cannot be
+     * honoured (its account never became current) is dropped rather than kept to fire later.
+     */
+    fun showFolderFromNotification(accountId: String, mailboxId: String) {
+        notificationFolder = accountId to mailboxId
+        if (currentAccountId.value == accountId) applyNotificationFolder(state.value.mailboxes)
+    }
+
+    /** Judge a parked [notificationFolder] against a freshly loaded [folders] list. */
+    private fun applyNotificationFolder(folders: List<Mailbox>) {
+        val (accountId, mailboxId) = notificationFolder ?: return
+        // An empty list is "not known yet" — same conservative reading as [selectionIsGone].
+        // Keep waiting rather than deciding on nothing.
+        if (folders.isEmpty()) return
+        notificationFolder = null
+        if (currentAccountId.value != accountId) return
+        val target = NotificationFolderSwitch.resolve(
+            notificationMailboxId = mailboxId,
+            selectedMailboxId = (selection.value as? Sel.Folder)?.id,
+            unifiedView = selection.value is Sel.Unified,
+            knownMailboxIds = folders.map { it.id },
+        ) ?: return
+        folders.firstOrNull { it.id == target }?.let(::select)
     }
 
     /** Return to the account's Inbox — Back from any other folder lands here. */

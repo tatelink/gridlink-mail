@@ -17,8 +17,13 @@ class SnoozeWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val emailId = inputData.getString(KEY_ID) ?: return Result.success()
         val accountId = inputData.getString(KEY_ACCOUNT).orEmpty()
         val container = (applicationContext as Application).container
-        val email = container.mailRepository.cachedEmail(accountId, emailId)
+        // Un-snooze FIRST, then read the row: the notification now carries the folder the list
+        // must show (issue #91), and that has to be where the message comes back — its state
+        // after the wake-up, not before it. A snooze only hides a message where it already sits
+        // (it is a row in a separate table, no move), so today the two reads agree; reading
+        // after the un-snooze is what keeps them agreeing if that ever stops being true.
         container.mailRepository.unsnooze(accountId, emailId)
+        val email = container.mailRepository.cachedEmail(accountId, emailId)
         if (email != null) {
             // Obey the same notification settings as arriving mail (Codeberg #84): the
             // wake-up used to post with the defaults, so it showed sender and subject on the
@@ -35,6 +40,11 @@ class SnoozeWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 accountId,
                 silent = silent,
                 folderName = null,
+                // The reported case of #91: a message snoozed out of Archive wakes up in
+                // Archive, so opening the notification must put the list there and not in the
+                // Inbox, where it is not. Null for a row with no cached folder — the list then
+                // stays where it is, as before.
+                mailboxId = email.mailboxId,
                 content = content,
             )
         }
