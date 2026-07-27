@@ -191,6 +191,8 @@
     <string name="settings_cancel">Отмена</string>
     <string name="settings_clear">Очистить</string>
     <string name="settings_current_account">Текущий аккаунт</string>
+    <string name="account_shared">Общий аккаунт</string>
+    <string name="settings_shared_accounts_under">Общие аккаунты: %1$s</string>
     <string name="settings_accounts_title">Аккаунты</string>
     <string name="settings_accounts_summary">Добавление, переключение, настройки сервера</string>
     <string name="settings_appearance_title">Внешний вид</string>

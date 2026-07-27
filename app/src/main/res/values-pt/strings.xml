@@ -191,6 +191,8 @@
     <string name="settings_cancel">Cancelar</string>
     <string name="settings_clear">Limpar</string>
     <string name="settings_current_account">Conta atual</string>
+    <string name="account_shared">Conta partilhada</string>
+    <string name="settings_shared_accounts_under">Contas partilhadas: %1$s</string>
     <string name="settings_accounts_title">Contas</string>
     <string name="settings_accounts_summary">Adicionar, trocar, configurações do servidor</string>
     <string name="settings_appearance_title">Aparência</string>

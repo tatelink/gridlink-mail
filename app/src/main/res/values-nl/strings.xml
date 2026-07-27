@@ -191,6 +191,8 @@
     <string name="settings_cancel">Annuleren</string>
     <string name="settings_clear">Wissen</string>
     <string name="settings_current_account">Huidig account</string>
+    <string name="account_shared">Gedeeld account</string>
+    <string name="settings_shared_accounts_under">Gedeelde accounts: %1$s</string>
     <string name="settings_accounts_title">Accounts</string>
     <string name="settings_accounts_summary">Toevoegen, wisselen, serverinstellingen</string>
     <string name="settings_appearance_title">Weergave</string>

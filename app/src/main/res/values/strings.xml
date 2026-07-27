@@ -263,6 +263,10 @@
     <string name="settings_cancel">Cancel</string>
     <string name="settings_clear">Clear</string>
     <string name="settings_current_account">Current account</string>
+    <!-- Delegated (shared) accounts: a quiet subtitle in the drawer's account switcher, and the
+         mention under a login's row in Settings > Accounts (%1$s = the shared addresses). -->
+    <string name="account_shared">Shared account</string>
+    <string name="settings_shared_accounts_under">Shared accounts: %1$s</string>
     <string name="settings_accounts_title">Accounts</string>
     <string name="settings_accounts_summary">Add, switch, server settings</string>
     <string name="settings_appearance_title">Appearance</string>

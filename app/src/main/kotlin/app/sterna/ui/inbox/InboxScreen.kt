@@ -760,7 +760,22 @@ fun InboxScreen(
                                 .padding(start = 28.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
                         ) {
                             Monogram(seed = label, label = label, color = accountColorOf(account.color))
-                            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Column {
+                                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                // A delegated account switches like any other, so it keeps its row
+                                // here — but it does not BEHAVE like any other (you send as someone
+                                // else, rights may be partial, it vanishes if the owner unshares),
+                                // so it says so quietly (issue #31).
+                                if (account.isShared) {
+                                    Text(
+                                        stringResource(R.string.account_shared),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
                         }
                     }
                 }

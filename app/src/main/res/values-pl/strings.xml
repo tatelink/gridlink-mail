@@ -191,6 +191,8 @@
     <string name="settings_cancel">Anuluj</string>
     <string name="settings_clear">Wyczyść</string>
     <string name="settings_current_account">Bieżące konto</string>
+    <string name="account_shared">Konto udostępnione</string>
+    <string name="settings_shared_accounts_under">Konta udostępnione: %1$s</string>
     <string name="settings_accounts_title">Konta</string>
     <string name="settings_accounts_summary">Dodawanie, przełączanie, ustawienia serwera</string>
     <string name="settings_appearance_title">Wygląd</string>
