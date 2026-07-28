@@ -86,6 +86,33 @@ Sterna also speaks classic **IMAP and SMTP**, so it works with any standard mail
 provider — pick the protocol when you add an account, or just type your email and
 let autodiscovery find the server for you.
 
+### 🔐 Self-hosted server with a self-signed certificate
+
+Sterna checks that the certificate really belongs to the server you asked for, and it
+offers no way to accept one that does not match. That is deliberate: an "accept anyway"
+button is how interception gets waved through. Most self-signed certificates predate
+this rule and only carry a Common Name, so sign-in fails with:
+
+```
+No subjectAltNames on the certificate match
+```
+
+The fix is on the server, not in the app: regenerate the certificate with a
+**subjectAltName** covering the exact host name or IP address you connect to. With
+`keytool`, add the extension when you generate the key pair:
+
+```
+keytool -genkeypair -keyalg RSA -alias myserver -validity 365 \
+  -dname "CN=mail.example.org, O=Example, C=FR" \
+  -ext "SAN=DNS:mail.example.org,IP:192.168.1.10"
+```
+
+With `openssl`, put `subjectAltName = @alt_names` in the `v3_req` section of your
+config and list every name and address under `[alt_names]` (`DNS.1 =`, `IP.1 =`).
+
+Thanks to [KaKeBr](https://codeberg.org/KaKeBr) for the diagnosis and the recipes
+(Codeberg issue #71).
+
 ## 💚 What Sterna stands for
 
 - **🔒 Privacy first.** No tracking, no ads, no analytics, no Google services.
