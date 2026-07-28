@@ -28,7 +28,7 @@ mail, on the server *you* choose.
 > every single year. I liked the idea of mail that travels light and always finds
 > its way home._
 
-> **Status: 1.1, and shipping.** Sterna is a complete, daily-drivable email
+> **Status: 1.4, and shipping.** Sterna is a complete, daily-drivable email
 > client: read, organise, search, write, schedule, and send mail (with
 > attachments) over JMAP or IMAP/SMTP, across multiple accounts, fully
 > offline-capable, with OpenPGP encryption, push notifications, and remote
