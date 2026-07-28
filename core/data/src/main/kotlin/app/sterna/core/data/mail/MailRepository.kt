@@ -167,6 +167,22 @@ internal fun fitsBodyCache(bodyJson: String, inlineImagesJson: String): Boolean 
     bodyJson.length + inlineImagesJson.length <= MAX_CACHED_BODY_CHARS
 
 /**
+ * Refuse an address carrying a line break before it is handed to a line-oriented protocol.
+ * The SMTP envelope and the RFC 5322 headers are both built by concatenation, so a CR or LF
+ * inside an address is a command/header injection primitive (a hidden `RCPT TO`, an extra
+ * `Bcc:`). The composer only enables Send on well-formed addresses, but two paths bypass it:
+ * a notification quick reply answers the address parsed out of a hostile `From` header, and a
+ * `mailto:` link can smuggle `%0D%0A` into a single-line "To" field where the break is
+ * invisible. Rejecting here means such a send fails loudly instead of silently reaching an
+ * address the user never saw. The wire-level filter stays in place too (OutgoingMime).
+ */
+internal fun requireSingleLineAddresses(addresses: List<String>) {
+    require(addresses.none { addr -> addr.any { it == '\r' || it == '\n' } }) {
+        "An address contains a line break."
+    }
+}
+
+/**
  * Read a cached row through [read]; if reading it fails at all, drop it via [purge] and report a
  * miss. An unreadable row must cost a refetch, never a message that can no longer be opened —
  * SQLite throws on reading a row past its cursor window, and it throws again on every retry.
@@ -3356,19 +3372,23 @@ class MailRepository(
         fromEmail: String? = null,
         cc: List<String> = emptyList(),
         bcc: List<String> = emptyList(),
-    ): OutgoingMessage = OutgoingMessage(
-        from = formatFrom(fromName, fromEmail) ?: credentials.username,
-        to = recipients,
-        cc = cc,
-        bcc = bcc,
-        subject = subject,
-        body = body,
-        html = html,
-        inReplyTo = inReplyTo.firstOrNull(),
-        references = references.joinToString(" ").ifBlank { null },
-        messageId = "${java.util.UUID.randomUUID()}@${credentials.username.substringAfter('@', "localhost")}",
-        dateMillis = System.currentTimeMillis(),
-    )
+    ): OutgoingMessage {
+        val from = formatFrom(fromName, fromEmail) ?: credentials.username
+        requireSingleLineAddresses(listOf(from) + recipients + cc + bcc)
+        return OutgoingMessage(
+            from = from,
+            to = recipients,
+            cc = cc,
+            bcc = bcc,
+            subject = subject,
+            body = body,
+            html = html,
+            inReplyTo = inReplyTo.firstOrNull(),
+            references = references.joinToString(" ").ifBlank { null },
+            messageId = "${java.util.UUID.randomUUID()}@${credentials.username.substringAfter('@', "localhost")}",
+            dateMillis = System.currentTimeMillis(),
+        )
+    }
 
     // The From is a string-built header on the IMAP/SMTP path, so the display name must be
     // RFC 5322-quoted (specials like the '@'/'.' of an email-address name) or RFC 2047-encoded

@@ -76,4 +76,32 @@ class ImapParserTest {
         assertEquals("jane", firstFrom[2])
         assertEquals("example.com", firstFrom[3])
     }
+
+    /**
+     * An ENVELOPE address part sent as a literal (`{n}`) keeps CR/LF verbatim: literals are
+     * length-delimited, so unlike a quoted-string they are not line-bounded. That makes a
+     * hostile server's `From` mailbox a CR/LF carrier all the way into `ImapMessage.fromEmail`
+     * (`"$mailbox@$host"`), which is cached and later reused as a recipient by the notification
+     * quick reply. The wire-level guard therefore has to live at the send sink, not here.
+     */
+    @Test
+    fun envelopeAddressLiteralKeepsCrlf() {
+        val hostile = "bob\r\nRCPT TO:<victim@evil.com>"
+        val raw = "* 1 FETCH (UID 42 ENVELOPE (NIL \"Hi\" " +
+            "((NIL NIL {${hostile.toByteArray(Charsets.UTF_8).size}}\r\n$hostile \"example.com\")) " +
+            "NIL NIL NIL NIL NIL NIL NIL))\r\n"
+
+        val r = parse(raw)
+        @Suppress("UNCHECKED_CAST")
+        val args = r[3] as List<Any?>
+        @Suppress("UNCHECKED_CAST")
+        val envelope = args[3] as List<Any?>
+        @Suppress("UNCHECKED_CAST")
+        val fromList = envelope[2] as List<Any?>
+        @Suppress("UNCHECKED_CAST")
+        val firstFrom = fromList[0] as List<Any?>
+
+        assertEquals(hostile, firstFrom[2])
+        assertEquals("example.com", firstFrom[3])
+    }
 }

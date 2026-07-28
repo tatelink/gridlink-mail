@@ -175,6 +175,32 @@ class OutgoingMimeTest {
     }
 
     @Test
+    fun envelopeAddressStripsCrlfSoNoExtraSmtpCommandIsSmuggled() {
+        // An address with no angle brackets used to reach "MAIL FROM:<…>"/"RCPT TO:<…>" verbatim,
+        // so a CRLF in it appended a second envelope command (here a hidden recipient).
+        val hostile = "bob@example.com\r\nRCPT TO:victim@evil.com"
+
+        val envelope = OutgoingMime.envelopeAddress(hostile)
+
+        assertFalse("no CR survives", envelope.contains('\r'))
+        assertFalse("no LF survives", envelope.contains('\n'))
+        assertEquals("bob@example.comRCPT TO:victim@evil.com", envelope)
+        // The whole thing stays one SMTP command line, so nothing new is injected.
+        assertFalse("no extra command line", "MAIL FROM:<$envelope>".contains("\r\n"))
+    }
+
+    @Test
+    fun envelopeAddressKeepsTheBracketedAddrSpec() {
+        assertEquals("bob@example.com", OutgoingMime.envelopeAddress("Bob <bob@example.com>"))
+        assertEquals("bob@example.com", OutgoingMime.envelopeAddress("  bob@example.com  "))
+        // A CRLF inside the brackets is filtered too, not just the bare-address form.
+        assertEquals(
+            "bob@example.comRCPT TO:victim@evil.com",
+            OutgoingMime.envelopeAddress("Bob <bob@example.com\r\nRCPT TO:victim@evil.com>"),
+        )
+    }
+
+    @Test
     fun fromWithEmailAsNameQuotedInBuiltMime() {
         val mime = OutgoingMime.build(
             msg().copy(from = OutgoingMime.formatAddress("alice@example.com", "alice@example.com")),
