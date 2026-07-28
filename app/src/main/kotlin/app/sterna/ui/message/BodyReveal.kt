@@ -2,12 +2,28 @@ package app.sterna.ui.message
 
 /** What one tick of the body height poll decides (see [BodyReveal.step]). */
 internal sealed interface HeightPoll {
-    /** The body's laid-out height is [px]: report it and stop polling. */
-    data class Report(val px: Int) : HeightPoll
+    /**
+     * The body's laid-out height is [px]: report it and stop polling.
+     *
+     * [settled] tells the two ways a height can be reported apart: `true` when two consecutive
+     * readings of the laid-out content range agreed (a real measurement), `false` when the poll
+     * ran out of ticks and fell back to the tallest reading / the view's own height (a guess that
+     * keeps the body from staying invisible). Only a settled height is trustworthy enough to
+     * decide the bottom bar with — see [BodyReveal.barVisible].
+     */
+    data class Report(val px: Int, val settled: Boolean) : HeightPoll
 
     /** Nothing conclusive yet — poll again. */
     data object Retry : HeightPoll
 }
+
+/**
+ * The body's resting scroll geometry, measured at the instant its height poll settled: how far it
+ * is scrolled ([scrollY], 0 on a fresh open) and how far it CAN scroll ([maxScrollPx], 0 when the
+ * whole body fits the viewport). Enough to decide the Reply/Forward bar without waiting for a
+ * scroll event — see [BodyReveal.barVisible].
+ */
+internal data class BodyMetrics(val scrollY: Int, val maxScrollPx: Int)
 
 /**
  * The message body is drawn by a WebView that the reader keeps INVISIBLE (alpha 0, spinner on
@@ -40,8 +56,31 @@ internal object BodyReveal {
      * all costs the whole message.
      */
     fun step(px: Int, last: Int, maxSeen: Int, triesLeft: Int, viewHeightPx: Int): HeightPoll {
-        if (px > 0 && px == last) return HeightPoll.Report(px)
-        if (triesLeft <= 0) return HeightPoll.Report(maxOf(maxSeen, viewHeightPx, 1))
+        if (px > 0 && px == last) return HeightPoll.Report(px, settled = true)
+        if (triesLeft <= 0) return HeightPoll.Report(maxOf(maxSeen, viewHeightPx, 1), settled = false)
         return HeightPoll.Retry
     }
+
+    /**
+     * How far a body of [contentRangePx] can scroll inside a [viewportPx]-tall window. Zero when it
+     * fits: there is nothing to scroll, so the body is already at its end.
+     */
+    fun maxScroll(contentRangePx: Int, viewportPx: Int): Int =
+        (contentRangePx - viewportPx).coerceAtLeast(0)
+
+    /**
+     * Whether the Reply/Forward bar belongs on screen for a body scrolled to [scrollY] out of
+     * [maxScrollPx], with [thresholdPx] of tolerance (a few dp: a body one pixel short of its end,
+     * or a scroll range one pixel taller than the viewport, must not count as "there is more").
+     *
+     * The bar is the end-of-message affordance: it shows when the body fits the screen (nothing to
+     * scroll) or when the reader has reached the bottom.
+     *
+     * This is deliberately a pure function of numbers the reader ALREADY has when the body's height
+     * poll settles. It used to be evaluated only on the first scroll report, which arrives a few
+     * hundred milliseconds after the body is revealed — so the reader appeared in two steps, and
+     * with the system animations turned off the second step was a blink (Codeberg #63).
+     */
+    fun barVisible(scrollY: Int, maxScrollPx: Int, thresholdPx: Int): Boolean =
+        maxScrollPx <= thresholdPx || scrollY >= maxScrollPx - thresholdPx
 }
