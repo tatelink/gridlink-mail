@@ -18,6 +18,7 @@ import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.db.ScheduledSendEntity
 import app.sterna.core.data.mail.DraftSaveOutcome
+import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.pgp.PgpMode
 import app.sterna.core.data.pgp.PgpResult
 import app.sterna.core.imap.OutgoingAttachment
@@ -101,8 +102,26 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private val pgp = application.container.pgpEngine
     private val settings = application.container.settingsRepository
 
+    /** Outlives this screen: putting a queued message back happens as the composer is popped (#70). */
+    private val appScope = application.container.appScope
+
     private val _state = MutableStateFlow<ComposeState>(ComposeState.Idle)
     val state: StateFlow<ComposeState> = _state.asStateFlow()
+
+    /**
+     * The queued message this composer was opened on (#70), if any. A message in the outbox exists
+     * nowhere else, so it is held here until this composer commits it somewhere — a fresh send, a
+     * schedule, a saved draft — and goes back to the queue untouched if it commits it nowhere.
+     */
+    private var requeue: MailRepository.OutboxRestore? = null
+
+    private val _onlyCopy = MutableStateFlow(false)
+    /**
+     * True when the message on screen exists nowhere else and nothing will put it back: a send the
+     * user undid. Closing then destroys it, so the screen asks first even if nothing was typed —
+     * unlike a message reopened from the outbox, which the queue simply takes back.
+     */
+    val onlyCopy: StateFlow<Boolean> = _onlyCopy.asStateFlow()
 
     private val _prefill = MutableStateFlow<DraftFields?>(null)
     val prefill: StateFlow<DraftFields?> = _prefill.asStateFlow()
@@ -518,6 +537,11 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 } ?: options.firstOrNull { it.accountId == d.fromAccountId }
                 if (match != null) _selectedFrom.value = match
                 editingDraftId = d.draftEmailId
+                // Reopened from the outbox: hold its place in the queue until this composer either
+                // commits the message somewhere or hands it back (#70). An undone send carries no
+                // token — it is the one case where the message really only lives on this screen.
+                requeue = d.requeue
+                _onlyCopy.value = d.requeue == null
             }
             outbox.consumeRestored()
             return
@@ -666,6 +690,25 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
+     * Leaving the composer without committing the message anywhere — the close button, the back
+     * gesture, "Discard" in the unsaved-changes dialog. A message reopened from the outbox goes
+     * straight back in the queue, exactly as it was (#70): closing an editor is not deleting a
+     * mail, and the queue is the only place that copy lives. Deleting it needs the Outbox screen's
+     * delete, which asks first. Anything else (a new compose, a reply, an undone send) has no
+     * queued original and this does nothing.
+     *
+     * App-scoped on purpose: the caller pops this screen right after, which kills [viewModelScope].
+     */
+    fun abandon() {
+        // A send or a save already in flight owns the message and clears the token itself when it
+        // lands; putting the queued copy back from under it would deliver the mail twice.
+        if (_state.value is ComposeState.Sending) return
+        val token = requeue ?: return
+        requeue = null
+        appScope.launch { repo.restoreOutbox(token) }
+    }
+
+    /**
      * Queue the message in the persistent outbox with a hold-back window (Undo-send): validate +
      * capture now, close the screen, and let the outbox worker deliver it a few seconds later
      * (with auto-retry) unless the user undoes it. The row survives the app being killed.
@@ -746,6 +789,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     // destroys the draft it came from, so Drafts keeps no stale duplicate.
                     draftEmailId = editingDraftId,
                 )
+                // The queue holds this message again, under a fresh row carrying the edits, so the
+                // one taken out for editing must not be put back on top of it (#70).
+                requeue = null
                 // Keep the raw draft so undoing the send can reopen compose with it intact.
                 val draft = SendOutbox.ComposeDraft(
                     to = to, cc = cc, bcc = bcc, subject = subject, body = body,
@@ -818,6 +864,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     ),
                 )
                 ScheduledSends.enqueue(getApplication(), id, sendAtMillis)
+                // The message now waits in the scheduled table instead; putting the outbox row it
+                // came from back would send it twice (#70).
+                requeue = null
                 _state.value = ComposeState.Done
             } catch (t: Throwable) {
                 _state.value = ComposeState.Error(t.message ?: t.javaClass.simpleName)
@@ -887,6 +936,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         // way the screen then closes exactly as a normal save would.
         if (!hasDraftContent(to, cc, bcc, subject, body)) {
             val original = editingDraftId
+            // Nothing is being saved, so a message reopened from the outbox is not being moved
+            // anywhere: it goes back to the queue rather than evaporating on an empty save (#70).
+            abandon()
             if (original == null) {
                 _state.value = ComposeState.Done
             } else {
@@ -913,6 +965,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             if (outcome == DraftSaveOutcome.ORIGINAL_KEPT) {
                 _notices.tryEmit(R.string.compose_draft_original_kept)
             }
+            // Saved: the message now lives in Drafts, so the queued copy it came from stays gone
+            // (putting it back would send what the user chose to keep as a draft) (#70).
+            requeue = null
         }
     }
 

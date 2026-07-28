@@ -1,5 +1,6 @@
 package app.sterna.send
 
+import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.jmap.model.EmailBodyPart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -36,6 +37,12 @@ class SendOutbox(private val scope: CoroutineScope) {
         val forwardedHtml: String? = null,
         /** The saved draft this message was edited from (#63), so re-sending still replaces it. */
         val draftEmailId: String? = null,
+        /**
+         * Set only when the draft came out of the outbox (#70): a queued message exists nowhere
+         * else, so closing the composer without sending or saving puts this back in the queue.
+         * Null for an undone send — the user just cancelled that one, re-queueing it would send it.
+         */
+        val requeue: MailRepository.OutboxRestore? = null,
     )
 
     private val _pending = MutableStateFlow<Pending?>(null)

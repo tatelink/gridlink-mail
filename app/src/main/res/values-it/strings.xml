@@ -629,6 +629,7 @@
     <string name="outbox_delete">Elimina</string>
     <string name="outbox_delete_title">Eliminare questo messaggio?</string>
     <string name="outbox_delete_body">Non è stato inviato e non è salvato da nessun\'altra parte. Il messaggio e i suoi allegati andranno persi.</string>
+    <string name="outbox_delete_permanently">Elimina definitivamente</string>
     <string name="outbox_banner_failed">Alcuni messaggi non sono partiti. Tocca per controllare.</string>
     <string name="offline_banner">Sei offline</string>
     <string name="settings_conversation_section">Conversazioni</string>

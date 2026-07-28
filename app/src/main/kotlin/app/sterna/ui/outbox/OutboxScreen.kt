@@ -62,11 +62,16 @@ fun OutboxScreen(
             title = { Text(stringResource(R.string.outbox_delete_title)) },
             text = { Text(stringResource(R.string.outbox_delete_body)) },
             confirmButton = {
+                // Named for what it does, not for the button that opened it: this is the one action
+                // that destroys the only copy of the message (#70).
                 TextButton(onClick = {
                     pendingDelete = null
                     viewModel.delete(id)
                 }) {
-                    Text(stringResource(R.string.outbox_delete), color = MaterialTheme.colorScheme.error)
+                    Text(
+                        stringResource(R.string.outbox_delete_permanently),
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             },
             dismissButton = {

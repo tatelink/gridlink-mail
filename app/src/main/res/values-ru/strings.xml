@@ -631,6 +631,7 @@
     <string name="outbox_delete">Удалить</string>
     <string name="outbox_delete_title">Удалить это сообщение?</string>
     <string name="outbox_delete_body">Оно не было отправлено и нигде больше не сохранено. Сообщение и вложения будут потеряны.</string>
+    <string name="outbox_delete_permanently">Удалить навсегда</string>
     <string name="outbox_banner_failed">Некоторые сообщения не отправлены. Нажмите, чтобы проверить.</string>
     <string name="offline_banner">Вы не в сети</string>
     <string name="settings_conversation_section">Беседы</string>

@@ -144,6 +144,7 @@ fun ComposeScreen(
     val pgpMode by viewModel.pgpMode.collectAsStateWithLifecycle()
     val recipientKeys by viewModel.recipientKeys.collectAsStateWithLifecycle()
     val pgpKeylessRecipients by viewModel.pgpKeylessRecipients.collectAsStateWithLifecycle()
+    val onlyCopy by viewModel.onlyCopy.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let(viewModel::attach)
@@ -379,11 +380,21 @@ fun ComposeScreen(
     // Recomputed on each edit to recipients/subject/body/attachments (all observed state).
     val canSaveDraft = draftHasContent(to, cc, bcc, subject.text, body.text, attachments.isNotEmpty())
 
-    // Unsaved-changes guard: prompt before discarding non-empty, unsent edits.
-    val dirty = to != initialTo || cc.isNotBlank() || bcc.isNotBlank() ||
+    // Leaving without sending or saving. A message reopened from the Outbox goes back to the queue
+    // (#70) — closing its editor is not deleting it, and the queue holds the only copy. For anything
+    // else this is a no-op and the screen just closes.
+    val cancel = {
+        viewModel.abandon()
+        onCancel()
+    }
+
+    // Unsaved-changes guard: prompt before discarding non-empty, unsent edits. A message the user
+    // pulled back out of a send (Undo) is also guarded even untouched: it lives on this screen only,
+    // so closing would destroy it (#70) — unlike an outbox message, which [cancel] gives back.
+    val dirty = onlyCopy || to != initialTo || cc.isNotBlank() || bcc.isNotBlank() ||
         subject.text != initialSubject || body.text != initialBody || attachments.isNotEmpty()
     var showDiscard by remember { mutableStateOf(false) }
-    val attemptClose = { if (dirty && !sending) showDiscard = true else onCancel() }
+    val attemptClose = { if (dirty && !sending) showDiscard = true else cancel() }
 
     // Pre-send guards, chained: "forgot attachment?" then "many recipients?".
     var showForgotAttachment by remember { mutableStateOf(false) }
@@ -461,7 +472,8 @@ fun ComposeScreen(
             dismissButton = {
                 TextButton(onClick = {
                     showDiscard = false
-                    onCancel()
+                    // Discards the edits, not the queued message: that one goes back (#70).
+                    cancel()
                 }) { Text(stringResource(R.string.compose_discard_discard)) }
             },
         )
