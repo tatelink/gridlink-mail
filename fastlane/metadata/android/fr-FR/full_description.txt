@@ -1,19 +1,36 @@
-Sterna Mail est un client e-mail Android privé et moderne, conçu pour JMAP — le successeur plus rapide d'IMAP — avec un support complet d'IMAP/SMTP classique. Vous choisissez le protocole en ajoutant un compte : Sterna Mail fonctionne avec les serveurs JMAP comme Stalwart aussi bien qu'avec n'importe quel fournisseur de messagerie standard.
+Sterna Mail est un client e-mail Android privé et moderne, conçu pour JMAP, le successeur plus rapide d'IMAP, avec un support complet d'IMAP/SMTP classique. Vous choisissez le protocole en ajoutant un compte : Sterna Mail fonctionne avec les serveurs JMAP comme Stalwart aussi bien qu'avec n'importe quel fournisseur de messagerie standard.
 
 Privé par défaut, agréable à utiliser et entièrement libre (GPLv3). Aucun pistage, aucune publicité, aucune analyse, et aucun service Google requis.
 
-Fonctionnalités :
+Lecture et organisation :
 
-* Conçu pour JMAP — sync plus rapide, moins de batterie et de données — plus IMAP/SMTP complet
-* Plusieurs comptes (JMAP et/ou IMAP/SMTP) avec boîte de réception unifiée
-* Notifications de nouveaux messages sans services Google (push JMAP, IMAP IDLE)
-* Lecture, organisation et recherche — fonctionne hors ligne (cache local)
-* Fils de conversation, actions de balayage configurables, dossiers, marqueurs, archivage
-* Rédaction, réponse, transfert et envoi — avec pièces jointes, brouillons et signatures
-* Annulation d'envoi (court délai de rétention) et envoi programmé
-* Gestion des dossiers et signalement de spam
-* Confidentialité par défaut : images distantes et pixels espions bloqués
-* Verrouillage biométrique de l'application
-* Interface Material 3 qui suit le thème clair/sombre du système
+* Boîte de réception unifiée sur plusieurs comptes (JMAP et/ou IMAP/SMTP), entièrement hors ligne grâce à un cache local
+* Plusieurs comptes JMAP sous un même identifiant (boîtes déléguées, partagées ou d'équipe), chacun avec ses dossiers, ses notifications et ses copies dans Envoyés
+* Fils de conversation, dossiers imbriqués, actions de balayage configurables, marqueurs, archivage et suppression avec annulation
+* Sélection multiple, mise en veille d'un message, signalement de spam, tri et filtre « non lus »
+* Recherche au fil de la frappe, qui combine des résultats locaux instantanés et la recherche du serveur, avec filtres par expéditeur, objet, pièces jointes et date
+* Les invitations d'agenda s'affichent en carte d'événement et rejoignent votre agenda en une touche
 
-Sterna Mail est open source. Le code peut être lu, audité et amélioré par tous.
+Rédaction et envoi :
+
+* Rédaction avec autocomplétion des destinataires, plusieurs identités ayant chacune sa signature, pièces jointes et brouillons
+* Les réponses partent de l'adresse à laquelle le message est arrivé, avec la signature de cette identité
+* Annulation d'envoi, envoi programmé, et rappels en cas de pièce jointe oubliée ou de longue liste de destinataires
+* Ouvre les liens mailto: depuis n'importe quelle application ou navigateur, champs pré-remplis
+
+Comptes, notifications et chiffrement :
+
+* Ajout d'un compte avec simplement votre adresse et votre mot de passe (découverte automatique), connexion OAuth 2.0 sans mot de passe, ou configuration IMAP/SMTP manuelle avec préréglages
+* Notifications de nouveaux messages sans Google ni FCM, via JMAP EventSource, IMAP IDLE ou UnifiedPush, groupées par compte et avec heures calmes
+* Chiffrement OpenPGP via OpenKeychain, en JMAP comme en IMAP/SMTP. Le contenu déchiffré n'est jamais écrit sur le disque
+* Images distantes et pixels espions bloqués par défaut, et les paramètres de pistage peuvent être retirés des liens avant leur ouverture
+* Identifiants chiffrés dans l'AndroidKeyStore, verrouillage de l'application par biométrie ou code
+
+Fonctions serveur et finitions :
+
+* Répondeur d'absence, règles de filtrage Sieve et affichage du quota, côté serveur
+* Interface Material 3 avec ses propres thèmes clair et sombre, Material You en option, et taille du texte des messages ajustable
+* Disponible en neuf langues : anglais, français, allemand, espagnol, italien, portugais, néerlandais, polonais et russe
+* Compatible avec les lecteurs d'écran, export et import des réglages
+
+Sterna Mail est open source, et ses versions publiées sont reproductibles : F-Droid vérifie que l'application qu'il distribue est octet pour octet celle construite à partir des sources publiées. Le code peut être lu, audité et amélioré par tous.

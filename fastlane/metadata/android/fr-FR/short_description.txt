@@ -1,1 +1,1 @@
-Client e-mail Android privé et moderne pour JMAP — avec support IMAP/SMTP.
+Client e-mail privé pour JMAP et IMAP/SMTP. Sans service Google, sans pistage.
