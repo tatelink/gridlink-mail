@@ -507,7 +507,19 @@ fun ComposeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(stringResource(if (replyTo != null) R.string.compose_title_reply else R.string.compose_title_new))
+                    // A reopened draft says so (#96): "New mail" was shown for everything that was
+                    // not a reply, and a draft you are coming back to is not a new mail. Same word
+                    // the list uses to badge that message, so it is recognisably the one you tapped.
+                    // Only that case: a reply, a forward and a resumed send are titled as before.
+                    Text(
+                        stringResource(
+                            when {
+                                draftId != null -> R.string.draft_label
+                                replyTo != null -> R.string.compose_title_reply
+                                else -> R.string.compose_title_new
+                            },
+                        ),
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = attemptClose) {
