@@ -3,24 +3,75 @@ package app.sterna.ui.inbox
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class ConversationExpansionTest {
 
-    @Test fun `thread key is the threadId when present`() {
-        assertEquals("T1", ConversationExpansion.threadKey(threadId = "T1", id = "m9"))
+    @Test fun `thread key is the account plus the threadId when present`() {
+        assertEquals(ThreadKey("accA", "T1"), ConversationExpansion.threadKey("accA", threadId = "T1", id = "m9"))
     }
 
     @Test fun `thread key falls back to the message id when thread-less`() {
-        assertEquals("m9", ConversationExpansion.threadKey(threadId = null, id = "m9"))
+        assertEquals(ThreadKey("accA", "m9"), ConversationExpansion.threadKey("accA", threadId = null, id = "m9"))
+    }
+
+    @Test fun `two accounts sharing a thread id are two different keys`() {
+        // The #92 family: servers number threads per account, so the unified inbox shows both.
+        assertNotEquals(
+            ConversationExpansion.threadKey("accA", "T1", "m1"),
+            ConversationExpansion.threadKey("accB", "T1", "m2"),
+        )
     }
 
     @Test fun `toggle expands a collapsed thread`() {
-        assertEquals(setOf("T1"), ConversationExpansion.toggle(emptySet(), "T1"))
+        val key = ThreadKey("accA", "T1")
+        assertEquals(setOf(key), ConversationExpansion.toggle(emptySet(), key))
     }
 
     @Test fun `toggle collapses an expanded thread without touching the rest`() {
-        assertEquals(setOf("T2"), ConversationExpansion.toggle(setOf("T1", "T2"), "T1"))
+        val a = ThreadKey("accA", "T1")
+        val b = ThreadKey("accA", "T2")
+        assertEquals(setOf(b), ConversationExpansion.toggle(setOf(a, b), a))
+    }
+
+    @Test fun `unfolding one account's conversation leaves its homonym in the other account folded`() {
+        // Same thread id, two accounts: expanding A's row must not draw B's row expanded.
+        val a = ConversationExpansion.threadKey("accA", "T1", "m1")
+        val b = ConversationExpansion.threadKey("accB", "T1", "m2")
+        val expanded = ConversationExpansion.toggle(emptySet(), a)
+        assertEquals(true, a in expanded)
+        assertEquals(false, b in expanded)
+    }
+
+    @Test fun `the members of one account's conversation never answer for the other's`() {
+        // The map that feeds both the unfolded rows and the reader's swipe context.
+        val a = ThreadKey("accA", "T1")
+        val b = ThreadKey("accB", "T1")
+        val members = mapOf(a to listOf(Email(id = "a2", accountId = "accA")))
+        assertEquals(emptyList<Email>(), members[b].orEmpty())
+    }
+
+    // --- the key travels through navigation without shedding its account ---
+
+    @Test fun `a thread key survives a round trip through the route argument`() {
+        val key = ThreadKey("acc-uuid", "T1")
+        assertEquals(key, ThreadKey.decode(key.encode()))
+    }
+
+    @Test fun `a thread id containing the separator round-trips too`() {
+        val key = ThreadKey("acc-uuid", "T|1|x")
+        assertEquals(key, ThreadKey.decode(key.encode()))
+    }
+
+    @Test fun `a single-account key keeps its null account through the route`() {
+        val key = ThreadKey(null, "T1")
+        assertEquals(key, ThreadKey.decode(key.encode()))
+    }
+
+    @Test fun `a bare thread id left by an older route is refused, not guessed`() {
+        // Rather than assume an account, the reader falls back to the single message it was given.
+        assertEquals(null, ThreadKey.decode("T1"))
     }
 
     @Test fun `members below excludes the representative already shown on the row`() {

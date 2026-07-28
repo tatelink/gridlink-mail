@@ -304,7 +304,16 @@ private fun conversationQuery(
 }
 
 /**
- * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite). Bind order:
+ * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite).
+ *
+ * Threads are grouped by the PAIR (accountId, thread key), never the thread key alone. Servers
+ * number threads per account, so two accounts of the same server can carry the same thread id: a
+ * bare `GROUP BY tkey` collapsed both accounts' conversations into one row and `sortKey = maxKey`
+ * then kept only the newer one — the other account's conversation vanished from the unified list
+ * altogether (data loss, not a cosmetic count). Grouping on the pair keeps one row per account, in
+ * line with EmailDao.observeThreadUnreadCounts, whose badge already counted per account.
+ *
+ * Bind order:
  * the in-view sub-query `g` takes the mailbox ids [+ account id]; the chip count sub-query
  * `c` takes the mailbox ids, then an (accountId, mailboxId) pair per [sentMailboxCount]
  * Sent-role folder — pinned to its OWN account, so a sibling account's colliding mailbox id
@@ -337,25 +346,25 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
         SELECT e.*, c.threadCount AS threadCount, t.threadTotal AS threadTotal, g.threadUnread AS threadUnread
         FROM emails e
         JOIN (
-            SELECT COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread
+            SELECT accountId AS gacc, COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread
             FROM emails
             WHERE mailboxId IN ($placeholders)$accountInner AND $notSnoozed
-            GROUP BY tkey$having
-        ) g ON COALESCE(e.threadId, e.id) = g.tkey AND e.sortKey = g.maxKey
+            GROUP BY gacc, tkey$having
+        ) g ON COALESCE(e.threadId, e.id) = g.tkey AND e.accountId = g.gacc AND e.sortKey = g.maxKey
         JOIN (
             SELECT accountId AS cacc, COALESCE(threadId, id) AS ckey, COUNT(*) AS threadCount
             FROM emails
             WHERE (mailboxId IN ($placeholders)$sentAlternatives)$accountInner AND $notSnoozed
             GROUP BY cacc, ckey
-        ) c ON c.ckey = g.tkey AND c.cacc = e.accountId
+        ) c ON c.ckey = g.tkey AND c.cacc = g.gacc
         JOIN (
             SELECT accountId AS tacc, COALESCE(threadId, id) AS tkey2, COUNT(*) AS threadTotal
             FROM emails
             WHERE $notSnoozed
             GROUP BY tacc, tkey2
-        ) t ON t.tkey2 = g.tkey AND t.tacc = e.accountId
+        ) t ON t.tkey2 = g.tkey AND t.tacc = g.gacc
         WHERE e.mailboxId IN ($placeholders)$accountOuter AND $notSnoozedOuter
-        GROUP BY g.tkey
+        GROUP BY g.gacc, g.tkey
         ORDER BY $orderBy
     """.trimIndent()
 }
@@ -3082,10 +3091,14 @@ class MailRepository(
      * Unified search across several accounts (the unified-inbox / dedicated-search case).
      * Each account's [search] runs in parallel; every hit is tagged with its local
      * accountId so results open in the right account and show the right account colour.
-     * Per-account failures are skipped so one unreachable account doesn't sink the search —
-     * but they make the answer incomplete, and it says so rather than passing the survivors
-     * off as the whole result.
-     * Results are merged, de-duplicated, sorted newest-first and capped at [limit].
+     *
+     * An account that fails is skipped so one unreachable account doesn't sink the search — but
+     * it is LOGGED and it makes the answer incomplete, rather than being passed off as the whole
+     * result: an account vanishing without a trace is indistinguishable, on screen, from an
+     * account that simply holds no match.
+     *
+     * Results are merged fairly per account, de-duplicated, sorted newest-first and capped at
+     * [limit] — see [mergeAccountSearches].
      */
     suspend fun search(accounts: List<AccountCredentials>, query: SearchQuery, limit: Int = 50): MailSearchResult {
         if (query.isEmpty() || accounts.isEmpty()) return MailSearchResult(emptyList())
@@ -3100,16 +3113,23 @@ class MailRepository(
                     runCatching {
                         val hits = search(credentials, query, limit)
                         hits.copy(emails = hits.emails.map { it.copy(accountId = credentials.id) })
+                    }.onFailure { error ->
+                        // Cancellation (a new keystroke, the screen closing) is not a failure and
+                        // must keep propagating — runCatching catches it like any other throwable.
+                        if (error is CancellationException) throw error
+                        // The account id is a local UUID and the message never carries the
+                        // credential (see AccountStore's warning): this is the only trace a
+                        // dropped account leaves, so it must exist.
+                        android.util.Log.w(
+                            "MailSearch",
+                            "account ${credentials.id} dropped from unified search: " +
+                                "${error.javaClass.simpleName}: ${error.message}",
+                        )
                     }.getOrDefault(MailSearchResult(emptyList(), complete = false))
                 }
             }.awaitAll()
         }
-        val merged = perAccount.flatMap { it.emails }
-            // receivedAt is an ISO-8601 UTC string, so lexicographic sort == chronological.
-            .distinctBy { it.accountId to it.id }
-            .sortedByDescending { it.receivedAt ?: "" }
-            .take(limit)
-        return MailSearchResult(merged, complete = perAccount.all { it.complete } && merged.size < limit)
+        return mergeAccountSearches(perAccount, limit)
     }
 
     /** Fetch an email (with body) without marking it read — used to build replies/forwards. */

@@ -3,16 +3,54 @@ package app.sterna.ui.inbox
 import app.sterna.core.jmap.model.Email
 
 /**
+ * Which conversation, in which account. Servers number threads PER ACCOUNT, so two accounts of the
+ * same server routinely carry the same thread id and the unified inbox shows both rows side by
+ * side: everything that identifies a conversation across accounts — the expanded set, the loaded
+ * members, the recorded representatives, the reading view's swipe context — must carry the account
+ * too. Keyed on the bare thread id, unfolding account A's row also unfolded B's homonym and the
+ * reader could be handed the OTHER account's messages (#92).
+ *
+ * [accountId] is null only for a message that never came from the cache (single-account fallback);
+ * it is then null for every message of that view, so keys still match each other.
+ *
+ * Navigation carries the key as ONE opaque string ([encode] / [decode]) rather than a bare thread
+ * id: a route argument that only names the thread is exactly how this bug returns.
+ */
+data class ThreadKey(val accountId: String?, val threadId: String) {
+    /** The key as a single route argument. The account id (a UUID) never contains '|'. */
+    fun encode(): String = "${accountId.orEmpty()}|$threadId"
+
+    companion object {
+        /**
+         * Parse an [encode]d route argument. Null for anything that isn't one — including a bare
+         * thread id left in a saved route by an older version: no account, no key, and the reader
+         * falls back to the single message it was given rather than guessing an account.
+         */
+        fun decode(raw: String): ThreadKey? {
+            val cut = raw.indexOf('|')
+            if (cut < 0) return null
+            val thread = raw.substring(cut + 1)
+            if (thread.isEmpty()) return null
+            return ThreadKey(raw.substring(0, cut).ifEmpty { null }, thread)
+        }
+    }
+}
+
+/**
  * Pure helpers for inline conversation expansion in the inbox list — extracted from
  * [InboxViewModel] so the expand-state and member-selection rules are unit-testable
  * without an Android runtime.
  */
 internal object ConversationExpansion {
-    /** The thread a message belongs to: its threadId, or its own id when thread-less. */
-    fun threadKey(threadId: String?, id: String): String = threadId ?: id
+    /**
+     * The conversation a message belongs to: its owning account plus its threadId — or its own
+     * id when thread-less. ACCOUNT-QUALIFIED, always: see [ThreadKey].
+     */
+    fun threadKey(accountId: String?, threadId: String?, id: String): ThreadKey =
+        ThreadKey(accountId, threadId ?: id)
 
     /** Toggle a thread key in (or out of) the set of currently-expanded threads. */
-    fun toggle(expanded: Set<String>, key: String): Set<String> =
+    fun toggle(expanded: Set<ThreadKey>, key: ThreadKey): Set<ThreadKey> =
         if (key in expanded) expanded - key else expanded + key
 
     /**
