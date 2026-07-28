@@ -4,6 +4,7 @@ import app.sterna.core.data.text.htmlEscape
 import app.sterna.core.data.text.htmlEscapeMultiline
 import app.sterna.core.data.text.htmlToText
 import app.sterna.core.jmap.model.Email
+import app.sterna.util.isValidEmail
 
 /**
  * Heuristic "forgot the attachment?" check: does [text] (subject + body) mention
@@ -356,6 +357,37 @@ internal fun draftFieldsOf(o: Email): DraftFields {
  */
 internal fun parseAddrs(s: String): List<String> =
     s.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+
+/**
+ * The recipients the encryption state is derived from (#35): the addressing tokens that already ARE
+ * addresses, deduplicated.
+ *
+ * The composer's lock answers "will this leave encrypted?", and that needs a public key for every
+ * recipient. A token still being typed (`b`, `bob@`, `bob@exa`) is not a recipient yet: a key lookup
+ * for it can only come back empty, so counting it would have the lock announce "not encrypted"
+ * about an address the user has not finished writing. Only what reads as an address counts, judged
+ * by the app's single [isValidEmail] rule — the same one the send gate and the per-chip warning use,
+ * so the three cannot drift apart.
+ */
+internal fun encryptionRecipients(to: String, cc: String, bcc: String): List<String> =
+    (parseAddrs(to) + parseAddrs(cc) + parseAddrs(bcc)).filter(::isValidEmail).distinct()
+
+/**
+ * Whether the encryption state has to be recomputed: [previous] is the recipient set it was last
+ * computed for (null when it never was, or when something else invalidated the answer), [current]
+ * the set [encryptionRecipients] reads now.
+ *
+ * This is the whole anti-flicker rule (#35), and it is deliberately NOT a timer. Recomputing "once
+ * typing stops" would tie a security indicator to typing speed; the condition here is that the set
+ * of real addresses changed — one completed, added, or deleted. In between, however long the token
+ * in progress takes, the displayed state is left strictly alone: it goes on describing the
+ * recipients that are actually there. A completed address that has no key still flips the state at
+ * once, which is the case where the indicator earns its keep.
+ *
+ * Order is irrelevant: the answer depends on which addresses are present, not on where they sit.
+ */
+internal fun recipientKeysStale(previous: List<String>?, current: List<String>): Boolean =
+    previous == null || previous.toSet() != current.toSet()
 
 /**
  * The single #69 rule for "this draft is worth saving": at least one real recipient in To, Cc or
