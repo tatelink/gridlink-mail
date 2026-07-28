@@ -36,7 +36,6 @@ import app.sterna.util.MailDates
 import kotlinx.coroutines.Dispatchers
 import java.io.File
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -243,6 +242,11 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     private var recipientKeysJob: Job? = null
 
+    /** The recipient set [_recipientKeys] was last computed for; null when it never was, or when a
+     *  change invalidated the answer (PGP turned off, sending account swapped for one with another
+     *  keyring). Gate of the anti-flicker rule, see [recipientKeysStale] (#35). */
+    private var keyedRecipients: List<String>? = null
+
     /** True once the user sets the lock by hand: the mode then reflects their intent and is never
      *  auto-downgraded. While false the mode is derived from recipient-key availability (#35). */
     private var pgpModeUserSet = false
@@ -271,6 +275,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             val account = pgpAccount()
             val available = account != null && pgp.isAvailable()
             _pgpAvailable.value = available
+            // Another account means another keyring: whatever was looked up no longer answers for
+            // these recipients, so the next update must look them up again (#35).
+            keyedRecipients = null
             if (!available) {
                 _pgpMode.value = PgpMode.OFF
                 _pgpKeylessRecipients.value = emptyList()
@@ -296,9 +303,16 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Refresh per-recipient key availability (debounced), then re-derive the opportunistic default
-     * mode. Runs whenever we care about keys: an encrypt-by-default account (to decide the mode) or
-     * an explicit ENCRYPT (to flag missing recipients). (#35)
+     * Refresh per-recipient key availability, then re-derive the opportunistic default mode. Runs
+     * whenever we care about keys: an encrypt-by-default account (to decide the mode) or an explicit
+     * ENCRYPT (to flag missing recipients). (#35)
+     *
+     * Called on every keystroke in an addressing field, but only acts when the set of real addresses
+     * changed ([encryptionRecipients] + [recipientKeysStale]). A half-typed token has no key by
+     * construction, so recomputing on it would flip the lock to "not encrypted" mid-word and flip it
+     * back once the address is complete — teaching the user to distrust the one indicator that must
+     * be trusted. Skipping is also what keeps the provider out of it: each check is a round-trip to
+     * OpenKeychain per address, and there is no reason to ask it about `bo` or `bob@exa`.
      */
     fun updateRecipientKeys(to: String, cc: String, bcc: String) {
         val account = pgpAccount()
@@ -306,12 +320,14 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             (account?.pgpEncryptByDefault == true || _pgpMode.value == PgpMode.ENCRYPT)
         if (!care) {
             _recipientKeys.value = emptyMap()
+            keyedRecipients = null
             return
         }
+        val addresses = encryptionRecipients(to, cc, bcc)
+        if (!recipientKeysStale(keyedRecipients, addresses)) return
+        keyedRecipients = addresses
         recipientKeysJob?.cancel()
         recipientKeysJob = viewModelScope.launch {
-            delay(RECIPIENT_KEYS_DEBOUNCE_MS)
-            val addresses = (parseAddrs(to) + parseAddrs(cc) + parseAddrs(bcc)).distinct()
             _recipientKeys.value =
                 if (addresses.isEmpty()) emptyMap()
                 else runCatching { pgp.findKeysEach(addresses) }.getOrDefault(emptyMap())
@@ -1207,8 +1223,6 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     private companion object {
         const val TAG = "ComposeViewModel"
-
-        const val RECIPIENT_KEYS_DEBOUNCE_MS = 500L
 
         /** v1 cap: the whole entity is signed/encrypted in memory. */
         const val PGP_MAX_ATTACHMENT_BYTES = 25L * 1024 * 1024
