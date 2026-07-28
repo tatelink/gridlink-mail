@@ -244,11 +244,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     // ---- inline conversation expansion ----
 
     /**
-     * Thread keys (COALESCE(threadId, id) of the representative) currently unfolded inline.
-     * Kept here, not in the paged list, so a Paging snapshot swap doesn't reset what's open.
+     * The conversations currently unfolded inline, as (account, thread) keys — see [ThreadKey]:
+     * in the unified inbox two accounts can carry the same thread id, and a bare id unfolded both
+     * rows at once. Kept here, not in the paged list, so a Paging snapshot swap doesn't reset
+     * what's open.
      */
-    private val _expandedThreads = MutableStateFlow<Set<String>>(emptySet())
-    val expandedThreads: StateFlow<Set<String>> = _expandedThreads.asStateFlow()
+    private val _expandedThreads = MutableStateFlow<Set<ThreadKey>>(emptySet())
+    val expandedThreads: StateFlow<Set<ThreadKey>> = _expandedThreads.asStateFlow()
 
     /**
      * Lazily-loaded members of an expanded thread, keyed by thread key — the thread's other
@@ -257,11 +259,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * design: a member deleted to Trash leaves THIS conversation and shows up in the Trash
      * folder's conversation instead. Loaded from the local cache on expand; no network.
      */
-    private val _threadMembers = MutableStateFlow<Map<String, List<Email>>>(emptyMap())
-    val threadMembers: StateFlow<Map<String, List<Email>>> = _threadMembers.asStateFlow()
+    private val _threadMembers = MutableStateFlow<Map<ThreadKey, List<Email>>>(emptyMap())
+    val threadMembers: StateFlow<Map<ThreadKey, List<Email>>> = _threadMembers.asStateFlow()
 
     /** Thread keys already completed from the server this session — fetched at most once each. */
-    private val completedThreads = mutableSetOf<String>()
+    private val completedThreads = mutableSetOf<ThreadKey>()
 
     /**
      * The representative (id + owning account) of each expanded thread key — the message shown
@@ -269,20 +271,22 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * [threadEntries] can hand the reading view the WHOLE conversation, representative included,
      * without re-querying anything.
      */
-    private val threadReps = mutableMapOf<String, Pair<String, String?>>()
+    private val threadReps = mutableMapOf<ThreadKey, Pair<String, String?>>()
 
     /**
      * The conversation a message was opened from, as the reading view's swipe context: the
      * unfolded thread's messages in list order (representative first). Empty when the thread
      * is unknown — the reader then falls back to showing the single message it was given.
      */
-    fun threadEntries(key: String): List<Pair<String, String?>> {
+    fun threadEntries(key: ThreadKey): List<Pair<String, String?>> {
         val (repId, repAccountId) = threadReps[key] ?: return emptyList()
         return ConversationExpansion.threadEntries(repId, repAccountId, _threadMembers.value[key].orEmpty())
     }
 
-    /** The thread an email belongs to: its threadId, or its own id when thread-less. */
-    private fun threadKeyOf(email: Email): String = ConversationExpansion.threadKey(email.threadId, email.id)
+    /** The conversation an email belongs to: its account plus its threadId (or its own id when
+     *  thread-less). Account-qualified — see [ThreadKey]. */
+    fun threadKeyOf(email: Email): ThreadKey =
+        ConversationExpansion.threadKey(email.accountId, email.threadId, email.id)
 
     /**
      * Fold/unfold a conversation row in place. On expand the cached members render at once
@@ -300,7 +304,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { expandThread(rep, key) }
     }
 
-    private suspend fun expandThread(rep: Email, key: String) {
+    private suspend fun expandThread(rep: Email, key: ThreadKey) {
         // Display scope of the unfolded conversation: the viewed folder(s) plus the thread's
         // own account's Sent folder — a conversation is folder-scoped, so members sitting in
         // Trash/Spam/Drafts (or any other folder) belong to THAT folder's conversation and
@@ -357,7 +361,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      */
     private suspend fun loadThreadMembers(rep: Email, allowed: Set<String>): List<Email> {
         val accountId = rep.accountId ?: store.load()?.id ?: return emptyList()
-        val all = repo.cachedThreadEmails(accountId, allowed.toList(), threadKeyOf(rep))
+        val all = repo.cachedThreadEmails(accountId, allowed.toList(), threadKeyOf(rep).threadId)
         return ConversationExpansion.membersBelow(all, rep.id)
     }
 
@@ -967,7 +971,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** A thread's full membership from the cache (representative included), or [rep] alone. */
     private suspend fun threadMessages(rep: Email): List<Email> {
         val accountId = rep.accountId ?: store.load()?.id ?: return listOf(rep)
-        return repo.cachedThreadEmails(accountId, currentMailboxIds(), threadKeyOf(rep))
+        return repo.cachedThreadEmails(accountId, currentMailboxIds(), threadKeyOf(rep).threadId)
             .ifEmpty { listOf(rep) }
     }
 
@@ -1027,7 +1031,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         threadSwipeRemove(rep, R.string.status_conversation_unarchived) { c, id -> repo.moveToMailbox(c, id, inboxId) }
 
     /** Drop a thread's inline-expansion state — its conversation is leaving the list. */
-    private fun dropThreadExpansion(key: String) {
+    private fun dropThreadExpansion(key: ThreadKey) {
         _expandedThreads.value = _expandedThreads.value - key
         _threadMembers.value = _threadMembers.value - key
         completedThreads -= key

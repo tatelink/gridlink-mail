@@ -214,7 +214,7 @@ fun InboxScreen(
     /** Open the reading view on one message of an inline-expanded conversation. The thread key
      *  and the message's position within the unfolded conversation travel along, so the reader
      *  pages over that conversation — and only that conversation — instead of the list. */
-    onOpenThreadMessage: (emailId: String, accountId: String?, threadKey: String, index: Int) -> Unit,
+    onOpenThreadMessage: (emailId: String, accountId: String?, threadKey: ThreadKey, index: Int) -> Unit,
     onCompose: () -> Unit,
     /** Reopen compose with the draft of a send the user just undid. */
     onReopenDraft: () -> Unit,
@@ -1310,7 +1310,9 @@ fun InboxScreen(
                 val ownerAccount = if (ui.unified) accounts.firstOrNull { it.id == email.accountId } else null
                 // A conversation in the browse list can unfold inline; search results stay flat.
                 val expandable = !fromSearch && row.threadExpandable
-                val threadKey = email.threadId ?: email.id
+                // Account-qualified: two accounts of one server share thread ids, and a bare id
+                // unfolded (and paged) the sibling account's homonymous conversation (#92).
+                val threadKey = viewModel.threadKeyOf(email)
                 val isExpanded = expandable && threadKey in expandedThreads
                 SwipeableEmailRow(
                     email = email,

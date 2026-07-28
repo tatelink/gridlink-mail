@@ -52,6 +52,7 @@ import app.sterna.ui.compose.ComposeScreen
 import app.sterna.ui.connect.ConnectScreen
 import app.sterna.ui.inbox.InboxScreen
 import app.sterna.ui.inbox.InboxViewModel
+import app.sterna.ui.inbox.ThreadKey
 import app.sterna.ui.message.LocalNavTransitionActive
 import app.sterna.ui.message.MessageScreen
 import app.sterna.ui.message.NavFadeGuard
@@ -315,9 +316,12 @@ private fun MainNavHost(
                 // its ends instead of spilling into the list (Codeberg #13).
                 onOpenThreadMessage = { id, accountId, threadKey, index ->
                     if (entry.lifecycleIsResumed()) {
+                        // The key travels ACCOUNT-QUALIFIED (ThreadKey.encode): a route carrying a
+                        // bare thread id let the reader page over the sibling account's
+                        // homonymous conversation in the unified inbox (#92).
                         nav.navigate(
                             "message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}" +
-                                "&index=$index&src=thread&thread=${Uri.encode(threadKey)}",
+                                "&index=$index&src=thread&thread=${Uri.encode(threadKey.encode())}",
                         )
                     }
                 },
@@ -383,7 +387,9 @@ private fun MainNavHost(
             // taken from the expansion the list already holds in memory (no new query).
             // Snapshotted once for the reading session, like the search results above, so a
             // background thread completion can't shift the pages under the reader's fingers.
-            val threadKey = entry.arguments?.getString("thread")?.let { Uri.decode(it) }?.ifBlank { null }
+            val threadKey = entry.arguments?.getString("thread")
+                ?.let { Uri.decode(it) }?.ifBlank { null }
+                ?.let { ThreadKey.decode(it) }
             val threadEntries = if (src == "thread" && threadKey != null) {
                 remember(inboxViewModel, threadKey) { inboxViewModel.threadEntries(threadKey) }
             } else {
