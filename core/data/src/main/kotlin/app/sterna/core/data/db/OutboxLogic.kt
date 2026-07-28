@@ -26,6 +26,17 @@ object OutboxLogic {
     fun shouldRetry(attemptCount: Int): Boolean = attemptCount < MAX_ATTEMPTS
 
     /**
+     * Whether a queued item can be reopened in the composer. Everything can, except an ENCRYPTED
+     * one: its body is not in the row at all (the ciphertext lives in the item's own directory,
+     * see [OutboxEntity.pgpMode]), so the composer would open empty and sending from there would
+     * send an empty message. An action that cannot do what its label promises is not offered
+     * (#70). Retry and Delete stay: both work on the row as it stands.
+     *
+     * Signing is not affected: a SIGNED item keeps its body in the row and is signed at send time.
+     */
+    fun canEdit(pgpMode: String?): Boolean = !pgpMode.equals("ENCRYPT", ignoreCase = true)
+
+    /**
      * Items shown on the badge: anything pending or failed, plus a HELD row whose undo window has
      * already elapsed. The window, not the state, decides silence: offline the delivery worker is
      * gated on connectivity and never runs, so nothing takes the row out of HELD and the message

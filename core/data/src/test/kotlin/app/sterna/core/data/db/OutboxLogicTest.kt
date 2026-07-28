@@ -74,4 +74,14 @@ class OutboxLogicTest {
         )
         assertNull(OutboxLogic.nextWindowEnd(items, now = 5_000))
     }
+
+    @Test fun anEncryptedItemCannotBeReopenedInTheComposer() {
+        assertEquals(false, OutboxLogic.canEdit("ENCRYPT"))
+        assertEquals(false, OutboxLogic.canEdit("encrypt"))
+    }
+
+    @Test fun everythingElseCanBeReopened() {
+        assertEquals(true, OutboxLogic.canEdit(null))
+        assertEquals(true, OutboxLogic.canEdit("SIGN"))
+    }
 }

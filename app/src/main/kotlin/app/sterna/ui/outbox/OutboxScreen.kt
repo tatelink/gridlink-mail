@@ -35,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.LaunchedEffect
 import app.sterna.R
+import app.sterna.core.data.db.OutboxLogic
 import app.sterna.core.data.db.OutboxState
 import app.sterna.ui.components.EmptyArt
 import app.sterna.ui.components.EmptyState
@@ -143,8 +144,12 @@ fun OutboxScreen(
                         TextButton(onClick = { viewModel.retry(item.id) }) {
                             Text(stringResource(R.string.outbox_retry))
                         }
-                        TextButton(onClick = { viewModel.edit(item.id) }) {
-                            Text(stringResource(R.string.outbox_edit))
+                        // An encrypted item has no body in the row to reopen (#70), so Edit is not
+                        // offered rather than opening an empty composer over the ciphertext.
+                        if (OutboxLogic.canEdit(item.pgpMode)) {
+                            TextButton(onClick = { viewModel.edit(item.id) }) {
+                                Text(stringResource(R.string.outbox_edit))
+                            }
                         }
                         TextButton(onClick = { pendingDelete = item.id }) {
                             Text(
