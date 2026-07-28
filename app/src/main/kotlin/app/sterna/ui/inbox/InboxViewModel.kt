@@ -1510,7 +1510,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 _message.value = getApplication<Application>().getString(R.string.status_move_other_account)
             }
             if (movable.isNotEmpty()) {
-                bulkBatched(keys = movable.mapTo(mutableSetOf()) { it.emailKey() }) { c, batch -> repo.moveAllToMailbox(c, batch, targetMailboxId) }
+                // Undoable like archive and delete: moving from the reader offers it (#73), and the
+                // same gesture in the list must not be the one you cannot take back.
+                bulkBatched(
+                    undoLabel = getApplication<Application>().getString(R.string.status_message_moved),
+                    keys = movable.mapTo(mutableSetOf()) { it.emailKey() },
+                ) { c, batch -> repo.moveAllToMailbox(c, batch, targetMailboxId) }
             }
         }
     }
