@@ -544,6 +544,7 @@
     <string name="search_result_count">%1$d Ergebnisse</string>
     <string name="search_advanced_toggle">Erweiterte Filter</string>
     <string name="search_from">Von</string>
+    <string name="search_recipient">Empfänger</string>
     <string name="search_subject">Betreff</string>
     <string name="search_has_attachment">Mit Anhang</string>
     <string name="search_after">Nach</string>

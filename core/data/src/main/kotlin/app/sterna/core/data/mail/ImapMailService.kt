@@ -9,6 +9,7 @@ import app.sterna.core.data.db.MailboxEntity
 import app.sterna.core.imap.ImapClient
 import app.sterna.core.imap.ImapIdleConnection
 import app.sterna.core.imap.ImapMessage
+import app.sterna.core.imap.ImapSearchCriteria
 import app.sterna.core.imap.ImapSession
 import app.sterna.core.imap.MailSecurity
 import app.sterna.core.imap.MailServerConfig
@@ -16,8 +17,13 @@ import app.sterna.core.imap.MimeParser
 import app.sterna.core.imap.OutgoingMessage
 import app.sterna.core.imap.OutgoingMime
 import app.sterna.core.imap.SmtpClient
+import app.sterna.core.imap.buildImapSearch
+import app.sterna.core.imap.searchFolders
 import app.sterna.core.jmap.model.EmailAddress
+import app.sterna.core.jmap.model.SearchQuery
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -296,15 +302,44 @@ class ImapMailService(
     suspend fun deleteFolder(credentials: AccountCredentials, path: String) =
         withSession(credentials) { it.deleteFolder(path) }
 
-    /** Server-side text search in [mailboxId], newest first (entities not cached by caller). */
-    suspend fun search(credentials: AccountCredentials, mailboxId: String, query: String, limit: Int): List<EmailEntity> =
-        withSession(credentials) { session ->
-            session.select(mailboxId)
-            val uids = session.searchText(query).sortedDescending().take(limit)
-            session.fetchUids(uids)
-                .map { it.toEntity(credentials.id, mailboxId) }
-                .sortedByDescending { it.sortKey }
+    /**
+     * Server-side structured search across [mailboxIds], newest first (entities not cached by
+     * the caller). One SELECT + UID SEARCH per folder on the single pooled connection, in the
+     * order given — the caller ranks the folders, so a per-account cap keeps the folders that
+     * matter rather than whichever the server listed first.
+     *
+     * Each hit is turned into an entity under THE FOLDER IT CAME FROM and this account's id: an
+     * IMAP UID is meaningless outside its mailbox, and the cache id is `imap:account:folder:uid`.
+     * A folder that fails is logged and skipped, never silently merged away.
+     */
+    suspend fun search(
+        credentials: AccountCredentials,
+        mailboxIds: List<String>,
+        criteria: ImapSearchCriteria,
+        requireAttachment: Boolean,
+        limit: Int,
+    ): List<EmailEntity> {
+        if (mailboxIds.isEmpty() || limit <= 0) return emptyList()
+        val command = buildImapSearch(criteria)
+        // The walk is blocking and holds this account's only connection; if the caller is gone
+        // (a new keystroke cancelled the search), stop between folders instead of making every
+        // later IMAP call wait behind it.
+        val caller = currentCoroutineContext()[Job]
+        return withSession(credentials) { session ->
+            session.searchFolders(
+                mailboxIds,
+                command,
+                requireAttachment,
+                limit,
+                stillWanted = { caller?.isActive != false },
+                onFolderError = { mailbox, error ->
+                    android.util.Log.w("ImapSearch", "search failed in $mailbox: ${error.message}")
+                },
+            ).flatMap { hits ->
+                hits.messages.map { it.toEntity(credentials.id, hits.mailbox) }
+            }.sortedByDescending { it.sortKey }.take(limit)
         }
+    }
 
     /** Fetch and decode an attachment (one MIME [section]) to raw bytes. */
     suspend fun fetchAttachment(
@@ -398,3 +433,16 @@ class ImapMailService(
         }
     }
 }
+
+/**
+ * The IMAP-expressible part of a [SearchQuery]. `hasAttachment` is deliberately absent: IMAP
+ * `SEARCH` has no key for it, so it is passed separately and applied locally.
+ */
+internal fun SearchQuery.toImapCriteria() = ImapSearchCriteria(
+    text = text,
+    from = from,
+    recipient = recipient,
+    subject = subject,
+    afterMillis = afterMillis,
+    beforeMillis = beforeMillis,
+)

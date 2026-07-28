@@ -2976,14 +2976,23 @@ class MailRepository(
 
     /**
      * Structured search across the account (results are transient, not cached).
-     * IMAP accounts use the free-text term only; the advanced filters (from,
-     * subject, attachment, date range) are JMAP-only for now.
+     *
+     * IMAP takes the same criteria as JMAP: sender, recipient, subject and the date range go
+     * to the server as `SEARCH` keys (they used to be dropped in silence, so a filtered search
+     * quietly answered something else), across every cached folder of the account rather than
+     * the inbox alone. "Has an attachment" has no IMAP key and is filtered from BODYSTRUCTURE
+     * on the way back.
      */
     suspend fun search(credentials: AccountCredentials, query: SearchQuery, limit: Int = 50): List<Email> {
         if (query.isEmpty()) return emptyList()
         if (credentials.protocol == MailProtocol.IMAP) {
-            val inbox = mailboxDao.idForRole(credentials.id, "inbox") ?: return emptyList()
-            return imap.search(credentials, inbox, query.text, limit).map { it.toEmail() }
+            // Folders come from the cache, so a search covers what the drawer knows; an account
+            // whose folders were never synced falls back to the inbox rather than nothing.
+            val folders = mailboxDao.searchOrder(credentials.id).map { it.id }
+                .ifEmpty { listOfNotNull(mailboxDao.idForRole(credentials.id, "inbox")) }
+            if (folders.isEmpty()) return emptyList()
+            return imap.search(credentials, folders, query.toImapCriteria(), query.hasAttachment, limit)
+                .map { it.toEmail() }
         }
         val ctx = connect(credentials)
         val hits = client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth)

@@ -544,6 +544,7 @@
     <string name="search_result_count">%1$d wyników</string>
     <string name="search_advanced_toggle">Filtry zaawansowane</string>
     <string name="search_from">Od</string>
+    <string name="search_recipient">Odbiorca</string>
     <string name="search_subject">Temat</string>
     <string name="search_has_attachment">Z załącznikiem</string>
     <string name="search_after">Po</string>

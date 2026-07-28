@@ -311,9 +311,20 @@ class ImapSession(private var socket: Socket) : Closeable {
         return line.drop(2).count { it is String }
     }
 
-    /** UIDs of messages in the selected mailbox matching a free-text query. */
-    fun searchText(query: String): List<Long> {
-        val result = command("UID SEARCH TEXT ${quote(query)}")
+    /**
+     * UIDs in the SELECTed mailbox matching a built [ImapSearchCommand].
+     *
+     * `CHARSET UTF-8` is declared only when a search value actually needs it; RFC 3501 lets a
+     * server support US-ASCII alone and answer `NO [BADCHARSET]`, so that case retries once
+     * without the declaration rather than turning an accented search into a failed one.
+     */
+    fun searchUids(search: ImapSearchCommand): List<Long> {
+        val result = try {
+            command("UID SEARCH ${search.arguments()}")
+        } catch (e: ImapException) {
+            if (!search.needsUtf8) throw e
+            command("UID SEARCH ${search.arguments(declareUtf8 = false)}")
+        }
         val line = result.untagged.firstOrNull { it.getOrNull(1) == "SEARCH" } ?: return emptyList()
         return line.drop(2).mapNotNull { (it as? String)?.toLongOrNull() }
     }
@@ -473,16 +484,6 @@ class ImapSession(private var socket: Socket) : Closeable {
         return walk(bodystructure)
     }
 
-    /**
-     * IMAP quoted-string. Per RFC 3501 a quoted-string may not contain CR or LF; a raw
-     * newline here would terminate the command line and let an attacker-controlled value
-     * (folder name, search text) inject a second authenticated IMAP command. Reject it.
-     */
-    private fun quote(s: String): String {
-        if (s.any { it == '\r' || it == '\n' }) throw ImapException("Illegal newline in IMAP argument")
-        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-    }
-
     private companion object {
         fun parseDate(raw: String?): Long {
             if (raw.isNullOrBlank()) return 0L
@@ -540,6 +541,19 @@ class ImapSession(private var socket: Socket) : Closeable {
             return out.toByteArray()
         }
     }
+}
+
+/**
+ * IMAP quoted-string. Per RFC 3501 a quoted-string may not contain CR or LF; a raw
+ * newline here would terminate the command line and let an attacker-controlled value
+ * (folder name, search text) inject a second authenticated IMAP command. Reject it.
+ *
+ * File-level (not a method) so the SEARCH-command builder in ImapSearch.kt quotes its
+ * user-supplied values through the exact same guard.
+ */
+internal fun quote(s: String): String {
+    if (s.any { it == '\r' || it == '\n' }) throw ImapException("Illegal newline in IMAP argument")
+    return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 }
 
 /**

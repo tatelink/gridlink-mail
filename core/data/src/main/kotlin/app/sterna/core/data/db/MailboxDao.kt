@@ -48,6 +48,19 @@ interface MailboxDao {
     )
     suspend fun idForAnyName(accountId: String, names: List<String>): String?
 
+    /**
+     * Every cached folder of one account, ordered by how likely a search hit in it is to be the
+     * one wanted: inbox first, Junk and Trash last. IMAP can only search the SELECTed folder, so
+     * a whole-account search walks this list; the order decides which folders' hits survive the
+     * result cap. Always scoped to [accountId] — a folder path is meaningless in another account.
+     */
+    @Query(
+        "SELECT id, role FROM mailboxes WHERE accountId = :accountId ORDER BY " +
+            "CASE role WHEN 'inbox' THEN 0 WHEN 'archive' THEN 1 WHEN 'sent' THEN 2 " +
+            "WHEN 'drafts' THEN 3 WHEN 'junk' THEN 5 WHEN 'trash' THEN 6 ELSE 4 END, id",
+    )
+    suspend fun searchOrder(accountId: String): List<MailboxIdRole>
+
     /** The role of an account's mailbox by id (e.g. to tell if a message is in Junk). */
     @Query("SELECT role FROM mailboxes WHERE accountId = :accountId AND id = :id LIMIT 1")
     suspend fun roleForId(accountId: String, id: String): String?
@@ -75,4 +88,10 @@ interface MailboxDao {
 data class AccountMailboxId(
     val accountId: String,
     val id: String,
+)
+
+/** Projection for [MailboxDao.searchOrder]: a folder id and its normalised role. */
+data class MailboxIdRole(
+    val id: String,
+    val role: String?,
 )

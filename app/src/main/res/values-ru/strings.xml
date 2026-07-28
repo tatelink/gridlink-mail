@@ -544,6 +544,7 @@
     <string name="search_result_count">%1$d результатов</string>
     <string name="search_advanced_toggle">Расширенные фильтры</string>
     <string name="search_from">Отправитель</string>
+    <string name="search_recipient">Получатель</string>
     <string name="search_subject">Тема</string>
     <string name="search_has_attachment">С вложением</string>
     <string name="search_after">После</string>
