@@ -311,6 +311,9 @@ class ImapMailService(
      * Each hit is turned into an entity under THE FOLDER IT CAME FROM and this account's id: an
      * IMAP UID is meaningless outside its mailbox, and the cache id is `imap:account:folder:uid`.
      * A folder that fails is logged and skipped, never silently merged away.
+     *
+     * The result carries [ImapSearchHits.complete]: false when a folder's attachment scan stopped
+     * on its cap with candidates left, i.e. the list is what was found, not what exists.
      */
     suspend fun search(
         credentials: AccountCredentials,
@@ -318,15 +321,15 @@ class ImapMailService(
         criteria: ImapSearchCriteria,
         requireAttachment: Boolean,
         limit: Int,
-    ): List<EmailEntity> {
-        if (mailboxIds.isEmpty() || limit <= 0) return emptyList()
+    ): ImapSearchHits {
+        if (mailboxIds.isEmpty() || limit <= 0) return ImapSearchHits(emptyList(), complete = true)
         val command = buildImapSearch(criteria)
         // The walk is blocking and holds this account's only connection; if the caller is gone
         // (a new keystroke cancelled the search), stop between folders instead of making every
         // later IMAP call wait behind it.
         val caller = currentCoroutineContext()[Job]
         return withSession(credentials) { session ->
-            session.searchFolders(
+            val folders = session.searchFolders(
                 mailboxIds,
                 command,
                 requireAttachment,
@@ -335,9 +338,14 @@ class ImapMailService(
                 onFolderError = { mailbox, error ->
                     android.util.Log.w("ImapSearch", "search failed in $mailbox: ${error.message}")
                 },
-            ).flatMap { hits ->
-                hits.messages.map { it.toEntity(credentials.id, hits.mailbox) }
-            }.sortedByDescending { it.sortKey }.take(limit)
+            )
+            ImapSearchHits(
+                messages = folders
+                    .flatMap { hits -> hits.messages.map { it.toEntity(credentials.id, hits.mailbox) } }
+                    .sortedByDescending { it.sortKey }
+                    .take(limit),
+                complete = folders.none { it.scanTruncated },
+            )
         }
     }
 
@@ -433,6 +441,12 @@ class ImapMailService(
         }
     }
 }
+
+/**
+ * What an IMAP search found, and whether that is all there was: [complete] is false when a
+ * folder's local attachment filter hit its scan cap before running out of candidates.
+ */
+data class ImapSearchHits(val messages: List<EmailEntity>, val complete: Boolean)
 
 /**
  * The IMAP-expressible part of a [SearchQuery]. `hasAttachment` is deliberately absent: IMAP

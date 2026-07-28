@@ -2997,17 +2997,24 @@ class MailRepository(
      * quietly answered something else), across every cached folder of the account rather than
      * the inbox alone. "Has an attachment" has no IMAP key and is filtered from BODYSTRUCTURE
      * on the way back.
+     *
+     * The answer says whether it is whole ([MailSearchResult.complete]): a full page means the
+     * server may have had more, and an IMAP attachment scan can stop on its cap. Only a caller
+     * that knows this can put an honest count on screen.
      */
-    suspend fun search(credentials: AccountCredentials, query: SearchQuery, limit: Int = 50): List<Email> {
-        if (query.isEmpty()) return emptyList()
+    suspend fun search(credentials: AccountCredentials, query: SearchQuery, limit: Int = 50): MailSearchResult {
+        if (query.isEmpty()) return MailSearchResult(emptyList())
         if (credentials.protocol == MailProtocol.IMAP) {
             // Folders come from the cache, so a search covers what the drawer knows; an account
             // whose folders were never synced falls back to the inbox rather than nothing.
             val folders = searchableFolderIds(mailboxDao.searchOrder(credentials.id))
                 .ifEmpty { listOfNotNull(mailboxDao.idForRole(credentials.id, "inbox")) }
-            if (folders.isEmpty()) return emptyList()
-            return imap.search(credentials, folders, query.toImapCriteria(), query.hasAttachment, limit)
-                .map { it.toEmail() }
+            if (folders.isEmpty()) return MailSearchResult(emptyList())
+            val hits = imap.search(credentials, folders, query.toImapCriteria(), query.hasAttachment, limit)
+            return MailSearchResult(
+                emails = hits.messages.map { it.toEmail() },
+                complete = hits.complete && hits.messages.size < limit,
+            )
         }
         val ctx = connect(credentials)
         val hits = client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth)
@@ -3016,40 +3023,48 @@ class MailRepository(
         // never the server map's arbitrary first key, which could feed a search-row action
         // (delete's destroy-vs-move, undo's restore target) a Trash/Junk folder by accident.
         val cachedMailbox = emailDao.emailsByIds(credentials.id, hits.map { it.id }).associate { it.id to it.mailboxId }
-        return hits.map { e ->
+        val resolved = hits.map { e ->
             val serverBoxes = e.mailboxIds.keys
             val mailbox = cachedMailbox[e.id]?.takeIf { it in serverBoxes }
                 ?: rankedMailboxPick(credentials.id, serverBoxes)
             e.copy(mailboxId = mailbox ?: e.mailboxId)
         }
+        // A full page means the server stopped at the cap, not that the account holds exactly that many.
+        return MailSearchResult(resolved, complete = hits.size < limit)
     }
 
     /**
      * Unified search across several accounts (the unified-inbox / dedicated-search case).
      * Each account's [search] runs in parallel; every hit is tagged with its local
      * accountId so results open in the right account and show the right account colour.
-     * Per-account failures are skipped so one unreachable account doesn't sink the search.
+     * Per-account failures are skipped so one unreachable account doesn't sink the search —
+     * but they make the answer incomplete, and it says so rather than passing the survivors
+     * off as the whole result.
      * Results are merged, de-duplicated, sorted newest-first and capped at [limit].
      */
-    suspend fun search(accounts: List<AccountCredentials>, query: SearchQuery, limit: Int = 50): List<Email> {
-        if (query.isEmpty() || accounts.isEmpty()) return emptyList()
+    suspend fun search(accounts: List<AccountCredentials>, query: SearchQuery, limit: Int = 50): MailSearchResult {
+        if (query.isEmpty() || accounts.isEmpty()) return MailSearchResult(emptyList())
         if (accounts.size == 1) {
             val only = accounts.first()
-            return search(only, query, limit).map { it.copy(accountId = only.id) }
+            val one = search(only, query, limit)
+            return one.copy(emails = one.emails.map { it.copy(accountId = only.id) })
         }
         val perAccount = coroutineScope {
             accounts.map { credentials ->
                 async {
-                    runCatching { search(credentials, query, limit).map { it.copy(accountId = credentials.id) } }
-                        .getOrDefault(emptyList())
+                    runCatching {
+                        val hits = search(credentials, query, limit)
+                        hits.copy(emails = hits.emails.map { it.copy(accountId = credentials.id) })
+                    }.getOrDefault(MailSearchResult(emptyList(), complete = false))
                 }
             }.awaitAll()
         }
-        return perAccount.flatten()
+        val merged = perAccount.flatMap { it.emails }
             // receivedAt is an ISO-8601 UTC string, so lexicographic sort == chronological.
             .distinctBy { it.accountId to it.id }
             .sortedByDescending { it.receivedAt ?: "" }
             .take(limit)
+        return MailSearchResult(merged, complete = perAccount.all { it.complete } && merged.size < limit)
     }
 
     /** Fetch an email (with body) without marking it read — used to build replies/forwards. */

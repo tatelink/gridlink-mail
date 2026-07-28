@@ -1725,7 +1725,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             //    flicker away or depend on typing speed.
             delay(SERVER_SEARCH_DEBOUNCE_MS)
             val server = runCatching {
-                repo.search(searchAccounts(), SearchQuery(text = query), SERVER_SEARCH_LIMIT)
+                repo.search(searchAccounts(), SearchQuery(text = query), SERVER_SEARCH_LIMIT).emails
             }.getOrNull().orEmpty()
             if (searchState.value.query == query) {
                 searchState.value = searchState.value.copy(

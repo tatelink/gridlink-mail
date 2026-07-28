@@ -334,7 +334,9 @@ private fun MainNavHost(
                     }
                 },
                 onOpenSettings = { if (entry.lifecycleIsResumed()) nav.navigate("settings") },
-                onOpenSearch = { if (entry.lifecycleIsResumed()) nav.navigate("search") },
+                // The words already typed in the search bar travel with the navigation: opening
+                // the advanced filters used to clear them and ask for them again.
+                onOpenSearch = { q -> if (entry.lifecycleIsResumed()) nav.navigate("search?q=${Uri.encode(q)}") },
                 onOpenScheduled = { if (entry.lifecycleIsResumed()) nav.navigate("scheduled") },
                 onOpenSnoozed = { if (entry.lifecycleIsResumed()) nav.navigate("snoozed") },
                 onOpenOutbox = { if (entry.lifecycleIsResumed()) nav.navigate("outbox") },
@@ -484,7 +486,14 @@ private fun MainNavHost(
                 draftId = entry.arguments?.getString("draftId")?.let { Uri.decode(it) }?.ifBlank { null },
             )
         }
-        composable("search") { entry ->
+        composable(
+            route = "search?q={q}",
+            // The initial term is read straight from the entry's SavedStateHandle by
+            // SearchViewModel, so it survives a process death like the rest of the criteria.
+            arguments = listOf(
+                navArgument("q") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) { entry ->
             SearchScreen(
                 onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
                 onOpenEmail = { id, accountId ->

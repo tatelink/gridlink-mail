@@ -1,14 +1,14 @@
 package app.sterna.ui.search
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
@@ -37,13 +37,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,12 +54,10 @@ import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.ui.components.EmailListItem
 import app.sterna.ui.components.EmptyArt
 import app.sterna.ui.components.EmptyState
-import java.time.Instant
-import java.time.ZoneOffset
+import app.sterna.ui.components.accountColorOf
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
-
-private const val DAY_MS = 24L * 60 * 60 * 1000
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,29 +67,19 @@ fun SearchScreen(
     viewModel: SearchViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var text by rememberSaveable { mutableStateOf("") }
-    // This screen is only reached via the "advanced filters" action, so show the
-    // filters straight away (plain text search already lives in the inbox loupe).
-    var showAdvanced by rememberSaveable { mutableStateOf(true) }
-    var from by rememberSaveable { mutableStateOf("") }
-    var recipient by rememberSaveable { mutableStateOf("") }
-    var subject by rememberSaveable { mutableStateOf("") }
-    var hasAttachment by rememberSaveable { mutableStateOf(false) }
-    var afterMillis by rememberSaveable { mutableStateOf<Long?>(null) }
-    var beforeMillis by rememberSaveable { mutableStateOf<Long?>(null) }
+    val form by viewModel.form.collectAsStateWithLifecycle()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val query = form.query
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
 
-    fun runSearch() = viewModel.search(
-        SearchQuery(
-            text = text,
-            from = from,
-            recipient = recipient,
-            subject = subject,
-            hasAttachment = hasAttachment,
-            afterMillis = afterMillis,
-            // Make the "before" day inclusive (end of that UTC day).
-            beforeMillis = beforeMillis?.let { it + DAY_MS - 1000 },
-        ),
-    )
+    fun runSearch() {
+        // Fold the keyboard away with the panel: it used to stay up over the results, which on a
+        // phone left the list with a couple of rows' worth of room.
+        focusManager.clearFocus()
+        keyboard?.hide()
+        viewModel.search()
+    }
 
     Scaffold(
         topBar = {
@@ -105,11 +94,11 @@ fun SearchScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showAdvanced = !showAdvanced }) {
+                    IconButton(onClick = viewModel::togglePanel) {
                         Icon(
                             Icons.Filled.Tune,
                             contentDescription = stringResource(R.string.search_advanced_toggle),
-                            tint = if (showAdvanced) MaterialTheme.colorScheme.primary
+                            tint = if (form.expanded) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -117,21 +106,21 @@ fun SearchScreen(
             )
         },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        // imePadding: the screen gives the keyboard the room it takes instead of being drawn under it.
+        Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
             OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
+                value = query.text,
+                onValueChange = { viewModel.updateQuery(query.copy(text = it)) },
                 label = { Text(stringResource(R.string.search_field_label)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { runSearch() }),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            if (showAdvanced) {
-                val focusManager = LocalFocusManager.current
+            if (form.expanded) {
                 OutlinedTextField(
-                    value = from,
-                    onValueChange = { from = it },
+                    value = query.from,
+                    onValueChange = { viewModel.updateQuery(query.copy(from = it)) },
                     label = { Text(stringResource(R.string.search_from)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
@@ -141,8 +130,8 @@ fun SearchScreen(
                 // Matches To OR Cc: a message that only carries the address in copy was still
                 // received at it (aliases, shared mailboxes), so one field, no To/Cc switch.
                 OutlinedTextField(
-                    value = recipient,
-                    onValueChange = { recipient = it },
+                    value = query.recipient,
+                    onValueChange = { viewModel.updateQuery(query.copy(recipient = it)) },
                     label = { Text(stringResource(R.string.search_recipient)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
@@ -150,8 +139,8 @@ fun SearchScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 OutlinedTextField(
-                    value = subject,
-                    onValueChange = { subject = it },
+                    value = query.subject,
+                    onValueChange = { viewModel.updateQuery(query.copy(subject = it)) },
                     label = { Text(stringResource(R.string.search_subject)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -167,18 +156,41 @@ fun SearchScreen(
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.weight(1f),
                     )
-                    Switch(checked = hasAttachment, onCheckedChange = { hasAttachment = it })
+                    Switch(
+                        checked = query.hasAttachment,
+                        onCheckedChange = { viewModel.updateQuery(query.copy(hasAttachment = it)) },
+                    )
                 }
-                SearchDateRow(stringResource(R.string.search_after), afterMillis) { afterMillis = it }
-                SearchDateRow(stringResource(R.string.search_before), beforeMillis) { beforeMillis = it }
+                SearchDateRow(stringResource(R.string.search_after), query.afterMillis) { picked ->
+                    viewModel.updateQuery(query.copy(afterMillis = picked?.let(::searchAfterBound)))
+                }
+                SearchDateRow(stringResource(R.string.search_before), query.beforeMillis) { picked ->
+                    viewModel.updateQuery(query.copy(beforeMillis = picked?.let(::searchBeforeBound)))
+                }
                 Button(
                     onClick = { runSearch() },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text(stringResource(R.string.search_button))
                 }
+            } else {
+                // Folded: the criteria the RESULTS came from, never the half-edited form — that is
+                // what explains the list. Tapping it brings the panel back to change them.
+                val applied = (state as? SearchState.Results)?.query ?: query
+                CriteriaSummary(applied, onClick = viewModel::togglePanel)
             }
-            Box(Modifier.fillMaxSize()) {
+            (state as? SearchState.Results)?.takeIf { it.emails.isNotEmpty() }?.let { results ->
+                Text(
+                    // "At least N" whenever the search stopped short of the whole answer: a
+                    // truncated scan counted as a total would be a number the user can't check.
+                    if (results.complete) stringResource(R.string.search_result_count, results.emails.size)
+                    else stringResource(R.string.search_result_count_capped, results.emails.size),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            Box(Modifier.fillMaxWidth().weight(1f)) {
                 when (val s = state) {
                     is SearchState.Idle -> Text(
                         stringResource(R.string.search_idle_hint),
@@ -192,17 +204,31 @@ fun SearchScreen(
                         modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     )
                     is SearchState.Results -> if (s.emails.isEmpty()) {
+                        val term = s.query.text.trim()
                         EmptyState(
                             art = EmptyArt.SEARCH,
-                            title = if (s.label.isBlank()) stringResource(R.string.search_no_results_generic)
-                            else stringResource(R.string.search_no_results, s.label),
+                            title = if (term.isBlank()) stringResource(R.string.search_no_results_generic)
+                            else stringResource(R.string.search_no_results, term),
                             body = stringResource(R.string.empty_search_body),
                             modifier = Modifier.align(Alignment.Center),
                         )
                     } else {
                         LazyColumn(Modifier.fillMaxSize()) {
                             items(s.emails, key = ::searchResultKey) { email ->
-                                EmailListItem(email = email, onClick = { onOpenEmail(email.id, email.accountId) })
+                                // Which account a hit belongs to matters here more than anywhere:
+                                // the search spans them all. Same pill as the unified list, and
+                                // only when there is more than one account to tell apart.
+                                val owner = if (accounts.size > 1) {
+                                    accounts.firstOrNull { it.id == email.accountId }
+                                } else {
+                                    null
+                                }
+                                EmailListItem(
+                                    email = email,
+                                    onClick = { onOpenEmail(email.id, email.accountId) },
+                                    accountLabel = owner?.label(),
+                                    accountColor = accountColorOf(owner?.color),
+                                )
                                 HorizontalDivider()
                             }
                         }
@@ -213,10 +239,62 @@ fun SearchScreen(
     }
 }
 
+/**
+ * The folded panel's one line: "From: alex · Has attachment · After: 3 Jun 2026".
+ *
+ * A line of text rather than a row of chips on purpose — chips would wrap to three rows on a
+ * phone and take back the space folding the panel just freed, for an affordance (removing one
+ * criterion) the screen doesn't offer anyway. Nothing at all is shown when only free text was
+ * searched: its field is right above, still filled in.
+ */
+@Composable
+private fun CriteriaSummary(query: SearchQuery, onClick: () -> Unit) {
+    val filters = searchSummary(query)
+    if (filters.isEmpty()) return
+    // A plain loop, not joinToString: the pieces are string resources, and a composable call
+    // can't go inside a non-inline lambda.
+    val parts = ArrayList<String>(filters.size)
+    for (filter in filters) {
+        parts += when (filter.criterion) {
+            SearchCriterion.FROM -> criterionPair(R.string.search_from, filter.text)
+            SearchCriterion.RECIPIENT -> criterionPair(R.string.search_recipient, filter.text)
+            SearchCriterion.SUBJECT -> criterionPair(R.string.search_subject, filter.text)
+            SearchCriterion.ATTACHMENT -> stringResource(R.string.search_has_attachment)
+            // The date labels are already worded as prepositions ("After", "Après le", "Depois
+            // de"), so they take the value without a colon — hence a second join pattern.
+            SearchCriterion.AFTER -> stringResource(
+                R.string.search_criteria_pair_date,
+                stringResource(R.string.search_after),
+                formatSearchDate(searchBoundDay(filter.millis!!)),
+            )
+            SearchCriterion.BEFORE -> stringResource(
+                R.string.search_criteria_pair_date,
+                stringResource(R.string.search_before),
+                formatSearchDate(searchBoundDay(filter.millis!!)),
+            )
+        }
+    }
+    Text(
+        parts.joinToString(" · "),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun criterionPair(@StringRes label: Int, value: String): String =
+    stringResource(R.string.search_criteria_pair, stringResource(label), value)
+
 /** A tappable row that shows the chosen date (or "Any") and opens a date picker. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SearchDateRow(label: String, millis: Long?, onPick: (Long?) -> Unit) {
+private fun SearchDateRow(label: String, boundMillis: Long?, onPick: (Long?) -> Unit) {
     var showPicker by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
@@ -228,19 +306,23 @@ private fun SearchDateRow(label: String, millis: Long?, onPick: (Long?) -> Unit)
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.bodyLarge)
             Text(
-                millis?.let(::formatSearchDate) ?: stringResource(R.string.search_date_any),
+                boundMillis?.let { formatSearchDate(searchBoundDay(it)) }
+                    ?: stringResource(R.string.search_date_any),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (millis != null) {
+        if (boundMillis != null) {
             IconButton(onClick = { onPick(null) }) {
                 Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.settings_vacation_clear_date))
             }
         }
     }
     if (showPicker) {
-        val pickerState = rememberDatePickerState(initialSelectedDateMillis = millis)
+        // The picker speaks UTC midnight, the query holds a local-day bound: hand it back the day.
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = boundMillis?.let(::searchPickerMillis),
+        )
         DatePickerDialog(
             onDismissRequest = { showPicker = false },
             confirmButton = {
@@ -258,6 +340,5 @@ private fun SearchDateRow(label: String, millis: Long?, onPick: (Long?) -> Unit)
     }
 }
 
-private fun formatSearchDate(millis: Long): String =
-    Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
-        .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
+private fun formatSearchDate(day: LocalDate): String =
+    day.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
