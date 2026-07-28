@@ -253,7 +253,9 @@ class UnifiedPushManager(
             is PushMessagePayload.Change -> enqueueForLogin(accountId)
             // Unknown/undecryptable payload: treat as a bare wake signal — still fetch.
             null -> {
-                Log.d(TAG, "Unparsed push payload (${message.content.size}B, decrypted=${message.decrypted})")
+                // Log.i, not d: release builds strip d/v, and when push misbehaves on a distributor
+                // I cannot test, this line (size + decrypted flag only, no payload) is the evidence.
+                Log.i(TAG, "Unparsed push payload (${message.content.size}B, decrypted=${message.decrypted})")
                 enqueueForLogin(accountId)
             }
         }
