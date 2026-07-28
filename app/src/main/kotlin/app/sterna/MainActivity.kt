@@ -131,6 +131,11 @@ class MainActivity : AppCompatActivity() {
      * A system "Share" (ACTION_SEND / SEND_MULTIPLE) opens the compose screen: shared text and
      * subject prefill the fields (reusing the mailto path), and any shared files are stashed for
      * the compose screen to attach (Codeberg #45).
+     *
+     * Only `content:` URIs are taken. The resolver would happily open a `file:` URI too, with OUR
+     * permissions and no grant involved, so any app could hand us a path inside our own private
+     * directory (the database, the account preferences) and have it pre-attached to a draft. A
+     * legitimate share has been a `content:` URI since Android 7 anyway.
      */
     private fun parseShare(intent: Intent?): MailtoDraft? {
         if (intent == null) return null
@@ -142,7 +147,7 @@ class MainActivity : AppCompatActivity() {
         val uris: List<Uri> = when (action) {
             Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
             else -> intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
-        }
+        }.filter { "content".equals(it.scheme, ignoreCase = true) }
         if (subject.isBlank() && text.isBlank() && uris.isEmpty()) return null
         application.container.pendingShareUris = uris
         return MailtoDraft(to = "", cc = "", bcc = "", subject = subject, body = text)

@@ -56,9 +56,13 @@ Out of scope:
   `/.well-known/jmap` discovery but refuses HTTPS→HTTP redirects
   (`followSslRedirects(false)`), so an injected same-host redirect cannot leak the
   `Authorization` header over cleartext.
-- **Cleartext is never a default and never silent.** The sign-in screen offers no cleartext option: an account is created over TLS or STARTTLS.
-  The account editor does offer `ConnectionSecurity.NONE`, because a bridge on 127.0.0.1 (Proton Bridge and the like) is a legitimate cleartext target, but selecting it puts a warning under the selector naming what it costs.
-  A K-9 settings import whose file does not state a connection security I recognise falls back to an encrypted setting and reports the account as one to check, rather than quietly configuring it in the clear.
+- **Cleartext is never a default and never silent.** The sign-in screen offers no cleartext
+  option: an account is created over TLS or STARTTLS. The account editor does offer
+  `ConnectionSecurity.NONE`, because a bridge on 127.0.0.1 (Proton Bridge and the like) is a
+  legitimate cleartext target, but selecting it puts a warning under the selector naming what
+  it costs. A K-9 settings import whose file does not state a connection security I recognise
+  falls back to an encrypted setting and reports the account as one to check, rather than
+  quietly configuring it in the clear.
 
 ### Message rendering (WebView)
 
@@ -84,8 +88,13 @@ Out of scope:
   blow-up from deeply nested or part-flooded multipart messages.
 - Decoded header display values are stripped of **control characters and Unicode bidi
   overrides** to reduce display-name spoofing.
-- Outgoing message headers, the SMTP envelope (`MAIL FROM` / `RCPT TO`) and IMAP command arguments all reject embedded **CR/LF**, closing SMTP header injection (e.g. a hidden `Bcc:`), envelope injection (a hidden recipient) and IMAP command injection.
-  An address carrying a line break is also refused before the message is queued, so the two paths that skip the composer's own validation (a notification quick reply, whose address comes from a `From` header a hostile server can craft, and a `mailto:` link hiding a `%0D%0A`) fail visibly instead of reaching an address the sender never saw.
+- Outgoing message headers, the SMTP envelope (`MAIL FROM` / `RCPT TO`) and IMAP command
+  arguments all reject embedded **CR/LF**, closing SMTP header injection (e.g. a hidden
+  `Bcc:`), envelope injection (a hidden recipient) and IMAP command injection. An address
+  carrying a line break is also refused before the message is queued, so the two paths that
+  skip the composer's own validation (a notification quick reply, whose address comes from a
+  `From` header a hostile server can craft, and a `mailto:` link hiding a `%0D%0A`) fail
+  visibly instead of reaching an address the sender never saw.
 
 ### Credentials & data at rest
 
@@ -98,11 +107,16 @@ Out of scope:
   backup and device transfer.
 - With **app lock** enabled, the window is marked `FLAG_SECURE`, keeping message content
   and the credential-entry screen out of the recents thumbnail and screenshots.
-- **The app lock is a visual barrier, not encryption, and the message cache is not encrypted.** `BiometricPrompt` is called without a `CryptoObject`, and nothing is re-encrypted when the app locks; the Room database (message headers, cached bodies, the search index) is stored unencrypted in the app's private directory.
-  So the lock is worth what it claims and no more: it keeps someone who picks up your unlocked phone from reading your mail.
-  It does not defend against extraction: root, an ADB or recovery path into the app's private directory, and a filesystem image all reach the cache without ever meeting the prompt (Android's own backup is disabled, per the bullet above, but that is one route out of several).
-  Account secrets are the exception: they stay behind the KeyStore-held key described above.
-  I would rather state the real scope than leave a false assurance standing.
+- **The app lock is a visual barrier, not encryption, and the message cache is not
+  encrypted.** `BiometricPrompt` is called without a `CryptoObject`, and nothing is
+  re-encrypted when the app locks; the Room database (message headers, cached bodies, the
+  search index) is stored unencrypted in the app's private directory. So the lock is worth
+  what it claims and no more: it keeps someone who picks up your unlocked phone from reading
+  your mail. It does not defend against extraction: root, an ADB or recovery path into the
+  app's private directory, and a filesystem image all reach the cache without ever meeting
+  the prompt (Android's own backup is disabled, per the bullet above, but that is one route
+  out of several). Account secrets are the exception: they stay behind the KeyStore-held key
+  described above. I would rather state the real scope than leave a false assurance standing.
 
 ### OpenPGP (end-to-end encryption)
 
@@ -119,11 +133,20 @@ Out of scope:
 
 ### Android platform surface
 
-- The only exported component is the launcher `MainActivity`, and it does read untrusted input: `mailto:` deep links (VIEW+BROWSABLE and SENDTO filters) plus `ACTION_SEND` / `ACTION_SEND_MULTIPLE` in `*/*`, from which it reads `EXTRA_SUBJECT`, `EXTRA_TEXT` and `EXTRA_STREAM`.
-  All of it is treated as compose-screen prefill and nothing more.
-  A `mailto:` is parsed with the platform `MailTo` parser inside a `runCatching`, so a malformed or hostile URI opens nothing at all; the text extras only fill the subject and body fields; the `EXTRA_STREAM` URIs are read back through the `ContentResolver` under the grant the sender gave, no filesystem path is derived from them, and the display name is CR/LF-filtered before it can reach a MIME header.
-  No intent extra selects an account, grants a permission, or sends anything, an address carrying a line break is refused before submission, and a consumed payload is stripped from the retained intent so it cannot replay on the next read.
-  Push service, the notification receiver, and the FileProvider are not exported.
+- The only exported component is the launcher `MainActivity`, and it does read untrusted
+  input: `mailto:` deep links (VIEW+BROWSABLE and SENDTO filters) plus `ACTION_SEND` /
+  `ACTION_SEND_MULTIPLE` in `*/*`, from which it reads `EXTRA_SUBJECT`, `EXTRA_TEXT` and
+  `EXTRA_STREAM`. All of it is treated as compose-screen prefill and nothing more. A
+  `mailto:` is parsed with the platform `MailTo` parser inside a `runCatching`, so a
+  malformed or hostile URI opens nothing at all; the text extras only fill the subject and
+  body fields; and of the shared URIs, **only `content:` ones are accepted**, so no app can
+  hand over a `file:` path and have Sterna read its own private storage on the sender's
+  behalf. No filesystem path is derived from a shared URI, and the display name is
+  CR/LF-filtered before it can reach a MIME header. No intent extra selects an account,
+  grants a permission, or sends anything, an address carrying a line break is refused before
+  submission, and a consumed payload is stripped from the retained intent so it cannot replay
+  on the next read. Push service, the notification receiver, and the FileProvider are not
+  exported.
 - Notification `PendingIntent`s are `IMMUTABLE` (except the RemoteInput reply, which must
   be mutable and targets a non-exported receiver explicitly).
 - The `FileProvider` shares only `cacheDir/attachments/`, with sanitized filenames and
