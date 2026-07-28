@@ -660,6 +660,7 @@
     <string name="connect_import_k9_summary">%1$d conta(s) importada(s), %2$d ignorada(s) (POP3 ou não suportadas).</string>
     <string name="import_snackbar_imported">%1$d conta(s) importada(s) com sucesso</string>
     <string name="import_snackbar_imported_with_skipped">%1$d conta(s) importada(s) com sucesso (%2$d ignorada(s))</string>
+    <string name="import_snackbar_check_security">Verifique a segurança da conexão de %1$d delas.</string>
     <string name="import_pending_title">Contas por iniciar sessão</string>
     <string name="import_pending_dismiss">Dispensar</string>
     <string name="import_pending_dismissed">Conta dispensada</string>

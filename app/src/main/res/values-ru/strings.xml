@@ -663,6 +663,7 @@
     <string name="connect_import_k9_summary">Импортировано учётных записей: %1$d, пропущено: %2$d (POP3 или не поддерживается).</string>
     <string name="import_snackbar_imported">Успешно импортировано учётных записей: %1$d</string>
     <string name="import_snackbar_imported_with_skipped">Успешно импортировано учётных записей: %1$d (пропущено: %2$d)</string>
+    <string name="import_snackbar_check_security">Проверьте безопасность соединения у %1$d из них.</string>
     <string name="import_pending_title">Учётные записи для входа</string>
     <string name="import_pending_dismiss">Закрыть</string>
     <string name="import_pending_dismissed">Учётная запись закрыта</string>

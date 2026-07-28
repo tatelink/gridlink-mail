@@ -662,6 +662,7 @@
     <string name="connect_import_k9_summary">%1$d compte(s) importé(s), %2$d ignoré(s) (POP3 ou non pris en charge).</string>
     <string name="import_snackbar_imported">%1$d compte(s) importé(s) avec succès</string>
     <string name="import_snackbar_imported_with_skipped">%1$d compte(s) importé(s) avec succès (%2$d ignoré(s))</string>
+    <string name="import_snackbar_check_security">Vérifiez la sécurité de connexion de %1$d d\'entre eux.</string>
     <string name="import_pending_title">Comptes à connecter</string>
     <string name="import_pending_dismiss">Écarter</string>
     <string name="import_pending_dismissed">Compte écarté</string>

@@ -37,6 +37,7 @@ object K9SettingsImporter {
 
         val accounts = mutableListOf<StoredAccount>()
         val skipped = mutableListOf<K9Skip>()
+        val securityUnverified = mutableListOf<String>()
 
         val accountsNode = root.childElements().firstOrNull { it.tagName == "accounts" }
         for (accountEl in accountsNode?.childElements()?.filter { it.tagName == "account" }.orEmpty()) {
@@ -44,17 +45,24 @@ object K9SettingsImporter {
             runCatching { parseAccount(accountEl) }
                 .onSuccess { outcome ->
                     when (outcome) {
-                        is AccountOutcome.Imported -> accounts += outcome.account
+                        is AccountOutcome.Imported -> {
+                            accounts += outcome.account
+                            if (outcome.securityUnverified) securityUnverified += label
+                        }
                         is AccountOutcome.Skipped -> skipped += K9Skip(label, outcome.reason)
                     }
                 }
                 .onFailure { skipped += K9Skip(label, K9SkipReason.MALFORMED) }
         }
-        return K9ImportResult(accounts, skipped)
+        return K9ImportResult(accounts, skipped, securityUnverified)
     }
 
     private sealed interface AccountOutcome {
-        data class Imported(val account: StoredAccount) : AccountOutcome
+        data class Imported(
+            val account: StoredAccount,
+            /** The file did not state a connection security we map, so ours is a safe guess. */
+            val securityUnverified: Boolean,
+        ) : AccountOutcome
         data class Skipped(val reason: K9SkipReason) : AccountOutcome
     }
 
@@ -79,7 +87,8 @@ object K9SettingsImporter {
         val username = incoming.childText("username")
         val imapHost = incoming.childText("host")
         val imapPort = incoming.childText("port").toIntOrNull() ?: 993
-        val imapSecurity = connectionSecurity(incoming.childText("connection-security"))
+        val rawImapSecurity = incoming.childText("connection-security")
+        val imapSecurity = connectionSecurity(rawImapSecurity)
 
         if (username.isBlank() || imapHost.isBlank()) {
             return AccountOutcome.Skipped(K9SkipReason.MALFORMED)
@@ -88,12 +97,17 @@ object K9SettingsImporter {
         val outgoing = account.childElements().firstOrNull { it.tagName == "outgoing-server" }
         val smtpHost = outgoing?.childText("host").orEmpty()
         val smtpPort = outgoing?.childText("port")?.toIntOrNull() ?: 587
-        val smtpSecurity = outgoing
-            ?.let { connectionSecurity(it.childText("connection-security")) }
+        val rawSmtpSecurity = outgoing?.childText("connection-security")
+        val smtpSecurity = rawSmtpSecurity
+            ?.let { connectionSecurity(it, fallback = ConnectionSecurity.STARTTLS) }
             ?: ConnectionSecurity.STARTTLS
 
         return AccountOutcome.Imported(
-            StoredAccount(
+            // Either end falling back tells the user the guess needs checking: the file did not
+            // say (or said something we do not map), so the ports may not match the guess.
+            securityUnverified = !isKnownSecurity(rawImapSecurity) ||
+                (rawSmtpSecurity != null && !isKnownSecurity(rawSmtpSecurity)),
+            account = StoredAccount(
                 id = "",
                 server = "",
                 username = username,
@@ -132,11 +146,28 @@ object K9SettingsImporter {
             }
     }
 
-    private fun connectionSecurity(raw: String): ConnectionSecurity = when (raw.uppercase()) {
+    /**
+     * Map K-9's `<connection-security>` onto ours, falling back to an encrypted [fallback]
+     * for anything we do not recognise. The export can legitimately say
+     * `SSL_TLS_OPTIONAL`/`STARTTLS_OPTIONAL`, omit the element (older K-9 versions), or be
+     * truncated; defaulting those to NONE configured the account in the clear, and with a
+     * port 143 also in the file the very first LOGIN would have put the password on the wire
+     * unencrypted, silently. An unknown value now lands on the safe side and the account is
+     * reported in [K9ImportResult.securityUnverified] so the user is told to check it: a
+     * wrong encrypted guess fails visibly at sign-in, a wrong NONE guess succeeds and leaks.
+     */
+    private fun connectionSecurity(
+        raw: String,
+        fallback: ConnectionSecurity = ConnectionSecurity.TLS,
+    ): ConnectionSecurity = when (raw.uppercase()) {
         "SSL_TLS_REQUIRED" -> ConnectionSecurity.TLS
         "STARTTLS_REQUIRED" -> ConnectionSecurity.STARTTLS
-        else -> ConnectionSecurity.NONE
+        else -> fallback
     }
+
+    /** Whether [raw] is a value we actually understood (vs. one that took the safe fallback). */
+    private fun isKnownSecurity(raw: String): Boolean =
+        raw.uppercase() == "SSL_TLS_REQUIRED" || raw.uppercase() == "STARTTLS_REQUIRED"
 
     /** Best-effort label for skip reporting: the account's <name>, else its uuid, else "(unknown)". */
     private fun accountLabel(account: Element): String {
@@ -173,6 +204,12 @@ object K9SettingsImporter {
 data class K9ImportResult(
     val accounts: List<StoredAccount>,
     val skipped: List<K9Skip>,
+    /**
+     * Labels of imported accounts whose connection security the file did not state in terms we
+     * map, so ours is a safe guess (TLS in, STARTTLS out) rather than what K-9 was using. The
+     * import surfaces this so the user checks those accounts instead of trusting the guess.
+     */
+    val securityUnverified: List<String> = emptyList(),
 )
 
 data class K9Skip(val account: String, val reason: K9SkipReason)

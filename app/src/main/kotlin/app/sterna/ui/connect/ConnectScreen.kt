@@ -204,14 +204,22 @@ fun ConnectScreen(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) {
-            settingsViewModel.importK9Settings(uri) { ok, added, skipped ->
+            settingsViewModel.importK9Settings(uri) { ok, added, skipped, unverified ->
                 when {
                     ok && added > 0 -> {
+                        val imported = if (skipped > 0) {
+                            context.getString(R.string.import_snackbar_imported_with_skipped, added, skipped)
+                        } else {
+                            context.getString(R.string.import_snackbar_imported, added)
+                        }
+                        // The file did not state a connection security we map for some accounts, so
+                        // theirs is a safe guess: say so rather than let it pass for what K-9 used.
                         snackbar(
-                            if (skipped > 0) {
-                                context.getString(R.string.import_snackbar_imported_with_skipped, added, skipped)
+                            if (unverified > 0) {
+                                imported + " " +
+                                    context.getString(R.string.import_snackbar_check_security, unverified)
                             } else {
-                                context.getString(R.string.import_snackbar_imported, added)
+                                imported
                             },
                         )
                         viewModel.beginImportSignIn()

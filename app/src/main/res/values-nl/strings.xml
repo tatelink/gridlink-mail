@@ -663,6 +663,7 @@
     <string name="connect_import_k9_summary">%1$d account(s) geïmporteerd, %2$d overgeslagen (POP3 of niet ondersteund).</string>
     <string name="import_snackbar_imported">%1$d account(s) succesvol geïmporteerd</string>
     <string name="import_snackbar_imported_with_skipped">%1$d account(s) succesvol geïmporteerd (%2$d overgeslagen)</string>
+    <string name="import_snackbar_check_security">Controleer bij %1$d ervan de verbindingsbeveiliging.</string>
     <string name="import_pending_title">Aan te melden accounts</string>
     <string name="import_pending_dismiss">Negeren</string>
     <string name="import_pending_dismissed">Account genegeerd</string>

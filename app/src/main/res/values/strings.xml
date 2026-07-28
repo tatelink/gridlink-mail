@@ -601,6 +601,7 @@
     <string name="connect_import_k9_summary">Imported %1$d account(s), skipped %2$d (POP3 or unsupported).</string>
     <string name="import_snackbar_imported">%1$d account(s) imported successfully</string>
     <string name="import_snackbar_imported_with_skipped">%1$d account(s) imported successfully (%2$d skipped)</string>
+    <string name="import_snackbar_check_security">Check the connection security of %1$d of them.</string>
     <string name="import_pending_title">Accounts to sign in</string>
     <string name="import_pending_dismiss">Dismiss</string>
     <string name="import_pending_dismissed">Account dismissed</string>
