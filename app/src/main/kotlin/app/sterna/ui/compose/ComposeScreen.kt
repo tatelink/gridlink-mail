@@ -930,10 +930,6 @@ private fun ComposeField(
 /** Above this many recipients (To + Cc + Bcc), sending asks for confirmation. */
 private const val MANY_RECIPIENTS = 5
 
-/** Split a recipient string into trimmed, non-empty address tokens. */
-private fun recipientTokens(value: String): List<String> =
-    value.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
-
 /**
  * A recipient line that shows committed addresses as chips (invalid ones flagged in
  * the error colour) plus an inline editor with autocomplete. The field stays backed
@@ -958,11 +954,9 @@ private fun RecipientChipsField(
     /** When encrypting, flags a recipient with no available public key. */
     missingKey: (String) -> Boolean = { false },
 ) {
-    val cut = value.lastIndexOfAny(charArrayOf(',', ';'))
-    val chips = recipientTokens(if (cut >= 0) value.substring(0, cut) else "")
-    val input = (if (cut >= 0) value.substring(cut + 1) else value).trimStart()
+    val (chips, input) = splitRecipients(value)
 
-    fun rebuild(newChips: List<String>, newInput: String) = newChips.joinToString("") { "$it, " } + newInput
+    fun rebuild(newChips: List<String>, newInput: String) = joinRecipients(newChips, newInput)
 
     // Expanded shows the editable chip area with the input; collapsed shows chips only (or a
     // one-line "+N" summary) with no empty input line, so tapping another field leaves no unused
@@ -1003,7 +997,10 @@ private fun RecipientChipsField(
     // The input isn't composed while collapsed, so focus it once the field expands.
     LaunchedEffect(expanded) { if (expanded) runCatching { focus.requestFocus() } }
     // Follow the growing chip area so the blinking input stays in view as recipients are added.
-    LaunchedEffect(chipScroll.maxValue) { if (expanded) chipScroll.animateScrollTo(chipScroll.maxValue) }
+    // Instantly, not animated (#94): sliding the chips into place is the one moving part of this
+    // field, it plays whenever an address is committed — including on the way out, when leaving for
+    // the subject commits what was typed — and it shows nothing the jump doesn't.
+    LaunchedEffect(chipScroll.maxValue) { if (expanded) chipScroll.scrollTo(chipScroll.maxValue) }
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1064,7 +1061,19 @@ private fun RecipientChipsField(
                     val valid = isValidEmail(chip) && !missingKey(chip)
                     InputChip(
                         selected = false,
-                        onClick = {},
+                        // A tap hands the address back as plain text (#94): it leaves the chip row
+                        // for the input, where the field opens it with the caret at its end, and a
+                        // second tap puts the caret exactly where the typo is — the way it worked
+                        // before addresses were committed to chips. Two taps, and nothing hidden:
+                        // one gesture, one meaning, no double-tap timing to guess at. Whatever was
+                        // half-typed is committed rather than lost, see [recipientsWithChipEdited].
+                        onClick = {
+                            expanded = true
+                            inputState = TextFieldValue()
+                            onValueChange(recipientsWithChipEdited(value, index))
+                            onClearSuggestions()
+                            runCatching { focus.requestFocus() }
+                        },
                         label = { Text(chip, maxLines = 1) },
                         trailingIcon = {
                             Icon(
@@ -1084,6 +1093,11 @@ private fun RecipientChipsField(
                                 trailingIconColor = MaterialTheme.colorScheme.onErrorContainer,
                             )
                         },
+                        // No elevation, and therefore none of Material's interaction-driven
+                        // elevation animation (#94). An input chip's elevations are all 0dp anyway,
+                        // so this changes nothing on screen — it just stops an animated shadow from
+                        // ever being computed for a chip that is a flat outline by design.
+                        elevation = null,
                     )
                 }
                 // The input exists only while expanded, so an unfocused field shows no empty input

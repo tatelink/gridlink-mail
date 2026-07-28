@@ -325,6 +325,66 @@ class ComposeTextTest {
         assertEquals(null, headerTapCaret(tapX = 100f, textStartX = Float.NaN, textLength = 21))
     }
 
+    // --- Tapping a recipient chip to edit the address again (#94) ---
+    //
+    // The field is one comma-joined string: "a@x.com, b@x.com, " is two committed addresses and an
+    // empty input. Tapping a chip moves that address to the trailing token — where the field puts
+    // the caret at the end — and leaves the others committed, in order.
+
+    private val three = "alex@x.com, jordan@y.com, mia@z.com, "
+
+    @Test fun tappingAChipInTheMiddleTakesItOutOfTheChips() {
+        assertEquals("alex@x.com, mia@z.com, jordan@y.com", recipientsWithChipEdited(three, 1))
+    }
+
+    @Test fun tappingTheFirstChipKeepsTheOthersInOrder() {
+        assertEquals("jordan@y.com, mia@z.com, alex@x.com", recipientsWithChipEdited(three, 0))
+    }
+
+    @Test fun tappingTheLastChipJustReopensIt() {
+        assertEquals("alex@x.com, jordan@y.com, mia@z.com", recipientsWithChipEdited(three, 2))
+    }
+
+    @Test fun theTappedAddressBecomesTheEditableToken() {
+        // What the field then shows in its input, with the caret at its end.
+        assertEquals("jordan@y.com", splitRecipients(recipientsWithChipEdited(three, 1)).second)
+        assertEquals(listOf("alex@x.com", "mia@z.com"), splitRecipients(recipientsWithChipEdited(three, 1)).first)
+    }
+
+    // The chip most worth tapping: the one flagged as invalid, i.e. the typo to fix.
+    @Test fun tappingAnInvalidAddressReopensItForCorrection() {
+        assertEquals(
+            "jordan@y.com, alex@@x.com",
+            recipientsWithChipEdited("alex@@x.com, jordan@y.com, ", 0),
+        )
+    }
+
+    @Test fun anAddressBeingTypedIsCommittedRatherThanLost() {
+        assertEquals(
+            "jordan@y.com, mia@z.co, alex@x.com",
+            recipientsWithChipEdited("alex@x.com, jordan@y.com, mia@z.co", 0),
+        )
+    }
+
+    @Test fun aTapOnNoChipAtAllLeavesTheFieldAlone() {
+        assertEquals(three, recipientsWithChipEdited(three, 3))
+        assertEquals(three, recipientsWithChipEdited(three, -1))
+        assertEquals("", recipientsWithChipEdited("", 0))
+    }
+
+    // The comma-joined model's own limit, unchanged by the tap: a display name holding a comma is
+    // already two tokens before it is tapped, and is still two afterwards.
+    @Test fun aDisplayNameWithACommaIsTwoTokensEitherWay() {
+        val field = "\"Lee, Jordan\" <j@y.com>, alex@x.com, "
+        assertEquals(listOf("\"Lee", "Jordan\" <j@y.com>", "alex@x.com"), splitRecipients(field).first)
+        assertEquals("Jordan\" <j@y.com>, alex@x.com, \"Lee", recipientsWithChipEdited(field, 0))
+    }
+
+    // Semicolons commit an address just like commas, so a field typed with them reads the same.
+    @Test fun semicolonSeparatedAddressesAreChipsToo() {
+        assertEquals("jordan@y.com, alex@x.com", recipientsWithChipEdited("alex@x.com; jordan@y.com; ", 0))
+    }
+
     // --- Reply / reply-all header derivation (works from a cached row, so offline replies address) ---
 
     private val originalToReply = Email(

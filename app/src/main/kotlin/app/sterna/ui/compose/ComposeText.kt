@@ -274,6 +274,49 @@ internal fun headerTapCaret(tapX: Float, textStartX: Float, textLength: Int): In
     else -> null
 }
 
+/** Split a recipient string into trimmed, non-empty address tokens. */
+internal fun recipientTokens(value: String): List<String> =
+    value.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+
+/**
+ * A recipient field is a single comma-joined string, and that string is the only state there is:
+ * everything before the last separator is a committed address (shown as a chip), the trailing token
+ * is what is still being typed. [splitRecipients] reads a field that way, [joinRecipients] writes
+ * it back.
+ */
+internal fun splitRecipients(value: String): Pair<List<String>, String> {
+    val cut = value.lastIndexOfAny(charArrayOf(',', ';'))
+    val chips = recipientTokens(if (cut >= 0) value.substring(0, cut) else "")
+    val input = (if (cut >= 0) value.substring(cut + 1) else value).trimStart()
+    return chips to input
+}
+
+/** Put a recipient field back together from its committed addresses and its still-typed token. */
+internal fun joinRecipients(chips: List<String>, input: String): String =
+    chips.joinToString("") { "$it, " } + input
+
+/**
+ * The recipient field after a tap on the chip at [index] (#94): that address stops being a chip and
+ * becomes the field's editable text again, so a typo is fixed by tapping the address rather than
+ * deleting it and retyping the whole thing. It lands as the trailing token, which the field opens
+ * with the caret at its end; from there a tap anywhere inside it moves the caret there, exactly as
+ * before the address was committed.
+ *
+ * What was already being typed is not thrown away: it is committed as a chip of its own, at the end
+ * of the list, which is where it already sat in the string. An [index] that names no chip (a stale
+ * tap on a field that changed underneath) leaves the field untouched.
+ *
+ * Note the model's own limit: the field is comma-joined, so an address is a comma-free token. A
+ * display name holding a comma is already two tokens before any tap, and stays two afterwards.
+ */
+internal fun recipientsWithChipEdited(value: String, index: Int): String {
+    val (chips, input) = splitRecipients(value)
+    if (index !in chips.indices) return value
+    val kept = chips.filterIndexed { i, _ -> i != index }
+    val pending = input.trim()
+    return joinRecipients(if (pending.isEmpty()) kept else kept + pending, chips[index])
+}
+
 /**
  * Compose's initial fields when reopening a saved draft for editing (#63): every addressing
  * field as typed-out addresses, the subject verbatim, and the body flattened to the plain-text
