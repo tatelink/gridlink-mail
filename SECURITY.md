@@ -65,7 +65,9 @@ Out of scope:
   the same way; banking apps decide the opposite way. For a client whose users largely run
   their own servers, trusting the store the user controls is the coherent trade, and the
   decision stays where Android already manages it, with its own permanent warning and a place
-  to review and remove the certificate.
+  to review and remove the certificate. The configuration is app-wide rather than mail-only,
+  so such an authority is equally trusted for any remote content you choose to load inside a
+  message (remote content stays blocked until you ask for it).
 - **No TLS downgrade on redirects.** The JMAP HTTP client follows redirects for
   `/.well-known/jmap` discovery but refuses HTTPS→HTTP redirects
   (`followSslRedirects(false)`), so an injected same-host redirect cannot leak the
