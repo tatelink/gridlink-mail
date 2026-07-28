@@ -564,6 +564,7 @@
     <string name="status_message_deleted">Messaggio eliminato</string>
     <string name="status_message_deleted_forever">Messaggio eliminato definitivamente</string>
     <string name="status_message_archived">Messaggio archiviato</string>
+    <string name="status_message_moved">Messaggio spostato</string>
     <string name="status_message_unarchived">Archiviazione annullata</string>
     <string name="status_conversation_deleted">Conversazione eliminata</string>
     <string name="status_conversation_archived">Conversazione archiviata</string>

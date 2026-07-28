@@ -564,6 +564,7 @@
     <string name="status_message_deleted">Письмо удалено</string>
     <string name="status_message_deleted_forever">Письмо удалено навсегда</string>
     <string name="status_message_archived">Письмо архивировано</string>
+    <string name="status_message_moved">Письмо перемещено</string>
     <string name="status_message_unarchived">Письмо извлечено из архива</string>
     <string name="status_conversation_deleted">Переписка удалена</string>
     <string name="status_conversation_archived">Переписка архивирована</string>

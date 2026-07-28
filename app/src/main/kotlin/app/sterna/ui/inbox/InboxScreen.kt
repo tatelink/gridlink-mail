@@ -317,22 +317,10 @@ fun InboxScreen(
     BackHandler(enabled = backAction == InboxBackAction.CLOSE_SEARCH) { viewModel.setSearchActive(false) }
     BackHandler(enabled = backAction == InboxBackAction.SHOW_INBOX) { viewModel.showInbox() }
 
-    // Move-to-folder picker for the current selection. System folders lead in a fixed order
-    // (Inbox, Drafts, Sent, Spam, Archive, Trash), custom folders follow in their own order (#25).
+    // Move-to-folder picker for the current selection. The offered folders (and their order)
+    // come from [moveTargets], shared with the reader's own picker (#73).
     if (showMoveSheet) {
-        val targets = ui.mailboxes
-            .filter { it.id != ui.selectedMailboxId }
-            .sortedBy { mb ->
-                when (mb.role) {
-                    "inbox" -> 0
-                    "drafts" -> 1
-                    "sent" -> 2
-                    "junk" -> 3
-                    "archive", "all" -> 4
-                    "trash" -> 5
-                    else -> 6
-                }
-            }
+        val targets = moveTargets(ui.mailboxes, ui.selectedMailboxId)
         AlertDialog(
             onDismissRequest = { showMoveSheet = false },
             title = { Text(stringResource(R.string.inbox_move_to_folder)) },

@@ -23,10 +23,17 @@ import app.sterna.core.jmap.DownloadLimits
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailHeader
+import app.sterna.core.jmap.model.Mailbox
+import app.sterna.ui.inbox.moveTargets
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -106,6 +113,7 @@ sealed interface HeadersState {
 private fun Email.markRead(): Email =
     if (isSeen) this else copy(keywords = keywords + ("\$seen" to true))
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class MessageViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
@@ -206,6 +214,27 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private val _mailboxId = MutableStateFlow<String?>(null)
     val mailboxId = _mailboxId.asStateFlow()
 
+    /** Local account the open message belongs to, resolved once per [load] (the page's own
+     *  account in the unified inbox, else the current one). Scopes [moveTargets]. */
+    private val _ownerAccountId = MutableStateFlow<String?>(null)
+
+    /**
+     * Folders offered by the reader's move-to-folder picker (#73): the folders of THE OPEN
+     * MESSAGE'S account, minus the one it is filed under, ordered like the list's own picker.
+     *
+     * Scoped by [_ownerAccountId], never by "the current account": in the unified inbox the
+     * message on screen can belong to a sibling account, and mailbox ids collide between two
+     * accounts of the same server (#92) — a picker fed the wrong account's folders would move
+     * the message somewhere nobody chose. Empty until the message (and its account) is known.
+     */
+    val moveTargets: StateFlow<List<Mailbox>> = combine(
+        _ownerAccountId.flatMapLatest { id ->
+            if (id == null) flowOf(emptyList()) else repo.observeMailboxes(id)
+        },
+        _mailboxId,
+    ) { folders, current -> moveTargets(folders, current) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** OpenPGP state of the opened message (status card + header badges). */
     private val _crypto = MutableStateFlow<CryptoUiState>(CryptoUiState.None)
     val crypto = _crypto.asStateFlow()
@@ -292,6 +321,9 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         }
         loadedId = emailId
         this.accountId = accountId
+        // Re-point the move picker at the account this page's message belongs to, before any
+        // of its state is read (the folders come from the cache, so no network is involved).
+        _ownerAccountId.value = credentials()?.id
         anchorMarked = false
         _state.value = MessageState.Loading
         _messages.value = emptyList()

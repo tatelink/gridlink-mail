@@ -564,6 +564,7 @@
     <string name="status_message_deleted">Wiadomość usunięta</string>
     <string name="status_message_deleted_forever">Wiadomość usunięta trwale</string>
     <string name="status_message_archived">Wiadomość zarchiwizowana</string>
+    <string name="status_message_moved">Wiadomość przeniesiona</string>
     <string name="status_message_unarchived">Cofnięto archiwizację wiadomości</string>
     <string name="status_conversation_deleted">Rozmowa usunięta</string>
     <string name="status_conversation_archived">Rozmowa zarchiwizowana</string>

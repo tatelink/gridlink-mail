@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.Forward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -108,6 +109,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -132,6 +136,7 @@ import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
 import android.text.format.DateUtils
 import app.sterna.ui.canSnoozeIn
+import app.sterna.ui.inbox.mailboxDisplayName
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.isOutgoingFolder
 import app.sterna.ui.snoozed.SnoozeDeadlineHeader
@@ -215,6 +220,7 @@ fun MessageScreen(
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
     onDelete: (Email) -> Unit,
     onArchive: (Email) -> Unit,
+    onMove: (Email, String) -> Unit,
     onComposeTo: (address: String) -> Unit,
 ) {
     when {
@@ -272,6 +278,7 @@ fun MessageScreen(
                     onReply = onReply,
                     onDelete = onDelete,
                     onArchive = onArchive,
+                    onMove = onMove,
                     onComposeTo = onComposeTo,
                 )
             }
@@ -292,6 +299,7 @@ fun MessageScreen(
                 onReply = onReply,
                 onDelete = onDelete,
                 onArchive = onArchive,
+                onMove = onMove,
                 onComposeTo = onComposeTo,
             )
         }
@@ -323,6 +331,7 @@ fun MessageScreen(
                 onReply = onReply,
                 onDelete = onDelete,
                 onArchive = onArchive,
+                onMove = onMove,
                 onComposeTo = onComposeTo,
             )
         }
@@ -335,6 +344,7 @@ fun MessageScreen(
             onReply = onReply,
             onDelete = onDelete,
             onArchive = onArchive,
+            onMove = onMove,
             onComposeTo = onComposeTo,
         )
     }
@@ -361,6 +371,7 @@ private fun MessagePager(
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
     onDelete: (Email) -> Unit,
     onArchive: (Email) -> Unit,
+    onMove: (Email, String) -> Unit,
     onComposeTo: (address: String) -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage.coerceIn(0, (pageCount - 1).coerceAtLeast(0))) { pageCount }
@@ -380,7 +391,7 @@ private fun MessagePager(
     Scaffold(
         topBar = {
             Column {
-                MessageTopBar(activeMessage, onBack, onReply, onDelete, onArchive)
+                MessageTopBar(activeMessage, onBack, onReply, onDelete, onArchive, onMove)
                 // The position line belongs to the header, under the app bar rather than in its
                 // title slot: the toolbar already carries five actions, and on a narrow screen a
                 // counter squeezed between them would clip. It is part of the FIXED chrome, so it
@@ -586,6 +597,7 @@ private fun MessageTopBar(
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
     onDelete: (Email) -> Unit,
     onArchive: (Email) -> Unit,
+    onMove: (Email, String) -> Unit,
 ) {
     TopAppBar(
         // The subject is shown in full inside the message (Codeberg #44), so the bar has
@@ -601,7 +613,7 @@ private fun MessageTopBar(
         },
         actions = {
             if (active != null) {
-                MessageActions(active, onBack, onReply, onDelete, onArchive)
+                MessageActions(active, onBack, onReply, onDelete, onArchive, onMove)
             }
         },
     )
@@ -619,6 +631,7 @@ private fun MessageActions(
     onReply: (mode: String, replyToId: String, accountId: String?) -> Unit,
     onDelete: (Email) -> Unit,
     onArchive: (Email) -> Unit,
+    onMove: (Email, String) -> Unit,
 ) {
     val viewModel = active.viewModel
     val accountId = active.accountId
@@ -633,6 +646,10 @@ private fun MessageActions(
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
     // Per-message manual override; the sender allowlist auto-shows without it.
     val manualShow by viewModel.manualShowImages.collectAsStateWithLifecycle()
+    // Folders the move-to-folder entry offers: this message's OWN account's, minus its current
+    // one (#73). Empty (single-folder account, folders not cached yet) hides the entry rather
+    // than opening a picker with nothing to pick.
+    val folders by viewModel.moveTargets.collectAsStateWithLifecycle()
     val loaded = state as? MessageState.Loaded ?: return
     val senderEmail = loaded.email.from.firstOrNull()?.email
     val senderAllowed = senderEmail?.lowercase()?.let { it in imageAllowlist } == true
@@ -701,6 +718,7 @@ private fun MessageActions(
     // Keyed on the settled message so an open menu never carries over across a page settle.
     var menuOpen by remember(active.emailId) { mutableStateOf(false) }
     var snoozeSubmenu by remember(active.emailId) { mutableStateOf(false) }
+    var movePicker by remember(active.emailId) { mutableStateOf(false) }
     IconButton(onClick = { menuOpen = true }) {
         Icon(
             Icons.Filled.MoreVert,
@@ -780,6 +798,17 @@ private fun MessageActions(
                 leadingIcon = { Icon(Icons.Filled.MarkEmailUnread, contentDescription = null) },
                 onClick = { menuOpen = false; viewModel.markUnread(onBack) },
             )
+            // Move to folder (#73): the same action the list's selection bar carries, so a
+            // message can be filed without going back to the list first — the way OUT of Trash
+            // or Spam for something that shouldn't be there. In the menu, not a sixth toolbar
+            // icon: the bar is already at five on a narrow screen.
+            if (folders.isNotEmpty()) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.inbox_move_to_folder)) },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
+                    onClick = { menuOpen = false; movePicker = true },
+                )
+            }
             // Spam-reporting acts on incoming mail; in Drafts and Sent the open message is the
             // user's own outgoing mail, so it is not offered there (Codeberg #82).
             if (!isOutgoingFolder(folderRole)) {
@@ -829,6 +858,44 @@ private fun MessageActions(
                 onClick = { menuOpen = false; viewModel.viewHeaders() },
             )
         }
+    }
+    // The move-to-folder picker (#73): the same dialog the list's selection bar opens, fed the
+    // open message's own account's folders. Picking one hands the message (stamped with the
+    // folder the VM resolved and its owning account, exactly like archive/delete above) to the
+    // shared inbox ViewModel, which moves it with the usual Undo and pops back to the list.
+    if (movePicker) {
+        AlertDialog(
+            onDismissRequest = { movePicker = false },
+            title = { Text(stringResource(R.string.inbox_move_to_folder)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    folders.forEach { folder ->
+                        Text(
+                            text = mailboxDisplayName(folder.role, folder.name),
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    movePicker = false
+                                    onMove(
+                                        loaded.email.copy(
+                                            mailboxId = resolvedMailbox ?: loaded.email.mailboxId,
+                                            accountId = accountId ?: loaded.email.accountId,
+                                        ),
+                                        folder.id,
+                                    )
+                                }
+                                .semantics { role = Role.Button }
+                                .padding(vertical = 12.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { movePicker = false }) { Text(stringResource(R.string.inbox_cancel)) }
+            },
+        )
     }
     // The raw-headers sheet: open only while the VM holds a non-null headers state.
     val headersState by viewModel.headers.collectAsStateWithLifecycle()

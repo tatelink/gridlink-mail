@@ -700,6 +700,7 @@
     <string name="status_message_deleted_forever">Message deleted permanently</string>
     <string name="status_trash_emptied">Trash emptied</string>
     <string name="status_message_archived">Message archived</string>
+    <string name="status_message_moved">Message moved</string>
     <string name="status_message_unarchived">Message unarchived</string>
     <string name="status_conversation_deleted">Conversation deleted</string>
     <string name="status_conversation_archived">Conversation archived</string>
