@@ -52,6 +52,20 @@ Out of scope:
   `SSLSocket` — for implicit TLS and after every STARTTLS upgrade — so a certificate that
   chains to a valid CA but does not match the server hostname is rejected. Credentials are
   only ever sent after the TLS handshake completes.
+- **Certificate authorities installed by the user count as valid.** Since Android 7 an app
+  trusts only the system CA store by default, which leaves a self-hosted server with its own
+  authority unreachable. The app's network security configuration
+  (`app/src/main/res/xml/network_security_config.xml`) adds the user store next to the system
+  one, so a certificate chaining to an authority you installed yourself in Android's settings
+  is accepted (Codeberg #93). Nothing else moves: the chain and the hostname are still
+  verified on every handshake, and there is still no "trust this certificate anyway" prompt
+  anywhere in Sterna. The other side of that choice, plainly: a CA pushed by an employer on a
+  managed profile, or one slipped onto the device by someone else, now also validates for
+  Sterna, and whoever controls it can intercept the connection. K-9 Mail and FairEmail decide
+  the same way; banking apps decide the opposite way. For a client whose users largely run
+  their own servers, trusting the store the user controls is the coherent trade, and the
+  decision stays where Android already manages it, with its own permanent warning and a place
+  to review and remove the certificate.
 - **No TLS downgrade on redirects.** The JMAP HTTP client follows redirects for
   `/.well-known/jmap` discovery but refuses HTTPS→HTTP redirects
   (`followSslRedirects(false)`), so an injected same-host redirect cannot leak the
