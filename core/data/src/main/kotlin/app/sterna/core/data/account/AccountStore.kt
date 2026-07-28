@@ -33,7 +33,17 @@ data class OAuthCredentials(
     val accessExpiresAtMillis: Long,
     val tokenEndpoint: String,
     val clientId: String,
-)
+) {
+    /**
+     * Masked on purpose: the synthesised data-class toString() prints both tokens verbatim, so
+     * one day's `Log.w(TAG, "$credentials")` would write bearer material to logcat, which
+     * reporters send us. No call site interpolates this today; keeping it unprintable is what
+     * makes that stay true.
+     */
+    override fun toString(): String =
+        "OAuthCredentials(accessToken=***, refreshToken=***, " +
+            "accessExpiresAtMillis=$accessExpiresAtMillis, tokenEndpoint=$tokenEndpoint, clientId=$clientId)"
+}
 
 /** A configured account plus its (decrypted) secret, used to build auth. */
 data class AccountCredentials(
@@ -55,7 +65,18 @@ data class AccountCredentials(
     val oauth: OAuthCredentials? = null,
     /** For API_TOKEN accounts [password] holds the token, sent as a Bearer header. */
     val authType: AuthType = AuthType.BASIC,
-)
+) {
+    /**
+     * Masked on purpose: [password] holds the account password (or an API token), which the
+     * synthesised data-class toString() would print verbatim into any log line or error message
+     * that interpolated the object. No call site does that today; keeping it unprintable is what
+     * makes that stay true.
+     */
+    override fun toString(): String =
+        "AccountCredentials(id=$id, server=$server, username=$username, password=***, " +
+            "protocol=$protocol, jmapAccountId=$jmapAccountId, imap=$imap, smtp=$smtp, " +
+            "oauth=$oauth, authType=$authType)"
+}
 
 /**
  * A mail-capable JMAP account found in a login's session (RFC 8620 §1.6.2): its server account id

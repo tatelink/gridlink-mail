@@ -472,6 +472,7 @@
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">Nessuna</string>
+    <string name="settings_security_none_warning">Nessuna cifratura: la password e i messaggi viaggiano in chiaro, leggibili sulla rete. Scegli questa opzione solo per un bridge su 127.0.0.1.</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Aggiungi account</string>
@@ -660,6 +661,7 @@
     <string name="connect_import_k9_summary">%1$d account importati, %2$d ignorati (POP3 o non supportati).</string>
     <string name="import_snackbar_imported">%1$d account importati correttamente</string>
     <string name="import_snackbar_imported_with_skipped">%1$d account importati correttamente (%2$d ignorati)</string>
+    <string name="import_snackbar_check_security">Verifica la sicurezza della connessione di %1$d di essi.</string>
     <string name="import_pending_title">Account da collegare</string>
     <string name="import_pending_dismiss">Ignora</string>
     <string name="import_pending_dismissed">Account ignorato</string>

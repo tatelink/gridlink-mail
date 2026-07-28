@@ -472,6 +472,7 @@
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">Нет</string>
+    <string name="settings_security_none_warning">Без шифрования: пароль и письма передаются в открытом виде и доступны для чтения в сети. Выбирайте это только для моста на 127.0.0.1.</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Добавить аккаунт</string>
@@ -663,6 +664,7 @@
     <string name="connect_import_k9_summary">Импортировано учётных записей: %1$d, пропущено: %2$d (POP3 или не поддерживается).</string>
     <string name="import_snackbar_imported">Успешно импортировано учётных записей: %1$d</string>
     <string name="import_snackbar_imported_with_skipped">Успешно импортировано учётных записей: %1$d (пропущено: %2$d)</string>
+    <string name="import_snackbar_check_security">Проверьте безопасность соединения у %1$d из них.</string>
     <string name="import_pending_title">Учётные записи для входа</string>
     <string name="import_pending_dismiss">Закрыть</string>
     <string name="import_pending_dismissed">Учётная запись закрыта</string>

@@ -1941,7 +1941,11 @@ class JmapClient internal constructor(
                 delay(LIMIT_RETRY_BASE_MS * attempt)
                 continue
             }
-            throw JmapException("JMAP request failed: HTTP $code $message body=${body.take(400)}")
+            // Status only, never a slice of the response: this message reaches logcat, the UI,
+            // and the persisted outbox error, and the body is server-controlled text that can
+            // carry mail content. The HTTP code is the diagnostic; it also travels structured
+            // in [JmapException.httpCode] so callers can act on it without parsing prose.
+            throw JmapException("JMAP request failed: HTTP $code $message", httpCode = code)
         }
     }
 
@@ -1975,9 +1979,22 @@ class JmapClient internal constructor(
         throw JmapException("No $expectedMethod response found")
     }
 
+    /**
+     * Decode the `list` of a method response. A deserialization failure is re-thrown WITHOUT its
+     * cause and without any excerpt: kotlinx.serialization puts a slice of the offending JSON in
+     * its message, which for an `Email/get` is mail content (subject, sender, preview), and that
+     * message ends up in logcat, on screen, and persisted in the outbox error column. The method
+     * name is enough to place the failure.
+     */
     private fun <T> decodeList(body: String, method: String, serializer: KSerializer<T>): List<T> {
         val list = methodResponseArgs(body, method)["list"]?.jsonArray ?: return emptyList()
-        return list.map { json.decodeFromJsonElement(serializer, it) }
+        return try {
+            list.map { json.decodeFromJsonElement(serializer, it) }
+        } catch (_: IllegalArgumentException) {
+            // SerializationException is an IllegalArgumentException, and decodeFromJsonElement
+            // reports a structurally wrong element the same way.
+            throw JmapException("Could not decode the $method response")
+        }
     }
 
     companion object {

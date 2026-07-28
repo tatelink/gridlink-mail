@@ -255,9 +255,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     /** Parse a K-9 / Thunderbird `.k9s` export and import its (inert) accounts. [onResult] reports
-     *  success, how many accounts were added (0 on failure/none), and how many were skipped
-     *  (POP3 / unsupported). Imported accounts have no credentials and must be signed into. */
-    fun importK9Settings(uri: Uri, onResult: (ok: Boolean, added: Int, skipped: Int) -> Unit) {
+     *  success, how many accounts were added (0 on failure/none), how many were skipped
+     *  (POP3 / unsupported), and how many got a guessed connection security the user should
+     *  check. Imported accounts have no credentials and must be signed into. */
+    fun importK9Settings(uri: Uri, onResult: (ok: Boolean, added: Int, skipped: Int, unverified: Int) -> Unit) {
         viewModelScope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
@@ -266,9 +267,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     } ?: error("no input stream")
                 }
             }.getOrNull()
-            if (result == null) { onResult(false, 0, 0); return@launch }
+            if (result == null) { onResult(false, 0, 0, 0); return@launch }
             val added = store.importAccounts(result.accounts)
-            onResult(true, added, result.skipped.size)
+            onResult(true, added, result.skipped.size, result.securityUnverified.size)
         }
     }
 

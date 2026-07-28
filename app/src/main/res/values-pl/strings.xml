@@ -472,6 +472,7 @@
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">Brak</string>
+    <string name="settings_security_none_warning">Brak szyfrowania: hasło i wiadomości są przesyłane jawnym tekstem, czytelnym w sieci. Wybieraj to tylko dla mostka na 127.0.0.1.</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Dodaj konto</string>
@@ -660,6 +661,7 @@
     <string name="connect_import_k9_summary">Zaimportowano konta: %1$d, pominięto: %2$d (POP3 lub nieobsługiwane).</string>
     <string name="import_snackbar_imported">Pomyślnie zaimportowano konta: %1$d</string>
     <string name="import_snackbar_imported_with_skipped">Pomyślnie zaimportowano konta: %1$d (pominięto: %2$d)</string>
+    <string name="import_snackbar_check_security">Sprawdź zabezpieczenie połączenia dla %1$d z nich.</string>
     <string name="import_pending_title">Konta do zalogowania</string>
     <string name="import_pending_dismiss">Odrzuć</string>
     <string name="import_pending_dismissed">Konto odrzucone</string>

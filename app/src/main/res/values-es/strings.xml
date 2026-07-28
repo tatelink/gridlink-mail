@@ -472,6 +472,7 @@
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">Ninguna</string>
+    <string name="settings_security_none_warning">Sin cifrado: la contraseña y los mensajes viajan en claro, legibles en la red. Elige esto solo para una pasarela en 127.0.0.1.</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Añadir cuenta</string>
@@ -660,6 +661,7 @@
     <string name="connect_import_k9_summary">%1$d cuenta(s) importada(s), %2$d omitida(s) (POP3 o no compatibles).</string>
     <string name="import_snackbar_imported">%1$d cuenta(s) importada(s) correctamente</string>
     <string name="import_snackbar_imported_with_skipped">%1$d cuenta(s) importada(s) correctamente (%2$d omitida(s))</string>
+    <string name="import_snackbar_check_security">Comprueba la seguridad de conexión de %1$d de ellas.</string>
     <string name="import_pending_title">Cuentas por iniciar sesión</string>
     <string name="import_pending_dismiss">Descartar</string>
     <string name="import_pending_dismissed">Cuenta descartada</string>

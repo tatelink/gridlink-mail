@@ -34,6 +34,18 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
+# --- logging ------------------------------------------------------------------
+# Drop debug/verbose logging from release builds, and ONLY those. Log.i/w/e stay:
+# reporters send logcats, and on hardware I do not own that is the only diagnostic
+# there is (a crash was fixed from a reporter's log, and another case still rides on
+# one). The real risk was never the existence of the log, it was the content
+# interpolated into it, which is handled at the source instead. If a debug line ever
+# carries something needed for diagnosis, promote it to Log.i rather than widen this.
+-assumenosideeffects class android.util.Log {
+    public static int d(...);
+    public static int v(...);
+}
+
 # The OpenPGP provider (OpenKeychain) sends its result Parcelables across the binder under
 # their original class names, and unmarshalling looks them up BY NAME in our classloader —
 # so the vendored openpgp-api classes must keep their names verbatim. Without this, every

@@ -55,6 +55,30 @@ class K9SettingsImporterTest {
         assertEquals("Cheers,\nVictor", identity.signature)
     }
 
+    @Test fun knownSecurityValuesAreMappedAndNeedNoCheck() {
+        val result = parse("/k9s/imap-plain.k9s")
+
+        assertEquals(ConnectionSecurity.TLS, result.accounts.single().imapSecurity)
+        assertEquals(ConnectionSecurity.STARTTLS, result.accounts.single().smtpSecurity)
+        assertTrue(result.securityUnverified.isEmpty())
+    }
+
+    /** An unmapped or missing connection-security must never fall back to cleartext. */
+    @Test fun unknownOrMissingSecurityFallsBackToEncryptedAndIsFlagged() {
+        val result = parse("/k9s/security-unknown.k9s")
+
+        assertEquals(2, result.accounts.size)
+        for (account in result.accounts) {
+            assertEquals(ConnectionSecurity.TLS, account.imapSecurity)
+            assertEquals(ConnectionSecurity.STARTTLS, account.smtpSecurity)
+        }
+        // Both accounts are reported so the import tells the user to check them.
+        assertEquals(
+            listOf("Optional Security", "No Security Element"),
+            result.securityUnverified,
+        )
+    }
+
     @Test fun pop3_isSkipped() {
         val result = parse("/k9s/pop3.k9s")
 

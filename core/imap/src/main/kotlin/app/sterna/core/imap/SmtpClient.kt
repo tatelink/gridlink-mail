@@ -119,10 +119,10 @@ class SmtpClient {
         }
 
         // Envelope
-        write("MAIL FROM:<${addressOnly(message.from)}>")
+        write("MAIL FROM:<${OutgoingMime.envelopeAddress(message.from)}>")
         expect("250", "MAIL FROM")
         (message.to + message.cc + message.bcc).forEach { recipient ->
-            write("RCPT TO:<${addressOnly(recipient)}>")
+            write("RCPT TO:<${OutgoingMime.envelopeAddress(recipient)}>")
             expect("250", "RCPT TO")
         }
 
@@ -144,13 +144,6 @@ class SmtpClient {
     }
 
     private fun buildMime(m: OutgoingMessage): String = OutgoingMime.build(m)
-
-    private fun addressOnly(address: String): String {
-        // Use the LAST '<' so a display name that itself contains '<' (e.g. a quoted phrase)
-        // can't hijack the envelope address; the real addr-spec is the final <...>.
-        val lt = address.lastIndexOf('<')
-        return if (lt >= 0) address.substring(lt + 1).substringBefore('>').trim() else address.trim()
-    }
 
     private fun localHost(): String = "[127.0.0.1]"
 
@@ -303,6 +296,24 @@ object OutgoingMime {
      */
     private fun headerSafe(value: String): String =
         value.filterNot { it == '\r' || it == '\n' || it.code < 32 }
+
+    /**
+     * The addr-spec to put between the angle brackets of a `MAIL FROM:`/`RCPT TO:` command.
+     * Uses the LAST '<' so a display name that itself contains '<' (e.g. a quoted phrase)
+     * can't hijack the envelope address; the real addr-spec is the final <...>.
+     *
+     * The SMTP envelope is a line-oriented command dialogue, so it is a CR/LF sink exactly
+     * like the message headers: an address with no angle brackets used to reach the wire
+     * verbatim, and a `\r\n` in it appended a second envelope command (a hidden `RCPT TO`,
+     * or a session-breaking garbage line). [headerSafe] is applied for the same reason it
+     * guards the headers. Addresses reaching this point are already rejected upstream
+     * (MailRepository); the filter here is the sink that must be clean regardless of caller.
+     */
+    internal fun envelopeAddress(address: String): String {
+        val lt = address.lastIndexOf('<')
+        val addr = if (lt >= 0) address.substring(lt + 1).substringBefore('>') else address
+        return headerSafe(addr).trim()
+    }
 
     /** RFC 2047-encode a header value if it contains non-ASCII OR control chars (CR/LF). */
     private fun encodeHeader(value: String): String =
