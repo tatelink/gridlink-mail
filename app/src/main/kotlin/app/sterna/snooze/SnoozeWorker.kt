@@ -46,6 +46,10 @@ class SnoozeWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 // stays where it is, as before.
                 mailboxId = email.mailboxId,
                 content = content,
+                // A wake-up is one notification posted on its own, with no group summary
+                // rebuilt behind it: it has to announce itself, or the reminder the user
+                // scheduled would arrive without a sound or a banner (Codeberg #56).
+                summarised = false,
             )
         }
         return Result.success()

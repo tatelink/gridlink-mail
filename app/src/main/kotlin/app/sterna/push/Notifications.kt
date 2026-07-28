@@ -23,6 +23,49 @@ object Notifications {
     private const val GROUP_PREFIX = "mail:"
 
     /**
+     * Below this many live per-message notifications an account gets NO group summary: Android
+     * shows a lone child by itself, so a summary over it would be an empty duplicate. Both the
+     * summary's own posting rule ([updateGroupSummary]) and the "who is allowed to make noise"
+     * rule ([summaryShownFor]) read this one number, so the two can never disagree.
+     */
+    private const val SUMMARY_MIN_CHILDREN = 2
+
+    /**
+     * Whether the account's group summary will be on screen beside a per-message notification
+     * posted now, given how many per-message notifications the account will have once the batch
+     * is posted ([liveChildIdsAfter] counts them).
+     *
+     * This is the whole of Codeberg #56. A group where both the summary and its children alert
+     * announces the same mail twice: two heads-up banners, two sounds, a status icon that
+     * appears and goes. Only one of the two may speak — the summary when there is one. But
+     * silencing the children unconditionally would make a SINGLE arrival mute, because a single
+     * message gets no summary at all (see above): there would be nothing left to announce it.
+     * So the child speaks exactly when it stands alone.
+     */
+    fun summaryShownFor(liveChildren: Int): Boolean = liveChildren >= SUMMARY_MIN_CHILDREN
+
+    /**
+     * The per-message notification ids the account is left with once a notification pass is
+     * done: what was live ([active]), minus the messages whose notification the pass clears
+     * ([cleared], read elsewhere), plus the ones it posts ([added]).
+     *
+     * Counted rather than re-read from the system afterwards, because the decision has to be
+     * made BEFORE the first child is posted — that is when the choice of who announces the
+     * batch is fixed.
+     */
+    fun liveChildIdsAfter(
+        active: Set<Int>,
+        accountId: String,
+        cleared: Collection<String>,
+        added: Collection<String>,
+    ): Set<Int> {
+        val live = active.toMutableSet()
+        cleared.forEach { live -= childId(accountId, it); live -= legacyChildId(it) }
+        added.forEach { live += childId(accountId, it) }
+        return live
+    }
+
+    /**
      * The notification id of one message. JMAP ids are assigned PER ACCOUNT, so two accounts on
      * the same server routinely hand us the same id: keying on the id alone made account B's
      * notification replace account A's and — because the action intents are built with
@@ -110,6 +153,10 @@ object Notifications {
      * Codeberg #25) are deliberately WITHOUT defaults: they are user settings, and the
      * defaults let the snooze wake-up post loudly with sender and subject against the
      * user's explicit choice (Codeberg #84). Read them via [NewMailNotifier.options].
+     * [summarised] says whether a group summary will announce this batch, in which case this
+     * notification stays quiet underneath it — with its actions and its content intact, only
+     * its sound and its banner suppressed (Codeberg #56). Pass false when the notification is
+     * on its own, or it makes no noise at all: see [summaryShownFor].
      */
     fun notifyNewMail(
         context: Context,
@@ -119,6 +166,7 @@ object Notifications {
         folderName: String?,
         mailboxId: String?,
         content: NotificationContent,
+        summarised: Boolean,
     ) {
         val generic = context.getString(R.string.notif_new_message)
         val sender = email.from.firstOrNull()?.display() ?: generic
@@ -155,6 +203,13 @@ object Notifications {
             .setContentIntent(pending)
             .setCategory(NotificationCompat.CATEGORY_EMAIL)
             .setGroup(GROUP_PREFIX + accountId)
+            .setGroupAlertBehavior(
+                if (summarised) {
+                    NotificationCompat.GROUP_ALERT_SUMMARY
+                } else {
+                    NotificationCompat.GROUP_ALERT_ALL
+                },
+            )
             .setSilent(silent)
             .apply { if (folderName != null) setSubText(folderName) }
             .addAction(replyAction(context, email.id, accountId, notifId))
@@ -177,7 +232,7 @@ object Notifications {
             sbn.id != summaryId && sbn.notification.group == group &&
                 (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) == 0
         }.sortedByDescending { it.postTime }
-        if (children.size < 2) {
+        if (!summaryShownFor(children.size)) {
             // The system shows a lone child by itself; drop any stale summary.
             manager.cancel(summaryId)
             return
@@ -263,6 +318,9 @@ object Notifications {
             .setStyle(style)
             .setGroup(GROUP_PREFIX + accountId)
             .setGroupSummary(true)
+            // The summary is the one that speaks for the group (Codeberg #56): its children are
+            // posted quiet under it. Stated here too so the pair reads as one decision.
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
             .setAutoCancel(true)
             .setContentIntent(pending)
             .setSilent(silent)
