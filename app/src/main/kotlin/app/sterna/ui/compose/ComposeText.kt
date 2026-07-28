@@ -243,14 +243,26 @@ internal fun initialComposeFocus(
 
 /**
  * Where the caret starts in a prefilled body, or null when [focus] is not the body (that field
- * takes the keyboard instead). Reopening a draft resumes after its last character, so writing
- * carries on where it stopped. Every other body-focused compose starts at the very top: a reply
- * sits above the quoted original, and a `mailto:` link's body sits ABOVE the signature the prefill
- * already put there — offset 0 is what keeps the user from typing under their own signature (#83).
+ * takes the keyboard instead). [bodyLength] is the whole prefilled body, signature included;
+ * [linkBodyLength] how much of it a `mailto:` link supplied, 0 when it supplied none.
+ *
+ * The caret always goes where the writing continues. Reopening a draft resumes after its last
+ * character, so writing carries on where it stopped. A `mailto:` link that carries a body resumes
+ * after the text it supplied (#83): one writes AFTER what the link wrote, and since the prefill
+ * appends the signature below, that offset also sits just above the signature. Everything else
+ * body-focused starts at the very top: a reply sits above the quoted original, and a link with no
+ * body of its own opens on a body that is nothing but the signature block, where offset 0 is what
+ * keeps the user from typing under their own signature.
  */
-internal fun initialBodyCaret(bodyLength: Int, focus: ComposeFocus, isDraft: Boolean): Int? = when {
+internal fun initialBodyCaret(
+    bodyLength: Int,
+    focus: ComposeFocus,
+    isDraft: Boolean,
+    linkBodyLength: Int = 0,
+): Int? = when {
     focus != ComposeFocus.BODY -> null
     isDraft -> bodyLength
+    linkBodyLength > 0 -> linkBodyLength.coerceAtMost(bodyLength)
     else -> 0
 }
 

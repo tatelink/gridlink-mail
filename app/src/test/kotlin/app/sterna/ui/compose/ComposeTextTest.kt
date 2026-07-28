@@ -279,16 +279,77 @@ class ComposeTextTest {
         assertEquals(0, initialBodyCaret(bodyLength = 200, focus = ComposeFocus.BODY, isDraft = false))
     }
 
-    // The #83 trap: the body a mailto: link opens on already holds the signature, so the caret
-    // must be at the very top or the user types under their own signature.
-    @Test fun mailtoBodyStartsAboveTheSignature() {
+    // The #83 trap: the body a mailto: link opens on already holds the signature, so a link that
+    // carries no body of its own must start at the very top or the user types under their signature.
+    @Test fun mailtoWithNoBodyStartsAboveTheSignature() {
         val body = "" + signatureBlock("Alex\nAcme", delimiter = true)
-        assertEquals(0, initialBodyCaret(bodyLength = body.length, focus = ComposeFocus.BODY, isDraft = false))
+        assertEquals(
+            0,
+            initialBodyCaret(
+                bodyLength = body.length,
+                focus = ComposeFocus.BODY,
+                isDraft = false,
+                linkBodyLength = 0,
+            ),
+        )
+    }
+
+    // mailto:foo@example.com?subject=Hello&body=Hello%20world! — one writes AFTER the text the link
+    // supplied, so the caret sits at its end, which is also just above the appended signature (#83).
+    @Test fun mailtoBodyResumesAfterTheTextTheLinkSupplied() {
+        val link = "Hello world!"
+        val body = link + signatureBlock("Alex\nAcme", delimiter = true)
+        assertEquals(
+            link.length,
+            initialBodyCaret(
+                bodyLength = body.length,
+                focus = ComposeFocus.BODY,
+                isDraft = false,
+                linkBodyLength = link.length,
+            ),
+        )
+    }
+
+    @Test fun mailtoBodyWithNoSignatureEndsAtTheEndOfTheBody() {
+        val link = "Hello world!"
+        assertEquals(
+            link.length,
+            initialBodyCaret(
+                bodyLength = link.length,
+                focus = ComposeFocus.BODY,
+                isDraft = false,
+                linkBodyLength = link.length,
+            ),
+        )
+    }
+
+    // Defensive: the caret can never be asked for past the text it is placed in.
+    @Test fun aLinkBodyLongerThanTheBodyStopsAtItsEnd() {
+        assertEquals(
+            5,
+            initialBodyCaret(bodyLength = 5, focus = ComposeFocus.BODY, isDraft = false, linkBodyLength = 40),
+        )
+    }
+
+    // A reply is not a link: its body is the quoted original and the caret stays above it.
+    @Test fun replyIsUnaffectedByTheLinkRule() {
+        assertEquals(
+            0,
+            initialBodyCaret(bodyLength = 200, focus = ComposeFocus.BODY, isDraft = false, linkBodyLength = 0),
+        )
     }
 
     @Test fun aSubjectOrRecipientFocusLeavesTheBodyAlone() {
         assertEquals(null, initialBodyCaret(bodyLength = 40, focus = ComposeFocus.SUBJECT, isDraft = false))
-        assertEquals(null, initialBodyCaret(bodyLength = 0, focus = ComposeFocus.RECIPIENTS, isDraft = false))
+        assertEquals(
+            null,
+            initialBodyCaret(
+                bodyLength = 12,
+                focus = ComposeFocus.RECIPIENTS,
+                isDraft = false,
+                linkBodyLength = 12,
+            ),
+        )
     }
 
     // --- Where a tap on a header row puts the caret (#26) ---

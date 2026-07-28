@@ -286,6 +286,11 @@ fun ComposeScreen(
             linkSubject = subject,
         )
     }
+    // How much body the composer was OPENED with — a mailto: link's `body=`, nothing otherwise.
+    // Read here, next to the focus rule and for the same reason: below, the editable state shadows
+    // the parameter. It is what tells the prefilled body's own text from the signature appended
+    // under it, so the caret can start after the former (#83).
+    val linkBodyLength = remember { if (body.isNullOrBlank()) 0 else body.length }
 
     var to by rememberSaveable { mutableStateOf("") }
     var cc by rememberSaveable { mutableStateOf("") }
@@ -333,11 +338,14 @@ fun ComposeScreen(
                 subject = TextFieldValue(it.subject, TextRange(it.subject.length))
                 // Open with the caret where the writing continues, and the keyboard up: after the
                 // last character of a reopened draft, above the quoted original of a reply (#63),
-                // above the signature for a mailto: link that already carries a subject (#83).
+                // and for a mailto: link after the body the link supplied — one writes after that
+                // text, not before it, which is also just above the signature the prefill appended
+                // below it. A link with no body of its own still opens above the signature (#83).
                 val caret = initialBodyCaret(
                     bodyLength = it.body.length,
                     focus = initialFocus,
                     isDraft = draftId != null,
+                    linkBodyLength = linkBodyLength,
                 )
                 body = TextFieldValue(it.body, TextRange(caret ?: 0))
                 initialTo = prefilledTo
