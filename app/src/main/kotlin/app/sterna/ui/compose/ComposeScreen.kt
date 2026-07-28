@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -98,6 +99,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
@@ -969,6 +971,18 @@ private fun RecipientChipsField(
     } else {
         TextFieldValue(input, TextRange(input.length))
     }
+    // Enter validates the address being typed, exactly as a comma does, and the field keeps the
+    // focus so the next recipient can follow straight away — the keyboard stays open and nothing
+    // moves on to the next field (#83). An empty input is left alone: Enter only ever commits
+    // what is in front of it, it never grows a second meaning.
+    fun commitInput() {
+        val token = inputValue.text.trim()
+        if (token.isEmpty()) return
+        inputState = TextFieldValue()
+        onValueChange(rebuild(chips + token, ""))
+        onClearSuggestions()
+    }
+
     val chipScroll = rememberScrollState()
     // Collapse to a one-line summary past what fits without scrolling (about two per line).
     val collapsed = !expanded && chips.size > 2
@@ -1082,7 +1096,14 @@ private fun RecipientChipsField(
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    // Enter now commits the address instead of merely closing the keyboard, which
+                    // is all it did before (#83). The action is named here rather than left to
+                    // `singleLine`'s implicit one, because a hardware Enter is routed to THIS
+                    // action (the field is single-line, so Enter is no line break) and an unnamed
+                    // one does nothing at all. Not calling the default action is what keeps the
+                    // keyboard up and the focus in the field.
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { commitInput() }),
                     modifier = Modifier
                         .headerTapText(geometry)
                         // Fill the rest of the line so a tap in the empty area past the last chip
