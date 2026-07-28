@@ -116,10 +116,7 @@ object PushController {
         // saver no account is ever direct: the foreground service never runs and the
         // 30-minute worker carries everything UnifiedPush doesn't.
         val batterySaver = isBatterySaver(appContext)
-        val direct = accounts.filter {
-            val transport = transportFor(appContext, it, batterySaver)
-            transport == Transport.EVENT_SOURCE || transport == Transport.IMAP_IDLE
-        }
+        val direct = accounts.filter { transportFor(appContext, it, batterySaver).isDirect }
         if (direct.isEmpty()) {
             PushService.stop(appContext)
             // No foreground service: catch up through the worker path. On a user-initiated

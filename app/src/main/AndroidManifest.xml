@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Normal permission (granted at install, nothing asked of the user): lets the app hear
+         about a finished boot so the push connection comes back without opening the app (#98). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Package visibility (Android 11+): let Sterna see and bind the OpenKeychain
          OpenPGP provider for message encryption/signing. -->
@@ -114,6 +117,20 @@
         <receiver
             android:name=".push.NotificationActionReceiver"
             android:exported="false" />
+
+        <!-- Restarts the direct push connection after a reboot or an in-place app update
+             (issue #98); does nothing when UnifiedPush, battery-saver delivery or no account
+             at all means there is no connection of ours to hold. Exported because a manifest
+             receiver that is not exported never sees a system broadcast; both actions are
+             protected broadcasts, so no other app can trigger it. -->
+        <receiver
+            android:name=".push.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"
