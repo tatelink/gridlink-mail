@@ -26,6 +26,7 @@ import app.sterna.core.data.db.EmailBodyEntity
 import app.sterna.core.data.db.OutboxAttachment
 import app.sterna.core.data.db.OutboxAttachments
 import app.sterna.core.data.db.OutboxDao
+import app.sterna.core.data.db.OutboxEdit
 import app.sterna.core.data.db.OutboxEntity
 import app.sterna.core.data.db.OutboxLogic
 import app.sterna.core.data.db.OutboxState
@@ -3765,29 +3766,28 @@ class MailRepository(
         val references: List<String>,
         /** The saved draft the item was edited from (#63), kept so re-sending still replaces it. */
         val draftEmailId: String? = null,
+        /** Hand back to [restoreOutbox] to put this message back in the queue untouched (#70). */
+        val restore: OutboxRestore,
+    )
+
+    /**
+     * Everything needed to put a taken item back in the outbox exactly as it was (#70): its row,
+     * its attachments as durable descriptors pointing at the staged copies, and, for a PGP item,
+     * the pre-built entity read back before the durable dir went with the row.
+     */
+    data class OutboxRestore(
+        val row: OutboxEntity,
+        val attachments: List<OutboxAttachment>,
+        val pgpEntity: String?,
     )
 
     /** Take an item out of the outbox for editing: build its draft, then delete the row + files. */
     suspend fun takeOutboxForEdit(id: Long, stagingDir: java.io.File): OutboxDraft? {
         val item = outboxDao.byId(id) ?: return null
-        val parts = OutboxAttachments.decode(item.attachmentsJson).mapNotNull { a ->
-            when (a.kind) {
-                OutboxAttachments.KIND_JMAP_BLOB -> EmailBodyPart(
-                    blobId = a.blobId, type = a.type, size = a.size, name = a.name, disposition = "attachment",
-                )
-                OutboxAttachments.KIND_IMAP_FILE -> {
-                    val bytes = runCatching { java.io.File(a.path!!).readBytes() }.getOrNull() ?: return@mapNotNull null
-                    stagingDir.mkdirs()
-                    val safe = (a.name ?: "attachment").replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    val staged = java.io.File(stagingDir, "${System.nanoTime()}-$safe").apply { writeBytes(bytes) }
-                    EmailBodyPart(
-                        partId = staged.absolutePath, type = a.type, size = bytes.size.toLong(),
-                        name = a.name, disposition = "attachment",
-                    )
-                }
-                else -> null
-            }
-        }
+        val taken = OutboxEdit.take(OutboxAttachments.decode(item.attachmentsJson), stagingDir)
+        // Read the PGP/MIME entity out of the durable dir before deleting it: an encrypted item
+        // keeps its content nowhere else, so without this the entity would die with the row.
+        val pgpEntity = item.pgpEntityPath?.let { runCatching { java.io.File(it).readText() }.getOrNull() }
         val draft = OutboxDraft(
             to = item.recipients.split(",").joinToString(", ") { it.trim() },
             cc = item.cc?.split(",")?.joinToString(", ") { it.trim() }.orEmpty(),
@@ -3796,13 +3796,39 @@ class MailRepository(
             body = item.textBody,
             fromAccountId = item.accountId,
             fromEmail = item.fromEmail,
-            attachments = parts,
+            attachments = taken.parts,
             inReplyTo = item.inReplyTo?.split(" ")?.filter { it.isNotBlank() } ?: emptyList(),
             references = item.references?.split(" ")?.filter { it.isNotBlank() } ?: emptyList(),
             draftEmailId = item.draftEmailId,
+            restore = OutboxRestore(item, taken.restorable, pgpEntity),
         )
         deleteOutbox(id)
         return draft
+    }
+
+    /**
+     * Put back a message taken out with [takeOutboxForEdit] and then left unsent (#70): the
+     * composer was closed, or its edits discarded. The queue gets the item back as it was — same
+     * headers, body, sending identity, state and failure text, same attachments re-copied into a
+     * fresh durable dir — and its delivery is armed again. Only an explicit delete, which asks
+     * first, actually drops a queued message. Returns the new row id.
+     */
+    suspend fun restoreOutbox(restore: OutboxRestore): Long {
+        val id = outboxDao.insert(OutboxEdit.restoredRow(restore.row))
+        val row = outboxDao.byId(id) ?: return id
+        val dir = java.io.File(outboxFilesDir, id.toString())
+        if (restore.pgpEntity != null) {
+            // A PGP item carries its whole payload in the entity; attachments live inside it.
+            dir.mkdirs()
+            val entityFile = java.io.File(dir, "pgp-entity.mime").apply { writeText(restore.pgpEntity) }
+            outboxDao.update(row.copy(pgpEntityPath = entityFile.absolutePath))
+        } else {
+            val durable = OutboxEdit.restore(restore.attachments, dir)
+            outboxDao.update(row.copy(attachmentsJson = OutboxAttachments.encode(durable)))
+        }
+        // Held or scheduled items keep whatever is left of their wait; everything else goes now.
+        outboxScheduler?.schedule(id, (row.notBeforeMillis - System.currentTimeMillis()).coerceAtLeast(0))
+        return id
     }
 
     /** Actually deliver one outbox item (no queue indirection); exceptions propagate to the worker. */

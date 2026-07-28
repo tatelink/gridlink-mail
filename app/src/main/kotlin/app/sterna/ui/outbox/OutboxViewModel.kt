@@ -44,7 +44,8 @@ class OutboxViewModel(application: Application) : AndroidViewModel(application) 
     /**
      * Reopen an item in compose for editing: cancel its delivery, stage it back into compose
      * (re-staging IMAP attachments into the cache), and remove the original row. Sending from
-     * compose enqueues a fresh item, so the edit replaces the original.
+     * compose enqueues a fresh item, so the edit replaces the original; closing the composer
+     * instead puts the message back in the queue, via the restore token carried along (#70).
      */
     fun edit(id: Long) {
         viewModelScope.launch {
@@ -64,6 +65,7 @@ class OutboxViewModel(application: Application) : AndroidViewModel(application) 
                     inReplyTo = draft.inReplyTo,
                     references = draft.references,
                     draftEmailId = draft.draftEmailId,
+                    requeue = draft.restore,
                 ),
             )
             _readyToEdit.value = true

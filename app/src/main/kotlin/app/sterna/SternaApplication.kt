@@ -48,8 +48,11 @@ class AppContainer(context: Context) {
         UnifiedPushStateStore(context.applicationContext),
     )
 
-    /** App-lifetime scope for work that must outlive a screen (e.g. Undo-send hold-back). */
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /**
+     * App-lifetime scope for work that must outlive a screen (e.g. Undo-send hold-back, or putting
+     * a queued message back in the outbox as the composer that held it is being popped — #70).
+     */
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val sendOutbox: SendOutbox = SendOutbox(appScope)
 
     /** Drives the Outlook OAuth device flow app-scoped, so it survives the browser round-trip. */
