@@ -246,15 +246,59 @@ class ConversationSqlTest {
 
     @Test fun countsDoNotMixAccountsSharingMailboxAndThreadIds() {
         // Unified view (no account bind): two accounts whose server assigned the same
-        // mailbox AND thread ids — the counts must stay per the representative's account.
+        // mailbox AND thread ids — one row EACH (grouping is per (account, thread)), and
+        // the counts stay per the representative's account.
         insert("a1", threadId = "T1", seen = 0, flagged = 0, sortKey = 200, accountId = "accA")
         insert("b1", threadId = "T1", seen = 1, flagged = 0, sortKey = 100, accountId = "accB")
 
         val rows = run()
-        assertEquals(1, rows.size) // pre-existing: colliding tkeys collapse to one row
+        assertEquals(2, rows.size)
         assertEquals("a1", rows[0]["id"])
         assertEquals(1, rows[0]["threadCount"]) // accB's b1 must not inflate the chip
         assertEquals(1, rows[0]["threadTotal"])
+        assertEquals("b1", rows[1]["id"])
+        assertEquals(1, rows[1]["threadCount"])
+        assertEquals(1, rows[1]["threadTotal"])
+    }
+
+    @Test fun unifiedViewKeepsBothAccountsConversationsWhenThreadIdsCollide() {
+        // The data-loss case: two accounts of the same server carry the SAME thread id, each
+        // with a 2-message conversation. Grouped on the thread key alone, the two collapsed
+        // into a single row and only the newest account's conversation survived — the other
+        // account's mail was simply absent from the unified list.
+        insert("a1", threadId = "T1", seen = 1, flagged = 0, sortKey = 100, accountId = "accA")
+        insert("a2", threadId = "T1", seen = 0, flagged = 0, sortKey = 400, accountId = "accA")
+        insert("b1", threadId = "T1", seen = 1, flagged = 0, sortKey = 200, accountId = "accB")
+        insert("b2", threadId = "T1", seen = 1, flagged = 0, sortKey = 300, accountId = "accB")
+
+        val rows = run()
+        assertEquals(2, rows.size)
+        // One representative per (account, thread), each with its own count and unread state.
+        assertEquals("a2", rows[0]["id"])
+        assertEquals(2, rows[0]["threadCount"])
+        assertEquals(0, rows[0]["threadUnread"]) // accA's conversation has an unread member
+        assertEquals("b2", rows[1]["id"])
+        assertEquals(2, rows[1]["threadCount"])
+        assertEquals(1, rows[1]["threadUnread"]) // accB's is fully read
+    }
+
+    @Test fun unreadOnlyKeepsEachAccountsThreadIndependently() {
+        // Colliding thread ids again, filtered: accB's conversation is unread and must show
+        // even though accA's — grouped under the same thread key — is fully read.
+        insert("a1", threadId = "T1", seen = 1, flagged = 0, sortKey = 400, accountId = "accA")
+        insert("b1", threadId = "T1", seen = 0, flagged = 0, sortKey = 100, accountId = "accB")
+
+        val rows = run(unreadOnly = true)
+        assertEquals(listOf("b1"), rows.map { it["id"] })
+    }
+
+    @Test fun sameEmailIdAndNoThreadAcrossAccountsKeepsBothRows() {
+        // Thread-less messages group on their own id, so a colliding EMAIL id is the same
+        // collapse hazard: both accounts' messages must still be listed.
+        insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 200, accountId = "accA")
+        insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 100, accountId = "accB")
+
+        assertEquals(2, run().size)
     }
 
     @Test fun sentPairDoesNotLeakACollidingMailboxIdAcrossAccounts() {

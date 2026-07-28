@@ -305,7 +305,16 @@ private fun conversationQuery(
 }
 
 /**
- * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite). Bind order:
+ * The conversation-grouping SQL (pure, so it is unit-tested against real SQLite).
+ *
+ * Threads are grouped by the PAIR (accountId, thread key), never the thread key alone. Servers
+ * number threads per account, so two accounts of the same server can carry the same thread id: a
+ * bare `GROUP BY tkey` collapsed both accounts' conversations into one row and `sortKey = maxKey`
+ * then kept only the newer one — the other account's conversation vanished from the unified list
+ * altogether (data loss, not a cosmetic count). Grouping on the pair keeps one row per account, in
+ * line with EmailDao.observeThreadUnreadCounts, whose badge already counted per account.
+ *
+ * Bind order:
  * the in-view sub-query `g` takes the mailbox ids [+ account id]; the chip count sub-query
  * `c` takes the mailbox ids, then an (accountId, mailboxId) pair per [sentMailboxCount]
  * Sent-role folder — pinned to its OWN account, so a sibling account's colliding mailbox id
@@ -338,25 +347,25 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
         SELECT e.*, c.threadCount AS threadCount, t.threadTotal AS threadTotal, g.threadUnread AS threadUnread
         FROM emails e
         JOIN (
-            SELECT COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread
+            SELECT accountId AS gacc, COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread
             FROM emails
             WHERE mailboxId IN ($placeholders)$accountInner AND $notSnoozed
-            GROUP BY tkey$having
-        ) g ON COALESCE(e.threadId, e.id) = g.tkey AND e.sortKey = g.maxKey
+            GROUP BY gacc, tkey$having
+        ) g ON COALESCE(e.threadId, e.id) = g.tkey AND e.accountId = g.gacc AND e.sortKey = g.maxKey
         JOIN (
             SELECT accountId AS cacc, COALESCE(threadId, id) AS ckey, COUNT(*) AS threadCount
             FROM emails
             WHERE (mailboxId IN ($placeholders)$sentAlternatives)$accountInner AND $notSnoozed
             GROUP BY cacc, ckey
-        ) c ON c.ckey = g.tkey AND c.cacc = e.accountId
+        ) c ON c.ckey = g.tkey AND c.cacc = g.gacc
         JOIN (
             SELECT accountId AS tacc, COALESCE(threadId, id) AS tkey2, COUNT(*) AS threadTotal
             FROM emails
             WHERE $notSnoozed
             GROUP BY tacc, tkey2
-        ) t ON t.tkey2 = g.tkey AND t.tacc = e.accountId
+        ) t ON t.tkey2 = g.tkey AND t.tacc = g.gacc
         WHERE e.mailboxId IN ($placeholders)$accountOuter AND $notSnoozedOuter
-        GROUP BY g.tkey
+        GROUP BY g.gacc, g.tkey
         ORDER BY $orderBy
     """.trimIndent()
 }
