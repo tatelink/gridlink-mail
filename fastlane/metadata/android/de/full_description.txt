@@ -1,0 +1,36 @@
+Sterna Mail ist ein privater, moderner E-Mail-Client für Android, gebaut für JMAP, den schnelleren Nachfolger von IMAP, und mit voller Unterstützung auch für klassisches IMAP/SMTP. Sie wählen das Protokoll beim Hinzufügen eines Kontos, sodass Sterna Mail mit JMAP-Servern wie Stalwart ebenso arbeitet wie mit jedem gewöhnlichen Mail-Anbieter.
+
+Die App ist von Haus aus privat, angenehm zu benutzen und vollständig freie Software (GPLv3). Kein Tracking, keine Werbung, keine Analyse und keine Google-Dienste erforderlich.
+
+Lesen und Ordnen:
+
+* Gemeinsamer Posteingang über mehrere Konten (JMAP und/oder IMAP/SMTP), dank lokalem Zwischenspeicher vollständig offline
+* Mehrere JMAP-Konten unter einer Anmeldung (delegierte, geteilte oder Team-Postfächer), jedes mit eigenen Ordnern, eigenen Benachrichtigungen und eigenen Kopien in „Gesendet“
+* Konversationsansicht, verschachtelte Ordner, konfigurierbare Wischgesten, Markierungen, Archivieren und Löschen mit Rückgängig
+* Mehrfachauswahl für Sammelaktionen, Zurückstellen, Spam melden, Sortierung und Filter für Ungelesene
+* Suche während der Eingabe, die sofortige lokale Treffer mit der Suche des Servers verbindet, dazu Filter nach Absender, Betreff, Anhängen und Datum
+* Termineinladungen erscheinen als Ereigniskarte und wandern mit einer Berührung in Ihre Kalender-App
+
+Schreiben und Senden:
+
+* Verfassen mit Empfängervervollständigung, mehreren Identitäten mit je eigener Signatur, Anhängen und Entwürfen
+* Antworten gehen von der Adresse aus, an die die Nachricht gerichtet war, mit der Signatur dieser Identität
+* Senden rückgängig machen, zeitversetzt senden und Erinnerungen bei vergessenem Anhang oder langer Empfängerliste
+* Öffnet mailto:-Links aus jeder App und jedem Browser, vorausgefüllt
+
+Konten, Benachrichtigungen und Verschlüsselung:
+
+* Konto anlegen mit nur Adresse und Passwort (automatische Erkennung), passwortfreie OAuth-2.0-Anmeldung oder manuelle IMAP/SMTP-Einrichtung mit Voreinstellungen für Anbieter
+* Push-Benachrichtigungen für neue Mail ohne Google und ohne FCM, über JMAP EventSource, IMAP IDLE oder UnifiedPush, nach Konto gruppiert und mit Ruhezeiten
+* OpenPGP-Verschlüsselung über OpenKeychain, sowohl bei JMAP als auch bei IMAP/SMTP. Entschlüsselte Inhalte werden nie auf den Datenträger geschrieben
+* Externe Bilder und Zählpixel sind standardmäßig blockiert, und Tracking-Parameter lassen sich aus Links entfernen, bevor diese geöffnet werden
+* Zugangsdaten im Android-KeyStore verschlüsselt, App-Sperre per Biometrie oder PIN
+
+Serverfunktionen und Feinschliff:
+
+* Abwesenheitsnotiz, Sieve-Filterregeln und Anzeige des Postfach-Kontingents, serverseitig
+* Material-3-Oberfläche mit eigenem hellen und dunklem Thema, Material You auf Wunsch und einstellbarer Schriftgröße für Nachrichten
+* Verfügbar in neun Sprachen: Englisch, Französisch, Deutsch, Spanisch, Italienisch, Portugiesisch, Niederländisch, Polnisch und Russisch
+* Für Screenreader geeignet, mit Export und Import der Einstellungen
+
+Sterna Mail ist quelloffen, und die veröffentlichten Versionen sind reproduzierbar: F-Droid prüft, dass die ausgelieferte App Byte für Byte diejenige ist, die aus dem veröffentlichten Quelltext gebaut wurde. Der Code kann von jedem gelesen, geprüft und verbessert werden.
