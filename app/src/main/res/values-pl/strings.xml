@@ -629,6 +629,7 @@
     <string name="outbox_delete">Usuń</string>
     <string name="outbox_delete_title">Usunąć tę wiadomość?</string>
     <string name="outbox_delete_body">Nie została wysłana i nie jest nigdzie indziej zapisana. Wiadomość i jej załączniki zostaną utracone.</string>
+    <string name="outbox_delete_permanently">Usuń trwale</string>
     <string name="outbox_banner_failed">Niektóre wiadomości nie zostały wysłane. Dotknij, aby sprawdzić.</string>
     <string name="offline_banner">Jesteś offline</string>
     <string name="settings_conversation_section">Konwersacje</string>
