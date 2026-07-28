@@ -181,6 +181,7 @@ import app.sterna.core.jmap.model.Mailbox
 import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.R
+import app.sterna.ui.canSnoozeIn
 import app.sterna.ui.components.EmailListItem
 import app.sterna.ui.components.EmptyArt
 import app.sterna.ui.components.EmptyState
@@ -1026,9 +1027,9 @@ fun InboxScreen(
                                             leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
                                             onClick = { selMenu = false; viewModel.selectAll() },
                                         )
-                                        // Spam-reporting and snoozing act on incoming mail; in Drafts
-                                        // and Sent the selection is the user's own outgoing mail, so
-                                        // neither is offered there (Codeberg #82).
+                                        // Spam-reporting acts on incoming mail; in Drafts and Sent
+                                        // the selection is the user's own outgoing mail, so it is
+                                        // not offered there (Codeberg #82).
                                         if (!isOutgoingFolder(currentRole)) {
                                             DropdownMenuItem(
                                                 text = {
@@ -1040,6 +1041,11 @@ fun InboxScreen(
                                                     if (inJunk) viewModel.notSpamSelected() else viewModel.reportSpamSelected()
                                                 },
                                             )
+                                        }
+                                        // Snoozing is a promise to come back to a message, so it
+                                        // goes further: also gone in Spam and in the Trash, where
+                                        // nothing is waiting to be dealt with (Codeberg #82).
+                                        if (canSnoozeIn(currentRole)) {
                                             DropdownMenuItem(
                                                 text = { Text(stringResource(R.string.message_snooze)) },
                                                 leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
