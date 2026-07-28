@@ -31,8 +31,10 @@
     <string name="compose_scheduled_toast">Agendado — %1$s</string>
     <string name="compose_discard_title">Descartar mensagem?</string>
     <string name="compose_discard_message">Você não guardou as suas alterações.</string>
+    <string name="compose_discard_message_encrypted">Esta mensagem está criptografada, por isso não pode ser guardada como rascunho: um rascunho fica no servidor de e-mail exatamente como foi escrito, legível por quem tiver acesso a ele. Se sair agora, a mensagem é descartada.</string>
     <string name="compose_discard_save">Guardar rascunho</string>
     <string name="compose_discard_discard">Descartar</string>
+    <string name="compose_discard_cancel">Cancelar</string>
     <string name="schedule_in_1_hour">Em 1 hora</string>
     <string name="schedule_this_evening">Hoje à noite, 18h</string>
     <string name="schedule_tomorrow_morning">Amanhã, 8h</string>
@@ -459,7 +461,7 @@
     <string name="compose_pgp_encrypt">Criptografar esta mensagem</string>
     <string name="compose_pgp_subject_note">O assunto não é criptografado.</string>
     <string name="compose_pgp_not_encrypted_no_key">Esta mensagem não será cifrada: sem chave pública para %1$s.</string>
-    <string name="compose_pgp_no_draft">Mensagens criptografadas não podem ser salvas como rascunho.</string>
+    <string name="compose_pgp_no_draft">Mensagens criptografadas não podem ser salvas como rascunho nem agendadas.</string>
     <string name="compose_pgp_not_configured">O OpenPGP não está configurado para esta conta.</string>
     <string name="compose_pgp_missing_keys">Nenhuma chave pública para um ou mais destinatários.</string>
     <string name="compose_pgp_too_large">Os anexos são grandes demais para criptografar (máx. 25 MB).</string>

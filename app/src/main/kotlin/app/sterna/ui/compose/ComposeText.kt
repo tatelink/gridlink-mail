@@ -1,5 +1,6 @@
 package app.sterna.ui.compose
 
+import app.sterna.core.data.pgp.PgpMode
 import app.sterna.core.data.text.htmlEscape
 import app.sterna.core.data.text.htmlEscapeMultiline
 import app.sterna.core.data.text.htmlToText
@@ -412,6 +413,32 @@ internal fun draftHasContent(
 ): Boolean =
     parseAddrs(to).isNotEmpty() || parseAddrs(cc).isNotEmpty() || parseAddrs(bcc).isNotEmpty() ||
         subject.isNotBlank() || body.isNotBlank() || hasAttachment
+
+/**
+ * The single rule for "may this message be kept as a draft at all?" (#35): everything but an
+ * encrypted one. A draft is stored on the mail server as it stands in the composer, so saving one
+ * while encrypting would hand the provider the very plaintext the encryption is there to withhold.
+ * [PgpMode.SIGN] is NOT caught: a signed message travels and is stored in the clear by design, so
+ * its draft is no worse than an unsigned one.
+ *
+ * It depends on the composer's current mode and on nothing else, which is the point: the mode is
+ * the same field whether the user closed the lock by hand or the account's encrypt-by-default put
+ * it there, so every route to "this is encrypted" answers identically. Shared by the toolbar's
+ * Save/Schedule actions, the leave dialog and the [ComposeViewModel] save itself, so no exit from
+ * the composer can offer what another forbids.
+ */
+internal fun draftSaveAllowed(pgpMode: PgpMode): Boolean = pgpMode != PgpMode.ENCRYPT
+
+/**
+ * The lock toggle's cycle: off → sign → encrypt → off. Pure so the hand-set path can be tested
+ * against [draftSaveAllowed] — closing the lock by hand must forbid the draft exactly as the
+ * account default does (#35).
+ */
+internal fun nextPgpMode(current: PgpMode): PgpMode = when (current) {
+    PgpMode.OFF -> PgpMode.SIGN
+    PgpMode.SIGN -> PgpMode.ENCRYPT
+    PgpMode.ENCRYPT -> PgpMode.OFF
+}
 
 // --- Signature (pure text, living in the body — WYSIWYG) -----------------------------------------
 // The signature is ordinary text in the editable body, inserted when compose opens, exactly like

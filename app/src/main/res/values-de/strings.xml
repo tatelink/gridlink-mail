@@ -31,8 +31,10 @@
     <string name="compose_scheduled_toast">Geplant — %1$s</string>
     <string name="compose_discard_title">Nachricht verwerfen?</string>
     <string name="compose_discard_message">Du hast deine Änderungen nicht gespeichert.</string>
+    <string name="compose_discard_message_encrypted">Diese Nachricht ist verschlüsselt und kann deshalb nicht als Entwurf behalten werden: Ein Entwurf wird genau so, wie du ihn geschrieben hast, auf dem Mailserver gespeichert und ist für alle mit Zugriff lesbar. Wenn du jetzt gehst, wird die Nachricht verworfen.</string>
     <string name="compose_discard_save">Entwurf speichern</string>
     <string name="compose_discard_discard">Verwerfen</string>
+    <string name="compose_discard_cancel">Abbrechen</string>
     <string name="schedule_in_1_hour">In 1 Stunde</string>
     <string name="schedule_this_evening">Heute Abend, 18 Uhr</string>
     <string name="schedule_tomorrow_morning">Morgen, 8 Uhr</string>
@@ -459,7 +461,7 @@
     <string name="compose_pgp_encrypt">Diese Nachricht verschlüsseln</string>
     <string name="compose_pgp_subject_note">Der Betreff wird nicht verschlüsselt.</string>
     <string name="compose_pgp_not_encrypted_no_key">Diese Nachricht wird nicht verschlüsselt: kein öffentlicher Schlüssel für %1$s.</string>
-    <string name="compose_pgp_no_draft">Verschlüsselte Nachrichten können nicht als Entwurf gespeichert werden.</string>
+    <string name="compose_pgp_no_draft">Verschlüsselte Nachrichten können nicht als Entwurf gespeichert oder geplant werden.</string>
     <string name="compose_pgp_not_configured">OpenPGP ist für dieses Konto nicht eingerichtet.</string>
     <string name="compose_pgp_missing_keys">Kein öffentlicher Schlüssel für einen oder mehrere Empfänger.</string>
     <string name="compose_pgp_too_large">Anhänge sind zu groß zum Verschlüsseln (max. 25 MB).</string>

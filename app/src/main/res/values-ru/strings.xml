@@ -31,8 +31,10 @@
     <string name="compose_scheduled_toast">Запланировано — %1$s</string>
     <string name="compose_discard_title">Удалить сообщение?</string>
     <string name="compose_discard_message">Вы не сохранили изменения.</string>
+    <string name="compose_discard_message_encrypted">Это письмо зашифровано, поэтому его нельзя сохранить как черновик: черновик хранится на почтовом сервере ровно в том виде, в каком вы его написали, и доступен для чтения любому, у кого есть доступ. Если выйти сейчас, письмо будет удалено.</string>
     <string name="compose_discard_save">Сохранить черновик</string>
     <string name="compose_discard_discard">Удалить</string>
+    <string name="compose_discard_cancel">Отмена</string>
     <string name="schedule_in_1_hour">Через 1 час</string>
     <string name="schedule_this_evening">Сегодня вечером, 18:00</string>
     <string name="schedule_tomorrow_morning">Завтра, 8:00</string>
@@ -459,7 +461,7 @@
     <string name="compose_pgp_encrypt">Зашифровать это письмо</string>
     <string name="compose_pgp_subject_note">Тема письма не шифруется.</string>
     <string name="compose_pgp_not_encrypted_no_key">Это письмо не будет зашифровано: нет открытого ключа для %1$s.</string>
-    <string name="compose_pgp_no_draft">Зашифрованные письма нельзя сохранить как черновик.</string>
+    <string name="compose_pgp_no_draft">Зашифрованные письма нельзя сохранить как черновик или запланировать.</string>
     <string name="compose_pgp_not_configured">OpenPGP не настроен для этой учётной записи.</string>
     <string name="compose_pgp_missing_keys">Нет открытого ключа для одного или нескольких получателей.</string>
     <string name="compose_pgp_too_large">Вложения слишком велики для шифрования (макс. 25 МБ).</string>

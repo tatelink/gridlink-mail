@@ -469,22 +469,54 @@ fun ComposeScreen(
     BackHandler(enabled = !showDiscard) { attemptClose() }
 
     if (showDiscard) {
+        // The leave dialog obeys the same rule as the toolbar's Save action (#35): an encrypted
+        // message may not leave a plaintext copy on the server, so when encrypting the dialog does
+        // not offer to save — it says WHY (a draft is stored as typed, unprotected) and offers only
+        // Discard and Cancel. Offering "Save draft" here was the leak: the toolbar hid the action,
+        // this dialog uploaded the same text one tap later.
+        val mayKeepDraft = draftSaveAllowed(pgpMode)
         AlertDialog(
             onDismissRequest = { showDiscard = false },
             title = { Text(stringResource(R.string.compose_discard_title)) },
-            text = { Text(stringResource(R.string.compose_discard_message)) },
+            text = {
+                Text(
+                    stringResource(
+                        if (mayKeepDraft) {
+                            R.string.compose_discard_message
+                        } else {
+                            R.string.compose_discard_message_encrypted
+                        },
+                    ),
+                )
+            },
             confirmButton = {
-                TextButton(onClick = {
-                    showDiscard = false
-                    viewModel.saveDraft(to, cc, bcc, subject.text, body.text)
-                }) { Text(stringResource(R.string.compose_discard_save)) }
+                if (mayKeepDraft) {
+                    TextButton(onClick = {
+                        showDiscard = false
+                        viewModel.saveDraft(to, cc, bcc, subject.text, body.text)
+                    }) { Text(stringResource(R.string.compose_discard_save)) }
+                } else {
+                    TextButton(onClick = {
+                        showDiscard = false
+                        // Same discard as above: the edits go, a queued message goes back (#70).
+                        cancel()
+                    }) { Text(stringResource(R.string.compose_discard_discard)) }
+                }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    showDiscard = false
-                    // Discards the edits, not the queued message: that one goes back (#70).
-                    cancel()
-                }) { Text(stringResource(R.string.compose_discard_discard)) }
+                if (mayKeepDraft) {
+                    TextButton(onClick = {
+                        showDiscard = false
+                        // Discards the edits, not the queued message: that one goes back (#70).
+                        cancel()
+                    }) { Text(stringResource(R.string.compose_discard_discard)) }
+                } else {
+                    // Encrypted: Discard is the confirm button, so this one only closes the
+                    // dialog — back to the composer, message intact, still encrypted.
+                    TextButton(onClick = { showDiscard = false }) {
+                        Text(stringResource(R.string.compose_discard_cancel))
+                    }
+                }
             },
         )
     }
@@ -558,9 +590,9 @@ fun ComposeScreen(
                     IconButton(onClick = { picker.launch("*/*") }, enabled = !sending) {
                         Icon(Icons.Filled.AttachFile, contentDescription = stringResource(R.string.compose_attach))
                     }
-                    // Encrypting can't carry plaintext to the server: no draft, no schedule.
-                    val encryptingNow = pgpMode == PgpMode.ENCRYPT
-                    if (!encryptingNow) {
+                    // Encrypting can't carry plaintext to the server: no draft, no schedule. Same
+                    // rule, same function as the leave dialog above (#35).
+                    if (draftSaveAllowed(pgpMode)) {
                         IconButton(
                             onClick = { viewModel.saveDraft(to, cc, bcc, subject.text, body.text) },
                             enabled = !sending && canSaveDraft,

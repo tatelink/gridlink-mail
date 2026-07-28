@@ -31,8 +31,10 @@
     <string name="compose_scheduled_toast">Programado — %1$s</string>
     <string name="compose_discard_title">¿Descartar mensaje?</string>
     <string name="compose_discard_message">No has guardado los cambios.</string>
+    <string name="compose_discard_message_encrypted">Este mensaje está cifrado, así que no puede guardarse como borrador: un borrador se almacena en el servidor de correo tal como lo escribiste, legible por cualquiera que tenga acceso. Si sales ahora, el mensaje se descarta.</string>
     <string name="compose_discard_save">Guardar borrador</string>
     <string name="compose_discard_discard">Descartar</string>
+    <string name="compose_discard_cancel">Cancelar</string>
     <string name="schedule_in_1_hour">En 1 hora</string>
     <string name="schedule_this_evening">Esta tarde, 18:00</string>
     <string name="schedule_tomorrow_morning">Mañana, 8:00</string>
@@ -459,7 +461,7 @@
     <string name="compose_pgp_encrypt">Cifrar este mensaje</string>
     <string name="compose_pgp_subject_note">El asunto no se cifra.</string>
     <string name="compose_pgp_not_encrypted_no_key">Este mensaje no se cifrará: no hay clave pública para %1$s.</string>
-    <string name="compose_pgp_no_draft">Los mensajes cifrados no se pueden guardar como borrador.</string>
+    <string name="compose_pgp_no_draft">Los mensajes cifrados no se pueden guardar como borrador ni programar.</string>
     <string name="compose_pgp_not_configured">OpenPGP no está configurado para esta cuenta.</string>
     <string name="compose_pgp_missing_keys">No hay clave pública para uno o más destinatarios.</string>
     <string name="compose_pgp_too_large">Los adjuntos son demasiado grandes para cifrar (máx. 25 MB).</string>
