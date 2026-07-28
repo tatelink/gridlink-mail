@@ -31,8 +31,10 @@
     <string name="compose_scheduled_toast">Gepland — %1$s</string>
     <string name="compose_discard_title">Bericht verwijderen?</string>
     <string name="compose_discard_message">Je hebt je wijzigingen niet opgeslagen.</string>
+    <string name="compose_discard_message_encrypted">Dit bericht is versleuteld en kan daarom niet als concept worden bewaard: een concept wordt precies zoals je het schreef op de mailserver opgeslagen, leesbaar voor iedereen met toegang. Als je nu weggaat, wordt het bericht verwijderd.</string>
     <string name="compose_discard_save">Concept opslaan</string>
     <string name="compose_discard_discard">Verwijderen</string>
+    <string name="compose_discard_cancel">Annuleren</string>
     <string name="schedule_in_1_hour">Over 1 uur</string>
     <string name="schedule_this_evening">Vanavond, 18:00</string>
     <string name="schedule_tomorrow_morning">Morgen, 08:00</string>
@@ -459,7 +461,7 @@
     <string name="compose_pgp_encrypt">Dit bericht versleutelen</string>
     <string name="compose_pgp_subject_note">Het onderwerp wordt niet versleuteld.</string>
     <string name="compose_pgp_not_encrypted_no_key">Dit bericht wordt niet versleuteld: geen publieke sleutel voor %1$s.</string>
-    <string name="compose_pgp_no_draft">Versleutelde berichten kunnen niet als concept worden opgeslagen.</string>
+    <string name="compose_pgp_no_draft">Versleutelde berichten kunnen niet als concept worden opgeslagen of ingepland.</string>
     <string name="compose_pgp_not_configured">OpenPGP is niet ingesteld voor dit account.</string>
     <string name="compose_pgp_missing_keys">Geen openbare sleutel voor een of meer ontvangers.</string>
     <string name="compose_pgp_too_large">Bijlagen zijn te groot om te versleutelen (max. 25 MB).</string>

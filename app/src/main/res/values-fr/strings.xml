@@ -31,8 +31,10 @@
     <string name="compose_scheduled_toast">Programmé — %1$s</string>
     <string name="compose_discard_title">Abandonner le message ?</string>
     <string name="compose_discard_message">Vous n\'avez pas enregistré vos modifications.</string>
+    <string name="compose_discard_message_encrypted">Ce message est chiffré : il ne peut pas être conservé en brouillon, car un brouillon est stocké sur le serveur de courrier tel que vous l\'avez écrit, lisible par qui y a accès. Quitter maintenant abandonne le message.</string>
     <string name="compose_discard_save">Enregistrer le brouillon</string>
     <string name="compose_discard_discard">Abandonner</string>
+    <string name="compose_discard_cancel">Annuler</string>
     <string name="schedule_in_1_hour">Dans 1 heure</string>
     <string name="schedule_this_evening">Ce soir, 18 h</string>
     <string name="schedule_tomorrow_morning">Demain, 8 h</string>
@@ -459,7 +461,7 @@
     <string name="compose_pgp_encrypt">Chiffrer ce message</string>
     <string name="compose_pgp_subject_note">L\'objet n\'est pas chiffré.</string>
     <string name="compose_pgp_not_encrypted_no_key">Ce message ne sera pas chiffré : pas de clé publique pour %1$s.</string>
-    <string name="compose_pgp_no_draft">Les messages chiffrés ne peuvent pas être enregistrés en brouillon.</string>
+    <string name="compose_pgp_no_draft">Les messages chiffrés ne peuvent pas être enregistrés en brouillon ni programmés.</string>
     <string name="compose_pgp_not_configured">OpenPGP n\'est pas configuré pour ce compte.</string>
     <string name="compose_pgp_missing_keys">Aucune clé publique pour un ou plusieurs destinataires.</string>
     <string name="compose_pgp_too_large">Pièces jointes trop volumineuses pour le chiffrement (25 Mo max).</string>

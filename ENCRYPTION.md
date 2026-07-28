@@ -107,8 +107,10 @@ server). **Signing** has no such requirement: you can sign to anyone.
 
 A few things behave differently while a message is set to encrypt: it cannot be
 saved as a plaintext draft, and scheduled send is unavailable (both would put
-readable content on the server). Your own **Sent** copy stays readable, because
-Sterna also encrypts it to your own key.
+readable content on the server). Closing the composer therefore offers only
+Discard or Cancel, and says why: there is nowhere the message could be kept
+without handing your text to the server in the clear. Your own **Sent** copy
+stays readable, because Sterna also encrypts it to your own key.
 
 ## Step 4 — Read encrypted / signed mail
 

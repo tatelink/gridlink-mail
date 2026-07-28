@@ -268,11 +268,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     fun cyclePgpMode() {
         pgpModeUserSet = true
         _pgpKeylessRecipients.value = emptyList()
-        _pgpMode.value = when (_pgpMode.value) {
-            PgpMode.OFF -> PgpMode.SIGN
-            PgpMode.SIGN -> PgpMode.ENCRYPT
-            PgpMode.ENCRYPT -> PgpMode.OFF
-        }
+        _pgpMode.value = nextPgpMode(_pgpMode.value)
         _pgpToggleAnnounce.tryEmit(_pgpMode.value)
     }
 
@@ -791,6 +787,13 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      * WorkManager (survives the app closing). Attachments are not carried in v1.
      */
     fun scheduleSend(to: String, cc: String, bcc: String, subject: String, body: String, sendAtMillis: Long) {
+        // Same plaintext rule as the draft save (#35): a scheduled send parks the readable body in
+        // the local queue and hands it to a headless worker that cannot sign or encrypt it, so an
+        // encrypted message is never scheduled. The toolbar hides the menu; this is the choke point.
+        if (!draftSaveAllowed(_pgpMode.value)) {
+            _notices.tryEmit(R.string.compose_pgp_no_draft)
+            return
+        }
         if (_state.value is ComposeState.Sending) return
         _state.value = ComposeState.Sending
         viewModelScope.launch {
@@ -881,6 +884,16 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     ): Boolean = draftHasContent(to, cc, bcc, subject, body, _attachments.value.isNotEmpty())
 
     fun saveDraft(to: String, cc: String, bcc: String, subject: String, body: String) {
+        // The plaintext guarantee, enforced where the upload actually happens (#35): an encrypted
+        // message never leaves a readable copy on the server, draft included. The toolbar hides
+        // Save/Schedule and the leave dialog only offers Discard while encrypting, so this is
+        // belt-and-braces — but it is the one choke point every save route goes through, so a
+        // future caller cannot reintroduce the leak. Refuse and say so rather than saving: the
+        // composer stays open with the text intact, nothing is lost and nothing is uploaded.
+        if (!draftSaveAllowed(_pgpMode.value)) {
+            _notices.tryEmit(R.string.compose_pgp_no_draft)
+            return
+        }
         // Empty by the #69 rule: persist nothing. A brand-new compose leaves no trace at all (no
         // server create, no local row, no outbox entry); an opened draft the user has emptied has
         // its original deleted so no empty shell lingers in Drafts (or reappears on sync). Either

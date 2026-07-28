@@ -31,8 +31,10 @@
     <string name="compose_scheduled_toast">Programmato — %1$s</string>
     <string name="compose_discard_title">Eliminare il messaggio?</string>
     <string name="compose_discard_message">Non hai salvato le modifiche.</string>
+    <string name="compose_discard_message_encrypted">Questo messaggio è cifrato, quindi non può essere conservato come bozza: una bozza viene archiviata sul server di posta esattamente come l\'hai scritta, leggibile da chiunque vi abbia accesso. Uscendo ora il messaggio viene eliminato.</string>
     <string name="compose_discard_save">Salva bozza</string>
     <string name="compose_discard_discard">Elimina</string>
+    <string name="compose_discard_cancel">Annulla</string>
     <string name="schedule_in_1_hour">Tra 1 ora</string>
     <string name="schedule_this_evening">Stasera, 18:00</string>
     <string name="schedule_tomorrow_morning">Domani, 8:00</string>
@@ -459,7 +461,7 @@
     <string name="compose_pgp_encrypt">Cifra questo messaggio</string>
     <string name="compose_pgp_subject_note">L\'oggetto non è cifrato.</string>
     <string name="compose_pgp_not_encrypted_no_key">Questo messaggio non sarà cifrato: nessuna chiave pubblica per %1$s.</string>
-    <string name="compose_pgp_no_draft">I messaggi cifrati non possono essere salvati come bozza.</string>
+    <string name="compose_pgp_no_draft">I messaggi cifrati non possono essere salvati come bozza né programmati.</string>
     <string name="compose_pgp_not_configured">OpenPGP non è configurato per questo account.</string>
     <string name="compose_pgp_missing_keys">Nessuna chiave pubblica per uno o più destinatari.</string>
     <string name="compose_pgp_too_large">Gli allegati sono troppo grandi per la cifratura (max 25 MB).</string>

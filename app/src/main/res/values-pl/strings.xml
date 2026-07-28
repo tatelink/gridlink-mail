@@ -31,8 +31,10 @@
     <string name="compose_scheduled_toast">Zaplanowano — %1$s</string>
     <string name="compose_discard_title">Odrzucić wiadomość?</string>
     <string name="compose_discard_message">Nie zapisano wprowadzonych zmian.</string>
+    <string name="compose_discard_message_encrypted">Ta wiadomość jest zaszyfrowana, więc nie można zachować jej jako wersji roboczej: wersja robocza jest przechowywana na serwerze pocztowym dokładnie w takiej postaci, w jakiej ją napisano, czytelna dla każdego, kto ma do niej dostęp. Wyjście teraz odrzuca wiadomość.</string>
     <string name="compose_discard_save">Zapisz wersję roboczą</string>
     <string name="compose_discard_discard">Odrzuć</string>
+    <string name="compose_discard_cancel">Anuluj</string>
     <string name="schedule_in_1_hour">Za 1 godzinę</string>
     <string name="schedule_this_evening">Dziś wieczorem, 18:00</string>
     <string name="schedule_tomorrow_morning">Jutro, 8:00</string>
@@ -459,7 +461,7 @@
     <string name="compose_pgp_encrypt">Zaszyfruj tę wiadomość</string>
     <string name="compose_pgp_subject_note">Temat nie jest szyfrowany.</string>
     <string name="compose_pgp_not_encrypted_no_key">Ta wiadomość nie zostanie zaszyfrowana: brak klucza publicznego dla %1$s.</string>
-    <string name="compose_pgp_no_draft">Zaszyfrowanych wiadomości nie można zapisać jako wersji roboczej.</string>
+    <string name="compose_pgp_no_draft">Zaszyfrowanych wiadomości nie można zapisać jako wersji roboczej ani zaplanować.</string>
     <string name="compose_pgp_not_configured">OpenPGP nie jest skonfigurowany dla tego konta.</string>
     <string name="compose_pgp_missing_keys">Brak klucza publicznego dla co najmniej jednego odbiorcy.</string>
     <string name="compose_pgp_too_large">Załączniki są za duże do zaszyfrowania (maks. 25 MB).</string>
