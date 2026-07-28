@@ -40,6 +40,7 @@ import app.sterna.core.data.db.RecentContactDao
 import app.sterna.core.data.db.RecentContactEntity
 import app.sterna.core.data.db.EmailEntity
 import app.sterna.core.data.db.MailboxDao
+import app.sterna.core.data.db.MailboxIdRole
 import app.sterna.core.data.pgp.PgpEngine
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.settings.SortOrder
@@ -177,6 +178,20 @@ internal fun fitsBodyCache(bodyJson: String, inlineImagesJson: String): Boolean 
  * invisible. Rejecting here means such a send fails loudly instead of silently reaching an
  * address the user never saw. The wire-level filter stays in place too (OutgoingMime).
  */
+/**
+ * Folders an IMAP search walks, in the order [MailboxDao.searchOrder] gives. Trash and Junk are
+ * left out: a message you threw away or refused is noise in a result list, and the same walk feeds
+ * the inbox magnifier, where a deleted mail surfacing unannounced reads as a bug. It also saves two
+ * round trips per excluded folder on a link where each one costs.
+ *
+ * The role is what decides, never the name, so it holds in every language and on servers that name
+ * their folders freely.
+ */
+internal fun searchableFolderIds(folders: List<MailboxIdRole>): List<String> =
+    folders.filterNot { it.role?.trim()?.lowercase() in NOT_SEARCHED_ROLES }.map { it.id }
+
+private val NOT_SEARCHED_ROLES = setOf("trash", "junk", "spam")
+
 internal fun requireSingleLineAddresses(addresses: List<String>) {
     require(addresses.none { addr -> addr.any { it == '\r' || it == '\n' } }) {
         "An address contains a line break."
@@ -2988,7 +3003,7 @@ class MailRepository(
         if (credentials.protocol == MailProtocol.IMAP) {
             // Folders come from the cache, so a search covers what the drawer knows; an account
             // whose folders were never synced falls back to the inbox rather than nothing.
-            val folders = mailboxDao.searchOrder(credentials.id).map { it.id }
+            val folders = searchableFolderIds(mailboxDao.searchOrder(credentials.id))
                 .ifEmpty { listOfNotNull(mailboxDao.idForRole(credentials.id, "inbox")) }
             if (folders.isEmpty()) return emptyList()
             return imap.search(credentials, folders, query.toImapCriteria(), query.hasAttachment, limit)
