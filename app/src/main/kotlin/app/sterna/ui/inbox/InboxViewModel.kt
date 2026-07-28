@@ -585,9 +585,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         repo.observeUnifiedInboxUnread(store.allInboxScopes())
     }
 
-    /** Codeberg #65: the offline empty state promises a resync, so watch the network and re-run
-     *  the current view's refresh once connectivity actually returns; its [online] flow also
-     *  drives the offline banner directly (event-driven, not inferred from a failed refresh).
+    /** Codeberg #65: the offline empty state promises a resync, so watch the network — the
+     *  transports *and* the route this app is given, so a VPN tunnel coming back counts — and
+     *  re-run the current view's refresh once connectivity actually returns. Its [online] flow
+     *  also drives the offline banner, from the callbacks corrected by what [refresh] lived, so a
+     *  killswitch tunnel that the framework cannot see is still shown honestly.
      *  Declared before [state] so its flow is available when the combined state is built. */
     private val connectivity = ConnectivityWatcher(application) { onReconnected() }
     private var reconnectJob: Job? = null
@@ -671,10 +673,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         reconnectJob?.cancel()
         clearRefreshError()
         reconnectJob = viewModelScope.launch {
-            // The watcher fires as soon as a transport is up, without waiting for the system's
+            // The watcher fires as soon as the link is back, without waiting for the system's
             // captive-portal validation (#65: users who block those probes never get it). The
             // link may not be routable for a beat — a VPN tunnel takes seconds to re-handshake —
-            // so an early attempt is expected to fail and is retried rather than reported.
+            // so an early attempt is expected to fail and is retried rather than reported. The
+            // banner stays up throughout: the gate only calls it online once one of these
+            // attempts comes back.
             repeat(ReconnectRefresh.MAX_TRIES) { attempt ->
                 delay(ReconnectRefresh.delayBeforeMs(attempt))
                 refresh()
@@ -726,10 +730,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                     is Sel.Folder -> refreshFolder(sel.id)
                 }
                 status.value = Status(refreshing = false, error = null)
+                // #65: every refresh doubles as the connectivity probe. A killswitch VPN is
+                // invisible to the framework (the Wi-Fi under the tunnel stays up and NOT_VPN),
+                // so what the requests live is the only thing that can correct what it claims.
+                connectivity.reportSuccess()
             } catch (c: CancellationException) {
                 throw c // a superseding refresh cancelled us — don't stomp its status
             } catch (t: Throwable) {
                 status.value = Status(refreshing = false, error = t.message ?: t.javaClass.simpleName)
+                connectivity.reportFailure(t)
             }
         }
     }
