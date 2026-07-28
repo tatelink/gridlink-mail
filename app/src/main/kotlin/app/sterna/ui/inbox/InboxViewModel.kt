@@ -948,6 +948,20 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Swipe action when already inside Archive: move the message back to the Inbox. */
     fun unarchive(email: Email, inboxId: String) = swipeRemove(email, getApplication<Application>().getString(R.string.status_message_unarchived)) { c, id -> repo.moveToMailbox(c, id, inboxId) }
 
+    /**
+     * Move ONE message to [targetMailboxId] — the reader's move-to-folder (#73).
+     *
+     * Deliberately the same [swipeRemove] path archive and delete from the reader take: the
+     * count nudge, the row leaving on the server's ack, and above all the Undo (its snackbar
+     * shows on the list the reader pops back to). [email] carries its own account, so a message
+     * read from the unified inbox moves inside ITS account — and the picker that produced
+     * [targetMailboxId] listed that same account's folders (#92).
+     */
+    fun moveTo(email: Email, targetMailboxId: String) =
+        swipeRemove(email, getApplication<Application>().getString(R.string.status_message_moved)) { c, id ->
+            repo.moveToMailbox(c, id, targetMailboxId)
+        }
+
     // ---- whole-thread swipe (collapsed conversation rows act on the whole conversation) ----
 
     /** A thread's full membership from the cache (representative included), or [rep] alone. */

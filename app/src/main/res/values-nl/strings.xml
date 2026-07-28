@@ -564,6 +564,7 @@
     <string name="status_message_deleted">Bericht verwijderd</string>
     <string name="status_message_deleted_forever">Bericht definitief verwijderd</string>
     <string name="status_message_archived">Bericht gearchiveerd</string>
+    <string name="status_message_moved">Bericht verplaatst</string>
     <string name="status_message_unarchived">Bericht uit archief gehaald</string>
     <string name="status_conversation_deleted">Gesprek verwijderd</string>
     <string name="status_conversation_archived">Gesprek gearchiveerd</string>

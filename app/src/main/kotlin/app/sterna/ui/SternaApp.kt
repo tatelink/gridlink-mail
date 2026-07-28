@@ -425,6 +425,16 @@ private fun MainNavHost(
                             nav.popBackStack()
                         }
                     },
+                    // Move to folder, through the same shared inbox VM as archive/delete (#73):
+                    // the reader's move is the list's move, Undo snackbar included, and the
+                    // screen returns to the list because the message just left the folder
+                    // being read — exactly what archiving it does.
+                    onMove = { email, targetMailboxId ->
+                        if (entry.lifecycleIsResumed()) {
+                            inboxViewModel.moveTo(email, targetMailboxId)
+                            nav.popBackStack()
+                        }
+                    },
                     onReply = { mode, replyToId, replyAccountId ->
                         if (entry.lifecycleIsResumed()) {
                             val accountArg = replyAccountId?.let { "&accountId=${Uri.encode(it)}" }.orEmpty()

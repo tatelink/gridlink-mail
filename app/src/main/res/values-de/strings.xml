@@ -564,6 +564,7 @@
     <string name="status_message_deleted">Nachricht gelöscht</string>
     <string name="status_message_deleted_forever">Nachricht endgültig gelöscht</string>
     <string name="status_message_archived">Nachricht archiviert</string>
+    <string name="status_message_moved">Nachricht verschoben</string>
     <string name="status_message_unarchived">Nachricht aus Archiv geholt</string>
     <string name="status_conversation_deleted">Unterhaltung gelöscht</string>
     <string name="status_conversation_archived">Unterhaltung archiviert</string>
