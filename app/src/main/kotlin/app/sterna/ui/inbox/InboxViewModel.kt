@@ -21,6 +21,7 @@ import app.sterna.core.data.db.OutboxState
 import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.mail.InboxRow
 import app.sterna.core.data.mail.MailRepository
+import app.sterna.core.data.mail.MailSearchResult
 import app.sterna.core.data.mail.emailKey
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.data.settings.SwipeAction
@@ -59,6 +60,9 @@ data class MailUi(
     /** The normal browse list is paged separately ([InboxViewModel.pagedEmails]); this
      *  holds the (bounded) results shown while inline search is active. */
     val searchResults: List<Email> = emptyList(),
+    /** False when the search stopped short (server cap, or an account that failed and was
+     *  dropped): the count above the results then says "at least N". */
+    val searchComplete: Boolean = true,
     val mailboxes: List<Mailbox>,
     val refreshing: Boolean,
     val error: String?,
@@ -91,6 +95,10 @@ private data class SearchUi(
     val query: String = "",
     val results: List<Email>? = null,
     val loading: Boolean = false,
+    /** False when the server leg stopped short — its cap, or an account that failed and was
+     *  dropped. The count then says "at least N" instead of claiming a total (see
+     *  [app.sterna.core.data.mail.MailSearchResult]). */
+    val complete: Boolean = true,
 )
 
 /** Typing pause before the (unioned-in) server full-text search fires; local FTS has no debounce. */
@@ -619,6 +627,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             unified = base.unified,
             atInbox = base.atInbox,
             searchResults = search.results.orEmpty(),
+            searchComplete = search.complete,
             mailboxes = base.mailboxes,
             refreshing = base.refreshing,
             error = base.error,
@@ -1711,7 +1720,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             searchState.value = searchState.value.copy(query = query, results = null, loading = false)
             return
         }
-        searchState.value = searchState.value.copy(query = query, loading = true)
+        searchState.value = searchState.value.copy(query = query, loading = true, complete = true)
         searchJob = viewModelScope.launch {
             // 1) Local FTS first: instant on every keystroke, offline, accent-folded, prefix-matched
             //    ("eco*" finds écologie/écologique/…), over the header index of the whole mailbox.
@@ -1728,13 +1737,19 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             //    keystroke) plus the current-query check discard stale responses, so results can't
             //    flicker away or depend on typing speed.
             delay(SERVER_SEARCH_DEBOUNCE_MS)
+            // A failed server leg (or one that dropped an unreachable account) must not pass for
+            // a complete answer: the count says "at least N" instead of a total it can't back.
             val server = runCatching {
-                repo.search(searchAccounts(), SearchQuery(text = query), SERVER_SEARCH_LIMIT).emails
-            }.getOrNull().orEmpty()
+                repo.search(searchAccounts(), SearchQuery(text = query), SERVER_SEARCH_LIMIT)
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                MailSearchResult(emptyList(), complete = false)
+            }
             if (searchState.value.query == query) {
                 searchState.value = searchState.value.copy(
-                    results = mergeHits(searchState.value.results.orEmpty(), server),
+                    results = mergeHits(searchState.value.results.orEmpty(), server.emails),
                     loading = false,
+                    complete = server.complete,
                 )
             }
         }

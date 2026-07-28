@@ -1448,7 +1448,14 @@ fun InboxScreen(
                         ui.searchResults.isNotEmpty() ->
                             Column(Modifier.fillMaxSize()) {
                                 Text(
-                                    text = stringResource(R.string.search_result_count, ui.searchResults.size),
+                                    // "At least N" when the search stopped short — its cap, or an
+                                    // account that failed and was left out. A partial answer
+                                    // counted as a total is a number the user can't check.
+                                    text = if (ui.searchComplete) {
+                                        stringResource(R.string.search_result_count, ui.searchResults.size)
+                                    } else {
+                                        stringResource(R.string.search_result_count_capped, ui.searchResults.size)
+                                    },
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier

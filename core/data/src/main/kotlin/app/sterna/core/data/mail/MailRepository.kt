@@ -3046,10 +3046,14 @@ class MailRepository(
      * Unified search across several accounts (the unified-inbox / dedicated-search case).
      * Each account's [search] runs in parallel; every hit is tagged with its local
      * accountId so results open in the right account and show the right account colour.
-     * Per-account failures are skipped so one unreachable account doesn't sink the search —
-     * but they make the answer incomplete, and it says so rather than passing the survivors
-     * off as the whole result.
-     * Results are merged, de-duplicated, sorted newest-first and capped at [limit].
+     *
+     * An account that fails is skipped so one unreachable account doesn't sink the search — but
+     * it is LOGGED and it makes the answer incomplete, rather than being passed off as the whole
+     * result: an account vanishing without a trace is indistinguishable, on screen, from an
+     * account that simply holds no match.
+     *
+     * Results are merged fairly per account, de-duplicated, sorted newest-first and capped at
+     * [limit] — see [mergeAccountSearches].
      */
     suspend fun search(accounts: List<AccountCredentials>, query: SearchQuery, limit: Int = 50): MailSearchResult {
         if (query.isEmpty() || accounts.isEmpty()) return MailSearchResult(emptyList())
@@ -3064,16 +3068,23 @@ class MailRepository(
                     runCatching {
                         val hits = search(credentials, query, limit)
                         hits.copy(emails = hits.emails.map { it.copy(accountId = credentials.id) })
+                    }.onFailure { error ->
+                        // Cancellation (a new keystroke, the screen closing) is not a failure and
+                        // must keep propagating — runCatching catches it like any other throwable.
+                        if (error is CancellationException) throw error
+                        // The account id is a local UUID and the message never carries the
+                        // credential (see AccountStore's warning): this is the only trace a
+                        // dropped account leaves, so it must exist.
+                        android.util.Log.w(
+                            "MailSearch",
+                            "account ${credentials.id} dropped from unified search: " +
+                                "${error.javaClass.simpleName}: ${error.message}",
+                        )
                     }.getOrDefault(MailSearchResult(emptyList(), complete = false))
                 }
             }.awaitAll()
         }
-        val merged = perAccount.flatMap { it.emails }
-            // receivedAt is an ISO-8601 UTC string, so lexicographic sort == chronological.
-            .distinctBy { it.accountId to it.id }
-            .sortedByDescending { it.receivedAt ?: "" }
-            .take(limit)
-        return MailSearchResult(merged, complete = perAccount.all { it.complete } && merged.size < limit)
+        return mergeAccountSearches(perAccount, limit)
     }
 
     /** Fetch an email (with body) without marking it read — used to build replies/forwards. */
