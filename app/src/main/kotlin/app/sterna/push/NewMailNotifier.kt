@@ -181,17 +181,31 @@ object NewMailNotifier {
             .map { it.id }
         if (newMail.isNotEmpty() || readIds.isNotEmpty()) {
             val (silent, content) = options(context)
+            // Who announces this batch, decided BEFORE anything is posted (Codeberg #56): the
+            // group summary if this account is left with enough notifications to get one, the
+            // messages themselves otherwise — a single arrival gets no summary, so silencing it
+            // "under" one would silence it outright.
+            val summarised = Notifications.summaryShownFor(
+                Notifications.liveChildIdsAfter(active, credentials.id, readIds, newMail.map { it.id }).size,
+            )
             newMail.forEach {
                 // [mailboxId] is the folder this diff pass is for, i.e. where the mail arrived —
                 // so the tap can put the list there (issue #91). Passed for the inbox too, where
                 // [folderName] is deliberately null: the sub-text is about marking non-inbox
                 // mail, the id is about where Back must land.
-                Notifications.notifyNewMail(context, it, credentials.id, silent, folderName, mailboxId, content)
+                Notifications.notifyNewMail(context, it, credentials.id, silent, folderName, mailboxId, content, summarised)
             }
             readIds.forEach { Notifications.cancelChild(context, credentials.id, it) }
             // Rebuilt from ALL active children so successive per-folder passes accumulate
-            // instead of the last folder overwriting the whole account's summary.
-            Notifications.updateGroupSummary(context, credentials.id, credentials.username, silent)
+            // instead of the last folder overwriting the whole account's summary. It re-posts,
+            // so it would ring: it may only do so when this pass actually brought new mail —
+            // a message read on another device refreshes the group in silence.
+            Notifications.updateGroupSummary(
+                context,
+                credentials.id,
+                credentials.username,
+                silent = silent || newMail.isEmpty(),
+            )
         }
         seed(context, credentials.id, mailboxId, emails)
     }
