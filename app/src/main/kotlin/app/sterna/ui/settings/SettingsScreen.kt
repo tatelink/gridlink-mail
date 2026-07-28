@@ -1515,6 +1515,7 @@ private fun AccountDetailScreen(
                         optionLabel = { securityLabel(context, it) },
                         onSelect = { imapSecurity = it; markEdited() },
                     )
+                    PlaintextSecurityWarning(imapSecurity)
                     SettingTextField(
                         label = stringResource(R.string.settings_smtp_server_label),
                         value = smtpHost,
@@ -1534,6 +1535,7 @@ private fun AccountDetailScreen(
                         optionLabel = { securityLabel(context, it) },
                         onSelect = { smtpSecurity = it; markEdited() },
                     )
+                    PlaintextSecurityWarning(smtpSecurity)
                 } else {
                     SettingTextField(
                         label = stringResource(R.string.settings_server_url_label),
@@ -2210,6 +2212,24 @@ private fun PgpAccountSection(
 
 private const val OPENKEYCHAIN_FDROID_URL =
     "https://f-droid.org/packages/org.sufficientlysecure.keychain/"
+
+/**
+ * What "None" costs, shown under the security selector while it is the choice. The option
+ * stays: a Proton Bridge (or any loopback proxy) on 127.0.0.1 is a legitimate cleartext
+ * target. But sending a password unencrypted should be a decision, not a default one can
+ * land on unknowingly, so the consequence is stated in place. No dialogue, no second
+ * confirmation: the state on screen is the state in force.
+ */
+@Composable
+private fun PlaintextSecurityWarning(security: ConnectionSecurity) {
+    if (security != ConnectionSecurity.NONE) return
+    Text(
+        stringResource(R.string.settings_security_none_warning),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+}
 
 private fun securityLabel(context: Context, security: ConnectionSecurity): String = when (security) {
     ConnectionSecurity.TLS -> context.getString(R.string.settings_security_tls)

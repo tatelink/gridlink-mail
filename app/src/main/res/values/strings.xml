@@ -582,6 +582,7 @@
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">None</string>
+    <string name="settings_security_none_warning">No encryption: the password and the messages travel in the clear, readable on the network. Only pick this for a bridge on 127.0.0.1.</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Add account</string>

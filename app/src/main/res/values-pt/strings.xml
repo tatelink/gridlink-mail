@@ -472,6 +472,7 @@
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">Nenhuma</string>
+    <string name="settings_security_none_warning">Sem cifragem: a palavra-passe e as mensagens circulam em claro, legíveis na rede. Escolha isto apenas para uma ponte em 127.0.0.1.</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Adicionar conta</string>

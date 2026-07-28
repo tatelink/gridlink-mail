@@ -472,6 +472,7 @@
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">Keine</string>
+    <string name="settings_security_none_warning">Keine Verschlüsselung: Passwort und Nachrichten werden im Klartext übertragen und sind im Netzwerk lesbar. Nur für eine Bridge auf 127.0.0.1 wählen.</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Konto hinzufügen</string>

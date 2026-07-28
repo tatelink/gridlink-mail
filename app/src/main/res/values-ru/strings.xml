@@ -472,6 +472,7 @@
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">Нет</string>
+    <string name="settings_security_none_warning">Без шифрования: пароль и письма передаются в открытом виде и доступны для чтения в сети. Выбирайте это только для моста на 127.0.0.1.</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Добавить аккаунт</string>

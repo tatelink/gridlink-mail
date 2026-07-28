@@ -472,6 +472,7 @@
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">Geen</string>
+    <string name="settings_security_none_warning">Geen versleuteling: het wachtwoord en de berichten gaan onversleuteld over de lijn en zijn leesbaar op het netwerk. Kies dit alleen voor een bridge op 127.0.0.1.</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Account toevoegen</string>

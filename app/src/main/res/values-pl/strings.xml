@@ -472,6 +472,7 @@
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">Brak</string>
+    <string name="settings_security_none_warning">Brak szyfrowania: hasło i wiadomości są przesyłane jawnym tekstem, czytelnym w sieci. Wybieraj to tylko dla mostka na 127.0.0.1.</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Dodaj konto</string>

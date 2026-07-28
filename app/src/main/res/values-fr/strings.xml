@@ -472,6 +472,7 @@
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">Aucune</string>
+    <string name="settings_security_none_warning">Aucun chiffrement : le mot de passe et les messages circulent en clair, lisibles sur le réseau. À ne choisir que pour une passerelle sur 127.0.0.1.</string>
 
     <!-- Connect / add account -->
     <string name="connect_add_account">Ajouter un compte</string>
