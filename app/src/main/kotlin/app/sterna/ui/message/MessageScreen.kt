@@ -2334,6 +2334,29 @@ internal object NavFadeGuard {
 }
 
 /**
+ * How much longer the horizontal side of a drag on the message body must be than its vertical side
+ * before the gesture is handed to the pager as a swipe between messages. THE calibration knob for
+ * that gesture — see [BodyWebView.onTouchEvent].
+ *
+ * 2.5 means "within about 22° of the horizontal" (atan(1 / 2.5)). It was 1.5, i.e. anything within
+ * 34°, and that took gestures the reader meant as scrolling: the decision is made as soon as the
+ * finger has travelled one touch slop (8dp, about 1.3mm), and over so short a distance a thumb
+ * starting a scroll arcs sideways easily — at 1.5 it only had to wander 0.85mm across to lose the
+ * message, at 2.5 it takes 0.51mm. The reader was landing on another message while trying to read
+ * (Codeberg #97), and coming back is not free: the place in the text is lost.
+ *
+ * The decision cannot simply be postponed to a longer, better-judged drag: whatever the body has
+ * not claimed by the time the pager crosses its OWN touch slop is already the pager's, and a claim
+ * released later does not hand the gesture back (the pager's drag detector has by then seen its
+ * events consumed and waits for a new touch). So the angle, judged at that same first slop, is the
+ * only honest knob here.
+ *
+ * Tuning: raise it (3.0 ≈ 18°) if a page still flips while reading, lower it (2.0 ≈ 27°) if a
+ * deliberate sideways swipe has to be aimed. Ties go to reading, which is what the view is for.
+ */
+private const val SWIPE_HORIZONTAL_DOMINANCE = 2.5f
+
+/**
  * The message-body WebView. It fills the viewport and OWNS its vertical scroll, so Blink culls
  * offscreen content (the email-view jank fix, Codeberg #5). There is no competing outer Compose
  * vertical scroll, so vertical drags stay here while horizontal swipes reach the reading view's
@@ -2386,7 +2409,7 @@ private class BodyWebView(context: Context) : WebView(context) {
                     // on a deliberate sideways drag, so a mostly-vertical or diagonal drag scrolls the
                     // body instead of flipping the page. A clearly-horizontal drag is left unclaimed so
                     // the pager intercepts it.
-                    val clearlyHorizontal = dx > dy * 1.5f
+                    val clearlyHorizontal = dx > dy * SWIPE_HORIZONTAL_DOMINANCE
                     if (!clearlyHorizontal) parent?.requestDisallowInterceptTouchEvent(true)
                 }
             }
