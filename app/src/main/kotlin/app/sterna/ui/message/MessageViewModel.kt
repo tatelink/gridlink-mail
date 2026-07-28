@@ -18,15 +18,19 @@ import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.calendar.ICalendar
 import app.sterna.core.data.calendar.ParsedEvent
 import app.sterna.core.data.settings.MessageTextSize
+import app.sterna.core.jmap.ContentTooLargeException
+import app.sterna.core.jmap.DownloadLimits
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailHeader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed interface MessageState {
     data object Loading : MessageState
@@ -303,6 +307,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _replyBarVisible.value = false
         _manualShowImages.value = false
         _headers.value = null
+        _attachmentStatus.value = null
         viewModelScope.launch {
             // Account-scoped: a snooze belongs to one account's message (issue #31).
             _snoozedUntil.value = runCatching {
@@ -366,6 +371,12 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                     is MessageCrypto.Decrypted -> _crypto.value = CryptoUiState.Decrypted(c)
                     null -> {}
                 }
+                // An inline image we refused to download leaves a hole in the body. Say it —
+                // showing less without a word is how a problem gets hidden.
+                if (anchor.oversizedInlineImageCount() > 0) {
+                    _attachmentStatus.value =
+                        getApplication<Application>().getString(R.string.status_inline_images_too_large)
+                }
                 // A calendar invite (text/calendar part) is fetched + parsed off the body so the
                 // reader can show an event card above it.
                 loadCalendarFor(_messages.value.first())
@@ -374,9 +385,20 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 // The reader shows the single opened message; the conversation (the rest of the
                 // thread) now lives only in the list's inline unfold, so no thread merge here.
             } catch (t: Throwable) {
-                _state.value = MessageState.Error(t.message ?: t.javaClass.simpleName)
+                _state.value = MessageState.Error(readFailureText(t))
             }
         }
+    }
+
+    /**
+     * What to show when a message won't open. A refusal on our own terms (its source is past what
+     * we are willing to parse) gets a plain sentence; anything else keeps its technical text,
+     * which is what a bug report needs.
+     */
+    private fun readFailureText(t: Throwable): String = when (t) {
+        is ContentTooLargeException ->
+            getApplication<Application>().getString(R.string.status_message_too_large)
+        else -> t.message ?: t.javaClass.simpleName
     }
 
     /** The anchor as displayed: shown read once it has been settled on (else its true state). */
@@ -511,6 +533,9 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                     Intent.createChooser(view, app.getString(R.string.status_open_attachment)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
                 _attachmentStatus.value = null
+            } catch (t: ContentTooLargeException) {
+                // Our own refusal, not a failure: say it plainly instead of showing byte counts.
+                _attachmentStatus.value = app.getString(R.string.status_attachment_too_large)
             } catch (t: Throwable) {
                 _attachmentStatus.value =
                     app.getString(R.string.status_open_attachment_failed, t.message ?: "error")
@@ -533,11 +558,19 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             try {
                 val credentials = credentials()
                     ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
-                val bytes = repo.downloadAttachment(credentials, part, msg.id)
+                // Fetched because the message is open, not because anyone asked: bounded like
+                // the invitation the parser will accept, not like a tapped attachment.
+                val bytes = repo.downloadAttachment(
+                    credentials, part, msg.id, DownloadLimits.CALENDAR_MAX_BYTES,
+                )
                 val charset = runCatching {
                     java.nio.charset.Charset.forName(part.charset ?: "UTF-8")
                 }.getOrDefault(Charsets.UTF_8)
-                val event = ICalendar.parse(String(bytes, charset))
+                // Parsing a stranger's .ics is untrusted work on an unbounded input: keep it off
+                // the main thread so a pathological invitation can never freeze the reader.
+                val event = withContext(Dispatchers.Default) {
+                    ICalendar.parse(String(bytes, charset))
+                }
                 _calendar.value = CalendarInvite(
                     loading = false,
                     event = event,

@@ -43,6 +43,8 @@ import app.sterna.core.data.pgp.PgpEngine
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.jmap.BasicAuth
+import app.sterna.core.jmap.ContentTooLargeException
+import app.sterna.core.jmap.DownloadLimits
 import app.sterna.core.jmap.BearerAuth
 import app.sterna.core.jmap.DeviceAuthorization
 import app.sterna.core.jmap.DeviceTokenResult
@@ -151,6 +153,31 @@ private const val PREFETCH_COUNT = 20
 
 /** Max cached message bodies kept per account (LRU); bounds on-device storage. */
 private const val BODY_CACHE_CAP = 100
+
+/**
+ * Largest body row we will write (characters of JSON, body + inline images). SQLite's cursor
+ * window is 2 MB by default, and a row past it can be inserted but never read back — every
+ * later read throws. Staying well under keeps the cache readable; a body over this is served
+ * from the network each time instead, which is slower but always works.
+ */
+internal const val MAX_CACHED_BODY_CHARS = 1_000_000
+
+/** Whether a body row of this size may be written without becoming unreadable later. */
+internal fun fitsBodyCache(bodyJson: String, inlineImagesJson: String): Boolean =
+    bodyJson.length + inlineImagesJson.length <= MAX_CACHED_BODY_CHARS
+
+/**
+ * Read a cached row through [read]; if reading it fails at all, drop it via [purge] and report a
+ * miss. An unreadable row must cost a refetch, never a message that can no longer be opened —
+ * SQLite throws on reading a row past its cursor window, and it throws again on every retry.
+ */
+internal suspend fun <T> readCachedOrPurge(
+    read: suspend () -> T?,
+    purge: suspend () -> Unit,
+): T? = runCatching { read() }.getOrElse {
+    runCatching { purge() }
+    null
+}
 
 /** Max full-text search matches returned to the UI. */
 private const val LOCAL_SEARCH_LIMIT = 100
@@ -1537,12 +1564,22 @@ class MailRepository(
         val mailboxId = cached.mailboxId ?: error("Unknown mailbox for message.")
         val uid = ImapMailService.uidOf(emailId) ?: error("Not an IMAP message.")
         val raw = imap.fetchSource(credentials, mailboxId, uid)
+        val body = MimeParser.parseBody(raw)
+        // Refused before parsing: say so rather than render a blank message (the reader turns
+        // this into a translated sentence).
+        if (body.tooLarge) {
+            throw ContentTooLargeException(
+                "Message source is ${raw.length} characters, over the ${MimeParser.MAX_BODY_CHARS} parse limit.",
+                bytes = raw.length.toLong(),
+                maxBytes = MimeParser.MAX_BODY_CHARS.toLong(),
+            )
+        }
         if (markRead && !cached.isSeen) {
             runCatching { setRead(credentials, emailId, seen = true) }
         }
         // The cache holds no threading headers; lift them from the source so a reply
         // built from this email carries In-Reply-To/References.
-        return cached.withBody(MimeParser.parseBody(raw)).copy(
+        return cached.withBody(body).copy(
             messageId = headerIds(MimeParser.headerOf(raw, "Message-ID")),
             references = headerIds(MimeParser.headerOf(raw, "References")),
         )
@@ -1823,16 +1860,25 @@ class MailRepository(
         return MimeParser.decodeBytes(encoded, cte)
     }
 
-    /** [accountId]'s cached body for [emailId], or null if not yet fetched/prefetched. No network. */
-    suspend fun cachedMessage(accountId: String, emailId: String): MessageBody? {
-        val row = emailBodyDao.byId(accountId, emailId) ?: return null
-        return runCatching {
+    /**
+     * [accountId]'s cached body for [emailId], or null if not yet fetched/prefetched. No network.
+     *
+     * The READ is inside the guard, not just the decoding: a row whose JSON is past SQLite's
+     * cursor window throws on every read (SQLiteBlobTooBigException), and with the read left
+     * outside, that exception escaped all the way to the reader — the message was then
+     * permanently unopenable, not just uncached. A row we cannot read is dropped so the next
+     * open refetches it.
+     */
+    suspend fun cachedMessage(accountId: String, emailId: String): MessageBody? = readCachedOrPurge(
+        read = {
+            val row = emailBodyDao.byId(accountId, emailId) ?: return@readCachedOrPurge null
             MessageBody(
                 email = cacheJson.decodeFromString(Email.serializer(), row.bodyJson),
                 inlineImages = cacheJson.decodeFromString(inlineImagesSerializer, row.inlineImagesJson),
             )
-        }.getOrNull()
-    }
+        },
+        purge = { emailBodyDao.deleteById(accountId, emailId) },
+    )
 
     /** Inline images present if the body needs them; downloads + persists them on first open. */
     private suspend fun ensureInlineImages(
@@ -1846,7 +1892,13 @@ class MailRepository(
         return cached.copy(inlineImages = inline)
     }
 
-    /** Download a message's inline images as `data:` URIs keyed by Content-ID. */
+    /**
+     * Download a message's inline images as `data:` URIs keyed by Content-ID.
+     *
+     * Nobody asked for these: opening the message is enough, and each one is then base64-encoded
+     * and cached at roughly four times its own weight. Hence the tighter ceiling — an image past
+     * it is not fetched, and the reader says so (see [oversizedInlineImages]).
+     */
     private suspend fun fetchInlineImages(
         credentials: AccountCredentials,
         email: Email,
@@ -1858,7 +1910,9 @@ class MailRepository(
         for (part in parts) {
             val cid = part.cid?.trim()?.trim('<', '>')?.takeIf { it.isNotEmpty() } ?: continue
             runCatching {
-                val bytes = downloadAttachment(credentials, part, emailId)
+                val bytes = downloadAttachment(
+                    credentials, part, emailId, DownloadLimits.INLINE_IMAGE_MAX_BYTES,
+                )
                 val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
                 map[cid] = "data:${part.type ?: "image/jpeg"};base64,$base64"
             }
@@ -1866,7 +1920,13 @@ class MailRepository(
         return map
     }
 
-    /** Persist a fetched body (and any inline images) to the cache, then LRU-prune the account. */
+    /**
+     * Persist a fetched body (and any inline images) to the cache, then LRU-prune the account.
+     *
+     * A row bigger than SQLite's cursor window can be written but never read back, so an
+     * oversized body is simply not cached: it costs a refetch on every open, which is the honest
+     * price, where writing it would poison the cache with a row that throws on every read.
+     */
     private suspend fun persistBody(
         accountId: String,
         emailId: String,
@@ -1874,12 +1934,15 @@ class MailRepository(
         inlineImages: Map<String, String>,
     ) {
         runCatching {
+            val bodyJson = cacheJson.encodeToString(Email.serializer(), email)
+            val inlineJson = cacheJson.encodeToString(inlineImagesSerializer, inlineImages)
+            if (!fitsBodyCache(bodyJson, inlineJson)) return
             emailBodyDao.upsert(
                 EmailBodyEntity(
                     id = emailId,
                     accountId = accountId,
-                    bodyJson = cacheJson.encodeToString(Email.serializer(), email),
-                    inlineImagesJson = cacheJson.encodeToString(inlineImagesSerializer, inlineImages),
+                    bodyJson = bodyJson,
+                    inlineImagesJson = inlineJson,
                     fetchedAt = System.currentTimeMillis(),
                 ),
             )
@@ -3948,10 +4011,16 @@ class MailRepository(
     fun scheduledSendsFlow(): Flow<List<ScheduledSendEntity>> = scheduledSendDao.observeAll()
 
     /** Download an attachment's bytes for the current account. */
+    /**
+     * The bytes of an attachment part. [maxBytes] is the ceiling this particular call accepts —
+     * the caller knows whether the user asked for these bytes (an opened attachment) or whether
+     * the message asked on their behalf (an inline image), and the two deserve different limits.
+     */
     suspend fun downloadAttachment(
         credentials: AccountCredentials,
         part: EmailBodyPart,
         emailId: String,
+        maxBytes: Long = DownloadLimits.ATTACHMENT_MAX_BYTES,
     ): ByteArray {
         // Attachments inside a decrypted OpenPGP message are sliced from the
         // in-memory decrypted entity — they have no fetchable server section.
@@ -3961,9 +4030,20 @@ class MailRepository(
             val section = part.partId ?: error("Attachment has no section.")
             return imap.fetchAttachment(credentials, mb, uid, section, part.encoding)
         }
+        // JMAP announces the part's size in the message itself: refuse before spending the
+        // round-trip, not after buffering the answer.
+        if (!DownloadLimits.allows(part.size, maxBytes)) {
+            throw ContentTooLargeException(
+                "Part is ${part.size} bytes, over the $maxBytes limit.",
+                bytes = part.size,
+                maxBytes = maxBytes,
+            )
+        }
         val ctx = connect(credentials)
         val blobId = part.blobId ?: error("Attachment has no blob.")
-        return client.downloadBlob(ctx.session, ctx.accountId, blobId, part.type, part.name, ctx.auth)
+        return client.downloadBlob(
+            ctx.session, ctx.accountId, blobId, part.type, part.name, ctx.auth, maxBytes,
+        )
     }
 
     /** Upload bytes as an attachment blob; returns a body part ready to attach when sending. */

@@ -578,6 +578,9 @@
     <string name="status_attaching">Ajout en cours…</string>
     <string name="status_read_file_failed">Impossible de lire le fichier sélectionné.</string>
     <string name="status_open_attachment_failed">Impossible d\'ouvrir la pièce jointe : %1$s</string>
+    <string name="status_attachment_too_large">Cette pièce jointe est trop volumineuse pour être ouverte.</string>
+    <string name="status_inline_images_too_large">Certaines images de ce message sont trop volumineuses pour être affichées.</string>
+    <string name="status_message_too_large">Ce message est trop volumineux pour être affiché.</string>
     <string name="status_action_failed">Impossible d\'effectuer l\'action.</string>
     <string name="status_restore_failed">Impossible de restaurer certains messages.</string>
     <string name="status_moved_to_folder">Déplacé vers %1$s</string>

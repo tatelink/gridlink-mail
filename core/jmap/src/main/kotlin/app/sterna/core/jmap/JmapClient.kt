@@ -1577,7 +1577,13 @@ class JmapClient internal constructor(
             ?.get("id")?.jsonPrimitive?.contentOrNull
     }
 
-    /** Download a blob (attachment) via the session downloadUrl template. */
+    /**
+     * Download a blob (attachment) via the session downloadUrl template, refusing anything past
+     * [maxBytes]. The whole response is buffered — there is no framing to stream against — so the
+     * ceiling is what keeps one message from dictating the app's memory: the announced
+     * Content-Length is checked first, and the read itself stops at the ceiling for a server that
+     * announces nothing (or lies).
+     */
     suspend fun downloadBlob(
         session: JmapSession,
         accountId: String,
@@ -1585,6 +1591,7 @@ class JmapClient internal constructor(
         type: String?,
         name: String?,
         auth: JmapAuth,
+        maxBytes: Long = DownloadLimits.ATTACHMENT_MAX_BYTES,
     ): ByteArray = withContext(Dispatchers.IO) {
         val template = session.downloadUrl ?: throw JmapException("Server has no downloadUrl")
         val url = template
@@ -1600,8 +1607,38 @@ class JmapClient internal constructor(
             if (!response.isSuccessful) {
                 throw JmapException("Download failed: HTTP ${response.code} ${response.message}")
             }
-            response.body?.bytes() ?: ByteArray(0)
+            val declared = response.header("Content-Length")?.toLongOrNull()
+            if (declared != null && declared > maxBytes) {
+                throw ContentTooLargeException(
+                    "Download is $declared bytes, over the $maxBytes limit.",
+                    bytes = declared,
+                    maxBytes = maxBytes,
+                )
+            }
+            val body = response.body ?: return@use ByteArray(0)
+            readAtMost(body.byteStream(), maxBytes)
         }
+    }
+
+    /** Read [stream] fully, or refuse as soon as it goes past [maxBytes]. */
+    private fun readAtMost(stream: java.io.InputStream, maxBytes: Long): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val chunk = ByteArray(64 * 1024)
+        var total = 0L
+        while (true) {
+            val read = stream.read(chunk)
+            if (read < 0) break
+            total += read
+            if (total > maxBytes) {
+                throw ContentTooLargeException(
+                    "Download exceeds the $maxBytes limit.",
+                    bytes = -1,
+                    maxBytes = maxBytes,
+                )
+            }
+            out.write(chunk, 0, read)
+        }
+        return out.toByteArray()
     }
 
     /** Upload bytes as a blob via the session uploadUrl template; returns its blobId. */
