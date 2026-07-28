@@ -1094,6 +1094,10 @@ private fun ConversationBody(
     // transient entirely: once the body is ready the scroll-end logic below drives the one clean
     // reveal. (On a successful load the body always becomes non-null, so there is no resting
     // header-only state to keep shown — the WebView's onReady/onScroll always take over.)
+    // That left the OTHER half of #63: the bar's resting state was only ever decided by the first
+    // scroll report, a few hundred ms after the body appeared, so the reader still arrived in two
+    // steps. The height poll that makes the body ready already knows the geometry the decision
+    // needs, so `onReady` now carries it and both are set below in one recomposition.
     var bodyReady by remember(msg.id) { mutableStateOf(false) }
     var showBar by remember(msg.id) { mutableStateOf(false) }
     // The VISIBLE Reply/Forward bar is fixed chrome at the pager level (outside the horizontal
@@ -1181,10 +1185,28 @@ private fun ConversationBody(
                     confirmLinks = confirmLinks,
                     backgroundColor = scheme.surface.toArgb(),
                     textZoom = textZoom,
-                    onReady = { bodyReady = true },
+                    // ONE reveal, not two (Codeberg #63). [resting] is the body's scroll geometry
+                    // as measured by the very height poll that made it ready — non-null only when
+                    // that height came from two agreeing readings, i.e. a real measurement. With
+                    // it the bar's resting state is decided in the SAME recomposition that reveals
+                    // the body, so both land in one frame instead of the bar trailing the body by
+                    // the settle poll's few hundred milliseconds (which the OS "remove animations"
+                    // setting renders as a blink rather than a fade).
+                    // When it is null (the poll capped out, or the height came from a fallback) we
+                    // learned nothing solid: stay hidden and let the settle poll decide, as before.
+                    // Nothing here shows the bar ahead of a measurement — a long body must never
+                    // flash a bar that immediately scrolls away.
+                    onReady = { resting ->
+                        if (resting != null) {
+                            showBar = BodyReveal.barVisible(
+                                resting.scrollY, resting.maxScrollPx, revealThresholdPx,
+                            )
+                        }
+                        bodyReady = true
+                    },
                     onScroll = { y, maxY ->
                         scrollY.intValue = y
-                        showBar = maxY <= revealThresholdPx || y >= maxY - revealThresholdPx
+                        showBar = BodyReveal.barVisible(y, maxY, revealThresholdPx)
                     },
                     modifier = Modifier.fillMaxSize().alpha(if (bodyReady) 1f else 0f),
                 )
@@ -2399,7 +2421,7 @@ private fun EmailWebView(
     confirmLinks: Boolean,
     backgroundColor: Int,
     textZoom: Int,
-    onReady: () -> Unit,
+    onReady: (resting: BodyMetrics?) -> Unit,
     onScroll: (scrollY: Int, maxScroll: Int) -> Unit,
     modifier: Modifier,
 ) {
@@ -2420,9 +2442,17 @@ private fun EmailWebView(
     client.blockRemote = blockRemote
     client.stripTracking = stripTracking
     client.onOpenUrl = { uri -> if (confirmLinks) pendingLink = uri else openExternally(context, uri) }
-    client.onContentHeight = { heightPx = it }
+    // The body's resting scroll geometry as measured by the height poll, when that poll actually
+    // measured (two agreeing readings) rather than fell back. It is what lets the host decide the
+    // Reply/Forward bar in the same frame as the body's reveal (#63); null keeps the old,
+    // bias-to-hidden path where only the settle poll below decides.
+    var restingMetrics by remember { mutableStateOf<BodyMetrics?>(null) }
+    client.onContentHeight = { px, resting -> heightPx = px; restingMetrics = resting }
     val ready = heightPx > 0
-    LaunchedEffect(ready) { if (ready) onReady() }
+    // Keyed on the metrics too: a height that arrived from a fallback first (onSized / the
+    // backstop) can still be followed by a real measurement, and that measurement should still get
+    // to settle the bar. Re-announcing readiness is a no-op for the host.
+    LaunchedEffect(ready, restingMetrics) { if (ready) onReady(restingMetrics) }
     // Report the body's scroll position so the host can collapse the header and reveal the bar at the
     // end. maxScroll uses the LIVE scroll range (accurate once layout has settled); reporting is gated
     // by [BodyWebView.reportingEnabled] until then, so the load-time scroll-reset and reflow never
@@ -2543,6 +2573,10 @@ private fun EmailWebView(
                 // unsettled window: bias-to-hidden, zero flash. A short mail still ends up showing the
                 // bar because the resting reveal runs once after settle (range ≈ 0 → "fits"); a long
                 // mail stays hidden until onScrolled reveals it at the (now accurate) bottom.
+                // Since #63 this is no longer what USUALLY reveals the bar: the height poll settles
+                // first and hands the reader the same resting geometry, so body and bar appear
+                // together. This poll stays as the gate for live scroll reporting, and as the
+                // fallback for the loads whose height never settled.
                 val settleToken = Any()
                 webView.settleToken = settleToken
                 var settleLast = -1
@@ -2616,6 +2650,27 @@ private fun openExternally(context: Context, uri: Uri) {
 /** A Compose [Color] as a CSS hex string (#RRGGBB). */
 private fun Color.toCssHex(): String = "#%06X".format(0xFFFFFF and toArgb())
 
+/**
+ * The body's resting scroll geometry at the instant its height poll ended, or null when that poll
+ * did not actually measure anything (it capped out and fell back to the tallest reading or the
+ * view's height). Null means "nothing was measured, so claim nothing": the reader keeps the bar
+ * hidden and lets the settle poll decide, exactly as before #63.
+ *
+ * The range used is the TALLEST reading of this load, not merely the settling one. The only
+ * mistake that shows on screen is calling a long body "fits", revealing the bar, and taking it
+ * away again on the first scroll; a body that was ever measured taller than it settled is
+ * therefore treated as the taller one. Erring this way costs at most a late bar (the behaviour
+ * before #63), erring the other way costs a flash.
+ */
+private fun restingMetrics(wv: WebView, step: HeightPoll.Report, maxSeen: Int): BodyMetrics? {
+    if (!step.settled) return null
+    val body = wv as? BodyWebView ?: return null
+    return BodyMetrics(
+        scrollY = body.scrollY,
+        maxScrollPx = BodyReveal.maxScroll(maxOf(step.px, maxSeen), body.visibleExtentPx()),
+    )
+}
+
 /** Blocks remote (http/https) resource loads while [blockRemote]; opens links externally. */
 private class BlockingWebViewClient : WebViewClient() {
     var blockRemote: Boolean = true
@@ -2625,8 +2680,12 @@ private class BlockingWebViewClient : WebViewClient() {
     var onOpenUrl: (Uri) -> Unit = {}
 
     /** Reports the rendered content height (Android px). The host does not size anything from
-     *  it — it uses it purely as "the body has laid out, reveal it" (see [BodyReveal]). */
-    var onContentHeight: (Int) -> Unit = {}
+     *  it — it uses it purely as "the body has laid out, reveal it" (see [BodyReveal]).
+     *  The second argument carries the body's resting scroll geometry measured at that same
+     *  instant, and is non-null ONLY when the height was actually measured (two agreeing
+     *  readings); it lets the host reveal the bottom bar in the same frame as the body (#63).
+     *  Null on the poll's fallback outcomes: nothing was measured, so nothing is claimed. */
+    var onContentHeight: (px: Int, resting: BodyMetrics?) -> Unit = { _, _ -> }
 
     override fun onPageFinished(view: WebView?, url: String?) {
         val wv = view ?: return
@@ -2654,7 +2713,7 @@ private class BlockingWebViewClient : WebViewClient() {
             // was zero (see [BodyReveal]): this poll is the only thing that reveals the body, so
             // giving up silently hid the mail for good.
             when (val step = BodyReveal.step(px, last, maxSeen, triesLeft, wv.height)) {
-                is HeightPoll.Report -> onContentHeight(step.px)
+                is HeightPoll.Report -> onContentHeight(step.px, restingMetrics(wv, step, maxSeen))
                 HeightPoll.Retry -> {
                     last = px
                     wv.postDelayed({ poll(triesLeft - 1) }, 32)
