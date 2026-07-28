@@ -14,41 +14,147 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Pure "was offline → back online" state machine behind the auto-refresh on reconnect
- * (Codeberg #65), fed by the network callbacks and kept free of Android types so it is
- * unit-testable. Networks are identified by their handle.
+ * What real requests have proved about the link since the last thing that happened to it.
  *
- * Tracks a *set* of networks rather than a single default, because the request it is fed by
- * matches every real transport at once (Wi-Fi and mobile can both be up). Offline is "the set
- * ran dry", so a Wi-Fi ⇄ mobile handover — onAvailable(new) then onLost(old), or the reverse —
- * is never a reconnect. Seeded with the connectivity known at registration, so the callbacks
- * the framework replays for already-connected networks aren't one either (the screen's own
- * initial load covers those).
- *
- * Beyond the "came back" edge that drives the resync, it also *publishes* the current online
- * value as [online] (#65: WiFi-off while the app is idle triggers no refresh, so the offline
- * state has to be event-driven, not inferred from a failed refresh).
+ * The connectivity callbacks describe the *plumbing*; only a request that went out and came back
+ * describes the *service*. A VPN killswitch is invisible to the plumbing (the Wi-Fi underneath is
+ * up and NOT_VPN, so the framework reports a healthy network while every byte is dropped), which
+ * is why the verdict the screen shows is the framework's optimism corrected by this evidence.
  */
-internal class ReconnectGate(online: Boolean) {
-    /** Every network currently satisfying the request. */
-    private val networks = mutableSetOf<Long>()
+internal enum class Reachability {
+    /** Nothing has been tried yet — believe the framework. */
+    UNKNOWN,
 
-    private val _online = MutableStateFlow(online)
-    /** The current connectivity, so the UI can show offline without waiting for a failed refresh. */
+    /** A request completed: whatever the plumbing says, traffic flows. */
+    OK,
+
+    /** A request died on the transport: whatever the plumbing says, traffic does not flow. */
+    FAILED,
+}
+
+/**
+ * Pure connectivity state machine behind the offline banner and the auto-refresh on reconnect
+ * (Codeberg #65), fed by the network callbacks and by the outcome of real requests, and kept free
+ * of Android types so it is unit-testable. Networks are identified by their handle.
+ *
+ * Three inputs, because no single one of them is honest on its own:
+ *
+ *  - **the real transports underneath** (Wi-Fi, mobile — the NOT_VPN request): a *set*, since
+ *    several can be up at once, so "the transports are gone" is "the set ran dry" and a Wi-Fi ⇄
+ *    mobile handover (available(new) then lost(old), or the reverse) is not an outage. This is
+ *    the signal a tunnel cannot fake: a VPN network survives an airplane-mode cycle, the Wi-Fi
+ *    under it does not.
+ *  - **the route this app is actually given** (the default network callback): under an always-on
+ *    VPN that is the tunnel, so a tunnel torn down and rebuilt shows up here and nowhere else —
+ *    the transports underneath never moved. Its *blocked* flag is how a lockdown ("block
+ *    connections without VPN") killswitch announces itself on API 29+.
+ *  - **what requests actually did** ([Reachability]), which is the only thing that can contradict
+ *    the two above.
+ *
+ * The link is up when there are transports *and* a route *and* it is not blocked; each of the
+ * three is a latch seeded with what was true at registration, so the callbacks the framework
+ * replays for already-connected networks move nothing and no startup blink is published.
+ *
+ * [online] — what the UI shows — is the link corrected by the evidence: a link the requests have
+ * disproved is not online. The resync edge, by contrast, is taken on the **link** alone: a request
+ * failing is not a reason to resync, and a link that comes back is one even if the last request
+ * failed. That split is what stops the banner flickering "online" for the second or two a tunnel
+ * takes to re-handshake — the link is back, the evidence is not, so the screen keeps saying
+ * offline until a request actually succeeds.
+ *
+ * A failure is therefore *not* cleared by the link moving, only by a later request: the reconnect
+ * refresh runs within a second and a half of the link returning, so the correction is never far
+ * behind, and the alternative (trusting the plumbing again the moment it twitches) is exactly the
+ * flicker the reporter saw. Nothing here is on a timer: no state changes unless the framework or a
+ * request says something.
+ */
+internal class ReconnectGate(link: Boolean) {
+    /** Every real transport currently satisfying the NOT_VPN request. */
+    private val transports = mutableSetOf<Long>()
+
+    /** Latches, seeded from the connectivity read at registration (see the class doc). */
+    private var transportsUp = link
+    private var routeUp = link
+    private var blocked = false
+
+    /** The app's current default network, so a route handover is not a route loss. */
+    private var route: Long? = null
+
+    private var reachability = Reachability.UNKNOWN
+
+    /** True while the plumbing says traffic can leave the device. */
+    private var linkUp = link
+
+    private val _online = MutableStateFlow(link)
+    /**
+     * The connectivity the UI shows: the link, minus what requests have disproved. A success only
+     * ever clears a previous failure, it never overrules the plumbing — "online" while the phone
+     * says every network is gone would be a claim we cannot back.
+     */
     val online: StateFlow<Boolean> = _online.asStateFlow()
 
-    /** A network became usable. True only on a genuine offline → online transition. */
-    fun onAvailable(handle: Long): Boolean {
-        networks += handle
-        if (_online.value) return false
-        _online.value = true
-        return true
+    /** A real transport became usable. True only on a genuine link down → up transition. */
+    fun onTransportAvailable(handle: Long): Boolean {
+        transports += handle
+        transportsUp = true
+        return settle()
     }
 
-    /** A network stopped satisfying the request: offline once the last one is gone. */
-    fun onLost(handle: Long) {
-        networks -= handle
-        if (networks.isEmpty()) _online.value = false
+    /** A real transport went away: the transports are down once the last one is gone. */
+    fun onTransportLost(handle: Long) {
+        transports -= handle
+        if (transports.isEmpty()) transportsUp = false
+        settle()
+    }
+
+    /** This app was given a default route (the tunnel, under an always-on VPN). */
+    fun onRouteAvailable(handle: Long): Boolean {
+        route = handle
+        routeUp = true
+        return settle()
+    }
+
+    /** The route went away — ignored when it is the *old* half of a handover. */
+    fun onRouteLost(handle: Long) {
+        if (route != null && route != handle) return
+        route = null
+        routeUp = false
+        settle()
+    }
+
+    /** The framework blocked or unblocked this app's traffic (VPN lockdown, data saver). */
+    fun onRouteBlocked(blocked: Boolean): Boolean {
+        this.blocked = blocked
+        return settle()
+    }
+
+    /** A request completed, so traffic demonstrably flows whatever the plumbing claims. */
+    fun onRequestSucceeded() {
+        reachability = Reachability.OK
+        publish()
+    }
+
+    /** A request died on the transport, so traffic demonstrably does not flow. */
+    fun onRequestFailed() {
+        reachability = Reachability.FAILED
+        publish()
+    }
+
+    /**
+     * Recompute the link, publish, and report whether this event is the one that brought it back.
+     * Level-triggered on purpose: the burst of callbacks a tunnel renegotiation emits crosses the
+     * edge once, so it asks for one resync however many events it contains.
+     */
+    private fun settle(): Boolean {
+        val up = transportsUp && routeUp && !blocked
+        val edge = up && !linkUp
+        linkUp = up
+        publish()
+        return edge
+    }
+
+    private fun publish() {
+        _online.value = linkUp && reachability != Reachability.FAILED
     }
 }
 
@@ -56,24 +162,35 @@ internal class ReconnectGate(online: Boolean) {
  * How the refresh that follows a reconnect is paced, kept pure so the schedule is testable
  * (#65 follow-up).
  *
- * [ConnectivityWatcher] fires as soon as a real transport is up, deliberately without waiting for
- * the system's captive-portal validation (see its doc). On a phone whose traffic runs through an
- * always-on VPN the transport is back several seconds before the tunnel has re-handshaked, so a
- * single refresh fired at that moment fails — and its error used to strand the "you're offline"
- * banner (which reads `offline || error`) until the user pulled to refresh. The sequence therefore
- * makes a few attempts with a widening gap, and only the *last* failure is the user's to see.
+ * [ConnectivityWatcher] fires as soon as the link is back, deliberately without waiting for the
+ * system's captive-portal validation (see its doc). On a phone whose traffic runs through an
+ * always-on VPN the link is back several seconds before the tunnel has re-handshaked, so a single
+ * refresh fired at that moment fails — and its error used to strand the "you're offline" banner
+ * until the user pulled to refresh. The sequence therefore makes a few attempts with a widening
+ * gap, and only the *last* failure is the user's to see.
  *
- * Bounded and edge-triggered on purpose: it runs once per offline → online transition, never as a
- * periodic poll.
+ * Bounded and edge-triggered on purpose: it runs once per link down → up transition, never as a
+ * periodic poll — this is the one piece of Sterna that could quietly cost every user battery.
  */
 internal object ReconnectRefresh {
     /** Attempts made per reconnect; the last one is the one whose failure is reported. */
     const val MAX_TRIES = 4
 
-    /** Short settle before the first attempt, so a flapping link coalesces into one refresh. */
+    /**
+     * Settle before the first attempt: the window a burst of connectivity callbacks is collapsed
+     * into, since a new edge cancels the pending sequence rather than adding one (and [refresh]
+     * itself cancels-and-replaces). Sized from what the framework does, not from taste: a Wi-Fi ⇄
+     * mobile handover or a VPN teardown-and-rebuild emits its onLost/onAvailable/blocked run
+     * within a few hundred milliseconds, so 1.5 s sits above the churn and below the point where
+     * a person would notice the list is not refreshing yet.
+     */
     private const val SETTLE_MS = 1_500L
 
-    /** Widening gaps between the retries, capped — together they cover ~22 s of tunnel come-up. */
+    /**
+     * Widening gaps between the retries, capped — with the settle they cover ~22 s, which is a
+     * couple of WireGuard handshake attempts (it retries a handshake every 5 s), i.e. enough for a
+     * tunnel that comes back slowly without turning into a poll if the server is simply down.
+     */
     private val GAPS_MS = longArrayOf(3_000L, 6_000L, 12_000L)
 
     /** How long to wait before attempt [attempt] (0-based). */
@@ -95,28 +212,38 @@ internal object ReconnectRefresh {
 /**
  * Watches connectivity and calls [onReconnect] when it actually comes back, so the offline
  * empty state's promise ("we'll sync as soon as you're back") is kept. Register with [start],
- * and always [stop] when the owner goes away — the callback outlives it otherwise.
+ * and always [stop] when the owner goes away — the callbacks outlive it otherwise.
  *
- * Deliberately *not* `registerDefaultNetworkCallback`: with an always-on VPN the app's default
- * network is the tunnel, and a tunnel is connectionless — WireGuard's stays up across an
- * airplane-mode cycle, so neither onLost nor onAvailable ever fires and the reconnect is missed
- * entirely (observed on the test Pixel, whose VPN network had outlived a day of them). Watching
- * the real transports underneath instead reports the outage the user actually had.
+ * **Two registrations, because one is always blind to half the problem** (#65, reported by a user
+ * behind a killswitch VPN, and much of Sterna's audience is behind one):
  *
- * Deliberately *not* [NetworkCapabilities.NET_CAPABILITY_VALIDATED] either: a network is only
+ *  - the **transport** callback (INTERNET + NOT_VPN) sees the Wi-Fi and mobile networks underneath.
+ *    It is deliberately not `registerDefaultNetworkCallback` alone: with an always-on VPN the app's
+ *    default network *is* the tunnel, and a tunnel is connectionless — WireGuard's stays up across
+ *    an airplane-mode cycle, so neither onLost nor onAvailable ever fires there and a real outage
+ *    is missed entirely (observed on the test Pixel, whose VPN network had outlived a day of them).
+ *  - the **default-network** callback sees the route this app is actually given, which is the only
+ *    place a tunnel dropping and coming back is visible at all: the transports underneath never
+ *    move while the user's VPN reconnects, so the transport callback alone reports *nothing* and
+ *    the resync the user was promised never runs — the reported symptom. Its blocked flag (API 29+)
+ *    is also how a lockdown killswitch ("block connections without VPN", tunnel down) announces
+ *    that this app's traffic is going nowhere while the Wi-Fi under it looks perfectly healthy.
+ *
+ * Neither is filtered on [NetworkCapabilities.NET_CAPABILITY_VALIDATED]: a network is only
  * VALIDATED once the system's own captive-portal probe reaches its check server (Google's by
  * default). Sterna's users are exactly the crowd who firewall or DNS-block those endpoints, so
- * their networks are fully usable — the mail server answers, "test connection" passes — yet
- * never marked VALIDATED. Requiring it meant the callback never fired for them and the reconnect
- * resync never ran (#65, reported after 1.3.9). We match on INTERNET + NOT_VPN and let the
- * refresh itself be the reachability test; a network that is up but not yet routable at most
- * costs one failed refresh, where the debounce usually already covers the settle.
+ * their networks are fully usable — the mail server answers, "test connection" passes — yet never
+ * marked VALIDATED. Requiring it meant the callback never fired for them and the reconnect resync
+ * never ran (#65, reported after 1.3.9). The validation is done by the app's own requests instead:
+ * [reportSuccess] / [reportFailure] feed their outcome back into the gate, which is both a real
+ * probe (it talks to the user's mail server, not to Google) and free — we were making the request
+ * anyway.
  */
 class ConnectivityWatcher(context: Context, private val onReconnect: () -> Unit) {
     private val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
-    private val gate = ReconnectGate(online = hasUsableNetwork(context))
+    private val gate = ReconnectGate(link = hasUsableNetwork(context))
 
-    /** Live connectivity, seeded from the transports up at construction; drives the offline UI. */
+    /** Live connectivity, seeded from the link up at construction; drives the offline UI. */
     val online: StateFlow<Boolean> = gate.online
 
     private val request = NetworkRequest.Builder()
@@ -124,41 +251,82 @@ class ConnectivityWatcher(context: Context, private val onReconnect: () -> Unit)
         .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
         .build()
 
-    private val callback = object : ConnectivityManager.NetworkCallback() {
+    private val transportCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            if (gate.onAvailable(network.networkHandle)) onReconnect()
+            if (gate.onTransportAvailable(network.networkHandle)) onReconnect()
         }
 
         override fun onLost(network: Network) {
-            gate.onLost(network.networkHandle)
+            gate.onTransportLost(network.networkHandle)
         }
     }
 
+    private val defaultCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            if (gate.onRouteAvailable(network.networkHandle)) onReconnect()
+        }
+
+        override fun onLost(network: Network) {
+            gate.onRouteLost(network.networkHandle)
+        }
+
+        override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
+            if (gate.onRouteBlocked(blocked)) onReconnect()
+        }
+    }
+
+    /** A request came back: the link is proven, whatever the framework claims. */
+    fun reportSuccess() {
+        gate.onRequestSucceeded()
+    }
+
+    /**
+     * A request failed. Only a failure that died on the transport ([isNetworkFailure]) says
+     * anything about connectivity — a 500, a rejected password or an unreadable attachment are
+     * proof the link works, not that it doesn't, so they are left to the error text.
+     */
+    fun reportFailure(t: Throwable) {
+        if (isNetworkFailure(t)) gate.onRequestFailed() else gate.onRequestSucceeded()
+    }
+
     fun start() {
-        runCatching { manager?.registerNetworkCallback(request, callback) }
+        runCatching { manager?.registerNetworkCallback(request, transportCallback) }
+        runCatching { manager?.registerDefaultNetworkCallback(defaultCallback) }
     }
 
     fun stop() {
-        runCatching { manager?.unregisterNetworkCallback(callback) }
+        runCatching { manager?.unregisterNetworkCallback(transportCallback) }
+        runCatching { manager?.unregisterNetworkCallback(defaultCallback) }
     }
 }
 
 /**
- * Whether a real (non-VPN) internet transport exists right now — a cheap synchronous read of the
- * current capabilities, not a reachability probe. Matches [ConnectivityWatcher]'s own request
- * (INTERNET + NOT_VPN, deliberately not VALIDATED — see the class doc for why), so the send-time
- * "queued vs sent" verdict (#70) and the reconnect watcher never read connectivity differently.
+ * Whether traffic can leave the device right now — a cheap synchronous read of the current
+ * capabilities, not a reachability probe. Both halves of [ConnectivityWatcher]'s own view, so the
+ * send-time "queued vs sent" verdict (#70) and the reconnect watcher never read connectivity
+ * differently:
+ *
+ *  - a real (non-VPN) internet transport exists, the signal a connectionless tunnel cannot fake;
+ *  - **and** this app is given a default network, which a VPN lockdown killswitch takes away while
+ *    the Wi-Fi underneath stays up — without this half a mail composed behind a down tunnel would
+ *    be announced as sent when it is only queued.
+ *
+ * Deliberately not filtered on VALIDATED — see [ConnectivityWatcher] for why.
  */
 fun hasUsableNetwork(context: Context): Boolean {
     val cm = context.applicationContext.getSystemService(ConnectivityManager::class.java) ?: return false
     @Suppress("DEPRECATION")
     val networks = runCatching { cm.allNetworks }.getOrNull() ?: return false
-    return networks.any { network ->
+    val transport = networks.any { network ->
         val caps = runCatching { cm.getNetworkCapabilities(network) }.getOrNull()
         caps != null &&
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
     }
+    if (!transport) return false
+    val active = runCatching { cm.activeNetwork }.getOrNull() ?: return false
+    val caps = runCatching { cm.getNetworkCapabilities(active) }.getOrNull() ?: return false
+    return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
 }
 
 /** How far the cause chain is followed before giving up; guards against a self-referencing cause. */
