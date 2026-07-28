@@ -1192,23 +1192,47 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Empty the current Trash folder. The view clears immediately but the actual
-     * permanent delete is held back for a few seconds so it can be undone (like the
-     * delete snackbar). If not undone, the messages are destroyed on the server: the
+     * Empty the current Trash folder. The view clears as soon as the destroy list is taken,
+     * but the actual permanent delete is held back for a few seconds so it can be undone
+     * (like the delete snackbar). If not undone, the messages are destroyed on the server: the
      * purge is PERSISTED WorkManager work with an initial delay — it survives this
      * ViewModel and the process, like the folder delete — and the coroutine below
      * only times the snackbar.
+     *
+     * What gets destroyed is decided HERE, not when the work runs (Codeberg #99): the folder's
+     * ids are snapshotted at confirmation and the purge destroys exactly that list. Moving a
+     * message to Trash during the undo window used to hand it to the pending purge, which
+     * re-read the folder and destroyed it too — mail the user had never designated, gone for
+     * good on the server. Anything arriving after the tap is now simply not on the list.
+     *
+     * Order matters: snapshot BEFORE evicting the cached rows. The IMAP path (and the offline
+     * JMAP fallback) reads the snapshot from that cache, so evicting first would freeze an
+     * empty list and quietly empty nothing.
+     *
+     * The whole thing is scoped to `credentials.id`: the Trash of the account whose folder is
+     * open, never a sibling account's same-numbered folder (issue #31).
      */
     fun emptyTrash() {
         val trashId = (selection.value as? Sel.Folder)?.id ?: return
         val credentials = store.load() ?: return
-        viewModelScope.launch { repo.cachedIds(listOf(credentials.id to trashId)).forEach { repo.evict(credentials.id, it.emailId) } }
-        _pendingPurge.value = getApplication<Application>().getString(R.string.status_trash_emptied)
-        MessageDestroyWorker.schedulePurge(getApplication(), credentials.id, trashId, PURGE_HOLD_BACK_MS)
         val target = credentials.id to trashId
+        _pendingPurge.value = getApplication<Application>().getString(R.string.status_trash_emptied)
         pendingPurgeTarget = target
         purgeJob?.cancel()
         purgeJob = viewModelScope.launch {
+            val purge = runCatching { repo.snapshotTrashPurge(credentials, trashId) }.getOrElse {
+                // Nothing was recorded, so nothing is scheduled and nothing was evicted: the
+                // Trash is untouched. Drop the snackbar rather than promise a destroy.
+                if (pendingPurgeTarget == target) {
+                    pendingPurgeTarget = null
+                    _pendingPurge.value = null
+                }
+                return@launch
+            }
+            repo.cachedIds(listOf(target)).forEach { repo.evict(credentials.id, it.emailId) }
+            MessageDestroyWorker.schedulePurge(
+                getApplication(), credentials.id, trashId, purge.purgeId, PURGE_HOLD_BACK_MS,
+            )
             delay(PURGE_HOLD_BACK_MS)
             if (pendingPurgeTarget == target) {
                 pendingPurgeTarget = null
@@ -1219,11 +1243,18 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Cancel a held-back trash purge and restore the rows (nothing was destroyed yet). */
     fun undoEmptyTrash() {
-        pendingPurgeTarget?.let { (accountId, trashId) -> MessageDestroyWorker.cancelPurge(getApplication(), accountId, trashId) }
+        val target = pendingPurgeTarget
         pendingPurgeTarget = null
         purgeJob?.cancel()
         purgeJob = null
         _pendingPurge.value = null
+        target?.let { (accountId, trashId) ->
+            MessageDestroyWorker.cancelPurge(getApplication(), accountId, trashId)
+            // Erase the destroy list itself, not just the job: the snapshot IS the order, so a
+            // purge that somehow ran anyway finds nothing to destroy — and a snapshot still
+            // being written when Undo was tapped does not survive the cancellation (#99).
+            viewModelScope.launch { repo.discardTrashPurge(accountId, trashId) }
+        }
         // Full re-query, not incremental: the rows were only evicted locally and are still on the
         // server, so a delta refresh brings nothing back (Codeberg #23).
         forceRefresh()

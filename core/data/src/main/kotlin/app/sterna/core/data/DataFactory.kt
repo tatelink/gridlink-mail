@@ -40,6 +40,7 @@ object DataFactory {
                 database.scheduledSendDao(), database.snoozedDao(), database.recentContactDao(),
                 accountStore,
                 outboxDao = database.outboxDao(),
+                purgeSnapshotDao = database.purgeSnapshotDao(),
                 outboxFilesDir = java.io.File(appContext.filesDir, "outbox"),
                 pgpEngine = pgpEngine,
                 settings = settings,
@@ -47,7 +48,7 @@ object DataFactory {
             ),
             storageRepository = StorageRepository(
                 appContext, database.emailDao(), database.emailFtsDao(), database.emailBodyDao(),
-                database.mailboxDao(), database.snoozedDao(),
+                database.mailboxDao(), database.snoozedDao(), database.purgeSnapshotDao(),
             ),
         )
     }

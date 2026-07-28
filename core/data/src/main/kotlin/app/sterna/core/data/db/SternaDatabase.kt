@@ -9,8 +9,9 @@ import androidx.room.RoomDatabase
     entities = [
         EmailEntity::class, EmailFtsEntity::class, EmailBodyEntity::class, MailboxEntity::class,
         ScheduledSendEntity::class, SnoozedEntity::class, RecentContactEntity::class, OutboxEntity::class,
+        PurgeSnapshotEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = false,
 )
 abstract class SternaDatabase : RoomDatabase() {
@@ -22,6 +23,7 @@ abstract class SternaDatabase : RoomDatabase() {
     abstract fun snoozedDao(): SnoozedDao
     abstract fun recentContactDao(): RecentContactDao
     abstract fun outboxDao(): OutboxDao
+    abstract fun purgeSnapshotDao(): PurgeSnapshotDao
 
     companion object {
         fun build(context: Context): SternaDatabase =
@@ -35,10 +37,11 @@ abstract class SternaDatabase : RoomDatabase() {
                 // scheduled_sends (#63); 14→15 rebuilds the FTS index (#71); 15→16 rebuilds
                 // emails/bodies/snoozed with composite (accountId, id) keys (issue #31),
                 // copying every row over — snoozed is user data too, so the migration must
-                // never fall back destructively; 16→17 adds the persisted To: recipients (#63).
+                // never fall back destructively; 16→17 adds the persisted To: recipients (#63);
+                // 17→18 adds `purge_snapshot`, the frozen destroy list of an Empty trash (#99).
                 .addMigrations(
                     MIGRATION_9_10, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
-                    MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
+                    MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
                 )
                 // The rest of the DB is a disposable mirror of the server: if some other schema
                 // change has no migration, rebuilding the cache is an acceptable fallback.

@@ -32,10 +32,12 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
         val credentials = container.accountStore.allCredentials().firstOrNull { it.id == accountId }
             ?: return Result.success()
         val repo = container.mailRepository
+        val purgeId = inputData.getString(KEY_PURGE_ID)
         return runCatching {
-            val purgeMailboxId = inputData.getString(KEY_PURGE_MAILBOX_ID)
-            if (purgeMailboxId != null) {
-                repo.emptyTrash(credentials, purgeMailboxId)
+            if (purgeId != null) {
+                // Destroy the set the user confirmed, recorded at that instant — NOT whatever
+                // the Trash holds now (Codeberg #99). An erased snapshot destroys nothing.
+                repo.purgeSnapshot(credentials, purgeId)
             } else {
                 val ids = inputData.getStringArray(KEY_EMAIL_IDS)?.toList().orEmpty()
                 if (ids.isNotEmpty() && repo.destroyAll(credentials, ids).failed.isNotEmpty()) {
@@ -51,6 +53,9 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
                 Log.w(TAG, "Held-back destroy failed", it)
                 if (runAttemptCount < MAX_ATTEMPTS) Result.retry()
                 else {
+                    // Given up for good: drop the destroy list rather than leave a standing
+                    // order nothing will ever execute.
+                    purgeId?.let { id -> runCatching { repo.discardPurgeSnapshot(id) } }
                     repo.resetSyncState() // undestroyed mail reappears on the next full re-query
                     Result.failure()
                 }
@@ -62,7 +67,15 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
         private const val TAG = "MessageDestroyWorker"
         private const val KEY_ACCOUNT_ID = "accountId"
         private const val KEY_EMAIL_IDS = "emailIds"
-        private const val KEY_PURGE_MAILBOX_ID = "purgeMailboxId"
+
+        /** The snapshot to destroy. Only the KEY travels in the worker's [androidx.work.Data]:
+         *  the ids themselves live in the database, because Data is capped at 10 KiB and an
+         *  Empty trash can carry ten thousand of them (see `PurgeSnapshotEntity`).
+         *
+         *  A purge enqueued by a version predating this key carries no snapshot, falls through
+         *  to the id branch with an empty list and destroys nothing — the safe outcome for the
+         *  at most one purge that can be in flight across an upgrade. */
+        private const val KEY_PURGE_ID = "purgeId"
         private const val MAX_ATTEMPTS = 3
 
         /** Margin over the snackbar window so an Undo cancel always wins the race. */
@@ -99,12 +112,16 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
             WorkManager.getInstance(context).cancelUniqueWork(destroyWorkName(accountId))
         }
 
-        /** Hold an Empty-trash purge of [mailboxId] back for [holdBackMs], then run it. */
-        fun schedulePurge(context: Context, accountId: String, mailboxId: String, holdBackMs: Long) {
+        /**
+         * Hold the Empty-trash purge of snapshot [purgeId] back for [holdBackMs], then run it.
+         * [mailboxId] names the work (one pending purge per account+folder), it does NOT define
+         * what gets destroyed — [purgeId] does (#99).
+         */
+        fun schedulePurge(context: Context, accountId: String, mailboxId: String, purgeId: String, holdBackMs: Long) {
             val request = OneTimeWorkRequestBuilder<MessageDestroyWorker>()
                 .setInitialDelay(holdBackMs + DELAY_MARGIN_MS, TimeUnit.MILLISECONDS)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setInputData(workDataOf(KEY_ACCOUNT_ID to accountId, KEY_PURGE_MAILBOX_ID to mailboxId))
+                .setInputData(workDataOf(KEY_ACCOUNT_ID to accountId, KEY_PURGE_ID to purgeId))
                 .build()
             WorkManager.getInstance(context)
                 .enqueueUniqueWork(purgeWorkName(accountId, mailboxId), ExistingWorkPolicy.REPLACE, request)

@@ -5,6 +5,7 @@ import app.sterna.core.data.db.EmailBodyDao
 import app.sterna.core.data.db.EmailDao
 import app.sterna.core.data.db.EmailFtsDao
 import app.sterna.core.data.db.MailboxDao
+import app.sterna.core.data.db.PurgeSnapshotDao
 import app.sterna.core.data.db.SnoozedDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,6 +36,7 @@ class StorageRepository(
     private val emailBodyDao: EmailBodyDao,
     private val mailboxDao: MailboxDao,
     private val snoozedDao: SnoozedDao,
+    private val purgeSnapshotDao: PurgeSnapshotDao,
 ) {
     private val attachmentsDir: File get() = File(context.cacheDir, "attachments")
 
@@ -79,6 +81,8 @@ class StorageRepository(
         emailBodyDao.deleteForAccount(accountId)
         mailboxDao.deleteForAccount(accountId)
         snoozedDao.deleteForAccount(accountId)
+        // A pending Empty-trash destroy list belongs to the account that is going away (#99).
+        purgeSnapshotDao.deleteForAccount(accountId)
         clearAttachments()
     }
 

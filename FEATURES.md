@@ -79,7 +79,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Folder navigation drawer; view any mailbox *(M3)*
 - ✅ ⭐ Conversation threading — JMAP native `Thread` objects. The list collapses a thread into one row with a message-count badge (Settings → Reading → Conversation view, on by default; toggle off for a flat list); opening a row shows the thread view. Grouping is done in SQL (representative = latest message, unread if any in the thread)
 - ✅ Pull-to-refresh
-- ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive; "Empty trash" (Trash overflow menu) purges the folder behind the same held-back Undo
+- ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive; "Empty trash" (Trash overflow menu) destroys, behind the same held-back Undo, exactly the messages the folder held when you confirmed — mail filed there afterwards is not touched
 - ✅ Configurable swipe actions (left/right, in Settings → Reading)
 - ✅ Sort (newest/oldest, subject, sender, unread-first) + Mark-all-read
 - ✅ Multi-select (long-press / select-all): bulk read/unread toggle (keeps the

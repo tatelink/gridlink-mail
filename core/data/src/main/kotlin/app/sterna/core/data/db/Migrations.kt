@@ -264,3 +264,32 @@ val MIGRATION_16_17 = object : Migration(16, 17) {
         db.execSQL("ALTER TABLE `emails` ADD COLUMN `recipientsJson` TEXT")
     }
 }
+
+/**
+ * SQL that creates the `purge_snapshot` table ([PurgeSnapshotEntity]). Kept as a constant so the
+ * 17→18 migration and a plain JVM unit test build the exact same table.
+ */
+const val PURGE_SNAPSHOT_CREATE_SQL: String =
+    "CREATE TABLE IF NOT EXISTS `purge_snapshot` (" +
+        "`purgeId` TEXT NOT NULL, " +
+        "`accountId` TEXT NOT NULL, " +
+        "`mailboxId` TEXT NOT NULL, " +
+        "`emailId` TEXT NOT NULL, " +
+        "`createdAt` INTEGER NOT NULL, " +
+        "PRIMARY KEY(`purgeId`, `accountId`, `emailId`))"
+
+/**
+ * Additive 17→18: the `purge_snapshot` table (Codeberg #99). An "Empty trash" now records the
+ * exact messages the user confirmed destroying and the held-back purge destroys only those,
+ * instead of re-reading the folder when it finally runs and taking along whatever arrived
+ * meanwhile.
+ *
+ * Purely additive — no existing table is touched, so nothing can be lost on upgrade. The table
+ * starts empty, which is the correct state: a purge confirmed on the previous version has no
+ * snapshot, and a purge with no snapshot destroys nothing.
+ */
+val MIGRATION_17_18 = object : Migration(17, 18) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(PURGE_SNAPSHOT_CREATE_SQL)
+    }
+}
