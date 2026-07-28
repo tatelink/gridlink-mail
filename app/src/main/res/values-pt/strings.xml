@@ -412,6 +412,7 @@
     <string name="settings_unsaved_changes">Alterações não guardadas</string>
     <string name="settings_save_changes_title">Guardar as alterações?</string>
     <string name="settings_save_changes_message">Não guardou as alterações de identidade ou de conta.</string>
+    <string name="settings_save_changes_message_generic">Não guardou as alterações.</string>
     <string name="settings_discard">Descartar</string>
     <string name="settings_sync_section">Sincronização</string>
     <string name="settings_messages_to_sync_title">Mensagens a sincronizar</string>

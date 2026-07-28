@@ -412,6 +412,7 @@
     <string name="settings_unsaved_changes">Niezapisane zmiany</string>
     <string name="settings_save_changes_title">Zapisać zmiany?</string>
     <string name="settings_save_changes_message">Nie zapisano zmian tożsamości ani konta.</string>
+    <string name="settings_save_changes_message_generic">Nie zapisano zmian.</string>
     <string name="settings_discard">Odrzuć</string>
     <string name="settings_sync_section">Synchronizacja</string>
     <string name="settings_messages_to_sync_title">Wiadomości do synchronizacji</string>

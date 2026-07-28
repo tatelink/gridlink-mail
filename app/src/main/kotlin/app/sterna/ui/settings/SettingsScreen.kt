@@ -28,8 +28,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -1182,7 +1180,6 @@ private fun AccountsScreen(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AccountDetailScreen(
     accountId: String,
@@ -1314,34 +1311,12 @@ private fun AccountDetailScreen(
     fun leaveOrConfirm() { if (dirty) confirmExit = true else onBack() }
     BackHandler(enabled = dirty) { confirmExit = true }
     if (confirmExit) {
-        AlertDialog(
-            onDismissRequest = { confirmExit = false },
-            title = { Text(stringResource(R.string.settings_save_changes_title)) },
-            text = { Text(stringResource(R.string.settings_save_changes_message)) },
-            // AlertDialog has two button slots and this exit needs three answers, so all three go
-            // in the confirm slot as a FlowRow: one line where the labels fit, wrapped where they
-            // don't (German, Russian), never truncated. Save last, as the confirming action.
-            confirmButton = {
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                ) {
-                    TextButton(onClick = { confirmExit = false }) {
-                        Text(stringResource(R.string.settings_cancel))
-                    }
-                    TextButton(onClick = { confirmExit = false; onBack() }) {
-                        Text(stringResource(R.string.settings_discard), color = MaterialTheme.colorScheme.error)
-                    }
-                    // Disabled rather than hidden when the form can't be written: the reason is on
-                    // the screen behind, and hiding it would look like the offer moved.
-                    TextButton(
-                        onClick = { confirmExit = false; saveAccountEdits(); onBack() },
-                        enabled = canSave,
-                    ) {
-                        Text(stringResource(R.string.settings_save))
-                    }
-                }
-            },
+        SaveChangesDialog(
+            message = stringResource(R.string.settings_save_changes_message),
+            canSave = canSave,
+            onCancel = { confirmExit = false },
+            onDiscard = { confirmExit = false; onBack() },
+            onSave = { confirmExit = false; saveAccountEdits(); onBack() },
         )
     }
 
@@ -2253,7 +2228,36 @@ private fun VacationScreen(
     viewModel: VacationViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    DetailScaffold(title = stringResource(R.string.settings_vacation_screen_title), onBack = onBack) { padding ->
+
+    // Same confirm-on-back as the account editor: a responder typed and left behind used to vanish
+    // without a word (#34). Both doors go through it — the scaffold's arrow and the system gesture.
+    var confirmExit by remember { mutableStateOf(false) }
+    // Saving from the dialog is a network round-trip, so the screen leaves only once the server has
+    // taken it; a refusal keeps the screen (and its error) in front of the user.
+    var leaveAfterSave by remember { mutableStateOf(false) }
+    LaunchedEffect(leaveAfterSave, state.saving, state.dirty, state.errorKind) {
+        if (!leaveAfterSave) return@LaunchedEffect
+        when (pendingExitStep(state.saving, state.dirty, failed = state.errorKind != null)) {
+            PendingExit.LEAVE -> { leaveAfterSave = false; onBack() }
+            PendingExit.STAY -> leaveAfterSave = false
+            PendingExit.WAIT -> Unit
+        }
+    }
+    BackHandler(enabled = state.dirty) { confirmExit = true }
+    if (confirmExit) {
+        SaveChangesDialog(
+            message = stringResource(R.string.settings_save_changes_message_generic),
+            canSave = !state.saving,
+            onCancel = { confirmExit = false },
+            onDiscard = { confirmExit = false; onBack() },
+            onSave = { confirmExit = false; leaveAfterSave = true; viewModel.save() },
+        )
+    }
+
+    DetailScaffold(
+        title = stringResource(R.string.settings_vacation_screen_title),
+        onBack = { if (state.dirty) confirmExit = true else onBack() },
+    ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 state.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))

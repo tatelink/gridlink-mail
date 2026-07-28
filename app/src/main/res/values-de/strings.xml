@@ -412,6 +412,7 @@
     <string name="settings_unsaved_changes">Nicht gespeicherte Änderungen</string>
     <string name="settings_save_changes_title">Änderungen speichern?</string>
     <string name="settings_save_changes_message">Du hast deine Identitäts- oder Kontoänderungen nicht gespeichert.</string>
+    <string name="settings_save_changes_message_generic">Du hast deine Änderungen nicht gespeichert.</string>
     <string name="settings_discard">Verwerfen</string>
     <string name="settings_sync_section">Synchronisierung</string>
     <string name="settings_messages_to_sync_title">Zu synchronisierende Nachrichten</string>

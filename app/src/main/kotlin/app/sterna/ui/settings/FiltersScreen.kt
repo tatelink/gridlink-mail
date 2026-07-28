@@ -28,6 +28,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +57,13 @@ fun FiltersScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<Int?>(null) }
+    // Same confirm-on-back as the account editor: rules edited and left behind used to vanish
+    // without a word (#34). Both doors go through it — the scaffold's arrow and the system gesture.
+    // Held above the rule-editor branch below so the early return never straddles a remember.
+    var confirmExit by remember { mutableStateOf(false) }
+    // Saving from the dialog is a network round-trip (compile → validate → activate), so the screen
+    // leaves only once the server has taken it; a refusal keeps the screen and its error in view.
+    var leaveAfterSave by remember { mutableStateOf(false) }
 
     val editIndex = editing
     if (editIndex != null && editIndex < state.rules.size) {
@@ -69,7 +77,29 @@ fun FiltersScreen(
         return
     }
 
-    DetailScaffold(title = stringResource(R.string.settings_filters_screen_title), onBack = onBack) { padding ->
+    LaunchedEffect(leaveAfterSave, state.saving, state.dirty, state.errorKind) {
+        if (!leaveAfterSave) return@LaunchedEffect
+        when (pendingExitStep(state.saving, state.dirty, failed = state.errorKind != null)) {
+            PendingExit.LEAVE -> { leaveAfterSave = false; onBack() }
+            PendingExit.STAY -> leaveAfterSave = false
+            PendingExit.WAIT -> Unit
+        }
+    }
+    BackHandler(enabled = state.dirty) { confirmExit = true }
+    if (confirmExit) {
+        SaveChangesDialog(
+            message = stringResource(R.string.settings_save_changes_message_generic),
+            canSave = !state.saving,
+            onCancel = { confirmExit = false },
+            onDiscard = { confirmExit = false; onBack() },
+            onSave = { confirmExit = false; leaveAfterSave = true; viewModel.save() },
+        )
+    }
+
+    DetailScaffold(
+        title = stringResource(R.string.settings_filters_screen_title),
+        onBack = { if (state.dirty) confirmExit = true else onBack() },
+    ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 state.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
