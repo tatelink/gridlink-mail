@@ -48,8 +48,9 @@ data class StoredAccount(
     /**
      * The user-chosen default sending identity, keyed by [StoredIdentity.id] (stable, so it
      * survives the identity list being reordered by server discovery on connect). null = no
-     * explicit choice; the composer then falls back to the first resolved identity. An id that
-     * no longer matches any resolved identity also degrades to the first (see [AccountStore]).
+     * explicit choice; the composer then falls back to the account's own address, and only then to
+     * the first resolved identity. An id that no longer matches any resolved identity degrades the
+     * same way (see [defaultIdentity]).
      */
     val defaultIdentityId: String? = null,
     /**
@@ -140,13 +141,30 @@ data class StoredAccount(
             }
 
     /**
-     * The identity to pre-select when composing: the one matching [defaultIdentityId], or the first
-     * resolved identity when no default is set or its id no longer exists among current identities
-     * (so it degrades gracefully after a server-driven identity refresh).
+     * The identity to pre-select when composing: the one matching [defaultIdentityId]; failing that
+     * the identity that IS this account (its [username]); failing that the first resolved identity.
+     * So it still degrades gracefully after a server-driven identity refresh drops the stored id.
+     *
+     * The username step is what keeps the pre-selected sender stable: [resolvedIdentities] lists
+     * manual identities BEFORE server ones, so falling straight through to "the first" meant that
+     * merely adding an identity promoted it to pre-selected sender, silently and with nothing on
+     * screen saying so (#78). The account's own address is the only implicit answer that does not
+     * move under the user's feet.
+     *
+     * Skipped for a linked sub-account: its [username] is the LOGIN's address, not its own (see
+     * [resolvedIdentities], issue #31), so matching on it would pre-select a shared mailbox's mail
+     * as coming from the login instead.
      */
     fun defaultIdentity(): StoredIdentity? {
         val resolved = resolvedIdentities()
-        return resolved.firstOrNull { it.id == defaultIdentityId } ?: resolved.firstOrNull()
+        resolved.firstOrNull { it.id == defaultIdentityId }?.let { return it }
+        val own = username.trim().lowercase()
+        val ownIdentity = if (isLinked || own.isEmpty()) {
+            null
+        } else {
+            resolved.firstOrNull { it.email.trim().lowercase() == own }
+        }
+        return ownIdentity ?: resolved.firstOrNull()
     }
 
     companion object {

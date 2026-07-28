@@ -131,6 +131,7 @@ import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
 import android.text.format.DateUtils
+import app.sterna.ui.canSnoozeIn
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.isOutgoingFolder
 import app.sterna.ui.snoozed.SnoozeDeadlineHeader
@@ -779,8 +780,8 @@ private fun MessageActions(
                 leadingIcon = { Icon(Icons.Filled.MarkEmailUnread, contentDescription = null) },
                 onClick = { menuOpen = false; viewModel.markUnread(onBack) },
             )
-            // Spam-reporting and snoozing act on incoming mail; in Drafts and Sent the open
-            // message is the user's own outgoing mail, so neither is offered (Codeberg #82).
+            // Spam-reporting acts on incoming mail; in Drafts and Sent the open message is the
+            // user's own outgoing mail, so it is not offered there (Codeberg #82).
             if (!isOutgoingFolder(folderRole)) {
                 DropdownMenuItem(
                     text = {
@@ -810,6 +811,10 @@ private fun MessageActions(
                         if (inJunk) viewModel.notSpam(confirmMove) else viewModel.reportSpam(confirmMove)
                     },
                 )
+            }
+            // Snoozing is a promise to come back to a message, so it goes further: also gone in
+            // Spam and in the Trash, where nothing is waiting to be dealt with (Codeberg #82).
+            if (canSnoozeIn(folderRole)) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.message_snooze)) },
                     leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },

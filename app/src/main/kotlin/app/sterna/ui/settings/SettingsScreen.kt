@@ -1969,9 +1969,13 @@ private fun AccountDetailScreen(
                         modifier = Modifier.padding(vertical = 4.dp),
                     )
                 }
+                // Live only when there is something to write: a Save that is offered while the form
+                // is untouched promises an effect it cannot have (#34). [dirty] is set by every
+                // field this button persists, so the button lights up on the first keystroke and
+                // goes back out the moment the edits are written.
                 Button(
                     onClick = { saveAccountEdits() },
-                    enabled = canSave,
+                    enabled = canSave && dirty,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
@@ -2352,7 +2356,8 @@ private fun VacationForm(state: VacationUiState, viewModel: VacationViewModel) {
         }
         Button(
             onClick = viewModel::save,
-            enabled = !state.saving,
+            // Nothing to push until a field actually differs from what the server holds (#34).
+            enabled = !state.saving && state.dirty,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 16.dp),

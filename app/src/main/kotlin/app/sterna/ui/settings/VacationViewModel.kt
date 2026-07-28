@@ -35,7 +35,16 @@ data class VacationUiState(
     val errorDetail: String = "",
     /** Bumped after each successful save; the screen shows a confirmation while > 0. */
     val savedTick: Int = 0,
-)
+    /**
+     * Whether the edited fields still differ from what the server holds. Gates Save, so the button
+     * is offered only when it has something to push (#34), and goes out again if the edits are
+     * undone by hand.
+     */
+    val dirty: Boolean = false,
+) {
+    /** The fields a Save actually writes — what "changed" is measured on. */
+    internal fun edits(): List<Any?> = listOf(enabled, subject, message, fromDate, toDate)
+}
 
 /**
  * Drives the server-side vacation responder (JMAP VacationResponse) for the
@@ -48,6 +57,9 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
 
     private val _state = MutableStateFlow(VacationUiState())
     val state = _state.asStateFlow()
+
+    /** The responder as the server last confirmed it; edits are compared to this (#34). */
+    private var serverEdits: List<Any?> = VacationUiState().edits()
 
     init { load() }
 
@@ -79,6 +91,7 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
                             fromDate = r.fromDate?.let { parseMillis(it) },
                             toDate = r.toDate?.let { parseMillis(it) },
                         )
+                        serverEdits = _state.value.edits()
                     }
                 }
             } catch (t: Throwable) {
@@ -101,7 +114,10 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
 
     /** Apply a field edit, clearing any pending error / saved-confirmation. */
     private fun edit(transform: (VacationUiState) -> VacationUiState) =
-        _state.update { transform(it).copy(errorKind = null, savedTick = 0) }
+        _state.update {
+            val next = transform(it).copy(errorKind = null, savedTick = 0)
+            next.copy(dirty = next.edits() != serverEdits)
+        }
 
     fun save() {
         val credentials = store.load() ?: return
@@ -122,7 +138,8 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
                     htmlBody = null,
                 )
                 repo.saveVacation(credentials, vacation)
-                _state.update { it.copy(saving = false, savedTick = it.savedTick + 1) }
+                serverEdits = s.edits()
+                _state.update { it.copy(saving = false, savedTick = it.savedTick + 1, dirty = false) }
             } catch (t: Throwable) {
                 _state.update {
                     it.copy(

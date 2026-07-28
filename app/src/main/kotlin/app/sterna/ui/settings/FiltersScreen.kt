@@ -166,7 +166,8 @@ private fun FiltersList(
         }
         Button(
             onClick = viewModel::save,
-            enabled = !state.saving,
+            // Nothing to push until a rule actually differs from what the server holds (#34).
+            enabled = !state.saving && state.dirty,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             if (state.saving) {
