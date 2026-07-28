@@ -26,3 +26,4 @@ Thumbs.db
 # Self-hosted CI runner state + secrets
 ci/data/
 .env
+.kotlin/
