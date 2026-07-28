@@ -28,6 +28,11 @@ data class FiltersUiState(
     val errorDetail: String = "",
     /** Bumped after each successful save; the screen shows a confirmation while > 0. */
     val savedTick: Int = 0,
+    /**
+     * Whether [rules] still differ from what the server holds. Gates Save, so the button is offered
+     * only when it has something to push (#34), and goes out again if the edits are undone by hand.
+     */
+    val dirty: Boolean = false,
 )
 
 /**
@@ -41,6 +46,9 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
 
     private val _state = MutableStateFlow(FiltersUiState())
     val state = _state.asStateFlow()
+
+    /** The rules as the server last confirmed them; edits are compared to these (#34). */
+    private var serverRules: List<FilterRule> = emptyList()
 
     init { load() }
 
@@ -56,11 +64,14 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
                 val folders = runCatching { repo.observeMailboxes(credentials.id).first().map { mb -> mb.name } }
                     .getOrDefault(emptyList())
                 when (val result = repo.loadFilterRules(credentials)) {
-                    FilterRulesState.Unsupported ->
+                    FilterRulesState.Unsupported -> {
+                        serverRules = emptyList()
                         _state.value = FiltersUiState(
                             loading = false, supported = false, accountLabel = store.accountLabel(),
                         )
-                    is FilterRulesState.Loaded ->
+                    }
+                    is FilterRulesState.Loaded -> {
+                        serverRules = result.rules
                         _state.value = FiltersUiState(
                             loading = false,
                             supported = true,
@@ -69,6 +80,7 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
                             rules = result.rules,
                             folders = folders,
                         )
+                    }
                 }
             } catch (t: Throwable) {
                 _state.update {
@@ -102,7 +114,10 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun edit(transform: (FiltersUiState) -> FiltersUiState) =
-        _state.update { transform(it).copy(errorKind = null, savedTick = 0) }
+        _state.update {
+            val next = transform(it).copy(errorKind = null, savedTick = 0)
+            next.copy(dirty = next.rules != serverRules)
+        }
 
     fun save() {
         val credentials = store.load() ?: return
@@ -112,7 +127,8 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             try {
                 repo.saveFilterRules(credentials, rules)
-                _state.update { it.copy(saving = false, savedTick = it.savedTick + 1) }
+                serverRules = rules
+                _state.update { it.copy(saving = false, savedTick = it.savedTick + 1, dirty = false) }
             } catch (t: Throwable) {
                 _state.update {
                     it.copy(
