@@ -679,6 +679,7 @@
     <string name="search_result_count">%1$d results</string>
     <string name="search_advanced_toggle">Advanced filters</string>
     <string name="search_from">From</string>
+    <string name="search_recipient">Recipient</string>
     <string name="search_subject">Subject</string>
     <string name="search_has_attachment">Has attachment</string>
     <string name="search_after">After</string>

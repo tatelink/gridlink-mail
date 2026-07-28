@@ -479,15 +479,7 @@ class JmapClient internal constructor(
         limit: Int,
         auth: JmapAuth,
     ): List<Email> = withContext(Dispatchers.IO) {
-        // One JMAP filter-condition per non-empty field, AND-combined.
-        val conditions = mutableListOf<JsonObjectBuilder.() -> Unit>()
-        if (query.text.isNotBlank()) conditions.add { put("text", query.text.trim()) }
-        if (query.from.isNotBlank()) conditions.add { put("from", query.from.trim()) }
-        if (query.subject.isNotBlank()) conditions.add { put("subject", query.subject.trim()) }
-        if (query.hasAttachment) conditions.add { put("hasAttachment", true) }
-        query.afterMillis?.let { ms -> conditions.add { put("after", utcDate(ms)) } }
-        query.beforeMillis?.let { ms -> conditions.add { put("before", utcDate(ms)) } }
-
+        val filter = searchFilter(query)
         val payload = buildJsonObject {
             putJsonArray("using") {
                 add(Jmap.CORE_CAPABILITY)
@@ -498,16 +490,7 @@ class JmapClient internal constructor(
                     add("Email/query")
                     addJsonObject {
                         put("accountId", accountId)
-                        putJsonObject("filter") {
-                            if (conditions.size == 1) {
-                                conditions[0]()
-                            } else {
-                                put("operator", "AND")
-                                putJsonArray("conditions") {
-                                    conditions.forEach { cond -> addJsonObject(cond) }
-                                }
-                            }
-                        }
+                        put("filter", filter)
                         putJsonArray("sort") {
                             addJsonObject {
                                 put("property", "receivedAt")
@@ -2057,6 +2040,49 @@ class JmapClient internal constructor(
             .build()
     }
 }
+
+/**
+ * Build the `Email/query` filter for a [SearchQuery] (RFC 8621 §4.4.1): one condition per
+ * non-empty field, AND-combined. `recipient` becomes a nested OR over `to` and `cc`, so a
+ * message that only carries the address in copy still matches; the OR object is one condition
+ * of the outer AND, never flattened into it (that would turn the whole query into an OR).
+ * A single condition is emitted on its own, without the AND wrapper.
+ *
+ * Pure and separate from the request so the combination is unit-testable; callers must have
+ * checked [SearchQuery.isEmpty] first (an empty filter would match the whole account).
+ */
+internal fun searchFilter(query: SearchQuery): JsonObject {
+    val conditions = mutableListOf<JsonObjectBuilder.() -> Unit>()
+    if (query.text.isNotBlank()) conditions.add { put("text", query.text.trim()) }
+    if (query.from.isNotBlank()) conditions.add { put("from", query.from.trim()) }
+    if (query.recipient.isNotBlank()) {
+        val recipient = query.recipient.trim()
+        conditions.add {
+            put("operator", "OR")
+            putJsonArray("conditions") {
+                addJsonObject { put("to", recipient) }
+                addJsonObject { put("cc", recipient) }
+            }
+        }
+    }
+    if (query.subject.isNotBlank()) conditions.add { put("subject", query.subject.trim()) }
+    if (query.hasAttachment) conditions.add { put("hasAttachment", true) }
+    query.afterMillis?.let { ms -> conditions.add { put("after", jmapUtcDate(ms)) } }
+    query.beforeMillis?.let { ms -> conditions.add { put("before", jmapUtcDate(ms)) } }
+    return buildJsonObject {
+        if (conditions.size == 1) {
+            conditions[0]()
+        } else {
+            put("operator", "AND")
+            putJsonArray("conditions") {
+                conditions.forEach { condition -> addJsonObject(condition) }
+            }
+        }
+    }
+}
+
+/** JMAP UTCDate (RFC 8620 §1.4) from epoch millis. */
+private fun jmapUtcDate(millis: Long): String = java.time.Instant.ofEpochMilli(millis).toString()
 
 /** Write a JMAP EmailAddress object ({name?, email}) into the current JSON object. */
 private fun JsonObjectBuilder.addAddress(address: EmailAddress) {

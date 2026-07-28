@@ -73,6 +73,7 @@ fun SearchScreen(
     // filters straight away (plain text search already lives in the inbox loupe).
     var showAdvanced by rememberSaveable { mutableStateOf(true) }
     var from by rememberSaveable { mutableStateOf("") }
+    var recipient by rememberSaveable { mutableStateOf("") }
     var subject by rememberSaveable { mutableStateOf("") }
     var hasAttachment by rememberSaveable { mutableStateOf(false) }
     var afterMillis by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -82,6 +83,7 @@ fun SearchScreen(
         SearchQuery(
             text = text,
             from = from,
+            recipient = recipient,
             subject = subject,
             hasAttachment = hasAttachment,
             afterMillis = afterMillis,
@@ -131,6 +133,17 @@ fun SearchScreen(
                     value = from,
                     onValueChange = { from = it },
                     label = { Text(stringResource(R.string.search_from)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                // Matches To OR Cc: a message that only carries the address in copy was still
+                // received at it (aliases, shared mailboxes), so one field, no To/Cc switch.
+                OutlinedTextField(
+                    value = recipient,
+                    onValueChange = { recipient = it },
+                    label = { Text(stringResource(R.string.search_recipient)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
