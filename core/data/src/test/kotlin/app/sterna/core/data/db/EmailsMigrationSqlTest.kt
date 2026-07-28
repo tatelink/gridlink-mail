@@ -28,8 +28,12 @@ import java.sql.DriverManager
  * (the published v15 schema with [MIGRATION_15_16] applied) and check that the column appears,
  * that nothing else moves, and that the value round-trips through [EmailRecipients].
  *
+ * Then **v17 → v18** ([MIGRATION_17_18]) adds `purge_snapshot`, the frozen destroy list of a
+ * confirmed "Empty trash" (#99) — additive, and deliberately empty on upgrade, so a purge
+ * confirmed by the previous version destroys nothing instead of re-reading the folder.
+ *
  * The migrations are executed through their own [MIGRATION_14_15] / [MIGRATION_15_16] /
- * [MIGRATION_16_17] objects (via a tiny [SupportSQLiteDatabase] proxy that forwards `execSQL` to
+ * [MIGRATION_16_17] / [MIGRATION_17_18] objects (via a tiny [SupportSQLiteDatabase] proxy that forwards `execSQL` to
  * JDBC), not through a copy of their statements, so the test cannot drift from the code that ships.
  */
 class EmailsMigrationSqlTest {
@@ -161,6 +165,8 @@ class EmailsMigrationSqlTest {
     private fun migrate14to15() = MIGRATION_14_15.migrate(supportDb())
 
     private fun migrate16to17() = MIGRATION_16_17.migrate(supportDb())
+
+    private fun migrate17to18() = MIGRATION_17_18.migrate(supportDb())
 
     private fun count(sql: String): Int = db.createStatement().use { st ->
         st.executeQuery(sql).use { rs ->
@@ -402,6 +408,71 @@ class EmailsMigrationSqlTest {
         assertEquals(1, count("SELECT COUNT(*) FROM `outbox` WHERE `subject` = 'Queued'"))
         assertEquals(1, pkPositions("emails")["accountId"])
         assertEquals(2, pkPositions("emails")["id"])
+    }
+
+    // --- v17 → v18: the Empty-trash destroy list gets a table (#99) ------------------------------
+
+    /** A v17 database: the published v15 schema with 15→16 and 16→17 applied. */
+    private fun seedV17() {
+        seedV16()
+        migrate16to17()
+    }
+
+    @Test fun v17to18_addsThePurgeSnapshotTableAndTouchesNothingElse() {
+        seedV17()
+        migrate17to18()
+
+        assertEquals(
+            setOf("purgeId", "accountId", "mailboxId", "emailId", "createdAt"),
+            columnsOf("purge_snapshot"),
+        )
+        // Purely additive: no existing row moves, user data above all.
+        assertEquals(2, count("SELECT COUNT(*) FROM `emails`"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `snoozed` WHERE `emailId` = 'e2' AND `until` = 99999"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `outbox` WHERE `subject` = 'Queued'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `scheduled_sends` WHERE `subject` = 'Later'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `email_fts` WHERE `email_fts` MATCH 'Hell*'"))
+    }
+
+    @Test fun v17to18_startsEmptySoAnOlderPurgeDestroysNothing() {
+        seedV17()
+        migrate17to18()
+
+        // A purge confirmed on the previous version carries no snapshot. No snapshot, no order:
+        // it destroys nothing rather than falling back to "whatever is in Trash now" (#99).
+        assertEquals(0, count("SELECT COUNT(*) FROM `purge_snapshot`"))
+    }
+
+    @Test fun v17to18_keysTheSnapshotByPurgeAccountAndEmail() {
+        seedV17()
+        migrate17to18()
+
+        // The account is part of the key: email ids are unique only within their account
+        // (issue #31), so two accounts must be able to hold the same id in one purge.
+        assertEquals(1, pkPositions("purge_snapshot")["purgeId"])
+        assertEquals(2, pkPositions("purge_snapshot")["accountId"])
+        assertEquals(3, pkPositions("purge_snapshot")["emailId"])
+        assertEquals(0, pkPositions("purge_snapshot")["mailboxId"])
+
+        db.createStatement().use { st ->
+            st.executeUpdate("INSERT INTO `purge_snapshot` VALUES ('p1', 'accA', 'trash', 'm1', 1)")
+            st.executeUpdate("INSERT INTO `purge_snapshot` VALUES ('p1', 'accB', 'trash', 'm1', 1)")
+        }
+        assertEquals(2, count("SELECT COUNT(*) FROM `purge_snapshot` WHERE `emailId` = 'm1'"))
+    }
+
+    @Test fun v15to18_chainedFromAPublishedInstall() {
+        seedV15()
+
+        migrate15to16()
+        migrate16to17()
+        migrate17to18()
+
+        assertTrue("recipientsJson" in columnsOf("emails"))
+        assertTrue("purgeId" in columnsOf("purge_snapshot"))
+        assertEquals(2, count("SELECT COUNT(*) FROM `emails`"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `snoozed` WHERE `emailId` = 'e2'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `outbox` WHERE `subject` = 'Queued'"))
     }
 
     // --- v14 → v15 → v16: an install that skipped 1.3.11–1.3.13 ---------------------------------

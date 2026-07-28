@@ -30,6 +30,7 @@ import app.sterna.core.data.db.OutboxEdit
 import app.sterna.core.data.db.OutboxEntity
 import app.sterna.core.data.db.OutboxLogic
 import app.sterna.core.data.db.OutboxState
+import app.sterna.core.data.db.PurgeSnapshotDao
 import app.sterna.core.data.db.ScheduledSendDao
 import app.sterna.core.data.db.ScheduledSendEntity
 import app.sterna.core.data.db.SnoozedDao
@@ -100,6 +101,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.Closeable
+import java.util.UUID
 
 /**
  * Cap on changes to apply incrementally before falling back to a full query. Uncollapsed
@@ -223,11 +225,8 @@ private const val INDEX_TTL_MS = 10 * 60 * 1000L
 /** Give up a crawl pass after this many consecutive page failures (vs. skipping isolated bad pages). */
 private const val MAX_CRAWL_ERRORS = 3
 
-/** Upper bound on empty-trash query+destroy passes (each pass clears up to 10 000 messages). */
-private const val MAX_PURGE_PASSES = 20
-
-/** Ids per Email/set destroy during a trash purge (RFC 8620 maxObjectsInSet floor). */
-private const val PURGE_DESTROY_BATCH = 500
+/** Rows per INSERT when persisting an Empty-trash snapshot (keeps one statement modest). */
+private const val PURGE_SNAPSHOT_INSERT_BATCH = 500
 
 /** Page size when resolving unread ids server-side (RFC 8620 maxObjectsInGet floor). */
 private const val UNREAD_RESOLVE_PAGE = 500
@@ -490,6 +489,8 @@ class MailRepository(
     private val recentContactDao: RecentContactDao,
     private val accountStore: AccountStore,
     private val outboxDao: OutboxDao,
+    /** The frozen destroy list of a confirmed Empty trash (#99). */
+    private val purgeSnapshotDao: PurgeSnapshotDao,
     private val outboxFilesDir: java.io.File,
     private val oauthClient: OAuthClient = OAuthClient(),
     /** OpenPGP operations (null = no provider wired; all PGP features disabled). */
@@ -2946,48 +2947,92 @@ class MailRepository(
         return trash
     }
 
+    /** A confirmed "Empty trash": the identifier of its frozen destroy list and its size. */
+    data class TrashPurgeSnapshot(val purgeId: String, val messageCount: Int)
+
     /**
-     * Permanently delete every message in the Trash mailbox. Returns how many were
-     * removed. For JMAP this queries the server for all ids; for IMAP it deletes the
-     * messages currently cached for that mailbox.
+     * Freeze what an "Empty trash" is allowed to destroy, AT CONFIRMATION TIME (Codeberg #99).
+     *
+     * The purge used to be described by a folder id and re-read the folder when the held-back
+     * work finally ran, so a message moved to Trash during the undo window was destroyed with
+     * the rest — permanently, server-side, though the user had never designated it and it was
+     * not even in the folder when they tapped Empty. The set is now read here, once, and
+     * [purgeSnapshot] destroys exactly it; anything that lands in Trash afterwards is simply
+     * not on the list.
+     *
+     * MUST be called BEFORE the caller evicts the folder's cached rows: the IMAP path (and the
+     * offline JMAP fallback) reads the snapshot from that very cache.
+     *
+     * JMAP asks the server, UNCOLLAPSED — the list query collapses threads, and a collapsed
+     * snapshot would leave every non-representative member behind, so the "emptied" Trash would
+     * re-populate at the next sync. When that query fails (offline), the cached ids stand in:
+     * they are what the user was looking at, and destroying less than asked is the safe error.
+     * IMAP has no cheap folder-wide id query and always uses the cache, as it always did.
+     *
+     * Bounded by [TrashPurge.SNAPSHOT_MAX]. A Trash holding more keeps the surplus, and
+     * emptying again clears the rest — re-reading the folder to catch up is the defect itself.
      */
-    suspend fun emptyTrash(credentials: AccountCredentials, trashMailboxId: String): Int {
-        if (credentials.protocol == MailProtocol.IMAP) {
-            val ids = cachedIds(listOf(credentials.id to trashMailboxId)).map { it.emailId }
-            ids.forEach { id ->
-                imapTarget(id)?.let { (mb, uid) -> runCatching { imap.deleteMessage(credentials, mb, uid) } }
-                emailDao.deleteById(credentials.id, id)
-            }
-            refreshMailboxes(credentials)
-            return ids.size
+    suspend fun snapshotTrashPurge(
+        credentials: AccountCredentials,
+        trashMailboxId: String,
+    ): TrashPurgeSnapshot {
+        val now = System.currentTimeMillis()
+        // Collect anything a killed process or a raced Undo left behind before adding to it.
+        purgeSnapshotDao.deleteOlderThan(now - TrashPurge.SNAPSHOT_TTL_MS)
+        suspend fun cached() = cachedIds(listOf(credentials.id to trashMailboxId)).map { it.emailId }
+        val ids = if (credentials.protocol == MailProtocol.IMAP) {
+            cached()
+        } else {
+            runCatching {
+                val ctx = connect(credentials)
+                client.queryEmails(ctx.session, ctx.accountId, trashMailboxId, TrashPurge.SNAPSHOT_MAX, ctx.auth)
+                    .map { it.id }
+            }.getOrElse { cached() }
         }
-        val ctx = connect(credentials)
+        val purgeId = UUID.randomUUID().toString()
+        val rows = TrashPurge.snapshotRows(purgeId, credentials.id, trashMailboxId, ids, now)
+        rows.chunked(PURGE_SNAPSHOT_INSERT_BATCH).forEach { purgeSnapshotDao.insertAll(it) }
+        return TrashPurgeSnapshot(purgeId, rows.size)
+    }
+
+    /**
+     * Destroy the snapshot taken by [snapshotTrashPurge] — nothing else. Returns how many
+     * messages were removed.
+     *
+     * Wave by wave (`Email/set` / `UID STORE`+`EXPUNGE` batches), deleting each wave from the
+     * snapshot as it is consumed, so the loop drains and terminates whether the server accepted
+     * the ids or rejected them. That also makes the whole thing resumable: a transport failure
+     * propagates (the worker retries) and the retry picks up exactly the ids not yet destroyed.
+     *
+     * An empty or missing snapshot destroys NOTHING. That is the point: no snapshot, no order.
+     */
+    suspend fun purgeSnapshot(credentials: AccountCredentials, purgeId: String): Int {
         var destroyed = 0
-        // Query UNCOLLAPSED and loop until the folder reports empty: the list query collapses
-        // threads, so a single collapsed query here would purge only thread representatives and
-        // the "emptied" Trash would re-populate from the survivors on the next sync. Bounded,
-        // and stops early when a pass makes no progress (per-id rejections would otherwise
-        // return on every pass).
-        for (pass in 1..MAX_PURGE_PASSES) {
-            val ids = client
-                .queryEmails(ctx.session, ctx.accountId, trashMailboxId, 10_000, ctx.auth)
-                .map { it.id }
+        for (wave in 1..TrashPurge.MAX_WAVES) {
+            // Read AND destroy scoped to (purgeId, accountId): an email id means something only
+            // inside its own account (issue #31) and only inside its own confirmation (#99).
+            val ids = purgeSnapshotDao.wave(purgeId, credentials.id, TrashPurge.DESTROY_WAVE)
             if (ids.isEmpty()) break
-            var doneThisPass = 0
-            // Chunked: one giant destroy can exceed the server's maxObjectsInSet.
-            ids.chunked(PURGE_DESTROY_BATCH).forEach { chunk ->
-                val done = client.destroy(ctx.session, ctx.accountId, chunk, ctx.auth).done
-                done.forEach { emailDao.deleteById(credentials.id, it) }
-                doneThisPass += done.size
-            }
-            destroyed += doneThisPass
-            if (doneThisPass < ids.size) break
+            val result = destroyAll(credentials, ids)
+            purgeSnapshotDao.deleteIds(purgeId, credentials.id, ids)
+            destroyed += result.succeeded.size
         }
+        purgeSnapshotDao.deleteSnapshot(purgeId)
         // Post-purge reconcile: re-fetch the folder list so the drawer counts reflect the
         // emptied Trash instead of keeping the pre-purge numbers.
         refreshMailboxes(credentials)
         return destroyed
     }
+
+    /** Undo: withdraw the confirmation by erasing the destroy list of that account's Trash. The
+     *  snapshot IS the order, so erasing it is what makes the undo final — even against a purge
+     *  that somehow already started. Scoped to one account's folder: emptying the Trash of one
+     *  account never touches another's, and undoing it never cancels another's. */
+    suspend fun discardTrashPurge(accountId: String, trashMailboxId: String) =
+        purgeSnapshotDao.deleteForMailbox(accountId, trashMailboxId)
+
+    /** Drop a snapshot by id (the purge gave up for good). */
+    suspend fun discardPurgeSnapshot(purgeId: String) = purgeSnapshotDao.deleteSnapshot(purgeId)
 
     /**
      * Structured search across the account (results are transient, not cached).

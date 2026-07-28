@@ -95,6 +95,12 @@ per-account sources.
   only ever runs through a persisted WorkManager job (`MessageDestroyWorker`)
   delayed past the Undo window — killing the app cannot drop a confirmed destroy,
   and Undo is a work cancellation. Folder deletion follows the same model.
+- **A destroy names messages, never a folder:** "Empty trash" records the exact
+  ids at the moment the user confirms (table `purge_snapshot`, keyed by purge,
+  account and message) and the held-back job destroys only that list. It used to
+  carry a folder id and re-read the folder when it ran, so mail moved to Trash
+  during the Undo window was destroyed with the rest. Undo erases the list, an
+  abandoned list is swept by age, and no list means no destroy.
 - **Per-id failure parsing:** `Email/set` responses are parsed per id
   (`notUpdated`/`notCreated`/`notDestroyed`), so bulk actions report exactly
   which messages failed and rejected destroys resurface after a re-query.
