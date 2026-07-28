@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.WindowInsets
@@ -112,8 +113,9 @@ import app.sterna.contacts.AndroidContacts
 import app.sterna.util.isValidEmail
 import app.sterna.ui.FORCE_ONBOARDING_PREVIEW
 import app.sterna.ui.rememberMotionEnabled
+import app.sterna.ui.components.ContactAvatar
 import app.sterna.ui.components.drawTern
-import app.sterna.core.data.db.ContactRow
+import app.sterna.contacts.ContactSuggestion
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -936,7 +938,7 @@ private fun RecipientChipsField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
-    suggestions: List<ContactRow>,
+    suggestions: List<ContactSuggestion>,
     onSuggest: (String) -> Unit,
     onClearSuggestions: () -> Unit,
     focusRequester: FocusRequester? = null,
@@ -1154,22 +1156,41 @@ private fun RecipientChipsField(
                     if (index > 0) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     }
-                    Column(
-                        Modifier
+                    // Picture on the left when the address book has one, monogram otherwise — the
+                    // slot is the same size either way, so rows keep their height while photos
+                    // decode and the list never jumps under the finger.
+                    Row(
+                        modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
                                 onValueChange(rebuild(chips + contact.email, ""))
                                 onClearSuggestions()
                             }
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(contact.name ?: contact.email, style = MaterialTheme.typography.bodyMedium)
-                        if (contact.name != null) {
+                        ContactAvatar(
+                            email = contact.email,
+                            name = contact.name,
+                            photoUri = contact.photoUri,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
                             Text(
-                                contact.email,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                contact.name ?: contact.email,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
+                            if (contact.name != null) {
+                                Text(
+                                    contact.email,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                 }

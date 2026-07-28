@@ -11,8 +11,9 @@ import androidx.lifecycle.viewModelScope
 import app.sterna.container
 import app.sterna.R
 import app.sterna.contacts.AndroidContacts
+import app.sterna.contacts.ContactSuggestion
+import app.sterna.contacts.mergeSuggestions
 import app.sterna.core.data.account.AccountCredentials
-import app.sterna.core.data.db.ContactRow
 import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.account.StoredIdentity
@@ -345,8 +346,8 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /** Recipient autocomplete suggestions for the field currently being typed. */
-    private val _suggestions = MutableStateFlow<List<ContactRow>>(emptyList())
-    val suggestions: StateFlow<List<ContactRow>> = _suggestions.asStateFlow()
+    private val _suggestions = MutableStateFlow<List<ContactSuggestion>>(emptyList())
+    val suggestions: StateFlow<List<ContactSuggestion>> = _suggestions.asStateFlow()
 
     /** Suggest recipients for the last token in [fieldValue] (after the final comma/semicolon). */
     fun suggest(fieldValue: String) {
@@ -357,8 +358,14 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         }
         viewModelScope.launch {
             val recent = repo.suggestContacts(token, 6)
-            val device = if (contactsEnabled.value) AndroidContacts.query(getApplication(), token, 6) else emptyList()
-            _suggestions.value = (recent + device).distinctBy { it.email.lowercase() }.take(6)
+            // The address book is a content-provider query: off the main thread, since this runs on
+            // every keystroke while the keyboard needs it.
+            val device = if (contactsEnabled.value) {
+                withContext(Dispatchers.IO) { AndroidContacts.query(getApplication(), token, 6) }
+            } else {
+                emptyList()
+            }
+            _suggestions.value = mergeSuggestions(recent, device, 6)
         }
     }
 
