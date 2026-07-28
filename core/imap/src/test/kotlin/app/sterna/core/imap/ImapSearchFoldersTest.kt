@@ -132,6 +132,35 @@ class ImapSearchFoldersTest {
             assertEquals(listOf(300L, 290L, 280L, 270L, 260L), messages.map { it.uid })
             // It had to look at more than it kept — but in batches, not one message at a time.
             assertTrue("examined $fetched candidates", fetched in 6..100)
+            // The cap was filled, so this IS the answer: nothing to warn the counter about.
+            assertFalse(hits.single().scanTruncated)
+        }
+    }
+
+    /**
+     * The scan cap is the one case where the answer may be short: the walk stops with candidates
+     * left and the result cap unfilled. It has to SAY so, or a count on screen would present a
+     * partial scan as a total.
+     */
+    @Test
+    fun `a scan that gives up on its cap says the answer is short`() {
+        // Well past the 1000-candidate scan cap, and not one of them carries a file.
+        val matching = (1L..1_500L).toList()
+        FakeImapServer { tag, line ->
+            when {
+                line.startsWith("SELECT") -> selectResponse(tag, exists = 1_500)
+                line.startsWith("UID SEARCH") -> searchResponse(tag, matching)
+                line.startsWith("UID FETCH") -> fetchResponse(tag, uidsOf(line)) { false }
+                else -> ok(tag)
+            }
+        }.use { server ->
+            val hits = server.session().use { session ->
+                session.searchFolders(listOf("INBOX"), fullQuery, requireAttachment = true, limit = 5)
+            }
+            // The folder is reported even with nothing kept: the truncation is the information.
+            assertEquals(listOf("INBOX"), hits.map { it.mailbox })
+            assertTrue(hits.single().messages.isEmpty())
+            assertTrue(hits.single().scanTruncated)
         }
     }
 

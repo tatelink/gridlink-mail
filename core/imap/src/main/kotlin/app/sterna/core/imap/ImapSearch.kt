@@ -79,8 +79,18 @@ fun buildImapSearch(criteria: ImapSearchCriteria): ImapSearchCommand {
 private fun imapDay(millis: Long, plusDays: Long = 0): String =
     Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate().plusDays(plusDays).format(IMAP_DATE)
 
-/** One folder's matches. [mailbox] is the folder the UIDs belong to — UIDs mean nothing without it. */
-data class ImapFolderHits(val mailbox: String, val messages: List<ImapMessage>)
+/**
+ * One folder's matches. [mailbox] is the folder the UIDs belong to — UIDs mean nothing without it.
+ *
+ * [scanTruncated] says the walk gave up before examining every candidate (the attachment filter's
+ * scan cap) WITHOUT filling the caller's cap: the answer may be short, and anything counting these
+ * messages must say so rather than present a partial scan as a total.
+ */
+data class ImapFolderHits(
+    val mailbox: String,
+    val messages: List<ImapMessage>,
+    val scanTruncated: Boolean = false,
+)
 
 /** How many UIDs are fetched per `UID FETCH` while walking candidates for the attachment filter. */
 private const val SEARCH_FETCH_BATCH = 50
@@ -106,6 +116,8 @@ private const val ATTACHMENT_SCAN_CAP = 1_000
  * which the envelope FETCH already carries. Candidates are then walked in batches until [limit]
  * messages have been KEPT or the candidates run out — the cap counts results, not rows examined,
  * so a filtered search cannot report three hits merely because it stopped looking after three.
+ * A walk that still gives up on the scan cap marks its folder [ImapFolderHits.scanTruncated], so
+ * the count shown to the user can say "at least" instead of passing a partial scan off as a total.
  *
  * [stillWanted] is checked between folders: the walk is blocking and holds the account's one
  * connection, so a caller that has moved on (the next keystroke in the inbox search) can stop it
@@ -123,28 +135,35 @@ fun ImapSession.searchFolders(
     val hits = mutableListOf<ImapFolderHits>()
     for (mailbox in mailboxes) {
         if (!stillWanted()) break
-        val messages = try {
+        val scan = try {
             select(mailbox)
             searchOneFolder(command, requireAttachment, limit)
         } catch (t: Throwable) {
             onFolderError(mailbox, t)
             continue
         }
-        if (messages.isNotEmpty()) hits += ImapFolderHits(mailbox, messages)
+        if (scan.messages.isNotEmpty() || scan.truncated) {
+            hits += ImapFolderHits(mailbox, scan.messages, scan.truncated)
+        }
     }
     return hits
 }
+
+/** One folder's scan: what it kept, and whether it stopped looking with candidates left over. */
+private class FolderScan(val messages: List<ImapMessage>, val truncated: Boolean)
 
 /** Search the ALREADY SELECTed folder and fetch up to [limit] matching envelopes, newest first. */
 private fun ImapSession.searchOneFolder(
     command: ImapSearchCommand,
     requireAttachment: Boolean,
     limit: Int,
-): List<ImapMessage> {
+): FolderScan {
     val uids = searchUids(command).sortedDescending()
-    if (uids.isEmpty()) return emptyList()
+    if (uids.isEmpty()) return FolderScan(emptyList(), truncated = false)
     // No local filter: the newest [limit] UIDs are exactly the answer, in one FETCH.
-    if (!requireAttachment) return fetchUids(uids.take(limit)).sortedByDescending { it.uid }
+    if (!requireAttachment) {
+        return FolderScan(fetchUids(uids.take(limit)).sortedByDescending { it.uid }, truncated = false)
+    }
 
     val kept = mutableListOf<ImapMessage>()
     var examined = 0
@@ -153,5 +172,7 @@ private fun ImapSession.searchOneFolder(
         examined += chunk.size
         kept += fetchUids(chunk).sortedByDescending { it.uid }.filter { it.hasAttachment }
     }
-    return kept.take(limit)
+    // Stopping with candidates left AND the cap unfilled means the scan cap cut the walk short:
+    // the folder may hold matches nobody looked at, so the answer is not a total.
+    return FolderScan(kept.take(limit), truncated = examined < uids.size && kept.size < limit)
 }
