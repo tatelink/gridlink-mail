@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.ContactsContract.CommonDataKinds.Email
 import androidx.core.content.ContextCompat
-import app.sterna.core.data.db.ContactRow
 
 /** Reads email addresses from the device's contacts — only when the user has granted the permission. */
 object AndroidContacts {
@@ -13,10 +12,17 @@ object AndroidContacts {
         ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
             PackageManager.PERMISSION_GRANTED
 
-    fun query(context: Context, q: String, limit: Int): List<ContactRow> {
+    /**
+     * Address-book matches for [q], with the contact's thumbnail URI when they have a picture.
+     * The photo column is part of the same cursor, so no extra query is made per row, and reading
+     * it needs no permission beyond the READ_CONTACTS this query already requires.
+     *
+     * Blocking (a content-provider query and its cursor): call it off the main thread.
+     */
+    fun query(context: Context, q: String, limit: Int): List<ContactSuggestion> {
         if (!hasPermission(context) || q.isBlank()) return emptyList()
-        val results = mutableListOf<ContactRow>()
-        val projection = arrayOf(Email.ADDRESS, Email.DISPLAY_NAME_PRIMARY)
+        val results = mutableListOf<ContactSuggestion>()
+        val projection = arrayOf(Email.ADDRESS, Email.DISPLAY_NAME_PRIMARY, Email.PHOTO_THUMBNAIL_URI)
         val selection = "${Email.ADDRESS} LIKE ? OR ${Email.DISPLAY_NAME_PRIMARY} LIKE ?"
         val arg = "%$q%"
         runCatching {
@@ -25,11 +31,20 @@ object AndroidContacts {
             )?.use { cursor ->
                 val addressIdx = cursor.getColumnIndexOrThrow(Email.ADDRESS)
                 val nameIdx = cursor.getColumnIndexOrThrow(Email.DISPLAY_NAME_PRIMARY)
+                val photoIdx = cursor.getColumnIndex(Email.PHOTO_THUMBNAIL_URI)
                 val seen = HashSet<String>()
                 while (cursor.moveToNext() && results.size < limit) {
                     val email = cursor.getString(addressIdx)?.trim() ?: continue
                     if (!email.contains('@') || !seen.add(email.lowercase())) continue
-                    results += ContactRow(email, cursor.getString(nameIdx)?.trim()?.ifBlank { null })
+                    results += ContactSuggestion(
+                        email = email,
+                        name = cursor.getString(nameIdx)?.trim()?.ifBlank { null },
+                        photoUri = if (photoIdx >= 0) {
+                            cursor.getString(photoIdx)?.trim()?.ifBlank { null }
+                        } else {
+                            null
+                        },
+                    )
                 }
             }
         }
