@@ -414,6 +414,7 @@
     <string name="settings_unsaved_changes">Niet-opgeslagen wijzigingen</string>
     <string name="settings_save_changes_title">Wijzigingen opslaan?</string>
     <string name="settings_save_changes_message">Je hebt je identiteits- of accountwijzigingen niet opgeslagen.</string>
+    <string name="settings_save_changes_message_generic">Je hebt je wijzigingen niet opgeslagen.</string>
     <string name="settings_discard">Negeren</string>
     <string name="settings_sync_section">Synchronisatie</string>
     <string name="settings_messages_to_sync_title">Te synchroniseren berichten</string>

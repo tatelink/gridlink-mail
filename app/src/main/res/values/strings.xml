@@ -519,6 +519,7 @@
     <string name="settings_unsaved_changes">Unsaved changes</string>
     <string name="settings_save_changes_title">Save changes?</string>
     <string name="settings_save_changes_message">You haven\'t saved your identity or account changes.</string>
+    <string name="settings_save_changes_message_generic">You haven\'t saved your changes.</string>
     <string name="settings_discard">Discard</string>
     <string name="settings_sync_section">Sync</string>
     <string name="settings_messages_to_sync_title">Messages to sync</string>

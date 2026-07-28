@@ -414,6 +414,7 @@
     <string name="settings_unsaved_changes">Несохранённые изменения</string>
     <string name="settings_save_changes_title">Сохранить изменения?</string>
     <string name="settings_save_changes_message">Изменения личности или учётной записи не сохранены.</string>
+    <string name="settings_save_changes_message_generic">Изменения не сохранены.</string>
     <string name="settings_discard">Не сохранять</string>
     <string name="settings_sync_section">Синхронизация</string>
     <string name="settings_messages_to_sync_title">Письма для синхронизации</string>

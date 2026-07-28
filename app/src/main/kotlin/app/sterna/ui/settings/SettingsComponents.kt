@@ -3,6 +3,8 @@ package app.sterna.ui.settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -396,6 +398,50 @@ fun <T> SettingChoiceDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_cancel)) }
+        },
+    )
+}
+
+/**
+ * The question a form with its own Save button asks when the user leaves with edits still unwritten
+ * (#34): the account editor, the filter rules and the vacation responder all show this one.
+ *
+ * @param message what is at stake, in the wording of the screen that asks.
+ * @param canSave whether saving is possible at all right now — a half-filled account, a write
+ *   already in flight. Disabled rather than hidden: the reason is on the screen behind, and hiding
+ *   the button would look like the offer moved.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SaveChangesDialog(
+    message: String,
+    canSave: Boolean,
+    onCancel: () -> Unit,
+    onDiscard: () -> Unit,
+    onSave: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text(stringResource(R.string.settings_save_changes_title)) },
+        text = { Text(message) },
+        // AlertDialog has two button slots and this exit needs three answers, so all three go in the
+        // confirm slot as a FlowRow: one line where the labels fit, wrapped where they don't
+        // (German, Russian), never truncated. Save last, as the confirming action.
+        confirmButton = {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            ) {
+                TextButton(onClick = onCancel) {
+                    Text(stringResource(R.string.settings_cancel))
+                }
+                TextButton(onClick = onDiscard) {
+                    Text(stringResource(R.string.settings_discard), color = MaterialTheme.colorScheme.error)
+                }
+                TextButton(onClick = onSave, enabled = canSave) {
+                    Text(stringResource(R.string.settings_save))
+                }
+            }
         },
     )
 }
