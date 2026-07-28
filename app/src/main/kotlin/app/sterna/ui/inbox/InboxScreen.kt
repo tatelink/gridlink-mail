@@ -221,7 +221,8 @@ fun InboxScreen(
     /** Open a saved draft in compose for editing (#63) — tapping a row in the Drafts folder. */
     onEditDraft: (emailId: String, accountId: String?) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenSearch: () -> Unit,
+    /** Advanced search, carrying whatever is already typed in the search bar so it isn't retyped. */
+    onOpenSearch: (query: String) -> Unit,
     onOpenScheduled: () -> Unit,
     onOpenSnoozed: () -> Unit,
     onOpenOutbox: () -> Unit,
@@ -1103,7 +1104,7 @@ fun InboxScreen(
                                     Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.inbox_clear))
                                 }
                             }
-                            IconButton(onClick = onOpenSearch) {
+                            IconButton(onClick = { onOpenSearch(ui.searchQuery) }) {
                                 Icon(Icons.Filled.Tune, contentDescription = stringResource(R.string.search_advanced_toggle))
                             }
                         },

@@ -542,6 +542,9 @@
     <string name="search_no_results">Nenhum resultado para \"%1$s\".</string>
     <string name="search_no_results_generic">Nenhuma mensagem correspondente.</string>
     <string name="search_result_count">%1$d resultados</string>
+    <string name="search_result_count_capped">Pelo menos %1$d resultados</string>
+    <string name="search_criteria_pair">%1$s: %2$s</string>
+    <string name="search_criteria_pair_date">%1$s %2$s</string>
     <string name="search_advanced_toggle">Filtros avançados</string>
     <string name="search_from">De</string>
     <string name="search_recipient">Destinatário</string>
