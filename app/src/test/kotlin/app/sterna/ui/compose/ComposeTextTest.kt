@@ -279,16 +279,77 @@ class ComposeTextTest {
         assertEquals(0, initialBodyCaret(bodyLength = 200, focus = ComposeFocus.BODY, isDraft = false))
     }
 
-    // The #83 trap: the body a mailto: link opens on already holds the signature, so the caret
-    // must be at the very top or the user types under their own signature.
-    @Test fun mailtoBodyStartsAboveTheSignature() {
+    // The #83 trap: the body a mailto: link opens on already holds the signature, so a link that
+    // carries no body of its own must start at the very top or the user types under their signature.
+    @Test fun mailtoWithNoBodyStartsAboveTheSignature() {
         val body = "" + signatureBlock("Alex\nAcme", delimiter = true)
-        assertEquals(0, initialBodyCaret(bodyLength = body.length, focus = ComposeFocus.BODY, isDraft = false))
+        assertEquals(
+            0,
+            initialBodyCaret(
+                bodyLength = body.length,
+                focus = ComposeFocus.BODY,
+                isDraft = false,
+                linkBodyLength = 0,
+            ),
+        )
+    }
+
+    // mailto:foo@example.com?subject=Hello&body=Hello%20world! — one writes AFTER the text the link
+    // supplied, so the caret sits at its end, which is also just above the appended signature (#83).
+    @Test fun mailtoBodyResumesAfterTheTextTheLinkSupplied() {
+        val link = "Hello world!"
+        val body = link + signatureBlock("Alex\nAcme", delimiter = true)
+        assertEquals(
+            link.length,
+            initialBodyCaret(
+                bodyLength = body.length,
+                focus = ComposeFocus.BODY,
+                isDraft = false,
+                linkBodyLength = link.length,
+            ),
+        )
+    }
+
+    @Test fun mailtoBodyWithNoSignatureEndsAtTheEndOfTheBody() {
+        val link = "Hello world!"
+        assertEquals(
+            link.length,
+            initialBodyCaret(
+                bodyLength = link.length,
+                focus = ComposeFocus.BODY,
+                isDraft = false,
+                linkBodyLength = link.length,
+            ),
+        )
+    }
+
+    // Defensive: the caret can never be asked for past the text it is placed in.
+    @Test fun aLinkBodyLongerThanTheBodyStopsAtItsEnd() {
+        assertEquals(
+            5,
+            initialBodyCaret(bodyLength = 5, focus = ComposeFocus.BODY, isDraft = false, linkBodyLength = 40),
+        )
+    }
+
+    // A reply is not a link: its body is the quoted original and the caret stays above it.
+    @Test fun replyIsUnaffectedByTheLinkRule() {
+        assertEquals(
+            0,
+            initialBodyCaret(bodyLength = 200, focus = ComposeFocus.BODY, isDraft = false, linkBodyLength = 0),
+        )
     }
 
     @Test fun aSubjectOrRecipientFocusLeavesTheBodyAlone() {
         assertEquals(null, initialBodyCaret(bodyLength = 40, focus = ComposeFocus.SUBJECT, isDraft = false))
-        assertEquals(null, initialBodyCaret(bodyLength = 0, focus = ComposeFocus.RECIPIENTS, isDraft = false))
+        assertEquals(
+            null,
+            initialBodyCaret(
+                bodyLength = 12,
+                focus = ComposeFocus.RECIPIENTS,
+                isDraft = false,
+                linkBodyLength = 12,
+            ),
+        )
     }
 
     // --- Where a tap on a header row puts the caret (#26) ---
@@ -323,6 +384,66 @@ class ComposeTextTest {
         // Before the first layout, or a field whose text isn't composed (a collapsed chip row).
         assertEquals(null, headerTapCaret(tapX = Float.NaN, textStartX = 200f, textLength = 21))
         assertEquals(null, headerTapCaret(tapX = 100f, textStartX = Float.NaN, textLength = 21))
+    }
+
+    // --- Tapping a recipient chip to edit the address again (#94) ---
+    //
+    // The field is one comma-joined string: "a@x.com, b@x.com, " is two committed addresses and an
+    // empty input. Tapping a chip moves that address to the trailing token — where the field puts
+    // the caret at the end — and leaves the others committed, in order.
+
+    private val three = "alex@x.com, jordan@y.com, mia@z.com, "
+
+    @Test fun tappingAChipInTheMiddleTakesItOutOfTheChips() {
+        assertEquals("alex@x.com, mia@z.com, jordan@y.com", recipientsWithChipEdited(three, 1))
+    }
+
+    @Test fun tappingTheFirstChipKeepsTheOthersInOrder() {
+        assertEquals("jordan@y.com, mia@z.com, alex@x.com", recipientsWithChipEdited(three, 0))
+    }
+
+    @Test fun tappingTheLastChipJustReopensIt() {
+        assertEquals("alex@x.com, jordan@y.com, mia@z.com", recipientsWithChipEdited(three, 2))
+    }
+
+    @Test fun theTappedAddressBecomesTheEditableToken() {
+        // What the field then shows in its input, with the caret at its end.
+        assertEquals("jordan@y.com", splitRecipients(recipientsWithChipEdited(three, 1)).second)
+        assertEquals(listOf("alex@x.com", "mia@z.com"), splitRecipients(recipientsWithChipEdited(three, 1)).first)
+    }
+
+    // The chip most worth tapping: the one flagged as invalid, i.e. the typo to fix.
+    @Test fun tappingAnInvalidAddressReopensItForCorrection() {
+        assertEquals(
+            "jordan@y.com, alex@@x.com",
+            recipientsWithChipEdited("alex@@x.com, jordan@y.com, ", 0),
+        )
+    }
+
+    @Test fun anAddressBeingTypedIsCommittedRatherThanLost() {
+        assertEquals(
+            "jordan@y.com, mia@z.co, alex@x.com",
+            recipientsWithChipEdited("alex@x.com, jordan@y.com, mia@z.co", 0),
+        )
+    }
+
+    @Test fun aTapOnNoChipAtAllLeavesTheFieldAlone() {
+        assertEquals(three, recipientsWithChipEdited(three, 3))
+        assertEquals(three, recipientsWithChipEdited(three, -1))
+        assertEquals("", recipientsWithChipEdited("", 0))
+    }
+
+    // The comma-joined model's own limit, unchanged by the tap: a display name holding a comma is
+    // already two tokens before it is tapped, and is still two afterwards.
+    @Test fun aDisplayNameWithACommaIsTwoTokensEitherWay() {
+        val field = "\"Lee, Jordan\" <j@y.com>, alex@x.com, "
+        assertEquals(listOf("\"Lee", "Jordan\" <j@y.com>", "alex@x.com"), splitRecipients(field).first)
+        assertEquals("Jordan\" <j@y.com>, alex@x.com, \"Lee", recipientsWithChipEdited(field, 0))
+    }
+
+    // Semicolons commit an address just like commas, so a field typed with them reads the same.
+    @Test fun semicolonSeparatedAddressesAreChipsToo() {
+        assertEquals("jordan@y.com, alex@x.com", recipientsWithChipEdited("alex@x.com; jordan@y.com; ", 0))
     }
 
     // --- Reply / reply-all header derivation (works from a cached row, so offline replies address) ---

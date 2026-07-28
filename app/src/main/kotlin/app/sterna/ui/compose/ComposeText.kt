@@ -243,14 +243,26 @@ internal fun initialComposeFocus(
 
 /**
  * Where the caret starts in a prefilled body, or null when [focus] is not the body (that field
- * takes the keyboard instead). Reopening a draft resumes after its last character, so writing
- * carries on where it stopped. Every other body-focused compose starts at the very top: a reply
- * sits above the quoted original, and a `mailto:` link's body sits ABOVE the signature the prefill
- * already put there — offset 0 is what keeps the user from typing under their own signature (#83).
+ * takes the keyboard instead). [bodyLength] is the whole prefilled body, signature included;
+ * [linkBodyLength] how much of it a `mailto:` link supplied, 0 when it supplied none.
+ *
+ * The caret always goes where the writing continues. Reopening a draft resumes after its last
+ * character, so writing carries on where it stopped. A `mailto:` link that carries a body resumes
+ * after the text it supplied (#83): one writes AFTER what the link wrote, and since the prefill
+ * appends the signature below, that offset also sits just above the signature. Everything else
+ * body-focused starts at the very top: a reply sits above the quoted original, and a link with no
+ * body of its own opens on a body that is nothing but the signature block, where offset 0 is what
+ * keeps the user from typing under their own signature.
  */
-internal fun initialBodyCaret(bodyLength: Int, focus: ComposeFocus, isDraft: Boolean): Int? = when {
+internal fun initialBodyCaret(
+    bodyLength: Int,
+    focus: ComposeFocus,
+    isDraft: Boolean,
+    linkBodyLength: Int = 0,
+): Int? = when {
     focus != ComposeFocus.BODY -> null
     isDraft -> bodyLength
+    linkBodyLength > 0 -> linkBodyLength.coerceAtMost(bodyLength)
     else -> 0
 }
 
@@ -272,6 +284,49 @@ internal fun headerTapCaret(tapX: Float, textStartX: Float, textLength: Int): In
     !tapX.isFinite() || !textStartX.isFinite() -> null
     tapX < textStartX -> 0
     else -> null
+}
+
+/** Split a recipient string into trimmed, non-empty address tokens. */
+internal fun recipientTokens(value: String): List<String> =
+    value.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+
+/**
+ * A recipient field is a single comma-joined string, and that string is the only state there is:
+ * everything before the last separator is a committed address (shown as a chip), the trailing token
+ * is what is still being typed. [splitRecipients] reads a field that way, [joinRecipients] writes
+ * it back.
+ */
+internal fun splitRecipients(value: String): Pair<List<String>, String> {
+    val cut = value.lastIndexOfAny(charArrayOf(',', ';'))
+    val chips = recipientTokens(if (cut >= 0) value.substring(0, cut) else "")
+    val input = (if (cut >= 0) value.substring(cut + 1) else value).trimStart()
+    return chips to input
+}
+
+/** Put a recipient field back together from its committed addresses and its still-typed token. */
+internal fun joinRecipients(chips: List<String>, input: String): String =
+    chips.joinToString("") { "$it, " } + input
+
+/**
+ * The recipient field after a tap on the chip at [index] (#94): that address stops being a chip and
+ * becomes the field's editable text again, so a typo is fixed by tapping the address rather than
+ * deleting it and retyping the whole thing. It lands as the trailing token, which the field opens
+ * with the caret at its end; from there a tap anywhere inside it moves the caret there, exactly as
+ * before the address was committed.
+ *
+ * What was already being typed is not thrown away: it is committed as a chip of its own, at the end
+ * of the list, which is where it already sat in the string. An [index] that names no chip (a stale
+ * tap on a field that changed underneath) leaves the field untouched.
+ *
+ * Note the model's own limit: the field is comma-joined, so an address is a comma-free token. A
+ * display name holding a comma is already two tokens before any tap, and stays two afterwards.
+ */
+internal fun recipientsWithChipEdited(value: String, index: Int): String {
+    val (chips, input) = splitRecipients(value)
+    if (index !in chips.indices) return value
+    val kept = chips.filterIndexed { i, _ -> i != index }
+    val pending = input.trim()
+    return joinRecipients(if (pending.isEmpty()) kept else kept + pending, chips[index])
 }
 
 /**

@@ -286,6 +286,11 @@ fun ComposeScreen(
             linkSubject = subject,
         )
     }
+    // How much body the composer was OPENED with — a mailto: link's `body=`, nothing otherwise.
+    // Read here, next to the focus rule and for the same reason: below, the editable state shadows
+    // the parameter. It is what tells the prefilled body's own text from the signature appended
+    // under it, so the caret can start after the former (#83).
+    val linkBodyLength = remember { if (body.isNullOrBlank()) 0 else body.length }
 
     var to by rememberSaveable { mutableStateOf("") }
     var cc by rememberSaveable { mutableStateOf("") }
@@ -333,11 +338,14 @@ fun ComposeScreen(
                 subject = TextFieldValue(it.subject, TextRange(it.subject.length))
                 // Open with the caret where the writing continues, and the keyboard up: after the
                 // last character of a reopened draft, above the quoted original of a reply (#63),
-                // above the signature for a mailto: link that already carries a subject (#83).
+                // and for a mailto: link after the body the link supplied — one writes after that
+                // text, not before it, which is also just above the signature the prefill appended
+                // below it. A link with no body of its own still opens above the signature (#83).
                 val caret = initialBodyCaret(
                     bodyLength = it.body.length,
                     focus = initialFocus,
                     isDraft = draftId != null,
+                    linkBodyLength = linkBodyLength,
                 )
                 body = TextFieldValue(it.body, TextRange(caret ?: 0))
                 initialTo = prefilledTo
@@ -499,7 +507,19 @@ fun ComposeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(stringResource(if (replyTo != null) R.string.compose_title_reply else R.string.compose_title_new))
+                    // A reopened draft says so (#96): "New mail" was shown for everything that was
+                    // not a reply, and a draft you are coming back to is not a new mail. Same word
+                    // the list uses to badge that message, so it is recognisably the one you tapped.
+                    // Only that case: a reply, a forward and a resumed send are titled as before.
+                    Text(
+                        stringResource(
+                            when {
+                                draftId != null -> R.string.draft_label
+                                replyTo != null -> R.string.compose_title_reply
+                                else -> R.string.compose_title_new
+                            },
+                        ),
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = attemptClose) {
@@ -930,10 +950,6 @@ private fun ComposeField(
 /** Above this many recipients (To + Cc + Bcc), sending asks for confirmation. */
 private const val MANY_RECIPIENTS = 5
 
-/** Split a recipient string into trimmed, non-empty address tokens. */
-private fun recipientTokens(value: String): List<String> =
-    value.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
-
 /**
  * A recipient line that shows committed addresses as chips (invalid ones flagged in
  * the error colour) plus an inline editor with autocomplete. The field stays backed
@@ -958,11 +974,9 @@ private fun RecipientChipsField(
     /** When encrypting, flags a recipient with no available public key. */
     missingKey: (String) -> Boolean = { false },
 ) {
-    val cut = value.lastIndexOfAny(charArrayOf(',', ';'))
-    val chips = recipientTokens(if (cut >= 0) value.substring(0, cut) else "")
-    val input = (if (cut >= 0) value.substring(cut + 1) else value).trimStart()
+    val (chips, input) = splitRecipients(value)
 
-    fun rebuild(newChips: List<String>, newInput: String) = newChips.joinToString("") { "$it, " } + newInput
+    fun rebuild(newChips: List<String>, newInput: String) = joinRecipients(newChips, newInput)
 
     // Expanded shows the editable chip area with the input; collapsed shows chips only (or a
     // one-line "+N" summary) with no empty input line, so tapping another field leaves no unused
@@ -1003,7 +1017,10 @@ private fun RecipientChipsField(
     // The input isn't composed while collapsed, so focus it once the field expands.
     LaunchedEffect(expanded) { if (expanded) runCatching { focus.requestFocus() } }
     // Follow the growing chip area so the blinking input stays in view as recipients are added.
-    LaunchedEffect(chipScroll.maxValue) { if (expanded) chipScroll.animateScrollTo(chipScroll.maxValue) }
+    // Instantly, not animated (#94): sliding the chips into place is the one moving part of this
+    // field, it plays whenever an address is committed — including on the way out, when leaving for
+    // the subject commits what was typed — and it shows nothing the jump doesn't.
+    LaunchedEffect(chipScroll.maxValue) { if (expanded) chipScroll.scrollTo(chipScroll.maxValue) }
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1064,7 +1081,19 @@ private fun RecipientChipsField(
                     val valid = isValidEmail(chip) && !missingKey(chip)
                     InputChip(
                         selected = false,
-                        onClick = {},
+                        // A tap hands the address back as plain text (#94): it leaves the chip row
+                        // for the input, where the field opens it with the caret at its end, and a
+                        // second tap puts the caret exactly where the typo is — the way it worked
+                        // before addresses were committed to chips. Two taps, and nothing hidden:
+                        // one gesture, one meaning, no double-tap timing to guess at. Whatever was
+                        // half-typed is committed rather than lost, see [recipientsWithChipEdited].
+                        onClick = {
+                            expanded = true
+                            inputState = TextFieldValue()
+                            onValueChange(recipientsWithChipEdited(value, index))
+                            onClearSuggestions()
+                            runCatching { focus.requestFocus() }
+                        },
                         label = { Text(chip, maxLines = 1) },
                         trailingIcon = {
                             Icon(
@@ -1084,6 +1113,11 @@ private fun RecipientChipsField(
                                 trailingIconColor = MaterialTheme.colorScheme.onErrorContainer,
                             )
                         },
+                        // No elevation, and therefore none of Material's interaction-driven
+                        // elevation animation (#94). An input chip's elevations are all 0dp anyway,
+                        // so this changes nothing on screen — it just stops an animated shadow from
+                        // ever being computed for a chip that is a flat outline by design.
+                        elevation = null,
                     )
                 }
                 // The input exists only while expanded, so an unfocused field shows no empty input
