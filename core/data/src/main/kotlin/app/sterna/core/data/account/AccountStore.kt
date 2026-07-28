@@ -415,8 +415,9 @@ class AccountStore(context: Context) {
 
     /**
      * The identity that should be pre-selected when composing for [accountId]: the one whose id
-     * matches the stored [defaultIdentityId], or the first resolved identity when none is set or
-     * the stored id no longer exists among the current (merged manual + server) identities.
+     * matches the stored [defaultIdentityId], else the account's own address, else the first
+     * resolved identity — when none is set or the stored id no longer exists among the current
+     * (merged manual + server) identities. See [StoredAccount.defaultIdentity].
      */
     fun defaultIdentity(accountId: String?): StoredIdentity? =
         (accountId?.let { account(it) } ?: currentAccount())?.defaultIdentity()
