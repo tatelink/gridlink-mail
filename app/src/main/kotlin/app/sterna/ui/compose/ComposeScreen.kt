@@ -68,6 +68,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -98,13 +99,21 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sterna.R
@@ -1046,6 +1055,10 @@ private fun RecipientChipsField(
     // put the cursor at the start (#26). The parent string stays the single source of truth: as soon
     // as the derived [input] differs, the field is rebuilt around it with the caret at the end.
     var inputState by remember { mutableStateOf(TextFieldValue()) }
+    // The field's on-screen width, so the suggestion menu can float directly under it at the same
+    // width, instead of pushing the subject and body down as an inline list did. Its position comes
+    // from the popup's own anchor bounds; only the width has to be measured here.
+    var fieldWidthPx by remember { mutableStateOf(0) }
     val inputValue = if (inputState.text == input) {
         inputState
     } else {
@@ -1094,7 +1107,8 @@ private fun RecipientChipsField(
                 // At least a 48dp tap target even when the field is empty/collapsed (accessibility).
                 .heightIn(min = 48.dp)
                 // Content is inset while the divider below runs full width (#26 follow-up).
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                .onGloballyPositioned { fieldWidthPx = it.size.width },
         ) {
             FieldLabel(label)
             if (collapsed) {
@@ -1242,58 +1256,91 @@ private fun RecipientChipsField(
         }
         FieldDivider()
         if (expanded && suggestions.isNotEmpty()) {
-            // Cap the suggestion list and let it scroll on its own, so a long list can't push the
-            // message body off-screen — the body keeps a usable minimum. Items stack vertically
-            // with a divider between them so they read as distinct rows.
-            Column(
-                Modifier
-                    .heightIn(max = 208.dp)
-                    .verticalScroll(rememberScrollState()),
+            val density = LocalDensity.current
+            // A floating contextual menu, not an inline list: it hangs under the field and over
+            // whatever is below, so the subject and body never shift as suggestions appear or vanish
+            // (the inline list used to push them down). Positioned at the field's bottom-left by the
+            // popup's own anchor bounds, and sized to the field's measured width. Not focusable, so
+            // the keyboard stays up and each keystroke keeps filtering; it closes when a row is
+            // picked, when the field loses focus (which collapses it), or on a tap outside.
+            val below = remember {
+                object : PopupPositionProvider {
+                    override fun calculatePosition(
+                        anchorBounds: IntRect,
+                        windowSize: IntSize,
+                        layoutDirection: LayoutDirection,
+                        popupContentSize: IntSize,
+                    ): IntOffset = IntOffset(anchorBounds.left, anchorBounds.bottom)
+                }
+            }
+            Popup(
+                popupPositionProvider = below,
+                onDismissRequest = onClearSuggestions,
+                properties = PopupProperties(focusable = false),
             ) {
-                suggestions.forEachIndexed { index, contact ->
-                    if (index > 0) {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    }
-                    // Picture on the left when the address book has one, monogram otherwise — the
-                    // slot is the same size either way, so rows keep their height while photos
-                    // decode and the list never jumps under the finger.
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                onValueChange(rebuild(chips + contact.email, ""))
-                                onClearSuggestions()
-                            }
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                Surface(
+                    modifier = if (fieldWidthPx > 0) {
+                        Modifier.width(with(density) { fieldWidthPx.toDp() })
+                    } else {
+                        Modifier
+                    },
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 3.dp,
+                    shadowElevation = 6.dp,
+                ) {
+                    // Cap the menu height and let it scroll on its own; items stack with a divider so
+                    // they read as distinct rows.
+                    Column(
+                        Modifier
+                            .heightIn(max = 256.dp)
+                            .verticalScroll(rememberScrollState()),
                     ) {
-                        ContactAvatar(
-                            email = contact.email,
-                            name = contact.name,
-                            photoUri = contact.photoUri,
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                contact.name ?: contact.email,
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (contact.name != null) {
-                                Text(
-                                    contact.email,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                        suggestions.forEachIndexed { index, contact ->
+                            if (index > 0) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            }
+                            // Picture on the left when the address book has one, monogram otherwise —
+                            // the slot is the same size either way, so rows keep their height while
+                            // photos decode and the list never jumps under the finger.
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onValueChange(rebuild(chips + contact.email, ""))
+                                        onClearSuggestions()
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                ContactAvatar(
+                                    email = contact.email,
+                                    name = contact.name,
+                                    photoUri = contact.photoUri,
                                 )
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        contact.name ?: contact.email,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (contact.name != null) {
+                                        Text(
+                                            contact.email,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
-            FieldDivider()
         }
     }
 }
