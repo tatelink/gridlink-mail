@@ -1303,7 +1303,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         pendingPurgeTarget = target
         purgeJob?.cancel()
         purgeJob = viewModelScope.launch {
-            val purge = runCatching { repo.snapshotTrashPurge(credentials, trashId) }.getOrElse {
+            val purge = runCatching { repo.snapshotTrashPurge(credentials, trashId) }.getOrElse { error ->
+                // A cancellation is NOT a snapshot failure, and runCatching catches it too. This
+                // job is cancelled by an Undo, or by a confirmation on another folder, and the
+                // teardown below would then clear a pending purge that no longer belongs to it —
+                // leaving the snackbar gone, the target null and the destroy unopposed. Let it out.
+                if (error is CancellationException) throw error
                 // Nothing was recorded, so nothing is scheduled and nothing was evicted: the
                 // Trash is untouched. Drop the snackbar rather than promise a destroy.
                 if (pendingPurgeTarget == target) {

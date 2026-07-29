@@ -3093,7 +3093,15 @@ class MailRepository(
                     if (total != null && collected.size >= total) break
                 }
                 collected.take(TrashPurge.SNAPSHOT_MAX)
-            }.getOrElse { cached() }
+            }.getOrElse { error ->
+                // The cache stands in for an unreachable server — but NOT for a cancelled caller.
+                // runCatching catches CancellationException too, and this walk is a paged network
+                // crawl over up to SNAPSHOT_MAX ids: an Undo tapped while it runs would otherwise
+                // be converted into a perfectly valid cache-based snapshot and the confirmation
+                // the user just withdrew would stand. Cancellation propagates.
+                if (error is CancellationException) throw error
+                cached()
+            }
         }
         val purgeId = UUID.randomUUID().toString()
         val rows = TrashPurge.snapshotRows(purgeId, credentials.id, trashMailboxId, ids, now)
