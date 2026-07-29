@@ -569,11 +569,14 @@ fun ComposeScreen(
                     // the list uses to badge that message, so it is recognisably the one you tapped.
                     // A send resumed from the Outbox says "Edit" for the same reason — it is a queued
                     // message you are editing, not a new one (restore with a queued row behind it;
-                    // an undone send, restore with no row, stays "New mail"). Reply/forward unchanged.
+                    // an undone send, restore with no row, stays "New mail"). A forward carries the
+                    // same replyTo as a reply, so it must be caught FIRST or it reads "Reply" (#96);
+                    // it reuses the menu's own "Forward" label rather than mint a tenth title string.
                     Text(
                         stringResource(
                             when {
                                 draftId != null -> R.string.draft_label
+                                mode == "forward" -> R.string.message_forward
                                 replyTo != null -> R.string.compose_title_reply
                                 restore && !onlyCopy -> R.string.outbox_edit
                                 else -> R.string.compose_title_new
