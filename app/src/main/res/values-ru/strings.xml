@@ -658,6 +658,7 @@
     <string name="settings_conversation_subtitle">Объединять сообщения одной цепочки в одну строку с указанием количества.</string>
     <string name="settings_unarchive_on_reply_title">Извлекать из архива при новом ответе</string>
     <string name="settings_unarchive_on_reply_subtitle">Когда приходит новый ответ, возвращать архивированные письма переписки во Входящие.</string>
+    <string name="settings_conversation_imap_note">Для этих настроек нужна учётная запись JMAP. В IMAP нет серверных цепочек, поэтому каждое письмо остаётся отдельным.</string>
 
     <string name="compose_many_recipients_title">Отправить многим адресатам?</string>
     <string name="compose_many_recipients_message">Это сообщение получат %1$d адресатов.</string>

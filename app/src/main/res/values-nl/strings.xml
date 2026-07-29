@@ -654,6 +654,7 @@
     <string name="settings_conversation_subtitle">Groepeer berichten van dezelfde thread in één rij, met een telling.</string>
     <string name="settings_unarchive_on_reply_title">Uit archief halen bij een nieuw antwoord</string>
     <string name="settings_unarchive_on_reply_subtitle">Wanneer er een nieuw antwoord binnenkomt, de gearchiveerde berichten van het gesprek terug naar Postvak IN halen.</string>
+    <string name="settings_conversation_imap_note">Deze instellingen vereisen een JMAP-account. IMAP heeft geen threads op de server, dus elk bericht staat op zichzelf.</string>
 
     <string name="compose_many_recipients_title">Naar veel mensen verzenden?</string>
     <string name="compose_many_recipients_message">Dit bericht gaat naar %1$d ontvangers.</string>

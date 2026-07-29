@@ -652,6 +652,7 @@
     <string name="settings_conversation_subtitle">Nachrichten desselben Threads in einer Zeile zusammenfassen, mit einer Anzahl.</string>
     <string name="settings_unarchive_on_reply_title">Bei neuer Antwort aus dem Archiv holen</string>
     <string name="settings_unarchive_on_reply_subtitle">Wenn eine neue Antwort eintrifft, die archivierten Nachrichten der Unterhaltung zurück in den Posteingang holen.</string>
+    <string name="settings_conversation_imap_note">Diese Einstellungen benötigen ein JMAP-Konto. IMAP kennt keine serverseitigen Threads, daher steht jede Nachricht für sich.</string>
     <string name="compose_many_recipients_title">An viele Personen senden?</string>
     <string name="compose_many_recipients_message">Diese Nachricht geht an %1$d Empfänger.</string>
     <string name="compose_many_recipients_send">An alle senden</string>
