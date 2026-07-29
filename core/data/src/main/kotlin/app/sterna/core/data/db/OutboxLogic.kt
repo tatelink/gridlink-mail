@@ -15,7 +15,13 @@ object OutboxLogic {
     /** Auto-retry attempts before an item is parked as FAILED for manual handling. */
     const val MAX_ATTEMPTS = 5
 
-    /** A HELD item is due once its hold/undo/scheduled instant has passed; QUEUED is always due. */
+    /**
+     * A HELD item is due once its undo window has passed; QUEUED is always due. A scheduled send is
+     * NOT held here — it waits in its own table and only enters the outbox when ScheduledSendWorker
+     * fires, which queues it like any other send (holdMs = 0). So the only hold this deadline ever
+     * carries is the undo window, a few seconds at most — which is what bounds the badge grace in
+     * [activeCount]: no path can write a far-future notBeforeMillis on an outbox row.
+     */
     fun isReadyToSend(state: OutboxState, notBeforeMillis: Long, now: Long): Boolean = when (state) {
         OutboxState.HELD -> now >= notBeforeMillis
         OutboxState.QUEUED, OutboxState.SENDING -> true

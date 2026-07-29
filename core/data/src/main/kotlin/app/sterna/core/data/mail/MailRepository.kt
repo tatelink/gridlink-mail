@@ -3944,7 +3944,19 @@ class MailRepository(
         runCatching { java.io.File(outboxFilesDir, id.toString()).deleteRecursively() }
     }
 
-    /** Re-queue a failed item for an immediate retry. */
+    /**
+     * Re-queue an item for an immediate retry. The Outbox screen offers Retry on every row, not
+     * only the failed ones, so this runs on a message that is merely waiting just as often.
+     *
+     * Resetting `notBeforeMillis` to now is not only about ordering: it is also the anchor the badge
+     * counts from ([OutboxLogic.activeCount]), so a retried row leaves the badge for the length of
+     * the grace and comes back if it still has not gone out. That is deliberate — a send the user
+     * has just relaunched is a send in progress, and the badge is there for the ones that are stuck,
+     * not for the ones being dealt with. On a row that had already failed it does mean the signal
+     * the user was told to act on disappears for half a minute right after they acted; the Outbox
+     * screen still lists the row and its state throughout, and the count returns on its own if the
+     * retry does not land. Change one of the two and you change the other: they are the same field.
+     */
     suspend fun retryOutbox(id: Long) {
         val item = outboxDao.byId(id) ?: return
         val now = System.currentTimeMillis()

@@ -127,6 +127,92 @@ class OutboxBadgeCountTest {
         job.cancel()
     }
 
+    /**
+     * The coupling declared at MailRepository.retryOutbox: Retry rewrites the row's deadline, which
+     * is the very anchor the badge counts from, so a retried row leaves the badge for the length of
+     * the grace and returns on its own if it still has not gone out. The Outbox screen offers Retry
+     * on every row, so this is the path for a merely-waiting message as much as for a failed one.
+     */
+    @Test fun retryingARowTakesItOffTheBadgeForTheGraceThenBringsItBack() = runTest {
+        val rows = MutableStateFlow(listOf(OutboxBadgeItem(OutboxState.FAILED, notBeforeMillis = 0)))
+        val seen = mutableListOf<Int>()
+        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            OutboxLogic.badgeCount(rows) { testScheduler.currentTime }.toList(seen)
+        }
+        advanceTimeBy(60_000)
+        assertEquals(listOf(1), seen)
+
+        // The user taps Retry: state back to QUEUED, deadline reset to now (MailRepository).
+        val retriedAt = testScheduler.currentTime
+        rows.value = listOf(OutboxBadgeItem(OutboxState.QUEUED, notBeforeMillis = retriedAt))
+        runCurrent()
+        assertEquals("a send just relaunched is a send in progress", listOf(1, 0), seen)
+
+        advanceTimeBy(grace + 1) // it still has not gone out
+        assertEquals("and the badge comes back on its own", listOf(1, 0, 1), seen)
+        job.cancel()
+    }
+
+    /** A send in flight is on the same threshold as the row it came from — no reset, no exemption. */
+    @Test fun aSendInFlightIsCountedOnTheSameThreshold() = runTest {
+        val rows = MutableStateFlow(listOf(OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = window)))
+        val seen = mutableListOf<Int>()
+        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            OutboxLogic.badgeCount(rows) { testScheduler.currentTime }.toList(seen)
+        }
+        advanceTimeBy(window + 100) // the worker picks it up
+        rows.value = listOf(OutboxBadgeItem(OutboxState.SENDING, notBeforeMillis = window))
+        runCurrent()
+        assertEquals(listOf(0), seen)
+
+        advanceTimeBy(grace - 101)
+        assertEquals(listOf(0), seen)
+        advanceTimeBy(2) // a send in flight this long is stuck, not going well
+        assertEquals(listOf(0, 1), seen)
+        job.cancel()
+    }
+
+    /**
+     * #70: a row open in the composer has no verdict that can change with time, so the flow stops
+     * scheduling wake-ups for it. What matters is that it starts again when the row comes back:
+     * releasing an edit only flips the state (MailRepository.releaseOutboxEdit), so a message that
+     * was queued long ago counts the instant it is given back — the break must not be final.
+     */
+    @Test fun aRowInTheComposerStopsTheClockAndReleasingItStartsItAgain() = runTest {
+        val rows = MutableStateFlow(listOf(OutboxBadgeItem(OutboxState.EDITING, notBeforeMillis = 0)))
+        val seen = mutableListOf<Int>()
+        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            OutboxLogic.badgeCount(rows) { testScheduler.currentTime }.toList(seen)
+        }
+        advanceTimeBy(grace * 2)
+        assertEquals("no wake-up while the composer holds it", listOf(0), seen)
+
+        rows.value = listOf(OutboxBadgeItem(OutboxState.QUEUED, notBeforeMillis = 0))
+        runCurrent()
+        assertEquals("given back, and long past its deadline: counted at once", listOf(0, 1), seen)
+        job.cancel()
+    }
+
+    /** A row that already counts must not swallow the wake-up of one that is still in its grace. */
+    @Test fun aFailedRowDoesNotSuppressTheWakeUpOfARowStillInItsGrace() = runTest {
+        val rows = MutableStateFlow(
+            listOf(
+                OutboxBadgeItem(OutboxState.FAILED, notBeforeMillis = 0),
+                OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = window),
+            ),
+        )
+        val seen = mutableListOf<Int>()
+        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            OutboxLogic.badgeCount(rows) { testScheduler.currentTime }.toList(seen)
+        }
+        runCurrent()
+        assertEquals("the failure alone at first", listOf(1), seen)
+
+        advanceTimeBy(window + grace + 1)
+        assertEquals("the second row still gets its own wake-up", listOf(1, 2), seen)
+        job.cancel()
+    }
+
     @Test fun eachNewSendIsSilentOnItsOwnDeadline() = runTest {
         val first = OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = window)
         val rows = MutableStateFlow(listOf(first))

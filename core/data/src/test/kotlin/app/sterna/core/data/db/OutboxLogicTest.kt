@@ -92,6 +92,18 @@ class OutboxLogicTest {
         assertEquals(1, OutboxLogic.activeCount(listOf(requeued), now = due))
     }
 
+    /**
+     * #82: Retry rewrites the row's deadline (MailRepository.retryOutbox), and that deadline is the
+     * badge's anchor — so a row just retried does not count, by the same rule as a fresh send. The
+     * Outbox screen offers Retry on every row, failed or merely waiting, so this holds for both.
+     */
+    @Test fun aRowWhoseDeadlineWasJustResetByRetryDoesNotCount() {
+        val retriedAt = 100_000L
+        val row = OutboxBadgeItem(OutboxState.QUEUED, notBeforeMillis = retriedAt)
+        assertEquals("a send just relaunched is in progress", 0, OutboxLogic.activeCount(listOf(row), retriedAt))
+        assertEquals(1, OutboxLogic.activeCount(listOf(row), retriedAt + OutboxLogic.BADGE_GRACE_MILLIS))
+    }
+
     /** #82: a send queued with no undo window (holdMs = 0) is silent from the instant it was queued. */
     @Test fun aRowQueuedWithoutAnUndoWindowIsSilentForTheGraceToo() {
         val queuedAt = 5_000L
