@@ -2195,6 +2195,8 @@ class MailRepository(
      * else create an Archive folder as a last resort.
      */
     suspend fun archive(credentials: AccountCredentials, emailId: String): String? {
+        // Leaving a folder withdraws the message from any pending Empty-trash order (#99).
+        unlistFromTrashPurge(credentials.id, listOf(emailId))
         // Opt-in: flag the message read on its way out, so the archive doesn't accumulate
         // unread badges. Best-effort BEFORE the move (the id changes with an IMAP move) and
         // before [row] is read, so the count nudge below sees the new seen state; a failure
@@ -2256,6 +2258,9 @@ class MailRepository(
      *  Returns the destination the message ended up in (null = a no-op, already there), so the
      *  caller can offer an Undo that both restores the row and reverses the count nudge. */
     suspend fun moveToMailbox(credentials: AccountCredentials, emailId: String, targetMailboxId: String): String? {
+        // The rescue path of #99: filing a message somewhere else during the Empty-trash undo
+        // window takes it off the destroy list instead of destroying it in its new folder.
+        unlistFromTrashPurge(credentials.id, listOf(emailId))
         markReadOnMoveOutOfInbox(credentials, listOf(emailId), targetMailboxId)
         // Captured before the local row is dropped, to decrement the TRUE source and increment the
         // destination in the drawer's cached counts (INV-COUNT). The next mailbox-state sync
@@ -2481,6 +2486,7 @@ class MailRepository(
     /** Archive a whole selection (one account). Messages already in the archive/all folder are dropped locally. */
     suspend fun archiveAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
+        unlistFromTrashPurge(credentials.id, emailIds) // leaving a folder cancels a pending purge order (#99)
         // Opt-in mark-read-on-archive: best-effort before the move (a \Seen store keeps the UID).
         if (settings?.markReadOnArchive?.first() == true) markSelectionRead(credentials, emailIds)
         if (credentials.protocol == MailProtocol.IMAP) {
@@ -2521,6 +2527,10 @@ class MailRepository(
         if (archive == inbox) return emptyList()
         val members = emailDao.threadMembersInMailbox(credentials.id, archive, threadIds.toList())
         if (members.isEmpty()) return emptyList()
+        // Uniform rule (#99): whatever moves leaves the destroy list. These members come from the
+        // Archive, so in practice there is nothing to withdraw — the rule is kept exceptionless
+        // rather than reasoned about at each call site.
+        unlistFromTrashPurge(credentials.id, members.map { it.id })
         // Protect the rows BEFORE the server call, so a sync firing mid-move can't evict them.
         members.forEach { markRecentlyMutated(credentials.id, it.id) }
         val result = runCatching {
@@ -2540,6 +2550,7 @@ class MailRepository(
     /** Move a whole selection (one account) to [targetMailboxId]. */
     suspend fun moveAllToMailbox(credentials: AccountCredentials, emailIds: List<String>, targetMailboxId: String): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
+        unlistFromTrashPurge(credentials.id, emailIds) // bulk rescue out of the Trash (#99)
         markReadOnMoveOutOfInbox(credentials, emailIds, targetMailboxId)
         if (credentials.protocol == MailProtocol.IMAP) {
             val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
@@ -2563,6 +2574,7 @@ class MailRepository(
      */
     suspend fun deleteAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
+        unlistFromTrashPurge(credentials.id, emailIds) // see [archiveAll] (#99)
         // Opt-in mark-read-on-delete: best-effort before the move (a \Seen store keeps the UID).
         if (settings?.markReadOnDelete?.first() == true) markSelectionRead(credentials, emailIds)
         if (credentials.protocol == MailProtocol.IMAP) {
@@ -2888,6 +2900,9 @@ class MailRepository(
      */
     suspend fun restoreAll(credentials: AccountCredentials, targets: List<RestoreTarget>): Set<String> {
         if (targets.isEmpty()) return emptySet()
+        // Undoing a delete pulls the message back OUT of the Trash: it must leave any pending
+        // Empty-trash destroy list with it, or the purge would destroy it where it went home (#99).
+        unlistFromTrashPurge(credentials.id, targets.map { it.emailId })
         // Protect the restored ids from the next reconcile BEFORE any server call, so even a sync
         // that fires mid-restore can't drop them.
         targets.forEach { markRecentlyMutated(credentials.id, it.emailId) }
@@ -2974,6 +2989,9 @@ class MailRepository(
      *  nothing to move (the message was already destroyed server-side; its zombie row is pruned).
      *  Throws when the account has no Trash folder. */
     suspend fun delete(credentials: AccountCredentials, emailId: String): String? {
+        // Same rule as every other mover (#99): a message the user acts on individually is no
+        // longer part of a pending Empty-trash order.
+        unlistFromTrashPurge(credentials.id, listOf(emailId))
         // Opt-in: flag the message read on its way out, so Trash doesn't accumulate unread
         // badges. Best-effort BEFORE the move (the id changes with an IMAP move); a failure
         // must never block the deletion itself.
@@ -3121,6 +3139,31 @@ class MailRepository(
 
     /** Drop a snapshot by id (the purge gave up for good). */
     suspend fun discardPurgeSnapshot(purgeId: String) = purgeSnapshotDao.deleteSnapshot(purgeId)
+
+    /**
+     * THE CHOKEPOINT for a message leaving a folder: it is withdrawn from every pending
+     * "Empty trash" destroy list of its account (Codeberg #99).
+     *
+     * Why it is needed at all: a JMAP email id does NOT change when the message moves (only
+     * `mailboxIds` is patched), and nothing else removes a single id from a snapshot. So a
+     * message rescued OUT of the Trash during the undo window — opened and filed elsewhere,
+     * or an Undo that moved it back — was still on the list and got destroyed IN ITS NEW
+     * FOLDER, the one place where the frozen list destroys more than the old re-read did, and
+     * against the user's explicit rescue. (IMAP is unaffected: an id there encodes folder+UID,
+     * so a `UID MOVE` leaves the snapshotted id pointing at a UID that no longer exists. The
+     * withdrawal is harmless there and deliberately not conditional on the protocol.)
+     *
+     * Called at the TOP of every mover, on the ids the caller asked to move, BEFORE the server
+     * round-trip: a rescue that races the purge's first wave then still wins, and a move that
+     * fails afterwards only means the purge destroys less than ordered — the safe direction.
+     *
+     * Chunked like the snapshot insert: one `IN (...)` list must stay under SQLite's bound
+     * variable limit, which a select-all move can otherwise exceed.
+     */
+    private suspend fun unlistFromTrashPurge(accountId: String, emailIds: List<String>) {
+        if (emailIds.isEmpty()) return
+        emailIds.chunked(PURGE_SNAPSHOT_INSERT_BATCH).forEach { purgeSnapshotDao.unlistEmails(accountId, it) }
+    }
 
     /**
      * Structured search across the account (results are transient, not cached).
