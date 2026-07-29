@@ -109,6 +109,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.content.Context
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -131,7 +133,10 @@ import app.sterna.core.data.settings.NotificationContent
 import app.sterna.core.data.text.htmlToText
 import app.sterna.push.PushController
 import app.sterna.push.PushStatus
+import app.sterna.ui.SCREEN_SLIDE_MS
 import app.sterna.ui.appLabelOf
+import app.sterna.ui.navigateOnce
+import app.sterna.ui.rememberMotionEnabled
 import app.sterna.R
 import app.sterna.ui.connect.ConnectScreen
 import app.sterna.ui.components.PendingImportAccountsSection
@@ -170,101 +175,140 @@ fun SettingsScreen(
     accountsViewModel: AccountsViewModel = viewModel(),
 ) {
     val nav = rememberNavController()
+    // The system "Remove animations" setting switches these slides off, like every other motion in
+    // the app (Motion.kt) — the reduced-motion promise did not cover them before (#100).
+    // rememberMotionEnabled() is @Composable, so the value is captured here and only READ inside
+    // the transition lambdas below, which run outside composition (same pattern as MainNavHost).
+    val motionEnabled = rememberMotionEnabled()
     // Deep-link from the drawer's account row (#34): start the inner graph ON the account detail so
     // the Settings hub never renders. Routing through the hub and popping it after the fact (the old
     // approach) flashed the hub for a frame plus a slide transition before the detail appeared. With
     // the detail as the start destination, Back can't pop it (popBackStack returns false) and falls
     // through to the caller, so Back still returns to the inbox, not the hub.
-    // Horizontal push between hub and detail screens (standard master/detail motion): a detail
-    // slides in from the right and the hub slides out to the left; Back reverses it. The slides are
-    // OPAQUE and fully tile the viewport at every frame, so a fast double-back (e.g. right after a
-    // theme change, whose recomposition disturbs an in-flight transition) can never expose a blank
-    // window-background frame — the failure mode that made the old cross-fade unusable here.
+    // Horizontal push between hub and detail screens (standard master/detail motion): the screen
+    // that arrives (or leaves, on Back) travels the full width, the other one only drifts a
+    // quarter of it. The slides are OPAQUE and their UNION covers the viewport at every frame, so
+    // a fast double-back (e.g. right after a theme change, whose recomposition disturbs an
+    // in-flight transition) can never expose a blank window-background frame — the failure mode
+    // that made the old cross-fade unusable here, and the reason no fade may come back into these
+    // four lines. That holds for any travel ≤ the frame width: the pair can only part where the
+    // trailing edge of one meets the leading edge of the other, and both are driven by the same
+    // eased fraction, so that seam never opens. Because both panes are opaque it is the union
+    // that matters, so the guarantee does not depend on which of the two is drawn on top.
+    // The quarter, rather than the full width both panes used to travel, is what calms the motion
+    // on a wide window — landscape and tablets, where a fixed duration over a wider frame means a
+    // faster slide. Note it only calms the pane UNDERNEATH: the one on top still crosses the whole
+    // frame, and in 220 ms rather than 300 it crosses it faster than before. The ≤ 250 ms cap in
+    // DESIGN.md is the binding rule and it wins (#100).
+    // EVERY action below (forward and Back alike) goes through [navigateOnce], the app-wide
+    // re-entrancy guard shared with the outer graph. Without it, taps landing during the slide
+    // stacked several copies of the same page on the back stack (#106). A new destination added
+    // here must be wired the same way.
     NavHost(
         navController = nav,
         startDestination = if (initialAccountId != null) "account/$initialAccountId" else "hub",
-        enterTransition = { slideInHorizontally(tween(300)) { it } },
-        exitTransition = { slideOutHorizontally(tween(300)) { -it } },
-        popEnterTransition = { slideInHorizontally(tween(300)) { -it } },
-        popExitTransition = { slideOutHorizontally(tween(300)) { it } },
+        enterTransition = {
+            if (!motionEnabled) EnterTransition.None else slideInHorizontally(tween(SCREEN_SLIDE_MS)) { it }
+        },
+        exitTransition = {
+            if (!motionEnabled) ExitTransition.None else slideOutHorizontally(tween(SCREEN_SLIDE_MS)) { -it / 4 }
+        },
+        popEnterTransition = {
+            if (!motionEnabled) EnterTransition.None else slideInHorizontally(tween(SCREEN_SLIDE_MS)) { -it / 4 }
+        },
+        popExitTransition = {
+            if (!motionEnabled) ExitTransition.None else slideOutHorizontally(tween(SCREEN_SLIDE_MS)) { it }
+        },
     ) {
-        composable("hub") {
+        composable("hub") { entry ->
             val accounts by accountsViewModel.accounts.collectAsStateWithLifecycle()
             val currentId by accountsViewModel.currentId.collectAsStateWithLifecycle()
             val currentLabel = accounts.firstOrNull { it.id == currentId }?.label().orEmpty()
             SettingsHub(
                 onBack = onBack,
-                onOpenAccounts = { nav.navigate("accounts") },
-                onOpenAppearance = { nav.navigate("appearance") },
-                onOpenReading = { nav.navigate("reading") },
-                onOpenNotifications = { nav.navigate("notifications") },
-                onOpenVacation = { nav.navigate("vacation") },
-                onOpenFilters = { nav.navigate("filters") },
-                onOpenPrivacy = { nav.navigate("privacy") },
-                onOpenStorage = { nav.navigate("storage") },
-                onOpenBackup = { nav.navigate("backup") },
+                onOpenAccounts = { entry.navigateOnce { nav.navigate("accounts") } },
+                onOpenAppearance = { entry.navigateOnce { nav.navigate("appearance") } },
+                onOpenReading = { entry.navigateOnce { nav.navigate("reading") } },
+                onOpenNotifications = { entry.navigateOnce { nav.navigate("notifications") } },
+                onOpenVacation = { entry.navigateOnce { nav.navigate("vacation") } },
+                onOpenFilters = { entry.navigateOnce { nav.navigate("filters") } },
+                onOpenPrivacy = { entry.navigateOnce { nav.navigate("privacy") } },
+                onOpenStorage = { entry.navigateOnce { nav.navigate("storage") } },
+                onOpenBackup = { entry.navigateOnce { nav.navigate("backup") } },
                 currentAccountLabel = currentLabel,
             )
         }
-        composable("accounts") {
+        composable("accounts") { entry ->
             AccountsScreen(
                 viewModel = accountsViewModel,
-                onBack = { nav.popBackStack() },
-                onOpenAccount = { id -> nav.navigate("account/$id") },
-                onAddAccount = { nav.navigate("addAccount") },
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
+                onOpenAccount = { id -> entry.navigateOnce { nav.navigate("account/$id") } },
+                onAddAccount = { entry.navigateOnce { nav.navigate("addAccount") } },
                 onAccountsChanged = onAccountsChanged,
             )
         }
-        composable("addAccount") {
+        composable("addAccount") { entry ->
             ConnectScreen(
                 onConnected = {
                     accountsViewModel.refresh()
                     onAccountsChanged()
+                    // unguarded: this is not a tap. It fires from ConnectScreen's LaunchedEffect
+                    // when the sign-in state flips — on a coroutine, on the app's schedule, which
+                    // may well be while the app is backgrounded. An entry's lifecycle is capped by
+                    // the host's, so NO entry is RESUMED then and the guard would silently swallow
+                    // the pop, stranding the user on a Connect form for an account that has already
+                    // been added. Same family as the mailto:/notification navigations: a single
+                    // consumption whose loss is not a no-op.
                     nav.popBackStack()
                 },
             )
         }
-        composable("account/{id}") { backStackEntry ->
-            val id = backStackEntry.arguments?.getString("id").orEmpty()
+        composable("account/{id}") { entry ->
+            val id = entry.arguments?.getString("id").orEmpty()
             AccountDetailScreen(
                 accountId = id,
                 viewModel = accountsViewModel,
                 // When this is the only inner destination (deep-linked from the drawer, hub popped),
                 // Back falls through to the caller so it returns to the inbox, not a dead end (#34).
-                onBack = { if (!nav.popBackStack()) onBack() },
+                // The fall-through sits INSIDE the guard: an ignored re-entrant tap must not be read
+                // as "nothing left to pop" and close settings.
+                onBack = { entry.navigateOnce { if (!nav.popBackStack()) onBack() } },
+                // Guarded, unlike onConnected above: this one IS a tap — it runs inline from the
+                // sign-out confirmation dialog's button, with the entry resumed underneath, and a
+                // double tap on that button would pop twice.
                 onSignedOut = {
                     onAccountsChanged()
-                    nav.popBackStack()
+                    entry.navigateOnce { nav.popBackStack() }
                 },
                 onAccountsChanged = onAccountsChanged,
             )
         }
-        composable("appearance") {
-            AppearanceScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
+        composable("appearance") { entry ->
+            AppearanceScreen(viewModel = viewModel, onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("reading") {
-            ReadingScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
+        composable("reading") { entry ->
+            ReadingScreen(viewModel = viewModel, onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("notifications") {
-            NotificationsScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
+        composable("notifications") { entry ->
+            NotificationsScreen(viewModel = viewModel, onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("vacation") {
-            VacationScreen(onBack = { nav.popBackStack() })
+        composable("vacation") { entry ->
+            VacationScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("filters") {
-            FiltersScreen(onBack = { nav.popBackStack() })
+        composable("filters") { entry ->
+            FiltersScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("privacy") {
-            PrivacySecurityScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
+        composable("privacy") { entry ->
+            PrivacySecurityScreen(viewModel = viewModel, onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("storage") {
-            StorageScreen(onBack = { nav.popBackStack() })
+        composable("storage") { entry ->
+            StorageScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("backup") {
+        composable("backup") { entry ->
             BackupScreen(
                 viewModel = viewModel,
                 onAccountsImported = { accountsViewModel.refresh(); onAccountsChanged() },
-                onBack = { nav.popBackStack() },
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
             )
         }
     }
