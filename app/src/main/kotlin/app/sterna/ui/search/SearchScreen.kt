@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
@@ -183,8 +184,8 @@ fun SearchScreen(
                 Text(
                     // "At least N" whenever the search stopped short of the whole answer: a
                     // truncated scan counted as a total would be a number the user can't check.
-                    if (results.complete) stringResource(R.string.search_result_count, results.emails.size)
-                    else stringResource(R.string.search_result_count_capped, results.emails.size),
+                    if (results.complete) pluralStringResource(R.plurals.search_result_count, results.emails.size, results.emails.size)
+                    else pluralStringResource(R.plurals.search_result_count_capped, results.emails.size, results.emails.size),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),

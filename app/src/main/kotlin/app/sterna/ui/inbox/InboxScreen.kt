@@ -138,6 +138,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -1452,9 +1453,9 @@ fun InboxScreen(
                                     // account that failed and was left out. A partial answer
                                     // counted as a total is a number the user can't check.
                                     text = if (ui.searchComplete) {
-                                        stringResource(R.string.search_result_count, ui.searchResults.size)
+                                        pluralStringResource(R.plurals.search_result_count, ui.searchResults.size, ui.searchResults.size)
                                     } else {
-                                        stringResource(R.string.search_result_count_capped, ui.searchResults.size)
+                                        pluralStringResource(R.plurals.search_result_count_capped, ui.searchResults.size, ui.searchResults.size)
                                     },
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,

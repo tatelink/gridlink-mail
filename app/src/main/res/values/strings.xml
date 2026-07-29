@@ -679,8 +679,14 @@
     <string name="search_failed">Search failed: %1$s</string>
     <string name="search_no_results">No results for \"%1$s\".</string>
     <string name="search_no_results_generic">No matching messages.</string>
-    <string name="search_result_count">%1$d results</string>
-    <string name="search_result_count_capped">At least %1$d results</string>
+    <plurals name="search_result_count">
+        <item quantity="one">%1$d result</item>
+        <item quantity="other">%1$d results</item>
+    </plurals>
+    <plurals name="search_result_count_capped">
+        <item quantity="one">At least %1$d result</item>
+        <item quantity="other">At least %1$d results</item>
+    </plurals>
     <string name="search_criteria_pair">%1$s: %2$s</string>
     <string name="search_criteria_pair_date">%1$s %2$s</string>
     <string name="search_advanced_toggle">Advanced filters</string>
