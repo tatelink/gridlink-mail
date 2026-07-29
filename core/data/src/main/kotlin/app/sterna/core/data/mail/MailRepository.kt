@@ -42,6 +42,7 @@ import app.sterna.core.data.db.RecentContactEntity
 import app.sterna.core.data.db.EmailEntity
 import app.sterna.core.data.db.MailboxDao
 import app.sterna.core.data.db.MailboxIdRole
+import app.sterna.core.data.getOrElseUnlessCancelled
 import app.sterna.core.data.pgp.PgpEngine
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.settings.SortOrder
@@ -3093,13 +3094,11 @@ class MailRepository(
                     if (total != null && collected.size >= total) break
                 }
                 collected.take(TrashPurge.SNAPSHOT_MAX)
-            }.getOrElse { error ->
-                // The cache stands in for an unreachable server — but NOT for a cancelled caller.
-                // runCatching catches CancellationException too, and this walk is a paged network
-                // crawl over up to SNAPSHOT_MAX ids: an Undo tapped while it runs would otherwise
-                // be converted into a perfectly valid cache-based snapshot and the confirmation
-                // the user just withdrew would stand. Cancellation propagates.
-                if (error is CancellationException) throw error
+            }.getOrElseUnlessCancelled {
+                // The cache stands in for an unreachable server — but NOT for a cancelled caller:
+                // this walk is a paged network crawl over up to SNAPSHOT_MAX ids, and an Undo
+                // tapped while it runs would otherwise be turned into a perfectly valid
+                // cache-based snapshot, leaving the confirmation the user just withdrew standing.
                 cached()
             }
         }

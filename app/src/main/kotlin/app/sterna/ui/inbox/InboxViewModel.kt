@@ -18,6 +18,7 @@ import app.sterna.push.PushController
 import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.db.OutboxState
+import app.sterna.core.data.getOrElseUnlessCancelled
 import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.mail.InboxRow
 import app.sterna.core.data.mail.MailRepository
@@ -1303,12 +1304,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         pendingPurgeTarget = target
         purgeJob?.cancel()
         purgeJob = viewModelScope.launch {
-            val purge = runCatching { repo.snapshotTrashPurge(credentials, trashId) }.getOrElse { error ->
-                // A cancellation is NOT a snapshot failure, and runCatching catches it too. This
-                // job is cancelled by an Undo, or by a confirmation on another folder, and the
-                // teardown below would then clear a pending purge that no longer belongs to it —
-                // leaving the snackbar gone, the target null and the destroy unopposed. Let it out.
-                if (error is CancellationException) throw error
+            val purge = runCatching { repo.snapshotTrashPurge(credentials, trashId) }.getOrElseUnlessCancelled {
+                // A cancellation is NOT a snapshot failure: this job is cancelled by an Undo, or
+                // by a confirmation on another folder, and the teardown below would then clear a
+                // pending purge that no longer belongs to it — snackbar gone, target null, the
+                // destroy left unopposed. Hence getOrElseUnlessCancelled and not getOrElse.
+                //
                 // Nothing was recorded, so nothing is scheduled and nothing was evicted: the
                 // Trash is untouched. Drop the snackbar rather than promise a destroy.
                 if (pendingPurgeTarget == target) {
