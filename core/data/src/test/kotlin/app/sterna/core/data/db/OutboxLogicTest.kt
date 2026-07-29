@@ -26,6 +26,11 @@ class OutboxLogicTest {
         assertFalse(OutboxLogic.isReadyToSend(OutboxState.FAILED, notBeforeMillis = 0, now = Long.MAX_VALUE))
     }
 
+    /** #70: an item open in the composer is held back from the worker, however overdue it looks. */
+    @Test fun editingNeverDue() {
+        assertFalse(OutboxLogic.isReadyToSend(OutboxState.EDITING, notBeforeMillis = 0, now = Long.MAX_VALUE))
+    }
+
     @Test fun retriesUntilCapThenGivesUp() {
         assertTrue(OutboxLogic.shouldRetry(1))
         assertTrue(OutboxLogic.shouldRetry(OutboxLogic.MAX_ATTEMPTS - 1))
@@ -55,6 +60,16 @@ class OutboxLogicTest {
 
     @Test fun badgeCountsNothingWhenTheOutboxIsEmpty() {
         assertEquals(0, OutboxLogic.activeCount(emptyList(), now = 1))
+    }
+
+    /** #70: a row open in the composer is being handled, not waiting — keep it off the badge. */
+    @Test fun badgeIgnoresAnItemOpenForEditing() {
+        val now = 10_000L
+        val items = listOf(
+            OutboxBadgeItem(OutboxState.EDITING, notBeforeMillis = now),
+            OutboxBadgeItem(OutboxState.QUEUED, notBeforeMillis = now),
+        )
+        assertEquals(1, OutboxLogic.activeCount(items, now))
     }
 
     @Test fun nextWindowEndIsTheEarliestRunningUndoWindow() {

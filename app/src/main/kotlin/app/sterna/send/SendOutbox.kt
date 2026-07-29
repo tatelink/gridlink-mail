@@ -35,14 +35,17 @@ class SendOutbox(private val scope: CoroutineScope) {
         /** For an undone forward: the carried original (text + html) so resending keeps it. */
         val forwardedText: String? = null,
         val forwardedHtml: String? = null,
+        /** The PGP mode the message carried (#35/#70): a signed/encrypted item reopens as such. */
+        val pgpMode: String? = null,
         /** The saved draft this message was edited from (#63), so re-sending still replaces it. */
         val draftEmailId: String? = null,
         /**
-         * Set only when the draft came out of the outbox (#70): a queued message exists nowhere
-         * else, so closing the composer without sending or saving puts this back in the queue.
-         * Null for an undone send — the user just cancelled that one, re-queueing it would send it.
+         * Set only when the draft came out of the outbox (#70): the id of the queued row, which
+         * stays in the queue marked EDITING while this composer holds it. Closing the composer
+         * gives it back ([MailRepository.releaseOutboxEdit]); sending/saving/deleting consumes it.
+         * Null for an undone send — that message lives only on this screen (the row is gone).
          */
-        val requeue: MailRepository.OutboxRestore? = null,
+        val editingOutboxId: Long? = null,
     )
 
     private val _pending = MutableStateFlow<Pending?>(null)

@@ -28,6 +28,7 @@
     <string name="compose_could_not_save">Impossibile salvare la bozza: %1$s</string>
     <string name="compose_prefill_failed">Impossibile caricare il messaggio originale.</string>
     <string name="compose_draft_original_kept">Salvato come nuova bozza. L\'originale è stato mantenuto, perché questa copia non poteva riportare tutto ciò che conteneva.</string>
+    <string name="compose_forward_attachment_dropped">Non è stato possibile includere alcuni allegati del messaggio inoltrato.</string>
     <string name="compose_scheduled_toast">Programmato — %1$s</string>
     <string name="compose_discard_title">Eliminare il messaggio?</string>
     <string name="compose_discard_message">Non hai salvato le modifiche.</string>

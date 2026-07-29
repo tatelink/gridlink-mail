@@ -28,6 +28,7 @@
     <string name="compose_could_not_save">Kon het concept niet opslaan: %1$s</string>
     <string name="compose_prefill_failed">Kon het oorspronkelijke bericht niet laden.</string>
     <string name="compose_draft_original_kept">Opgeslagen als nieuw concept. Het origineel is behouden, omdat deze kopie niet alles kon meenemen wat erin stond.</string>
+    <string name="compose_forward_attachment_dropped">Sommige bijlagen van het doorgestuurde bericht konden niet worden meegenomen.</string>
     <string name="compose_scheduled_toast">Gepland — %1$s</string>
     <string name="compose_discard_title">Bericht verwijderen?</string>
     <string name="compose_discard_message">Je hebt je wijzigingen niet opgeslagen.</string>

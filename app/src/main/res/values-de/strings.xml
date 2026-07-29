@@ -28,6 +28,7 @@
     <string name="compose_could_not_save">Entwurf konnte nicht gespeichert werden: %1$s</string>
     <string name="compose_prefill_failed">Ursprüngliche Nachricht konnte nicht geladen werden.</string>
     <string name="compose_draft_original_kept">Als neuer Entwurf gespeichert. Das Original wurde behalten, weil diese Kopie nicht alles übernehmen konnte, was darin stand.</string>
+    <string name="compose_forward_attachment_dropped">Einige Anhänge der weitergeleiteten Nachricht konnten nicht übernommen werden.</string>
     <string name="compose_scheduled_toast">Geplant — %1$s</string>
     <string name="compose_discard_title">Nachricht verwerfen?</string>
     <string name="compose_discard_message">Du hast deine Änderungen nicht gespeichert.</string>

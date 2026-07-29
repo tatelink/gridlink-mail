@@ -42,18 +42,18 @@ class OutboxViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * Reopen an item in compose for editing: cancel its delivery, stage it back into compose
-     * (re-staging IMAP attachments into the cache), and remove the original row. Sending from
-     * compose enqueues a fresh item, so the edit replaces the original; closing the composer
-     * instead puts the message back in the queue, via the restore token carried along (#70).
+     * Reopen an item in compose for editing (#70): stage it into compose (re-staging IMAP
+     * attachments into the cache) and mark the row EDITING so the send worker leaves it alone while
+     * the composer holds it. Sending from compose consumes the row and enqueues the edited message;
+     * closing the composer instead flips the same row back to QUEUED. The row never leaves the
+     * database, so nothing rides in RAM and a process death costs the edit, not the message.
      */
     fun edit(id: Long) {
         viewModelScope.launch {
-            Outbox.cancel(getApplication(), id)
             val staging = File(getApplication<Application>().cacheDir, "outgoing")
             // takeOutboxForEdit throws rather than reopen an item whose attachment can't be read, so
-            // the row and its durable files survive for a later retry. Swallow that here: the edit
-            // simply doesn't open instead of crashing, and the item stays queued as it was.
+            // the row and its durable files survive as a still-queued send. Swallow that here: the
+            // edit simply doesn't open instead of crashing, and the item stays queued as it was.
             val draft = runCatching { repo.takeOutboxForEdit(id, staging) }
                 .onFailure { android.util.Log.w("SternaOutbox", "couldn't reopen outbox item $id for edit", it) }
                 .getOrNull() ?: return@launch
@@ -69,8 +69,9 @@ class OutboxViewModel(application: Application) : AndroidViewModel(application) 
                     attachments = draft.attachments,
                     inReplyTo = draft.inReplyTo,
                     references = draft.references,
+                    pgpMode = draft.pgpMode,
                     draftEmailId = draft.draftEmailId,
-                    requeue = draft.restore,
+                    editingOutboxId = draft.outboxId,
                 ),
             )
             _readyToEdit.value = true

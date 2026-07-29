@@ -77,6 +77,10 @@ class AppContainer(context: Context) {
         mailRepository.onAccountPruned = { app.sterna.push.NewMailNotifier.clear(appContext, it) }
         // Re-arm any send left mid-flight (WorkManager persists jobs, but re-checking is a safety net).
         appScope.launch {
+            // First rescue any row stranded in EDITING by a process death mid-edit (#70): its
+            // composer is gone, so it becomes a normal QUEUED send again rather than sitting
+            // off-worker forever. The re-arm below then schedules it like any other queued item.
+            mailRepository.revertEditingOutbox()
             mailRepository.unfinishedOutbox().forEach { item ->
                 val delay = (item.notBeforeMillis - System.currentTimeMillis()).coerceAtLeast(0)
                 Outbox.enqueue(appContext, item.id, delay)

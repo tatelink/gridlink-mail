@@ -16,6 +16,14 @@ enum class OutboxState {
 
     /** Auto-retry gave up; the item stays for manual retry/edit/delete. */
     FAILED,
+
+    /**
+     * Reopened in the composer for editing (#70): held back from the send worker while it is open,
+     * so it is neither delivered nor lost. Closing the composer returns it to [QUEUED]; sending,
+     * saving or deleting consumes the row. A process death mid-edit strands it here, so startup
+     * reverts any [EDITING] row to [QUEUED] — the edit is gone, the message is not.
+     */
+    EDITING,
 }
 
 /**

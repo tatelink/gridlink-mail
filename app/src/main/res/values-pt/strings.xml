@@ -28,6 +28,7 @@
     <string name="compose_could_not_save">Não foi possível salvar o rascunho: %1$s</string>
     <string name="compose_prefill_failed">Não foi possível carregar a mensagem original.</string>
     <string name="compose_draft_original_kept">Salvo como um novo rascunho. O original foi mantido, porque esta cópia não conseguia levar tudo o que ele continha.</string>
+    <string name="compose_forward_attachment_dropped">Não foi possível incluir alguns anexos da mensagem encaminhada.</string>
     <string name="compose_scheduled_toast">Agendado — %1$s</string>
     <string name="compose_discard_title">Descartar mensagem?</string>
     <string name="compose_discard_message">Você não guardou as suas alterações.</string>

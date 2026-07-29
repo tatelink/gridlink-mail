@@ -30,6 +30,7 @@
     <string name="compose_could_not_save">Could not save the draft: %1$s</string>
     <string name="compose_prefill_failed">Couldn\'t load the original message.</string>
     <string name="compose_draft_original_kept">Saved as a new draft. The original was kept, because this copy couldn\'t carry everything it held.</string>
+    <string name="compose_forward_attachment_dropped">Some attachments from the forwarded message couldn\'t be included.</string>
     <string name="compose_scheduled_toast">Scheduled — %1$s</string>
     <string name="compose_discard_title">Discard message?</string>
     <string name="compose_discard_message">You haven\'t saved your changes.</string>

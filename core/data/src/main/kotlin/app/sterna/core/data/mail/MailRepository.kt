@@ -428,6 +428,26 @@ data class AccountInboxMeta(
     val unreadCount: Int,
 )
 
+/**
+ * Outcome of a unified refresh across every account (#65/#92): the inboxes that synced, plus the
+ * per-account failures so the caller can tell "nothing came back because I am offline" from "one
+ * account is unreachable but the rest are fine". A per-account failure is no longer swallowed
+ * without trace — it lands here and is logged.
+ */
+data class UnifiedRefreshResult(
+    val metas: List<AccountInboxMeta>,
+    val failures: List<Throwable>,
+) {
+    /**
+     * A connectivity failure only when at least one account failed and NONE synced: one good
+     * account proves the link is up, so it must NOT read as offline (that would flash the banner
+     * for a single unreachable server). All accounts failing is the VPN-killswitch case the #65
+     * offline banner exists for — the framework still reports a healthy network, so the requests
+     * dying is the only signal there is.
+     */
+    val isConnectivityFailure: Boolean get() = metas.isEmpty() && failures.isNotEmpty()
+}
+
 /** One watched folder refreshed during a push fan-out (multi-folder push, issue #16). */
 data class FolderRefresh(
     val mailboxId: String,
@@ -1188,10 +1208,11 @@ class MailRepository(
      * accountId). Per-account failures are skipped so one bad account doesn't sink
      * the unified view. Returns metadata for the accounts that synced successfully.
      */
-    suspend fun refreshAllInboxes(accounts: List<AccountCredentials>, limit: Int = 50): List<AccountInboxMeta> {
+    suspend fun refreshAllInboxes(accounts: List<AccountCredentials>, limit: Int = 50): UnifiedRefreshResult {
         val results = mutableListOf<AccountInboxMeta>()
+        val failures = mutableListOf<Throwable>()
         for (credentials in accounts) {
-            runCatching {
+            try {
                 if (credentials.protocol == MailProtocol.IMAP) {
                     val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = limit)
                     emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds(credentials.id))
@@ -1199,12 +1220,12 @@ class MailRepository(
                     results += AccountInboxMeta(
                         credentials.id, load.accountName, load.targetMailboxId, load.targetName, load.unread,
                     )
-                    return@runCatching
+                    continue
                 }
                 val resolved = resolve(credentials)
                 val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
                     ?: resolved.mailboxes.firstOrNull()
-                    ?: return@runCatching
+                    ?: continue
                 syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit, credentials.id)
                 // Persist the fetched folder counters (previously discarded), AFTER the row sync
                 // so badge and list move together — the unified refresh reconciles the drawer for
@@ -1214,9 +1235,20 @@ class MailRepository(
                 results += AccountInboxMeta(credentials.id, name, inbox.id, inbox.name, inbox.unreadEmails)
                 // Warm the body cache for the visible top of the inbox so opening is instant.
                 bgScope.launch { runCatching { prefetchInboxBodies(credentials, inbox.id) } }
+            } catch (c: CancellationException) {
+                // A superseding refresh (or the VM being cleared) cancelled us: propagate cleanly so
+                // the caller does NOT record a false success. runCatching used to swallow this too,
+                // which is exactly how a cancelled pull-to-refresh reported "connected" (#65).
+                throw c
+            } catch (t: Throwable) {
+                // One account failing must not sink the unified view, but it must not vanish without
+                // trace either (#92): keep going, and remember the failure so the caller can tell an
+                // all-offline refresh from a single bad account.
+                failures += t
+                android.util.Log.w("MailRepository", "unified refresh: account ${credentials.id} failed", t)
             }
         }
-        return results
+        return UnifiedRefreshResult(results, failures)
     }
 
     /**
@@ -2994,8 +3026,25 @@ class MailRepository(
         } else {
             runCatching {
                 val ctx = connect(credentials)
-                client.queryEmails(ctx.session, ctx.accountId, trashMailboxId, TrashPurge.SNAPSHOT_MAX, ctx.auth)
-                    .map { it.id }
+                // Ids-only, paged (like [unreadIds]): the purge photo needs identifiers, not bodies.
+                // The old queryEmails chained an Email/get of up to SNAPSHOT_MAX messages — a several-MB
+                // response of subjects and previews on a plain "Empty trash" tap, and a server enforcing
+                // maxObjectsInGet threw, dropping the whole thing to the cache (a big Trash then emptied
+                // only of its visible window, #99).
+                val collected = mutableListOf<String>()
+                while (collected.size < TrashPurge.SNAPSHOT_MAX) {
+                    val page = client.queryEmailIds(
+                        ctx.session, ctx.accountId, trashMailboxId, UNREAD_RESOLVE_PAGE, ctx.auth,
+                        position = collected.size, calculateTotal = true,
+                    )
+                    if (page.ids.isEmpty()) break
+                    collected += page.ids
+                    // Advance by the ACTUAL page size and stop on the server's total: a server
+                    // clamping the limit below the page size must not end the walk early.
+                    val total = page.total
+                    if (total != null && collected.size >= total) break
+                }
+                collected.take(TrashPurge.SNAPSHOT_MAX)
             }.getOrElse { cached() }
         }
         val purgeId = UUID.randomUUID().toString()
@@ -3826,8 +3875,13 @@ class MailRepository(
         }
     }
 
-    /** All outbox items, newest send order last. */
-    fun outboxFlow(): Flow<List<OutboxEntity>> = outboxDao.observeAll()
+    /**
+     * Outbox items for the list, newest send order last. A row open in the composer (#70,
+     * [OutboxState.EDITING]) is hidden: the user is holding it on the compose screen, so showing it
+     * in the queue at the same time would be two contradictory views of one message.
+     */
+    fun outboxFlow(): Flow<List<OutboxEntity>> =
+        outboxDao.observeAll().map { rows -> rows.filter { it.state != OutboxState.EDITING } }
 
     /** Count of pending/failed items for the discreet badge (excludes a running undo window). */
     fun outboxActiveCount(): Flow<Int> = OutboxLogic.badgeCount(outboxDao.observeBadgeItems())
@@ -3856,9 +3910,11 @@ class MailRepository(
     }
 
     /**
-     * Fields needed to reopen a queued/failed item in compose for editing. IMAP attachments are
-     * re-staged into the cache so they behave like freshly attached files (and the durable copy is
-     * dropped with the row); JMAP attachments reuse their server blob id.
+     * Fields needed to reopen a queued/failed item in compose for editing (#70). IMAP attachments
+     * are re-staged into the cache so they behave like freshly attached files; JMAP attachments
+     * reuse their server blob id. The row itself is NOT deleted — it stays in the queue marked
+     * [OutboxState.EDITING], and [outboxId] identifies it so the composer can give it back
+     * ([releaseOutboxEdit]) or consume it ([deleteOutbox]) when it is done.
      */
     data class OutboxDraft(
         val to: String,
@@ -3871,30 +3927,27 @@ class MailRepository(
         val attachments: List<EmailBodyPart>,
         val inReplyTo: List<String>,
         val references: List<String>,
+        /** The PGP mode the item was queued with (#35/#70): a signed/encrypted item reopens as such. */
+        val pgpMode: String?,
         /** The saved draft the item was edited from (#63), kept so re-sending still replaces it. */
         val draftEmailId: String? = null,
-        /** Hand back to [restoreOutbox] to put this message back in the queue untouched (#70). */
-        val restore: OutboxRestore,
+        /** The queued row this draft came from, held in [OutboxState.EDITING] until the composer is done. */
+        val outboxId: Long,
     )
 
     /**
-     * Everything needed to put a taken item back in the outbox exactly as it was (#70): its row,
-     * its attachments as durable descriptors pointing at the staged copies, and, for a PGP item,
-     * the pre-built entity read back before the durable dir went with the row.
+     * Take an item out of the outbox for editing (#70): build its draft and mark the row
+     * [OutboxState.EDITING] so the send worker leaves it alone while the composer holds it. The row
+     * and its durable attachment dir are left in place — the message never lives only in RAM, so a
+     * process death costs the edit, not the mail. Closing the composer calls [releaseOutboxEdit];
+     * sending/saving/deleting calls [deleteOutbox].
      */
-    data class OutboxRestore(
-        val row: OutboxEntity,
-        val attachments: List<OutboxAttachment>,
-        val pgpEntity: String?,
-    )
-
-    /** Take an item out of the outbox for editing: build its draft, then delete the row + files. */
     suspend fun takeOutboxForEdit(id: Long, stagingDir: java.io.File): OutboxDraft? {
         val item = outboxDao.byId(id) ?: return null
-        val taken = OutboxEdit.take(OutboxAttachments.decode(item.attachmentsJson), stagingDir)
-        // Read the PGP/MIME entity out of the durable dir before deleting it: an encrypted item
-        // keeps its content nowhere else, so without this the entity would die with the row.
-        val pgpEntity = item.pgpEntityPath?.let { runCatching { java.io.File(it).readText() }.getOrNull() }
+        // Stage attachments for the composer BEFORE changing state: OutboxEdit.take throws on an
+        // unreadable attachment (rather than reopen an amputated message), and a throw here must
+        // leave the row exactly as it was — still QUEUED, still deliverable.
+        val attachments = OutboxEdit.take(OutboxAttachments.decode(item.attachmentsJson), stagingDir)
         val draft = OutboxDraft(
             to = item.recipients.split(",").joinToString(", ") { it.trim() },
             cc = item.cc?.split(",")?.joinToString(", ") { it.trim() }.orEmpty(),
@@ -3903,46 +3956,34 @@ class MailRepository(
             body = item.textBody,
             fromAccountId = item.accountId,
             fromEmail = item.fromEmail,
-            attachments = taken.parts,
+            attachments = attachments,
             inReplyTo = item.inReplyTo?.split(" ")?.filter { it.isNotBlank() } ?: emptyList(),
             references = item.references?.split(" ")?.filter { it.isNotBlank() } ?: emptyList(),
+            pgpMode = item.pgpMode,
             draftEmailId = item.draftEmailId,
-            restore = OutboxRestore(item, taken.restorable, pgpEntity),
+            outboxId = id,
         )
-        deleteOutbox(id)
+        outboxDao.setState(id, OutboxState.EDITING)
         return draft
     }
 
     /**
-     * Put back a message taken out with [takeOutboxForEdit] and then left unsent (#70): the
-     * composer was closed, or its edits discarded. The queue gets the item back as it was — same
-     * headers, body, sending identity, state and failure text, same attachments re-copied into a
-     * fresh durable dir — and its delivery is armed again. Only an explicit delete, which asks
-     * first, actually drops a queued message. Returns the new row id.
+     * Give a message taken out with [takeOutboxForEdit] back to the queue unchanged (#70): the
+     * composer was closed, or its edits discarded. The row is right where it was left — only its
+     * state flips back from EDITING to QUEUED and its delivery is re-armed. Nothing is rebuilt and
+     * nothing can be lost, because nothing ever left the database.
      */
-    suspend fun restoreOutbox(restore: OutboxRestore): Long {
-        val id = outboxDao.insert(OutboxEdit.restoredRow(restore.row))
-        val row = outboxDao.byId(id) ?: return id
-        val dir = java.io.File(outboxFilesDir, id.toString())
-        try {
-            if (restore.pgpEntity != null) {
-                // A PGP item carries its whole payload in the entity; attachments live inside it.
-                dir.mkdirs()
-                val entityFile = java.io.File(dir, "pgp-entity.mime").apply { writeText(restore.pgpEntity) }
-                outboxDao.update(row.copy(pgpEntityPath = entityFile.absolutePath))
-            } else {
-                // OutboxEdit.restore throws rather than drop a staged file it can't read (#70): don't
-                // leave a half-built, amputated row in the queue — drop it and let the caller report.
-                val durable = OutboxEdit.restore(restore.attachments, dir)
-                outboxDao.update(row.copy(attachmentsJson = OutboxAttachments.encode(durable)))
-            }
-        } catch (t: Throwable) {
-            deleteOutbox(id)
-            throw t
-        }
+    suspend fun releaseOutboxEdit(id: Long) {
+        val row = outboxDao.byId(id) ?: return
+        if (row.state != OutboxState.EDITING) return
+        outboxDao.setState(id, OutboxState.QUEUED)
         // Held or scheduled items keep whatever is left of their wait; everything else goes now.
         outboxScheduler?.schedule(id, (row.notBeforeMillis - System.currentTimeMillis()).coerceAtLeast(0))
-        return id
+    }
+
+    /** Startup recovery (#70): revert rows stranded in EDITING by a process death, then re-arm them. */
+    suspend fun revertEditingOutbox() {
+        outboxDao.revertEditingToQueued()
     }
 
     /** Actually deliver one outbox item (no queue indirection); exceptions propagate to the worker. */
