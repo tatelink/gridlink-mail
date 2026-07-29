@@ -26,20 +26,6 @@ object TrashPurge {
     const val SNAPSHOT_TTL_MS = 24L * 60 * 60 * 1000
 
     /**
-     * Whether a confirmation actually carries an order to execute — i.e. its snapshot holds at
-     * least one id ([snapshotRows] returned rows).
-     *
-     * An empty snapshot must NOT be scheduled. Tapping "Empty trash" a second time within the
-     * undo window snapshots nothing on IMAP (and on JMAP while offline): the first tap already
-     * evicted the cached rows both read. That empty photo used to be enqueued under the same
-     * unique work name as the first, real purge, which REPLACE then cancelled — so two taps in
-     * a row destroyed nothing at all. No ids, no order, nothing scheduled: the first purge
-     * stands, and the snackbar's Undo still withdraws it (cancelling and erasing the destroy
-     * list are both scoped to that account's Trash, not to a particular confirmation).
-     */
-    fun hasOrder(messageCount: Int): Boolean = messageCount > 0
-
-    /**
      * The rows to persist for a confirmation: [ids] as read at that instant, de-duplicated,
      * blanks dropped, truncated to [cap], each carrying the account and folder it came from so
      * it can never be resolved against another account (issue #31).

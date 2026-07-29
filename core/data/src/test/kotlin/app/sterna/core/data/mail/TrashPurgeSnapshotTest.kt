@@ -1,7 +1,6 @@
 package app.sterna.core.data.mail
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -63,20 +62,6 @@ class TrashPurgeSnapshotTest {
         assertEquals("trash", row.mailboxId)
         assertEquals("p1", row.purgeId)
         assertEquals(1_000L, row.createdAt)
-    }
-
-    // --- what a confirmation is allowed to schedule (#99 follow-up) ---
-
-    @Test fun aConfirmationThatPhotographedNothingCarriesNoOrder() {
-        // Empty tapped a second time inside the undo window: on IMAP (and on JMAP while offline)
-        // the folder's cached rows were evicted by the first tap, so this snapshot is empty.
-        // Scheduling it replaced the first, real purge under the same unique work name — two taps
-        // and nothing destroyed. The count the snapshot reports is what decides.
-        assertFalse(TrashPurge.hasOrder(rows(emptyList()).size))
-    }
-
-    @Test fun aConfirmationThatPhotographedSomethingIsScheduled() {
-        assertTrue(TrashPurge.hasOrder(rows(listOf("m1")).size))
     }
 
     @Test fun aFullSnapshotIsDrainedByTheWaveBudget() {

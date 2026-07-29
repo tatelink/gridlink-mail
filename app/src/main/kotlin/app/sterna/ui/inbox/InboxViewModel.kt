@@ -22,7 +22,6 @@ import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.mail.InboxRow
 import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.mail.MailSearchResult
-import app.sterna.core.data.mail.TrashPurge
 import app.sterna.core.data.mail.emailKey
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.data.settings.SwipeAction
@@ -1277,12 +1276,29 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * empty list and quietly empty nothing.
      *
      * The whole thing is scoped to `credentials.id`: the Trash of the account whose folder is
-     * open, never a sibling account's same-numbered folder (issue #31).
+     * open, never a sibling account's same-numbered folder (issue #31). And a second tap on a
+     * Trash already being emptied does nothing at all — see below.
      */
     fun emptyTrash() {
         val trashId = (selection.value as? Sel.Folder)?.id ?: return
         val credentials = store.load() ?: return
         val target = credentials.id to trashId
+        // Tapping Empty again on a Trash that is ALREADY being emptied changes NOTHING: the order
+        // stands, its snackbar keeps its own deadline, no second photo is taken, nothing is
+        // cancelled (#99).
+        //
+        // Re-confirming used to freeze an EMPTY list — the first tap evicted the cached rows that
+        // the IMAP path and the offline JMAP fallback read — and enqueue it under the same unique
+        // work name, where REPLACE cancelled the first, real purge: two taps destroyed nothing at
+        // all. Merely refusing to schedule that empty list was not enough: the second tap moves the
+        // snackbar's dismissal to 5 s after ITS OWN tap (the label is identical, so the flow
+        // conflates it and the snackbar simply stays up) while the destroy still fires 6 s after
+        // the FIRST tap — for those seconds the screen offers an Undo on mail already destroyed,
+        // and tapping it does nothing at all.
+        //
+        // Doing nothing is truthful (the Trash IS being emptied), it is the smallest possible
+        // rule, and it keeps the Undo window aligned with the destroy that will actually fire.
+        if (pendingPurgeTarget == target) return
         _pendingPurge.value = getApplication<Application>().getString(R.string.status_trash_emptied)
         pendingPurgeTarget = target
         purgeJob?.cancel()
@@ -1297,13 +1313,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
             repo.cachedIds(listOf(target)).forEach { repo.evict(credentials.id, it.emailId) }
-            // An empty snapshot is not an order, so it is not scheduled (#99). Tapping Empty a
-            // second time within the undo window photographs nothing — the first tap evicted the
-            // cached rows the IMAP path and the offline JMAP fallback read — and enqueuing that
-            // empty purge under the same unique work name REPLACEd the first, real one: two taps
-            // destroyed nothing at all. The first purge is left armed instead; this snackbar's
-            // Undo still cancels it, being scoped to the same account and folder.
-            if (TrashPurge.hasOrder(purge.messageCount)) {
+            // An empty photo is not an order (#99). The purge destroys the snapshot and nothing
+            // else, so work with no ids behind it has nothing to do: a Trash that held nothing,
+            // or one whose rows were never cached, arms no destroy at all.
+            if (purge.messageCount > 0) {
                 MessageDestroyWorker.schedulePurge(
                     getApplication(), credentials.id, trashId, purge.purgeId, PURGE_HOLD_BACK_MS,
                 )
