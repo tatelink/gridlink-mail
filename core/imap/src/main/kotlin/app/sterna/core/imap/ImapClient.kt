@@ -329,6 +329,23 @@ class ImapSession(private var socket: Socket) : Closeable {
         return line.drop(2).mapNotNull { (it as? String)?.toLongOrNull() }
     }
 
+    /**
+     * Every UID in the SELECTed mailbox, via `UID SEARCH ALL`.
+     *
+     * The whole folder, not the synced window, and without fetching a single envelope: one
+     * command, one line of numbers. `ALL` is the RFC 3501 search key every server implements,
+     * so this is the cheap way to enumerate a folder whose messages were never scrolled to
+     * (used to freeze an "Empty trash", Codeberg #99).
+     *
+     * Unlike [searchUids] this reads EVERY untagged `SEARCH` line, not just the first: a server
+     * is free to split a long result across several, and here a dropped tail would silently
+     * shorten the list of what to destroy. No `CHARSET` question either — `ALL` is pure ASCII.
+     */
+    fun allUids(): List<Long> =
+        command("UID SEARCH ALL").untagged
+            .filter { it.getOrNull(1) == "SEARCH" }
+            .flatMap { line -> line.drop(2).mapNotNull { (it as? String)?.toLongOrNull() } }
+
     /** Fetch several messages by UID (envelope + flags). */
     fun fetchUids(uids: List<Long>): List<ImapMessage> {
         if (uids.isEmpty()) return emptyList()

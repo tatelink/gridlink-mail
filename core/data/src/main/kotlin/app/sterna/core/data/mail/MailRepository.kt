@@ -3031,14 +3031,20 @@ class MailRepository(
      * [purgeSnapshot] destroys exactly it; anything that lands in Trash afterwards is simply
      * not on the list.
      *
-     * MUST be called BEFORE the caller evicts the folder's cached rows: the IMAP path (and the
-     * offline JMAP fallback) reads the snapshot from that very cache.
+     * MUST be called BEFORE the caller evicts the folder's cached rows: the offline fallback of
+     * both protocols reads the snapshot from that very cache.
      *
-     * JMAP asks the server, UNCOLLAPSED — the list query collapses threads, and a collapsed
-     * snapshot would leave every non-representative member behind, so the "emptied" Trash would
-     * re-populate at the next sync. When that query fails (offline), the cached ids stand in:
-     * they are what the user was looking at, and destroying less than asked is the safe error.
-     * IMAP has no cheap folder-wide id query and always uses the cache, as it always did.
+     * BOTH protocols ask the server for the WHOLE folder, so "Trash emptied" means the folder,
+     * not the part of it that had been synced. JMAP queries it UNCOLLAPSED — the list query
+     * collapses threads, and a collapsed snapshot would leave every non-representative member
+     * behind, so the "emptied" Trash would re-populate at the next sync. IMAP enumerates it with
+     * one `UID SEARCH ALL` (see [ImapMailService.allUids]); the cached ids used to be the whole
+     * IMAP snapshot, which left a big Trash emptied only of its visible window.
+     *
+     * When the server cannot be asked (offline, a rejected query), the cached ids stand in on
+     * either protocol: they are what the user was looking at, and destroying less than asked is
+     * the safe error. Neither branch throws — an exception here drops the snackbar and empties
+     * nothing.
      *
      * Bounded by [TrashPurge.SNAPSHOT_MAX]. A Trash holding more keeps the surplus, and
      * emptying again clears the rest — re-reading the folder to catch up is the defect itself.
@@ -3052,7 +3058,12 @@ class MailRepository(
         purgeSnapshotDao.deleteOlderThan(now - TrashPurge.SNAPSHOT_TTL_MS)
         suspend fun cached() = cachedIds(listOf(credentials.id to trashMailboxId)).map { it.emailId }
         val ids = if (credentials.protocol == MailProtocol.IMAP) {
-            cached()
+            TrashPurge.imapSnapshotIds(
+                accountId = credentials.id,
+                mailboxId = trashMailboxId,
+                serverUids = { imap.allUids(credentials, trashMailboxId) },
+                cached = { cached() },
+            )
         } else {
             runCatching {
                 val ctx = connect(credentials)

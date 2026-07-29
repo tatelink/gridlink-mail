@@ -282,6 +282,19 @@ class ImapMailService(
     suspend fun deleteBatch(credentials: AccountCredentials, mailboxId: String, uids: List<Long>) =
         withSession(credentials) { it.select(mailboxId); it.delete(uids) }
 
+    /**
+     * Every UID currently in [mailboxId] — one SELECT + one `UID SEARCH ALL`, no envelopes.
+     *
+     * The folder as the SERVER holds it, not as the cache happens to have synced it, which is
+     * what a whole-folder operation needs: an "Empty trash" on a Trash the user never scrolled
+     * through must cover the messages below the synced window too (Codeberg #99).
+     */
+    suspend fun allUids(credentials: AccountCredentials, mailboxId: String): List<Long> =
+        withSession(credentials) { session ->
+            session.select(mailboxId)
+            session.allUids()
+        }
+
     /** Fetch several messages by UID from one folder in a single session (e.g. to re-cache a restored batch). */
     suspend fun fetchByUids(credentials: AccountCredentials, mailboxId: String, uids: List<Long>): List<EmailEntity> =
         if (uids.isEmpty()) emptyList()
