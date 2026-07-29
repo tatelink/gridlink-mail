@@ -148,7 +148,7 @@ Thanks to [KaKeBr](https://codeberg.org/KaKeBr) for the diagnosis and the recipe
   bulk actions, snooze, report spam, empty trash (with undo), sort and unread-only
   filter
 - Search-as-you-type (server-side + instant local results) with advanced filters
-  (from, subject, has-attachment, date)
+  (from, recipient, subject, has-attachment, date); Trash and Spam are left out
 - Calendar invites preview as an event card; one tap adds them to your calendar
   app (no calendar permission needed)
 

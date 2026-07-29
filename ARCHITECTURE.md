@@ -142,7 +142,7 @@ design.
 |---|---|---|
 | Message list rows | Room `emails` | Pruned to the sync window (spare set excepted). |
 | Message bodies | Room `email_bodies` | Opened/prefetched messages; LRU cap per account. |
-| Search index | Room `email_fts` (FTS4) | Headers of the whole mailbox; outlives the display window. |
+| Search index | Room `email_fts` (FTS4) | Headers of every folder except Trash and Spam; outlives the display window. |
 | Outbox / scheduled / snoozed | Room | User data — additive migrations, never dropped. |
 | Attachments | `cacheDir/attachments/` | Size + age cap, LRU eviction. |
 | Credentials | SharedPreferences, KeyStore-encrypted | `AccountStore`. |
@@ -155,9 +155,13 @@ outbox-bearing tables migrate additively.
 ## Other subsystems
 
 - **Search:** hybrid. A local accent-folded, prefix-matched FTS4 index over the
-  *headers* of the whole mailbox (crawled in the background) answers instantly
-  and offline; after a typing pause the server's own full-text search (which
-  sees bodies) is unioned in — results are only ever added, never removed.
+  *headers* of every folder except Trash and Spam (crawled in the background)
+  answers instantly and offline; after a typing pause the server's own full-text
+  search (which sees bodies) is unioned in — results are only ever added, never
+  removed. Both sides skip Trash and Spam from the same role source
+  (`excludedSearchFolderIds`), so a deleted or spam message never surfaces in
+  results whatever the protocol; a message also filed outside Trash is still
+  found through its other folder.
 - **OpenPGP:** via the OpenKeychain app over the vendored openpgp-api bound
   service, behind the `PgpEngine` seam. Encrypt-at-compose (JMAP uploads the
   ciphertext blob + `Email/import`; IMAP builds PGP/MIME); decrypted plaintext
