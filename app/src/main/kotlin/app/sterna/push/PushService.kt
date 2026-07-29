@@ -50,7 +50,22 @@ class PushService : Service() {
         } else {
             0
         }
-        ServiceCompat.startForeground(this, Notifications.SERVICE_ID, Notifications.serviceNotification(this), type)
+        // Android 15+ can refuse a foreground-service start outright (a system/OEM policy, a
+        // background-start restriction), and the refusal lands HERE, in the service's own
+        // startForeground — not at the caller's ContextCompat.startForegroundService, which only
+        // schedules the start. Left to propagate it takes the whole process down, and because the
+        // start is retried (BootReceiver at every boot, START_STICKY, transport callbacks) that is
+        // a crash loop, not a one-off (#98). Swallow it and stop cleanly instead: [MailFetchWorker]
+        // keeps mail flowing within ~30 minutes, and the account screen reports "Periodic" rather
+        // than claiming a live connection. ForegroundServiceStartNotAllowedException (API 31+) and
+        // MissingForegroundServiceTypeException are both IllegalStateException; a permission refusal
+        // is a SecurityException — RuntimeException covers all of them without hiding real bugs.
+        try {
+            ServiceCompat.startForeground(this, Notifications.SERVICE_ID, Notifications.serviceNotification(this), type)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "startForeground refused; fallback poll carries delivery", e)
+            stopSelf()
+        }
     }
 
     /** Android 15+ FGS timeout (belt: specialUse should never receive one). Stop gracefully
