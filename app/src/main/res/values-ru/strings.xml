@@ -544,8 +544,18 @@
     <string name="search_failed">Ошибка поиска: %1$s</string>
     <string name="search_no_results">Ничего не найдено по запросу «%1$s».</string>
     <string name="search_no_results_generic">Нет подходящих писем.</string>
-    <string name="search_result_count">%1$d результатов</string>
-    <string name="search_result_count_capped">Не менее %1$d результатов</string>
+    <plurals name="search_result_count">
+        <item quantity="one">%1$d результат</item>
+        <item quantity="few">%1$d результата</item>
+        <item quantity="many">%1$d результатов</item>
+        <item quantity="other">%1$d результатов</item>
+    </plurals>
+    <plurals name="search_result_count_capped">
+        <item quantity="one">Не менее %1$d результат</item>
+        <item quantity="few">Не менее %1$d результата</item>
+        <item quantity="many">Не менее %1$d результатов</item>
+        <item quantity="other">Не менее %1$d результатов</item>
+    </plurals>
     <string name="search_criteria_pair">%1$s: %2$s</string>
     <string name="search_criteria_pair_date">%1$s %2$s</string>
     <string name="search_advanced_toggle">Расширенные фильтры</string>

@@ -544,8 +544,18 @@
     <string name="search_failed">Wyszukiwanie nie powiodło się: %1$s</string>
     <string name="search_no_results">Brak wyników dla \"%1$s\".</string>
     <string name="search_no_results_generic">Brak pasujących wiadomości.</string>
-    <string name="search_result_count">%1$d wyników</string>
-    <string name="search_result_count_capped">Co najmniej %1$d wyników</string>
+    <plurals name="search_result_count">
+        <item quantity="one">%1$d wynik</item>
+        <item quantity="few">%1$d wyniki</item>
+        <item quantity="many">%1$d wyników</item>
+        <item quantity="other">%1$d wyników</item>
+    </plurals>
+    <plurals name="search_result_count_capped">
+        <item quantity="one">Co najmniej %1$d wynik</item>
+        <item quantity="few">Co najmniej %1$d wyniki</item>
+        <item quantity="many">Co najmniej %1$d wyników</item>
+        <item quantity="other">Co najmniej %1$d wyników</item>
+    </plurals>
     <string name="search_criteria_pair">%1$s: %2$s</string>
     <string name="search_criteria_pair_date">%1$s %2$s</string>
     <string name="search_advanced_toggle">Filtry zaawansowane</string>

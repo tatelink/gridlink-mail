@@ -544,8 +544,14 @@
     <string name="search_failed">Zoeken mislukt: %1$s</string>
     <string name="search_no_results">Geen resultaten voor \"%1$s\".</string>
     <string name="search_no_results_generic">Geen overeenkomende berichten.</string>
-    <string name="search_result_count">%1$d resultaten</string>
-    <string name="search_result_count_capped">Minstens %1$d resultaten</string>
+    <plurals name="search_result_count">
+        <item quantity="one">%1$d resultaat</item>
+        <item quantity="other">%1$d resultaten</item>
+    </plurals>
+    <plurals name="search_result_count_capped">
+        <item quantity="one">Minstens %1$d resultaat</item>
+        <item quantity="other">Minstens %1$d resultaten</item>
+    </plurals>
     <string name="search_criteria_pair">%1$s: %2$s</string>
     <string name="search_criteria_pair_date">%1$s %2$s</string>
     <string name="search_advanced_toggle">Geavanceerde filters</string>
