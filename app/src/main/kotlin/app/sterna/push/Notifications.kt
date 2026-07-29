@@ -47,25 +47,41 @@ object Notifications {
      */
     fun summaryShownFor(liveChildren: Int): Boolean = liveChildren >= SUMMARY_MIN_CHILDREN
 
+    /** Reply · Mark as read · Delete, in the order they are shown. */
+    private val ALL_ACTIONS = listOf(
+        MailNotificationAction.REPLY,
+        MailNotificationAction.MARK_READ,
+        MailNotificationAction.DELETE,
+    )
+
     /**
-     * The buttons a new-mail notification carries, per the notification-content privacy setting
-     * (Codeberg #57). Pure and resource-free — the labels and the intents are built by the
-     * caller — so the "may the user act on this?" rule is unit-testable on its own, next to the
-     * "what does this reveal?" rule of [MailNotificationText].
+     * The buttons a new-mail notification carries (Codeberg #57). Pure and resource-free — the
+     * labels and the intents are built by the caller — so the "may the user act on this?" rule
+     * is unit-testable on its own, next to the "what does this reveal?" rule of
+     * [MailNotificationText].
      *
-     * A notification that identifies its message (SENDER_AND_SUBJECT, SENDER_ONLY) keeps the
-     * three actions unchanged. At NONE the notification says only "New message": there is
-     * nothing to act on knowingly, and a Delete offered over an unidentifiable message loses
-     * mail. So NONE gets none — tap to read, or swipe to dismiss.
+     * The question is not which setting is on, it is whether the notification on screen NAMES
+     * the message: a Delete over something the user cannot identify loses mail, and Reply and
+     * Mark as read are acted on just as blindly. So the two informative positions are read
+     * together with what the mail actually carries, exactly as [MailNotificationText.resolve]
+     * reads them:
+     *
+     *  - SENDER_AND_SUBJECT shows both, so either one naming the message is enough;
+     *  - SENDER_ONLY shows only the sender — a subject the notification never displays cannot
+     *    help, and a message with no From header (daemon mail, a malformed header) then reads
+     *    "New message / New message" and gets no buttons;
+     *  - NONE shows the generic line alone: never any button, whatever the mail carries.
+     *
+     * [hasSender] and [hasSubject] mean "the mail has its own, non-blank one" — the caller's
+     * stand-ins ("New message", "(no subject)") do not count.
      */
-    fun actionsFor(content: NotificationContent): List<MailNotificationAction> = when (content) {
-        NotificationContent.SENDER_AND_SUBJECT,
-        NotificationContent.SENDER_ONLY,
-        -> listOf(
-            MailNotificationAction.REPLY,
-            MailNotificationAction.MARK_READ,
-            MailNotificationAction.DELETE,
-        )
+    fun actionsFor(
+        content: NotificationContent,
+        hasSender: Boolean,
+        hasSubject: Boolean,
+    ): List<MailNotificationAction> = when (content) {
+        NotificationContent.SENDER_AND_SUBJECT -> if (hasSender || hasSubject) ALL_ACTIONS else emptyList()
+        NotificationContent.SENDER_ONLY -> if (hasSender) ALL_ACTIONS else emptyList()
         NotificationContent.NONE -> emptyList()
     }
 
@@ -195,16 +211,25 @@ object Notifications {
         summarised: Boolean,
     ) {
         val generic = context.getString(R.string.notif_new_message)
-        val sender = email.from.firstOrNull()?.display() ?: generic
-        val subject = email.subject?.takeIf { it.isNotBlank() } ?: context.getString(R.string.message_no_subject)
+        // Kept apart from the stand-ins below: whether the mail names ITSELF is what decides the
+        // action buttons, and "New message" / "(no subject)" name nothing (Codeberg #57).
+        val fromName = email.from.firstOrNull()?.display()
+        val realSubject = email.subject?.takeIf { it.isNotBlank() }
+        val sender = fromName ?: generic
+        val subject = realSubject ?: context.getString(R.string.message_no_subject)
         // What the notification reveals, per the privacy setting — the rule itself lives in
         // [MailNotificationText] so it is testable, and so no caller can post with the
         // defaults and leak what the user asked to hide (Codeberg #84). The expanded state
         // shows the full subject, never a body preview (Codeberg #57).
         val (title, text, bigText) = MailNotificationText.resolve(content, sender, subject, generic)
-        // Which buttons the notification may carry, same setting, same reasoning: at NONE the
-        // notification identifies nothing, so it offers nothing to act on (Codeberg #57).
-        val actions = actionsFor(content)
+        // Which buttons it may carry, read from the same facts: a notification that names
+        // nothing offers nothing to act on — at NONE always, and in the two informative
+        // positions when the mail itself has nothing to show there (Codeberg #57).
+        val actions = actionsFor(
+            content,
+            hasSender = !fromName.isNullOrBlank(),
+            hasSubject = realSubject != null,
+        )
         val notifId = childId(accountId, email.id)
         // Carry the message identity so a tap opens THAT email, not just the inbox — even when
         // the app is already running (singleTask → onNewIntent routes it). Codeberg #17 follow-up.
