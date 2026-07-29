@@ -28,6 +28,7 @@
     <string name="compose_could_not_save">Nie udało się zapisać wersji roboczej: %1$s</string>
     <string name="compose_prefill_failed">Nie udało się wczytać oryginalnej wiadomości.</string>
     <string name="compose_draft_original_kept">Zapisano jako nową wersję roboczą. Oryginał zachowano, ponieważ ta kopia nie mogła przenieść wszystkiego, co zawierał.</string>
+    <string name="compose_forward_attachment_dropped">Nie udało się dołączyć niektórych załączników przekazywanej wiadomości.</string>
     <string name="compose_scheduled_toast">Zaplanowano — %1$s</string>
     <string name="compose_discard_title">Odrzucić wiadomość?</string>
     <string name="compose_discard_message">Nie zapisano wprowadzonych zmian.</string>

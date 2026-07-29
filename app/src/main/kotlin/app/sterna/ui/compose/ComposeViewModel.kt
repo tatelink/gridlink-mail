@@ -1103,13 +1103,20 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 carriedCids += cid
             }
         }
-        for (part in o.fileAttachmentParts()) {
+        val fileParts = o.fileAttachmentParts()
+        var carried = 0
+        for (part in fileParts) {
             runCatching {
                 val bytes = repo.downloadAttachment(credentials, part, o.id)
                 stageOutgoing(credentials, bytes, part.type, part.name, disposition = "attachment", cid = null)
-            }.getOrNull()?.let { staged += it }
+            }.getOrNull()?.let { staged += it; carried++ }
         }
         if (staged.isNotEmpty()) _attachments.value = _attachments.value + staged
+        // A12 (data loss): a file that would not download used to be dropped without a word, so the
+        // forward opened looking complete while it was short of what the original carried. Say so —
+        // same reflex as [carryDraftAttachments] — rather than sending an amputated forward silently.
+        // (Inline images are handled above: a missing one is neutralised to "[image]", not dropped.)
+        if (carried < fileParts.size) _notices.tryEmit(R.string.compose_forward_attachment_dropped)
 
         val app = getApplication<Application>()
         return buildForwardedBlocks(

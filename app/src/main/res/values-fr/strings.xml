@@ -28,6 +28,7 @@
     <string name="compose_could_not_save">Échec de l\'enregistrement du brouillon : %1$s</string>
     <string name="compose_prefill_failed">Impossible de charger le message d\'origine.</string>
     <string name="compose_draft_original_kept">Enregistré comme nouveau brouillon. L\'original a été conservé, car cette copie ne pouvait pas tout reprendre.</string>
+    <string name="compose_forward_attachment_dropped">Certaines pièces jointes du message transféré n\'ont pas pu être incluses.</string>
     <string name="compose_scheduled_toast">Programmé — %1$s</string>
     <string name="compose_discard_title">Abandonner le message ?</string>
     <string name="compose_discard_message">Vous n\'avez pas enregistré vos modifications.</string>

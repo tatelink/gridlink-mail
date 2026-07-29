@@ -28,6 +28,7 @@
     <string name="compose_could_not_save">No se pudo guardar el borrador: %1$s</string>
     <string name="compose_prefill_failed">No se pudo cargar el mensaje original.</string>
     <string name="compose_draft_original_kept">Guardado como un borrador nuevo. Se conservó el original, porque esta copia no podía llevarse todo lo que contenía.</string>
+    <string name="compose_forward_attachment_dropped">No se pudieron incluir algunos archivos adjuntos del mensaje reenviado.</string>
     <string name="compose_scheduled_toast">Programado — %1$s</string>
     <string name="compose_discard_title">¿Descartar mensaje?</string>
     <string name="compose_discard_message">No has guardado los cambios.</string>

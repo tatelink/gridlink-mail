@@ -28,6 +28,7 @@
     <string name="compose_could_not_save">Не удалось сохранить черновик: %1$s</string>
     <string name="compose_prefill_failed">Не удалось загрузить исходное сообщение.</string>
     <string name="compose_draft_original_kept">Сохранено как новый черновик. Оригинал оставлен, потому что эта копия смогла перенести не всё, что в нём было.</string>
+    <string name="compose_forward_attachment_dropped">Некоторые вложения пересылаемого сообщения не удалось включить.</string>
     <string name="compose_scheduled_toast">Запланировано — %1$s</string>
     <string name="compose_discard_title">Удалить сообщение?</string>
     <string name="compose_discard_message">Вы не сохранили изменения.</string>
