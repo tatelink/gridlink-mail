@@ -146,7 +146,23 @@ object PushController {
             // arm the inbox reseeds silently (it is on screen); background arms diff.
             accounts.forEach { PushFetchWorker.enqueue(appContext, it.id, resetInbox = userInitiated) }
         } else {
-            PushService.start(appContext, resetBaseline = userInitiated)
+            // Android 12+ can refuse a foreground-service start at the CALLER itself — a background
+            // trigger (transport callback, worker) hits ForegroundServiceStartNotAllowedException
+            // right here, before the service is created, so the #98 guard in PushService.onCreate
+            // (which only catches the in-service startForeground refusal) never sees it. Left to
+            // propagate it crashes the trigger, and because arms are retried that is a crash loop.
+            // Swallow it and fall back to the periodic worker exactly as the no-direct branch does,
+            // so mail still flows within ~30 minutes and nothing claims a live connection it lacks.
+            try {
+                PushService.start(appContext, resetBaseline = userInitiated)
+            } catch (e: RuntimeException) {
+                android.util.Log.w(
+                    "PushController",
+                    "foreground push start refused at caller; periodic poll takes over",
+                    e,
+                )
+                accounts.forEach { PushFetchWorker.enqueue(appContext, it.id, resetInbox = userInitiated) }
+            }
         }
     }
 }
