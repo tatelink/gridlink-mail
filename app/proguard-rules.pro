@@ -52,3 +52,13 @@
 # minified release crashed with BadParcelableException/ClassNotFoundException
 # (OpenPgpSignatureResult) the moment a signed or encrypted mail was verified (Codeberg #14).
 -keep class org.openintents.openpgp.** { *; }
+
+# The avatar composables render nothing in a minified build while debug is fine: R8's optimizer
+# inlines these small, non-inline @Composable functions into their callers (the mapping keeps
+# only Monogram's synthetic lambda, the function itself is gone), which drops the restartable
+# group they need to emit — so neither the contact photo nor the monogram slot draws in the
+# recipient-suggestion menu, the message list or the reader. Keeping them whole stops the inline
+# and restores the avatar. Same failure family as #14: an optimization that is correct for
+# ordinary code but wrong for a compiler-managed calling convention.
+-keep class app.sterna.ui.components.MonogramKt { *; }
+-keep class app.sterna.ui.components.ContactAvatarKt { *; }
