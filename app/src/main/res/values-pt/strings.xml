@@ -70,6 +70,8 @@
     <string name="settings_push_status_direct">Push: ligação direta</string>
     <string name="settings_push_status_connecting">Push: a ligar…</string>
     <string name="settings_push_status_periodic">Verificação a cada 30 minutos</string>
+    <string name="settings_push_status_not_watched">Verificado ao abrir a aplicação</string>
+    <string name="settings_account_notifications_unwatched_note">Esta conta não está a ser monitorizada. Ative «Push para todas as contas» para receber as suas notificações.</string>
     <string name="up_picker_title">Entregar as notificações através de</string>
     <string name="inbox_delete_folder_recursive_title">Eliminar também as subpastas?</string>
     <string name="inbox_delete_folder_recursive_body">"%1$s" contém subpastas. Serão todas eliminadas, juntamente com as suas mensagens.</string>

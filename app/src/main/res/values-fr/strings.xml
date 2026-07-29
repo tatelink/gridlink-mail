@@ -70,6 +70,8 @@
     <string name="settings_push_status_direct">Push : connexion directe</string>
     <string name="settings_push_status_connecting">Push : connexion en cours…</string>
     <string name="settings_push_status_periodic">Vérification toutes les 30 minutes</string>
+    <string name="settings_push_status_not_watched">Relevé à l’ouverture de l’application</string>
+    <string name="settings_account_notifications_unwatched_note">Ce compte n’est pas surveillé. Activez « Push pour tous les comptes » pour en recevoir les notifications.</string>
     <string name="up_picker_title">Acheminer les notifications via</string>
     <string name="inbox_delete_folder_recursive_title">Supprimer aussi les sous-dossiers ?</string>
     <string name="inbox_delete_folder_recursive_body">« %1$s » contient des sous-dossiers. Ils seront tous supprimés, ainsi que leurs messages.</string>

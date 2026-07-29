@@ -83,6 +83,8 @@
     <string name="settings_push_status_direct">Push: direct connection</string>
     <string name="settings_push_status_connecting">Push: connecting…</string>
     <string name="settings_push_status_periodic">Checked every 30 minutes</string>
+    <string name="settings_push_status_not_watched">Checked when you open the app</string>
+    <string name="settings_account_notifications_unwatched_note">This account is not being watched. Turn on “Push for all accounts” to get notifications for it.</string>
     <string name="up_picker_title">Deliver notifications through</string>
     <string name="inbox_delete_folder_recursive_title">Also delete subfolders?</string>
     <string name="inbox_delete_folder_recursive_body">\"%1$s\" contains subfolders. They will all be deleted, along with their messages.</string>

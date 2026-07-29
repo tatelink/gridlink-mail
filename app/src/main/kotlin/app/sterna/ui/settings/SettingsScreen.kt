@@ -1441,6 +1441,11 @@ private fun AccountDetailScreen(
                 }
             }
             SettingsSection(stringResource(R.string.settings_account_notifications_section)) {
+                // An account that is neither the current one nor covered by "Push for all accounts"
+                // is watched by nothing (issue A8): its toggle would change nothing. Grey it and point
+                // to the setting that would actually start watching it, instead of pretending it works.
+                // Re-read each recomposition (no remember) so returning from the push-all setting settles.
+                val notificationsInert = !account.isLinked && !viewModel.isWatched(accountId)
                 SettingSwitch(
                     title = stringResource(R.string.settings_account_notifications_title),
                     subtitle = stringResource(R.string.settings_account_notifications_subtitle),
@@ -1449,7 +1454,16 @@ private fun AccountDetailScreen(
                         notificationsEnabled = it
                         viewModel.setNotificationsEnabled(accountId, it)
                     },
+                    enabled = !notificationsInert,
                 )
+                if (notificationsInert) {
+                    Text(
+                        stringResource(R.string.settings_account_notifications_unwatched_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
                 // Read-only delivery status (issue #17) — transparency, never a control.
                 if (notificationsEnabled) {
                     val appContext = LocalContext.current
@@ -1474,6 +1488,7 @@ private fun AccountDetailScreen(
                         PushStatus.Direct -> stringResource(R.string.settings_push_status_direct)
                         PushStatus.Connecting -> stringResource(R.string.settings_push_status_connecting)
                         PushStatus.Periodic -> stringResource(R.string.settings_push_status_periodic)
+                        PushStatus.NotWatched -> stringResource(R.string.settings_push_status_not_watched)
                     }
                     Text(
                         statusText,

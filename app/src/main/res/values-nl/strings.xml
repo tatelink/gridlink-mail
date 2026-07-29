@@ -70,6 +70,8 @@
     <string name="settings_push_status_direct">Push: directe verbinding</string>
     <string name="settings_push_status_connecting">Push: verbinden…</string>
     <string name="settings_push_status_periodic">Controle elke 30 minuten</string>
+    <string name="settings_push_status_not_watched">Gecontroleerd bij het openen van de app</string>
+    <string name="settings_account_notifications_unwatched_note">Dit account wordt niet bewaakt. Schakel ‘Push voor alle accounts’ in om er meldingen voor te krijgen.</string>
     <string name="up_picker_title">Meldingen bezorgen via</string>
     <string name="inbox_delete_folder_recursive_title">Ook submappen verwijderen?</string>
     <string name="inbox_delete_folder_recursive_body">"%1$s" bevat submappen. Ze worden allemaal verwijderd, samen met hun berichten.</string>
