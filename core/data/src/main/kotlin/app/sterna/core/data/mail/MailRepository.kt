@@ -213,6 +213,21 @@ internal suspend fun <T> readCachedOrPurge(
     null
 }
 
+/**
+ * Run [stage] — persisting an outbox item's payload/attachments after its row is already inserted —
+ * and, if it throws, [rollback] the just-inserted row before the error propagates. A staging
+ * failure must leave NO row behind: an orphan (inserted with attachmentsJson "[]") would be
+ * re-armed by [MailRepository.unfinishedOutbox] at the next startup and sent amputated, exactly the
+ * silent loss the durable outbox exists to prevent (#70). Pure control flow, so it is unit-tested.
+ */
+internal suspend fun <T> stageOrRollback(rollback: suspend () -> Unit, stage: suspend () -> T): T =
+    try {
+        stage()
+    } catch (t: Throwable) {
+        rollback()
+        throw t
+    }
+
 /** Max full-text search matches returned to the UI. */
 private const val LOCAL_SEARCH_LIMIT = 100
 
@@ -3830,14 +3845,20 @@ class MailRepository(
                 draftEmailId = draftEmailId,
             ),
         )
-        if (pgpEntity != null && pgpMode != null && pgpMode != PgpMode.OFF) {
-            val dir = java.io.File(outboxFilesDir, id.toString()).apply { mkdirs() }
-            val entityFile = java.io.File(dir, "pgp-entity.mime").apply { writeText(pgpEntity) }
-            outboxDao.byId(id)?.let { outboxDao.update(it.copy(pgpEntityPath = entityFile.absolutePath)) }
-        } else {
-            // Make attachments durable now that we have the item id to key the persistent dir.
-            val durable = persistAttachments(id, attachments)
-            outboxDao.byId(id)?.let { outboxDao.update(it.copy(attachmentsJson = OutboxAttachments.encode(durable))) }
+        // Staging runs AFTER the row is inserted (it needs the id to key the durable dir). If it
+        // throws — an unreadable attachment (persistAttachments errors rather than send it short),
+        // a write failure — the row must not survive: an orphan carrying attachmentsJson "[]" would
+        // be re-armed at the next startup and sent amputated (#70). Roll it back and relay the error.
+        stageOrRollback(rollback = { deleteOutbox(id) }) {
+            if (pgpEntity != null && pgpMode != null && pgpMode != PgpMode.OFF) {
+                val dir = java.io.File(outboxFilesDir, id.toString()).apply { mkdirs() }
+                val entityFile = java.io.File(dir, "pgp-entity.mime").apply { writeText(pgpEntity) }
+                outboxDao.byId(id)?.let { outboxDao.update(it.copy(pgpEntityPath = entityFile.absolutePath)) }
+            } else {
+                // Make attachments durable now that we have the item id to key the persistent dir.
+                val durable = persistAttachments(id, attachments)
+                outboxDao.byId(id)?.let { outboxDao.update(it.copy(attachmentsJson = OutboxAttachments.encode(durable))) }
+            }
         }
         outboxScheduler?.schedule(id, holdMs)
         return id
