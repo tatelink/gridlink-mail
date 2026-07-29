@@ -513,9 +513,16 @@ private fun MainNavHost(
             ),
             // Settings slides in from the right over the inbox, and back out to the right on Back.
             // A slide (opaque) rather than the default cross-fade avoids the bare-window-background
-            // flash that made animations unusable elsewhere in this NavHost.
-            enterTransition = { slideInHorizontally(tween(300)) { it } },
-            popExitTransition = { slideOutHorizontally(tween(300)) { it } },
+            // flash that made animations unusable elsewhere in this NavHost: the inbox underneath
+            // does not move and stays composed until the transition ends, so the frame is fully
+            // painted at every instant. Now within DESIGN.md's ≤ 250 ms, and off when the system
+            // reduced-motion setting is on — the promise Motion.kt makes for EVERY motion (#100).
+            enterTransition = {
+                if (!motionEnabled) EnterTransition.None else slideInHorizontally(tween(SCREEN_SLIDE_MS)) { it }
+            },
+            popExitTransition = {
+                if (!motionEnabled) ExitTransition.None else slideOutHorizontally(tween(SCREEN_SLIDE_MS)) { it }
+            },
         ) { entry ->
             SettingsScreen(
                 onBack = { entry.navigateOnce { nav.popBackStack() } },

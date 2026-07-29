@@ -109,6 +109,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.content.Context
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -131,8 +133,10 @@ import app.sterna.core.data.settings.NotificationContent
 import app.sterna.core.data.text.htmlToText
 import app.sterna.push.PushController
 import app.sterna.push.PushStatus
+import app.sterna.ui.SCREEN_SLIDE_MS
 import app.sterna.ui.appLabelOf
 import app.sterna.ui.navigateOnce
+import app.sterna.ui.rememberMotionEnabled
 import app.sterna.R
 import app.sterna.ui.connect.ConnectScreen
 import app.sterna.ui.components.PendingImportAccountsSection
@@ -171,16 +175,27 @@ fun SettingsScreen(
     accountsViewModel: AccountsViewModel = viewModel(),
 ) {
     val nav = rememberNavController()
+    // The system "Remove animations" setting switches these slides off, like every other motion in
+    // the app (Motion.kt) — the reduced-motion promise did not cover them before (#100).
+    // rememberMotionEnabled() is @Composable, so the value is captured here and only READ inside
+    // the transition lambdas below, which run outside composition (same pattern as MainNavHost).
+    val motionEnabled = rememberMotionEnabled()
     // Deep-link from the drawer's account row (#34): start the inner graph ON the account detail so
     // the Settings hub never renders. Routing through the hub and popping it after the fact (the old
     // approach) flashed the hub for a frame plus a slide transition before the detail appeared. With
     // the detail as the start destination, Back can't pop it (popBackStack returns false) and falls
     // through to the caller, so Back still returns to the inbox, not the hub.
-    // Horizontal push between hub and detail screens (standard master/detail motion): a detail
-    // slides in from the right and the hub slides out to the left; Back reverses it. The slides are
-    // OPAQUE and fully tile the viewport at every frame, so a fast double-back (e.g. right after a
-    // theme change, whose recomposition disturbs an in-flight transition) can never expose a blank
-    // window-background frame — the failure mode that made the old cross-fade unusable here.
+    // Horizontal push between hub and detail screens (standard master/detail motion): the screen
+    // that arrives (or leaves, on Back) travels the full width on top; the one underneath only
+    // drifts a quarter of it. The slides are OPAQUE and fully tile the viewport at every frame, so
+    // a fast double-back (e.g. right after a theme change, whose recomposition disturbs an
+    // in-flight transition) can never expose a blank window-background frame — the failure mode
+    // that made the old cross-fade unusable here, and the reason no fade may come back into these
+    // four lines. The tiling holds for any travel ≤ the frame width: the moving pair can only ever
+    // part where the trailing edge of the one screen meets the leading edge of the other, and both
+    // are driven by the same eased fraction, so that seam never opens. A quarter, rather than the
+    // full width both panes used to travel, is what keeps the motion calm on a wide window —
+    // landscape and tablets, where a fixed duration over a wider frame means a faster slide (#100).
     // EVERY action below (forward and Back alike) goes through [navigateOnce], the app-wide
     // re-entrancy guard shared with the outer graph. Without it, taps landing during the slide
     // stacked several copies of the same page on the back stack (#106). A new destination added
@@ -188,10 +203,18 @@ fun SettingsScreen(
     NavHost(
         navController = nav,
         startDestination = if (initialAccountId != null) "account/$initialAccountId" else "hub",
-        enterTransition = { slideInHorizontally(tween(300)) { it } },
-        exitTransition = { slideOutHorizontally(tween(300)) { -it } },
-        popEnterTransition = { slideInHorizontally(tween(300)) { -it } },
-        popExitTransition = { slideOutHorizontally(tween(300)) { it } },
+        enterTransition = {
+            if (!motionEnabled) EnterTransition.None else slideInHorizontally(tween(SCREEN_SLIDE_MS)) { it }
+        },
+        exitTransition = {
+            if (!motionEnabled) ExitTransition.None else slideOutHorizontally(tween(SCREEN_SLIDE_MS)) { -it / 4 }
+        },
+        popEnterTransition = {
+            if (!motionEnabled) EnterTransition.None else slideInHorizontally(tween(SCREEN_SLIDE_MS)) { -it / 4 }
+        },
+        popExitTransition = {
+            if (!motionEnabled) ExitTransition.None else slideOutHorizontally(tween(SCREEN_SLIDE_MS)) { it }
+        },
     ) {
         composable("hub") { entry ->
             val accounts by accountsViewModel.accounts.collectAsStateWithLifecycle()
