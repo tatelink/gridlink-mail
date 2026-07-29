@@ -206,11 +206,17 @@ fun SearchScreen(
                     )
                     is SearchState.Results -> if (s.emails.isEmpty()) {
                         val term = s.query.text.trim()
+                        // A truncated scan that returned nothing has NOT proven there is nothing: say
+                        // it stopped short, don't report "no results" as a fact — the honesty the
+                        // "At least N" counter gives a partial hit, extended to the zero case it can't reach.
                         EmptyState(
                             art = EmptyArt.SEARCH,
-                            title = if (term.isBlank()) stringResource(R.string.search_no_results_generic)
-                            else stringResource(R.string.search_no_results, term),
-                            body = stringResource(R.string.empty_search_body),
+                            title = when {
+                                !s.complete -> stringResource(R.string.search_incomplete)
+                                term.isBlank() -> stringResource(R.string.search_no_results_generic)
+                                else -> stringResource(R.string.search_no_results, term)
+                            },
+                            body = if (s.complete) stringResource(R.string.empty_search_body) else null,
                             modifier = Modifier.align(Alignment.Center),
                         )
                     } else {

@@ -547,6 +547,7 @@
     <string name="search_failed">Suche fehlgeschlagen: %1$s</string>
     <string name="search_no_results">Keine Ergebnisse für \"%1$s\".</string>
     <string name="search_no_results_generic">Keine passenden Nachrichten.</string>
+    <string name="search_incomplete">Suche vor dem Ende abgebrochen. Grenzen Sie die Filter ein oder versuchen Sie es erneut.</string>
     <plurals name="search_result_count">
         <item quantity="one">%1$d Ergebnis</item>
         <item quantity="other">%1$d Ergebnisse</item>

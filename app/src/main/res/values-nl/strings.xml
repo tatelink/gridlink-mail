@@ -547,6 +547,7 @@
     <string name="search_failed">Zoeken mislukt: %1$s</string>
     <string name="search_no_results">Geen resultaten voor \"%1$s\".</string>
     <string name="search_no_results_generic">Geen overeenkomende berichten.</string>
+    <string name="search_incomplete">Zoekopdracht voortijdig gestopt. Verfijn de filters of probeer opnieuw.</string>
     <plurals name="search_result_count">
         <item quantity="one">%1$d resultaat</item>
         <item quantity="other">%1$d resultaten</item>
