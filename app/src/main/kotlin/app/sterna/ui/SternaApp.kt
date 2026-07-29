@@ -290,6 +290,11 @@ private fun MainNavHost(
     // Read once per process: the latch only changes via a process death.
     val navContext = LocalContext.current
     val messageFadeDisabled = remember { NavFadeGuard.fadeDisabled(navContext) }
+    // Honour the system "Remove animations" accessibility setting on the one animated route too:
+    // rememberMotionEnabled() is @Composable, so its value is captured here at the NavHost level
+    // and read inside the transition lambdas below (which run in AnimatedContentTransitionScope,
+    // not a composable context) — the same capture pattern used for [messageFadeDisabled].
+    val motionEnabled = rememberMotionEnabled()
     // Instant transitions between menus/screens by default: navigation-compose's default
     // animated cross-fade gets stuck (showing the bare window background) on rapid back/forth
     // navigation. The message route opts back into the soft fade below — the one place an
@@ -363,11 +368,17 @@ private fun MainNavHost(
                 // Which conversation, when src=thread.
                 navArgument("thread") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
-            // Opening and closing a message keep a soft cross-fade (matching the previous
-            // default), while the rest of the app navigates instantly — except on devices the
-            // [NavFadeGuard] sentinel has latched after a fade-window crash (Codeberg #10).
-            enterTransition = { if (messageFadeDisabled) EnterTransition.None else fadeIn(tween(700)) },
-            popExitTransition = { if (messageFadeDisabled) ExitTransition.None else fadeOut(tween(700)) },
+            // Opening and closing a message keep a short soft cross-fade (Material's full-screen
+            // ~200 ms), while the rest of the app navigates instantly — except on devices the
+            // [NavFadeGuard] sentinel has latched after a fade-window crash (Codeberg #10), or
+            // when the system reduced-motion setting is on: both fall back to instant, and
+            // symmetrically on enter and pop-exit so there is no half-animated open/close (#100).
+            enterTransition = {
+                if (messageFadeDisabled || !motionEnabled) EnterTransition.None else fadeIn(tween(200))
+            },
+            popExitTransition = {
+                if (messageFadeDisabled || !motionEnabled) ExitTransition.None else fadeOut(tween(200))
+            },
         ) { entry ->
             val emailId = Uri.decode(entry.arguments?.getString("emailId").orEmpty())
             val accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null }
