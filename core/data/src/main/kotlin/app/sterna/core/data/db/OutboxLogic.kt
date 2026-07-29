@@ -15,7 +15,13 @@ object OutboxLogic {
     /** Auto-retry attempts before an item is parked as FAILED for manual handling. */
     const val MAX_ATTEMPTS = 5
 
-    /** A HELD item is due once its hold/undo/scheduled instant has passed; QUEUED is always due. */
+    /**
+     * A HELD item is due once its undo window has passed; QUEUED is always due. A scheduled send is
+     * NOT held here — it waits in its own table and only enters the outbox when ScheduledSendWorker
+     * fires, which queues it like any other send (holdMs = 0). So the only hold this deadline ever
+     * carries is the undo window, a few seconds at most — which is what bounds the badge grace in
+     * [activeCount]: no path can write a far-future notBeforeMillis on an outbox row.
+     */
     fun isReadyToSend(state: OutboxState, notBeforeMillis: Long, now: Long): Boolean = when (state) {
         OutboxState.HELD -> now >= notBeforeMillis
         OutboxState.QUEUED, OutboxState.SENDING -> true
@@ -58,27 +64,60 @@ object OutboxLogic {
         }
 
     /**
-     * Items shown on the badge: anything pending or failed, plus a HELD row whose undo window has
-     * already elapsed. The window, not the state, decides silence: offline the delivery worker is
-     * gated on connectivity and never runs, so nothing takes the row out of HELD and the message
-     * waited in the Outbox with no dot and no counter (#70).
+     * How long a message on its way stays off the badge past the instant it was allowed to go
+     * (#82). Online a send is delivered in a second or two, so counting it the moment the undo
+     * window elapsed made the badge flash on every message that went out perfectly well — the eye
+     * drawn to nothing. This is a later threshold on the same deadline, not a new state: the clock
+     * still decides on its own, so a message that is NOT going out still reaches the badge (#70).
      */
-    fun activeCount(items: List<OutboxBadgeItem>, now: Long): Int =
-        items.count {
-            // An item open in the composer (#70) is being handled right now, not waiting to send:
-            // keep it off the badge, exactly as the queue keeps it off the send worker.
-            it.state != OutboxState.EDITING && (it.state != OutboxState.HELD || now >= it.notBeforeMillis)
-        }
+    const val BADGE_GRACE_MILLIS = 30_000L
 
-    /** The earliest undo window still running, i.e. when the badge must next be recomputed. */
-    fun nextWindowEnd(items: List<OutboxBadgeItem>, now: Long): Long? = items
-        .filter { it.state == OutboxState.HELD && it.notBeforeMillis > now }
-        .minOfOrNull { it.notBeforeMillis }
+    /**
+     * Items shown on the badge. FAILED counts at once: it is over, it needs the user, and no delay
+     * would make it any less true. Anything still on its way (HELD, QUEUED, SENDING) counts only
+     * [BADGE_GRACE_MILLIS] past its [OutboxBadgeItem.notBeforeMillis] — the instant from which the
+     * row was allowed to leave: the end of the undo window, the moment it was queued when there is
+     * no window (holdMs = 0), or the moment Retry was pressed. A send that works is gone well
+     * before that and never shows (#82); a send that is stuck stays put and shows up.
+     *
+     * The clock, not the state, still decides silence: offline the delivery worker is gated on
+     * connectivity and never runs, so nothing takes the row out of HELD, and a state-based count
+     * left the message waiting in the Outbox with no dot and no counter (#70). The grace only moves
+     * the threshold — it never makes a waiting message invisible, it delays it by half a minute.
+     *
+     * The grace hangs off that one instant and is never restarted, which is what makes it bounded.
+     * A row put back to QUEUED after a failed attempt (see [shouldRetry]) keeps the deadline it was
+     * inserted with, so a transient hiccup that heals inside the grace stays silent, and one that
+     * drags on counts as soon as the grace has passed and keeps counting through every further
+     * retry — a message that is still not gone half a minute later is exactly what the badge is for.
+     */
+    fun activeCount(items: List<OutboxBadgeItem>, now: Long): Int = items.count { countsAt(it, now) }
+
+    /** Whether one row belongs on the badge at [now]; see [activeCount] for the reasoning. */
+    private fun countsAt(item: OutboxBadgeItem, now: Long): Boolean = when (item.state) {
+        // An item open in the composer (#70) is being handled right now, not waiting to send:
+        // keep it off the badge, exactly as the queue keeps it off the send worker.
+        OutboxState.EDITING -> false
+        OutboxState.FAILED -> true
+        OutboxState.HELD, OutboxState.QUEUED, OutboxState.SENDING ->
+            now >= item.notBeforeMillis + BADGE_GRACE_MILLIS
+    }
+
+    /**
+     * When the badge must next be recomputed on its own: the earliest counting threshold still
+     * ahead. FAILED already counts and EDITING never does, so neither has a wake-up to schedule.
+     */
+    fun nextBadgeChange(items: List<OutboxBadgeItem>, now: Long): Long? = items
+        .filter { it.state != OutboxState.FAILED && it.state != OutboxState.EDITING }
+        .map { it.notBeforeMillis + BADGE_GRACE_MILLIS }
+        .filter { it > now }
+        .minOrNull()
 
     /**
      * The badge count over time. Room re-emits on every outbox change, and each emission schedules
-     * exactly one wake-up: the end of the earliest undo window still running. So the badge appears
-     * the moment the window closes and disappears the moment the row leaves, with no polling.
+     * exactly one wake-up: the earliest counting threshold still ahead ([nextBadgeChange]). So the
+     * badge appears on its own once a message has been waiting past the grace, and disappears the
+     * moment the row leaves — with no polling, and nothing to reset when the row goes.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun badgeCount(
@@ -90,7 +129,7 @@ object OutboxLogic {
                 while (true) {
                     val instant = now()
                     emit(activeCount(rows, instant))
-                    val next = nextWindowEnd(rows, instant) ?: break
+                    val next = nextBadgeChange(rows, instant) ?: break
                     delay(next - instant)
                 }
             }

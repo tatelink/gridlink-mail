@@ -150,7 +150,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      */
     val restoredDraft: StateFlow<SendOutbox.ComposeDraft?> = outbox.restored
 
-    /** Discreet badge: how many outbox items are pending or failed (the undo window is silent). */
+    /** Discreet badge: outbox items that failed, or that are still waiting a while after sending. */
     val outboxCount: StateFlow<Int> = repo.outboxActiveCount().stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
