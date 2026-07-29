@@ -38,6 +38,21 @@ class OutboxLogicTest {
         assertFalse(OutboxLogic.shouldRetry(OutboxLogic.MAX_ATTEMPTS + 1))
     }
 
+    /**
+     * #70 regression: a reopened item closed untouched returns to QUEUED only while it still has
+     * retries left. Both exit paths (composer close [MailRepository.releaseOutboxEdit] and startup
+     * recovery [MailRepository.revertEditingOutbox]) decide on this same threshold.
+     */
+    @Test fun aReopenedItemUnderTheRetryCapGoesBackToTheQueue() {
+        assertEquals(OutboxState.QUEUED, OutboxLogic.stateAfterEdit(0))
+        assertEquals(OutboxState.QUEUED, OutboxLogic.stateAfterEdit(OutboxLogic.MAX_ATTEMPTS - 1))
+    }
+
+    @Test fun aReopenedItemWhoseRetriesWereExhaustedStaysFailed() {
+        assertEquals(OutboxState.FAILED, OutboxLogic.stateAfterEdit(OutboxLogic.MAX_ATTEMPTS))
+        assertEquals(OutboxState.FAILED, OutboxLogic.stateAfterEdit(OutboxLogic.MAX_ATTEMPTS + 1))
+    }
+
     @Test fun badgeCountsPendingAndFailedButNotARunningUndoWindow() {
         val now = 10_000L
         val items = listOf(

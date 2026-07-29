@@ -3976,13 +3976,23 @@ class MailRepository(
     suspend fun releaseOutboxEdit(id: Long) {
         val row = outboxDao.byId(id) ?: return
         if (row.state != OutboxState.EDITING) return
-        outboxDao.setState(id, OutboxState.QUEUED)
+        // A FAILED item (auto-retry exhausted) reopened then closed untouched must NOT restart on its
+        // own (#70 regression): it goes back to FAILED, keeping its error text, and is left off the
+        // worker — only Retry/Send re-arms it. Everything else rejoins the queue and is re-armed.
+        val next = OutboxLogic.stateAfterEdit(row.attemptCount)
+        outboxDao.setState(id, next)
+        if (next != OutboxState.QUEUED) return
         // Held or scheduled items keep whatever is left of their wait; everything else goes now.
         outboxScheduler?.schedule(id, (row.notBeforeMillis - System.currentTimeMillis()).coerceAtLeast(0))
     }
 
-    /** Startup recovery (#70): revert rows stranded in EDITING by a process death, then re-arm them. */
+    /**
+     * Startup recovery (#70): revert rows stranded in EDITING by a process death. An exhausted row
+     * (its auto-retry was spent before it was reopened) goes back to FAILED so it is NOT re-armed by
+     * [unfinishedOutbox]; the rest become QUEUED again. Order matters — park the exhausted first.
+     */
     suspend fun revertEditingOutbox() {
+        outboxDao.revertEditingExhaustedToFailed(OutboxLogic.MAX_ATTEMPTS)
         outboxDao.revertEditingToQueued()
     }
 

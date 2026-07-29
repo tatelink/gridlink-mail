@@ -27,6 +27,18 @@ object OutboxLogic {
     fun shouldRetry(attemptCount: Int): Boolean = attemptCount < MAX_ATTEMPTS
 
     /**
+     * The state a reopened item returns to once its edit ends — the composer was closed untouched,
+     * or a process death is being recovered at startup. An item whose auto-retry was already
+     * exhausted (parked FAILED, its [attemptCount] at the cap) must stay parked for manual handling,
+     * NOT silently rejoin the queue and send itself: reopening a FAILED item to look at it, then
+     * closing it, must not restart delivery — only Retry/Send may (#70 regression from EDITING).
+     * [attemptCount] is the faithful proxy for "was FAILED": the cap is reached only on the
+     * FAILED-parking path (see [shouldRetry]). Everything else goes back to [OutboxState.QUEUED].
+     */
+    fun stateAfterEdit(attemptCount: Int): OutboxState =
+        if (attemptCount >= MAX_ATTEMPTS) OutboxState.FAILED else OutboxState.QUEUED
+
+    /**
      * Whether a queued item can be reopened in the composer. Everything can, except an ENCRYPTED
      * one: its body is not in the row at all (the ciphertext lives in the item's own directory,
      * see [OutboxEntity.pgpMode]), so the composer would open empty and sending from there would

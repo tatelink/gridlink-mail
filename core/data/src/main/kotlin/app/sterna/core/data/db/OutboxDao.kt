@@ -50,9 +50,19 @@ interface OutboxDao {
     suspend fun setState(id: Long, state: OutboxState)
 
     /**
+     * Park mid-edit rows whose auto-retry was already exhausted back as FAILED (#70 regression): a
+     * FAILED item reopened then closed untouched must not silently rejoin the queue and send itself.
+     * Run BEFORE [revertEditingToQueued] at startup so it claims the exhausted rows first; the rest
+     * fall through to QUEUED. [maxAttempts] is [OutboxLogic.MAX_ATTEMPTS], the single retry cap.
+     */
+    @Query("UPDATE outbox SET state = 'FAILED' WHERE state = 'EDITING' AND attemptCount >= :maxAttempts")
+    suspend fun revertEditingExhaustedToFailed(maxAttempts: Int)
+
+    /**
      * Bring every row left mid-edit back into the queue (#70). An EDITING row is one whose composer
      * was open when the process died: the edit is unrecoverable, but the message must not be — this
      * runs at startup so it becomes a normal QUEUED send again instead of being stranded off-worker.
+     * Runs AFTER [revertEditingExhaustedToFailed], so an exhausted row stays FAILED, not requeued.
      */
     @Query("UPDATE outbox SET state = 'QUEUED' WHERE state = 'EDITING'")
     suspend fun revertEditingToQueued()
