@@ -70,6 +70,8 @@
     <string name="settings_push_status_direct">Push: connessione diretta</string>
     <string name="settings_push_status_connecting">Push: connessione in corso…</string>
     <string name="settings_push_status_periodic">Controllo ogni 30 minuti</string>
+    <string name="settings_push_status_not_watched">Controllato all’apertura dell’app</string>
+    <string name="settings_account_notifications_unwatched_note">Questo account non è monitorato. Attiva «Push per tutti gli account» per riceverne le notifiche.</string>
     <string name="up_picker_title">Recapita le notifiche tramite</string>
     <string name="inbox_delete_folder_recursive_title">Eliminare anche le sottocartelle?</string>
     <string name="inbox_delete_folder_recursive_body">"%1$s" contiene sottocartelle. Verranno eliminate tutte insieme ai loro messaggi.</string>
@@ -654,6 +656,7 @@
     <string name="settings_conversation_subtitle">Raggruppa i messaggi della stessa conversazione in un\'unica riga, con un conteggio.</string>
     <string name="settings_unarchive_on_reply_title">Annulla l\'archiviazione all\'arrivo di una risposta</string>
     <string name="settings_unarchive_on_reply_subtitle">Quando arriva una nuova risposta, riporta nella posta in arrivo i messaggi archiviati della conversazione.</string>
+    <string name="settings_conversation_imap_note">Queste impostazioni richiedono un account JMAP. IMAP non ha conversazioni lato server, quindi ogni messaggio resta a sé.</string>
     <string name="compose_many_recipients_title">Inviare a molte persone?</string>
     <string name="compose_many_recipients_message">Questo messaggio verrà inviato a %1$d destinatari.</string>
     <string name="compose_many_recipients_send">Invia a tutti</string>

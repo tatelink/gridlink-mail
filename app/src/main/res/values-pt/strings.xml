@@ -70,6 +70,8 @@
     <string name="settings_push_status_direct">Push: ligação direta</string>
     <string name="settings_push_status_connecting">Push: a ligar…</string>
     <string name="settings_push_status_periodic">Verificação a cada 30 minutos</string>
+    <string name="settings_push_status_not_watched">Verificado ao abrir a aplicação</string>
+    <string name="settings_account_notifications_unwatched_note">Esta conta não está a ser monitorizada. Ative «Push para todas as contas» para receber as suas notificações.</string>
     <string name="up_picker_title">Entregar as notificações através de</string>
     <string name="inbox_delete_folder_recursive_title">Eliminar também as subpastas?</string>
     <string name="inbox_delete_folder_recursive_body">"%1$s" contém subpastas. Serão todas eliminadas, juntamente com as suas mensagens.</string>
@@ -654,6 +656,7 @@
     <string name="settings_conversation_subtitle">Agrupar mensagens da mesma conversa numa linha, com uma contagem.</string>
     <string name="settings_unarchive_on_reply_title">Desarquivar ao chegar uma resposta</string>
     <string name="settings_unarchive_on_reply_subtitle">Quando chega uma nova resposta, trazer de volta à caixa de entrada as mensagens arquivadas da conversa.</string>
+    <string name="settings_conversation_imap_note">Estas definições precisam de uma conta JMAP. O IMAP não tem conversas do lado do servidor, por isso cada mensagem fica isolada.</string>
     <string name="compose_many_recipients_title">Enviar para muitas pessoas?</string>
     <string name="compose_many_recipients_message">Esta mensagem será enviada para %1$d destinatários.</string>
     <string name="compose_many_recipients_send">Enviar a todos</string>

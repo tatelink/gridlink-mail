@@ -70,6 +70,8 @@
     <string name="settings_push_status_direct">Push: прямое подключение</string>
     <string name="settings_push_status_connecting">Push: подключение…</string>
     <string name="settings_push_status_periodic">Проверка каждые 30 минут</string>
+    <string name="settings_push_status_not_watched">Проверяется при открытии приложения</string>
+    <string name="settings_account_notifications_unwatched_note">Эта учётная запись не отслеживается. Включите «Push для всех аккаунтов», чтобы получать для неё уведомления.</string>
     <string name="up_picker_title">Доставлять уведомления через</string>
     <string name="inbox_delete_folder_recursive_title">Удалить также вложенные папки?</string>
     <string name="inbox_delete_folder_recursive_body">«%1$s» содержит вложенные папки. Все они будут удалены вместе с письмами.</string>
@@ -658,6 +660,7 @@
     <string name="settings_conversation_subtitle">Объединять сообщения одной цепочки в одну строку с указанием количества.</string>
     <string name="settings_unarchive_on_reply_title">Извлекать из архива при новом ответе</string>
     <string name="settings_unarchive_on_reply_subtitle">Когда приходит новый ответ, возвращать архивированные письма переписки во Входящие.</string>
+    <string name="settings_conversation_imap_note">Для этих настроек нужна учётная запись JMAP. В IMAP нет серверных цепочек, поэтому каждое письмо остаётся отдельным.</string>
 
     <string name="compose_many_recipients_title">Отправить многим адресатам?</string>
     <string name="compose_many_recipients_message">Это сообщение получат %1$d адресатов.</string>

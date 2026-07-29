@@ -83,6 +83,8 @@
     <string name="settings_push_status_direct">Push: direct connection</string>
     <string name="settings_push_status_connecting">Push: connecting…</string>
     <string name="settings_push_status_periodic">Checked every 30 minutes</string>
+    <string name="settings_push_status_not_watched">Checked when you open the app</string>
+    <string name="settings_account_notifications_unwatched_note">This account is not being watched. Turn on “Push for all accounts” to get notifications for it.</string>
     <string name="up_picker_title">Deliver notifications through</string>
     <string name="inbox_delete_folder_recursive_title">Also delete subfolders?</string>
     <string name="inbox_delete_folder_recursive_body">\"%1$s\" contains subfolders. They will all be deleted, along with their messages.</string>
@@ -350,6 +352,7 @@
     <string name="settings_conversation_subtitle">Group messages of the same thread into one row, with a count.</string>
     <string name="settings_unarchive_on_reply_title">Unarchive on new reply</string>
     <string name="settings_unarchive_on_reply_subtitle">When a new reply arrives, bring the conversation’s archived messages back to the inbox.</string>
+    <string name="settings_conversation_imap_note">These settings need a JMAP account. IMAP has no server-side threads, so each message stays on its own.</string>
     <string name="settings_swipe_actions_section">Swipe actions</string>
     <string name="settings_signature_section">Signature</string>
     <string name="settings_signature_on_replies_title">Signature in replies</string>

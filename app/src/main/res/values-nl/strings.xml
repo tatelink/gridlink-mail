@@ -70,6 +70,8 @@
     <string name="settings_push_status_direct">Push: directe verbinding</string>
     <string name="settings_push_status_connecting">Push: verbinden…</string>
     <string name="settings_push_status_periodic">Controle elke 30 minuten</string>
+    <string name="settings_push_status_not_watched">Gecontroleerd bij het openen van de app</string>
+    <string name="settings_account_notifications_unwatched_note">Dit account wordt niet bewaakt. Schakel ‘Push voor alle accounts’ in om er meldingen voor te krijgen.</string>
     <string name="up_picker_title">Meldingen bezorgen via</string>
     <string name="inbox_delete_folder_recursive_title">Ook submappen verwijderen?</string>
     <string name="inbox_delete_folder_recursive_body">"%1$s" bevat submappen. Ze worden allemaal verwijderd, samen met hun berichten.</string>
@@ -654,6 +656,7 @@
     <string name="settings_conversation_subtitle">Groepeer berichten van dezelfde thread in één rij, met een telling.</string>
     <string name="settings_unarchive_on_reply_title">Uit archief halen bij een nieuw antwoord</string>
     <string name="settings_unarchive_on_reply_subtitle">Wanneer er een nieuw antwoord binnenkomt, de gearchiveerde berichten van het gesprek terug naar Postvak IN halen.</string>
+    <string name="settings_conversation_imap_note">Deze instellingen vereisen een JMAP-account. IMAP heeft geen threads op de server, dus elk bericht staat op zichzelf.</string>
 
     <string name="compose_many_recipients_title">Naar veel mensen verzenden?</string>
     <string name="compose_many_recipients_message">Dit bericht gaat naar %1$d ontvangers.</string>

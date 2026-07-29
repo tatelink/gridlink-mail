@@ -25,6 +25,14 @@ sealed interface PushStatus {
 
     /** No live connection right now — the periodic worker checks every ~30 minutes. */
     data object Periodic : PushStatus
+
+    /**
+     * Not in the watched set at all (issue A8): this account is neither the current one nor
+     * covered by "push for all accounts", so no service connection and no 30-minute worker poll
+     * ever touches it — it is only refreshed when the app is opened. Distinct from [Periodic],
+     * whose 30-minute claim would be a lie here.
+     */
+    data object NotWatched : PushStatus
 }
 
 /**
@@ -69,6 +77,18 @@ object PushController {
         return runBlocking { settings.deliveryMode.first() } == DeliveryMode.BATTERY_SAVER
     }
 
+    /**
+     * Whether [accountId] is in the push/worker watched set (issue A8). Both the foreground service
+     * ([apply]) and the 30-minute fallback worker ([MailFetchWorker]) watch `pushAll ? all : current`
+     * — the filter is applied AFTER this membership, so an account that is neither the current one
+     * nor covered by push-all is looked at by nothing: its notifications toggle changes nothing and
+     * its status is [PushStatus.NotWatched], never a 30-minute poll that never runs. Pure, so the
+     * greying + status decision is unit-tested (linked sub-accounts are handled by the caller: they
+     * stay [PushStatus.Periodic]).
+     */
+    fun isWatched(accountId: String, currentId: String?, pushAllAccounts: Boolean): Boolean =
+        pushAllAccounts || accountId == currentId
+
     /** The read-only status line for one account (hidden by UI when notifications are off). */
     fun statusFor(context: Context, accountId: String): PushStatus {
         val container = (context.applicationContext as Application).container
@@ -78,6 +98,10 @@ object PushController {
             // Honest status for a linked sub-account: it inherits the login's transport state
             // but the server never pushes its changes there (issue #31) — it is periodic.
             store.account(accountId)?.isLinked == true -> PushStatus.Periodic
+            // Not watched at all (issue A8): neither the current account nor covered by push-all,
+            // so no service connection and no 30-minute worker poll ever touches it. Decided before
+            // every connecting/periodic branch below so it can never masquerade as one.
+            !isWatched(accountId, store.currentId(), store.pushAllAccounts()) -> PushStatus.NotWatched
             up.isActive(accountId) -> PushStatus.ViaUnifiedPush(up.distributorLabel())
             isBatterySaver(context) -> PushStatus.Periodic
             // An open connection wins over a pending UnifiedPush bring-up: apply() keeps
@@ -86,10 +110,9 @@ object PushController {
             // after a notifications toggle (#53).
             PushService.isConnected(accountId) -> PushStatus.Direct
             up.isPending(accountId) -> PushStatus.Connecting
-            // Watched by the running service but its connection isn't open yet: bring-up
-            // after a toggle, or a dropped connection on its retry loop.
-            (store.pushAllAccounts() || store.currentId() == accountId) && PushService.isRunning ->
-                PushStatus.Connecting
+            // Watched by the running service (guaranteed here) but its connection isn't open yet:
+            // bring-up after a toggle, or a dropped connection on its retry loop.
+            PushService.isRunning -> PushStatus.Connecting
             else -> PushStatus.Periodic
         }
     }

@@ -140,6 +140,11 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
 
     fun account(id: String): StoredAccount? = store.account(id)
 
+    /** Whether this account is watched for new mail (the current account, or push-for-all is on).
+     *  An unwatched account's notifications toggle is inert, so the UI greys it (issue A8). */
+    fun isWatched(id: String): Boolean =
+        PushController.isWatched(id, store.currentId(), store.pushAllAccounts())
+
     fun syncWindow(id: String): SyncWindow = store.syncWindow(id)
 
     fun setSyncWindow(id: String, window: SyncWindow) {

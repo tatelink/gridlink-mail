@@ -70,6 +70,8 @@
     <string name="settings_push_status_direct">Push : connexion directe</string>
     <string name="settings_push_status_connecting">Push : connexion en cours…</string>
     <string name="settings_push_status_periodic">Vérification toutes les 30 minutes</string>
+    <string name="settings_push_status_not_watched">Relevé à l’ouverture de l’application</string>
+    <string name="settings_account_notifications_unwatched_note">Ce compte n’est pas surveillé. Activez « Push pour tous les comptes » pour en recevoir les notifications.</string>
     <string name="up_picker_title">Acheminer les notifications via</string>
     <string name="inbox_delete_folder_recursive_title">Supprimer aussi les sous-dossiers ?</string>
     <string name="inbox_delete_folder_recursive_body">« %1$s » contient des sous-dossiers. Ils seront tous supprimés, ainsi que leurs messages.</string>
@@ -654,6 +656,7 @@
     <string name="settings_conversation_subtitle">Regrouper les messages d\'un même fil dans une seule ligne, avec un compteur.</string>
     <string name="settings_unarchive_on_reply_title">Désarchiver à l\'arrivée d\'une réponse</string>
     <string name="settings_unarchive_on_reply_subtitle">Quand une nouvelle réponse arrive, ramener les messages archivés de la conversation dans la boîte de réception.</string>
+    <string name="settings_conversation_imap_note">Ces réglages nécessitent un compte JMAP. IMAP n’a pas de fils côté serveur, chaque message reste donc seul.</string>
 
     <!-- Appended keys -->
     <string name="compose_many_recipients_title">Envoyer à de nombreuses personnes ?</string>
