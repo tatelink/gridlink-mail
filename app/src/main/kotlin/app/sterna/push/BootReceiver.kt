@@ -38,11 +38,20 @@ class BootReceiver : BroadcastReceiver() {
         val app = context.applicationContext as? Application ?: return
         // Off the main thread, but still inside the broadcast: deciding whether to restart
         // reads the account store (which decrypts every account's credentials) and the
-        // delivery setting from DataStore. At boot the disk is cold and contended, and a
-        // receiver has roughly ten seconds on the main thread before the system sanctions
-        // it — exactly the moment not to do blocking I/O there. goAsync() keeps the
-        // broadcast (and with it the process state that lets a foreground service start
-        // from the background) alive until finish(), which every path below reaches.
+        // delivery setting from DataStore. At boot the disk is cold and contended, and
+        // onReceive runs on the main thread — exactly the moment not to do blocking I/O
+        // there. goAsync() keeps the process at receiver importance until finish(), which
+        // every path below reaches.
+        //
+        // What lets us start a foreground service from here is NOT goAsync(): it is the
+        // temporary power exemption the system grants the UID when it dispatches
+        // BOOT_COMPLETED, and that exemption is bounded in TIME (device-tunable, ~20 s by
+        // default) — finish() neither extends nor ends it. So the work below must stay
+        // short. Deferring it costs a dispatcher hop and the same I/O the old code did
+        // synchronously, which lands well inside the window; adding anything long here
+        // would silently fall out of it, and the start would be refused. If it ever is,
+        // the runCatching below and PushService.onCreate both degrade to the periodic
+        // worker rather than crash (#98).
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
@@ -51,6 +60,11 @@ class BootReceiver : BroadcastReceiver() {
                 // A coroutine that lets an exception escape takes the process down with it,
                 // and boot receivers are retried — so nothing here may propagate. Mail keeps
                 // arriving through the 30-minute fallback poll either way.
+                //
+                // This catches CancellationException too, which is safe only because
+                // restartPushIfNeeded is NOT suspend and this scope is never cancelled: there
+                // is no cancellation to turn into a fake success. Make that function suspend
+                // and this catch has to let CancellationException through first.
                 Log.w(TAG, "Push restart failed at boot; fallback poll carries delivery", t)
             } finally {
                 // Exactly once, on every path: never finishing leaks the broadcast and gets
