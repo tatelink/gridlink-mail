@@ -1,10 +1,12 @@
 package app.sterna.core.data.mail
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.net.SocketTimeoutException
 
 /**
  * What an IMAP "Empty trash" freezes (Codeberg #99), decided without a device.
@@ -47,12 +49,12 @@ class TrashPurgeImapSnapshotTest {
         assertEquals(listOf("imap:accA:Trash:7"), snapshot(serverUids = { listOf(7L) }))
     }
 
-    @Test fun `past the cap the newest are frozen and the surplus survives`() = runTest {
+    @Test fun `past the cap the head of the server's list is frozen and the surplus survives`() = runTest {
         val ids = snapshot(serverUids = { wholeFolder }, cap = 3)
 
-        // Emptying again clears the rest; re-reading the folder at destroy time to catch up is
-        // the very bug #99 fixed.
-        assertEquals(listOf("imap:accA:Trash:120", "imap:accA:Trash:119", "imap:accA:Trash:118"), ids)
+        // Emptying again clears the next slice; re-reading the folder at destroy time to catch
+        // up is the very bug #99 fixed.
+        assertEquals(listOf("imap:accA:Trash:1", "imap:accA:Trash:2", "imap:accA:Trash:3"), ids)
     }
 
     @Test fun `a server that cannot be asked falls back to what the user was looking at`() = runTest {
@@ -61,6 +63,27 @@ class TrashPurgeImapSnapshotTest {
         // Destroying less than asked is the safe error; throwing here would drop the snackbar
         // and empty nothing at all.
         assertEquals(syncedWindow, ids)
+    }
+
+    @Test fun `a read that ran out of time falls back too`() = runTest {
+        // The enumeration is bounded at the socket, so its deadline arrives as an ordinary
+        // IOException — indistinguishable, by design, from being offline.
+        assertEquals(syncedWindow, snapshot(serverUids = { throw SocketTimeoutException("budget") }))
+    }
+
+    @Test fun `a withdrawn confirmation is not turned into a snapshot of the cache`() = runTest {
+        // Undo cancels the job while the folder is being read. Falling back here would freeze a
+        // destroy list the user has just revoked.
+        var cacheRead = false
+        val thrown = runCatching {
+            snapshot(
+                serverUids = { throw CancellationException("undo") },
+                cached = { cacheRead = true; syncedWindow },
+            )
+        }.exceptionOrNull()
+
+        assertTrue("expected the cancellation to propagate, got $thrown", thrown is CancellationException)
+        assertFalse(cacheRead)
     }
 
     @Test fun `a server reporting an empty trash freezes nothing, stale cache included`() = runTest {

@@ -3046,6 +3046,12 @@ class MailRepository(
      * the safe error. Neither branch throws — an exception here drops the snackbar and empties
      * nothing.
      *
+     * The caller has ALREADY put "Trash emptied" on screen when this runs, so the IMAP read is
+     * given a deadline ([ImapMailService.ENUMERATE_BUDGET_MS]) rather than the blocking wait
+     * every other IMAP call has: a black-holed network must reach the cached fallback in
+     * seconds, not leave a success message over an untouched list. A cancelled confirmation
+     * (Undo) is the one failure that propagates instead of falling back.
+     *
      * Bounded by [TrashPurge.SNAPSHOT_MAX]. A Trash holding more keeps the surplus, and
      * emptying again clears the rest — re-reading the folder to catch up is the defect itself.
      */
@@ -3061,7 +3067,7 @@ class MailRepository(
             TrashPurge.imapSnapshotIds(
                 accountId = credentials.id,
                 mailboxId = trashMailboxId,
-                serverUids = { imap.allUids(credentials, trashMailboxId) },
+                serverUids = { imap.allUids(credentials, trashMailboxId, TrashPurge.SNAPSHOT_MAX) },
                 cached = { cached() },
             )
         } else {

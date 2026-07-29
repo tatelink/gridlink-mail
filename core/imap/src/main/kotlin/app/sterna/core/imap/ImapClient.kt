@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.Closeable
 import java.io.OutputStream
+import java.net.InetSocketAddress
 import java.net.Socket
 import java.time.OffsetDateTime
 import java.time.ZonedDateTime
@@ -27,27 +28,39 @@ internal fun SSLSocket.verifyingHostname(): SSLSocket = apply {
 
 /** Opens authenticated IMAP sessions. The session object carries the live connection. */
 class ImapClient {
-    suspend fun connect(config: MailServerConfig): ImapSession =
-        withContext(Dispatchers.IO) { openSession(config) }
+    suspend fun connect(config: MailServerConfig, connectTimeoutMs: Int = 0): ImapSession =
+        withContext(Dispatchers.IO) { openSession(config, connectTimeoutMs) }
 
-    /** Blocking connect + login. Use when already on a dedicated IO thread (e.g. IDLE). */
-    fun openSession(config: MailServerConfig): ImapSession {
-        val plain = Socket(config.host, config.port)
+    /**
+     * Blocking connect + login. Use when already on a dedicated IO thread (e.g. IDLE).
+     *
+     * [connectTimeoutMs] bounds the TCP connect AND the greeting/STARTTLS/login reads that
+     * follow, after which the socket goes back to its blocking default so no later operation
+     * inherits a timeout. `0` IS that default — a connect the OS gives up on after minutes —
+     * and is what every caller that passes nothing has always had. Name resolution is not
+     * covered by it (no socket option is), exactly as before.
+     */
+    fun openSession(config: MailServerConfig, connectTimeoutMs: Int = 0): ImapSession {
+        val timeout = connectTimeoutMs.coerceAtLeast(0)
+        val plain = Socket()
+        plain.connect(InetSocketAddress(config.host, config.port), timeout)
         val socket = when (config.security) {
             MailSecurity.TLS ->
                 (tlsFactory.createSocket(plain, config.host, config.port, true) as SSLSocket).verifyingHostname()
             else -> plain
         }
         val session = ImapSession(socket)
-        session.readGreeting()
-        if (config.security == MailSecurity.STARTTLS) {
-            session.command("STARTTLS")
-            session.upgradeTls(config.host, config.port)
-        }
-        if (config.accessToken != null) {
-            session.authenticateXoauth2(config.username, config.accessToken)
-        } else {
-            session.login(config.username, config.password)
+        session.withReadTimeout(timeout) {
+            session.readGreeting()
+            if (config.security == MailSecurity.STARTTLS) {
+                session.command("STARTTLS")
+                session.upgradeTls(config.host, config.port)
+            }
+            if (config.accessToken != null) {
+                session.authenticateXoauth2(config.username, config.accessToken)
+            } else {
+                session.login(config.username, config.password)
+            }
         }
         return session
     }
@@ -120,14 +133,41 @@ class ImapSession(private var socket: Socket) : Closeable {
         return if (verb == "LOGIN" || verb == "AUTHENTICATE") "$verb …" else line
     }
 
-    /** Send a tagged command and collect untagged responses up to the tagged result. */
-    internal fun command(line: String): ImapResult {
+    /**
+     * Bound every socket read made inside [block] to [millis], then restore the socket's
+     * previous setting — the shape [idle] already uses, so one operation can be given a
+     * deadline without any other inheriting it. `0` means "block forever", the JVM default.
+     *
+     * A per-READ bound, not a total: a server dribbling one byte at a time stays under it
+     * indefinitely. It is what a socket offers, and it is what turns "hangs until the OS gives
+     * up, minutes later" into "gives up on a silent peer in [millis]".
+     */
+    fun <T> withReadTimeout(millis: Int, block: () -> T): T {
+        val previous = socket.soTimeout
+        socket.soTimeout = millis.coerceAtLeast(0)
+        try {
+            return block()
+        } finally {
+            // The field can have been swapped by a STARTTLS upgrade inside the block; restore
+            // on whatever socket is current.
+            runCatching { socket.soTimeout = previous }
+        }
+    }
+
+    /**
+     * Send a tagged command and collect untagged responses up to the tagged result.
+     *
+     * [maxTokensPerLine] caps what each response line RETAINS (see [ImapParser.readResponse]);
+     * the default keeps everything. Only a caller that already knows it will discard the
+     * surplus should lower it — and it must leave room for a tagged status line.
+     */
+    internal fun command(line: String, maxTokensPerLine: Int = Int.MAX_VALUE): ImapResult {
         val tag = "a${++tagN}"
         output.write("$tag $line\r\n".toByteArray(Charsets.UTF_8))
         output.flush()
         val untagged = mutableListOf<List<Any?>>()
         while (true) {
-            val resp = input.readResponse()
+            val resp = input.readResponse(maxTokensPerLine)
             if (resp.isEmpty()) {
                 if (socket.isClosed) throw ImapException("Connection closed")
                 continue
@@ -330,21 +370,34 @@ class ImapSession(private var socket: Socket) : Closeable {
     }
 
     /**
-     * Every UID in the SELECTed mailbox, via `UID SEARCH ALL`.
+     * At most [cap] UIDs from the SELECTed mailbox, via `UID SEARCH ALL`.
      *
      * The whole folder, not the synced window, and without fetching a single envelope: one
      * command, one line of numbers. `ALL` is the RFC 3501 search key every server implements,
      * so this is the cheap way to enumerate a folder whose messages were never scrolled to
      * (used to freeze an "Empty trash", Codeberg #99).
      *
+     * [cap] is enforced DURING the parse, not after: without ESEARCH the server cannot be asked
+     * for fewer, so a 200 000-message folder is read to the end (the stream must stay in sync)
+     * while only [cap] ids are ever held. The ids kept are therefore the first the server listed
+     * — ascending UID, i.e. the oldest — and the surplus survives, as it does on JMAP; emptying
+     * again clears the next slice. Picking the newest instead would mean holding all 200 000 to
+     * sort them, which is the cost this avoids.
+     *
      * Unlike [searchUids] this reads EVERY untagged `SEARCH` line, not just the first: a server
      * is free to split a long result across several, and here a dropped tail would silently
      * shorten the list of what to destroy. No `CHARSET` question either — `ALL` is pure ASCII.
      */
-    fun allUids(): List<Long> =
-        command("UID SEARCH ALL").untagged
+    fun allUids(cap: Int): List<Long> {
+        if (cap <= 0) return emptyList()
+        // +2 leaves room for the "*" and "SEARCH" that open the line (and for a tagged status
+        // line, which is far shorter than that).
+        val keep = if (cap > Int.MAX_VALUE - 2) Int.MAX_VALUE else cap + 2
+        return command("UID SEARCH ALL", maxTokensPerLine = keep).untagged
             .filter { it.getOrNull(1) == "SEARCH" }
             .flatMap { line -> line.drop(2).mapNotNull { (it as? String)?.toLongOrNull() } }
+            .take(cap)
+    }
 
     /** Fetch several messages by UID (envelope + flags). */
     fun fetchUids(uids: List<Long>): List<ImapMessage> {

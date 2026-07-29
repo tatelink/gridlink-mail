@@ -1,6 +1,7 @@
 package app.sterna.core.data.mail
 
 import app.sterna.core.data.db.PurgeSnapshotEntity
+import kotlinx.coroutines.CancellationException
 
 /**
  * Turning a confirmed "Empty trash" into the fixed list of messages it may destroy (Codeberg #99).
@@ -52,14 +53,23 @@ object TrashPurge {
      * Emptying a large Trash the user never scrolled through used to leave everything below
      * that window on the server while the app announced the folder emptied.
      *
-     * Highest UIDs first, then [cap]: the bound the JMAP path already applies, kept on the
-     * newest messages — the ones the user was looking at. Past the cap the surplus survives
-     * and emptying again clears the rest.
+     * The order is the server's (ascending UID, oldest first) and [cap] takes the head of it —
+     * the supplier already stops holding ids there, so re-sorting to prefer the newest would
+     * mean materialising the whole folder first, which is the cost that cap exists to avoid.
+     * Past the cap the surplus survives and emptying again clears the next slice, as on JMAP.
      *
-     * When the server cannot be asked (offline, a server refusing the search), the [cached]
-     * ids stand in, exactly as the JMAP path does: they are what the user was looking at, and
-     * destroying less than asked is the safe error. This never throws where the cache alone
-     * used to succeed — an exception here would drop the snackbar and empty nothing.
+     * Two failures, deliberately told apart:
+     * - The server could not be asked — offline, refused, or out of time. The [cached] ids
+     *   stand in, exactly as the JMAP path does: they are what the user was looking at, and
+     *   destroying less than asked is the safe error. Nothing throws where the cache alone
+     *   used to succeed, since an exception here drops the snackbar and empties nothing.
+     *   The enumeration is bounded AT THE SOCKET, so a timeout arrives as an ordinary
+     *   IOException and lands here — deliberately, because a coroutine timeout would be a
+     *   [CancellationException] and could not be told from the case below.
+     * - The confirmation itself was withdrawn (Undo cancels the job while the folder is being
+     *   read). That must propagate: no snapshot, no order. Swallowing it would turn a
+     *   cancelled confirmation into a snapshot of the cache — a destroy list the user just
+     *   revoked.
      */
     suspend fun imapSnapshotIds(
         accountId: String,
@@ -68,10 +78,13 @@ object TrashPurge {
         cached: suspend () -> List<String>,
         cap: Int = SNAPSHOT_MAX,
     ): List<String> =
-        runCatching {
+        try {
             serverUids()
-                .sortedDescending()
                 .take(cap.coerceAtLeast(0))
                 .map { ImapMailService.emailId(accountId, mailboxId, it) }
-        }.getOrElse { cached() }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (unreachable: Throwable) {
+            cached()
+        }
 }
