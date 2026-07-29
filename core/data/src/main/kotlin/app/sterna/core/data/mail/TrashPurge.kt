@@ -1,13 +1,15 @@
 package app.sterna.core.data.mail
 
 import app.sterna.core.data.db.PurgeSnapshotEntity
+import kotlinx.coroutines.CancellationException
 
 /**
  * Turning a confirmed "Empty trash" into the fixed list of messages it may destroy (Codeberg #99).
  *
- * Pure, so the part that decides WHAT gets destroyed is checkable without a device: which ids are
- * kept, what the cap does, and — by construction — what happens to a message that reaches the
- * Trash after the confirmation, which is simply not in the list.
+ * Free of Room and of any connection (the server is a supplier the caller passes in), so the part
+ * that decides WHAT gets destroyed is checkable without a device: which ids are kept, what the cap
+ * does, what a failed server read falls back to, and — by construction — what happens to a message
+ * that reaches the Trash after the confirmation, which is simply not in the list.
  */
 object TrashPurge {
 
@@ -44,4 +46,45 @@ object TrashPurge {
             .take(cap.coerceAtLeast(0))
             .map { PurgeSnapshotEntity(purgeId, accountId, mailboxId, it, now) }
             .toList()
+
+    /**
+     * The ids an IMAP "Empty trash" freezes: the WHOLE folder as the server enumerates it
+     * ([serverUids], a `UID SEARCH ALL`), not merely the window that happened to be synced.
+     * Emptying a large Trash the user never scrolled through used to leave everything below
+     * that window on the server while the app announced the folder emptied.
+     *
+     * The order is the server's (ascending UID, oldest first) and [cap] takes the head of it —
+     * the supplier already stops holding ids there, so re-sorting to prefer the newest would
+     * mean materialising the whole folder first, which is the cost that cap exists to avoid.
+     * Past the cap the surplus survives and emptying again clears the next slice, as on JMAP.
+     *
+     * Two failures, deliberately told apart:
+     * - The server could not be asked — offline, refused, or out of time. The [cached] ids
+     *   stand in, exactly as the JMAP path does: they are what the user was looking at, and
+     *   destroying less than asked is the safe error. Nothing throws where the cache alone
+     *   used to succeed, since an exception here drops the snackbar and empties nothing.
+     *   The enumeration is bounded AT THE SOCKET, so a timeout arrives as an ordinary
+     *   IOException and lands here — deliberately, because a coroutine timeout would be a
+     *   [CancellationException] and could not be told from the case below.
+     * - The confirmation itself was withdrawn (Undo cancels the job while the folder is being
+     *   read). That must propagate: no snapshot, no order. Swallowing it would turn a
+     *   cancelled confirmation into a snapshot of the cache — a destroy list the user just
+     *   revoked.
+     */
+    suspend fun imapSnapshotIds(
+        accountId: String,
+        mailboxId: String,
+        serverUids: suspend () -> List<Long>,
+        cached: suspend () -> List<String>,
+        cap: Int = SNAPSHOT_MAX,
+    ): List<String> =
+        try {
+            serverUids()
+                .take(cap.coerceAtLeast(0))
+                .map { ImapMailService.emailId(accountId, mailboxId, it) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (unreachable: Throwable) {
+            cached()
+        }
 }

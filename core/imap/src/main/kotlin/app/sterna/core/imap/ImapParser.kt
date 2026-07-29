@@ -25,16 +25,37 @@ internal class ImapParser(private val input: InputStream) {
         return peeked
     }
 
-    /** Read one full response line (following any literals) into a token list. */
-    fun readResponse(): List<Any?> {
+    /**
+     * Read one full response line (following any literals) into a token list.
+     *
+     * [maxTokens] bounds what is KEPT, not what is read: past it the line is still consumed to
+     * its end — the stream must stay in sync for the next command — but the surplus tokens are
+     * discarded as they go, and an atom past the cap is skipped byte by byte without ever being
+     * built. A `UID SEARCH` over a 200 000-message folder otherwise materialises 200 000 boxed
+     * atoms before the caller can throw the surplus away, on devices as old as an S7 (#99).
+     */
+    fun readResponse(maxTokens: Int = Int.MAX_VALUE): List<Any?> {
         val tokens = mutableListOf<Any?>()
         while (true) {
-            when (val c = peek()) {
+            when (peek()) {
                 -1 -> return tokens
                 '\r'.code -> { read(); if (peek() == '\n'.code) read(); return tokens }
                 '\n'.code -> { read(); return tokens }
                 ' '.code -> read()
-                else -> tokens.add(readToken())
+                else -> if (tokens.size < maxTokens) tokens.add(readToken()) else skipToken()
+            }
+        }
+    }
+
+    /** Consume one token without building it (the surplus past a caller's cap). */
+    private fun skipToken() {
+        when (peek()) {
+            '('.code, '"'.code, '{'.code -> readToken() // rare here; read and drop
+            else -> while (true) {
+                when (peek()) {
+                    -1, ' '.code, '('.code, ')'.code, '\r'.code, '\n'.code -> return
+                    else -> read()
+                }
             }
         }
     }

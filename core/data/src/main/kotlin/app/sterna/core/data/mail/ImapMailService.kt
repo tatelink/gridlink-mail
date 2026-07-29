@@ -21,12 +21,14 @@ import app.sterna.core.imap.buildImapSearch
 import app.sterna.core.imap.searchFolders
 import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.SearchQuery
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.net.SocketTimeoutException
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
@@ -72,8 +74,16 @@ class ImapMailService(
      * Run [block] on the account's pooled IMAP session, opening or reconnecting as
      * needed. Serialised per account (one command at a time); on a connection error
      * the session is dropped and the block retried once with a fresh connection.
+     *
+     * [budgetMs] is a wall-clock deadline for the whole call, retry included; `0` (the default
+     * every existing caller keeps) means the blocking behaviour this has always had. See
+     * [ENUMERATE_BUDGET_MS] for what a budget is and is not worth.
      */
-    private suspend fun <T> withSession(credentials: AccountCredentials, block: (ImapSession) -> T): T =
+    private suspend fun <T> withSession(
+        credentials: AccountCredentials,
+        budgetMs: Int = 0,
+        block: (ImapSession) -> T,
+    ): T =
         withContext(Dispatchers.IO) {
             val config = config(credentials.imap ?: error("Account has no IMAP server configured."), credentials)
             val pooled = pool.getOrPut(credentials.id) { Pooled() }
@@ -84,16 +94,34 @@ class ImapMailService(
                     pooled.session = null
                 }
                 pooled.config = config
-                runWithRetry(pooled, config, block)
+                runWithRetry(pooled, config, budgetMs, block)
             }
         }
 
-    private suspend fun <T> runWithRetry(pooled: Pooled, config: MailServerConfig, block: (ImapSession) -> T): T {
+    private suspend fun <T> runWithRetry(
+        pooled: Pooled,
+        config: MailServerConfig,
+        budgetMs: Int,
+        block: (ImapSession) -> T,
+    ): T {
+        val deadline = if (budgetMs > 0) System.currentTimeMillis() + budgetMs else 0L
         var attempt = 0
         while (true) {
-            val session = pooled.session ?: imapClient.connect(config).also { pooled.session = it }
+            // What is left of the budget bounds BOTH the connect and each read of this attempt,
+            // so the reconnect below cannot double the wait. Without a budget this stays 0, i.e.
+            // "block until the OS gives up", unchanged for every other caller.
+            val remaining = if (deadline == 0L) 0 else (deadline - System.currentTimeMillis()).toInt()
+            if (deadline != 0L && remaining <= 0) throw SocketTimeoutException("IMAP budget exhausted")
+            val session = pooled.session ?: imapClient.connect(config, remaining).also { pooled.session = it }
             try {
-                return block(session)
+                return session.withReadTimeout(remaining) { block(session) }
+            } catch (cancelled: CancellationException) {
+                // The caller gave up (an Undo, a closed screen): the session is mid-command and
+                // its stream state unknown, so drop it — but do NOT spend a reconnect + LOGIN
+                // retrying work nobody is waiting for, and let the cancellation through.
+                runCatching { session.close() }
+                pooled.session = null
+                throw cancelled
             } catch (t: Throwable) {
                 runCatching { session.close() }
                 pooled.session = null
@@ -282,6 +310,25 @@ class ImapMailService(
     suspend fun deleteBatch(credentials: AccountCredentials, mailboxId: String, uids: List<Long>) =
         withSession(credentials) { it.select(mailboxId); it.delete(uids) }
 
+    /**
+     * At most [cap] UIDs currently in [mailboxId] — one SELECT + one `UID SEARCH ALL`, no
+     * envelopes, [cap] ids held at any time.
+     *
+     * The folder as the SERVER holds it, not as the cache happens to have synced it, which is
+     * what a whole-folder operation needs: an "Empty trash" on a Trash the user never scrolled
+     * through must cover the messages below the synced window too (Codeberg #99).
+     *
+     * TIME-BOUNDED, unlike every other call here, because the screen has already told the user
+     * the Trash is empty by the time this runs: it is allowed [ENUMERATE_BUDGET_MS], then it
+     * fails and the caller falls back to the cached ids. Waiting out a black-holed network on
+     * this path would leave a success message on screen over an untouched list.
+     */
+    suspend fun allUids(credentials: AccountCredentials, mailboxId: String, cap: Int): List<Long> =
+        withSession(credentials, budgetMs = ENUMERATE_BUDGET_MS) { session ->
+            session.select(mailboxId)
+            session.allUids(cap)
+        }
+
     /** Fetch several messages by UID from one folder in a single session (e.g. to re-cache a restored batch). */
     suspend fun fetchByUids(credentials: AccountCredentials, mailboxId: String, uids: List<Long>): List<EmailEntity> =
         if (uids.isEmpty()) emptyList()
@@ -426,6 +473,18 @@ class ImapMailService(
     }
 
     companion object {
+        /**
+         * Wall-clock budget for a whole-folder enumeration ([allUids]), reconnect included.
+         *
+         * It bounds the connect and each read of the attempt, not their sum: a peer that keeps
+         * trickling bytes can still overrun it, so the honest worst case is about twice this.
+         * Against an OS default measured in minutes, on a path where a success message is
+         * already on screen, that is the point. A real Trash answers in well under a second;
+         * anything that does not is a network the user is better told about by the fallback
+         * (their cached view) than by a frozen screen.
+         */
+        const val ENUMERATE_BUDGET_MS = 15_000
+
         /** Stable, globally-unique cache id for an IMAP message. */
         fun emailId(accountId: String, mailboxId: String, uid: Long): String = "imap:$accountId:$mailboxId:$uid"
 
