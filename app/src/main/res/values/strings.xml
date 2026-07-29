@@ -683,6 +683,7 @@
     <string name="search_failed">Search failed: %1$s</string>
     <string name="search_no_results">No results for \"%1$s\".</string>
     <string name="search_no_results_generic">No matching messages.</string>
+    <string name="search_incomplete">Search stopped before the end. Refine the filters or try again.</string>
     <plurals name="search_result_count">
         <item quantity="one">%1$d result</item>
         <item quantity="other">%1$d results</item>

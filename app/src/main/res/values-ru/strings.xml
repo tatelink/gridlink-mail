@@ -547,6 +547,7 @@
     <string name="search_failed">Ошибка поиска: %1$s</string>
     <string name="search_no_results">Ничего не найдено по запросу «%1$s».</string>
     <string name="search_no_results_generic">Нет подходящих писем.</string>
+    <string name="search_incomplete">Поиск остановлен до завершения. Уточните фильтры или повторите попытку.</string>
     <plurals name="search_result_count">
         <item quantity="one">%1$d результат</item>
         <item quantity="few">%1$d результата</item>

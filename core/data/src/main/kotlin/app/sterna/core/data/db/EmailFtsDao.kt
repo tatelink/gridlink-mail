@@ -60,18 +60,22 @@ interface EmailFtsDao {
             "SELECT id, accountId, mailboxId, threadId, COALESCE(subject, ''), " +
             "TRIM(COALESCE(fromName, '') || ' ' || COALESCE(fromEmail, '')), '', " +
             "preview, receivedAt, fromName, fromEmail, seen, flagged, hasAttachment, sortKey " +
-            "FROM emails",
+            "FROM emails WHERE NOT EXISTS (SELECT 1 FROM mailboxes " +
+            "WHERE mailboxes.id = emails.mailboxId AND mailboxes.accountId = emails.accountId " +
+            "AND LOWER(TRIM(COALESCE(mailboxes.role, ''))) IN (:excludedRoles))",
     )
-    suspend fun insertFromEmails()
+    suspend fun insertFromEmails(excludedRoles: Collection<String>)
 
     /**
      * Seed the index from the display cache (recent window) without clearing crawled-only rows:
      * an instant coverage floor while the full index crawl (whole mailbox) runs in the background.
+     * Cached Trash/Junk rows are skipped ([excludedRoles], the same role source the search excludes),
+     * so a deleted message you happened to open never leaks into as-you-type results.
      */
     @Transaction
-    suspend fun seedFromEmails() {
+    suspend fun seedFromEmails(excludedRoles: Collection<String>) {
         deleteCachedRows()
-        insertFromEmails()
+        insertFromEmails(excludedRoles)
     }
 
     /**

@@ -192,7 +192,18 @@ internal fun fitsBodyCache(bodyJson: String, inlineImagesJson: String): Boolean 
 internal fun searchableFolderIds(folders: List<MailboxIdRole>): List<String> =
     folders.filterNot { it.role?.trim()?.lowercase() in NOT_SEARCHED_ROLES }.map { it.id }
 
-private val NOT_SEARCHED_ROLES = setOf("trash", "junk", "spam")
+/**
+ * The complement of [searchableFolderIds]: the account's Trash/Junk/Spam folders, kept OUT of a
+ * search. IMAP excludes them by simply not walking them; JMAP searches the whole account in one
+ * query and the FTS crawl indexes it whole, so both need these ids to exclude explicitly — the JMAP
+ * server filter via `inMailboxOtherThan`, the crawl by not indexing them. Same role rule as
+ * [searchableFolderIds] (the single [NOT_SEARCHED_ROLES] source), so the two protocols and the local
+ * index can never disagree about what a search may surface.
+ */
+internal fun excludedSearchFolderIds(folders: List<MailboxIdRole>): List<String> =
+    folders.filter { it.role?.trim()?.lowercase() in NOT_SEARCHED_ROLES }.map { it.id }
+
+internal val NOT_SEARCHED_ROLES = setOf("trash", "junk", "spam")
 
 internal fun requireSingleLineAddresses(addresses: List<String>) {
     require(addresses.none { addr -> addr.any { it == '\r' || it == '\n' } }) {
@@ -212,6 +223,21 @@ internal suspend fun <T> readCachedOrPurge(
     runCatching { purge() }
     null
 }
+
+/**
+ * Run [stage] — persisting an outbox item's payload/attachments after its row is already inserted —
+ * and, if it throws, [rollback] the just-inserted row before the error propagates. A staging
+ * failure must leave NO row behind: an orphan (inserted with attachmentsJson "[]") would be
+ * re-armed by [MailRepository.unfinishedOutbox] at the next startup and sent amputated, exactly the
+ * silent loss the durable outbox exists to prevent (#70). Pure control flow, so it is unit-tested.
+ */
+internal suspend fun <T> stageOrRollback(rollback: suspend () -> Unit, stage: suspend () -> T): T =
+    try {
+        stage()
+    } catch (t: Throwable) {
+        rollback()
+        throw t
+    }
 
 /** Max full-text search matches returned to the UI. */
 private const val LOCAL_SEARCH_LIMIT = 100
@@ -1130,7 +1156,7 @@ class MailRepository(
      * (recent window), without clearing crawled-only rows. Called when a search session opens; the
      * full whole-mailbox crawl ([syncSearchIndex]) runs separately in the background.
      */
-    suspend fun seedIndexFromCache() = emailFtsDao.seedFromEmails()
+    suspend fun seedIndexFromCache() = emailFtsDao.seedFromEmails(NOT_SEARCHED_ROLES)
 
     /** Per-account throttle for the (network) index crawl. */
     private val lastIndexAt = mutableMapOf<String, Long>()
@@ -1153,12 +1179,16 @@ class MailRepository(
         val now = System.currentTimeMillis()
         if (!force && now - (lastIndexAt[credentials.id] ?: 0L) < INDEX_TTL_MS) return
         val ctx = runCatching { connect(credentials) }.getOrNull() ?: return
+        // Don't crawl Trash/Junk into the index (parity with the server search and the IMAP walk):
+        // same role source as searchableFolderIds, so what the index holds and what a search may
+        // surface can never diverge. Excluded server-side, so those headers never come down.
+        val excluded = excludedSearchFolderIds(mailboxDao.searchOrder(credentials.id))
         var position = 0
         var failed = false
         var consecutiveErrors = 0
         while (position < HEADER_MAX) {
             val page = try {
-                client.crawlHeaders(ctx.session, ctx.accountId, position, HEADER_PAGE, ctx.auth)
+                client.crawlHeaders(ctx.session, ctx.accountId, position, HEADER_PAGE, ctx.auth, excluded)
             } catch (e: CancellationException) {
                 throw e // search closed / VM cleared: bail WITHOUT stamping so we resume next time
             } catch (e: Exception) {
@@ -3120,7 +3150,11 @@ class MailRepository(
             )
         }
         val ctx = connect(credentials)
-        val hits = client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth)
+        // Exclude Trash/Junk from the server search too, so JMAP matches the IMAP walk and the local
+        // index — a message you deleted must not reappear in results whatever the server (Stalwart
+        // returned it before). Same role source as the IMAP path's searchableFolderIds.
+        val excluded = excludedSearchFolderIds(mailboxDao.searchOrder(credentials.id))
+        val hits = client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth, excluded)
         // A hit can live in several mailboxes: resolve its folder like [fetchThreadMembers] —
         // the cached row's folder while the server still lists it, else the role-ranked pick —
         // never the server map's arbitrary first key, which could feed a search-row action
@@ -3830,14 +3864,20 @@ class MailRepository(
                 draftEmailId = draftEmailId,
             ),
         )
-        if (pgpEntity != null && pgpMode != null && pgpMode != PgpMode.OFF) {
-            val dir = java.io.File(outboxFilesDir, id.toString()).apply { mkdirs() }
-            val entityFile = java.io.File(dir, "pgp-entity.mime").apply { writeText(pgpEntity) }
-            outboxDao.byId(id)?.let { outboxDao.update(it.copy(pgpEntityPath = entityFile.absolutePath)) }
-        } else {
-            // Make attachments durable now that we have the item id to key the persistent dir.
-            val durable = persistAttachments(id, attachments)
-            outboxDao.byId(id)?.let { outboxDao.update(it.copy(attachmentsJson = OutboxAttachments.encode(durable))) }
+        // Staging runs AFTER the row is inserted (it needs the id to key the durable dir). If it
+        // throws — an unreadable attachment (persistAttachments errors rather than send it short),
+        // a write failure — the row must not survive: an orphan carrying attachmentsJson "[]" would
+        // be re-armed at the next startup and sent amputated (#70). Roll it back and relay the error.
+        stageOrRollback(rollback = { deleteOutbox(id) }) {
+            if (pgpEntity != null && pgpMode != null && pgpMode != PgpMode.OFF) {
+                val dir = java.io.File(outboxFilesDir, id.toString()).apply { mkdirs() }
+                val entityFile = java.io.File(dir, "pgp-entity.mime").apply { writeText(pgpEntity) }
+                outboxDao.byId(id)?.let { outboxDao.update(it.copy(pgpEntityPath = entityFile.absolutePath)) }
+            } else {
+                // Make attachments durable now that we have the item id to key the persistent dir.
+                val durable = persistAttachments(id, attachments)
+                outboxDao.byId(id)?.let { outboxDao.update(it.copy(attachmentsJson = OutboxAttachments.encode(durable))) }
+            }
         }
         outboxScheduler?.schedule(id, holdMs)
         return id
@@ -3944,6 +3984,11 @@ class MailRepository(
      */
     suspend fun takeOutboxForEdit(id: Long, stagingDir: java.io.File): OutboxDraft? {
         val item = outboxDao.byId(id) ?: return null
+        // State guard at the choke point (#70): only a genuinely waiting, non-encrypted row may be
+        // taken. A SENDING row has a send in flight — marking it EDITING here would race the
+        // worker's updateOutboxState (orphaned edit or double send); an EDITING row is already open.
+        // The screen hides Edit for these, but the guard belongs here too, where the state flips.
+        if (!OutboxLogic.canEdit(item.pgpMode, item.state)) return null
         // Stage attachments for the composer BEFORE changing state: OutboxEdit.take throws on an
         // unreadable attachment (rather than reopen an amputated message), and a throw here must
         // leave the row exactly as it was — still QUEUED, still deliverable.
@@ -3976,13 +4021,23 @@ class MailRepository(
     suspend fun releaseOutboxEdit(id: Long) {
         val row = outboxDao.byId(id) ?: return
         if (row.state != OutboxState.EDITING) return
-        outboxDao.setState(id, OutboxState.QUEUED)
+        // A FAILED item (auto-retry exhausted) reopened then closed untouched must NOT restart on its
+        // own (#70 regression): it goes back to FAILED, keeping its error text, and is left off the
+        // worker — only Retry/Send re-arms it. Everything else rejoins the queue and is re-armed.
+        val next = OutboxLogic.stateAfterEdit(row.attemptCount)
+        outboxDao.setState(id, next)
+        if (next != OutboxState.QUEUED) return
         // Held or scheduled items keep whatever is left of their wait; everything else goes now.
         outboxScheduler?.schedule(id, (row.notBeforeMillis - System.currentTimeMillis()).coerceAtLeast(0))
     }
 
-    /** Startup recovery (#70): revert rows stranded in EDITING by a process death, then re-arm them. */
+    /**
+     * Startup recovery (#70): revert rows stranded in EDITING by a process death. An exhausted row
+     * (its auto-retry was spent before it was reopened) goes back to FAILED so it is NOT re-armed by
+     * [unfinishedOutbox]; the rest become QUEUED again. Order matters — park the exhausted first.
+     */
     suspend fun revertEditingOutbox() {
+        outboxDao.revertEditingExhaustedToFailed(OutboxLogic.MAX_ATTEMPTS)
         outboxDao.revertEditingToQueued()
     }
 

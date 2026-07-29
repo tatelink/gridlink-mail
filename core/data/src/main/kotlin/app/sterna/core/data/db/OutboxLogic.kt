@@ -27,15 +27,35 @@ object OutboxLogic {
     fun shouldRetry(attemptCount: Int): Boolean = attemptCount < MAX_ATTEMPTS
 
     /**
-     * Whether a queued item can be reopened in the composer. Everything can, except an ENCRYPTED
-     * one: its body is not in the row at all (the ciphertext lives in the item's own directory,
-     * see [OutboxEntity.pgpMode]), so the composer would open empty and sending from there would
-     * send an empty message. An action that cannot do what its label promises is not offered
-     * (#70). Retry and Delete stay: both work on the row as it stands.
-     *
-     * Signing is not affected: a SIGNED item keeps its body in the row and is signed at send time.
+     * The state a reopened item returns to once its edit ends — the composer was closed untouched,
+     * or a process death is being recovered at startup. An item whose auto-retry was already
+     * exhausted (parked FAILED, its [attemptCount] at the cap) must stay parked for manual handling,
+     * NOT silently rejoin the queue and send itself: reopening a FAILED item to look at it, then
+     * closing it, must not restart delivery — only Retry/Send may (#70 regression from EDITING).
+     * [attemptCount] is the faithful proxy for "was FAILED": the cap is reached only on the
+     * FAILED-parking path (see [shouldRetry]). Everything else goes back to [OutboxState.QUEUED].
      */
-    fun canEdit(pgpMode: String?): Boolean = !pgpMode.equals("ENCRYPT", ignoreCase = true)
+    fun stateAfterEdit(attemptCount: Int): OutboxState =
+        if (attemptCount >= MAX_ATTEMPTS) OutboxState.FAILED else OutboxState.QUEUED
+
+    /**
+     * Whether an outbox item can be reopened in the composer. Two things must hold.
+     *
+     * It must not be ENCRYPTED: the ciphertext lives in the item's own directory, not the row (see
+     * [OutboxEntity.pgpMode]), so the composer would open empty and send an empty message. Signing
+     * is unaffected — a SIGNED item keeps its body in the row and is signed at send time.
+     *
+     * And it must be genuinely waiting — QUEUED, HELD or FAILED. A [OutboxState.SENDING] row has a
+     * send in flight: reopening it lets the worker's updateOutboxState clobber the EDITING flag,
+     * leaving the edit orphaned or the message sent twice. An [OutboxState.EDITING] row is already
+     * open in a composer. Neither may be taken. An action that cannot do what its label promises is
+     * not offered (#70); Retry and Delete stay — both work on the row as it stands.
+     */
+    fun canEdit(pgpMode: String?, state: OutboxState): Boolean =
+        !pgpMode.equals("ENCRYPT", ignoreCase = true) && when (state) {
+            OutboxState.QUEUED, OutboxState.HELD, OutboxState.FAILED -> true
+            OutboxState.SENDING, OutboxState.EDITING -> false
+        }
 
     /**
      * Items shown on the badge: anything pending or failed, plus a HELD row whose undo window has

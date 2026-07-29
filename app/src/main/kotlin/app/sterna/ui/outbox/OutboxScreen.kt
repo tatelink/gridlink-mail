@@ -144,9 +144,10 @@ fun OutboxScreen(
                         TextButton(onClick = { viewModel.retry(item.id) }) {
                             Text(stringResource(R.string.outbox_retry))
                         }
-                        // An encrypted item has no body in the row to reopen (#70), so Edit is not
-                        // offered rather than opening an empty composer over the ciphertext.
-                        if (OutboxLogic.canEdit(item.pgpMode)) {
+                        // Edit is offered only for a genuinely waiting, non-encrypted row (#70): an
+                        // encrypted item has no body in the row to reopen, and a SENDING item has a
+                        // send in flight that reopening would race into an orphan or a double send.
+                        if (OutboxLogic.canEdit(item.pgpMode, item.state)) {
                             TextButton(onClick = { viewModel.edit(item.id) }) {
                                 Text(stringResource(R.string.outbox_edit))
                             }
