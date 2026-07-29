@@ -3,6 +3,7 @@ package app.sterna.core.data.db
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -116,15 +117,26 @@ class OutboxEditTest {
         assertEquals("image/png", restored.single().type)
     }
 
-    @Test fun anAttachmentWhoseBytesAreGoneIsNotOfferedForEditingOrRestored() {
+    @Test fun takingAnItemWhoseAttachmentBytesAreGoneRefusesRatherThanAmputate() {
+        // The caller deletes the durable dir the instant take() returns, so dropping the file would
+        // lose it for good and requeue an amputated message. take() must throw instead, leaving the
+        // row and its dir untouched (the caller never reaches the delete).
         val staging = tempDir("outbox-staging")
         val missing = OutboxAttachment(
             kind = OutboxAttachments.KIND_IMAP_FILE, path = "/nonexistent/gone.pdf",
             type = "application/pdf", name = "gone.pdf", size = 10,
         )
-        val taken = OutboxEdit.take(listOf(missing), staging)
-        assertTrue(taken.parts.isEmpty())
-        assertTrue(taken.restorable.isEmpty())
+        assertThrows(IllegalStateException::class.java) { OutboxEdit.take(listOf(missing), staging) }
+    }
+
+    @Test fun restoringAnItemWhoseStagedBytesAreGoneRefusesRatherThanAmputate() {
+        // Putting an item back with fewer files than it had is the same silent loss: refuse.
+        val durableBack = tempDir("outbox-restored")
+        val missing = OutboxAttachment(
+            kind = OutboxAttachments.KIND_IMAP_FILE, path = "/nonexistent/gone.pdf",
+            type = "application/pdf", name = "gone.pdf", size = 10,
+        )
+        assertThrows(IllegalStateException::class.java) { OutboxEdit.restore(listOf(missing), durableBack) }
     }
 
     @Test fun takenAttachmentsAreCopiesTheComposerCanSendFrom() {

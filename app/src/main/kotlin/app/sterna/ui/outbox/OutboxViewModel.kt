@@ -51,7 +51,12 @@ class OutboxViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             Outbox.cancel(getApplication(), id)
             val staging = File(getApplication<Application>().cacheDir, "outgoing")
-            val draft = repo.takeOutboxForEdit(id, staging) ?: return@launch
+            // takeOutboxForEdit throws rather than reopen an item whose attachment can't be read, so
+            // the row and its durable files survive for a later retry. Swallow that here: the edit
+            // simply doesn't open instead of crashing, and the item stays queued as it was.
+            val draft = runCatching { repo.takeOutboxForEdit(id, staging) }
+                .onFailure { android.util.Log.w("SternaOutbox", "couldn't reopen outbox item $id for edit", it) }
+                .getOrNull() ?: return@launch
             sendOutbox.reopen(
                 SendOutbox.ComposeDraft(
                     to = draft.to,

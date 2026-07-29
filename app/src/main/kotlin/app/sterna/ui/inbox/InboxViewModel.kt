@@ -227,6 +227,17 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _message.value = null
     }
 
+    /**
+     * A read/flag server write failed after the list had already shown the change optimistically
+     * (audit B4): the snapshot now lies, silently. Say so with the same wording the bulk paths use,
+     * and log it — dropping these on the floor left the star/unread state disagreeing with the
+     * server with no trace. The optimistic patch is left in place; the next sync reconciles it.
+     */
+    private fun reportActionFailed(op: String, t: Throwable) {
+        android.util.Log.w("SternaInbox", "$op failed", t)
+        _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+    }
+
     // Briefly highlight, on return to the list, the row of the message the user just opened.
     // The id is staged on open and only promoted to [highlightId] when the list is resumed —
     // so the flash plays on the way back, not under the opening message — then cleared once
@@ -395,6 +406,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val credentials = credentialsFor(child) ?: return@launch
             runCatching { repo.setFlagged(credentials, child.id, flagged) }
+                .onFailure { reportActionFailed("setFlagged (thread child)", it) }
         }
     }
 
@@ -868,6 +880,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val credentials = credentialsFor(email) ?: return@launch
             runCatching { repo.setRead(credentials, email.id, targetSeen) }
+                .onFailure { reportActionFailed("setRead (swipe)", it) }
             if (targetSeen) dismissReadNotifications(listOf(email))
         }
     }
@@ -1002,6 +1015,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             members.forEach { m ->
                 val credentials = credentialsFor(m) ?: return@forEach
                 runCatching { repo.setRead(credentials, m.id, targetSeen) }
+                    .onFailure { reportActionFailed("setRead (thread)", it) }
             }
             if (targetSeen) dismissReadNotifications(members)
         }
@@ -1014,6 +1028,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             threadMessages(rep).forEach { m ->
                 val credentials = credentialsFor(m) ?: return@forEach
                 runCatching { repo.setFlagged(credentials, m.id, flagged) }
+                    .onFailure { reportActionFailed("setFlagged (thread)", it) }
             }
         }
     }
@@ -1295,6 +1310,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val credentials = credentialsFor(email) ?: return@launch
             runCatching { repo.setFlagged(credentials, email.id, flagged) }
+                .onFailure { reportActionFailed("setFlagged (swipe)", it) }
         }
     }
 
@@ -1351,6 +1367,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             val scopes = currentScopes()
             val cachedUnread = repo.cachedEmailsForMailboxes(scopes).filter { !it.isSeen }
             patchThreadMembersSeen(cachedUnread.mapTo(mutableSetOf()) { it.emailKey() }, true)
+            var allMarked = true
             scopes.forEach { (accountId, mailboxId) ->
                 val credentials = store.credentials(accountId) ?: return@forEach
                 // Server-resolved targets (cached fallback offline): acting on the cached rows
@@ -1359,8 +1376,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 // folder (chunked Email/set inside), not one round trip per message.
                 val ids = repo.unreadIds(credentials, mailboxId)
                 runCatching { repo.setReadAll(credentials, ids, seen = true) }
+                    .onFailure { allMarked = false; reportActionFailed("markAllRead ($accountId)", it) }
             }
-            dismissReadNotifications(cachedUnread)
+            // Clear the notifications (the user's to-do list) only if everything was actually marked
+            // (audit B5): offline, setReadAll fails and nothing was read, so dropping them would hide
+            // mail that is still unread. If anything failed, keep them all — the next sync reconciles.
+            if (allMarked) dismissReadNotifications(cachedUnread)
             // Reconcile: rows marked beyond the cache don't nudge the badge (no cached seen
             // state), so converge counters and list on server truth now instead of later.
             refresh()
@@ -1708,6 +1729,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             emails.forEach { email ->
                 val credentials = credentialsFor(email) ?: return@forEach
                 runCatching { repo.setRead(credentials, email.id, targetSeen) }
+                    .onFailure { reportActionFailed("setRead (selection)", it) }
             }
             if (targetSeen) dismissReadNotifications(emails)
             // Reflect the new state immediately so the toggle icon flips without re-selecting.

@@ -25,7 +25,9 @@ object OutboxEdit {
     /**
      * Stage [attachments] out of their per-item durable dir (which the caller then deletes with the
      * row) into [stagingDir], the cache the composer sends from. An attachment whose bytes can no
-     * longer be read is dropped from both lists: it can be neither sent nor put back.
+     * longer be read makes this THROW rather than drop it: the caller deletes the durable dir right
+     * after, so a dropped file would be gone for good and the queue would get an amputated message
+     * back. Failing here leaves the row and its dir untouched (the caller never reaches the delete).
      */
     fun take(attachments: List<OutboxAttachment>, stagingDir: File): Taken {
         val parts = mutableListOf<EmailBodyPart>()
@@ -41,7 +43,8 @@ object OutboxEdit {
                     restorable += a
                 }
                 OutboxAttachments.KIND_IMAP_FILE -> {
-                    val bytes = runCatching { File(a.path!!).readBytes() }.getOrNull() ?: continue
+                    val bytes = runCatching { File(a.path!!).readBytes() }.getOrNull()
+                        ?: error("Couldn't read the queued attachment ${a.name ?: a.path} to edit it.")
                     val staged = copyInto(stagingDir, a.name, bytes)
                     parts += EmailBodyPart(
                         partId = staged.absolutePath, type = a.type, size = bytes.size.toLong(),
@@ -56,12 +59,15 @@ object OutboxEdit {
 
     /**
      * Copy the staged bytes of [attachments] back into [durableDir], the per-item dir of the row
-     * being re-inserted, so the queued message is durable again the moment it reappears.
+     * being re-inserted, so the queued message is durable again the moment it reappears. A staged
+     * file that can no longer be read makes this THROW rather than drop it: putting the item back
+     * with fewer files than it had would silently amputate a queued message that lives nowhere else.
      */
     fun restore(attachments: List<OutboxAttachment>, durableDir: File): List<OutboxAttachment> =
-        attachments.mapNotNull { a ->
-            if (a.kind != OutboxAttachments.KIND_IMAP_FILE) return@mapNotNull a
-            val bytes = runCatching { File(a.path!!).readBytes() }.getOrNull() ?: return@mapNotNull null
+        attachments.map { a ->
+            if (a.kind != OutboxAttachments.KIND_IMAP_FILE) return@map a
+            val bytes = runCatching { File(a.path!!).readBytes() }.getOrNull()
+                ?: error("Couldn't read the staged attachment ${a.name ?: a.path} to requeue it.")
             a.copy(path = copyInto(durableDir, a.name, bytes).absolutePath, size = bytes.size.toLong())
         }
 

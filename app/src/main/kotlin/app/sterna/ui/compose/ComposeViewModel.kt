@@ -724,7 +724,12 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         if (_state.value is ComposeState.Sending) return
         val token = requeue ?: return
         requeue = null
-        appScope.launch { repo.restoreOutbox(token) }
+        // restoreOutbox throws rather than requeue an amputated item if a staged attachment vanished
+        // mid-edit (#70); it rolls its own half-built row back, so just log instead of crashing.
+        appScope.launch {
+            runCatching { repo.restoreOutbox(token) }
+                .onFailure { android.util.Log.w("SternaCompose", "couldn't requeue the edited outbox item", it) }
+        }
     }
 
     /**
@@ -856,11 +861,13 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      * WorkManager (survives the app closing). Attachments are not carried in v1.
      */
     fun scheduleSend(to: String, cc: String, bcc: String, subject: String, body: String, sendAtMillis: Long) {
-        // Same plaintext rule as the draft save (#35): a scheduled send parks the readable body in
-        // the local queue and hands it to a headless worker that cannot sign or encrypt it, so an
-        // encrypted message is never scheduled. The toolbar hides the menu; this is the choke point.
-        if (!draftSaveAllowed(_pgpMode.value)) {
-            _notices.tryEmit(R.string.compose_pgp_no_draft)
+        // A scheduled send is handed to a headless worker that can neither sign nor encrypt (so any
+        // PgpMode but OFF would go out unsigned/plaintext, #35) and its table carries no attachments
+        // yet (so it would send amputated, audit A2/A3). The toolbar disables the button for both;
+        // this is the choke point. Only the pgp case has user-facing wording — attachments can't
+        // reach here through the UI.
+        if (!scheduleSendAllowed(_pgpMode.value, _attachments.value.isNotEmpty())) {
+            if (_pgpMode.value != PgpMode.OFF) _notices.tryEmit(R.string.compose_pgp_no_draft)
             return
         }
         if (_state.value is ComposeState.Sending) return

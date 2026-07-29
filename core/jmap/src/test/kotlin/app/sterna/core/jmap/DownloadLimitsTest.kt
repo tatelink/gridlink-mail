@@ -4,6 +4,7 @@ import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -55,6 +56,26 @@ class DownloadLimitsTest {
         // A server that announces nothing passes this gate — the read is capped anyway.
         assertTrue(DownloadLimits.allows(0, DownloadLimits.INLINE_IMAGE_MAX_BYTES))
         assertTrue(DownloadLimits.allows(-1, DownloadLimits.INLINE_IMAGE_MAX_BYTES))
+    }
+
+    @Test fun enforceThrowsPastTheLimitAndCarriesTheSizes() {
+        // The shared choke point downloadAttachment calls before the protocol branch, so IMAP and
+        // JMAP alike refuse an oversized part (IMAP used to skip this — the check sat behind its
+        // early return). The exception carries both sizes so the caller can word the refusal.
+        val ex = assertThrows(ContentTooLargeException::class.java) {
+            DownloadLimits.enforce(DownloadLimits.ATTACHMENT_MAX_BYTES + 1, DownloadLimits.ATTACHMENT_MAX_BYTES)
+        }
+        assertEquals(DownloadLimits.ATTACHMENT_MAX_BYTES + 1, ex.bytes)
+        assertEquals(DownloadLimits.ATTACHMENT_MAX_BYTES, ex.maxBytes)
+    }
+
+    @Test fun enforceAllowsAtOrUnderTheLimitAndAnUnstatedSize() {
+        // No throw for a part within the ceiling, exactly at it, or one whose size the server didn't
+        // announce (0 / negative) — the read is capped anyway.
+        DownloadLimits.enforce(4L * 1024 * 1024, DownloadLimits.ATTACHMENT_MAX_BYTES)
+        DownloadLimits.enforce(DownloadLimits.ATTACHMENT_MAX_BYTES, DownloadLimits.ATTACHMENT_MAX_BYTES)
+        DownloadLimits.enforce(0, DownloadLimits.INLINE_IMAGE_MAX_BYTES)
+        DownloadLimits.enforce(-1, DownloadLimits.INLINE_IMAGE_MAX_BYTES)
     }
 
     @Test fun aMessageCountsItsOversizedInlineImages() {
