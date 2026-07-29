@@ -22,6 +22,7 @@ import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.mail.InboxRow
 import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.mail.MailSearchResult
+import app.sterna.core.data.mail.TrashPurge
 import app.sterna.core.data.mail.emailKey
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.data.settings.SwipeAction
@@ -1296,9 +1297,17 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
             repo.cachedIds(listOf(target)).forEach { repo.evict(credentials.id, it.emailId) }
-            MessageDestroyWorker.schedulePurge(
-                getApplication(), credentials.id, trashId, purge.purgeId, PURGE_HOLD_BACK_MS,
-            )
+            // An empty snapshot is not an order, so it is not scheduled (#99). Tapping Empty a
+            // second time within the undo window photographs nothing — the first tap evicted the
+            // cached rows the IMAP path and the offline JMAP fallback read — and enqueuing that
+            // empty purge under the same unique work name REPLACEd the first, real one: two taps
+            // destroyed nothing at all. The first purge is left armed instead; this snackbar's
+            // Undo still cancels it, being scoped to the same account and folder.
+            if (TrashPurge.hasOrder(purge.messageCount)) {
+                MessageDestroyWorker.schedulePurge(
+                    getApplication(), credentials.id, trashId, purge.purgeId, PURGE_HOLD_BACK_MS,
+                )
+            }
             delay(PURGE_HOLD_BACK_MS)
             if (pendingPurgeTarget == target) {
                 pendingPurgeTarget = null
