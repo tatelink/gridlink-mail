@@ -6,6 +6,17 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 
 /**
+ * The statement behind [PurgeSnapshotDao.unlistEmails], kept as a constant so that the DAO and
+ * a plain JVM unit test run the exact same SQL (like `PURGE_SNAPSHOT_CREATE_SQL`).
+ *
+ * A Room DAO cannot be instantiated in a JVM unit test in this project (no Robolectric, and no
+ * new dependency for one), so `TrashPurgeSqlTest` executes THIS string against a real SQLite
+ * database rather than a hand-copied lookalike that would keep passing after the DAO changed.
+ */
+const val PURGE_SNAPSHOT_UNLIST_SQL: String =
+    "DELETE FROM purge_snapshot WHERE accountId = :accountId AND emailId IN (:emailIds)"
+
+/**
  * The frozen destroy list of a confirmed "Empty trash" ([PurgeSnapshotEntity]).
  *
  * Every read is scoped by `purgeId` AND `accountId`: an id only ever means something inside
@@ -33,6 +44,18 @@ interface PurgeSnapshotDao {
             "AND emailId IN (:emailIds)",
     )
     suspend fun deleteIds(purgeId: String, accountId: String, emailIds: List<String>)
+
+    /**
+     * A message left its folder while a purge was pending: withdraw it from EVERY destroy list
+     * of that account (#99).
+     *
+     * A JMAP id survives a move — only the mailbox membership is patched — so a message rescued
+     * out of the Trash during the undo window stayed on the list and was destroyed in the folder
+     * the user had just filed it into. Not scoped by `purgeId`: whichever confirmation listed it,
+     * the message has left. Scoped by `accountId` like every other read here (issue #31).
+     */
+    @Query(PURGE_SNAPSHOT_UNLIST_SQL)
+    suspend fun unlistEmails(accountId: String, emailIds: List<String>)
 
     /** Drop a whole snapshot: the purge finished, gave up, or was undone. */
     @Query("DELETE FROM purge_snapshot WHERE purgeId = :purgeId")
