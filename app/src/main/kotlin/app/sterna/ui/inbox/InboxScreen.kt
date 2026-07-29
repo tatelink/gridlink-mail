@@ -1738,7 +1738,10 @@ private fun SwipeableEmailRow(
                         // Direction-lock: only treat this as a swipe once it is clearly
                         // more horizontal than vertical, otherwise leave the gesture to
                         // the list's vertical scroll. This stops accidental swipes when
-                        // the finger drifts sideways during a scroll.
+                        // the finger drifts sideways during a scroll. The three-way
+                        // decision (arm / abandon-to-scroll / keep watching) is factored
+                        // into swipeDirectionLock() so it can be unit-tested; see there
+                        // for the arc-rejection rationale (Codeberg #97).
                         val horizontal = awaitPointerEventScope {
                             var dx = 0f
                             var dy = 0f
@@ -1748,18 +1751,19 @@ private fun SwipeableEmailRow(
                                 if (change == null || !change.pressed) return@awaitPointerEventScope false
                                 dx += change.positionChange().x
                                 dy += change.positionChange().y
-                                if (abs(dy) > slop && abs(dy) >= abs(dx)) {
-                                    return@awaitPointerEventScope false
-                                }
-                                if (abs(dx) > slop * SWIPE_SLOP_FACTOR && abs(dx) > abs(dy)) {
-                                    // Codeberg #30: a direction with no action assigned has
-                                    // nothing to do with this drag — leave it unconsumed so
-                                    // the drawer, whose own drag spans the content, takes it.
-                                    if (!rowKeepsDrag(dx, rightAction, leftAction)) {
-                                        return@awaitPointerEventScope false
+                                when (swipeDirectionLock(dx, dy, slop)) {
+                                    SwipeLock.VERTICAL -> return@awaitPointerEventScope false
+                                    SwipeLock.HORIZONTAL -> {
+                                        // Codeberg #30: a direction with no action assigned has
+                                        // nothing to do with this drag — leave it unconsumed so
+                                        // the drawer, whose own drag spans the content, takes it.
+                                        if (!rowKeepsDrag(dx, rightAction, leftAction)) {
+                                            return@awaitPointerEventScope false
+                                        }
+                                        change.consume()
+                                        return@awaitPointerEventScope true
                                     }
-                                    change.consume()
-                                    return@awaitPointerEventScope true
+                                    SwipeLock.PENDING -> Unit // still ambiguous — keep watching
                                 }
                             }
                             @Suppress("UNREACHABLE_CODE") false
@@ -1891,8 +1895,43 @@ private fun SwipeableEmailRow(
 /** Horizontal travel must exceed touch-slop × this before a swipe locks in. */
 private const val SWIPE_SLOP_FACTOR = 1.5f
 
+/**
+ * How decisively horizontal a drag must be to arm a swipe: |dx| must reach this
+ * multiple of |dy|. A plain 1:1 lead (Codeberg #97) armed too eagerly — an arc that
+ * begins with a slight sideways nudge then curves vertical would momentarily satisfy
+ * |dx| > |dy| and fire archive/delete when the user meant to scroll. Requiring |dx| to
+ * be at least twice |dy| means a mostly-vertical arc scrolls, while a deliberate
+ * sideways swipe (which is near-flat, |dy| ≈ 0) still arms on a normal short drag.
+ * The same ratio gates the vertical veto below, so the two decisions stay complementary.
+ */
+private const val SWIPE_HORIZONTAL_DOMINANCE = 2.0f
+
 /** Fraction of the row width a swipe must reach to commit its action. */
 private const val SWIPE_COMMIT_FRACTION = 0.4f
+
+/** Outcome of the row's direction-lock for the accumulated drag (dx, dy). */
+internal enum class SwipeLock { PENDING, HORIZONTAL, VERTICAL }
+
+/**
+ * Three-way direction lock evaluated on each accumulated drag delta.
+ *
+ * - VERTICAL: vertical travel has cleared the slop and horizontal does NOT dominate
+ *   (|dx| < |dy| × [SWIPE_HORIZONTAL_DOMINANCE]) → abandon to the list's scroll. This
+ *   fires as soon as a meaningful vertical component appears, even while dx currently
+ *   leads, which is what rejects the mostly-vertical arc of Codeberg #97.
+ * - HORIZONTAL: horizontal travel has cleared slop × [SWIPE_SLOP_FACTOR] AND decisively
+ *   dominates (|dx| ≥ |dy| × [SWIPE_HORIZONTAL_DOMINANCE]) → arm the swipe.
+ * - PENDING: neither yet — keep accumulating.
+ *
+ * Vertical is checked first so an ambiguous diagonal resolves to scroll, never a swipe.
+ */
+internal fun swipeDirectionLock(dx: Float, dy: Float, slop: Float): SwipeLock {
+    val ax = abs(dx)
+    val ay = abs(dy)
+    if (ay > slop && ax < ay * SWIPE_HORIZONTAL_DOMINANCE) return SwipeLock.VERTICAL
+    if (ax > slop * SWIPE_SLOP_FACTOR && ax >= ay * SWIPE_HORIZONTAL_DOMINANCE) return SwipeLock.HORIZONTAL
+    return SwipeLock.PENDING
+}
 
 // Staggered first-screen entry: only the first ENTRY_CAP rows cascade, ENTRY_STEP_MS
 // apart, each fading/rising over ENTRY_ROW_MS. The take-off arc on a dismissing swipe
