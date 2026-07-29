@@ -45,4 +45,20 @@ object DownloadLimits {
      * the same ceiling.
      */
     fun allows(size: Long, maxBytes: Long): Boolean = size <= 0L || size <= maxBytes
+
+    /**
+     * Refuse a part announcing [size] bytes when it is over [maxBytes], throwing the
+     * [ContentTooLargeException] the caller already surfaces. The single choke point for the cap,
+     * so it can't be applied on one protocol and skipped on another: it was skipped on IMAP (whose
+     * BODYSTRUCTURE reports the same size) because the check sat behind the IMAP early return.
+     */
+    fun enforce(size: Long, maxBytes: Long) {
+        if (!allows(size, maxBytes)) {
+            throw ContentTooLargeException(
+                "Part is $size bytes, over the $maxBytes limit.",
+                bytes = size,
+                maxBytes = maxBytes,
+            )
+        }
+    }
 }

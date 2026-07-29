@@ -1525,20 +1525,26 @@ private fun AccountDetailScreen(
                     onValueChange = { username = it; markEdited() },
                     keyboardType = KeyboardType.Email,
                 )
-                SettingTextField(
-                    // For API-token accounts the encrypted slot holds the token, not a password.
-                    label = stringResource(
-                        if (account.authType == AuthType.API_TOKEN) {
-                            R.string.settings_api_token_label
-                        } else {
-                            R.string.settings_password_label
-                        },
-                    ),
-                    value = password,
-                    onValueChange = { password = it; markEdited(); viewModel.clearConnTest() },
-                    keyboardType = KeyboardType.Password,
-                    isPassword = true,
-                )
+                // OAuth accounts have no password field: their encrypted slot holds the refresh
+                // token, and save() would overwrite it with whatever is typed here, killing the
+                // account (audit A4). Re-authenticating uses the sign-in card / app-password switch
+                // above, not this field. (API-token accounts DO type their token into this slot.)
+                if (account.authType != AuthType.OAUTH) {
+                    SettingTextField(
+                        // For API-token accounts the encrypted slot holds the token, not a password.
+                        label = stringResource(
+                            if (account.authType == AuthType.API_TOKEN) {
+                                R.string.settings_api_token_label
+                            } else {
+                                R.string.settings_password_label
+                            },
+                        ),
+                        value = password,
+                        onValueChange = { password = it; markEdited(); viewModel.clearConnTest() },
+                        keyboardType = KeyboardType.Password,
+                        isPassword = true,
+                    )
+                }
             }
             SettingsSection(stringResource(R.string.settings_protocol_section)) {
                 Text(

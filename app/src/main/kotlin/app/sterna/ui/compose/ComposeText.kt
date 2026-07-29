@@ -430,6 +430,22 @@ internal fun draftHasContent(
 internal fun draftSaveAllowed(pgpMode: PgpMode): Boolean = pgpMode != PgpMode.ENCRYPT
 
 /**
+ * The single rule for "may this message be SCHEDULED for later send?" — stricter than
+ * [draftSaveAllowed] on two counts, each of which would otherwise send silently short of what the
+ * composer showed (audit A2/A3):
+ *  - a scheduled send is fired by a headless worker that can neither sign nor encrypt, so ANY
+ *    [PgpMode] but OFF is refused (not just ENCRYPT): a SIGN send scheduled would leave unsigned;
+ *  - the scheduled table carries no attachments yet, so any staged attachment refuses scheduling
+ *    rather than firing the message with its attachments stripped.
+ *
+ * A draft is still allowed under both conditions (a draft is not sent) — that is [draftSaveAllowed].
+ * Shared by the toolbar's Schedule button and the [ComposeViewModel] schedule gate so the greyed-out
+ * icon and the actual schedule-or-refuse decision can never drift apart.
+ */
+internal fun scheduleSendAllowed(pgpMode: PgpMode, hasAttachment: Boolean): Boolean =
+    pgpMode == PgpMode.OFF && !hasAttachment
+
+/**
  * The lock toggle's cycle: off → sign → encrypt → off. Pure so the hand-set path can be tested
  * against [draftSaveAllowed] — closing the lock by hand must forbid the draft exactly as the
  * account default does (#35).

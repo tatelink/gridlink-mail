@@ -110,7 +110,8 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     ) {
         _connTest.value = ConnTest.Testing
         viewModelScope.launch {
-            val pw = password.ifBlank { store.credentials(accountId)?.password.orEmpty() }
+            val stored = store.credentials(accountId)
+            val pw = password.ifBlank { stored?.password.orEmpty() }
             val credentials = AccountCredentials(
                 server = server.trim(),
                 username = username.trim(),
@@ -121,6 +122,9 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
                 smtp = if (isImap) MailEndpoint(smtpHost.trim(), smtpPort ?: 0, smtpSecurity) else null,
                 // Keep the stored auth mode so API-token accounts test with Bearer, not Basic.
                 authType = store.account(accountId)?.authType ?: AuthType.BASIC,
+                // Carry the stored OAuth tokens: without them an OAuth account tests with an empty
+                // password and always fails, a false negative (audit A5).
+                oauth = stored?.oauth,
             )
             _connTest.value = mail.testConnection(credentials).fold(
                 onSuccess = { ConnTest.Ok },

@@ -601,9 +601,12 @@ fun ComposeScreen(
                         }
                         Box {
                         var scheduleMenu by remember { mutableStateOf(false) }
+                        // A scheduled send is fired by a headless worker that can't sign, and its
+                        // table carries no attachments: disable it for a SIGN/ENCRYPT message or one
+                        // with attachments, which would otherwise go out unsigned or amputated (A2/A3).
                         IconButton(
                             onClick = { scheduleMenu = true },
-                            enabled = !sending && canSend,
+                            enabled = !sending && canSend && scheduleSendAllowed(pgpMode, attachments.isNotEmpty()),
                         ) {
                             Icon(Icons.Filled.Schedule, contentDescription = stringResource(R.string.compose_schedule_send))
                         }

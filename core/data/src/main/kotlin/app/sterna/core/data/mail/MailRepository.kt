@@ -3807,8 +3807,11 @@ class MailRepository(
                 )
                 part.partId != null -> {
                     val sourcePath = part.partId!!
+                    // Refuse rather than silently drop an unreadable attachment: staging fewer parts
+                    // than the composer showed would queue an amputated message. The failure keeps
+                    // the item out of the queue instead of sending short of what the user attached.
                     val bytes = runCatching { java.io.File(sourcePath).readBytes() }.getOrNull()
-                        ?: return@mapNotNull null
+                        ?: error("Couldn't read the attachment ${part.name ?: sourcePath} to queue it.")
                     val safe = (part.name ?: "attachment").replace(Regex("[^A-Za-z0-9._-]"), "_")
                     // Keep the staged name unique so two inline images sharing a name don't collide.
                     val dest = java.io.File(dir, "${System.nanoTime()}-$safe").apply { writeBytes(bytes) }
@@ -3921,14 +3924,21 @@ class MailRepository(
         val id = outboxDao.insert(OutboxEdit.restoredRow(restore.row))
         val row = outboxDao.byId(id) ?: return id
         val dir = java.io.File(outboxFilesDir, id.toString())
-        if (restore.pgpEntity != null) {
-            // A PGP item carries its whole payload in the entity; attachments live inside it.
-            dir.mkdirs()
-            val entityFile = java.io.File(dir, "pgp-entity.mime").apply { writeText(restore.pgpEntity) }
-            outboxDao.update(row.copy(pgpEntityPath = entityFile.absolutePath))
-        } else {
-            val durable = OutboxEdit.restore(restore.attachments, dir)
-            outboxDao.update(row.copy(attachmentsJson = OutboxAttachments.encode(durable)))
+        try {
+            if (restore.pgpEntity != null) {
+                // A PGP item carries its whole payload in the entity; attachments live inside it.
+                dir.mkdirs()
+                val entityFile = java.io.File(dir, "pgp-entity.mime").apply { writeText(restore.pgpEntity) }
+                outboxDao.update(row.copy(pgpEntityPath = entityFile.absolutePath))
+            } else {
+                // OutboxEdit.restore throws rather than drop a staged file it can't read (#70): don't
+                // leave a half-built, amputated row in the queue — drop it and let the caller report.
+                val durable = OutboxEdit.restore(restore.attachments, dir)
+                outboxDao.update(row.copy(attachmentsJson = OutboxAttachments.encode(durable)))
+            }
+        } catch (t: Throwable) {
+            deleteOutbox(id)
+            throw t
         }
         // Held or scheduled items keep whatever is left of their wait; everything else goes now.
         outboxScheduler?.schedule(id, (row.notBeforeMillis - System.currentTimeMillis()).coerceAtLeast(0))
@@ -3970,7 +3980,10 @@ class MailRepository(
             // Durable per-item files (partId path) staged at enqueue; read them back for the MIME.
             val outAttachments = stored.mapNotNull { a ->
                 val path = a.path ?: return@mapNotNull null
-                val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull() ?: return@mapNotNull null
+                // Refuse rather than deliver amputated: a staged file that can't be read fails the
+                // delivery so the item stays in the outbox with its error, instead of sending short.
+                val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull()
+                    ?: error("Couldn't read the attachment ${a.name ?: path} to send it.")
                 val inline = a.disposition.equals("inline", ignoreCase = true) && !a.cid.isNullOrBlank()
                 OutgoingAttachment(
                     a.name ?: "attachment", a.type ?: "application/octet-stream", bytes,
@@ -4175,19 +4188,15 @@ class MailRepository(
         // Attachments inside a decrypted OpenPGP message are sliced from the
         // in-memory decrypted entity — they have no fetchable server section.
         if (part.partId?.startsWith("pgp:") == true) return pgpAttachmentBytes(credentials.id, emailId, part)
+        // The size is announced in the message itself (JMAP) or its BODYSTRUCTURE (IMAP): refuse
+        // before spending the round-trip, not after buffering the answer. Enforced before the
+        // protocol branch so IMAP is held to the same ceiling as JMAP (it was skipped before, the
+        // check sat behind the IMAP early return).
+        DownloadLimits.enforce(part.size, maxBytes)
         if (credentials.protocol == MailProtocol.IMAP) {
             val (mb, uid) = imapTarget(emailId) ?: error("Couldn't locate the message.")
             val section = part.partId ?: error("Attachment has no section.")
             return imap.fetchAttachment(credentials, mb, uid, section, part.encoding)
-        }
-        // JMAP announces the part's size in the message itself: refuse before spending the
-        // round-trip, not after buffering the answer.
-        if (!DownloadLimits.allows(part.size, maxBytes)) {
-            throw ContentTooLargeException(
-                "Part is ${part.size} bytes, over the $maxBytes limit.",
-                bytes = part.size,
-                maxBytes = maxBytes,
-            )
         }
         val ctx = connect(credentials)
         val blobId = part.blobId ?: error("Attachment has no blob.")

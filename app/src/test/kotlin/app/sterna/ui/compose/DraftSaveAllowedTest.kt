@@ -65,4 +65,37 @@ class DraftSaveAllowedTest {
         assertTrue(draftHasContent("alex@example.org", "", "", "Lunch", "see you at noon", false))
         assertFalse(draftSaveAllowed(PgpMode.ENCRYPT))
     }
+
+    // --- Scheduling is stricter than a draft (audit A2/A3) ---------------------------------------
+    //
+    // A scheduled send is fired by a headless worker (no PGP provider) and its table carries no
+    // attachments, so scheduling must refuse what a draft happily keeps: a signed message and a
+    // message with attachments. Both would otherwise go out unsigned or amputated at the due time.
+
+    @Test fun aPlainMessageWithoutAttachmentsMayBeScheduled() {
+        assertTrue(scheduleSendAllowed(PgpMode.OFF, hasAttachment = false))
+    }
+
+    @Test fun aSignedMessageMayBeSavedAsADraftButNotScheduled() {
+        // The exact A3 split: SIGN is fine for a draft (readable at rest anyway) but a scheduled
+        // SIGN send would leave unsigned — the worker can't reach the key.
+        assertTrue(draftSaveAllowed(PgpMode.SIGN))
+        assertFalse(scheduleSendAllowed(PgpMode.SIGN, hasAttachment = false))
+    }
+
+    @Test fun anEncryptedMessageMayNotBeScheduledEither() {
+        assertFalse(scheduleSendAllowed(PgpMode.ENCRYPT, hasAttachment = false))
+    }
+
+    @Test fun attachmentsAloneBlockSchedulingEvenInPlainMode() {
+        // A2: the scheduled table drops attachments, so a plain message carrying one must not be
+        // schedulable — it would fire stripped of its files.
+        assertFalse(scheduleSendAllowed(PgpMode.OFF, hasAttachment = true))
+    }
+
+    @Test fun pgpAndAttachmentsCombineWithoutReopeningTheGate() {
+        // Both reasons at once still refuses (no toggle cancels the other out).
+        assertFalse(scheduleSendAllowed(PgpMode.SIGN, hasAttachment = true))
+        assertFalse(scheduleSendAllowed(PgpMode.ENCRYPT, hasAttachment = true))
+    }
 }
