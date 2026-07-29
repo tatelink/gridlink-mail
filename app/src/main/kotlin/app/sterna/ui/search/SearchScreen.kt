@@ -1,16 +1,25 @@
 package app.sterna.ui.search
 
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -28,29 +37,41 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sterna.R
+import app.sterna.ui.rememberMotionEnabled
+import kotlinx.coroutines.launch
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.ui.components.EmailListItem
 import app.sterna.ui.components.EmptyArt
@@ -118,126 +139,235 @@ fun SearchScreen(
                 keyboardActions = KeyboardActions(onSearch = { runSearch() }),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            if (form.expanded) {
-                OutlinedTextField(
-                    value = query.from,
-                    onValueChange = { viewModel.updateQuery(query.copy(from = it)) },
-                    label = { Text(stringResource(R.string.search_from)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                // Matches To OR Cc: a message that only carries the address in copy was still
-                // received at it (aliases, shared mailboxes), so one field, no To/Cc switch.
-                OutlinedTextField(
-                    value = query.recipient,
-                    onValueChange = { viewModel.updateQuery(query.copy(recipient = it)) },
-                    label = { Text(stringResource(R.string.search_recipient)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                OutlinedTextField(
-                    value = query.subject,
-                    onValueChange = { viewModel.updateQuery(query.copy(subject = it)) },
-                    label = { Text(stringResource(R.string.search_subject)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { runSearch() }),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        stringResource(R.string.search_has_attachment),
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Switch(
-                        checked = query.hasAttachment,
-                        onCheckedChange = { viewModel.updateQuery(query.copy(hasAttachment = it)) },
-                    )
+            // The advanced filters slide over the results like the main navigation drawer: a slim
+            // handle under the search box drives a top overlay. Dragging it down reveals the panel
+            // ON TOP of the list (the results never reflow); dragging up hides it. form.expanded
+            // stays the single source of truth — the summary, keyboard folding and the Tune toggle
+            // all read it — so the drag only sets it and the snap animation follows.
+            val scope = rememberCoroutineScope()
+            val motionEnabled = rememberMotionEnabled()
+            val handleDesc = stringResource(R.string.search_advanced_toggle)
+            var panelHeightPx by remember { mutableIntStateOf(0) }
+            val offset = remember { Animatable(0f) }
+            var firstSync by remember { mutableStateOf(true) }
+
+            // Follow form.expanded (Tune button, summary tap, search-fold, process restore). The
+            // first pass snaps, so entering the screen already-open doesn't play an intro slide.
+            LaunchedEffect(form.expanded, panelHeightPx) {
+                if (panelHeightPx == 0) return@LaunchedEffect
+                val target = if (form.expanded) panelHeightPx.toFloat() else 0f
+                when {
+                    firstSync -> { offset.snapTo(target); firstSync = false }
+                    offset.value == target -> Unit
+                    motionEnabled -> offset.animateTo(target)
+                    else -> offset.snapTo(target)
                 }
-                SearchDateRow(stringResource(R.string.search_after), query.afterMillis) { picked ->
-                    viewModel.updateQuery(query.copy(afterMillis = picked?.let(::searchAfterBound)))
-                }
-                SearchDateRow(stringResource(R.string.search_before), query.beforeMillis) { picked ->
-                    viewModel.updateQuery(query.copy(beforeMillis = picked?.let(::searchBeforeBound)))
-                }
-                Button(
-                    onClick = { runSearch() },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    Text(stringResource(R.string.search_button))
-                }
-            } else {
-                // Folded: the criteria the RESULTS came from, never the half-edited form — that is
-                // what explains the list. Tapping it brings the panel back to change them.
-                val applied = (state as? SearchState.Results)?.query ?: query
-                CriteriaSummary(applied, onClick = viewModel::togglePanel)
             }
-            (state as? SearchState.Results)?.takeIf { it.emails.isNotEmpty() }?.let { results ->
-                Text(
-                    // "At least N" whenever the search stopped short of the whole answer: a
-                    // truncated scan counted as a total would be a number the user can't check.
-                    if (results.complete) pluralStringResource(R.plurals.search_result_count, results.emails.size, results.emails.size)
-                    else pluralStringResource(R.plurals.search_result_count_capped, results.emails.size, results.emails.size),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
+
+            // The drag's end-state: animate the snap here (so it plays even when the panel was
+            // already on that side, e.g. a half-drag released back), then record it in the ViewModel.
+            fun settle(open: Boolean) {
+                scope.launch {
+                    val target = if (open) panelHeightPx.toFloat() else 0f
+                    if (motionEnabled) offset.animateTo(target) else offset.snapTo(target)
+                }
+                viewModel.setExpanded(open)
             }
-            Box(Modifier.fillMaxWidth().weight(1f)) {
-                when (val s = state) {
-                    is SearchState.Idle -> Text(
-                        stringResource(R.string.search_idle_hint),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.align(Alignment.Center),
-                    )
-                    is SearchState.Searching -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                    is SearchState.Error -> Text(
-                        stringResource(R.string.search_failed, s.message),
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.align(Alignment.Center).padding(24.dp),
-                    )
-                    is SearchState.Results -> if (s.emails.isEmpty()) {
-                        val term = s.query.text.trim()
-                        // A truncated scan that returned nothing has NOT proven there is nothing: say
-                        // it stopped short, don't report "no results" as a fact — the honesty the
-                        // "At least N" counter gives a partial hit, extended to the zero case it can't reach.
-                        EmptyState(
-                            art = EmptyArt.SEARCH,
-                            title = when {
-                                !s.complete -> stringResource(R.string.search_incomplete)
-                                term.isBlank() -> stringResource(R.string.search_no_results_generic)
-                                else -> stringResource(R.string.search_no_results, term)
-                            },
-                            body = if (s.complete) stringResource(R.string.empty_search_body) else null,
-                            modifier = Modifier.align(Alignment.Center),
-                        )
-                    } else {
-                        LazyColumn(Modifier.fillMaxSize()) {
-                            items(s.emails, key = ::searchResultKey) { email ->
-                                // Which account a hit belongs to matters here more than anywhere:
-                                // the search spans them all. Same pill as the unified list, and
-                                // only when there is more than one account to tell apart.
-                                val owner = if (accounts.size > 1) {
-                                    accounts.firstOrNull { it.id == email.accountId }
-                                } else {
-                                    null
-                                }
-                                EmailListItem(
-                                    email = email,
-                                    onClick = { onOpenEmail(email.id, email.accountId) },
-                                    accountLabel = owner?.label(),
-                                    accountColor = accountColorOf(owner?.color),
-                                )
-                                HorizontalDivider()
+
+            // The separator / drag handle. Also a tap toggle (same as the Tune action) for reach
+            // and accessibility; its contentDescription names the advanced filters it reveals.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .draggable(
+                        orientation = Orientation.Vertical,
+                        state = rememberDraggableState { delta ->
+                            scope.launch {
+                                offset.snapTo((offset.value + delta).coerceIn(0f, panelHeightPx.toFloat()))
                             }
+                        },
+                        onDragStopped = { velocity ->
+                            // A flick decides first, otherwise the halfway line; a stray micro-drag
+                            // still lands on whichever side it is nearest.
+                            val open = when {
+                                velocity > 800f -> true
+                                velocity < -800f -> false
+                                else -> offset.value > panelHeightPx / 2f
+                            }
+                            settle(open)
+                        },
+                    )
+                    .clickable { viewModel.togglePanel() }
+                    .semantics { contentDescription = handleDesc }
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .width(32.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
+                )
+            }
+
+            // clipToBounds hides the panel where it rests above the handle; weight(1f) is the
+            // results' space AND the overlay's stage, so opening the panel never resizes the list.
+            Box(Modifier.fillMaxWidth().weight(1f).clipToBounds()) {
+                // The results, always laid out at full size UNDER the overlay.
+                Column(Modifier.fillMaxSize()) {
+                    if (!form.expanded) {
+                        // Folded: the criteria the RESULTS came from, never the half-edited form —
+                        // that is what explains the list. Tapping it brings the panel back.
+                        val applied = (state as? SearchState.Results)?.query ?: query
+                        CriteriaSummary(applied, onClick = viewModel::togglePanel)
+                    }
+                    (state as? SearchState.Results)?.takeIf { it.emails.isNotEmpty() }?.let { results ->
+                        Text(
+                            // "At least N" whenever the search stopped short of the whole answer: a
+                            // truncated scan counted as a total would be a number the user can't check.
+                            if (results.complete) pluralStringResource(R.plurals.search_result_count, results.emails.size, results.emails.size)
+                            else pluralStringResource(R.plurals.search_result_count_capped, results.emails.size, results.emails.size),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                        when (val s = state) {
+                            is SearchState.Idle -> Text(
+                                stringResource(R.string.search_idle_hint),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.align(Alignment.Center),
+                            )
+                            is SearchState.Searching -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                            is SearchState.Error -> Text(
+                                stringResource(R.string.search_failed, s.message),
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                            )
+                            is SearchState.Results -> if (s.emails.isEmpty()) {
+                                val term = s.query.text.trim()
+                                // A truncated scan that returned nothing has NOT proven there is nothing: say
+                                // it stopped short, don't report "no results" as a fact — the honesty the
+                                // "At least N" counter gives a partial hit, extended to the zero case it can't reach.
+                                EmptyState(
+                                    art = EmptyArt.SEARCH,
+                                    title = when {
+                                        !s.complete -> stringResource(R.string.search_incomplete)
+                                        term.isBlank() -> stringResource(R.string.search_no_results_generic)
+                                        else -> stringResource(R.string.search_no_results, term)
+                                    },
+                                    body = if (s.complete) stringResource(R.string.empty_search_body) else null,
+                                    modifier = Modifier.align(Alignment.Center),
+                                )
+                            } else {
+                                LazyColumn(Modifier.fillMaxSize()) {
+                                    items(s.emails, key = ::searchResultKey) { email ->
+                                        // Which account a hit belongs to matters here more than anywhere:
+                                        // the search spans them all. Same pill as the unified list, and
+                                        // only when there is more than one account to tell apart.
+                                        val owner = if (accounts.size > 1) {
+                                            accounts.firstOrNull { it.id == email.accountId }
+                                        } else {
+                                            null
+                                        }
+                                        EmailListItem(
+                                            email = email,
+                                            onClick = { onOpenEmail(email.id, email.accountId) },
+                                            accountLabel = owner?.label(),
+                                            accountColor = accountColorOf(owner?.color),
+                                        )
+                                        HorizontalDivider()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Scrim: like the drawer's, dims the results as the panel comes over them and, once
+                // shown, catches a tap to close. Absent (and non-blocking) while fully closed.
+                val progress = if (panelHeightPx > 0) offset.value / panelHeightPx else 0f
+                if (progress > 0f) {
+                    val scrimSource = remember { MutableInteractionSource() }
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f * progress))
+                            .clickable(interactionSource = scrimSource, indication = null) { settle(false) },
+                    )
+                }
+
+                // The panel itself: the same fields as before, now floating over the results. It
+                // sits just under the handle and is translated up by its own measured height when
+                // closed (clipped away by the parent Box), sliding into view as the handle is dragged.
+                Surface(
+                    tonalElevation = 2.dp,
+                    shadowElevation = 6.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopStart)
+                        .onSizeChanged { panelHeightPx = it.height }
+                        .graphicsLayer {
+                            translationY = if (panelHeightPx == 0) -100_000f else offset.value - panelHeightPx
+                        },
+                ) {
+                    Column(Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = query.from,
+                            onValueChange = { viewModel.updateQuery(query.copy(from = it)) },
+                            label = { Text(stringResource(R.string.search_from)) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                        // Matches To OR Cc: a message that only carries the address in copy was still
+                        // received at it (aliases, shared mailboxes), so one field, no To/Cc switch.
+                        OutlinedTextField(
+                            value = query.recipient,
+                            onValueChange = { viewModel.updateQuery(query.copy(recipient = it)) },
+                            label = { Text(stringResource(R.string.search_recipient)) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                        OutlinedTextField(
+                            value = query.subject,
+                            onValueChange = { viewModel.updateQuery(query.copy(subject = it)) },
+                            label = { Text(stringResource(R.string.search_subject)) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { runSearch() }),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                stringResource(R.string.search_has_attachment),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Switch(
+                                checked = query.hasAttachment,
+                                onCheckedChange = { viewModel.updateQuery(query.copy(hasAttachment = it)) },
+                            )
+                        }
+                        SearchDateRow(stringResource(R.string.search_after), query.afterMillis) { picked ->
+                            viewModel.updateQuery(query.copy(afterMillis = picked?.let(::searchAfterBound)))
+                        }
+                        SearchDateRow(stringResource(R.string.search_before), query.beforeMillis) { picked ->
+                            viewModel.updateQuery(query.copy(beforeMillis = picked?.let(::searchBeforeBound)))
+                        }
+                        Button(
+                            onClick = { runSearch() },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            Text(stringResource(R.string.search_button))
                         }
                     }
                 }

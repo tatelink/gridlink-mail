@@ -98,6 +98,17 @@ class SearchViewModel(
         persist()
     }
 
+    /**
+     * The drag handle's end-state: the swipe decides open or closed and sets it outright, rather
+     * than flipping like [togglePanel]. Keeps [SearchForm.expanded] the single source of truth the
+     * summary and keyboard folding still read, so the overlay's snap animation only follows it.
+     */
+    fun setExpanded(expanded: Boolean) {
+        if (_form.value.expanded == expanded) return
+        _form.value = _form.value.copy(expanded = expanded)
+        persist()
+    }
+
     /** Run the current criteria; the panel folds away so the results get the screen. */
     fun search() {
         _form.value = _form.value.afterSearch()
