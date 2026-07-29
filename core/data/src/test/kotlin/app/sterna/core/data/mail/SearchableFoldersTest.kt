@@ -35,4 +35,29 @@ class SearchableFoldersTest {
             ),
         )
     }
+
+    // excludedSearchFolderIds is the exact complement (same role source), used to exclude Trash/Junk
+    // from the JMAP server search and the FTS crawl so every server behaves like the IMAP walk.
+    @Test fun excludedIsJustTheTrashAndJunkFolders() {
+        assertEquals(
+            listOf("j", "t"),
+            excludedSearchFolderIds(
+                folders("i" to "inbox", "a" to "archive", "j" to "junk", "t" to "trash"),
+            ),
+        )
+    }
+
+    @Test fun excludedCatchesSpamAndIgnoresCaseAndSpacing() {
+        assertEquals(listOf("s", "t"), excludedSearchFolderIds(folders("i" to "inbox", "s" to "SPAM", "t" to " Trash ")))
+    }
+
+    @Test fun excludedIsEmptyWhenNothingIsTrashOrJunk() {
+        assertEquals(emptyList<String>(), excludedSearchFolderIds(folders("i" to "inbox", "x" to null)))
+    }
+
+    @Test fun searchableAndExcludedPartitionTheFolders() {
+        val all = folders("i" to "inbox", "a" to "archive", "j" to "junk", "t" to "trash", "x" to null)
+        assertEquals(listOf("i", "a", "x"), searchableFolderIds(all))
+        assertEquals(listOf("j", "t"), excludedSearchFolderIds(all))
+    }
 }

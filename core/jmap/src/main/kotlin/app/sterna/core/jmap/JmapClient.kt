@@ -478,8 +478,9 @@ class JmapClient internal constructor(
         query: SearchQuery,
         limit: Int,
         auth: JmapAuth,
+        excludeMailboxIds: List<String> = emptyList(),
     ): List<Email> = withContext(Dispatchers.IO) {
-        val filter = searchFilter(query)
+        val filter = searchFilter(query, excludeMailboxIds)
         val payload = buildJsonObject {
             putJsonArray("using") {
                 add(Jmap.CORE_CAPABILITY)
@@ -550,6 +551,7 @@ class JmapClient internal constructor(
         position: Int,
         limit: Int,
         auth: JmapAuth,
+        excludeMailboxIds: List<String> = emptyList(),
     ): CrawlPage = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
@@ -561,6 +563,12 @@ class JmapClient internal constructor(
                     add("Email/query")
                     addJsonObject {
                         put("accountId", accountId)
+                        // Don't index Trash/Junk into the local search index (same exclusion the
+                        // server search and the IMAP walk apply), so a deleted message never
+                        // surfaces in as-you-type results. A message still filed elsewhere is kept.
+                        if (excludeMailboxIds.isNotEmpty()) putJsonObject("filter") {
+                            putJsonArray("inMailboxOtherThan") { excludeMailboxIds.forEach { add(it) } }
+                        }
                         putJsonArray("sort") {
                             addJsonObject {
                                 put("property", "receivedAt")
@@ -2051,7 +2059,7 @@ class JmapClient internal constructor(
  * Pure and separate from the request so the combination is unit-testable; callers must have
  * checked [SearchQuery.isEmpty] first (an empty filter would match the whole account).
  */
-internal fun searchFilter(query: SearchQuery): JsonObject {
+internal fun searchFilter(query: SearchQuery, excludeMailboxIds: List<String> = emptyList()): JsonObject {
     val conditions = mutableListOf<JsonObjectBuilder.() -> Unit>()
     if (query.text.isNotBlank()) conditions.add { put("text", query.text.trim()) }
     if (query.from.isNotBlank()) conditions.add { put("from", query.from.trim()) }
@@ -2069,6 +2077,12 @@ internal fun searchFilter(query: SearchQuery): JsonObject {
     if (query.hasAttachment) conditions.add { put("hasAttachment", true) }
     query.afterMillis?.let { ms -> conditions.add { put("after", jmapUtcDate(ms)) } }
     query.beforeMillis?.let { ms -> conditions.add { put("before", jmapUtcDate(ms)) } }
+    // Exclude Trash/Junk exactly as the IMAP walk skips them (parity across servers): a message
+    // living ONLY in an excluded mailbox drops out, while one still filed elsewhere (Inbox and
+    // Trash) is kept via its other mailbox. `inMailboxOtherThan` is one condition of the outer AND.
+    if (excludeMailboxIds.isNotEmpty()) conditions.add {
+        putJsonArray("inMailboxOtherThan") { excludeMailboxIds.forEach { add(it) } }
+    }
     return buildJsonObject {
         if (conditions.size == 1) {
             conditions[0]()

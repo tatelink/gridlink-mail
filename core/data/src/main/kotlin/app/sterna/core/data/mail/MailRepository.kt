@@ -192,7 +192,18 @@ internal fun fitsBodyCache(bodyJson: String, inlineImagesJson: String): Boolean 
 internal fun searchableFolderIds(folders: List<MailboxIdRole>): List<String> =
     folders.filterNot { it.role?.trim()?.lowercase() in NOT_SEARCHED_ROLES }.map { it.id }
 
-private val NOT_SEARCHED_ROLES = setOf("trash", "junk", "spam")
+/**
+ * The complement of [searchableFolderIds]: the account's Trash/Junk/Spam folders, kept OUT of a
+ * search. IMAP excludes them by simply not walking them; JMAP searches the whole account in one
+ * query and the FTS crawl indexes it whole, so both need these ids to exclude explicitly — the JMAP
+ * server filter via `inMailboxOtherThan`, the crawl by not indexing them. Same role rule as
+ * [searchableFolderIds] (the single [NOT_SEARCHED_ROLES] source), so the two protocols and the local
+ * index can never disagree about what a search may surface.
+ */
+internal fun excludedSearchFolderIds(folders: List<MailboxIdRole>): List<String> =
+    folders.filter { it.role?.trim()?.lowercase() in NOT_SEARCHED_ROLES }.map { it.id }
+
+internal val NOT_SEARCHED_ROLES = setOf("trash", "junk", "spam")
 
 internal fun requireSingleLineAddresses(addresses: List<String>) {
     require(addresses.none { addr -> addr.any { it == '\r' || it == '\n' } }) {
@@ -1145,7 +1156,7 @@ class MailRepository(
      * (recent window), without clearing crawled-only rows. Called when a search session opens; the
      * full whole-mailbox crawl ([syncSearchIndex]) runs separately in the background.
      */
-    suspend fun seedIndexFromCache() = emailFtsDao.seedFromEmails()
+    suspend fun seedIndexFromCache() = emailFtsDao.seedFromEmails(NOT_SEARCHED_ROLES)
 
     /** Per-account throttle for the (network) index crawl. */
     private val lastIndexAt = mutableMapOf<String, Long>()
@@ -1168,12 +1179,16 @@ class MailRepository(
         val now = System.currentTimeMillis()
         if (!force && now - (lastIndexAt[credentials.id] ?: 0L) < INDEX_TTL_MS) return
         val ctx = runCatching { connect(credentials) }.getOrNull() ?: return
+        // Don't crawl Trash/Junk into the index (parity with the server search and the IMAP walk):
+        // same role source as searchableFolderIds, so what the index holds and what a search may
+        // surface can never diverge. Excluded server-side, so those headers never come down.
+        val excluded = excludedSearchFolderIds(mailboxDao.searchOrder(credentials.id))
         var position = 0
         var failed = false
         var consecutiveErrors = 0
         while (position < HEADER_MAX) {
             val page = try {
-                client.crawlHeaders(ctx.session, ctx.accountId, position, HEADER_PAGE, ctx.auth)
+                client.crawlHeaders(ctx.session, ctx.accountId, position, HEADER_PAGE, ctx.auth, excluded)
             } catch (e: CancellationException) {
                 throw e // search closed / VM cleared: bail WITHOUT stamping so we resume next time
             } catch (e: Exception) {
@@ -3135,7 +3150,11 @@ class MailRepository(
             )
         }
         val ctx = connect(credentials)
-        val hits = client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth)
+        // Exclude Trash/Junk from the server search too, so JMAP matches the IMAP walk and the local
+        // index — a message you deleted must not reappear in results whatever the server (Stalwart
+        // returned it before). Same role source as the IMAP path's searchableFolderIds.
+        val excluded = excludedSearchFolderIds(mailboxDao.searchOrder(credentials.id))
+        val hits = client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth, excluded)
         // A hit can live in several mailboxes: resolve its folder like [fetchThreadMembers] —
         // the cached row's folder while the server still lists it, else the role-ranked pick —
         // never the server map's arbitrary first key, which could feed a search-row action

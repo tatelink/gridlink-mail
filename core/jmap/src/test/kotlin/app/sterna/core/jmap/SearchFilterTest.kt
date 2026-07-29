@@ -64,6 +64,23 @@ class SearchFilterTest {
     }
 
     @Test
+    fun `excluded mailboxes become an inMailboxOtherThan condition of the AND`() {
+        assertEquals(
+            """{"operator":"AND","conditions":[{"text":"invoice"},""" +
+                """{"inMailboxOtherThan":["trash1","junk1"]}]}""",
+            searchFilter(SearchQuery(text = "invoice"), excludeMailboxIds = listOf("trash1", "junk1")).toString(),
+        )
+    }
+
+    @Test
+    fun `no excluded mailboxes leave the filter unchanged`() {
+        assertEquals(
+            """{"text":"invoice"}""",
+            searchFilter(SearchQuery(text = "invoice"), excludeMailboxIds = emptyList()).toString(),
+        )
+    }
+
+    @Test
     fun `an empty query is caught upstream, not here`() {
         // Guarded by SearchQuery.isEmpty() in the repository: an empty filter matches everything.
         assertEquals(true, SearchQuery().isEmpty())
