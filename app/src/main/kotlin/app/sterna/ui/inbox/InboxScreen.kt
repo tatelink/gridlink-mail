@@ -239,6 +239,10 @@ fun InboxScreen(
     val selectionActive by viewModel.selectionActive.collectAsStateWithLifecycle()
     val selectedKeys by viewModel.selectedKeys.collectAsStateWithLifecycle()
     val selectionAllRead by viewModel.selectionAllRead.collectAsStateWithLifecycle()
+    // Folders the move-to-folder picker offers: the SELECTED message's account's, not the active
+    // account's — so a secondary-account message moved from the unified inbox lands in its own
+    // folders (#73). Empty until something is selected.
+    val moveTargetMailboxes by viewModel.selectionMailboxes.collectAsStateWithLifecycle()
     // Inline conversation expansion: which threads are unfolded, and their lazily-loaded members.
     val expandedThreads by viewModel.expandedThreads.collectAsStateWithLifecycle()
     val threadMembers by viewModel.threadMembers.collectAsStateWithLifecycle()
@@ -322,7 +326,7 @@ fun InboxScreen(
     // Move-to-folder picker for the current selection. The offered folders (and their order)
     // come from [moveTargets], shared with the reader's own picker (#73).
     if (showMoveSheet) {
-        val targets = moveTargets(ui.mailboxes, ui.selectedMailboxId)
+        val targets = moveTargets(moveTargetMailboxes, ui.selectedMailboxId)
         AlertDialog(
             onDismissRequest = { showMoveSheet = false },
             title = { Text(stringResource(R.string.inbox_move_to_folder)) },

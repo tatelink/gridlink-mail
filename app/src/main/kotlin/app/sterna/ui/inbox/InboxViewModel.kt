@@ -561,6 +561,29 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     val selectionAllRead: StateFlow<Boolean> = _selectionAllRead.asStateFlow()
 
     /**
+     * The account the current selection belongs to: a single account, or null when the selection is
+     * empty or spans accounts. The move-to-folder picker offers THIS account's folders — from the
+     * unified inbox, a message of a secondary account must land in that account's folders, not the
+     * active account's, or the chosen mailbox id (which collides across same-server accounts) sends
+     * it nowhere and the move silently does nothing. The reader already resolves folders by the open
+     * message's account (#73); this brings the list's picker in line.
+     */
+    private val selectionAccountId: StateFlow<String?> = _selectedKeys
+        .map(::selectionAccount)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /**
+     * Folders the move-to-folder picker offers: the selection's account's, falling back to the
+     * active account's when nothing account-specific is selected (a plain single-folder view move).
+     */
+    val selectionMailboxes: StateFlow<List<Mailbox>> =
+        combine(selectionAccountId, currentAccountId) { selId, curId -> selId ?: curId }
+            .flatMapLatest { accountId ->
+                if (accountId == null) flowOf(emptyList()) else repo.observeMailboxes(accountId)
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
      * The browse list, paged from Room. A single folder uses the RemoteMediator-backed
      * pager (scrolling past the cache fetches older mail from the server); the unified
      * inbox just pages the cached rows across accounts.
@@ -1579,12 +1602,14 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun moveSelectedTo(targetMailboxId: String) {
         val keys = _selectedKeys.value
         viewModelScope.launch {
-            // The picker listed the CURRENT account's folders, but a unified-inbox selection
-            // can span accounts — and the same folder id in a sibling account is a different
-            // (or nonexistent) folder, since same-server mailbox ids collide. Only the current
-            // account's messages move; the rest are left untouched and reported.
-            val currentId = store.currentId()
-            val (movable, skipped) = repo.cachedEmailsByIds(keys).partition { credentialsFor(it)?.id == currentId }
+            // The picker offered the SELECTION's account folders (see [selectionMailboxes]), so the
+            // move targets that account: a unified selection of a secondary account now lands in its
+            // OWN folders instead of being skipped for not being the active account (#73). Only that
+            // account's messages move; any from another account (a mixed selection falls back to the
+            // active account) are left untouched and reported — the same target id in a sibling
+            // account is a different or nonexistent folder, since same-server mailbox ids collide.
+            val moveAccountId = selectionAccount(keys) ?: store.currentId()
+            val (movable, skipped) = keys.partition { it.accountId == moveAccountId }
             clearSelection()
             if (skipped.isNotEmpty()) {
                 _message.value = getApplication<Application>().getString(R.string.status_move_other_account)
@@ -1594,7 +1619,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 // same gesture in the list must not be the one you cannot take back.
                 bulkBatched(
                     undoLabel = getApplication<Application>().getString(R.string.status_message_moved),
-                    keys = movable.mapTo(mutableSetOf()) { it.emailKey() },
+                    keys = movable.toMutableSet(),
                 ) { c, batch -> repo.moveAllToMailbox(c, batch, targetMailboxId) }
             }
         }
@@ -1850,4 +1875,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         const val MAX_THREAD_COMPLETIONS = 10
     }
 }
+
+/**
+ * The single account a multi-select belongs to, or null when it is empty or spans accounts. Pure,
+ * so the move-to-folder picker's account resolution can be unit-tested (#73 multi-account): the
+ * picker offers this account's folders and the move targets it, instead of the active account's.
+ */
+internal fun selectionAccount(keys: Set<EmailKey>): String? =
+    keys.map { it.accountId }.distinct().singleOrNull()
 
