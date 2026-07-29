@@ -11,14 +11,42 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * The outbox badge over time (#70): silent while the undo window runs, then counting on its own
- * as soon as the window has elapsed — including offline, where nothing ever takes the row out of
- * HELD — and back to zero once the message leaves.
+ * The outbox badge over time, driven through the shipped [OutboxLogic.badgeCount] on a virtual
+ * clock. Two things have to hold at once: a message that goes out normally must never put the badge
+ * on screen, not even for a second (#82), and a message that is NOT going out must reach the badge
+ * on its own, without anything having failed — offline nothing ever takes the row out of HELD (#70).
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class OutboxBadgeCountTest {
-    @Test fun theUndoWindowIsSilentThenTheRowCountsWhenItElapses() = runTest {
-        val rows = MutableStateFlow(listOf(OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = 5_000)))
+    private val grace = OutboxLogic.BADGE_GRACE_MILLIS
+
+    /** The undo window used by a normal send; the row is only allowed to leave once it elapses. */
+    private val window = 5_000L
+
+    /** The reporter's case (#82): online the message is gone in seconds and the badge never blinks. */
+    @Test fun sendingWhileOnlineNeverMakesTheBadgeAppear() = runTest {
+        val rows = MutableStateFlow(listOf(OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = window)))
+        val seen = mutableListOf<Int>()
+        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            OutboxLogic.badgeCount(rows) { testScheduler.currentTime }.toList(seen)
+        }
+        runCurrent()
+
+        // The window closes, the worker sends, and the delivered row is dropped a second later.
+        advanceTimeBy(window + 1_000)
+        rows.value = emptyList()
+        advanceTimeBy(grace * 2) // long past the point where it would have counted
+
+        assertEquals("a send that works must never light the badge", listOf(0), seen)
+        job.cancel()
+    }
+
+    /**
+     * #70, the reason the badge exists: offline the delivery worker is gated on connectivity and
+     * never runs, so nothing moves the row and nothing fails — the clock alone must raise the badge.
+     */
+    @Test fun sendingWhileOfflineMakesTheBadgeAppearOnItsOwn() = runTest {
+        val rows = MutableStateFlow(listOf(OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = window)))
         val seen = mutableListOf<Int>()
         val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
             OutboxLogic.badgeCount(rows) { testScheduler.currentTime }.toList(seen)
@@ -26,58 +54,96 @@ class OutboxBadgeCountTest {
         runCurrent()
         assertEquals("silent during the undo window", listOf(0), seen)
 
-        advanceTimeBy(5_001) // the window closes; the message is still sitting in the outbox
-        assertEquals("counted once the window has elapsed", listOf(0, 1), seen)
+        advanceTimeBy(window + grace - 1)
+        assertEquals("still silent while the message may yet go out", listOf(0), seen)
+
+        advanceTimeBy(2) // the grace runs out; the message is still sitting in the outbox
+        assertEquals("counted once it has clearly not gone out", listOf(0, 1), seen)
         job.cancel()
     }
 
     @Test fun theCountDropsBackToZeroWhenTheMessageLeaves() = runTest {
-        val rows = MutableStateFlow(listOf(OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = 5_000)))
+        val rows = MutableStateFlow(listOf(OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = window)))
         val seen = mutableListOf<Int>()
         val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
             OutboxLogic.badgeCount(rows) { testScheduler.currentTime }.toList(seen)
         }
-        advanceTimeBy(5_001)
+        advanceTimeBy(window + grace + 1)
         assertEquals(listOf(0, 1), seen)
 
-        rows.value = emptyList() // delivered: the worker dropped the row
+        rows.value = emptyList() // the network came back: delivered, and the worker dropped the row
         runCurrent()
         assertEquals(listOf(0, 1, 0), seen)
         job.cancel()
     }
 
-    @Test fun aQueuedOrFailedRowCountsImmediately() = runTest {
-        val rows = MutableStateFlow(
-            listOf(
-                OutboxBadgeItem(OutboxState.QUEUED, notBeforeMillis = 0),
-                OutboxBadgeItem(OutboxState.FAILED, notBeforeMillis = 0),
-            ),
-        )
+    /** A parked failure gets no grace: it is over, it needs the user, and waiting changes nothing. */
+    @Test fun aFailedRowCountsImmediately() = runTest {
+        val rows = MutableStateFlow(listOf(OutboxBadgeItem(OutboxState.FAILED, notBeforeMillis = 0)))
         val seen = mutableListOf<Int>()
         val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
             OutboxLogic.badgeCount(rows) { testScheduler.currentTime }.toList(seen)
         }
         runCurrent()
-        assertEquals(listOf(2), seen)
+        assertEquals("a failure is shown at once, with no delay", listOf(1), seen)
         job.cancel()
     }
 
-    @Test fun eachNewSendGetsItsOwnSilentWindow() = runTest {
-        val first = OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = 5_000)
+    /**
+     * A transient failure puts the row back to QUEUED (OutboxWorker) without touching its deadline.
+     * The grace hangs off that deadline, so a hiccup that heals stays silent, and a retry that keeps
+     * failing counts at the instant it would have counted anyway — it never buys itself a new grace.
+     */
+    @Test fun aRowRequeuedAfterATransientFailureDoesNotRestartTheGrace() = runTest {
+        val rows = MutableStateFlow(listOf(OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = window)))
+        val seen = mutableListOf<Int>()
+        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            OutboxLogic.badgeCount(rows) { testScheduler.currentTime }.toList(seen)
+        }
+        advanceTimeBy(window + 100) // the attempt runs and throws; the worker requeues the row
+        rows.value = listOf(OutboxBadgeItem(OutboxState.QUEUED, notBeforeMillis = window))
+        runCurrent()
+        assertEquals("a retry still inside the grace must not flash the badge", listOf(0), seen)
+
+        advanceTimeBy(grace - 101)
+        assertEquals(listOf(0), seen)
+        advanceTimeBy(2) // the original deadline plus the grace, reached without the message leaving
+        assertEquals(listOf(0, 1), seen)
+        job.cancel()
+    }
+
+    /** With the undo window turned off (holdMs = 0) the row is QUEUED from the start; still silent. */
+    @Test fun aSendQueuedWithNoUndoWindowIsSilentTooThenCounts() = runTest {
+        val rows = MutableStateFlow(listOf(OutboxBadgeItem(OutboxState.QUEUED, notBeforeMillis = 0)))
+        val seen = mutableListOf<Int>()
+        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            OutboxLogic.badgeCount(rows) { testScheduler.currentTime }.toList(seen)
+        }
+        advanceTimeBy(grace - 1)
+        assertEquals("no window to hide behind, but still a send in progress", listOf(0), seen)
+
+        advanceTimeBy(2)
+        assertEquals(listOf(0, 1), seen)
+        job.cancel()
+    }
+
+    @Test fun eachNewSendIsSilentOnItsOwnDeadline() = runTest {
+        val first = OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = window)
         val rows = MutableStateFlow(listOf(first))
         val seen = mutableListOf<Int>()
         val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
             OutboxLogic.badgeCount(rows) { testScheduler.currentTime }.toList(seen)
         }
-        advanceTimeBy(5_001)
+        advanceTimeBy(window + grace + 1)
         assertEquals(listOf(0, 1), seen)
 
-        // A second send queued at t=5001 stays silent for its own window, then joins the count.
-        rows.value = listOf(first, OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = 10_001))
+        // A second send queued now stays silent for its own window and grace, then joins the count.
+        val queuedAt = testScheduler.currentTime
+        rows.value = listOf(first, OutboxBadgeItem(OutboxState.HELD, notBeforeMillis = queuedAt + window))
         runCurrent()
         assertEquals("the new row must not flash on the badge", listOf(0, 1), seen)
 
-        advanceTimeBy(5_001)
+        advanceTimeBy(window + grace + 1)
         assertEquals(listOf(0, 1, 2), seen)
         job.cancel()
     }

@@ -3923,7 +3923,10 @@ class MailRepository(
     fun outboxFlow(): Flow<List<OutboxEntity>> =
         outboxDao.observeAll().map { rows -> rows.filter { it.state != OutboxState.EDITING } }
 
-    /** Count of pending/failed items for the discreet badge (excludes a running undo window). */
+    /**
+     * Count of failed items plus those still waiting well past their undo window, for the discreet
+     * badge. A send that goes through normally never reaches it — see [OutboxLogic.activeCount].
+     */
     fun outboxActiveCount(): Flow<Int> = OutboxLogic.badgeCount(outboxDao.observeBadgeItems())
 
     suspend fun outboxItem(id: Long): OutboxEntity? = outboxDao.byId(id)
