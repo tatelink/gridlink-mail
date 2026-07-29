@@ -219,6 +219,8 @@ private fun MainNavHost(
     LaunchedEffect(pendingMailto) {
         val m = pendingMailto ?: return@LaunchedEffect
         onMailtoConsumed()
+        // unguarded: a single consumption, not a repeatable tap — dropping it would lose the
+        // user's action rather than de-duplicate it. See navigateOnce's KDoc.
         nav.navigate(
             "compose?to=${Uri.encode(m.to)}&cc=${Uri.encode(m.cc)}&bcc=${Uri.encode(m.bcc)}" +
                 "&subject=${Uri.encode(m.subject)}&body=${Uri.encode(m.body)}",
@@ -259,6 +261,8 @@ private fun MainNavHost(
         // same server routinely share mailbox ids), and a notification old enough to carry
         // neither predates both extras.
         pendingFolderOpen = target.takeIf { it.accountId != null && it.mailboxId != null }
+        // unguarded: a single consumption, and it can arrive mid-transition — adding the guard
+        // here could lose the opening of a notification the user just tapped.
         nav.navigate(
             "message/${Uri.encode(target.emailId)}?accountId=${Uri.encode(target.accountId.orEmpty())}",
         )
@@ -317,9 +321,10 @@ private fun MainNavHost(
                     }
                 },
                 onCompose = { entry.navigateOnce { nav.navigate("compose") } },
-                // Reopening an undone send is a deliberate one-shot driven off the restored-draft
-                // flow, not a stale list tap, so it must not be gated by the resumed-entry guard
-                // (which was dropping it and leaving the message parked with no compose to return to).
+                // unguarded: reopening an undone send is a deliberate one-shot driven off the
+                // restored-draft flow, not a stale list tap, so it must not be gated by the
+                // resumed-entry guard (which was dropping it and leaving the message parked with
+                // no compose to return to).
                 onReopenDraft = { nav.navigate("compose?restore=true") },
                 // A message tapped in the Drafts folder opens in compose for editing (#63),
                 // not in the reader — sending or re-saving then replaces the stored draft.

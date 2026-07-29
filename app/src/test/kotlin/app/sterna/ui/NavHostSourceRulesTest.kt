@@ -12,23 +12,35 @@ import java.io.File
  * It exists because the defect it guards against is precisely a silent omission: the settings
  * NavHost was written without the re-entrancy guard the outer one already had, and nothing —
  * not the compiler, not a review — said so (Codeberg #106).
+ *
+ * What it does NOT do: `navigateOnce` is an opt-in extension function, so nothing at the type
+ * level stops a new graph from calling `nav.navigate(…)` bare. This catches it on the next test
+ * run, after the fact; it does not make it impossible. Making it impossible means a type that
+ * owns the controller, which is a design decision, not a lint rule.
  */
 class NavHostSourceRulesTest {
 
+    /**
+     * Applies to EVERY file that hosts a NavHost, not just the two that exist today — a third
+     * graph is checked action by action from the moment it is written. An action that must not
+     * be de-duplicated (a single consumption: mailto:, a notification, a completion callback
+     * that fires off a coroutine) opts out by carrying [EXEMPT] on its own line or in the
+     * comment block directly above it, which is also where the reason has to be written.
+     */
     @Test
-    fun `every navigation action in the settings graph goes through the shared guard`() {
-        val offenders = source("app/sterna/ui/settings/SettingsScreen.kt").readLines()
-            .mapIndexed { i, line -> i + 1 to line }
-            .filter { (_, line) -> line.isNavAction() && !line.isGuarded() }
-        assertTrue("unguarded navigation actions: $offenders", offenders.isEmpty())
-    }
-
-    @Test
-    fun `a file that hosts a NavHost uses the shared guard`() {
+    fun `every navigation action in a NavHost file goes through the shared guard`() {
         val offenders = mainSources()
-            .filter { "NavHost(" in it.readText() && "navigateOnce" !in it.readText() }
-            .map { it.name }
-        assertTrue("NavHost without the shared re-entrancy guard: $offenders", offenders.isEmpty())
+            .filter { "NavHost(" in it.readText() }
+            .flatMap { file ->
+                val lines = file.readLines()
+                lines.indices
+                    .filter { lines[it].isNavAction() && !lines.isGuarded(it) && !lines.isExempt(it) }
+                    .map { "${file.name}:${it + 1}" }
+            }
+        assertTrue(
+            "navigation actions neither guarded by navigateOnce nor marked '$EXEMPT': $offenders",
+            offenders.isEmpty(),
+        )
     }
 
     @Test
@@ -88,13 +100,49 @@ class NavHostSourceRulesTest {
 
     private fun String.isNavAction() = "nav.navigate(" in this || "nav.popBackStack(" in this
 
-    /** The guard has to open before the action on the same line — the shape used in that file. */
-    private fun String.isGuarded() = "navigateOnce {" in substringBefore("nav.")
+    /**
+     * Guarded either on the same line, or by the enclosing block: walking up to the first line
+     * indented LESS than the action, that line must be the `navigateOnce {` that opened the block.
+     * Indentation rather than brace counting, because the string templates inside the route
+     * literals carry braces of their own and make naive counting lie.
+     */
+    private fun List<String>.isGuarded(index: Int): Boolean {
+        val line = this[index]
+        if (GUARD in line.substringBefore("nav.")) return true
+        val indent = line.indentWidth()
+        for (i in index - 1 downTo 0) {
+            val candidate = this[i]
+            if (candidate.isBlank() || candidate.indentWidth() >= indent) continue
+            return GUARD in candidate
+        }
+        return false
+    }
+
+    /** Opted out on the action's own line, or in the contiguous comment block above it. */
+    private fun List<String>.isExempt(index: Int): Boolean {
+        if (EXEMPT in this[index]) return true
+        for (i in index - 1 downTo 0) {
+            if (!this[i].trimStart().startsWith("//")) return false
+            if (EXEMPT in this[i]) return true
+        }
+        return false
+    }
+
+    private fun String.indentWidth() = length - trimStart().length
 
     companion object {
+        private const val GUARD = "navigateOnce {"
+        private const val EXEMPT = "unguarded:"
+
         /** Repo root, found by walking up from the module's working directory. */
-        private val root: File = generateSequence(File("").absoluteFile) { it.parentFile }
-            .first { File(it, "app/src/main/kotlin/app/sterna/ui/SternaApp.kt").isFile }
+        private val root: File by lazy {
+            generateSequence(File("").absoluteFile) { it.parentFile }
+                .firstOrNull { File(it, "app/src/main/kotlin/app/sterna/ui/SternaApp.kt").isFile }
+                ?: error(
+                    "cannot locate the repo root from ${File("").absolutePath} — this test reads " +
+                        "the sources as text and needs a working directory inside the checkout",
+                )
+        }
 
         fun source(relative: String): File = File(root, "app/src/main/kotlin/$relative")
 

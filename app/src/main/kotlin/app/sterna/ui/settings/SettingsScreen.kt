@@ -186,16 +186,20 @@ fun SettingsScreen(
     // the detail as the start destination, Back can't pop it (popBackStack returns false) and falls
     // through to the caller, so Back still returns to the inbox, not the hub.
     // Horizontal push between hub and detail screens (standard master/detail motion): the screen
-    // that arrives (or leaves, on Back) travels the full width on top; the one underneath only
-    // drifts a quarter of it. The slides are OPAQUE and fully tile the viewport at every frame, so
+    // that arrives (or leaves, on Back) travels the full width, the other one only drifts a
+    // quarter of it. The slides are OPAQUE and their UNION covers the viewport at every frame, so
     // a fast double-back (e.g. right after a theme change, whose recomposition disturbs an
     // in-flight transition) can never expose a blank window-background frame — the failure mode
     // that made the old cross-fade unusable here, and the reason no fade may come back into these
-    // four lines. The tiling holds for any travel ≤ the frame width: the moving pair can only ever
-    // part where the trailing edge of the one screen meets the leading edge of the other, and both
-    // are driven by the same eased fraction, so that seam never opens. A quarter, rather than the
-    // full width both panes used to travel, is what keeps the motion calm on a wide window —
-    // landscape and tablets, where a fixed duration over a wider frame means a faster slide (#100).
+    // four lines. That holds for any travel ≤ the frame width: the pair can only part where the
+    // trailing edge of one meets the leading edge of the other, and both are driven by the same
+    // eased fraction, so that seam never opens. Because both panes are opaque it is the union
+    // that matters, so the guarantee does not depend on which of the two is drawn on top.
+    // The quarter, rather than the full width both panes used to travel, is what calms the motion
+    // on a wide window — landscape and tablets, where a fixed duration over a wider frame means a
+    // faster slide. Note it only calms the pane UNDERNEATH: the one on top still crosses the whole
+    // frame, and in 220 ms rather than 300 it crosses it faster than before. The ≤ 250 ms cap in
+    // DESIGN.md is the binding rule and it wins (#100).
     // EVERY action below (forward and Back alike) goes through [navigateOnce], the app-wide
     // re-entrancy guard shared with the outer graph. Without it, taps landing during the slide
     // stacked several copies of the same page on the back stack (#106). A new destination added
@@ -248,7 +252,14 @@ fun SettingsScreen(
                 onConnected = {
                     accountsViewModel.refresh()
                     onAccountsChanged()
-                    entry.navigateOnce { nav.popBackStack() }
+                    // unguarded: this is not a tap. It fires from ConnectScreen's LaunchedEffect
+                    // when the sign-in state flips — on a coroutine, on the app's schedule, which
+                    // may well be while the app is backgrounded. An entry's lifecycle is capped by
+                    // the host's, so NO entry is RESUMED then and the guard would silently swallow
+                    // the pop, stranding the user on a Connect form for an account that has already
+                    // been added. Same family as the mailto:/notification navigations: a single
+                    // consumption whose loss is not a no-op.
+                    nav.popBackStack()
                 },
             )
         }
@@ -262,6 +273,9 @@ fun SettingsScreen(
                 // The fall-through sits INSIDE the guard: an ignored re-entrant tap must not be read
                 // as "nothing left to pop" and close settings.
                 onBack = { entry.navigateOnce { if (!nav.popBackStack()) onBack() } },
+                // Guarded, unlike onConnected above: this one IS a tap — it runs inline from the
+                // sign-out confirmation dialog's button, with the entry resumed underneath, and a
+                // double tap on that button would pop twice.
                 onSignedOut = {
                     onAccountsChanged()
                     entry.navigateOnce { nav.popBackStack() }
