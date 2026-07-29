@@ -147,6 +147,7 @@ fun ComposeScreen(
     val recipientKeys by viewModel.recipientKeys.collectAsStateWithLifecycle()
     val pgpKeylessRecipients by viewModel.pgpKeylessRecipients.collectAsStateWithLifecycle()
     val onlyCopy by viewModel.onlyCopy.collectAsStateWithLifecycle()
+    val attachmentsTouched by viewModel.attachmentsTouched.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let(viewModel::attach)
@@ -307,6 +308,8 @@ fun ComposeScreen(
     var applied by rememberSaveable { mutableStateOf(false) }
     // Baseline to detect unsaved edits (set from the prefill for replies/forwards).
     var initialTo by rememberSaveable { mutableStateOf("") }
+    var initialCc by rememberSaveable { mutableStateOf("") }
+    var initialBcc by rememberSaveable { mutableStateOf("") }
     var initialSubject by rememberSaveable { mutableStateOf("") }
     var initialBody by rememberSaveable { mutableStateOf("") }
 
@@ -351,6 +354,8 @@ fun ComposeScreen(
                 )
                 body = TextFieldValue(it.body, TextRange(caret ?: 0))
                 initialTo = prefilledTo
+                initialCc = cc
+                initialBcc = bcc
                 initialSubject = it.subject
                 initialBody = it.body
                 applied = true
@@ -400,9 +405,18 @@ fun ComposeScreen(
 
     // Unsaved-changes guard: prompt before discarding non-empty, unsent edits. A message the user
     // pulled back out of a send (Undo) is also guarded even untouched: it lives on this screen only,
-    // so closing would destroy it (#70) — unlike an outbox message, which [cancel] gives back.
-    val dirty = onlyCopy || to != initialTo || cc.isNotBlank() || bcc.isNotBlank() ||
-        subject.text != initialSubject || body.text != initialBody || attachments.isNotEmpty()
+    // so closing would destroy it (#70) — unlike an outbox message, which [cancel] gives back. The
+    // verdict itself is [ComposeDirty]: recipients compared as sets so reordering a chip is not an
+    // "edit" (#94), and a pre-filled Cc/Bcc/attachment not counted as one either (#70).
+    val dirty = ComposeDirty.isDirty(
+        onlyCopy = onlyCopy,
+        to = to, initialTo = initialTo,
+        cc = cc, initialCc = initialCc,
+        bcc = bcc, initialBcc = initialBcc,
+        subject = subject.text, initialSubject = initialSubject,
+        body = body.text, initialBody = initialBody,
+        attachmentsTouched = attachmentsTouched,
+    )
     var showDiscard by remember { mutableStateOf(false) }
     val attemptClose = { if (dirty && !sending) showDiscard = true else cancel() }
 

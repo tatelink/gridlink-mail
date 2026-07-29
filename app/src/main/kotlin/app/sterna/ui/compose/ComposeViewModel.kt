@@ -139,6 +139,16 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private val _attachments = MutableStateFlow<List<EmailBodyPart>>(emptyList())
     val attachments: StateFlow<List<EmailBodyPart>> = _attachments.asStateFlow()
 
+    private val _attachmentsTouched = MutableStateFlow(false)
+    /**
+     * Whether the user added or removed an attachment (#70/#94). The unsaved-changes guard needs
+     * "did the user change anything", not "are there any attachments": a message reopened from the
+     * outbox or a forward opens WITH attachments already, and counting those as an edit made the
+     * discard dialog fire on a close the user never edited. Only [attach]/[removeAttachment] flip
+     * this; the prefill paths populate [_attachments] without it.
+     */
+    val attachmentsTouched: StateFlow<Boolean> = _attachmentsTouched.asStateFlow()
+
     private val _attachmentStatus = MutableStateFlow<String?>(null)
     val attachmentStatus: StateFlow<String?> = _attachmentStatus.asStateFlow()
 
@@ -480,6 +490,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 } ?: error(getApplication<Application>().getString(R.string.status_read_file_failed))
                 val part = stageOutgoing(credentials, bytes, type, name, disposition = "attachment", cid = null)
                 _attachments.value = _attachments.value + part
+                _attachmentsTouched.value = true
                 _attachmentStatus.value = null
             } catch (t: Throwable) {
                 // The exception text is a resolver/HTTP string; keep it in logcat, where diagnosis
@@ -500,6 +511,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
 
     fun removeAttachment(part: EmailBodyPart) {
         _attachments.value = _attachments.value.filterNot { it == part }
+        _attachmentsTouched.value = true
     }
 
     /**
