@@ -13,6 +13,9 @@ import app.sterna.R
 import app.sterna.core.data.settings.NotificationContent
 import app.sterna.core.jmap.model.Email
 
+/** The buttons a new-mail notification can carry, in the order they are shown. */
+enum class MailNotificationAction { REPLY, MARK_READ, DELETE }
+
 /** Notification channels + helpers. No telemetry, no third-party push. */
 object Notifications {
     const val CHANNEL_MAIL = "new_mail"
@@ -43,6 +46,28 @@ object Notifications {
      * So the child speaks exactly when it stands alone.
      */
     fun summaryShownFor(liveChildren: Int): Boolean = liveChildren >= SUMMARY_MIN_CHILDREN
+
+    /**
+     * The buttons a new-mail notification carries, per the notification-content privacy setting
+     * (Codeberg #57). Pure and resource-free — the labels and the intents are built by the
+     * caller — so the "may the user act on this?" rule is unit-testable on its own, next to the
+     * "what does this reveal?" rule of [MailNotificationText].
+     *
+     * A notification that identifies its message (SENDER_AND_SUBJECT, SENDER_ONLY) keeps the
+     * three actions unchanged. At NONE the notification says only "New message": there is
+     * nothing to act on knowingly, and a Delete offered over an unidentifiable message loses
+     * mail. So NONE gets none — tap to read, or swipe to dismiss.
+     */
+    fun actionsFor(content: NotificationContent): List<MailNotificationAction> = when (content) {
+        NotificationContent.SENDER_AND_SUBJECT,
+        NotificationContent.SENDER_ONLY,
+        -> listOf(
+            MailNotificationAction.REPLY,
+            MailNotificationAction.MARK_READ,
+            MailNotificationAction.DELETE,
+        )
+        NotificationContent.NONE -> emptyList()
+    }
 
     /**
      * The per-message notification ids the account is left with once a notification pass is
@@ -150,9 +175,10 @@ object Notifications {
      * caller has none to give. Unlike [folderName] it is NOT null for the inbox: the list has to
      * be able to switch back TO the inbox from another folder just as much as away from it.
      * [silent] (quiet hours) and [content] (how much of the mail shows on the lock screen,
-     * Codeberg #25) are deliberately WITHOUT defaults: they are user settings, and the
-     * defaults let the snooze wake-up post loudly with sender and subject against the
-     * user's explicit choice (Codeberg #84). Read them via [NewMailNotifier.options].
+     * Codeberg #25, and with it which action buttons it may carry — see [actionsFor]) are
+     * deliberately WITHOUT defaults: they are user settings, and the defaults let the snooze
+     * wake-up post loudly with sender and subject against the user's explicit choice
+     * (Codeberg #84). Read them via [NewMailNotifier.options].
      * [summarised] says whether a group summary will announce this batch, in which case this
      * notification stays quiet underneath it — with its actions and its content intact, only
      * its sound and its banner suppressed (Codeberg #56). Pass false when the notification is
@@ -176,6 +202,9 @@ object Notifications {
         // defaults and leak what the user asked to hide (Codeberg #84). The expanded state
         // shows the full subject, never a body preview (Codeberg #57).
         val (title, text, bigText) = MailNotificationText.resolve(content, sender, subject, generic)
+        // Which buttons the notification may carry, same setting, same reasoning: at NONE the
+        // notification identifies nothing, so it offers nothing to act on (Codeberg #57).
+        val actions = actionsFor(content)
         val notifId = childId(accountId, email.id)
         // Carry the message identity so a tap opens THAT email, not just the inbox — even when
         // the app is already running (singleTask → onNewIntent routes it). Codeberg #17 follow-up.
@@ -212,9 +241,32 @@ object Notifications {
             )
             .setSilent(silent)
             .apply { if (folderName != null) setSubText(folderName) }
-            .addAction(replyAction(context, email.id, accountId, notifId))
-            .addAction(simpleAction(context, context.getString(R.string.notif_mark_read), NotificationActionReceiver.ACTION_MARK_READ, email.id, accountId, notifId))
-            .addAction(simpleAction(context, context.getString(R.string.notif_delete), NotificationActionReceiver.ACTION_DELETE, email.id, accountId, notifId))
+            .apply {
+                actions.forEach { action ->
+                    addAction(
+                        when (action) {
+                            MailNotificationAction.REPLY ->
+                                replyAction(context, email.id, accountId, notifId)
+                            MailNotificationAction.MARK_READ -> simpleAction(
+                                context,
+                                context.getString(R.string.notif_mark_read),
+                                NotificationActionReceiver.ACTION_MARK_READ,
+                                email.id,
+                                accountId,
+                                notifId,
+                            )
+                            MailNotificationAction.DELETE -> simpleAction(
+                                context,
+                                context.getString(R.string.notif_delete),
+                                NotificationActionReceiver.ACTION_DELETE,
+                                email.id,
+                                accountId,
+                                notifId,
+                            )
+                        },
+                    )
+                }
+            }
             .build()
         context.getSystemService(NotificationManager::class.java).notify(notifId, notification)
     }
