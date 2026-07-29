@@ -45,6 +45,18 @@ interface OutboxDao {
     @Query("SELECT state, notBeforeMillis FROM outbox")
     fun observeBadgeItems(): Flow<List<OutboxBadgeItem>>
 
+    /** Flip one row's state — used to take an item out for editing and to give it back (#70). */
+    @Query("UPDATE outbox SET state = :state WHERE id = :id")
+    suspend fun setState(id: Long, state: OutboxState)
+
+    /**
+     * Bring every row left mid-edit back into the queue (#70). An EDITING row is one whose composer
+     * was open when the process died: the edit is unrecoverable, but the message must not be — this
+     * runs at startup so it becomes a normal QUEUED send again instead of being stranded off-worker.
+     */
+    @Query("UPDATE outbox SET state = 'QUEUED' WHERE state = 'EDITING'")
+    suspend fun revertEditingToQueued()
+
     @Query("UPDATE outbox SET state = :state, attemptCount = :attemptCount, lastError = :lastError, lastAttemptMillis = :lastAttemptMillis WHERE id = :id")
     suspend fun updateState(
         id: Long,

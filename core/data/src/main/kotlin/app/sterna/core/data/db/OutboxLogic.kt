@@ -19,7 +19,8 @@ object OutboxLogic {
     fun isReadyToSend(state: OutboxState, notBeforeMillis: Long, now: Long): Boolean = when (state) {
         OutboxState.HELD -> now >= notBeforeMillis
         OutboxState.QUEUED, OutboxState.SENDING -> true
-        OutboxState.FAILED -> false
+        // Parked (manual only) or open in the composer (#70): the worker must never send either.
+        OutboxState.FAILED, OutboxState.EDITING -> false
     }
 
     /** After a failed attempt: retry while under the cap, otherwise give up (park as FAILED). */
@@ -43,7 +44,11 @@ object OutboxLogic {
      * waited in the Outbox with no dot and no counter (#70).
      */
     fun activeCount(items: List<OutboxBadgeItem>, now: Long): Int =
-        items.count { it.state != OutboxState.HELD || now >= it.notBeforeMillis }
+        items.count {
+            // An item open in the composer (#70) is being handled right now, not waiting to send:
+            // keep it off the badge, exactly as the queue keeps it off the send worker.
+            it.state != OutboxState.EDITING && (it.state != OutboxState.HELD || now >= it.notBeforeMillis)
+        }
 
     /** The earliest undo window still running, i.e. when the badge must next be recomputed. */
     fun nextWindowEnd(items: List<OutboxBadgeItem>, now: Long): Long? = items

@@ -3875,8 +3875,13 @@ class MailRepository(
         }
     }
 
-    /** All outbox items, newest send order last. */
-    fun outboxFlow(): Flow<List<OutboxEntity>> = outboxDao.observeAll()
+    /**
+     * Outbox items for the list, newest send order last. A row open in the composer (#70,
+     * [OutboxState.EDITING]) is hidden: the user is holding it on the compose screen, so showing it
+     * in the queue at the same time would be two contradictory views of one message.
+     */
+    fun outboxFlow(): Flow<List<OutboxEntity>> =
+        outboxDao.observeAll().map { rows -> rows.filter { it.state != OutboxState.EDITING } }
 
     /** Count of pending/failed items for the discreet badge (excludes a running undo window). */
     fun outboxActiveCount(): Flow<Int> = OutboxLogic.badgeCount(outboxDao.observeBadgeItems())
@@ -3905,9 +3910,11 @@ class MailRepository(
     }
 
     /**
-     * Fields needed to reopen a queued/failed item in compose for editing. IMAP attachments are
-     * re-staged into the cache so they behave like freshly attached files (and the durable copy is
-     * dropped with the row); JMAP attachments reuse their server blob id.
+     * Fields needed to reopen a queued/failed item in compose for editing (#70). IMAP attachments
+     * are re-staged into the cache so they behave like freshly attached files; JMAP attachments
+     * reuse their server blob id. The row itself is NOT deleted — it stays in the queue marked
+     * [OutboxState.EDITING], and [outboxId] identifies it so the composer can give it back
+     * ([releaseOutboxEdit]) or consume it ([deleteOutbox]) when it is done.
      */
     data class OutboxDraft(
         val to: String,
@@ -3920,30 +3927,27 @@ class MailRepository(
         val attachments: List<EmailBodyPart>,
         val inReplyTo: List<String>,
         val references: List<String>,
+        /** The PGP mode the item was queued with (#35/#70): a signed/encrypted item reopens as such. */
+        val pgpMode: String?,
         /** The saved draft the item was edited from (#63), kept so re-sending still replaces it. */
         val draftEmailId: String? = null,
-        /** Hand back to [restoreOutbox] to put this message back in the queue untouched (#70). */
-        val restore: OutboxRestore,
+        /** The queued row this draft came from, held in [OutboxState.EDITING] until the composer is done. */
+        val outboxId: Long,
     )
 
     /**
-     * Everything needed to put a taken item back in the outbox exactly as it was (#70): its row,
-     * its attachments as durable descriptors pointing at the staged copies, and, for a PGP item,
-     * the pre-built entity read back before the durable dir went with the row.
+     * Take an item out of the outbox for editing (#70): build its draft and mark the row
+     * [OutboxState.EDITING] so the send worker leaves it alone while the composer holds it. The row
+     * and its durable attachment dir are left in place — the message never lives only in RAM, so a
+     * process death costs the edit, not the mail. Closing the composer calls [releaseOutboxEdit];
+     * sending/saving/deleting calls [deleteOutbox].
      */
-    data class OutboxRestore(
-        val row: OutboxEntity,
-        val attachments: List<OutboxAttachment>,
-        val pgpEntity: String?,
-    )
-
-    /** Take an item out of the outbox for editing: build its draft, then delete the row + files. */
     suspend fun takeOutboxForEdit(id: Long, stagingDir: java.io.File): OutboxDraft? {
         val item = outboxDao.byId(id) ?: return null
-        val taken = OutboxEdit.take(OutboxAttachments.decode(item.attachmentsJson), stagingDir)
-        // Read the PGP/MIME entity out of the durable dir before deleting it: an encrypted item
-        // keeps its content nowhere else, so without this the entity would die with the row.
-        val pgpEntity = item.pgpEntityPath?.let { runCatching { java.io.File(it).readText() }.getOrNull() }
+        // Stage attachments for the composer BEFORE changing state: OutboxEdit.take throws on an
+        // unreadable attachment (rather than reopen an amputated message), and a throw here must
+        // leave the row exactly as it was — still QUEUED, still deliverable.
+        val attachments = OutboxEdit.take(OutboxAttachments.decode(item.attachmentsJson), stagingDir)
         val draft = OutboxDraft(
             to = item.recipients.split(",").joinToString(", ") { it.trim() },
             cc = item.cc?.split(",")?.joinToString(", ") { it.trim() }.orEmpty(),
@@ -3952,46 +3956,34 @@ class MailRepository(
             body = item.textBody,
             fromAccountId = item.accountId,
             fromEmail = item.fromEmail,
-            attachments = taken.parts,
+            attachments = attachments,
             inReplyTo = item.inReplyTo?.split(" ")?.filter { it.isNotBlank() } ?: emptyList(),
             references = item.references?.split(" ")?.filter { it.isNotBlank() } ?: emptyList(),
+            pgpMode = item.pgpMode,
             draftEmailId = item.draftEmailId,
-            restore = OutboxRestore(item, taken.restorable, pgpEntity),
+            outboxId = id,
         )
-        deleteOutbox(id)
+        outboxDao.setState(id, OutboxState.EDITING)
         return draft
     }
 
     /**
-     * Put back a message taken out with [takeOutboxForEdit] and then left unsent (#70): the
-     * composer was closed, or its edits discarded. The queue gets the item back as it was — same
-     * headers, body, sending identity, state and failure text, same attachments re-copied into a
-     * fresh durable dir — and its delivery is armed again. Only an explicit delete, which asks
-     * first, actually drops a queued message. Returns the new row id.
+     * Give a message taken out with [takeOutboxForEdit] back to the queue unchanged (#70): the
+     * composer was closed, or its edits discarded. The row is right where it was left — only its
+     * state flips back from EDITING to QUEUED and its delivery is re-armed. Nothing is rebuilt and
+     * nothing can be lost, because nothing ever left the database.
      */
-    suspend fun restoreOutbox(restore: OutboxRestore): Long {
-        val id = outboxDao.insert(OutboxEdit.restoredRow(restore.row))
-        val row = outboxDao.byId(id) ?: return id
-        val dir = java.io.File(outboxFilesDir, id.toString())
-        try {
-            if (restore.pgpEntity != null) {
-                // A PGP item carries its whole payload in the entity; attachments live inside it.
-                dir.mkdirs()
-                val entityFile = java.io.File(dir, "pgp-entity.mime").apply { writeText(restore.pgpEntity) }
-                outboxDao.update(row.copy(pgpEntityPath = entityFile.absolutePath))
-            } else {
-                // OutboxEdit.restore throws rather than drop a staged file it can't read (#70): don't
-                // leave a half-built, amputated row in the queue — drop it and let the caller report.
-                val durable = OutboxEdit.restore(restore.attachments, dir)
-                outboxDao.update(row.copy(attachmentsJson = OutboxAttachments.encode(durable)))
-            }
-        } catch (t: Throwable) {
-            deleteOutbox(id)
-            throw t
-        }
+    suspend fun releaseOutboxEdit(id: Long) {
+        val row = outboxDao.byId(id) ?: return
+        if (row.state != OutboxState.EDITING) return
+        outboxDao.setState(id, OutboxState.QUEUED)
         // Held or scheduled items keep whatever is left of their wait; everything else goes now.
         outboxScheduler?.schedule(id, (row.notBeforeMillis - System.currentTimeMillis()).coerceAtLeast(0))
-        return id
+    }
+
+    /** Startup recovery (#70): revert rows stranded in EDITING by a process death, then re-arm them. */
+    suspend fun revertEditingOutbox() {
+        outboxDao.revertEditingToQueued()
     }
 
     /** Actually deliver one outbox item (no queue indirection); exceptions propagate to the worker. */

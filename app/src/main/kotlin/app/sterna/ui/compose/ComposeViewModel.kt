@@ -19,7 +19,6 @@ import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.db.ScheduledSendEntity
 import app.sterna.core.data.mail.DraftSaveOutcome
-import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.pgp.PgpMode
 import app.sterna.core.data.pgp.PgpResult
 import app.sterna.core.imap.OutgoingAttachment
@@ -109,11 +108,11 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     val state: StateFlow<ComposeState> = _state.asStateFlow()
 
     /**
-     * The queued message this composer was opened on (#70), if any. A message in the outbox exists
-     * nowhere else, so it is held here until this composer commits it somewhere — a fresh send, a
-     * schedule, a saved draft — and goes back to the queue untouched if it commits it nowhere.
+     * The id of the queued row this composer was opened on (#70), if any. The row stays in the
+     * outbox marked EDITING while it is held here; committing the message somewhere — a fresh send,
+     * a schedule, a saved draft — consumes it, and committing it nowhere gives it back to the queue.
      */
-    private var requeue: MailRepository.OutboxRestore? = null
+    private var editingOutboxId: Long? = null
 
     private val _onlyCopy = MutableStateFlow(false)
     /**
@@ -568,11 +567,19 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 } ?: options.firstOrNull { it.accountId == d.fromAccountId }
                 if (match != null) _selectedFrom.value = match
                 editingDraftId = d.draftEmailId
-                // Reopened from the outbox: hold its place in the queue until this composer either
-                // commits the message somewhere or hands it back (#70). An undone send carries no
-                // token — it is the one case where the message really only lives on this screen.
-                requeue = d.requeue
-                _onlyCopy.value = d.requeue == null
+                // Restore the PGP mode the message carried (#35/#70): a signed item reopens signed,
+                // an undone encrypted send reopens with the padlock on — never silently downgraded.
+                d.pgpMode?.let { mode ->
+                    runCatching { PgpMode.valueOf(mode) }.getOrNull()?.let {
+                        _pgpMode.value = it
+                        pgpModeUserSet = true
+                    }
+                }
+                // Reopened from the outbox: its row waits in the queue marked EDITING until this
+                // composer either commits the message somewhere or hands it back (#70). An undone
+                // send carries no id — it is the one case where the message only lives on this screen.
+                editingOutboxId = d.editingOutboxId
+                _onlyCopy.value = d.editingOutboxId == null
             }
             outbox.consumeRestored()
             return
@@ -731,17 +738,28 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      * App-scoped on purpose: the caller pops this screen right after, which kills [viewModelScope].
      */
     fun abandon() {
-        // A send or a save already in flight owns the message and clears the token itself when it
-        // lands; putting the queued copy back from under it would deliver the mail twice.
+        // A send or a save already in flight owns the message and consumes the row itself when it
+        // lands; releasing it back to the queue from under that would deliver the mail twice.
         if (_state.value is ComposeState.Sending) return
-        val token = requeue ?: return
-        requeue = null
-        // restoreOutbox throws rather than requeue an amputated item if a staged attachment vanished
-        // mid-edit (#70); it rolls its own half-built row back, so just log instead of crashing.
+        val id = editingOutboxId ?: return
+        editingOutboxId = null
+        // The row never left the queue — it only sat in EDITING — so giving it back is just flipping
+        // its state to QUEUED and re-arming delivery. Nothing is rebuilt, nothing can be lost (#70).
         appScope.launch {
-            runCatching { repo.restoreOutbox(token) }
-                .onFailure { android.util.Log.w("SternaCompose", "couldn't requeue the edited outbox item", it) }
+            runCatching { repo.releaseOutboxEdit(id) }
+                .onFailure { android.util.Log.w("SternaCompose", "couldn't release the edited outbox item", it) }
         }
+    }
+
+    /**
+     * Consume the queued row this composer was editing (#70): the message has just been committed
+     * elsewhere (sent, scheduled, or saved as a draft), so its EDITING row is dropped rather than
+     * given back to the queue — otherwise the same message would go out twice.
+     */
+    private suspend fun consumeEditingOutbox() {
+        val id = editingOutboxId ?: return
+        editingOutboxId = null
+        runCatching { repo.deleteOutbox(id) }
     }
 
     /**
@@ -825,9 +843,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     // destroys the draft it came from, so Drafts keeps no stale duplicate.
                     draftEmailId = editingDraftId,
                 )
-                // The queue holds this message again, under a fresh row carrying the edits, so the
-                // one taken out for editing must not be put back on top of it (#70).
-                requeue = null
+                // The edits are queued now under this fresh row, so the row taken out for editing is
+                // consumed — dropped from the queue rather than given back (#70).
+                consumeEditingOutbox()
                 // Keep the raw draft so undoing the send can reopen compose with it intact.
                 val draft = SendOutbox.ComposeDraft(
                     to = to, cc = cc, bcc = bcc, subject = subject, body = body,
@@ -835,6 +853,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     fromIdentityEmail = identity?.email,
                     attachments = attachments, inReplyTo = replyTo, references = refs,
                     forwardedText = forwarded?.text, forwardedHtml = forwarded?.html,
+                    pgpMode = mode.takeIf { it != PgpMode.OFF }?.name,
                     draftEmailId = editingDraftId,
                 )
                 val app = getApplication<Application>()
@@ -909,9 +928,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     ),
                 )
                 ScheduledSends.enqueue(getApplication(), id, sendAtMillis)
-                // The message now waits in the scheduled table instead; putting the outbox row it
-                // came from back would send it twice (#70).
-                requeue = null
+                // The message now waits in the scheduled table instead; the outbox row it came from
+                // is consumed rather than given back, or it would send twice (#70).
+                consumeEditingOutbox()
                 _state.value = ComposeState.Done
             } catch (t: Throwable) {
                 _state.value = ComposeState.Error(t.message ?: t.javaClass.simpleName)
@@ -1020,9 +1039,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             if (outcome == DraftSaveOutcome.ORIGINAL_KEPT) {
                 _notices.tryEmit(R.string.compose_draft_original_kept)
             }
-            // Saved: the message now lives in Drafts, so the queued copy it came from stays gone
-            // (putting it back would send what the user chose to keep as a draft) (#70).
-            requeue = null
+            // Saved: the message now lives in Drafts, so the queued row it came from is consumed
+            // (giving it back would send what the user chose to keep as a draft) (#70).
+            consumeEditingOutbox()
         }
     }
 

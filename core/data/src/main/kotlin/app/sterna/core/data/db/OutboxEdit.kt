@@ -4,81 +4,44 @@ import app.sterna.core.jmap.model.EmailBodyPart
 import java.io.File
 
 /**
- * Taking a queued message out of the outbox to edit it, and putting it back unchanged (#70).
+ * Taking a queued message out of the outbox to edit it (#70).
  *
- * A queued message exists nowhere else — no server draft, no local copy — so the two halves must
- * be symmetric: whatever the take strips out, the restore has to give back. That is why the take
- * returns two lists. [Taken.parts] is what the composer opens with (chips, re-sendable files);
- * [Taken.restorable] is the same attachments as durable descriptors, cid and disposition intact,
- * pointed at the staged copies — the composer's view flattens inline parts to plain attachments,
- * and putting a flattened list back would hand the queue an amputated message.
+ * The row is NOT deleted when it is opened for editing: it stays in the queue, marked
+ * [OutboxState.EDITING] and held back from the send worker, with its durable attachment dir
+ * intact. Closing the composer without sending puts it back to [OutboxState.QUEUED] untouched;
+ * sending, saving or deleting consumes it. So nothing ever lives only in RAM, and a process
+ * death mid-edit loses the edit, never the message.
  *
- * File I/O only, no Android APIs, so both halves are unit-testable on the JVM.
+ * This stages the item's attachments into the cache the composer sends from, so the composer can
+ * show and re-send them. File I/O only, no Android APIs, so it is unit-testable on the JVM.
  */
 object OutboxEdit {
-    /** The two views of a taken item's attachments; see [take]. */
-    data class Taken(
-        val parts: List<EmailBodyPart>,
-        val restorable: List<OutboxAttachment>,
-    )
-
     /**
-     * Stage [attachments] out of their per-item durable dir (which the caller then deletes with the
-     * row) into [stagingDir], the cache the composer sends from. An attachment whose bytes can no
-     * longer be read makes this THROW rather than drop it: the caller deletes the durable dir right
-     * after, so a dropped file would be gone for good and the queue would get an amputated message
-     * back. Failing here leaves the row and its dir untouched (the caller never reaches the delete).
+     * Stage [attachments] out of their durable per-item dir into [stagingDir] (the cache the
+     * composer sends from) and return them as composer parts. An attachment whose bytes can no
+     * longer be read makes this THROW rather than drop it silently: reopening an item short of what
+     * it held would let the user unknowingly send an amputated message. The durable dir is left in
+     * place (the row keeps it), so a throw here loses nothing — the queued message is still whole.
      */
-    fun take(attachments: List<OutboxAttachment>, stagingDir: File): Taken {
-        val parts = mutableListOf<EmailBodyPart>()
-        val restorable = mutableListOf<OutboxAttachment>()
-        for (a in attachments) {
+    fun take(attachments: List<OutboxAttachment>, stagingDir: File): List<EmailBodyPart> =
+        attachments.map { a ->
             when (a.kind) {
-                OutboxAttachments.KIND_JMAP_BLOB -> {
-                    parts += EmailBodyPart(
-                        blobId = a.blobId, type = a.type, size = a.size, name = a.name,
-                        disposition = "attachment",
-                    )
-                    // The bytes live on the server: the blob id alone survives the row's deletion.
-                    restorable += a
-                }
+                OutboxAttachments.KIND_JMAP_BLOB -> EmailBodyPart(
+                    blobId = a.blobId, type = a.type, size = a.size, name = a.name,
+                    disposition = "attachment",
+                )
                 OutboxAttachments.KIND_IMAP_FILE -> {
                     val bytes = runCatching { File(a.path!!).readBytes() }.getOrNull()
                         ?: error("Couldn't read the queued attachment ${a.name ?: a.path} to edit it.")
                     val staged = copyInto(stagingDir, a.name, bytes)
-                    parts += EmailBodyPart(
+                    EmailBodyPart(
                         partId = staged.absolutePath, type = a.type, size = bytes.size.toLong(),
                         name = a.name, disposition = "attachment",
                     )
-                    restorable += a.copy(path = staged.absolutePath, size = bytes.size.toLong())
                 }
+                else -> error("Unknown outbox attachment kind ${a.kind}")
             }
         }
-        return Taken(parts, restorable)
-    }
-
-    /**
-     * Copy the staged bytes of [attachments] back into [durableDir], the per-item dir of the row
-     * being re-inserted, so the queued message is durable again the moment it reappears. A staged
-     * file that can no longer be read makes this THROW rather than drop it: putting the item back
-     * with fewer files than it had would silently amputate a queued message that lives nowhere else.
-     */
-    fun restore(attachments: List<OutboxAttachment>, durableDir: File): List<OutboxAttachment> =
-        attachments.map { a ->
-            if (a.kind != OutboxAttachments.KIND_IMAP_FILE) return@map a
-            val bytes = runCatching { File(a.path!!).readBytes() }.getOrNull()
-                ?: error("Couldn't read the staged attachment ${a.name ?: a.path} to requeue it.")
-            a.copy(path = copyInto(durableDir, a.name, bytes).absolutePath, size = bytes.size.toLong())
-        }
-
-    /**
-     * The row to re-insert for a taken item: every field the user can see is kept as it was —
-     * headers, body, sending identity, state and its failure text, creation and send-after times —
-     * and only what belongs to the deleted row is reset (its id, and the file locations the caller
-     * rewrites once the new id exists).
-     */
-    fun restoredRow(row: OutboxEntity): OutboxEntity =
-        row.copy(id = 0, attachmentsJson = "[]", pgpEntityPath = null)
 
     /** Write [bytes] under a collision-proof name, so two files sharing a name don't overwrite. */
     private fun copyInto(dir: File, name: String?, bytes: ByteArray): File {

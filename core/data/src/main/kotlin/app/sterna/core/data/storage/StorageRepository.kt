@@ -40,9 +40,19 @@ class StorageRepository(
 ) {
     private val attachmentsDir: File get() = File(context.cacheDir, "attachments")
 
+    /**
+     * Where compose stages outgoing-attachment bytes (a picked file, a carried forward part, a
+     * reopened outbox item, #70). enqueueSend copies these into the durable per-item outbox dir, so
+     * once a message is queued the staged copies are orphaned cache — never read again, but not
+     * cleaned up before (StorageRepository only swept `attachments`), so they piled up. Counted and
+     * cleared here alongside the attachment cache.
+     */
+    private val outgoingDir: File get() = File(context.cacheDir, "outgoing")
+
     suspend fun usage(): StorageUsage = withContext(Dispatchers.IO) {
         val dbBytes = DB_FILES.sumOf { context.getDatabasePath(it).safeLength() }
-        val attachmentBytes = attachmentsDir.listFiles()?.sumOf { it.safeLength() } ?: 0L
+        val attachmentBytes = (attachmentsDir.listFiles()?.sumOf { it.safeLength() } ?: 0L) +
+            (outgoingDir.listFiles()?.sumOf { it.safeLength() } ?: 0L)
         val perAccount = emailDao.countsByAccount()
             .map { AccountUsage(it.accountId, it.messageCount) }
         StorageUsage(dbBytes, attachmentBytes, perAccount)
@@ -97,6 +107,11 @@ class StorageRepository(
 
     /** LRU eviction: drop files past the age cap, then oldest-first past the size cap. */
     private fun enforceAttachmentCap() {
+        // Bound the outgoing staging dir too (#70): orphaned staged copies of already-queued sends
+        // past the age cap are dead cache. The cap is far longer than any compose stays open, so an
+        // in-progress attachment is never pruned from under the composer.
+        val now0 = System.currentTimeMillis()
+        outgoingDir.listFiles()?.forEach { if (now0 - it.lastModified() > MAX_AGE_MS) it.delete() }
         val files = attachmentsDir.listFiles()?.filter { it.isFile } ?: return
         val now = System.currentTimeMillis()
         val survivors = files.filter { file ->
@@ -115,6 +130,9 @@ class StorageRepository(
 
     private fun clearAttachments() {
         attachmentsDir.listFiles()?.forEach { it.delete() }
+        // The outgoing staging dir is re-downloadable/re-stageable cache too (#70): a queued send
+        // already holds its own durable copy, so clearing the orphaned staged files loses nothing.
+        outgoingDir.listFiles()?.forEach { it.delete() }
     }
 
     private fun File.safeLength(): Long = if (exists()) length() else 0L
