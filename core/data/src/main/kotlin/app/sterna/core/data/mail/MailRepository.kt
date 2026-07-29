@@ -3026,8 +3026,25 @@ class MailRepository(
         } else {
             runCatching {
                 val ctx = connect(credentials)
-                client.queryEmails(ctx.session, ctx.accountId, trashMailboxId, TrashPurge.SNAPSHOT_MAX, ctx.auth)
-                    .map { it.id }
+                // Ids-only, paged (like [unreadIds]): the purge photo needs identifiers, not bodies.
+                // The old queryEmails chained an Email/get of up to SNAPSHOT_MAX messages — a several-MB
+                // response of subjects and previews on a plain "Empty trash" tap, and a server enforcing
+                // maxObjectsInGet threw, dropping the whole thing to the cache (a big Trash then emptied
+                // only of its visible window, #99).
+                val collected = mutableListOf<String>()
+                while (collected.size < TrashPurge.SNAPSHOT_MAX) {
+                    val page = client.queryEmailIds(
+                        ctx.session, ctx.accountId, trashMailboxId, UNREAD_RESOLVE_PAGE, ctx.auth,
+                        position = collected.size, calculateTotal = true,
+                    )
+                    if (page.ids.isEmpty()) break
+                    collected += page.ids
+                    // Advance by the ACTUAL page size and stop on the server's total: a server
+                    // clamping the limit below the page size must not end the walk early.
+                    val total = page.total
+                    if (total != null && collected.size >= total) break
+                }
+                collected.take(TrashPurge.SNAPSHOT_MAX)
             }.getOrElse { cached() }
         }
         val purgeId = UUID.randomUUID().toString()
