@@ -39,15 +39,23 @@ object OutboxLogic {
         if (attemptCount >= MAX_ATTEMPTS) OutboxState.FAILED else OutboxState.QUEUED
 
     /**
-     * Whether a queued item can be reopened in the composer. Everything can, except an ENCRYPTED
-     * one: its body is not in the row at all (the ciphertext lives in the item's own directory,
-     * see [OutboxEntity.pgpMode]), so the composer would open empty and sending from there would
-     * send an empty message. An action that cannot do what its label promises is not offered
-     * (#70). Retry and Delete stay: both work on the row as it stands.
+     * Whether an outbox item can be reopened in the composer. Two things must hold.
      *
-     * Signing is not affected: a SIGNED item keeps its body in the row and is signed at send time.
+     * It must not be ENCRYPTED: the ciphertext lives in the item's own directory, not the row (see
+     * [OutboxEntity.pgpMode]), so the composer would open empty and send an empty message. Signing
+     * is unaffected — a SIGNED item keeps its body in the row and is signed at send time.
+     *
+     * And it must be genuinely waiting — QUEUED, HELD or FAILED. A [OutboxState.SENDING] row has a
+     * send in flight: reopening it lets the worker's updateOutboxState clobber the EDITING flag,
+     * leaving the edit orphaned or the message sent twice. An [OutboxState.EDITING] row is already
+     * open in a composer. Neither may be taken. An action that cannot do what its label promises is
+     * not offered (#70); Retry and Delete stay — both work on the row as it stands.
      */
-    fun canEdit(pgpMode: String?): Boolean = !pgpMode.equals("ENCRYPT", ignoreCase = true)
+    fun canEdit(pgpMode: String?, state: OutboxState): Boolean =
+        !pgpMode.equals("ENCRYPT", ignoreCase = true) && when (state) {
+            OutboxState.QUEUED, OutboxState.HELD, OutboxState.FAILED -> true
+            OutboxState.SENDING, OutboxState.EDITING -> false
+        }
 
     /**
      * Items shown on the badge: anything pending or failed, plus a HELD row whose undo window has

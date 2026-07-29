@@ -106,12 +106,19 @@ class OutboxLogicTest {
     }
 
     @Test fun anEncryptedItemCannotBeReopenedInTheComposer() {
-        assertEquals(false, OutboxLogic.canEdit("ENCRYPT"))
-        assertEquals(false, OutboxLogic.canEdit("encrypt"))
+        assertEquals(false, OutboxLogic.canEdit("ENCRYPT", OutboxState.QUEUED))
+        assertEquals(false, OutboxLogic.canEdit("encrypt", OutboxState.QUEUED))
     }
 
-    @Test fun everythingElseCanBeReopened() {
-        assertEquals(true, OutboxLogic.canEdit(null))
-        assertEquals(true, OutboxLogic.canEdit("SIGN"))
+    @Test fun aWaitingUnencryptedItemCanBeReopened() {
+        assertEquals(true, OutboxLogic.canEdit(null, OutboxState.QUEUED))
+        assertEquals(true, OutboxLogic.canEdit("SIGN", OutboxState.HELD))
+        assertEquals(true, OutboxLogic.canEdit(null, OutboxState.FAILED))
+    }
+
+    /** #70: Edit must never be offered or accepted on a row whose send is in flight or already open. */
+    @Test fun anInFlightOrAlreadyOpenItemCannotBeReopened() {
+        assertEquals(false, OutboxLogic.canEdit(null, OutboxState.SENDING))
+        assertEquals(false, OutboxLogic.canEdit(null, OutboxState.EDITING))
     }
 }

@@ -3944,6 +3944,11 @@ class MailRepository(
      */
     suspend fun takeOutboxForEdit(id: Long, stagingDir: java.io.File): OutboxDraft? {
         val item = outboxDao.byId(id) ?: return null
+        // State guard at the choke point (#70): only a genuinely waiting, non-encrypted row may be
+        // taken. A SENDING row has a send in flight — marking it EDITING here would race the
+        // worker's updateOutboxState (orphaned edit or double send); an EDITING row is already open.
+        // The screen hides Edit for these, but the guard belongs here too, where the state flips.
+        if (!OutboxLogic.canEdit(item.pgpMode, item.state)) return null
         // Stage attachments for the composer BEFORE changing state: OutboxEdit.take throws on an
         // unreadable attachment (rather than reopen an amputated message), and a throw here must
         // leave the row exactly as it was — still QUEUED, still deliverable.
