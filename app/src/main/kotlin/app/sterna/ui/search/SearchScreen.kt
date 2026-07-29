@@ -150,6 +150,9 @@ fun SearchScreen(
             var panelHeightPx by remember { mutableIntStateOf(0) }
             val offset = remember { Animatable(0f) }
             var firstSync by remember { mutableStateOf(true) }
+            // The handle's height: reserved at the top of the results so a closed handle sits clear
+            // of the first row, and reused as the handle's own size so it reads as a solid edge.
+            val handleHeight = 18.dp
 
             // Follow form.expanded (Tune button, summary tap, search-fold, process restore). The
             // first pass snaps, so entering the screen already-open doesn't play an intro slide.
@@ -174,48 +177,12 @@ fun SearchScreen(
                 viewModel.setExpanded(open)
             }
 
-            // The separator / drag handle. Also a tap toggle (same as the Tune action) for reach
-            // and accessibility; its contentDescription names the advanced filters it reveals.
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .draggable(
-                        orientation = Orientation.Vertical,
-                        state = rememberDraggableState { delta ->
-                            scope.launch {
-                                offset.snapTo((offset.value + delta).coerceIn(0f, panelHeightPx.toFloat()))
-                            }
-                        },
-                        onDragStopped = { velocity ->
-                            // A flick decides first, otherwise the halfway line; a stray micro-drag
-                            // still lands on whichever side it is nearest.
-                            val open = when {
-                                velocity > 800f -> true
-                                velocity < -800f -> false
-                                else -> offset.value > panelHeightPx / 2f
-                            }
-                            settle(open)
-                        },
-                    )
-                    .clickable { viewModel.togglePanel() }
-                    .semantics { contentDescription = handleDesc }
-                    .padding(vertical = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier
-                        .width(32.dp)
-                        .height(4.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
-                )
-            }
-
             // clipToBounds hides the panel where it rests above the handle; weight(1f) is the
             // results' space AND the overlay's stage, so opening the panel never resizes the list.
             Box(Modifier.fillMaxWidth().weight(1f).clipToBounds()) {
-                // The results, always laid out at full size UNDER the overlay.
-                Column(Modifier.fillMaxSize()) {
+                // The results, at full size UNDER the overlay. A top inset the height of the handle
+                // keeps the first row clear of the handle's closed (separator) position.
+                Column(Modifier.fillMaxSize().padding(top = handleHeight)) {
                     if (!form.expanded) {
                         // Folded: the criteria the RESULTS came from, never the half-edited form —
                         // that is what explains the list. Tapping it brings the panel back.
@@ -370,6 +337,50 @@ fun SearchScreen(
                             Text(stringResource(R.string.search_button))
                         }
                     }
+                }
+
+                // The separator / drag handle: the drawer's moving edge. It rides at the panel's
+                // bottom (translationY = offset) — the line under the search box when closed, then
+                // travelling DOWN with the panel as it opens, instead of sitting still while the
+                // panel crosses it. Drawn last so it stays on top of the panel's bottom edge.
+                // Draggable, and a tap toggle (like Tune) for reach; its contentDescription names
+                // the filters it reveals.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopStart)
+                        .graphicsLayer { translationY = offset.value }
+                        .height(handleHeight)
+                        .background(MaterialTheme.colorScheme.surface)
+                        .draggable(
+                            orientation = Orientation.Vertical,
+                            state = rememberDraggableState { delta ->
+                                scope.launch {
+                                    offset.snapTo((offset.value + delta).coerceIn(0f, panelHeightPx.toFloat()))
+                                }
+                            },
+                            onDragStopped = { velocity ->
+                                // A flick decides first, otherwise the halfway line; a stray
+                                // micro-drag still lands on whichever side it is nearest.
+                                val open = when {
+                                    velocity > 800f -> true
+                                    velocity < -800f -> false
+                                    else -> offset.value > panelHeightPx / 2f
+                                }
+                                settle(open)
+                            },
+                        )
+                        .clickable { viewModel.togglePanel() }
+                        .semantics { contentDescription = handleDesc },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .width(32.dp)
+                            .height(4.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
+                    )
                 }
             }
         }
