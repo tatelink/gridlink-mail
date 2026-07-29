@@ -132,6 +132,7 @@ import app.sterna.core.data.text.htmlToText
 import app.sterna.push.PushController
 import app.sterna.push.PushStatus
 import app.sterna.ui.appLabelOf
+import app.sterna.ui.navigateOnce
 import app.sterna.R
 import app.sterna.ui.connect.ConnectScreen
 import app.sterna.ui.components.PendingImportAccountsSection
@@ -180,6 +181,10 @@ fun SettingsScreen(
     // OPAQUE and fully tile the viewport at every frame, so a fast double-back (e.g. right after a
     // theme change, whose recomposition disturbs an in-flight transition) can never expose a blank
     // window-background frame — the failure mode that made the old cross-fade unusable here.
+    // EVERY action below (forward and Back alike) goes through [navigateOnce], the app-wide
+    // re-entrancy guard shared with the outer graph. Without it, taps landing during the slide
+    // stacked several copies of the same page on the back stack (#106). A new destination added
+    // here must be wired the same way.
     NavHost(
         navController = nav,
         startDestination = if (initialAccountId != null) "account/$initialAccountId" else "hub",
@@ -188,83 +193,85 @@ fun SettingsScreen(
         popEnterTransition = { slideInHorizontally(tween(300)) { -it } },
         popExitTransition = { slideOutHorizontally(tween(300)) { it } },
     ) {
-        composable("hub") {
+        composable("hub") { entry ->
             val accounts by accountsViewModel.accounts.collectAsStateWithLifecycle()
             val currentId by accountsViewModel.currentId.collectAsStateWithLifecycle()
             val currentLabel = accounts.firstOrNull { it.id == currentId }?.label().orEmpty()
             SettingsHub(
                 onBack = onBack,
-                onOpenAccounts = { nav.navigate("accounts") },
-                onOpenAppearance = { nav.navigate("appearance") },
-                onOpenReading = { nav.navigate("reading") },
-                onOpenNotifications = { nav.navigate("notifications") },
-                onOpenVacation = { nav.navigate("vacation") },
-                onOpenFilters = { nav.navigate("filters") },
-                onOpenPrivacy = { nav.navigate("privacy") },
-                onOpenStorage = { nav.navigate("storage") },
-                onOpenBackup = { nav.navigate("backup") },
+                onOpenAccounts = { entry.navigateOnce { nav.navigate("accounts") } },
+                onOpenAppearance = { entry.navigateOnce { nav.navigate("appearance") } },
+                onOpenReading = { entry.navigateOnce { nav.navigate("reading") } },
+                onOpenNotifications = { entry.navigateOnce { nav.navigate("notifications") } },
+                onOpenVacation = { entry.navigateOnce { nav.navigate("vacation") } },
+                onOpenFilters = { entry.navigateOnce { nav.navigate("filters") } },
+                onOpenPrivacy = { entry.navigateOnce { nav.navigate("privacy") } },
+                onOpenStorage = { entry.navigateOnce { nav.navigate("storage") } },
+                onOpenBackup = { entry.navigateOnce { nav.navigate("backup") } },
                 currentAccountLabel = currentLabel,
             )
         }
-        composable("accounts") {
+        composable("accounts") { entry ->
             AccountsScreen(
                 viewModel = accountsViewModel,
-                onBack = { nav.popBackStack() },
-                onOpenAccount = { id -> nav.navigate("account/$id") },
-                onAddAccount = { nav.navigate("addAccount") },
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
+                onOpenAccount = { id -> entry.navigateOnce { nav.navigate("account/$id") } },
+                onAddAccount = { entry.navigateOnce { nav.navigate("addAccount") } },
                 onAccountsChanged = onAccountsChanged,
             )
         }
-        composable("addAccount") {
+        composable("addAccount") { entry ->
             ConnectScreen(
                 onConnected = {
                     accountsViewModel.refresh()
                     onAccountsChanged()
-                    nav.popBackStack()
+                    entry.navigateOnce { nav.popBackStack() }
                 },
             )
         }
-        composable("account/{id}") { backStackEntry ->
-            val id = backStackEntry.arguments?.getString("id").orEmpty()
+        composable("account/{id}") { entry ->
+            val id = entry.arguments?.getString("id").orEmpty()
             AccountDetailScreen(
                 accountId = id,
                 viewModel = accountsViewModel,
                 // When this is the only inner destination (deep-linked from the drawer, hub popped),
                 // Back falls through to the caller so it returns to the inbox, not a dead end (#34).
-                onBack = { if (!nav.popBackStack()) onBack() },
+                // The fall-through sits INSIDE the guard: an ignored re-entrant tap must not be read
+                // as "nothing left to pop" and close settings.
+                onBack = { entry.navigateOnce { if (!nav.popBackStack()) onBack() } },
                 onSignedOut = {
                     onAccountsChanged()
-                    nav.popBackStack()
+                    entry.navigateOnce { nav.popBackStack() }
                 },
                 onAccountsChanged = onAccountsChanged,
             )
         }
-        composable("appearance") {
-            AppearanceScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
+        composable("appearance") { entry ->
+            AppearanceScreen(viewModel = viewModel, onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("reading") {
-            ReadingScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
+        composable("reading") { entry ->
+            ReadingScreen(viewModel = viewModel, onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("notifications") {
-            NotificationsScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
+        composable("notifications") { entry ->
+            NotificationsScreen(viewModel = viewModel, onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("vacation") {
-            VacationScreen(onBack = { nav.popBackStack() })
+        composable("vacation") { entry ->
+            VacationScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("filters") {
-            FiltersScreen(onBack = { nav.popBackStack() })
+        composable("filters") { entry ->
+            FiltersScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("privacy") {
-            PrivacySecurityScreen(viewModel = viewModel, onBack = { nav.popBackStack() })
+        composable("privacy") { entry ->
+            PrivacySecurityScreen(viewModel = viewModel, onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("storage") {
-            StorageScreen(onBack = { nav.popBackStack() })
+        composable("storage") { entry ->
+            StorageScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("backup") {
+        composable("backup") { entry ->
             BackupScreen(
                 viewModel = viewModel,
                 onAccountsImported = { accountsViewModel.refresh(); onAccountsChanged() },
-                onBack = { nav.popBackStack() },
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
             )
         }
     }
