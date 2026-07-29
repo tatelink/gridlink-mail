@@ -428,6 +428,26 @@ data class AccountInboxMeta(
     val unreadCount: Int,
 )
 
+/**
+ * Outcome of a unified refresh across every account (#65/#92): the inboxes that synced, plus the
+ * per-account failures so the caller can tell "nothing came back because I am offline" from "one
+ * account is unreachable but the rest are fine". A per-account failure is no longer swallowed
+ * without trace — it lands here and is logged.
+ */
+data class UnifiedRefreshResult(
+    val metas: List<AccountInboxMeta>,
+    val failures: List<Throwable>,
+) {
+    /**
+     * A connectivity failure only when at least one account failed and NONE synced: one good
+     * account proves the link is up, so it must NOT read as offline (that would flash the banner
+     * for a single unreachable server). All accounts failing is the VPN-killswitch case the #65
+     * offline banner exists for — the framework still reports a healthy network, so the requests
+     * dying is the only signal there is.
+     */
+    val isConnectivityFailure: Boolean get() = metas.isEmpty() && failures.isNotEmpty()
+}
+
 /** One watched folder refreshed during a push fan-out (multi-folder push, issue #16). */
 data class FolderRefresh(
     val mailboxId: String,
@@ -1188,10 +1208,11 @@ class MailRepository(
      * accountId). Per-account failures are skipped so one bad account doesn't sink
      * the unified view. Returns metadata for the accounts that synced successfully.
      */
-    suspend fun refreshAllInboxes(accounts: List<AccountCredentials>, limit: Int = 50): List<AccountInboxMeta> {
+    suspend fun refreshAllInboxes(accounts: List<AccountCredentials>, limit: Int = 50): UnifiedRefreshResult {
         val results = mutableListOf<AccountInboxMeta>()
+        val failures = mutableListOf<Throwable>()
         for (credentials in accounts) {
-            runCatching {
+            try {
                 if (credentials.protocol == MailProtocol.IMAP) {
                     val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = limit)
                     emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds(credentials.id))
@@ -1199,12 +1220,12 @@ class MailRepository(
                     results += AccountInboxMeta(
                         credentials.id, load.accountName, load.targetMailboxId, load.targetName, load.unread,
                     )
-                    return@runCatching
+                    continue
                 }
                 val resolved = resolve(credentials)
                 val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
                     ?: resolved.mailboxes.firstOrNull()
-                    ?: return@runCatching
+                    ?: continue
                 syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit, credentials.id)
                 // Persist the fetched folder counters (previously discarded), AFTER the row sync
                 // so badge and list move together — the unified refresh reconciles the drawer for
@@ -1214,9 +1235,20 @@ class MailRepository(
                 results += AccountInboxMeta(credentials.id, name, inbox.id, inbox.name, inbox.unreadEmails)
                 // Warm the body cache for the visible top of the inbox so opening is instant.
                 bgScope.launch { runCatching { prefetchInboxBodies(credentials, inbox.id) } }
+            } catch (c: CancellationException) {
+                // A superseding refresh (or the VM being cleared) cancelled us: propagate cleanly so
+                // the caller does NOT record a false success. runCatching used to swallow this too,
+                // which is exactly how a cancelled pull-to-refresh reported "connected" (#65).
+                throw c
+            } catch (t: Throwable) {
+                // One account failing must not sink the unified view, but it must not vanish without
+                // trace either (#92): keep going, and remember the failure so the caller can tell an
+                // all-offline refresh from a single bad account.
+                failures += t
+                android.util.Log.w("MailRepository", "unified refresh: account ${credentials.id} failed", t)
             }
         }
-        return results
+        return UnifiedRefreshResult(results, failures)
     }
 
     /**

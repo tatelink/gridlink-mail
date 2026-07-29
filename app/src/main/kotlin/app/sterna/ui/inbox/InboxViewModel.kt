@@ -789,7 +789,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun refreshUnified() {
         val credentials = store.allCredentials()
-        val metas = repo.refreshAllInboxes(credentials)
+        val result = repo.refreshAllInboxes(credentials)
+        val metas = result.metas
         metas.forEach { store.saveInboxMetaFor(it.accountId, it.mailboxId, it.mailboxName, it.accountName, it.unreadCount) }
         // Codeberg #50: same foreground trigger as refreshFolder, per refreshed inbox.
         metas.forEach { meta ->
@@ -799,6 +800,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
         unifiedInboxIds.value = store.allInboxMailboxIds()
         meta.value = Meta(UNIFIED_LABEL, UNIFIED_LABEL, store.totalUnreadCount())
+        // #65/#92: the unified refresh is also the connectivity probe. When every account failed and
+        // none synced, treat it as the failure it is — otherwise refresh() below calls reportSuccess
+        // and erases the offline banner the killswitch should have raised. A single unreachable
+        // account does not trip this (some mail still came back), so the banner won't flicker.
+        if (result.isConnectivityFailure) throw result.failures.first()
     }
 
     /** Switch to the cross-account unified inbox. */
