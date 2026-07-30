@@ -81,14 +81,15 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Pull-to-refresh
 - ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive; "Empty trash" (Trash overflow menu) destroys, behind the same held-back Undo, exactly the messages the folder held when you confirmed — mail filed there afterwards is not touched
 - ✅ Configurable swipe actions (left/right, in Settings → Reading)
-- ✅ Sort (newest/oldest, subject, sender, unread-first) + Mark-all-read
+- ✅ Sort (newest/oldest, subject, sender, unread-first, favourites-first) + Mark-all-read
 - ✅ Multi-select (long-press / select-all): bulk read/unread toggle (keeps the
   selection), archive (Unarchive → Inbox from the Archive folder), move-to-folder, delete
 - ✅ Opening a folder starts at the top of its list
 - ✅ Snooze a message until later
 - ✅ Paged list (Jetpack Paging 3 + Room) — large folders load in pages while scrolling, constant memory; scroll-position indicator on the right
 - ✅ Scroll to load more — a Paging `RemoteMediator` fetches older mail from the server when you scroll past the cached window (JMAP anchor-based / IMAP UID paging), with a loading/retry footer
-- ✅ Favourite (star) per row, tappable; favourites pin to the top
+- ✅ Favourite (star) per row, tappable; "Favourites first" is one of the sort orders, so
+  favourites pin to the top when you ask for it and sort normally the rest of the time
 - ✅ Report spam / not-spam — message overflow, context-aware (Report spam ↔ Not spam)
 
 ## Organisation & search

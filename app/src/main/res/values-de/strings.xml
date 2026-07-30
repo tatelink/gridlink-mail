@@ -105,6 +105,7 @@
     <string name="inbox_sort_subject">Betreff</string>
     <string name="inbox_sort_sender">Absender</string>
     <string name="inbox_sort_unread_first">Ungelesene zuerst</string>
+    <string name="inbox_sort_flagged_first">Markierte zuerst</string>
     <string name="inbox_unflag">Markierung entfernen</string>
     <string name="inbox_flag">Markieren</string>
     <string name="folder_inbox">Posteingang</string>

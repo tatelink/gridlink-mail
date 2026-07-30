@@ -105,6 +105,7 @@
     <string name="inbox_sort_subject">Temat</string>
     <string name="inbox_sort_sender">Nadawca</string>
     <string name="inbox_sort_unread_first">Najpierw nieprzeczytane</string>
+    <string name="inbox_sort_flagged_first">Najpierw oznaczone</string>
     <string name="inbox_unflag">Usuń oznaczenie</string>
     <string name="inbox_flag">Oznacz</string>
     <string name="folder_inbox">Odebrane</string>

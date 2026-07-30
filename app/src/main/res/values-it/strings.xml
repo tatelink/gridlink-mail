@@ -105,6 +105,7 @@
     <string name="inbox_sort_subject">Oggetto</string>
     <string name="inbox_sort_sender">Mittente</string>
     <string name="inbox_sort_unread_first">Prima i non letti</string>
+    <string name="inbox_sort_flagged_first">Prima gli speciali</string>
     <string name="inbox_unflag">Rimuovi contrassegno</string>
     <string name="inbox_flag">Contrassegna</string>
     <string name="folder_inbox">Posta in arrivo</string>

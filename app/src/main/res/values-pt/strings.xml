@@ -105,6 +105,7 @@
     <string name="inbox_sort_subject">Assunto</string>
     <string name="inbox_sort_sender">Remetente</string>
     <string name="inbox_sort_unread_first">Não lidas primeiro</string>
+    <string name="inbox_sort_flagged_first">Com estrela primeiro</string>
     <string name="inbox_unflag">Remover sinalização</string>
     <string name="inbox_flag">Sinalizar</string>
     <string name="folder_inbox">Caixa de entrada</string>

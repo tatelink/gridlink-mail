@@ -105,6 +105,7 @@
     <string name="inbox_sort_subject">Тема</string>
     <string name="inbox_sort_sender">Отправитель</string>
     <string name="inbox_sort_unread_first">Сначала непрочитанные</string>
+    <string name="inbox_sort_flagged_first">Сначала помеченные</string>
     <string name="inbox_unflag">Снять пометку</string>
     <string name="inbox_flag">Пометить</string>
     <string name="folder_inbox">Входящие</string>

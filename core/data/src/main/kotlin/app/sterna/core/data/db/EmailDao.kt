@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.Flow
 interface EmailDao {
 
     /**
-     * Paged source for the list. The sort/filter/favourite-pin ORDER BY and the
+     * Paged source for the list. The sort/filter ORDER BY and the
      * mailbox-id set vary per view, so the query is built dynamically (see
      * MailRepository.pagingQuery) and run via [RawQuery]; [observedEntities] keeps
      * the pager reactive to cache changes.

@@ -258,10 +258,13 @@ private const val UNREAD_RESOLVE_MAX = 10_000
 private const val SET_SEEN_BATCH = 500
 
 /**
- * Build the dynamic ORDER BY / WHERE for the paged list. Favourites (flagged)
- * always pin to the top, then the chosen [sort]; [unreadOnly] adds a seen filter.
- * Mailbox ids are bound as parameters; the sort expression is a fixed whitelist
- * (never user input), so it is safe to inline.
+ * Build the dynamic ORDER BY / WHERE for the paged list: purely the chosen [sort];
+ * [unreadOnly] adds a seen filter. Mailbox ids are bound as parameters; the sort
+ * expression is a fixed whitelist (never user input), so it is safe to inline.
+ *
+ * No order is prefixed any more. Favourites used to be pinned above ALL of them, which made
+ * every menu entry a half-truth (issue #111); pinning is now its own entry,
+ * [SortOrder.FLAGGED_FIRST], that the reader chooses.
  */
 private fun pagingQuery(
     mailboxIds: List<String>,
@@ -299,12 +302,13 @@ internal fun pagingSql(
     val placeholders = List(mailboxCount) { "?" }.joinToString(",")
     val accountFilter = if (hasAccountId) " AND accountId = ?" else ""
     val seenFilter = if (unreadOnly) " AND seen = 0" else ""
-    val orderBy = "flagged DESC, " + when (sort) {
+    val orderBy = when (sort) {
         SortOrder.DATE_DESC -> "sortKey DESC"
         SortOrder.DATE_ASC -> "sortKey ASC"
         SortOrder.SUBJECT -> "LOWER(TRIM(subject)) ASC"
         SortOrder.SENDER -> "LOWER(TRIM(COALESCE(fromName, fromEmail))) ASC"
         SortOrder.UNREAD_FIRST -> "seen ASC, sortKey DESC"
+        SortOrder.FLAGGED_FIRST -> "flagged DESC, sortKey DESC"
     }
     // Hide messages snoozed into the future (re-appear once their time passes).
     val notSnoozed = " AND ${notSnoozedSql("emails")}"
@@ -377,12 +381,22 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
     val notSnoozed = notSnoozedSql("emails")
     val notSnoozedOuter = notSnoozedSql("e")
     val having = if (unreadOnly) " HAVING MIN(seen) = 0" else ""
-    val orderBy = "e.flagged DESC, " + when (sort) {
+    val orderBy = when (sort) {
         SortOrder.DATE_DESC -> "e.sortKey DESC"
         SortOrder.DATE_ASC -> "e.sortKey ASC"
         SortOrder.SUBJECT -> "LOWER(TRIM(e.subject)) ASC"
         SortOrder.SENDER -> "LOWER(TRIM(COALESCE(e.fromName, e.fromEmail))) ASC"
         SortOrder.UNREAD_FIRST -> "g.threadUnread ASC, e.sortKey DESC"
+        // e.flagged — the REPRESENTATIVE row's star, i.e. the one the row actually draws — and
+        // deliberately not MAX(flagged) over the thread. Sorting on "any message of the thread
+        // is starred" is defensible and was tried, but it sorts on a state the row does not
+        // show: a thread would sit at the top wearing an empty star, and tapping that star
+        // twice would not dislodge it, because an invisible older message is what holds it
+        // there. That is the exact WYSIWYG break this fix exists to remove (issue #111).
+        // Ordering on the drawn flag keeps "what pins it" and "what you see" the same thing.
+        // (The sibling aggregate threadUnread can afford the other choice: it IS projected, so
+        // UNREAD_FIRST's ordering and the row's bold text agree.)
+        SortOrder.FLAGGED_FIRST -> "e.flagged DESC, e.sortKey DESC"
     }
     return """
         SELECT e.*, c.threadCount AS threadCount, t.threadTotal AS threadTotal, g.threadUnread AS threadUnread
@@ -1035,8 +1049,8 @@ class MailRepository(
 
     /**
      * Paged list of cached emails for [mailboxIds] (one folder, or several for the
-     * unified inbox), sorted server-side-style in SQL: favourites pinned, then the
-     * chosen [sort]; [unreadOnly] filters to unseen. Only a few pages are held in
+     * unified inbox), sorted server-side-style in SQL by the chosen [sort] and nothing
+     * else; [unreadOnly] filters to unseen. Only a few pages are held in
      * memory at once, so very large folders no longer load (or freeze) all at once.
      */
     fun pagedMailbox(
