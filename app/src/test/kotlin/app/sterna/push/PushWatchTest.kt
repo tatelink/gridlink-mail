@@ -115,4 +115,80 @@ class PushWatchTest {
     @Test fun `JMAP watched extras are left to the EventSource`() {
         assertFalse(hasExtrasToPoll(isImap = false, watchedFolders = setOf("f1")))
     }
+
+    // --- the silent reseed is per account, not per arm --------------------------------------------
+    //
+    // A user-initiated arm (app open, account switch, a settings toggle, ticking one watched folder)
+    // may swallow an inbox's backlog into the baseline instead of announcing it, because the user is
+    // looking at that inbox. Arming, however, covers every watched account at once: with "push for
+    // all accounts" on, one arm used to reseed all of them, and the accounts the user was NOT
+    // looking at lost their pending mail's notification for good — every later pass diffs against
+    // the baseline that just absorbed it. The first test below fails on the pre-fix tree.
+    //
+    // The witnesses matter as much as the case: without them these tests would also pass with the
+    // reseed deleted outright, which is the opposite defect (a fresh install or a baseline version
+    // bump would empty weeks of mail into the notification shade).
+
+    @Test fun `an account the user is not looking at is not reseeded`() {
+        assertFalse(
+            shouldResetBaseline("b", userInitiated = true, currentAccountId = "a", unifiedInbox = false),
+        )
+    }
+
+    /** Witness: the account on screen is exactly what the silent reseed is for. */
+    @Test fun `the account on screen is reseeded`() {
+        assertTrue(
+            shouldResetBaseline("a", userInitiated = true, currentAccountId = "a", unifiedInbox = false),
+        )
+    }
+
+    /** Witness: in the unified inbox every account's mail IS on screen, so every one is reseeded. */
+    @Test fun `the unified inbox reseeds every account`() {
+        assertTrue(
+            shouldResetBaseline("b", userInitiated = true, currentAccountId = "a", unifiedInbox = true),
+        )
+    }
+
+    /** Witness: a background arm never reseeds — not the current account, not in the unified view. */
+    @Test fun `a background arm never reseeds the account on screen`() {
+        assertFalse(
+            shouldResetBaseline("a", userInitiated = false, currentAccountId = "a", unifiedInbox = false),
+        )
+    }
+
+    @Test fun `a background arm never reseeds in the unified inbox either`() {
+        assertFalse(
+            shouldResetBaseline("a", userInitiated = false, currentAccountId = "a", unifiedInbox = true),
+        )
+    }
+
+    /** With no account current (first run, every account signed out) there is no inbox on screen. */
+    @Test fun `no current account reseeds nothing`() {
+        assertFalse(
+            shouldResetBaseline("a", userInitiated = true, currentAccountId = null, unifiedInbox = false),
+        )
+    }
+
+    /**
+     * The witness that keeps the narrowing from turning into a deletion: a folder with no baseline
+     * yet seeds silently whatever the reseed decision says. Without it, a fresh install or a
+     * baseline version bump would announce every message the folder already holds.
+     */
+    @Test fun `a folder with no baseline seeds silently anyway`() {
+        assertTrue(seedsSilently(resetBaselines = false, isInbox = true, hasBaseline = false))
+        assertTrue(seedsSilently(resetBaselines = false, isInbox = false, hasBaseline = false))
+    }
+
+    @Test fun `an inbox with a baseline and no reseed diffs`() {
+        assertFalse(seedsSilently(resetBaselines = false, isInbox = true, hasBaseline = true))
+    }
+
+    /** Watched extras always diff: a Sieve folder is not on screen at app-open (issue #16). */
+    @Test fun `a watched extra is never swallowed by a reseed`() {
+        assertFalse(seedsSilently(resetBaselines = true, isInbox = false, hasBaseline = true))
+    }
+
+    @Test fun `a reseeded inbox with a baseline seeds silently`() {
+        assertTrue(seedsSilently(resetBaselines = true, isInbox = true, hasBaseline = true))
+    }
 }

@@ -86,16 +86,17 @@ class PushService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val gen = ++generation
-        // resetBaseline only for user-initiated arms (app open, settings toggles): the
-        // user sees the inbox, so its backlog stays silent. Background re-arms (transport
+        // A silent baseline reseed is allowed only on user-initiated arms (app open, settings
+        // toggles), and even then only for the inbox the user is looking at — see
+        // [shouldResetBaseline], applied per account in [watch]. Background re-arms (transport
         // callbacks, STICKY restarts: null intent) must DIFF instead — mail that arrived
         // during the gap still gets announced.
-        val reset = intent?.getBooleanExtra(EXTRA_RESET_BASELINE, false) ?: false
-        scope.launch { reconnectAll(gen, reset) }
+        val userInitiated = intent?.getBooleanExtra(EXTRA_USER_INITIATED, false) ?: false
+        scope.launch { reconnectAll(gen, userInitiated) }
         return START_STICKY
     }
 
-    private suspend fun reconnectAll(gen: Int, resetBaseline: Boolean) {
+    private suspend fun reconnectAll(gen: Int, userInitiated: Boolean) {
         connections.values.forEach { runCatching { it.close() } }
         connections.clear()
         carriedBy.clear()
@@ -122,18 +123,26 @@ class PushService : Service() {
         // account"). Cleared at the top of every arm, so a regrouped or dropped account leaves no
         // stale entry behind.
         groups.forEach { (loginId, group) -> group.forEach { carriedBy[it.id] = loginId } }
-        groups.forEach { (loginId, group) -> watch(loginId, group, gen, resetBaseline) }
+        groups.forEach { (loginId, group) -> watch(loginId, group, gen, userInitiated) }
         Log.i(TAG, "Watching ${accounts.size} account(s) over ${groups.size} connection(s) for new mail")
     }
 
     /** (Re)establish the single push connection for one login and fan changes out to its accounts. */
-    private suspend fun watch(loginId: String, group: List<AccountCredentials>, gen: Int, resetBaseline: Boolean) {
+    private suspend fun watch(loginId: String, group: List<AccountCredentials>, gen: Int, userInitiated: Boolean) {
         if (gen != generation) return
         val repo = application.container.mailRepository
+        val currentId = application.container.accountStore.currentId()
+        val unified = PushController.unifiedInboxVisible
         runCatching {
-            // Seed/announce baselines for every account in the group; on a reconnect (resetBaseline
-            // false) this announces anything that arrived during the gap, per sub-account.
-            group.forEach { runCatching { FetchAndNotify.run(this, it, resetBaselines = resetBaseline) } }
+            // Seed/announce baselines for every account in the group. The silent reseed is decided
+            // per ACCOUNT, not per arm: one arm covers every watched account, but only the inbox on
+            // screen may be swallowed silently (see [shouldResetBaseline]). Everything else diffs —
+            // on a reconnect, and for the accounts the user is not looking at, that is what
+            // announces the mail that arrived during the gap.
+            group.forEach { credentials ->
+                val reset = shouldResetBaseline(credentials.id, userInitiated, currentId, unified)
+                runCatching { FetchAndNotify.run(this, credentials, resetBaselines = reset) }
+            }
             // Any credential in the group reaches the shared session; prefer the login's own.
             val owner = group.firstOrNull { it.id == loginId } ?: group.first()
             val watchedJmapIds = group.mapNotNull { it.jmapAccountId }.toSet()
@@ -162,7 +171,8 @@ class PushService : Service() {
             if (gen == generation) {
                 Log.i(TAG, "Reconnecting push for login $loginId")
                 runCatching { connections.remove(loginId)?.close() }
-                watch(loginId, group, gen, resetBaseline = false)
+                // Never user-initiated: a reconnect must announce the gap's mail, not swallow it.
+                watch(loginId, group, gen, userInitiated = false)
             }
         }
     }
@@ -195,9 +205,15 @@ class PushService : Service() {
     companion object {
         private const val TAG = "PushService"
         private const val RECONNECT_DELAY_MS = 5_000L
-        private const val EXTRA_RESET_BASELINE = "resetBaseline"
+        private const val EXTRA_USER_INITIATED = "userInitiated"
 
-        /** Whether the live push service is up — the fallback poll no-ops while it is. */
+        /**
+         * Whether the service object exists. Says nothing about whether any connection is open:
+         * the reconnect loop keeps the service alive through the failure of every one of them.
+         * Only the status line may read it, and only after [isConnected] has already said no —
+         * "up but not connected yet" is exactly [PushStatus.Connecting]. Anything deciding
+         * whether mail still needs fetching must ask [isConnected] per account instead.
+         */
         @Volatile
         var isRunning = false
             private set
@@ -223,9 +239,11 @@ class PushService : Service() {
             return isCarriedByOpenConnection(accountId, service.carriedBy, service.connections.keys)
         }
 
-        fun start(context: Context, resetBaseline: Boolean) {
+        /** [userInitiated] gates the silent baseline reseed; which accounts get it is
+         *  [shouldResetBaseline]'s call, made per account as they are armed. */
+        fun start(context: Context, userInitiated: Boolean) {
             val intent = Intent(context, PushService::class.java)
-                .putExtra(EXTRA_RESET_BASELINE, resetBaseline)
+                .putExtra(EXTRA_USER_INITIATED, userInitiated)
             ContextCompat.startForegroundService(context, intent)
         }
 

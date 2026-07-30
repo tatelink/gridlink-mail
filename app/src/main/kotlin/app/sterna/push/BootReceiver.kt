@@ -88,7 +88,7 @@ class BootReceiver : BroadcastReceiver() {
             )
         }
         if (!BootRestart.needsPushService(accounts)) return
-        // resetBaseline false: this is a background arm, so mail that arrived while the
+        // userInitiated false: this is a background arm, so mail that arrived while the
         // device was off is diffed and announced instead of being silently swallowed.
         //
         // specialUse is not among the foreground service types Android 15+ forbids starting
@@ -98,7 +98,7 @@ class BootReceiver : BroadcastReceiver() {
         // system or OEM policy refuse anyway, take the refusal quietly: [MailFetchWorker]
         // keeps mail coming within ~30 minutes, and the account screen reports "Periodic"
         // rather than claiming a live connection.
-        runCatching { PushService.start(app, resetBaseline = false) }
+        runCatching { PushService.start(app, userInitiated = false) }
             .onFailure { Log.w(TAG, "Push service refused at boot; fallback poll carries delivery", it) }
     }
 
