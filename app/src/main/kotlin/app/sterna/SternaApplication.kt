@@ -75,6 +75,12 @@ class AppContainer(context: Context) {
         // A linked sub-account pruned on reconcile (access revoked, Codeberg #31) drops its
         // notification baselines too, exactly like a sign-out — the data layer cannot reach them.
         mailRepository.onAccountPruned = { app.sterna.push.NewMailNotifier.clear(appContext, it) }
+        // A folder the server renumbered (Codeberg #99): every id in it is new, so its baseline
+        // describes messages that no longer exist under those numbers. Cleared here, the next
+        // pass seeds the folder silently instead of announcing its whole content as new mail.
+        mailRepository.onMailboxRenumbered = { accountId, mailboxId ->
+            app.sterna.push.NewMailNotifier.clear(appContext, accountId, mailboxId)
+        }
         // Re-arm any send left mid-flight (WorkManager persists jobs, but re-checking is a safety net).
         appScope.launch {
             // First rescue any row stranded in EDITING by a process death mid-edit (#70): its

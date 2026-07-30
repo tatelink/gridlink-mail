@@ -51,7 +51,7 @@ private fun Char.isModifiedBase64(): Boolean = this in MODIFIED_BASE64
  * substitution would be irreversible — the name would no longer round-trip and the folder would
  * no longer open. Two bytes per char preserve whatever the server sent us.
  */
-internal fun encodeModifiedUtf7(name: String): String {
+fun encodeModifiedUtf7(name: String): String {
     if (name.all { it.isDirect() }) return name
     val out = StringBuilder(name.length + 8)
     var i = 0
@@ -83,7 +83,7 @@ internal fun encodeModifiedUtf7(name: String): String {
  * NEITHER of which is in the alphabet, so a shift can never swallow a delimiter and a whole
  * path can be decoded in one pass without splitting it into segments first.
  */
-internal fun decodeModifiedUtf7(name: String): String {
+fun decodeModifiedUtf7(name: String): String {
     if ('&' !in name) return name
     val out = StringBuilder(name.length)
     var i = 0
@@ -109,6 +109,28 @@ internal fun decodeModifiedUtf7(name: String): String {
         i = next
     }
     return out.toString()
+}
+
+/**
+ * A mailbox path as the app will hold it: the decoding when it is faithful, the RAW WIRE FORM
+ * when it is not. THE identity function for a folder, and the one every persisted id must be
+ * passed through (see `MailRepository`'s watched-folder re-key).
+ *
+ * Decoding is only allowed to happen when it can be undone. Modified UTF-7 has corners that do
+ * not round-trip: a bare `&` that was never a shift (`x&`, or `R&D` written by a version of this
+ * app that sent folder names raw), and a shift sequence whose base64 is not valid UTF-16
+ * (`&12-`). Those decode to text containing a literal `&`, which re-encodes as `&-` — a
+ * DIFFERENT mailbox name. Before this file existed such names round-tripped by accident, because
+ * nothing touched them; decoding them without this guard would make them readable and
+ * unopenable, which is precisely the failure the encode/decode pair exists to prevent.
+ *
+ * So: decode, re-encode, and keep the decoding only if it comes back byte for byte. A name we
+ * cannot read is a nuisance; a name we cannot address is a broken folder. One extra encode per
+ * folder per LIST, and a no-op for every well-formed name.
+ */
+fun decodeMailboxPath(raw: String): String {
+    val decoded = decodeModifiedUtf7(raw)
+    return if (encodeModifiedUtf7(decoded) == raw) decoded else raw
 }
 
 /** UTF-16BE bytes of `name[from until to]`, base64 without padding, `/` written as `,`. */

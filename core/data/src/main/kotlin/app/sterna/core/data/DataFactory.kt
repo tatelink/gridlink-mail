@@ -57,6 +57,7 @@ object DataFactory {
             storageRepository = StorageRepository(
                 appContext, database.emailDao(), database.emailFtsDao(), database.emailBodyDao(),
                 database.mailboxDao(), database.snoozedDao(), database.purgeSnapshotDao(),
+                database.mailboxUidValidityDao(),
             ),
         )
     }

@@ -4,9 +4,6 @@ import app.sterna.core.data.db.EmailBodyDao
 import app.sterna.core.data.db.MailboxUidValidityDao
 import app.sterna.core.data.db.MailboxUidValidityEntity
 import app.sterna.core.data.db.PurgeSnapshotDao
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * What an IMAP folder's UIDVALIDITY licenses (RFC 3501 §2.3.1.1, Codeberg #99).
@@ -72,9 +69,6 @@ object UidValidity {
             .replace("_", "\\_") + "%"
 }
 
-/** One folder whose numbering moved under us, for whoever has to react to it. */
-data class MailboxRenumbered(val accountId: String, val mailboxId: String, val uidValidity: Long)
-
 /**
  * Where the per-folder UIDVALIDITY lives, seen from [ImapMailService] — which has a connection
  * and no database.
@@ -98,14 +92,24 @@ interface UidValidityStore {
      */
     suspend fun invalidate(accountId: String, mailboxId: String, uidValidity: Long)
 
-    /** Folders whose numbering changed, as it happens. */
-    val renumbered: Flow<MailboxRenumbered>
+    /**
+     * Called with `(accountId, mailboxId)` when a folder is invalidated, for the one consumer
+     * outside this layer: the notification baseline, which lives in `:app`. Cleared, it makes
+     * the next pass SEED that folder silently instead of announcing its whole content as new —
+     * a renumbering changes every id in it, so a diff against the old baseline would notify the
+     * user about mail they have already read.
+     *
+     * A callback rather than a flow, deliberately: `MailRepository.onAccountPruned` already does
+     * exactly this for the same reason, there is no long-lived collector in the app to subscribe
+     * one, and a flow nobody collects is unfinished work that reads as finished.
+     */
+    var onRenumbered: ((String, String) -> Unit)?
 
     object None : UidValidityStore {
         override suspend fun recorded(accountId: String, mailboxId: String): Long? = null
         override suspend fun record(accountId: String, mailboxId: String, uidValidity: Long) = Unit
         override suspend fun invalidate(accountId: String, mailboxId: String, uidValidity: Long) = Unit
-        override val renumbered: Flow<MailboxRenumbered> = MutableSharedFlow()
+        override var onRenumbered: ((String, String) -> Unit)? = null
     }
 }
 
@@ -123,8 +127,8 @@ interface UidValidityStore {
  * and moves are left alone too — the list cache is replaced from the server on the next refresh,
  * so those heal on their own.
  *
- * The notification baseline lives in `:app` and this layer does not reach into it: the event is
- * published on [renumbered] and whoever cares subscribes.
+ * The notification baseline lives in `:app` and this layer does not reach into it: it is told,
+ * through [onRenumbered], and does its own clearing.
  */
 class MailboxUidValidityStore(
     private val dao: MailboxUidValidityDao,
@@ -132,8 +136,7 @@ class MailboxUidValidityStore(
     private val purgeSnapshots: PurgeSnapshotDao,
 ) : UidValidityStore {
 
-    private val events = MutableSharedFlow<MailboxRenumbered>(extraBufferCapacity = 16)
-    override val renumbered: Flow<MailboxRenumbered> = events.asSharedFlow()
+    override var onRenumbered: ((String, String) -> Unit)? = null
 
     override suspend fun recorded(accountId: String, mailboxId: String): Long? =
         dao.recorded(accountId, mailboxId)
@@ -147,6 +150,7 @@ class MailboxUidValidityStore(
         bodies.deleteForIdPrefix(accountId, UidValidity.bodyCacheIdPrefix(accountId, mailboxId))
         purgeSnapshots.deleteForMailbox(accountId, mailboxId)
         record(accountId, mailboxId, uidValidity)
-        events.tryEmit(MailboxRenumbered(accountId, mailboxId, uidValidity))
+        // Best effort, and last: the app-layer hook must never cost the invalidation itself.
+        onRenumbered?.let { hook -> runCatching { hook(accountId, mailboxId) } }
     }
 }

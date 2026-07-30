@@ -449,9 +449,32 @@ class ImapSession(private var socket: Socket) : Closeable {
      * all (0) cannot be checked either way, and is not turned into a refusal — that would break
      * the folder outright on a non-conforming server, which is the wrong direction for a guard
      * whose job is to be conservative about DESTROYING.
+     *
+     * THE ONE RETRY: a mailbox whose wire name is not a valid encoding of itself — a bare `&`,
+     * which some client (including Sterna up to 1.4.3, which sent folder names raw) may have
+     * created — is kept verbatim by [decodeMailboxPath], and encoding it again would turn `R&D`
+     * into `R&-D` and address a mailbox that does not exist. Such a name cannot be told apart
+     * from the legitimate decoding of `R&-D`: the two are the same string, and one encoder cannot
+     * map it to both. So the standard form is tried first, and only when the server refuses it is
+     * the verbatim form tried — at which point the alternative is a folder the user cannot open
+     * at all. SELECT alone gets this: it is read-only and idempotent, and it is the command that
+     * blocks. Retrying a CREATE, a MOVE or an APPEND under a second name could file mail into the
+     * wrong place. Same shape as the `BADCHARSET` retry in [searchUids], and free when the first
+     * form works, which it does for every conformant name.
      */
     fun select(path: String, expectedUidValidity: Long? = null): ImapMailboxStatus {
-        val result = command("SELECT ${mailboxArg(path)}")
+        val encoded = mailboxArg(path)
+        val result = try {
+            command("SELECT $encoded")
+        } catch (refused: ImapException) {
+            val verbatim = quote(path)
+            // Only where the ambiguity can exist: the path is its own plausible wire form, i.e.
+            // pure ASCII that the encoder would nonetheless have changed. A non-ASCII path has
+            // exactly one wire form, so a refusal there means what it says and putting raw UTF-8
+            // on the wire would only be noise.
+            if (verbatim == encoded || path.any { it.code !in 0x20..0x7E }) throw refused
+            command("SELECT $verbatim")
+        }
         var exists = 0
         var uidValidity = 0L
         var uidNext = 0L
@@ -909,13 +932,14 @@ internal class ImapResult(
  * from the path, finds the dropped container missing, and promotes them). INBOX is
  * never dropped, even if a server mislabels it.
  *
- * THE ONE PLACE a mailbox name is decoded ([decodeModifiedUtf7], Codeberg #101): everything
+ * THE ONE PLACE a mailbox name is decoded ([decodeMailboxPath], Codeberg #101): everything
  * above this function holds Unicode, and [ImapSession] encodes again on its way out.
  *
- * [ImapFolder.path] is the FAITHFUL decoding — nothing filtered — because it is an identifier:
- * it has to encode back to the exact bytes the server sent or the folder stops opening. The
- * anti-spoofing filter therefore applies to [ImapFolder.name], the display leaf, and only
- * there. A path is never displayed and a name is never sent.
+ * [ImapFolder.path] is the FAITHFUL decoding — nothing filtered, and nothing decoded that would
+ * not encode back byte for byte — because it is an identifier: it has to reproduce the exact
+ * bytes the server sent or the folder stops opening. The anti-spoofing filter therefore applies
+ * to [ImapFolder.name], the display leaf, and only there. A path is never displayed and a name
+ * is never sent.
  */
 internal fun parseListFolders(untagged: List<List<Any?>>): List<ImapFolder> =
     untagged.mapNotNull { resp ->
@@ -924,7 +948,7 @@ internal fun parseListFolders(untagged: List<List<Any?>>): List<ImapFolder> =
         @Suppress("UNCHECKED_CAST")
         val attrs = (resp.getOrNull(2) as? List<Any?>)?.mapNotNull { it as? String } ?: emptyList()
         val delim = resp.getOrNull(3) as? String ?: "/"
-        val path = decodeModifiedUtf7(resp.getOrNull(4) as? String ?: return@mapNotNull null)
+        val path = decodeMailboxPath(resp.getOrNull(4) as? String ?: return@mapNotNull null)
         val name = stripBidiAndControls(path.substringAfterLast(delim))
         val nonSelectable = attrs.any {
             it.equals("\\Noselect", ignoreCase = true) || it.equals("\\NonExistent", ignoreCase = true)

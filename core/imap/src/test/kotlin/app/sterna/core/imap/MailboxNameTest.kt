@@ -75,6 +75,89 @@ class MailboxNameTest {
         assertEquals("&Zz", decodeModifiedUtf7("&Zz"))
     }
 
+    /**
+     * …and surviving as text is NOT enough on its own. Those decodings all contain a literal `&`,
+     * which re-encodes as `&-` — a different mailbox name. Such a name used to round-trip by
+     * accident, because nothing touched it; decoding it and re-encoding it would make it readable
+     * and UNOPENABLE, the exact failure this pair exists to prevent. [decodeMailboxPath] keeps a
+     * decoding only when it comes back byte for byte, so the residual corner keeps the behaviour
+     * it had before this branch.
+     */
+    @Test fun `a name that would not encode back keeps its wire form`() {
+        for (raw in listOf("x&", "&12-", "&AB!", "&Zz", "R&D")) {
+            assertEquals("$raw must not be decoded", raw, decodeMailboxPath(raw))
+        }
+    }
+
+    @Test fun `a well-formed name is still decoded`() {
+        assertEquals(flagged.second, decodeMailboxPath(flagged.first))
+        assertEquals("R&D", decodeMailboxPath("R&-D"))
+        assertEquals("INBOX/Привет", decodeMailboxPath("INBOX/&BB8EQAQ4BDIENQRC-"))
+    }
+
+    /**
+     * End to end, and the residual corner the pair cannot resolve on its own: a folder whose wire
+     * name is a bare `&` (an invalid encoding — Sterna up to 1.4.3 could create one, since it
+     * sent names raw). Its path is kept verbatim, the standard form is tried first, and the
+     * server's refusal is what tells us which of the two this name is. Before, such a folder was
+     * unreadable but openable; it must not become unopenable.
+     */
+    @Test fun `an undecodable folder still opens, on the second try`() {
+        FakeImapServer { tag, line ->
+            when {
+                line.startsWith("LIST") -> "* LIST () \"/\" \"R&D\"\r\n" + ok(tag)
+                // The folder really is called `R&D` on the wire, so the encoded form misses.
+                line == """SELECT "R&-D"""" -> "$tag NO [NONEXISTENT] no such mailbox\r\n"
+                line.startsWith("SELECT") -> selectResponse(tag, exists = 2)
+                else -> ok(tag)
+            }
+        }.use { server ->
+            val (folder, status) = server.session().use { session ->
+                val listed = session.listFolders().first()
+                listed to session.select(listed.path)
+            }
+
+            assertEquals("R&D", folder.path)
+            assertEquals(2, status.exists)
+            assertEquals(
+                listOf("""SELECT "R&-D"""", """SELECT "R&D""""),
+                server.issued().filter { it.startsWith("SELECT") },
+            )
+        }
+    }
+
+    /** A conformant name costs no second command: the first form is the right one. */
+    @Test fun `a well-formed name is selected once`() {
+        folderServer(flagged.first).use { server ->
+            server.session().use { session -> session.select(session.listFolders().first().path) }
+
+            assertEquals(1, server.issued().count { it.startsWith("SELECT") })
+        }
+    }
+
+    /**
+     * A non-ASCII name has exactly ONE wire form, so a refusal there means what it says: no
+     * second SELECT, and above all no raw UTF-8 put on the wire after a failure.
+     */
+    @Test fun `a refused Cyrillic folder is not retried verbatim`() {
+        FakeImapServer { tag, line ->
+            when {
+                line.startsWith("SELECT") -> "$tag NO [NOPERM] denied\r\n"
+                else -> ok(tag)
+            }
+        }.use { server ->
+            server.session().use { session ->
+                val failure = runCatching { session.select(flagged.second) }.exceptionOrNull()
+                assertTrue("expected the refusal to propagate, got $failure", failure is ImapException)
+            }
+
+            assertEquals(
+                listOf("""SELECT "${flagged.first}""""),
+                server.issued().filter { it.startsWith("SELECT") },
+            )
+        }
+    }
+
     @Test fun `a surrogate pair and other planes make the round trip`() {
         for (name in listOf("日本語", "café", "☺", "emoji 😀 folder")) {
             assertEquals(name, decodeModifiedUtf7(encodeModifiedUtf7(name)))
