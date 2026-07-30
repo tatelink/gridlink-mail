@@ -171,6 +171,17 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     /** Guards against re-downloading the invite on every recomposition of the same message. */
     private var calendarLoadedFor: String? = null
 
+    /**
+     * An attachment is already on its way to a viewer app. Tapping one starts a download, so the
+     * chooser appears a beat later and a second tap in between used to start the whole thing again
+     * — two downloads, then two choosers stacked on top of each other for one file.
+     *
+     * The screen's own [app.sterna.ui.rememberLeaveOnce] cannot cover this one: the hand-off happens
+     * here, after a suspending download, not in the tap handler, and a ViewModel has no composition
+     * to latch onto. Same shape as the [calendarLoadedFor] guard just above.
+     */
+    private var openingAttachment = false
+
     private fun updateMessage(id: String, transform: (ThreadMessage) -> ThreadMessage) {
         _messages.value = _messages.value.map { if (it.id == id) transform(it) else it }
     }
@@ -558,6 +569,8 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
 
     /** Download an attachment to the cache and hand it to a viewer app. */
     fun openAttachment(part: EmailBodyPart, ownerId: String) {
+        if (openingAttachment) return
+        openingAttachment = true
         val emailId = ownerId
         val app = getApplication<Application>()
         _attachmentStatus.value = "Opening ${part.name ?: "attachment"}…"
@@ -570,6 +583,9 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 val view = Intent(Intent.ACTION_VIEW)
                     .setDataAndType(uri, part.type ?: "*/*")
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                // unguarded: not a tap. The tap was handled above, where [openingAttachment] holds
+                // the second one back until this hand-off is made; there is no composition here to
+                // hang the shared leave guard on.
                 app.startActivity(
                     Intent.createChooser(view, app.getString(R.string.status_open_attachment)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
@@ -580,6 +596,10 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             } catch (t: Throwable) {
                 _attachmentStatus.value =
                     app.getString(R.string.status_open_attachment_failed, t.message ?: "error")
+            } finally {
+                // Released as soon as the chooser is up (or the attempt failed), not when the user
+                // comes back: the file is theirs to open again as often as they like.
+                openingAttachment = false
             }
         }
     }

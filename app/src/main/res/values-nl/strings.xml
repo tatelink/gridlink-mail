@@ -126,6 +126,7 @@
     <string name="message_images_stop_sender">Afbeeldingen van deze afzender niet automatisch tonen</string>
     <string name="message_open_link_title">Deze link openen?</string>
     <string name="message_open_link_open">Openen</string>
+    <string name="message_open_link_copy">Link kopiëren</string>
     <string name="message_mark_unread">Als ongelezen markeren</string>
     <string name="message_delete">Verwijderen</string>
     <string name="message_more">Meer</string>
@@ -164,6 +165,7 @@
     <string name="participant_copy_name_address">Naam en adres kopiëren</string>
     <string name="a11y_participant_more">Meer acties</string>
     <string name="status_address_copied">Adres gekopieerd</string>
+    <string name="status_link_copied">Link gekopieerd</string>
     <string name="participant_no_contacts_app">Geen app om contacten toe te voegen.</string>
     <!-- Calendar invite -->
     <string name="calendar_invite">Agenda-uitnodiging</string>

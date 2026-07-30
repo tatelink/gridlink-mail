@@ -85,8 +85,10 @@ import androidx.compose.ui.autofill.AutofillType
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import app.sterna.R
+import app.sterna.ui.components.AppPasswordHelpLink
 import app.sterna.ui.components.PendingImportAccountsSection
 import app.sterna.ui.components.autofill
+import app.sterna.ui.rememberLeaveOnce
 import app.sterna.ui.settings.SettingsViewModel
 import app.sterna.ui.settings.applyAppLanguage
 import app.sterna.util.isValidEmail
@@ -136,6 +138,11 @@ fun ConnectScreen(
     var preset by rememberSaveable(stateSaver = PresetFormSaver) { mutableStateOf(PresetForm.NONE) }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    // The provider help link below leaves for a browser; a second tap while it comes up opened a
+    // second one. This screen is composed above the navigation graph at first run, so the guard
+    // hangs off the activity's lifecycle there and off the settings entry when it is reached from
+    // Accounts → Add account — see [rememberLeaveOnce].
+    val leaveOnce = rememberLeaveOnce()
 
     // Focusing any credential field scrolls the WHOLE credential block (account name, email,
     // password/token + the action buttons) above the keyboard, not just the focused field, so the
@@ -446,7 +453,11 @@ fun ConnectScreen(
                     preset.appPasswordUrl?.let { url ->
                         TextButton(
                             onClick = {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                leaveOnce {
+                                    runCatching {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                    }.isSuccess
+                                }
                             },
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                         ) {
@@ -671,6 +682,9 @@ private fun DeviceApprovalContent(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val copiedMsg = stringResource(R.string.connect_oauth_code_copied)
+    // Two browsers for one device-flow approval is worse than most double-opens: the user finishes
+    // in one of the two windows and is left staring at the other, which will never complete.
+    val leaveOnce = rememberLeaveOnce()
     Text(
         stringResource(R.string.connect_oauth_step1),
         style = MaterialTheme.typography.bodyMedium,
@@ -693,10 +707,12 @@ private fun DeviceApprovalContent(
     Button(
         onClick = {
             val target = verificationUriComplete ?: verificationUri
-            runCatching {
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse(target)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
+            leaveOnce {
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(target)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }.isSuccess
             }
         },
         modifier = Modifier.fillMaxWidth(),
@@ -709,23 +725,6 @@ private fun DeviceApprovalContent(
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         CircularProgressIndicator(modifier = Modifier.height(20.dp).width(20.dp))
         TextButton(onClick = onCancel) { Text(stringResource(R.string.connect_oauth_cancel)) }
-    }
-}
-
-/** The app-password creation page for Microsoft accounts. */
-private const val MS_APP_PASSWORD_URL = "https://account.live.com/proofs/AppPassword"
-
-/** A one-tap chip that opens the Microsoft app-password creation page. */
-@Composable
-private fun AppPasswordHelpChip() {
-    val context = LocalContext.current
-    TextButton(
-        onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(MS_APP_PASSWORD_URL))) },
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-    ) {
-        Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(stringResource(R.string.connect_app_password_help))
     }
 }
 
@@ -810,7 +809,7 @@ private fun ImportOAuthPanel(target: ConnectViewModel.SignInTarget, viewModel: C
             enabled = !target.verifying,
             modifier = Modifier.fillMaxWidth(),
         ) { Text(stringResource(R.string.connect_import_use_app_password)) }
-        AppPasswordHelpChip()
+        AppPasswordHelpLink()
     }
     TextButton(onClick = viewModel::closeImportAccount, enabled = !target.verifying) {
         Text(stringResource(R.string.connect_import_signin_skip))
@@ -853,7 +852,7 @@ private fun ImportSignInPanel(target: ConnectViewModel.SignInTarget, viewModel: 
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        AppPasswordHelpChip()
+        AppPasswordHelpLink()
     }
     OutlinedTextField(
         value = password,
