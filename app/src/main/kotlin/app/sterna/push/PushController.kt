@@ -47,14 +47,18 @@ sealed interface PushStatus {
 object PushController {
 
     /**
-     * Is the list on screen right now the cross-account unified inbox? Mirrored from the inbox
-     * list's own selection, which is where the answer lives and which nothing persists.
+     * The last selection the inbox list made: true if that was the cross-account unified inbox.
+     * Mirrored from the list's own selection, which is where the answer lives and which nothing
+     * persists.
      *
-     * Read by [shouldResetBaseline] alone, to decide which accounts a user-initiated arm may reseed
-     * silently. A process-wide flag is the right shape for a process-wide question ("what is the
-     * user looking at"), and false is the safe answer: it reseeds fewer accounts, i.e. announces
-     * more. It starts false because a cold start always lands on a single folder — the unified
-     * selection is not restored across process death.
+     * Not "what is on screen right now", and the difference is real — the list keeps this flag
+     * while the user is in Settings or the reader, and the mirror only moves when the list itself
+     * reselects. Read by [shouldResetBaseline] alone, to decide which accounts a user-initiated
+     * arm may reseed silently; false is the safe answer, since it reseeds fewer accounts and so
+     * announces more. It starts false because a cold start always lands on a single folder — the
+     * unified selection is not restored across process death — and an account switch clears it up
+     * front, before arming, rather than waiting for the recomposition that would otherwise set it
+     * a beat too late.
      */
     @Volatile
     var unifiedInboxVisible: Boolean = false
