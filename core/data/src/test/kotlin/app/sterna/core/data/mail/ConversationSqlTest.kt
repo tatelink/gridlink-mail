@@ -334,4 +334,85 @@ class ConversationSqlTest {
         assertEquals("b", rows[0]["id"]) // flagged pinned above the newer unflagged
         assertEquals("a", rows[1]["id"])
     }
+
+    // -- flat (uncollapsed) mode, colliding mailbox ids -----------------------------------
+    //
+    // Conversation mode is exercised above; the same views also run FLAT, through a different
+    // query ([pagingSql]), and the unified inbox binds its mailbox ids there with NO account
+    // filter. Stalwart numbers mailboxes per account from "a", so on one server EVERY account's
+    // Inbox is "a", its Trash "b", its Junk "c" — the ids collide wholesale, which is what makes
+    // this worth pinning rather than assuming (Codeberg #107 probe).
+
+    /** Flat list over [mailboxes]; [accountId] non-null pins it to one account (folder view),
+     *  null leaves it unpinned (the unified inbox). Bind order: mailboxes, then account. */
+    private fun runFlat(vararg mailboxes: String, accountId: String? = null): List<String> {
+        val sql = pagingSql(
+            mailboxCount = mailboxes.size,
+            sort = SortOrder.DATE_DESC,
+            unreadOnly = false,
+            hasAccountId = accountId != null,
+        )
+        return db.prepareStatement(sql).use { ps ->
+            mailboxes.forEachIndexed { i, m -> ps.setString(i + 1, m) }
+            accountId?.let { ps.setString(mailboxes.size + 1, it) }
+            ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
+        }
+    }
+
+    @Test fun flatUnifiedSpansAccountsThatShareTheirInboxId() {
+        // The intended case, and the reason the unified bind is unpinned: ten Stalwart accounts
+        // all call their Inbox "a", so ONE bound id must surface all ten accounts' inboxes.
+        insert("a1", threadId = null, seen = 0, flagged = 0, sortKey = 100, mailbox = "a", accountId = "accA")
+        insert("b1", threadId = null, seen = 0, flagged = 0, sortKey = 200, mailbox = "a", accountId = "accB")
+
+        assertEquals(listOf("b1", "a1"), runFlat("a"))
+    }
+
+    @Test fun flatFolderViewStaysPinnedToItsOwnAccount() {
+        // Same rows, single-folder view: the account bind is what keeps a sibling account's
+        // identically-numbered Inbox out (issues #31/#92).
+        insert("a1", threadId = null, seen = 0, flagged = 0, sortKey = 100, mailbox = "a", accountId = "accA")
+        insert("b1", threadId = null, seen = 0, flagged = 0, sortKey = 200, mailbox = "a", accountId = "accB")
+
+        assertEquals(listOf("a1"), runFlat("a", accountId = "accA"))
+        assertEquals(listOf("b1"), runFlat("a", accountId = "accB"))
+    }
+
+    @Test fun flatUnifiedSelectsOnTheMailboxIdStringAloneAcrossRoles() {
+        // The structural cost of the unpinned bind, stated plainly: the unified inbox matches the
+        // id STRING, not "this account's Inbox". A row filed under ANOTHER account's folder that
+        // carries the bound id is listed as if it were inbox mail.
+        //
+        // This is a characterisation test — it asserts what the shipped query does today, and it
+        // passes on the pre-probe tree. What it also shows is the bound on the defect: it needs a
+        // CROSS-ROLE collision, and Stalwart cannot produce one, because it creates the Inbox
+        // first in every account, so "a" is the Inbox everywhere and a Trash is never "a". The
+        // leak is real in the query and unreachable on this reporter's server.
+        insert("inbox1", threadId = null, seen = 0, flagged = 0, sortKey = 100, mailbox = "a", accountId = "accA")
+        insert("trash1", threadId = null, seen = 0, flagged = 0, sortKey = 200, mailbox = "a", accountId = "accB")
+
+        assertEquals(listOf("trash1", "inbox1"), runFlat("a"))
+    }
+
+    @Test fun flatUnifiedKeepsBothRowsWhenTheEmailIdsCollideToo() {
+        // Same-server accounts can be handed the same EMAIL id as well (issue #31, composite
+        // (accountId, id) key). The flat list must show one row per account, not one row.
+        insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 100, mailbox = "a", accountId = "accA")
+        insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 200, mailbox = "a", accountId = "accB")
+
+        assertEquals(listOf("e1", "e1"), runFlat("a"))
+        assertEquals(listOf("e1"), runFlat("a", accountId = "accA"))
+    }
+
+    @Test fun flatSnoozeStaysScopedToItsAccountAcrossACollidingId() {
+        // The snooze correlate is account-qualified in the flat filter too: account A snoozing
+        // "e1" must not hide account B's same-id inbox message from the unified list.
+        insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 100, mailbox = "a", accountId = "accA")
+        insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 200, mailbox = "a", accountId = "accB")
+        snooze("e1", untilMillis = Long.MAX_VALUE, accountId = "accA")
+
+        assertEquals(listOf("e1"), runFlat("a"))                     // only accB's survives…
+        assertEquals(listOf("e1"), runFlat("a", accountId = "accB")) // …and it is accB's
+        assertEquals(emptyList<String>(), runFlat("a", accountId = "accA"))
+    }
 }
