@@ -5,6 +5,7 @@ import app.sterna.core.data.db.EmailBodyDao
 import app.sterna.core.data.db.EmailDao
 import app.sterna.core.data.db.EmailFtsDao
 import app.sterna.core.data.db.MailboxDao
+import app.sterna.core.data.db.MailboxUidValidityDao
 import app.sterna.core.data.db.PurgeSnapshotDao
 import app.sterna.core.data.db.SnoozedDao
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +38,7 @@ class StorageRepository(
     private val mailboxDao: MailboxDao,
     private val snoozedDao: SnoozedDao,
     private val purgeSnapshotDao: PurgeSnapshotDao,
+    private val mailboxUidValidityDao: MailboxUidValidityDao,
 ) {
     private val attachmentsDir: File get() = File(context.cacheDir, "attachments")
 
@@ -64,6 +66,9 @@ class StorageRepository(
         emailFtsDao.clearAll()
         emailBodyDao.deleteAll()
         mailboxDao.deleteAll()
+        // The recorded IMAP numbering describes the cache that has just gone (#99): keeping it
+        // would leave "clear cache" incomplete, and the first sync records it again anyway.
+        mailboxUidValidityDao.deleteAll()
         clearAttachments()
     }
 
@@ -78,6 +83,7 @@ class StorageRepository(
         emailFtsDao.clearAccount(accountId)
         emailBodyDao.deleteForAccount(accountId)
         mailboxDao.deleteForAccount(accountId)
+        mailboxUidValidityDao.deleteForAccount(accountId)
     }
 
     /**
@@ -93,6 +99,7 @@ class StorageRepository(
         snoozedDao.deleteForAccount(accountId)
         // A pending Empty-trash destroy list belongs to the account that is going away (#99).
         purgeSnapshotDao.deleteForAccount(accountId)
+        mailboxUidValidityDao.deleteForAccount(accountId)
         clearAttachments()
     }
 

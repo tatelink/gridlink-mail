@@ -223,6 +223,110 @@ class ReconnectGateTest {
         assertEquals(0, live.resyncs)
     }
 
+    // --- Case 5: the tunnel the framework never saw drop, and never sees come back ---
+    //
+    // The reporter's configuration. A VPN that blackholes traffic itself (or a lockdown whose
+    // blocked flag never reaches us) leaves the link "up" throughout, so the rebuild produces no
+    // edge. Before this, the app sat behind a correct offline banner and never tried again: the
+    // sync the empty state promises never ran, and neither did the fetch the notifications need.
+
+    @Test fun `a rebuilt tunnel is a reason to try again though the link never went down`() {
+        val live = tunnelled()
+        live.refreshDiedOnTheTransport() // the killswitch the framework cannot see
+        assertFalse(live.online)
+
+        // WireGuard reconnects: a *new* network, the Wi-Fi underneath never moved, no edge.
+        live.routeUp(TUNNEL_AGAIN)
+        assertEquals("this used to be zero, and nothing ever retried", 1, live.resyncs)
+        assertFalse("asking for an attempt is not claiming to be online", live.online)
+    }
+
+    @Test fun `only the attempt coming back clears the banner the rebuilt tunnel triggered`() {
+        val live = tunnelled()
+        live.refreshDiedOnTheTransport()
+        live.routeUp(TUNNEL_AGAIN)
+        assertEquals(1, live.resyncs)
+        assertFalse(live.online)
+        live.refreshDiedOnTheTransport() // still handshaking
+        assertFalse(live.online)
+        live.refreshWorked()
+        assertTrue(live.online)
+    }
+
+    @Test fun `a new transport under a dead tunnel is a reason to try again`() {
+        // Wi-Fi to mobile while the tunnel is blackholing: the tunnel will rebuild over the new
+        // transport, and its arrival is the earliest hint there is.
+        val live = tunnelled()
+        live.refreshDiedOnTheTransport()
+        live.transportUp(MOBILE)
+        assertEquals(1, live.resyncs)
+    }
+
+    @Test fun `the callbacks replayed at registration are not the plumbing moving`() {
+        // The view model does `refresh(); connectivity.start()`, and the gate is seeded from the
+        // synchronous connectivity read — the latches are up, but no network identity is known yet.
+        // Under a tunnel that swallows traffic the first refresh dies on a multi-second timeout
+        // while the replay lands in milliseconds, so the two can arrive in either order. Learning
+        // what was already there is not a change, and must cost nothing whichever order it is.
+        val live = Live(link = true)
+        live.refreshDiedOnTheTransport()
+        live.transportUp(WIFI)
+        live.routeUp(TUNNEL)
+        assertEquals("first sight of a network is not a rebuild", 0, live.resyncs)
+        assertFalse(live.online)
+    }
+
+    @Test fun `a tunnel rebuilt after that cold start is still a reason to try again`() {
+        // The counterpart: ignoring first sight must not cost us the case the rule exists for.
+        val live = Live(link = true)
+        live.refreshDiedOnTheTransport()
+        live.transportUp(WIFI)
+        live.routeUp(TUNNEL)
+        assertEquals(0, live.resyncs)
+        live.routeUp(TUNNEL_AGAIN)
+        assertEquals(1, live.resyncs)
+    }
+
+    @Test fun `a re-announced network is not the plumbing moving`() {
+        // The bound that stops this becoming a poll: the framework re-runs its callbacks freely.
+        val live = tunnelled()
+        live.refreshDiedOnTheTransport()
+        repeat(5) {
+            live.routeUp(TUNNEL)
+            live.transportUp(WIFI)
+            live.blocked(false)
+        }
+        assertEquals(0, live.resyncs)
+    }
+
+    @Test fun `a tunnel rebuilt over and over asks once per rebuild`() {
+        val live = tunnelled()
+        live.refreshDiedOnTheTransport()
+        repeat(3) { live.routeUp(TUNNEL_AGAIN) }
+        assertEquals(1, live.resyncs)
+    }
+
+    @Test fun `nothing extra is asked for while the requests are coming back`() {
+        // The healthy case is untouched: no attempt is bought with anybody's battery.
+        val live = tunnelled()
+        live.refreshWorked()
+        live.routeUp(TUNNEL_AGAIN)
+        live.transportUp(MOBILE)
+        assertEquals(0, live.resyncs)
+        assertTrue(live.online)
+    }
+
+    @Test fun `a link that is down is not tried, however much the plumbing churns`() {
+        // Under a lockdown killswitch there is no route at all: trying would be pure waste.
+        val live = tunnelled()
+        live.routeGone(TUNNEL)
+        live.blocked(true)
+        live.refreshDiedOnTheTransport()
+        live.transportUp(MOBILE)
+        assertEquals(0, live.resyncs)
+        assertFalse(live.online)
+    }
+
     // --- The tunnel outliving a real outage (the connectionless-tunnel guard) ---
 
     @Test fun `airplane mode under a tunnel that never notices is still offline`() {
@@ -250,9 +354,10 @@ class ReconnectGateTest {
     }
 
     @Test fun `a tunnel that hides from every callback is only cleared by a request`() {
-        // The honest limit of the rule: a VPN app that drops traffic without touching its network
-        // leaves nothing to observe, so the banner stays until a refresh (the user's pull, or the
-        // next reconnect) comes back — and no timer is burned pretending otherwise.
+        // The honest limit of the rule, now that a rebuilt tunnel *does* trigger an attempt: a VPN
+        // that comes back on the very same network object leaves nothing at all to observe, so the
+        // banner stays until a refresh (the user's pull, the next reconnect, the next push wake)
+        // comes back — and no timer is burned pretending otherwise.
         val live = tunnelled()
         live.refreshDiedOnTheTransport()
         assertFalse(live.online)

@@ -89,7 +89,10 @@ object MimeParser {
         val mime = contentType.substringBefore(';').trim().lowercase()
         val cte = headers["content-transfer-encoding"]?.substringBefore(';')?.trim()?.lowercase() ?: "7bit"
         val disposition = headers["content-disposition"] ?: ""
-        val filename = paramOf(disposition, "filename") ?: paramOf(contentType, "name")
+        // Decoded, not raw: an attachment called "Отчёт.pdf" travels as an RFC 2231 parameter or
+        // an RFC 2047 word, and both used to reach the screen verbatim (Codeberg #101). See
+        // [mimeParamValue] — the display name only; what lands on disk is sanitised separately.
+        val filename = mimeParamValue(disposition, "filename") ?: mimeParamValue(contentType, "name")
 
         if (mime.startsWith("multipart/")) {
             if (depth >= MAX_DEPTH) return null to null

@@ -33,6 +33,10 @@
     <string name="compose_discard_title">Удалить сообщение?</string>
     <string name="compose_discard_message">Вы не сохранили изменения.</string>
     <string name="compose_discard_message_encrypted">Это письмо зашифровано, поэтому его нельзя сохранить как черновик: черновик хранится на почтовом сервере ровно в том виде, в каком вы его написали, и доступен для чтения любому, у кого есть доступ. Если выйти сейчас, письмо будет удалено.</string>
+    <string name="compose_discard_title_outbox">Сбросить изменения?</string>
+    <string name="compose_discard_message_outbox">Ваши изменения будут сброшены, а сообщение — нет: оно останется в исходящих или попадёт в Черновики, если вы его сохраните.</string>
+    <string name="compose_discard_message_outbox_encrypted">Ваши изменения будут сброшены, а сообщение — нет: оно останется в исходящих. Удалите его там, если хотите от него избавиться.</string>
+    <string name="compose_discard_changes">Сбросить изменения</string>
     <string name="compose_discard_save">Сохранить черновик</string>
     <string name="compose_discard_discard">Удалить</string>
     <string name="compose_discard_cancel">Отмена</string>

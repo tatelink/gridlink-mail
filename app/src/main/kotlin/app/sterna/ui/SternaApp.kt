@@ -33,8 +33,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.Lifecycle
-import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -204,18 +202,6 @@ private fun RequestNotificationPermission() {
     }
 }
 
-/**
- * True only while this back-stack entry is the resumed (settled, on-top) destination.
- * A destination that is mid enter/exit transition is at most STARTED, so gating every
- * navigation action on this de-duplicates rapid taps: a second tap landing on a screen
- * that is already animating away is ignored instead of issuing a re-entrant
- * navigate/popBackStack. This is what prevents the white-screen freeze where a tap on the
- * message screen's still-visible Back arrow (during its fade-out pop) popped a second time
- * and emptied the back stack. See the canonical navigation-compose "navigate once" pattern.
- */
-private fun NavBackStackEntry.lifecycleIsResumed() =
-    lifecycle.currentState == Lifecycle.State.RESUMED
-
 @Composable
 private fun MainNavHost(
     accounts: List<StoredAccount>,
@@ -233,6 +219,8 @@ private fun MainNavHost(
     LaunchedEffect(pendingMailto) {
         val m = pendingMailto ?: return@LaunchedEffect
         onMailtoConsumed()
+        // unguarded: a single consumption, not a repeatable tap — dropping it would lose the
+        // user's action rather than de-duplicate it. See navigateOnce's KDoc.
         nav.navigate(
             "compose?to=${Uri.encode(m.to)}&cc=${Uri.encode(m.cc)}&bcc=${Uri.encode(m.bcc)}" +
                 "&subject=${Uri.encode(m.subject)}&body=${Uri.encode(m.body)}",
@@ -273,6 +261,8 @@ private fun MainNavHost(
         // same server routinely share mailbox ids), and a notification old enough to carry
         // neither predates both extras.
         pendingFolderOpen = target.takeIf { it.accountId != null && it.mailboxId != null }
+        // unguarded: a single consumption, and it can arrive mid-transition — adding the guard
+        // here could lose the opening of a notification the user just tapped.
         nav.navigate(
             "message/${Uri.encode(target.emailId)}?accountId=${Uri.encode(target.accountId.orEmpty())}",
         )
@@ -310,7 +300,7 @@ private fun MainNavHost(
                 onOpenEmail = { id, accountId, index, fromSearch ->
                     // Carry the tapped entry's position and whether it came from the inline
                     // search results, so the reading view can page between the same entries.
-                    if (entry.lifecycleIsResumed()) {
+                    entry.navigateOnce {
                         val src = if (fromSearch) "search" else "list"
                         nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}&index=$index&src=$src")
                     }
@@ -320,7 +310,7 @@ private fun MainNavHost(
                 // along, so the reader swipes between the conversation's messages and stops at
                 // its ends instead of spilling into the list (Codeberg #13).
                 onOpenThreadMessage = { id, accountId, threadKey, index ->
-                    if (entry.lifecycleIsResumed()) {
+                    entry.navigateOnce {
                         // The key travels ACCOUNT-QUALIFIED (ThreadKey.encode): a route carrying a
                         // bare thread id let the reader page over the sibling account's
                         // homonymous conversation in the unified inbox (#92).
@@ -330,29 +320,30 @@ private fun MainNavHost(
                         )
                     }
                 },
-                onCompose = { if (entry.lifecycleIsResumed()) nav.navigate("compose") },
-                // Reopening an undone send is a deliberate one-shot driven off the restored-draft
-                // flow, not a stale list tap, so it must not be gated by the resumed-entry guard
-                // (which was dropping it and leaving the message parked with no compose to return to).
+                onCompose = { entry.navigateOnce { nav.navigate("compose") } },
+                // unguarded: reopening an undone send is a deliberate one-shot driven off the
+                // restored-draft flow, not a stale list tap, so it must not be gated by the
+                // resumed-entry guard (which was dropping it and leaving the message parked with
+                // no compose to return to).
                 onReopenDraft = { nav.navigate("compose?restore=true") },
                 // A message tapped in the Drafts folder opens in compose for editing (#63),
                 // not in the reader — sending or re-saving then replaces the stored draft.
                 onEditDraft = { id, accountId ->
-                    if (entry.lifecycleIsResumed()) {
+                    entry.navigateOnce {
                         nav.navigate("compose?draftId=${Uri.encode(id)}&accountId=${Uri.encode(accountId.orEmpty())}")
                     }
                 },
-                onOpenSettings = { if (entry.lifecycleIsResumed()) nav.navigate("settings") },
+                onOpenSettings = { entry.navigateOnce { nav.navigate("settings") } },
                 // The words already typed in the search bar travel with the navigation: opening
                 // the advanced filters used to clear them and ask for them again.
-                onOpenSearch = { q -> if (entry.lifecycleIsResumed()) nav.navigate("search?q=${Uri.encode(q)}") },
-                onOpenScheduled = { if (entry.lifecycleIsResumed()) nav.navigate("scheduled") },
-                onOpenSnoozed = { if (entry.lifecycleIsResumed()) nav.navigate("snoozed") },
-                onOpenOutbox = { if (entry.lifecycleIsResumed()) nav.navigate("outbox") },
+                onOpenSearch = { q -> entry.navigateOnce { nav.navigate("search?q=${Uri.encode(q)}") } },
+                onOpenScheduled = { entry.navigateOnce { nav.navigate("scheduled") } },
+                onOpenSnoozed = { entry.navigateOnce { nav.navigate("snoozed") } },
+                onOpenOutbox = { entry.navigateOnce { nav.navigate("outbox") } },
                 accounts = accounts,
                 currentAccountId = currentAccountId,
                 onSwitchAccount = onSwitchAccount,
-                onOpenAccountSettings = { id -> if (entry.lifecycleIsResumed()) nav.navigate("settings?accountId=$id") },
+                onOpenAccountSettings = { id -> entry.navigateOnce { nav.navigate("settings?accountId=$id") } },
             )
         }
         composable(
@@ -426,12 +417,12 @@ private fun MainNavHost(
                     // pop the screen is still composed and its Back arrow still tappable, so an
                     // unguarded onBack would popBackStack a second time and empty the stack
                     // (the white-screen freeze). A reply navigate is gated for the same reason.
-                    onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
+                    onBack = { entry.navigateOnce { nav.popBackStack() } },
                     // Delete via the shared inbox VM so the reader reuses the same held-back
                     // destroy + Undo as swipe/bulk (the snackbar shows on the list). Same
                     // instance the inbox screen observes (both viewModel(inboxEntry)) — #23.
                     onDelete = { email ->
-                        if (entry.lifecycleIsResumed()) {
+                        entry.navigateOnce {
                             inboxViewModel.delete(email)
                             nav.popBackStack()
                         }
@@ -439,7 +430,7 @@ private fun MainNavHost(
                     // Archive via the same shared inbox VM, so the reader gets the count nudge +
                     // Undo (snackbar on the list) exactly like delete (RC-6).
                     onArchive = { email ->
-                        if (entry.lifecycleIsResumed()) {
+                        entry.navigateOnce {
                             inboxViewModel.archive(email)
                             nav.popBackStack()
                         }
@@ -449,19 +440,19 @@ private fun MainNavHost(
                     // screen returns to the list because the message just left the folder
                     // being read — exactly what archiving it does.
                     onMove = { email, targetMailboxId ->
-                        if (entry.lifecycleIsResumed()) {
+                        entry.navigateOnce {
                             inboxViewModel.moveTo(email, targetMailboxId)
                             nav.popBackStack()
                         }
                     },
                     onReply = { mode, replyToId, replyAccountId ->
-                        if (entry.lifecycleIsResumed()) {
+                        entry.navigateOnce {
                             val accountArg = replyAccountId?.let { "&accountId=${Uri.encode(it)}" }.orEmpty()
                             nav.navigate("compose?replyTo=${Uri.encode(replyToId)}&mode=$mode$accountArg")
                         }
                     },
                     onComposeTo = { address ->
-                        if (entry.lifecycleIsResumed()) {
+                        entry.navigateOnce {
                             nav.navigate("compose?to=${Uri.encode(address)}")
                         }
                     },
@@ -489,8 +480,8 @@ private fun MainNavHost(
             ComposeScreen(
                 // After a send (new mail, reply or forward) return to the inbox rather than
                 // the message that was open underneath compose.
-                onDone = { if (entry.lifecycleIsResumed()) nav.popBackStack("inbox", inclusive = false) },
-                onCancel = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
+                onDone = { entry.navigateOnce { nav.popBackStack("inbox", inclusive = false) } },
+                onCancel = { entry.navigateOnce { nav.popBackStack() } },
                 replyTo = entry.arguments?.getString("replyTo")?.let { Uri.decode(it) },
                 mode = entry.arguments?.getString("mode"),
                 accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null },
@@ -512,9 +503,9 @@ private fun MainNavHost(
             ),
         ) { entry ->
             SearchScreen(
-                onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
                 onOpenEmail = { id, accountId ->
-                    if (entry.lifecycleIsResumed()) {
+                    entry.navigateOnce {
                         nav.navigate("message/${Uri.encode(id)}?accountId=${Uri.encode(accountId.orEmpty())}")
                     }
                 },
@@ -527,26 +518,33 @@ private fun MainNavHost(
             ),
             // Settings slides in from the right over the inbox, and back out to the right on Back.
             // A slide (opaque) rather than the default cross-fade avoids the bare-window-background
-            // flash that made animations unusable elsewhere in this NavHost.
-            enterTransition = { slideInHorizontally(tween(300)) { it } },
-            popExitTransition = { slideOutHorizontally(tween(300)) { it } },
+            // flash that made animations unusable elsewhere in this NavHost: the inbox underneath
+            // does not move and stays composed until the transition ends, so the frame is fully
+            // painted at every instant. Now within DESIGN.md's ≤ 250 ms, and off when the system
+            // reduced-motion setting is on — the promise Motion.kt makes for EVERY motion (#100).
+            enterTransition = {
+                if (!motionEnabled) EnterTransition.None else slideInHorizontally(tween(SCREEN_SLIDE_MS)) { it }
+            },
+            popExitTransition = {
+                if (!motionEnabled) ExitTransition.None else slideOutHorizontally(tween(SCREEN_SLIDE_MS)) { it }
+            },
         ) { entry ->
             SettingsScreen(
-                onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
                 onAccountsChanged = onAccountsChanged,
                 initialAccountId = entry.arguments?.getString("accountId")?.ifBlank { null },
             )
         }
         composable("scheduled") { entry ->
-            ScheduledSendsScreen(onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() })
+            ScheduledSendsScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
         composable("snoozed") { entry ->
-            SnoozedScreen(onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() })
+            SnoozedScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
         composable("outbox") { entry ->
             OutboxScreen(
-                onBack = { if (entry.lifecycleIsResumed()) nav.popBackStack() },
-                onEditDraft = { if (entry.lifecycleIsResumed()) nav.navigate("compose?restore=true") },
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
+                onEditDraft = { entry.navigateOnce { nav.navigate("compose?restore=true") } },
             )
         }
     }

@@ -1098,7 +1098,19 @@ private fun ConversationBody(
     // scroll report, a few hundred ms after the body appeared, so the reader still arrived in two
     // steps. The height poll that makes the body ready already knows the geometry the decision
     // needs, so `onReady` now carries it and both are set below in one recomposition.
+    // And that in turn left the LAST half: two writers (`onReady` and `onScroll` below) then decided
+    // the same value from geometry measured at different instants, each answering only for its own
+    // report. A body grows while it lays out, so the later, larger measurement could contradict the
+    // earlier one and pull a bar that was already on screen back down — the reporter's "appears then
+    // leaves". [BarReveal] now folds both writers' reports into one running state and is the one
+    // place the ordering is decided: the range only grows, and only the reader moving takes the bar
+    // back. It is a plain holder, NOT Compose state: it tracks the live scroll offset (that is how
+    // it tells a reader who moved from a measurement that landed late), and that offset changes
+    // every scroll frame — observing it here would recompose the reader once per frame on the very
+    // scroll path #5/#6 were about. Only the Boolean verdict is mirrored into Compose state, where
+    // re-writing the same value is free.
     var bodyReady by remember(msg.id) { mutableStateOf(false) }
+    val barReveal = remember(msg.id) { BarReveal() }
     var showBar by remember(msg.id) { mutableStateOf(false) }
     // The VISIBLE Reply/Forward bar is fixed chrome at the pager level (outside the horizontal
     // swipe — #62): this page only reports whether its resting/scroll state wants the bar, and
@@ -1193,20 +1205,22 @@ private fun ConversationBody(
                     // the settle poll's few hundred milliseconds (which the OS "remove animations"
                     // setting renders as a blink rather than a fade).
                     // When it is null (the poll capped out, or the height came from a fallback) we
-                    // learned nothing solid: stay hidden and let the settle poll decide, as before.
-                    // Nothing here shows the bar ahead of a measurement — a long body must never
-                    // flash a bar that immediately scrolls away.
+                    // learned nothing solid: report nothing and let the settle poll decide, as
+                    // before. Nothing here shows the bar ahead of a measurement — a long body must
+                    // never flash a bar that immediately scrolls away.
+                    // Both callbacks below are REPORTS, not verdicts: they hand their geometry to
+                    // [BarReveal], which alone decides — including the rule that an unmeasured
+                    // height decides nothing. That is what keeps the two of them from contradicting
+                    // each other; see the note on `barReveal` above. Assigning `showBar` on every
+                    // scroll frame is free while the verdict does not change (Compose skips a state
+                    // write that is structurally equal), so the reader is not recomposed per frame.
                     onReady = { resting ->
-                        if (resting != null) {
-                            showBar = BodyReveal.barVisible(
-                                resting.scrollY, resting.maxScrollPx, revealThresholdPx,
-                            )
-                        }
+                        showBar = barReveal.bodyReady(resting, revealThresholdPx)
                         bodyReady = true
                     },
                     onScroll = { y, maxY ->
                         scrollY.intValue = y
-                        showBar = BodyReveal.barVisible(y, maxY, revealThresholdPx)
+                        showBar = barReveal.scrolled(y, maxY, revealThresholdPx)
                     },
                     modifier = Modifier.fillMaxSize().alpha(if (bodyReady) 1f else 0f),
                 )
@@ -2599,7 +2613,10 @@ private fun EmailWebView(
                 // Since #63 this is no longer what USUALLY reveals the bar: the height poll settles
                 // first and hands the reader the same resting geometry, so body and bar appear
                 // together. This poll stays as the gate for live scroll reporting, and as the
-                // fallback for the loads whose height never settled.
+                // fallback for the loads whose height never settled. Its one terminal report can
+                // therefore land AFTER the height poll's, on a body that has grown in between; the
+                // reader folds both through [BarReveal], so the later, taller
+                // reading can no longer pull back a bar the earlier one already put on screen.
                 val settleToken = Any()
                 webView.settleToken = settleToken
                 var settleLast = -1

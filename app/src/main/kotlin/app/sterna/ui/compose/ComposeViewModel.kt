@@ -114,11 +114,37 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      */
     private var editingOutboxId: Long? = null
 
+    /**
+     * Whether a queued row is actually parked behind this composer — the observable face of
+     * [editingOutboxId], for the two things the screen has to get right: the title ("Edit"), and the
+     * leave dialog, which must say the message goes BACK to the queue rather than claim it is being
+     * destroyed (#96/#70).
+     *
+     * Seeded from the handed-over draft rather than from `false`, because the screen reads it on its
+     * very first frame while [prepare] only runs after it: the reopen puts the draft in the handle
+     * before navigating, so the title is right from the start instead of flipping a frame later.
+     * Nothing handed over (the app was killed and the in-memory draft died with it) reads false,
+     * which is the truth — there is no row in front of the user and nothing to edit. [prepare] then
+     * settles it for every way of opening the composer, so the seed is never the last word.
+     *
+     * The seed asks [holdsQueuedOutboxRow] with `restore = true` because that argument has not
+     * reached the ViewModel yet: it answers "IF this is a restore, is a row behind it?". Safe on its
+     * own — [composeTitle] re-tests `restore`, and [prepare] overwrites this a moment later with the
+     * real one, before any tap can reach the leave dialog.
+     */
+    private val _editingOutbox = MutableStateFlow(holdsQueuedOutboxRow(true, outbox.restored.value))
+    val editingOutbox: StateFlow<Boolean> = _editingOutbox.asStateFlow()
+
     private val _onlyCopy = MutableStateFlow(false)
     /**
      * True when the message on screen exists nowhere else and nothing will put it back: a send the
      * user undid. Closing then destroys it, so the screen asks first even if nothing was typed —
      * unlike a message reopened from the outbox, which the queue simply takes back.
+     *
+     * False also covers "there is nothing on screen at all" (the restore found no draft): an empty
+     * composer has nothing to lose, so not guarding it is right. It is deliberately NOT what titles
+     * the screen any more — that is [editingOutbox]; conflating the two is what titled an empty
+     * composer "Edit" after a process death (#96).
      */
     val onlyCopy: StateFlow<Boolean> = _onlyCopy.asStateFlow()
 
@@ -277,9 +303,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             ?.let { store.account(it) }
             ?.takeIf { it.pgpEnabled && it.pgpSignKeyId != 0L }
 
-    /** Re-evaluate availability (on open and on From changes); drops the mode if PGP is gone. The
-     *  opportunistic default is derived from recipient keys in [updateRecipientKeys], not forced
-     *  to ENCRYPT here (#35). */
+    /** Re-evaluate availability (on open, on From changes, and once a restored message has put its
+     *  own mode back); drops the mode if PGP is gone, and SAYS SO when that costs the user a lock
+     *  they were shown (#35). The opportunistic default is derived from recipient keys in
+     *  [updateRecipientKeys], not forced to ENCRYPT here. The verdict itself is [pgpRefresh]. */
     private fun refreshPgp() {
         viewModelScope.launch {
             val account = pgpAccount()
@@ -288,13 +315,23 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
             // Another account means another keyring: whatever was looked up no longer answers for
             // these recipients, so the next update must look them up again (#35).
             keyedRecipients = null
-            if (!available) {
-                _pgpMode.value = PgpMode.OFF
-                _pgpKeylessRecipients.value = emptyList()
-            } else if (account?.pgpEncryptByDefault == true && !pgpModeUserSet) {
-                // The default intent is to encrypt (lock closed); deriveAutoMode() backs off visibly
-                // to plaintext if a recipient turns out to have no key (#35).
-                _pgpMode.value = PgpMode.ENCRYPT
+            val outcome = pgpRefresh(
+                current = _pgpMode.value,
+                available = available,
+                accountConfigured = account != null,
+                encryptByDefault = account?.pgpEncryptByDefault == true,
+                userSet = pgpModeUserSet,
+            )
+            _pgpMode.value = outcome.mode
+            if (!available) _pgpKeylessRecipients.value = emptyList()
+            // The padlock is the one indicator that has to be trusted, and it is about to disappear
+            // from the top bar entirely (the toggle isn't drawn when PGP is unavailable). Losing it
+            // in silence is how a message the user encrypted comes back looking ordinary, so name
+            // what went missing (#35).
+            when (outcome.dropped) {
+                PgpDropReason.NONE -> Unit
+                PgpDropReason.NOT_CONFIGURED -> _notices.tryEmit(R.string.compose_pgp_not_configured)
+                PgpDropReason.NO_PROVIDER -> _notices.tryEmit(R.string.message_pgp_no_provider)
             }
         }
     }
@@ -531,6 +568,12 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     ) {
         if (prepared) return
         prepared = true
+        // Settle, for every way of opening the composer, whether a queued row is really parked
+        // behind it (#96). The navigation argument survives the app being killed; the handed-over
+        // draft does not, so `restore=true` with nothing in hand is an EMPTY composer and must be
+        // described as one — not as the edit of a message that is no longer there. Set here rather
+        // than in the restore branch alone so no other path can inherit a stale answer.
+        _editingOutbox.value = holdsQueuedOutboxRow(restore, outbox.restored.value)
         this.accountId = accountId
         val options = store.accounts().flatMap { acc ->
             store.identities(acc.id).map { FromOption(acc.id, it) }
@@ -550,6 +593,9 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         // Reopening an undone send: restore every field the user had, including the
         // "From" identity, Cc/Bcc, and attachments, so nothing is lost.
         if (restore) {
+            // Nothing handed over means the app was killed while this composer was open: the fields
+            // stay empty, [editingOutbox] was already settled to false above, and [_onlyCopy] stays
+            // false too — an empty screen has nothing to lose, so nothing to guard (#96).
             outbox.restored.value?.let { d ->
                 _prefill.value = DraftFields(
                     to = d.to, cc = d.cc, bcc = d.bcc, subject = d.subject, body = d.body,
@@ -573,6 +619,15 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     runCatching { PgpMode.valueOf(mode) }.getOrNull()?.let {
                         _pgpMode.value = it
                         pgpModeUserSet = true
+                        // Re-check OpenPGP now that the mode is back, instead of relying on the
+                        // check started above landing after this line. It may not: whether that
+                        // one has already run depends on how far it got before it had to wait for
+                        // the provider, so a mode restored into an app that can no longer sign or
+                        // encrypt survived or not by accident of timing. Asking again once the
+                        // mode is in place makes the answer the same either way — and the drop, if
+                        // there is one, is announced exactly once (the second check finds the mode
+                        // already OFF and says nothing more).
+                        refreshPgp()
                     }
                 }
                 // Reopened from the outbox: its row waits in the queue marked EDITING until this
@@ -743,6 +798,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         if (_state.value is ComposeState.Sending) return
         val id = editingOutboxId ?: return
         editingOutboxId = null
+        _editingOutbox.value = false
         // The row never left the queue — it only sat in EDITING — so giving it back is just flipping
         // its state to QUEUED and re-arming delivery. Nothing is rebuilt, nothing can be lost (#70).
         appScope.launch {
@@ -759,6 +815,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     private suspend fun consumeEditingOutbox() {
         val id = editingOutboxId ?: return
         editingOutboxId = null
+        _editingOutbox.value = false
         runCatching { repo.deleteOutbox(id) }
     }
 

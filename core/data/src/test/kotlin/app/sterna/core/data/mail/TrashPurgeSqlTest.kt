@@ -1,6 +1,7 @@
 package app.sterna.core.data.mail
 
 import app.sterna.core.data.db.PURGE_SNAPSHOT_CREATE_SQL
+import app.sterna.core.data.db.PURGE_SNAPSHOT_UNLIST_SQL
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -86,6 +87,24 @@ class TrashPurgeSqlTest {
         st.executeQuery("SELECT COUNT(*) FROM purge_snapshot").use { rs -> rs.next(); rs.getInt(1) }
     }
 
+    /**
+     * A message leaving its folder, run through the DAO's OWN statement
+     * ([PURGE_SNAPSHOT_UNLIST_SQL]) rather than a copy of it: a Room DAO cannot be instantiated
+     * in a JVM unit test here, so the shipped string is executed directly. Room expands
+     * `IN (:emailIds)` into one placeholder per id at runtime; that expansion, and the `:name`
+     * to `?` binding, is all this reproduces.
+     */
+    private fun unlist(accountId: String, emailIds: List<String>) {
+        val sql = PURGE_SNAPSHOT_UNLIST_SQL
+            .replace(":emailIds", emailIds.joinToString(", ") { "?" })
+            .replace(Regex(":\\w+"), "?")
+        db.prepareStatement(sql).use { ps ->
+            ps.setString(1, accountId)
+            emailIds.forEachIndexed { i, id -> ps.setString(2 + i, id) }
+            ps.executeUpdate()
+        }
+    }
+
     /** The purge loop: read a wave, destroy it, delete it, repeat — as [MailRepository.purgeSnapshot] does. */
     private fun drain(purgeId: String, accountId: String = "accA", waveSize: Int = 2): List<String> {
         val destroyed = mutableListOf<String>()
@@ -127,6 +146,62 @@ class TrashPurgeSqlTest {
 
         assertEquals(0, count("p1", "accA"))
         assertEquals(1, count("p2", "accB"))
+    }
+
+    // --- rescuing a message during the undo window (#99 follow-up) ---------------------------
+
+    @Test fun aMessageFiledElsewhereDuringTheUndoWindowIsNotDestroyed() {
+        // The user confirms with m1..m3 in Trash, then realises m2 must be kept: they open it and
+        // move it to another folder. A JMAP id does not change when a message moves, so without
+        // the withdrawal the purge destroyed m2 IN THE FOLDER IT WAS JUST FILED INTO.
+        snapshot("p1", listOf("m1", "m2", "m3"))
+
+        unlist("accA", listOf("m2"))
+
+        assertEquals(listOf("m1", "m3"), drain("p1"))
+    }
+
+    @Test fun aRescuedMessageLeavesEveryPendingConfirmationOfItsAccount() {
+        // Two confirmations can be pending at once (Empty tapped again while the first is held
+        // back). The message left the folder — no confirmation may still claim it.
+        snapshot("p1", listOf("m1", "m2"))
+        snapshot("p2", listOf("m2", "m3"))
+
+        unlist("accA", listOf("m2"))
+
+        assertEquals(listOf("m1"), wave("p1"))
+        assertEquals(listOf("m3"), wave("p2"))
+    }
+
+    @Test fun aRescueInOneAccountLeavesTheOtherAccountsDestroyListAlone() {
+        // Same server, colliding ids (issue #31): moving accA's m2 must not spare accB's m2.
+        snapshot("p1", listOf("m1", "m2"), accountId = "accA")
+        snapshot("p2", listOf("m1", "m2"), accountId = "accB")
+
+        unlist("accA", listOf("m2"))
+
+        assertEquals(listOf("m1"), wave("p1", "accA"))
+        assertEquals(listOf("m1", "m2"), wave("p2", "accB"))
+    }
+
+    @Test fun movingAMessageNoConfirmationListedChangesNothing() {
+        // The common case: every move calls this, and almost none of them touch a destroy list.
+        snapshot("p1", listOf("m1"))
+
+        unlist("accA", listOf("m9"))
+
+        assertEquals(listOf("m1"), wave("p1"))
+    }
+
+    @Test fun aRescueThatArrivesAfterThePurgeStartedStillSparesWhatIsLeft() {
+        // The honest limit: what the first wave already destroyed is gone, but the rest of the
+        // list still loses the rescued id.
+        snapshot("p1", listOf("m1", "m2", "m3", "m4"))
+        deleteIds("p1", "accA", wave("p1", limit = 2)) // m1, m2 destroyed
+
+        unlist("accA", listOf("m3"))
+
+        assertEquals(listOf("m4"), wave("p1"))
     }
 
     // --- draining --------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import android.content.Context
 import app.sterna.core.data.account.AccountStore
 import app.sterna.core.data.db.SternaDatabase
 import app.sterna.core.data.mail.ImapMailService
+import app.sterna.core.data.mail.MailboxUidValidityStore
 import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.mail.OAuthTokenRefresher
 import app.sterna.core.data.mail.SyncStateStore
@@ -32,7 +33,14 @@ object DataFactory {
     ): DataLayer {
         val appContext = context.applicationContext
         val database = SternaDatabase.build(appContext)
-        val imapService = ImapMailService(ImapClient(), SmtpClient(), OAuthTokenRefresher(OAuthClient(), accountStore))
+        // The IMAP service verifies each folder's UIDVALIDITY through this store, and it is the
+        // store — not the service — that says what a renumbering invalidates (Codeberg #99).
+        val uidValidity = MailboxUidValidityStore(
+            database.mailboxUidValidityDao(), database.emailBodyDao(), database.purgeSnapshotDao(),
+        )
+        val imapService = ImapMailService(
+            ImapClient(), SmtpClient(), OAuthTokenRefresher(OAuthClient(), accountStore), uidValidity,
+        )
         return DataLayer(
             mailRepository = MailRepository(
                 client, database.emailDao(), database.emailFtsDao(), database.emailBodyDao(),
@@ -49,6 +57,7 @@ object DataFactory {
             storageRepository = StorageRepository(
                 appContext, database.emailDao(), database.emailFtsDao(), database.emailBodyDao(),
                 database.mailboxDao(), database.snoozedDao(), database.purgeSnapshotDao(),
+                database.mailboxUidValidityDao(),
             ),
         )
     }

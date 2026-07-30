@@ -13,6 +13,9 @@ import app.sterna.R
 import app.sterna.core.data.settings.NotificationContent
 import app.sterna.core.jmap.model.Email
 
+/** The buttons a new-mail notification can carry, in the order they are shown. */
+enum class MailNotificationAction { REPLY, MARK_READ, DELETE }
+
 /** Notification channels + helpers. No telemetry, no third-party push. */
 object Notifications {
     const val CHANNEL_MAIL = "new_mail"
@@ -43,6 +46,44 @@ object Notifications {
      * So the child speaks exactly when it stands alone.
      */
     fun summaryShownFor(liveChildren: Int): Boolean = liveChildren >= SUMMARY_MIN_CHILDREN
+
+    /** Reply · Mark as read · Delete, in the order they are shown. */
+    private val ALL_ACTIONS = listOf(
+        MailNotificationAction.REPLY,
+        MailNotificationAction.MARK_READ,
+        MailNotificationAction.DELETE,
+    )
+
+    /**
+     * The buttons a new-mail notification carries (Codeberg #57). Pure and resource-free — the
+     * labels and the intents are built by the caller — so the "may the user act on this?" rule
+     * is unit-testable on its own, next to the "what does this reveal?" rule of
+     * [MailNotificationText].
+     *
+     * The question is not which setting is on, it is whether the notification on screen NAMES
+     * the message: a Delete over something the user cannot identify loses mail, and Reply and
+     * Mark as read are acted on just as blindly. So the two informative positions are read
+     * together with what the mail actually carries, exactly as [MailNotificationText.resolve]
+     * reads them:
+     *
+     *  - SENDER_AND_SUBJECT shows both, so either one naming the message is enough;
+     *  - SENDER_ONLY shows only the sender — a subject the notification never displays cannot
+     *    help, and a message with no From header (daemon mail, a malformed header) then reads
+     *    "New message / New message" and gets no buttons;
+     *  - NONE shows the generic line alone: never any button, whatever the mail carries.
+     *
+     * [hasSender] and [hasSubject] mean "the mail has its own, non-blank one" — the caller's
+     * stand-ins ("New message", "(no subject)") do not count.
+     */
+    fun actionsFor(
+        content: NotificationContent,
+        hasSender: Boolean,
+        hasSubject: Boolean,
+    ): List<MailNotificationAction> = when (content) {
+        NotificationContent.SENDER_AND_SUBJECT -> if (hasSender || hasSubject) ALL_ACTIONS else emptyList()
+        NotificationContent.SENDER_ONLY -> if (hasSender) ALL_ACTIONS else emptyList()
+        NotificationContent.NONE -> emptyList()
+    }
 
     /**
      * The per-message notification ids the account is left with once a notification pass is
@@ -150,9 +191,10 @@ object Notifications {
      * caller has none to give. Unlike [folderName] it is NOT null for the inbox: the list has to
      * be able to switch back TO the inbox from another folder just as much as away from it.
      * [silent] (quiet hours) and [content] (how much of the mail shows on the lock screen,
-     * Codeberg #25) are deliberately WITHOUT defaults: they are user settings, and the
-     * defaults let the snooze wake-up post loudly with sender and subject against the
-     * user's explicit choice (Codeberg #84). Read them via [NewMailNotifier.options].
+     * Codeberg #25, and with it which action buttons it may carry — see [actionsFor]) are
+     * deliberately WITHOUT defaults: they are user settings, and the defaults let the snooze
+     * wake-up post loudly with sender and subject against the user's explicit choice
+     * (Codeberg #84). Read them via [NewMailNotifier.options].
      * [summarised] says whether a group summary will announce this batch, in which case this
      * notification stays quiet underneath it — with its actions and its content intact, only
      * its sound and its banner suppressed (Codeberg #56). Pass false when the notification is
@@ -169,13 +211,25 @@ object Notifications {
         summarised: Boolean,
     ) {
         val generic = context.getString(R.string.notif_new_message)
-        val sender = email.from.firstOrNull()?.display() ?: generic
-        val subject = email.subject?.takeIf { it.isNotBlank() } ?: context.getString(R.string.message_no_subject)
+        // Kept apart from the stand-ins below: whether the mail names ITSELF is what decides the
+        // action buttons, and "New message" / "(no subject)" name nothing (Codeberg #57).
+        val fromName = email.from.firstOrNull()?.display()
+        val realSubject = email.subject?.takeIf { it.isNotBlank() }
+        val sender = fromName ?: generic
+        val subject = realSubject ?: context.getString(R.string.message_no_subject)
         // What the notification reveals, per the privacy setting — the rule itself lives in
         // [MailNotificationText] so it is testable, and so no caller can post with the
         // defaults and leak what the user asked to hide (Codeberg #84). The expanded state
         // shows the full subject, never a body preview (Codeberg #57).
         val (title, text, bigText) = MailNotificationText.resolve(content, sender, subject, generic)
+        // Which buttons it may carry, read from the same facts: a notification that names
+        // nothing offers nothing to act on — at NONE always, and in the two informative
+        // positions when the mail itself has nothing to show there (Codeberg #57).
+        val actions = actionsFor(
+            content,
+            hasSender = !fromName.isNullOrBlank(),
+            hasSubject = realSubject != null,
+        )
         val notifId = childId(accountId, email.id)
         // Carry the message identity so a tap opens THAT email, not just the inbox — even when
         // the app is already running (singleTask → onNewIntent routes it). Codeberg #17 follow-up.
@@ -212,9 +266,32 @@ object Notifications {
             )
             .setSilent(silent)
             .apply { if (folderName != null) setSubText(folderName) }
-            .addAction(replyAction(context, email.id, accountId, notifId))
-            .addAction(simpleAction(context, context.getString(R.string.notif_mark_read), NotificationActionReceiver.ACTION_MARK_READ, email.id, accountId, notifId))
-            .addAction(simpleAction(context, context.getString(R.string.notif_delete), NotificationActionReceiver.ACTION_DELETE, email.id, accountId, notifId))
+            .apply {
+                actions.forEach { action ->
+                    addAction(
+                        when (action) {
+                            MailNotificationAction.REPLY ->
+                                replyAction(context, email.id, accountId, notifId)
+                            MailNotificationAction.MARK_READ -> simpleAction(
+                                context,
+                                context.getString(R.string.notif_mark_read),
+                                NotificationActionReceiver.ACTION_MARK_READ,
+                                email.id,
+                                accountId,
+                                notifId,
+                            )
+                            MailNotificationAction.DELETE -> simpleAction(
+                                context,
+                                context.getString(R.string.notif_delete),
+                                NotificationActionReceiver.ACTION_DELETE,
+                                email.id,
+                                accountId,
+                                notifId,
+                            )
+                        },
+                    )
+                }
+            }
             .build()
         context.getSystemService(NotificationManager::class.java).notify(notifId, notification)
     }

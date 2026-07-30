@@ -33,6 +33,10 @@
     <string name="compose_discard_title">Odrzucić wiadomość?</string>
     <string name="compose_discard_message">Nie zapisano wprowadzonych zmian.</string>
     <string name="compose_discard_message_encrypted">Ta wiadomość jest zaszyfrowana, więc nie można zachować jej jako wersji roboczej: wersja robocza jest przechowywana na serwerze pocztowym dokładnie w takiej postaci, w jakiej ją napisano, czytelna dla każdego, kto ma do niej dostęp. Wyjście teraz odrzuca wiadomość.</string>
+    <string name="compose_discard_title_outbox">Odrzucić zmiany?</string>
+    <string name="compose_discard_message_outbox">Zmiany zostaną odrzucone, ale wiadomość nie: pozostanie w skrzynce nadawczej albo trafi do Wersji roboczych, jeśli ją zapiszesz.</string>
+    <string name="compose_discard_message_outbox_encrypted">Zmiany zostaną odrzucone, ale wiadomość nie: pozostanie w skrzynce nadawczej. Usuń ją tam, jeśli chcesz się jej pozbyć.</string>
+    <string name="compose_discard_changes">Odrzuć zmiany</string>
     <string name="compose_discard_save">Zapisz wersję roboczą</string>
     <string name="compose_discard_discard">Odrzuć</string>
     <string name="compose_discard_cancel">Anuluj</string>

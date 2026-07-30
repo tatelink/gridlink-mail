@@ -5,6 +5,7 @@ import app.sterna.core.data.text.htmlEscape
 import app.sterna.core.data.text.htmlEscapeMultiline
 import app.sterna.core.data.text.htmlToText
 import app.sterna.core.jmap.model.Email
+import app.sterna.send.SendOutbox
 import app.sterna.util.isValidEmail
 
 /**
@@ -244,6 +245,110 @@ internal fun initialComposeFocus(
 }
 
 /**
+ * Whether a composer opened with [restore] is really holding a queued outbox row — the INPUT the
+ * historical defect lived in, so it is a function of its own rather than an expression buried in the
+ * ViewModel (#96).
+ *
+ * [restore] is the navigation argument and survives the app being killed. [restored] is the draft
+ * handed over in memory and does NOT: after a process death it is null while the argument still says
+ * `true`, which is precisely the state that titled an empty composer "Edit". Both have to agree.
+ *
+ * A draft handed over with no [SendOutbox.ComposeDraft.editingOutboxId] is an undone send: its row
+ * was dropped when the send was undone, so there is nothing in the outbox to be editing either.
+ */
+internal fun holdsQueuedOutboxRow(restore: Boolean, restored: SendOutbox.ComposeDraft?): Boolean =
+    restore && restored?.editingOutboxId != null
+
+/** What the composer's top bar calls this message. Mapped to a string by the screen. */
+internal enum class ComposeTitle { NEW, REPLY, FORWARD, DRAFT, OUTBOX_EDIT }
+
+/**
+ * What the composer is titled — the whole rule, out of the composable so it can be tested (#96).
+ * It used to live inside the `TopAppBar`, where nothing could reach it, and it was wrong in a case
+ * nobody could see: see [editingOutbox] below.
+ *
+ * The order matters and is not alphabetical:
+ *  - a reopened draft says "Draft", the same word the list badges it with (#96);
+ *  - a forward carries the SAME [replyTo] as a reply, so it must be caught before it or it reads
+ *    "Reply" (#96);
+ *  - then a reply;
+ *  - then a queued message pulled back out of the Outbox: "Edit", because it is a message already
+ *    waiting to go, not a new one.
+ *
+ * [restore] is the navigation argument, [editingOutbox] whether a queued row is actually parked
+ * behind this composer. BOTH are needed, and this is the fix (#96, defect 2): the argument survives
+ * the app being killed while the in-memory draft does not, so `restore=true` alone titled an EMPTY
+ * composer "Edit" after a process death. Only a real row still held says "Edit".
+ *
+ * An undone send deliberately says "New mail", not "Edit": undoing dropped its queued row, so there
+ * is nothing left to go back to and nothing being edited. That difference is intended — the two
+ * screens are genuinely not the same message any more.
+ */
+internal fun composeTitle(
+    draftId: String?,
+    mode: String?,
+    replyTo: String?,
+    restore: Boolean,
+    editingOutbox: Boolean,
+): ComposeTitle = when {
+    draftId != null -> ComposeTitle.DRAFT
+    mode == "forward" -> ComposeTitle.FORWARD
+    replyTo != null -> ComposeTitle.REPLY
+    restore && editingOutbox -> ComposeTitle.OUTBOX_EDIT
+    else -> ComposeTitle.NEW
+}
+
+/**
+ * Which wording the "you are leaving without saving" dialog uses. [fromOutbox] is what the title and
+ * the discard button key on — those two read the same whether or not a draft is on offer.
+ */
+internal enum class DiscardWording(val fromOutbox: Boolean) {
+    PLAIN(false),
+    ENCRYPTED(false),
+
+    /** Out of the outbox, with "Save draft" offered beside "Discard changes". */
+    OUTBOX(true),
+
+    /** Out of the outbox while encrypting, so only "Discard changes" and "Cancel" are offered. */
+    OUTBOX_ENCRYPTED(true),
+}
+
+/**
+ * What the leave dialog must say, which is not always "this message will be lost" (#70).
+ *
+ * A message reopened from the Outbox is the case that was lying: its row never left the outbox, it
+ * only sat in `EDITING`, so leaving hands it straight back. The dialog nevertheless offered
+ * "Discard message? You haven't saved your changes." — and the user tapping Discard believed they
+ * had destroyed a mail that was still there. Only the EDITS are dropped; the message survives, on
+ * purpose (deleting it is the Outbox screen's own delete, which asks separately).
+ *
+ * What the wording may NOT promise is delivery. Where the row lands is
+ * `OutboxLogic.stateAfterEdit`: a send whose auto-retry was already spent goes back to FAILED and
+ * is left parked for manual Retry, not re-queued. "It will still be sent" would therefore be false
+ * on exactly the message the user is most likely to have opened — the one that failed. "It stays in
+ * the outbox" is true on all three paths (queued, still held, failed) and is the fact that matters:
+ * the message was not destroyed.
+ *
+ * [mayKeepDraft] is [draftSaveAllowed]: an encrypted message cannot be parked in Drafts, and the
+ * dialog says why instead of offering a button that would upload the plaintext (#35). Where the
+ * message GOES outranks why it cannot become a draft — an encrypted message out of the outbox is
+ * still not destroyed by leaving — so [editingOutbox] is tested first.
+ *
+ * The outbox case splits on [mayKeepDraft] all the same, because the sentence has to be true of BOTH
+ * buttons in front of the user, not only the one it is describing. With "Save draft" offered, that
+ * button CONSUMES the queued row (`consumeEditingOutbox`): the message leaves the outbox for Drafts,
+ * so a flat "it stays in the outbox" is false of the button sitting right next to it. Without it,
+ * only leaving is possible and the shorter sentence is the true one — and it may then point at the
+ * outbox's own delete, which is the only way left to be rid of the message.
+ */
+internal fun discardWording(editingOutbox: Boolean, mayKeepDraft: Boolean): DiscardWording = when {
+    editingOutbox && mayKeepDraft -> DiscardWording.OUTBOX
+    editingOutbox -> DiscardWording.OUTBOX_ENCRYPTED
+    !mayKeepDraft -> DiscardWording.ENCRYPTED
+    else -> DiscardWording.PLAIN
+}
+
+/**
  * Where the caret starts in a prefilled body, or null when [focus] is not the body (that field
  * takes the keyboard instead). [bodyLength] is the whole prefilled body, signature included;
  * [linkBodyLength] how much of it a `mailto:` link supplied, 0 when it supplied none.
@@ -454,6 +559,47 @@ internal fun nextPgpMode(current: PgpMode): PgpMode = when (current) {
     PgpMode.OFF -> PgpMode.SIGN
     PgpMode.SIGN -> PgpMode.ENCRYPT
     PgpMode.ENCRYPT -> PgpMode.OFF
+}
+
+/** Why a message stopped being signed/encrypted, when the composer had to give the mode up. */
+internal enum class PgpDropReason { NONE, NOT_CONFIGURED, NO_PROVIDER }
+
+/** The mode the composer settles on after re-checking OpenPGP, and what it owes the user. */
+internal data class PgpRefreshOutcome(val mode: PgpMode, val dropped: PgpDropReason)
+
+/**
+ * Re-arbitrate the lock after anything that can change what OpenPGP can do here: opening the
+ * composer, restoring a signed/encrypted message, switching the "From" identity (#35).
+ *
+ * [available] is "this account has OpenPGP set up AND the provider answers"; it implies
+ * [accountConfigured], which only picks WHICH explanation is owed. Three outcomes:
+ *  - nothing can encrypt or sign here → the mode goes OFF. If it was not OFF, something the user
+ *    could see just went away, so it is [dropped] with a reason and the composer says so. This is
+ *    the case that was silent: a message queued as ENCRYPT, reopened after OpenKeychain was
+ *    uninstalled, came back with no padlock at all and no word said — it looked like an ordinary
+ *    message and would have gone out in the clear;
+ *  - the account encrypts by default and the user has not touched the lock → ENCRYPT, the opening
+ *    intent; [deriveAutoMode] backs off from there, visibly, when a recipient has no key;
+ *  - otherwise the mode stands: a hand-set lock, or one restored with the message, is the user's
+ *    and is never quietly rewritten.
+ */
+internal fun pgpRefresh(
+    current: PgpMode,
+    available: Boolean,
+    accountConfigured: Boolean,
+    encryptByDefault: Boolean,
+    userSet: Boolean,
+): PgpRefreshOutcome = when {
+    !available -> PgpRefreshOutcome(
+        PgpMode.OFF,
+        when {
+            current == PgpMode.OFF -> PgpDropReason.NONE
+            !accountConfigured -> PgpDropReason.NOT_CONFIGURED
+            else -> PgpDropReason.NO_PROVIDER
+        },
+    )
+    encryptByDefault && !userSet -> PgpRefreshOutcome(PgpMode.ENCRYPT, PgpDropReason.NONE)
+    else -> PgpRefreshOutcome(current, PgpDropReason.NONE)
 }
 
 // --- Signature (pure text, living in the body — WYSIWYG) -----------------------------------------

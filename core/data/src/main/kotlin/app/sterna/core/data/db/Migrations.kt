@@ -293,3 +293,39 @@ val MIGRATION_17_18 = object : Migration(17, 18) {
         db.execSQL(PURGE_SNAPSHOT_CREATE_SQL)
     }
 }
+
+/**
+ * The UIDVALIDITY a snapshot was taken under ([PurgeSnapshotEntity.uidValidity]). NULLABLE, and
+ * the null is load-bearing: a snapshot written by the previous version carries no value, which
+ * reads as "cannot be verified" and destroys NOTHING — the same choice `MessageDestroyWorker`
+ * already makes for a purge enqueued before it knew about snapshots.
+ */
+const val PURGE_SNAPSHOT_ADD_UIDVALIDITY_SQL: String =
+    "ALTER TABLE `purge_snapshot` ADD COLUMN `uidValidity` INTEGER"
+
+/** The `mailbox_uidvalidity` table ([MailboxUidValidityEntity]); shared with the JVM test. */
+const val MAILBOX_UIDVALIDITY_CREATE_SQL: String =
+    "CREATE TABLE IF NOT EXISTS `mailbox_uidvalidity` (" +
+        "`accountId` TEXT NOT NULL, " +
+        "`mailboxId` TEXT NOT NULL, " +
+        "`uidValidity` INTEGER NOT NULL, " +
+        "PRIMARY KEY(`accountId`, `mailboxId`))"
+
+/**
+ * Additive 18→19: remember which numbering an IMAP folder's UIDs belong to (Codeberg #99).
+ *
+ * A server that renumbers a folder (a migration, a rebuilt index, a restore) bumps its
+ * UIDVALIDITY, and every UID cached for it then names a different message — or nothing.
+ * Two records, two lifetimes: one carried by an Empty-trash snapshot, so a held-back purge can
+ * refuse to destroy against a folder that has been renumbered under it; one per folder, so the
+ * body cache — the one store no refresh prunes — can be dropped when the numbering moves.
+ *
+ * Purely additive: the new column is nullable with no default and the new table starts empty,
+ * both of which read as "not known", which is the conservative state.
+ */
+val MIGRATION_18_19 = object : Migration(18, 19) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(PURGE_SNAPSHOT_ADD_UIDVALIDITY_SQL)
+        db.execSQL(MAILBOX_UIDVALIDITY_CREATE_SQL)
+    }
+}
