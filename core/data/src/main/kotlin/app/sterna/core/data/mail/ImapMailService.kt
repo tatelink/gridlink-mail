@@ -51,6 +51,39 @@ data class ImapWatchedLoad(
 )
 
 /**
+ * The deadline arithmetic behind a time-bounded IMAP call. Pure and separate because every
+ * IMAP call in the app goes through the code that uses it, and because what it protects — a
+ * retry that must not be allowed to double the wait — is invisible in an integration test.
+ *
+ * [NO_BUDGET] is the case that must stay exactly as it always was: no deadline, and every
+ * socket left blocking.
+ */
+internal object ImapBudget {
+
+    /** No deadline. Also the socket value meaning "block", which is why they are one constant. */
+    const val NO_BUDGET = 0
+
+    /** The instant a call started at [nowMs] with [budgetMs] must be done, or [NO_BUDGET]. */
+    fun deadline(budgetMs: Int, nowMs: Long): Long = if (budgetMs > 0) nowMs + budgetMs else NO_BUDGET.toLong()
+
+    /**
+     * What is left of [deadline] at [nowMs], as a socket timeout: [NO_BUDGET] when there is no
+     * deadline, otherwise a positive number of milliseconds — and an exception once the budget
+     * is spent, so a caller cannot connect or read "one last time" past its own deadline.
+     *
+     * A [SocketTimeoutException] on purpose: it is what an expiring read throws, so the caller
+     * that already falls back on one needs no second branch — and it is emphatically NOT a
+     * CancellationException, which would be indistinguishable from the user cancelling.
+     */
+    fun remaining(deadline: Long, nowMs: Long): Int {
+        if (deadline == NO_BUDGET.toLong()) return NO_BUDGET
+        val left = deadline - nowMs
+        if (left <= 0) throw SocketTimeoutException("IMAP budget exhausted")
+        return left.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
+}
+
+/**
  * IMAP read+write path, parallel to the JMAP path in [MailRepository]. Maps IMAP
  * folders/messages onto the same Room entities so the cache, paging, and UI are
  * protocol-agnostic. One connection is pooled per account and reused across calls
@@ -104,17 +137,21 @@ class ImapMailService(
         budgetMs: Int,
         block: (ImapSession) -> T,
     ): T {
-        val deadline = if (budgetMs > 0) System.currentTimeMillis() + budgetMs else 0L
+        val deadline = ImapBudget.deadline(budgetMs, System.currentTimeMillis())
         var attempt = 0
         while (true) {
-            // What is left of the budget bounds BOTH the connect and each read of this attempt,
-            // so the reconnect below cannot double the wait. Without a budget this stays 0, i.e.
-            // "block until the OS gives up", unchanged for every other caller.
-            val remaining = if (deadline == 0L) 0 else (deadline - System.currentTimeMillis()).toInt()
-            if (deadline != 0L && remaining <= 0) throw SocketTimeoutException("IMAP budget exhausted")
-            val session = pooled.session ?: imapClient.connect(config, remaining).also { pooled.session = it }
+            // What is left of the budget bounds the connect, and what is left AFTER it bounds
+            // the reads: time spent connecting is not handed back to them, and a retry that has
+            // run the budget out throws here instead of connecting again. Without a budget both
+            // stay 0 — "block until the OS gives up", unchanged for every other caller.
+            val session = pooled.session
+                ?: imapClient.connect(config, ImapBudget.remaining(deadline, System.currentTimeMillis()))
+                    .also { pooled.session = it }
+            // Outside the try: an exhausted budget is not a session error and must not cost a
+            // close + reconnect on the way out.
+            val forReads = ImapBudget.remaining(deadline, System.currentTimeMillis())
             try {
-                return session.withReadTimeout(remaining) { block(session) }
+                return session.withReadTimeout(forReads) { block(session) }
             } catch (cancelled: CancellationException) {
                 // The caller gave up (an Undo, a closed screen): the session is mid-command and
                 // its stream state unknown, so drop it — but do NOT spend a reconnect + LOGIN
@@ -312,16 +349,20 @@ class ImapMailService(
 
     /**
      * At most [cap] UIDs currently in [mailboxId] — one SELECT + one `UID SEARCH ALL`, no
-     * envelopes, [cap] ids held at any time.
+     * envelopes, and [cap] ids held whatever the folder's size (to a few tokens per response
+     * line, see [ImapSession.allUids]).
      *
      * The folder as the SERVER holds it, not as the cache happens to have synced it, which is
      * what a whole-folder operation needs: an "Empty trash" on a Trash the user never scrolled
-     * through must cover the messages below the synced window too (Codeberg #99).
+     * through must cover the messages below the synced window too (Codeberg #99). Past [cap]
+     * the ids kept are the OLDEST — see [ImapSession.allUids], which also says why that is the
+     * opposite end from JMAP's.
      *
      * TIME-BOUNDED, unlike every other call here, because the screen has already told the user
-     * the Trash is empty by the time this runs: it is allowed [ENUMERATE_BUDGET_MS], then it
-     * fails and the caller falls back to the cached ids. Waiting out a black-holed network on
-     * this path would leave a success message on screen over an untouched list.
+     * the Trash is empty by the time this runs: it is allowed [ENUMERATE_BUDGET_MS] (read its
+     * doc for what that does and does not bound), then it fails and the caller falls back to
+     * the cached ids. Waiting out a black-holed network on this path would leave a success
+     * message on screen over an untouched list.
      */
     suspend fun allUids(credentials: AccountCredentials, mailboxId: String, cap: Int): List<Long> =
         withSession(credentials, budgetMs = ENUMERATE_BUDGET_MS) { session ->
@@ -476,12 +517,20 @@ class ImapMailService(
         /**
          * Wall-clock budget for a whole-folder enumeration ([allUids]), reconnect included.
          *
-         * It bounds the connect and each read of the attempt, not their sum: a peer that keeps
-         * trickling bytes can still overrun it, so the honest worst case is about twice this.
-         * Against an OS default measured in minutes, on a path where a success message is
-         * already on screen, that is the point. A real Trash answers in well under a second;
-         * anything that does not is a network the user is better told about by the fallback
-         * (their cached view) than by a frozen screen.
+         * What it really bounds, stated plainly because the number is not the wait:
+         * - the TCP connect: at most this;
+         * - EACH read after it: at most what is left once the connect is paid for;
+         * - the reconnect-once retry: nothing extra — the second attempt draws on the same
+         *   deadline and throws instead of connecting when it is spent.
+         *
+         * It does NOT bound their sum. A socket timeout applies per read, and the parser reads
+         * through a buffer, so a 10 000-UID answer is a handful of refills: a peer that trickles
+         * one byte just before each expiry can stretch the whole call to this budget times the
+         * number of refills — of the order of a minute or two, not fifteen seconds. Bounding the
+         * sum would mean re-arming the deadline inside the parser's read loop; that is the fix
+         * if this ever bites in the field. Against the OS default, which lets such a peer run for
+         * as long as it likes on a screen that already says "Trash emptied", it is still the
+         * difference between minutes and never. A real Trash answers in well under a second.
          */
         const val ENUMERATE_BUDGET_MS = 15_000
 

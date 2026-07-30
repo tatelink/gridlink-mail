@@ -157,17 +157,24 @@ class ImapSession(private var socket: Socket) : Closeable {
     /**
      * Send a tagged command and collect untagged responses up to the tagged result.
      *
-     * [maxTokensPerLine] caps what each response line RETAINS (see [ImapParser.readResponse]);
-     * the default keeps everything. Only a caller that already knows it will discard the
-     * surplus should lower it — and it must leave room for a tagged status line.
+     * [maxTokensKept] caps what the WHOLE response retains (see [ImapParser.readResponse]), not
+     * what each line retains: a server free to split its answer over K lines would otherwise be
+     * allowed K times the cap — precisely the case a cap exists for. Exactly: the cap, plus at
+     * most [STATUS_LINE_TOKENS] per line once it is spent, because a status line must stay
+     * readable. The default keeps everything, and only a caller that already knows it will
+     * discard the surplus lowers it.
      */
-    internal fun command(line: String, maxTokensPerLine: Int = Int.MAX_VALUE): ImapResult {
+    internal fun command(line: String, maxTokensKept: Int = Int.MAX_VALUE): ImapResult {
         val tag = "a${++tagN}"
         output.write("$tag $line\r\n".toByteArray(Charsets.UTF_8))
         output.flush()
         val untagged = mutableListOf<List<Any?>>()
+        var budget = maxTokensKept
         while (true) {
-            val resp = input.readResponse(maxTokensPerLine)
+            // A floor per line, whatever is left of the budget: the tagged status line must stay
+            // recognisable (its tag, its OK/NO) even once the untagged data has spent the lot,
+            // or this loop would no longer recognise its own answer and would read forever.
+            val resp = input.readResponse(budget.coerceAtLeast(STATUS_LINE_TOKENS))
             if (resp.isEmpty()) {
                 if (socket.isClosed) throw ImapException("Connection closed")
                 continue
@@ -180,7 +187,10 @@ class ImapSession(private var socket: Socket) : Closeable {
                     if (status != "OK") throw ImapException("${redactCommand(line)} failed: ${resp.drop(1).joinToString(" ")}")
                     return ImapResult(status, untagged, resp)
                 }
-                else -> untagged.add(resp) // "*" untagged or "+" continuation
+                else -> {
+                    untagged.add(resp) // "*" untagged or "+" continuation
+                    budget -= resp.size
+                }
             }
         }
     }
@@ -379,10 +389,17 @@ class ImapSession(private var socket: Socket) : Closeable {
      *
      * [cap] is enforced DURING the parse, not after: without ESEARCH the server cannot be asked
      * for fewer, so a 200 000-message folder is read to the end (the stream must stay in sync)
-     * while only [cap] ids are ever held. The ids kept are therefore the first the server listed
-     * — ascending UID, i.e. the oldest — and the surplus survives, as it does on JMAP; emptying
-     * again clears the next slice. Picking the newest instead would mean holding all 200 000 to
-     * sort them, which is the cost this avoids.
+     * while only [cap] ids are ever held. The cap spans the whole response, not each line — a
+     * server splitting its answer must not be handed K times the cap — give or take the few
+     * tokens each further line is always allowed so its status stays readable.
+     *
+     * The ids kept are therefore the ones the server listed FIRST, i.e. ascending UID, the
+     * OLDEST. Note that the JMAP snapshot caps at the other end (its query sorts newest first),
+     * so the two protocols keep opposite slices of an over-cap folder; only "the surplus
+     * survives and emptying again clears the next slice" is common to both. Keeping the newest
+     * here would mean building all 200 000 ids to compare them — a running top-K holds only
+     * [cap] of them, but it must still parse every one, which is the work this avoids. Worth
+     * revisiting the day a real Trash exceeds the cap.
      *
      * Unlike [searchUids] this reads EVERY untagged `SEARCH` line, not just the first: a server
      * is free to split a long result across several, and here a dropped tail would silently
@@ -390,10 +407,9 @@ class ImapSession(private var socket: Socket) : Closeable {
      */
     fun allUids(cap: Int): List<Long> {
         if (cap <= 0) return emptyList()
-        // +2 leaves room for the "*" and "SEARCH" that open the line (and for a tagged status
-        // line, which is far shorter than that).
+        // +2 leaves room for the "*" and "SEARCH" that open the first line.
         val keep = if (cap > Int.MAX_VALUE - 2) Int.MAX_VALUE else cap + 2
-        return command("UID SEARCH ALL", maxTokensPerLine = keep).untagged
+        return command("UID SEARCH ALL", maxTokensKept = keep).untagged
             .filter { it.getOrNull(1) == "SEARCH" }
             .flatMap { line -> line.drop(2).mapNotNull { (it as? String)?.toLongOrNull() } }
             .take(cap)
@@ -632,6 +648,10 @@ internal fun quote(s: String): String {
  * compress to well under any server's command-length limit.
  */
 private const val UID_SET_CHUNK = 200
+
+/** Tokens always readable on a line, however spent a caller's token budget is: enough for a
+ *  tagged status line (`a12 NO [BADCHARSET] …`) to stay recognisable. */
+private const val STATUS_LINE_TOKENS = 8
 
 /** Untagged responses collected for one tagged command. */
 internal class ImapResult(

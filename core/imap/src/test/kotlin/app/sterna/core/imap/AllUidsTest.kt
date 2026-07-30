@@ -94,6 +94,34 @@ class AllUidsTest {
         }
     }
 
+    /**
+     * A split answer under a cap: the caller gets [cap] ids and the stream stays in sync.
+     *
+     * Note what this does NOT prove: how many ids were HELD while parsing. That bound (the cap
+     * spans the response instead of each line) is not observable through this API — the return
+     * value is identical either way — so it rests on reading `command`, not on this test.
+     */
+    @Test
+    fun `a split answer still yields exactly the cap, and stays in sync`() {
+        FakeImapServer { tag, line ->
+            when {
+                line.startsWith("SELECT") -> selectResponse(tag, exists = 9)
+                line.startsWith("UID SEARCH") ->
+                    "* SEARCH 1 2 3\r\n* SEARCH 4 5 6\r\n* SEARCH 7 8 9\r\n$tag OK search completed\r\n"
+                else -> ok(tag)
+            }
+        }.use { server ->
+            val (capped, reselected) = server.session().use { session ->
+                session.select("Trash")
+                session.allUids(cap = 4) to session.select("Trash")
+            }
+
+            assertEquals(listOf(1L, 2L, 3L, 4L), capped)
+            // And the three lines were consumed whole, cap or no cap.
+            assertEquals(9, reselected.exists)
+        }
+    }
+
     /** A cap of zero asks the server nothing at all. */
     @Test
     fun `a cap of zero enumerates nothing and sends no command`() {
@@ -172,6 +200,26 @@ class AllUidsTest {
                 // A 700 ms answer AFTER the bounded operation: it must still be waited for, not
                 // cut off by a 300 ms timeout the enumeration left behind on the socket.
                 assertEquals(3, session.select("Trash").exists)
+            }
+        }
+    }
+
+    /**
+     * The no-budget case, which is what every other IMAP call in the app passes: a timeout of 0
+     * must mean "block", not "give up at once". This is the line that keeps folder loads, moves
+     * and IDLE behaving exactly as they did.
+     */
+    @Test
+    fun `a timeout of zero leaves the socket blocking`() {
+        FakeImapServer { tag, line ->
+            when {
+                line.startsWith("SELECT") -> { Thread.sleep(700); selectResponse(tag, exists = 3) }
+                else -> ok(tag)
+            }
+        }.use { server ->
+            server.session().use { session ->
+                // A 700 ms answer under a zero bound: waited for, as it always was.
+                assertEquals(3, session.withReadTimeout(0) { session.select("Trash") }.exists)
             }
         }
     }
