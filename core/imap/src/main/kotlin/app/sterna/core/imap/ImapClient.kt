@@ -320,9 +320,10 @@ class ImapSession(private var socket: Socket) : Closeable {
      */
     fun move(uids: List<Long>, destination: String): Map<Long, Long> {
         val mapping = LinkedHashMap<Long, Long>()
-        // The no-UIDPLUS purge covers the whole folder, so it is worth at most one command for
-        // the whole move, however many chunks took the fallback.
-        var awaitingFolderPurge = false
+        // The no-UIDPLUS purge is folder-wide, so it is decided once for the whole move — over
+        // the union of the chunks that actually took the copy fallback, and only those: a chunk
+        // that went out as a UID MOVE flagged nothing.
+        val flaggedByFallback = mutableSetOf<Long>()
         for (chunk in uids.distinct().chunked(UID_SET_CHUNK)) {
             val set = compressUidSet(chunk)
             if (set.isEmpty()) continue
@@ -337,13 +338,13 @@ class ImapSession(private var socket: Socket) : Closeable {
                 if (byUid) {
                     runCatching { command("UID EXPUNGE $set") }
                 } else {
-                    awaitingFolderPurge = true
+                    flaggedByFallback += chunk
                 }
                 copy
             }
             mapping.putAll(parseCopyUidMap(result))
         }
-        if (awaitingFolderPurge) finishPurgeWithoutUidPlus()
+        finishPurgeWithoutUidPlus(flaggedByFallback)
         return mapping
     }
 
@@ -458,11 +459,20 @@ class ImapSession(private var socket: Socket) : Closeable {
      * is free to split a long result across several, and here a dropped tail would silently
      * shorten the list of what to destroy. No `CHARSET` question either — `ALL` is pure ASCII.
      */
-    fun allUids(cap: Int): List<Long> {
+    fun allUids(cap: Int): List<Long> = uidSearchCapped("ALL", cap)
+
+    /**
+     * At most [cap] UIDs matching one plain search [key] (`ALL`, `DELETED`, …), with the cap
+     * enforced during the parse — the shape [allUids] documents at length, shared with the
+     * "is anything else flagged?" question of [finishPurgeWithoutUidPlus]. Both read EVERY
+     * untagged `SEARCH` line, not just the first: a dropped tail would shorten a list that is
+     * about to decide what gets destroyed. Keys used here are pure ASCII, so no `CHARSET`.
+     */
+    private fun uidSearchCapped(key: String, cap: Int): List<Long> {
         if (cap <= 0) return emptyList()
         // +2 leaves room for the "*" and "SEARCH" that open the first line.
         val keep = if (cap > Int.MAX_VALUE - 2) Int.MAX_VALUE else cap + 2
-        return command("UID SEARCH ALL", maxTokensKept = keep).untagged
+        return command("UID SEARCH $key", maxTokensKept = keep).untagged
             .filter { it.getOrNull(1) == "SEARCH" }
             .flatMap { line -> line.drop(2).mapNotNull { (it as? String)?.toLongOrNull() } }
             .take(cap)
@@ -517,25 +527,60 @@ class ImapSession(private var socket: Socket) : Closeable {
      * worker retries: unlike a move, a repeated destroy costs nothing.
      */
     fun delete(uids: List<Long>) {
-        val sets = uids.distinct().chunked(UID_SET_CHUNK).map { compressUidSet(it) }.filter { it.isNotEmpty() }
+        val flagged = uids.distinct()
+        val sets = flagged.chunked(UID_SET_CHUNK).map { compressUidSet(it) }.filter { it.isNotEmpty() }
         if (sets.isEmpty()) return
         val byUid = hasCapability(CAP_UIDPLUS)
         for (set in sets) {
             command("UID STORE $set +FLAGS (\\Deleted)")
             if (byUid) command("UID EXPUNGE $set")
         }
-        if (!byUid) finishPurgeWithoutUidPlus()
+        // The union of every chunk, not a chunk: the folder-wide question is asked about the
+        // whole operation, once, after the last message has been flagged.
+        if (!byUid) finishPurgeWithoutUidPlus(flagged.toSet())
     }
 
     /**
      * Close a purge on a server without UIDPLUS, according to [purgeWithoutUidPlus]. Called at
-     * most once per operation, after every message meant to go has been flagged `\Deleted`.
+     * most once per operation, after every message meant to go has been flagged `\Deleted`;
+     * [flagged] is the union of every chunk this operation flagged in the selected mailbox.
      */
-    private fun finishPurgeWithoutUidPlus() {
+    private fun finishPurgeWithoutUidPlus(flagged: Set<Long>) {
+        if (flagged.isEmpty()) return
         when (purgeWithoutUidPlus) {
             PurgeWithoutUidPlus.LEAVE_FLAGGED -> Unit
+            PurgeWithoutUidPlus.EXPUNGE_WHEN_ONLY_OURS -> if (nothingElseIsFlagged(flagged)) command("EXPUNGE")
             PurgeWithoutUidPlus.EXPUNGE_WHOLE_FOLDER -> command("EXPUNGE")
         }
+    }
+
+    /**
+     * Ask the server what is flagged `\Deleted` in the selected mailbox and answer whether a
+     * bare `EXPUNGE` would erase [flagged] and nothing besides.
+     *
+     * `UID SEARCH DELETED` is one command and one line of numbers, the same cheap enumeration
+     * [allUids] uses, and it is asked ONCE per operation — never per chunk, which is the whole
+     * point of taking the decision here rather than inside the loop.
+     *
+     * A STRICT SUBSET is a yes, not a no: every id the server reports is one of ours, so the
+     * `EXPUNGE` cannot reach anything else. (It happens when a message has already gone, or when
+     * another client cleared a flag.) An empty answer is a no — there is nothing to erase, so the
+     * command would only be noise. Anything the server reports that we did not flag is a no.
+     *
+     * The list is capped at one more than [flagged]: enough to tell "the same or fewer" from
+     * "more" — one extra id cannot fit inside a set of our size — and never enough for a folder
+     * holding two hundred thousand flagged messages to be held in memory. A truncated answer is
+     * therefore always a no, which is the safe direction.
+     *
+     * THE RACE, stated plainly because this is the design record: another client can flag a
+     * message between this `SEARCH` and the `EXPUNGE` that follows it, and that message would be
+     * destroyed. The window is the round trip between two adjacent commands — milliseconds —
+     * against the unbounded exposure of expunging on no evidence at all, which is what this
+     * replaces. It is narrowed, not closed, and IMAP without UIDPLUS offers no way to close it.
+     */
+    private fun nothingElseIsFlagged(flagged: Set<Long>): Boolean {
+        val onServer = uidSearchCapped("DELETED", cap = flagged.size + 1)
+        return onServer.isNotEmpty() && onServer.size <= flagged.size && flagged.containsAll(onServer)
     }
 
     /** APPEND a raw message into [mailbox] (e.g. a sent copy into Sent), with [flags]. */
@@ -757,38 +802,50 @@ internal fun capabilitiesInResponseCode(line: List<Any?>): Set<String>? {
  * What a permanent purge does on a server that does NOT implement UIDPLUS (RFC 4315), i.e. one
  * where `UID EXPUNGE <set>` — "erase exactly these" — does not exist.
  *
- * IMAP offers no third answer that is both safe and complete. The only other way to erase is a
- * bare `EXPUNGE`, which erases EVERY message flagged `\Deleted` in the selected folder: the ones
- * this app just flagged, but equally ones flagged from another client, or flagged long ago and
- * left there. So either the app destroys mail nobody designated, or it stops short of the purge
- * the screen announced and leaves the messages flagged for the server to erase in its own time.
+ * The only other way to erase is a bare `EXPUNGE`, which erases EVERY message flagged `\Deleted`
+ * in the selected folder: the ones this app just flagged, but equally ones flagged from another
+ * client, or flagged long ago and left there. Sent blind it destroys mail nobody designated; not
+ * sent at all it leaves the folder un-emptied while the screen says otherwise.
+ *
+ * What breaks the deadlock is that the server can be ASKED what is flagged, and the answer is
+ * one cheap command. So the honest option is not a compromise between the two but a condition on
+ * the second: expunge when, and only when, the folder's flagged set is provably ours.
  *
  * This is a product decision, not a technical one, which is why it is a single named value
  * rather than a condition spread over the purge paths.
  */
 internal enum class PurgeWithoutUidPlus {
     /**
-     * Flag `\Deleted` and stop. Nothing is erased that the user did not designate; in exchange
-     * the messages are still on the server, and a folder resync brings them back into view
-     * (nothing in the app hides a `\Deleted` message today).
+     * Flag `\Deleted` and stop, always. Nothing is ever erased that the user did not designate;
+     * in exchange the folder is never actually emptied on such a server.
      */
     LEAVE_FLAGGED,
 
     /**
-     * One bare `EXPUNGE` for the whole operation. The folder really is emptied — including any
-     * message flagged `\Deleted` by somebody else, which is destroyed with no way back.
+     * Ask the server what is flagged, and send one bare `EXPUNGE` only if everything flagged is
+     * something this operation flagged (see [ImapSession.nothingElseIsFlagged], which also states
+     * the residual race). Otherwise behave as [LEAVE_FLAGGED]. Costs one extra command per
+     * operation on servers without UIDPLUS, and nothing at all on servers with it.
+     */
+    EXPUNGE_WHEN_ONLY_OURS,
+
+    /**
+     * One bare `EXPUNGE` for the whole operation, asking nothing. The folder really is emptied —
+     * including any message flagged `\Deleted` by somebody else, destroyed with no way back.
      */
     EXPUNGE_WHOLE_FOLDER,
 }
 
 /**
  * THE policy line. Changing this single assignment switches every purge path in this file
- * ([ImapSession.delete] and the copy fallback of [ImapSession.move]) and nothing else.
+ * ([ImapSession.delete] and the copy fallback of [ImapSession.move]) and nothing else; both
+ * extremes stay one word away, so neither has to be reconstructed to be tried.
  *
- * It ships as [PurgeWithoutUidPlus.LEAVE_FLAGGED]: destroying less than ordered is a defect the
- * user can still recover from, destroying more is not (Codeberg #99).
+ * It ships as [PurgeWithoutUidPlus.EXPUNGE_WHEN_ONLY_OURS]: the Trash is genuinely emptied
+ * whenever that can be shown to harm nothing, and destroying less than ordered remains the error
+ * it falls back to (Codeberg #99).
  */
-internal val purgeWithoutUidPlus = PurgeWithoutUidPlus.LEAVE_FLAGGED
+internal val purgeWithoutUidPlus = PurgeWithoutUidPlus.EXPUNGE_WHEN_ONLY_OURS
 
 /**
  * Cap on how many UIDs go into one `UID MOVE`/`UID STORE` sequence-set, so an enormous
