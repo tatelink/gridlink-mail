@@ -92,25 +92,47 @@ internal fun ghostEvictions(cachedIds: List<String>, notFound: Set<String>?): Li
  * - it is dated (`sortKey > 0`) and older than [cutoffMillis]. An undated row is undated, not
  *   ancient — the old SQL prune already spared those and this keeps it;
  * - it is not in [freshIds], the page the refresh that triggered this prune just brought back
- *   from the server.
+ *   from the server;
+ * - it is not among the [keepNewest] newest rows of the mailbox.
  *
- * That second clause is Codeberg #110. The window bounds what we keep IN ADDITION to the current
+ * The second clause is Codeberg #110. The window bounds what we keep IN ADDITION to the current
  * page; it may not delete the page itself. Without it a ten-message folder whose eight oldest
  * predated the window showed all ten (the page had landed) and then dropped to two a moment later
  * (the prune ran) — the flicker the reporter described, and mail the server was still offering.
  * The user's own setting was destroying the folder's real contents rather than bounding them.
  *
+ * The third is what an age window was always missing. `SyncWindow` has carried a count next to
+ * every age (`DAYS_90` is 200 messages OR 90 days) but the count only ever capped the FETCH, so
+ * retention had one number to work with and a quiet folder could be emptied down to whatever
+ * happened to be recent. Read as a FLOOR — keep at least the newest N, whatever their age — a
+ * ten-message folder keeps its ten and a busy one still keeps only its ninety days. This is not a
+ * substitute for the clause above: on a folder deeper than N the freshest page still needs
+ * sparing in its own right.
+ *
  * [freshIds] is empty when the refresh had no page to show for itself — the JMAP incremental
- * branch applies a delta rather than re-querying the folder, so it has no page to spare. Such a
- * sync only ever prunes rows the cache already held, never rows it just fetched.
+ * branch applies a delta rather than re-querying the folder, so it has no page to spare. That
+ * branch leans on the floor instead, which is the other reason the floor is not optional.
  */
 internal fun retentionEvictions(
     cached: List<EmailRetentionRow>,
     cutoffMillis: Long,
     freshIds: Set<String>,
-): List<String> = cached
-    .filter { it.sortKey > 0 && it.sortKey < cutoffMillis && it.id !in freshIds }
-    .map { it.id }
+    keepNewest: Int,
+): List<String> {
+    // The ordinary case for a mailbox the user never scrolled back through: the whole cache is
+    // inside the floor, so nothing can be evicted and the sort below is not worth doing.
+    if (cached.size <= keepNewest) return emptyList()
+    val floor = cached
+        // Ties broken on id so the floor is a function of the rows and not of the order SQLite
+        // handed them back: two messages can share a sortKey to the millisecond, and a prune that
+        // kept a different one on each refresh would flicker a row in and out of the list.
+        .sortedWith(compareByDescending<EmailRetentionRow> { it.sortKey }.thenBy { it.id })
+        .take(keepNewest)
+        .mapTo(HashSet()) { it.id }
+    return cached
+        .filter { it.sortKey > 0 && it.sortKey < cutoffMillis && it.id !in freshIds && it.id !in floor }
+        .map { it.id }
+}
 
 /**
  * Whether this sync cycle should run a mailbox's existence sweep. The sweep costs one

@@ -842,23 +842,28 @@ class MailRepository(
     }
 
     /**
-     * Apply an account's age window to a mailbox once a refresh has landed: drop what falls
+     * Apply an account's sync window to a mailbox once a refresh has landed: drop what falls
      * outside it, EXCEPT the ids [freshIds] — the page that same refresh just brought back from
-     * the server (Codeberg #110).
+     * the server (Codeberg #110) — and except the [keepNewest] newest rows of the folder.
      *
      * The window is a bound on what we keep offline in addition to the current page, never a
      * licence to delete the current page: a folder whose real contents are older than the window
      * must still show its real contents. Deciding in Kotlin rather than in one `DELETE … WHERE
      * sortKey < cutoff` is what makes that expressible at all, and puts the rule next to the
      * delta and sweep evictions where it can be unit-tested — see [retentionEvictions].
+     *
+     * [cutoffMillis] and [keepNewest] must come from the SAME `SyncWindow` — its `maxAgeDays` and
+     * its `limit`. They are the one setting's two halves (the age it keeps, the number it keeps at
+     * least), and only the caller that computed the cutoff knows which window that was.
      */
     private suspend fun pruneRetention(
         accountId: String,
         mailboxId: String,
         cutoffMillis: Long,
         freshIds: Set<String>,
+        keepNewest: Int,
     ) {
-        val gone = retentionEvictions(emailDao.retentionRows(accountId, mailboxId), cutoffMillis, freshIds)
+        val gone = retentionEvictions(emailDao.retentionRows(accountId, mailboxId), cutoffMillis, freshIds, keepNewest)
         if (gone.isEmpty()) return
         // Chunked for the same reason the ghost sweep chunks: the ids go into an `IN (...)` and a
         // deep cache can hold more of them than SQLite will bind in one statement.
@@ -1684,8 +1689,10 @@ class MailRepository(
         credentials: AccountCredentials,
         mailboxId: String? = null,
         limit: Int = 50,
-        // Prune cached messages older than this epoch-millis cutoff (the age-based
-        // sync window); null keeps everything within [limit].
+        // Prune cached messages older than this epoch-millis cutoff (the age-based sync window);
+        // null prunes nothing. When set, [limit] is read as the window's retention FLOOR as well
+        // as its fetch size: the folder's newest [limit] rows are kept whatever their age, so the
+        // two must come from the same SyncWindow.
         pruneBeforeMillis: Long? = null,
     ): MailboxMeta {
         if (credentials.protocol == MailProtocol.IMAP) return refreshImap(credentials, mailboxId, limit, pruneBeforeMillis)
@@ -1718,7 +1725,7 @@ class MailRepository(
         // there was no page): the window bounds what we keep on top of the folder's current
         // contents, it does not delete them — Codeberg #110.
         if (syncError == null && pruneBeforeMillis != null) {
-            pruneRetention(credentials.id, target.id, pruneBeforeMillis, sync.getOrNull().orEmpty().toSet())
+            pruneRetention(credentials.id, target.id, pruneBeforeMillis, sync.getOrNull().orEmpty().toSet(), limit)
         }
         // Folder counters land AFTER the email rows: badge and list update together, and an
         // optimistic nudge from a concurrent action isn't overwritten mid-refresh by counters
@@ -1755,6 +1762,7 @@ class MailRepository(
                 load.targetMailboxId,
                 pruneBeforeMillis,
                 load.messages.mapTo(HashSet()) { it.id },
+                limit,
             )
         }
         return MailboxMeta(load.accountName, load.targetMailboxId, load.targetName, load.unread)

@@ -137,6 +137,10 @@ class SyncEvictionsTest {
     private val day = 86_400_000L
     private val now = 1_800_000_000_000L
 
+    /** The default account setting: DAYS_90 — 90 days of mail, 200 messages a page. */
+    private val cutoff90 = now - 90 * day
+    private val floor200 = 200
+
     /** A cached row [daysAgo] days old (0 days = now); [daysAgo] < 0 means "no parsable date". */
     private fun row(id: String, daysAgo: Long) =
         EmailRetentionRow(id, if (daysAgo < 0) 0L else now - daysAgo * day)
@@ -147,39 +151,46 @@ class SyncEvictionsTest {
         // server returned all ten — so all ten are what the folder HOLDS. The window may bound
         // what we keep in addition to that page; it may not delete the page. Pruning them was
         // the flicker he saw: ten rows, then two.
+        //
+        // keepNewest is 0 here ON PURPOSE, so the floor cannot be what saves them: this asserts
+        // the page-sparing clause alone, on the deep-folder case where the floor does not reach.
         val cached = (1..8).map { row("dec$it", 220) } + row("jul17", 13) + row("jul29", 1)
         val fresh = cached.mapTo(HashSet()) { it.id }
         assertEquals(
             emptyList<String>(),
-            retentionEvictions(cached, cutoffMillis = now - 90 * day, freshIds = fresh),
+            retentionEvictions(cached, cutoff90, freshIds = fresh, keepNewest = 0),
         )
     }
 
     @Test fun anOldRowTheFreshPageDidNotCarryIsStillPruned() {
         // The negative witness, and the reason the case above proves anything: sparing the page
         // must not amount to switching the window off. A row that has fallen off the server's
-        // newest page AND out of the window is exactly what retention is for.
+        // newest page AND out of the window is exactly what retention is for. Again with no
+        // floor, so nothing but the page-sparing clause is under test.
         val cached = listOf(row("stillThere", 220), row("scrolledInLongAgo", 400), row("recent", 1))
         assertEquals(
             listOf("scrolledInLongAgo"),
             retentionEvictions(
                 cached,
-                cutoffMillis = now - 90 * day,
+                cutoff90,
                 freshIds = setOf("stillThere", "recent"),
+                keepNewest = 0,
             ),
         )
     }
 
     @Test fun aSyncWithNoPageOfItsOwnStillPrunesTheCache() {
         // The JMAP incremental branch returns no page (it applied a delta), so nothing is spared
-        // and the window applies to the cache as it stands. Retention still has to work there —
-        // sparing "the page" must not become sparing everything whenever there is no page.
+        // by the page clause and the window applies to the cache as it stands. Retention still
+        // has to work there — sparing "the page" must not become sparing everything whenever
+        // there is no page.
         assertEquals(
             listOf("old"),
             retentionEvictions(
                 listOf(row("old", 200), row("new", 2)),
-                cutoffMillis = now - 90 * day,
+                cutoff90,
                 freshIds = emptySet(),
+                keepNewest = 0,
             ),
         )
     }
@@ -187,14 +198,68 @@ class SyncEvictionsTest {
     @Test fun undatedRowsAreNotAncient() {
         // sortKey 0 = the message carried no date we could parse. The SQL prune this replaced
         // spared them (`sortKey > 0`) and so must this: undated is not old, and treating 0 as
-        // epoch would delete every such row on the first refresh.
+        // epoch would delete every such row on the first refresh. The genuinely old row next to
+        // it is the control: this asserts "undated is spared", not "nothing is pruned".
+        assertEquals(
+            listOf("old"),
+            retentionEvictions(
+                listOf(row("noDate", -1), row("old", 400)),
+                cutoff90,
+                freshIds = emptySet(),
+                keepNewest = 0,
+            ),
+        )
+    }
+
+    // -- the floor: the window's count keeps mail the age would drop ----------------------
+
+    @Test fun theTenMessageFolderKeepsItsTenWithNoFreshPageAtAll() {
+        // The same folder as the reporter's, but on the sync that has NO page to spare (a JMAP
+        // delta, or any later refresh). The page clause cannot help here — the floor is the only
+        // thing standing between the setting and the folder, and 10 < 200 means all ten stay.
+        val cached = (1..8).map { row("dec$it", 220) } + row("jul17", 13) + row("jul29", 1)
         assertEquals(
             emptyList<String>(),
-            retentionEvictions(
-                listOf(row("noDate", -1)),
-                cutoffMillis = now - 90 * day,
-                freshIds = emptySet(),
-            ),
+            retentionEvictions(cached, cutoff90, freshIds = emptySet(), keepNewest = floor200),
+        )
+    }
+
+    @Test fun pastTheFloorTheAgeWindowStillApplies() {
+        // The floor is a floor, not an off switch: on a folder deeper than the setting's count,
+        // the rows below the newest N and outside the age window are still evicted. A busy inbox
+        // keeps its ninety days, not its whole history.
+        val cached = (1..5).map { row("old$it", 200) } + (1..3).map { row("recent$it", 2) }
+        assertEquals(
+            // Newest 4 = the three recent + the newest of the old five (ties broken on id, so
+            // that is "old1"); the remaining four old rows fall outside both floor and window.
+            listOf("old2", "old3", "old4", "old5"),
+            retentionEvictions(cached, cutoff90, freshIds = emptySet(), keepNewest = 4),
+        )
+    }
+
+    @Test fun theFloorCountsTheNEWESTRowsAndNotJustAnyN() {
+        // Which N the floor keeps is the whole decision: keeping an arbitrary N would leave the
+        // list showing December while July sat pruned. Given rows in no particular order, the
+        // survivors must be the most recent ones.
+        // All four are outside the 90-day window, so only the floor decides. c (200 days) and
+        // d (100 days) are the newest two and survive; a and b, older, do not. Sorted because
+        // the function returns the cache's own order and that is not what is under test here.
+        val cached = listOf(row("b", 300), row("d", 100), row("a", 400), row("c", 200))
+        assertEquals(
+            listOf("a", "b"),
+            retentionEvictions(cached, cutoff90, freshIds = emptySet(), keepNewest = 2).sorted(),
+        )
+    }
+
+    @Test fun aCountOnlyWindowPrunesNothingOnAge() {
+        // COUNT_50 / COUNT_200 / ALL have no maxAgeDays, so InboxViewModel passes no cutoff and
+        // this function is never called for them. Pinned as the contract anyway: with a cutoff of
+        // 0 (nothing is "before the beginning of time") retention evicts nothing, so a bug that
+        // ever routed a count-only window here could not silently delete a folder.
+        val cached = (1..300).map { row("m$it", it.toLong()) }
+        assertEquals(
+            emptyList<String>(),
+            retentionEvictions(cached, cutoffMillis = 0L, freshIds = emptySet(), keepNewest = 50),
         )
     }
 
