@@ -724,11 +724,14 @@ class MailRepository(
      * thread member (conversations collapse at display time), so per-thread unread/bold
      * state and reconciliation see non-representative members too.
      *
-     * Returns the ids of the fresh page when the full query ran, and NULL when the delta applied
-     * (that branch has no page — the server told us what CHANGED, not what the folder holds).
-     * The retention prune spares those ids, so the distinction has to survive the call rather
-     * than be guessed at: reading "no page" as "an empty page" would let the prune delete the
-     * folder the sync had just re-fetched (Codeberg #110).
+     * Returns THE IDS THIS CYCLE FETCHED FROM THE SERVER, whichever branch ran: the full query's
+     * whole page, or the delta's `toFetch`. Never null, and never a partial list — everything in
+     * it has just been written to the cache, and the retention prune spares exactly it.
+     *
+     * The two branches must both answer, which is the correction of a first version of the
+     * Codeberg #110 fix that answered only for the full query: the delta branch writes rows the
+     * cache has NEVER held (`added - cachedIds`), so a message an external client or a Sieve rule
+     * files into a deep folder was fetched and then deleted by the prune in the same refresh.
      */
     private suspend fun syncMailbox(
         session: JmapSession,
@@ -739,7 +742,7 @@ class MailRepository(
         // Local StoredAccount id used to tag cached rows (distinct from the JMAP
         // [accountId] used for API calls), so per-account routing and storage work.
         localAccountId: String,
-    ): List<String>? {
+    ): List<String> {
         val key = syncKey(localAccountId, mailboxId)
         val stored = loadSyncState(key)
         if (stored != null) {
@@ -784,7 +787,7 @@ class MailRepository(
                     )
                 }
                 val cachedIds = emailDao.idsForMailbox(localAccountId, mailboxId).toSet()
-                val toFetch = ((added - cachedIds) + changes.updated.filter { it in cachedIds }).distinct()
+                val toFetch = deltaFetches(added, cachedIds, changes.updated)
                 if (toFetch.isNotEmpty()) {
                     val fetched = client.getEmailsByIds(session, accountId, toFetch, auth)
                     emailDao.upsertAll(fetched.map { it.toEntity(localAccountId, mailboxId) })
@@ -824,7 +827,12 @@ class MailRepository(
                     // once-per-process credit back and the next sync retries immediately.
                     if (!swept) ghostSweeps.releaseFailed(localAccountId, mailboxId, claim)
                 }
-                return null
+                // The rows this delta just wrote (line above): mostly ids the cache NEVER held —
+                // `added - cachedIds` — so the retention prune has to spare them exactly as it
+                // spares a full query's page. Returning nothing here was Codeberg #110 again on
+                // the other branch: a 2019 message filed into a deep Inbox by a Sieve rule was
+                // fetched, written, and deleted by the prune in the very same refresh.
+                return toFetch
             }
         }
         // Cold cache, or the server can't compute changes — full query.
@@ -843,32 +851,50 @@ class MailRepository(
 
     /**
      * Apply an account's sync window to a mailbox once a refresh has landed: drop what falls
-     * outside it, EXCEPT the ids [freshIds] — the page that same refresh just brought back from
-     * the server (Codeberg #110) — and except the [keepNewest] newest rows of the folder.
+     * outside it, EXCEPT what that same sync just fetched from the server ([freshIds], Codeberg
+     * #110), what the recently-mutated spare is protecting, and the [keepNewest] newest rows.
      *
-     * The window is a bound on what we keep offline in addition to the current page, never a
-     * licence to delete the current page: a folder whose real contents are older than the window
-     * must still show its real contents. Deciding in Kotlin rather than in one `DELETE … WHERE
-     * sortKey < cutoff` is what makes that expressible at all, and puts the rule next to the
-     * delta and sweep evictions where it can be unit-tested — see [retentionEvictions].
+     * The window is a bound on what we keep offline in addition to what the server just sent,
+     * never a licence to delete it: a folder whose real contents are older than the window must
+     * still show its real contents. Deciding in Kotlin rather than in one `DELETE … WHERE sortKey
+     * < cutoff` is what makes that expressible at all, and puts the rule next to the delta and
+     * sweep evictions where it can be unit-tested — see [retentionEvictions].
+     *
+     * The recently-mutated set is read HERE rather than passed in, because a caller that forgot it
+     * would silently undo `replaceMailbox`'s reconcile spare a few lines after it ran — and on
+     * these paths that spare set is the prune's only reachable victim, so forgetting it is not a
+     * small mistake.
      *
      * [cutoffMillis] and [keepNewest] must come from the SAME `SyncWindow` — its `maxAgeDays` and
      * its `limit`. They are the one setting's two halves (the age it keeps, the number it keeps at
      * least), and only the caller that computed the cutoff knows which window that was.
+     *
+     * [freshIds] null means the caller cannot say what was fetched; [retentionEvictions] then
+     * prunes nothing at all.
      */
     private suspend fun pruneRetention(
         accountId: String,
         mailboxId: String,
         cutoffMillis: Long,
-        freshIds: Set<String>,
+        freshIds: Set<String>?,
         keepNewest: Int,
     ) {
-        val gone = retentionEvictions(emailDao.retentionRows(accountId, mailboxId), cutoffMillis, freshIds, keepNewest)
+        val gone = retentionEvictions(
+            cached = emailDao.retentionRows(accountId, mailboxId),
+            cutoffMillis = cutoffMillis,
+            freshIds = freshIds,
+            spareIds = recentlyMutatedIds(accountId).toSet(),
+            keepNewest = keepNewest,
+        )
         if (gone.isEmpty()) return
         // Chunked for the same reason the ghost sweep chunks: the ids go into an `IN (...)` and a
         // deep cache can hold more of them than SQLite will bind in one statement.
         gone.chunked(MAX_CHANGES).forEach { emailDao.deleteByIds(accountId, it) }
-        android.util.Log.i("MailSync", "retention $accountId/$mailboxId: pruned ${gone.size} older than $cutoffMillis")
+        android.util.Log.i(
+            "MailSync",
+            "retention $accountId/$mailboxId: pruned ${gone.size}, " +
+                "spared ${freshIds?.size ?: -1} fetched + floor $keepNewest",
+        )
     }
 
     /**
@@ -1721,11 +1747,12 @@ class MailRepository(
         // then rethrows; the prune stays success-only.
         val sync = runCatching { syncMailbox(session, accountId, auth, target.id, limit, credentials.id) }
         val syncError = sync.exceptionOrNull()
-        // The prune spares the page this very sync brought back (null = the delta branch ran and
-        // there was no page): the window bounds what we keep on top of the folder's current
-        // contents, it does not delete them — Codeberg #110.
+        // The prune spares whatever this very sync fetched — the full query's page, or the
+        // delta's newly-written rows. `getOrNull()` is null only when the sync threw, which the
+        // guard already excludes; passing it through unmapped keeps the second lock in place
+        // (a null there prunes nothing rather than everything). Codeberg #110.
         if (syncError == null && pruneBeforeMillis != null) {
-            pruneRetention(credentials.id, target.id, pruneBeforeMillis, sync.getOrNull().orEmpty().toSet(), limit)
+            pruneRetention(credentials.id, target.id, pruneBeforeMillis, sync.getOrNull()?.toSet(), limit)
         }
         // Folder counters land AFTER the email rows: badge and list update together, and an
         // optimistic nudge from a concurrent action isn't overwritten mid-refresh by counters

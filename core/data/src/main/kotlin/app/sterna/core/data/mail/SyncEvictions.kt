@@ -83,6 +83,24 @@ internal fun ghostEvictions(cachedIds: List<String>, notFound: Set<String>?): Li
     if (notFound.isNullOrEmpty()) emptyList() else cachedIds.filter { it in notFound }
 
 /**
+ * What an incremental delta has to FETCH from the server: the ids it reports as `added` that the
+ * cache has never held, plus the cached rows it reports as `updated` (a keyword changed, so the
+ * row must be re-read). Deduplicated, because an id can be both.
+ *
+ * Named rather than left inline because of what happens to its result AFTERWARDS: every id here
+ * is written to the cache by the end of the sync, so this is also exactly what the retention prune
+ * must spare — it is the delta branch's answer to [retentionEvictions]'s `freshIds`. A sync that
+ * fetches rows and does not report them lets the prune delete, in the same cycle, mail the server
+ * has just handed over (Codeberg #110 on the delta branch: an old message filed into a deep folder
+ * by a Sieve rule or another client).
+ */
+internal fun deltaFetches(
+    added: Set<String>,
+    cachedIds: Set<String>,
+    updated: List<String>,
+): List<String> = ((added - cachedIds) + updated.filter { it in cachedIds }).distinct()
+
+/**
  * Which cached ids the RETENTION window evicts after a refresh landed — the "Messages to sync"
  * setting applied to one mailbox, as opposed to [deltaEvictions]/[ghostEvictions], which act on
  * what the SERVER said. Nothing here is authoritative about the message still existing: every id
@@ -91,34 +109,47 @@ internal fun ghostEvictions(cachedIds: List<String>, notFound: Set<String>?): Li
  * A row is evicted only when ALL of the following hold:
  * - it is dated (`sortKey > 0`) and older than [cutoffMillis]. An undated row is undated, not
  *   ancient — the old SQL prune already spared those and this keeps it;
- * - it is not in [freshIds], the page the refresh that triggered this prune just brought back
- *   from the server;
+ * - it is not in [freshIds], what the sync that triggered this prune just fetched from the
+ *   server — a full query's whole page, or a delta's newly-fetched rows;
+ * - it is not in [spareIds], the recently-mutated protection set;
  * - it is not among the [keepNewest] newest rows of the mailbox.
  *
- * The second clause is Codeberg #110. The window bounds what we keep IN ADDITION to the current
- * page; it may not delete the page itself. Without it a ten-message folder whose eight oldest
- * predated the window showed all ten (the page had landed) and then dropped to two a moment later
- * (the prune ran) — the flicker the reporter described, and mail the server was still offering.
- * The user's own setting was destroying the folder's real contents rather than bounding them.
+ * The [freshIds] clause is Codeberg #110. The window bounds what we keep IN ADDITION to what the
+ * server just handed us; it may not delete that. Without it a ten-message folder whose eight
+ * oldest predated the window showed all ten (the page had landed) and then dropped to two a
+ * moment later (the prune ran) — the flicker the reporter described, and mail the server was
+ * still offering. The user's own setting was destroying the folder's real contents rather than
+ * bounding them.
  *
- * The third is what an age window was always missing. `SyncWindow` has carried a count next to
+ * [spareIds] is the same set `EmailDao.replaceMailbox` hands `deleteNotInSparing`, and it is here
+ * because on the refresh paths this prune runs on, the cache is EXACTLY the fresh page plus that
+ * spare set — so without this clause the recently-mutated rows are the only reachable victims
+ * left, and the prune undoes, a few lines later in the same function, precisely what the reconcile
+ * had just protected. The concrete loss: delete a 2019 message in a deep folder, undo, refresh —
+ * the restored row is outside the page and outside the window, and it went.
+ *
+ * [keepNewest] is what an age window was always missing. `SyncWindow` has carried a count next to
  * every age (`DAYS_90` is 200 messages OR 90 days) but the count only ever capped the FETCH, so
  * retention had one number to work with and a quiet folder could be emptied down to whatever
  * happened to be recent. Read as a FLOOR — keep at least the newest N, whatever their age — a
  * ten-message folder keeps its ten and a busy one still keeps only its ninety days. This is not a
- * substitute for the clause above: on a folder deeper than N the freshest page still needs
- * sparing in its own right.
+ * substitute for the clauses above: on a folder deeper than N, what the server just sent and what
+ * the reconcile just spared each still need sparing in their own right.
  *
- * [freshIds] is empty when the refresh had no page to show for itself — the JMAP incremental
- * branch applies a delta rather than re-querying the folder, so it has no page to spare. That
- * branch leans on the floor instead, which is the other reason the floor is not optional.
+ * [freshIds] is NULL when the caller cannot say what the sync fetched, and that case prunes
+ * NOTHING — the same contract, for the same reason, as [ghostEvictions]'s `notFound`: not knowing
+ * is not the same as knowing there was nothing, and only one of the two mistakes destroys mail. A
+ * future path that forgets to report its fetches therefore fails by keeping too much, which is the
+ * survivable direction; it cannot silently go back to deleting the folder it just filled.
  */
 internal fun retentionEvictions(
     cached: List<EmailRetentionRow>,
     cutoffMillis: Long,
-    freshIds: Set<String>,
+    freshIds: Set<String>?,
+    spareIds: Set<String>,
     keepNewest: Int,
 ): List<String> {
+    if (freshIds == null) return emptyList()
     // The ordinary case for a mailbox the user never scrolled back through: the whole cache is
     // inside the floor, so nothing can be evicted and the sort below is not worth doing.
     if (cached.size <= keepNewest) return emptyList()
@@ -130,7 +161,10 @@ internal fun retentionEvictions(
         .take(keepNewest)
         .mapTo(HashSet()) { it.id }
     return cached
-        .filter { it.sortKey > 0 && it.sortKey < cutoffMillis && it.id !in freshIds && it.id !in floor }
+        .filter {
+            it.sortKey > 0 && it.sortKey < cutoffMillis &&
+                it.id !in freshIds && it.id !in spareIds && it.id !in floor
+        }
         .map { it.id }
 }
 
