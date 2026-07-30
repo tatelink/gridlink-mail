@@ -500,9 +500,10 @@ fun ComposeScreen(
         // this dialog uploaded the same text one tap later.
         val mayKeepDraft = draftSaveAllowed(pgpMode)
         // What the dialog is allowed to CLAIM, decided by [discardWording] (#70): a message pulled
-        // back out of the Outbox is not destroyed by leaving — its row goes back in the queue and
-        // it is sent — so it may not be announced as "Discard message?". The buttons on offer are a
-        // separate question, still [mayKeepDraft]'s (#35).
+        // back out of the Outbox is not destroyed by leaving — its row goes back where it was — so
+        // it may not be announced as "Discard message?". Nor may it be promised delivery: a failed
+        // send returns to FAILED and waits for Retry. The buttons on offer are a separate question,
+        // still [mayKeepDraft]'s (#35).
         val wording = discardWording(editingOutbox, mayKeepDraft)
         val discardLabel = stringResource(
             if (wording == DiscardWording.OUTBOX) {

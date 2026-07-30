@@ -288,11 +288,18 @@ internal enum class DiscardWording { PLAIN, ENCRYPTED, OUTBOX }
 /**
  * What the leave dialog must say, which is not always "this message will be lost" (#70).
  *
- * A message reopened from the Outbox is the case that was lying: its row never left the queue, so
- * leaving hands it straight back and it goes out. The dialog nevertheless offered "Discard message?
- * You haven't saved your changes." — and the user tapping Discard believed they had destroyed a
- * mail that was in fact about to be sent. Only the EDITS are dropped; the message survives, on
+ * A message reopened from the Outbox is the case that was lying: its row never left the outbox, it
+ * only sat in `EDITING`, so leaving hands it straight back. The dialog nevertheless offered
+ * "Discard message? You haven't saved your changes." — and the user tapping Discard believed they
+ * had destroyed a mail that was still there. Only the EDITS are dropped; the message survives, on
  * purpose (deleting it is the Outbox screen's own delete, which asks separately).
+ *
+ * What the wording may NOT promise is delivery. Where the row lands is
+ * `OutboxLogic.stateAfterEdit`: a send whose auto-retry was already spent goes back to FAILED and
+ * is left parked for manual Retry, not re-queued. "It will still be sent" would therefore be false
+ * on exactly the message the user is most likely to have opened — the one that failed. "It stays in
+ * the outbox" is true on all three paths (queued, still held, failed) and is the fact that matters:
+ * the message was not destroyed.
  *
  * [mayKeepDraft] is [draftSaveAllowed]: an encrypted message cannot be parked in Drafts, and the
  * dialog says why instead of offering a button that would upload the plaintext (#35). Where the
