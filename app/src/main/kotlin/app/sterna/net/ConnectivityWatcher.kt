@@ -55,6 +55,15 @@ internal enum class Reachability {
  * three is a latch seeded with what was true at registration, so the callbacks the framework
  * replays for already-connected networks move nothing and no startup blink is published.
  *
+ * That invariant holds for the resync trigger too, and it takes care to keep: the latches are
+ * seeded from the synchronous read, but the network *identities* are not — [transports] starts
+ * empty and [route] null, so the replayed callbacks are the first time we learn what was already
+ * there. Only a change against an identity we were **holding** counts as the plumbing moving;
+ * first sight never does. Without that, a first refresh that failed before the replay landed (the
+ * likely order under a tunnel that swallows traffic: a multi-second timeout against callbacks
+ * delivered in milliseconds) made the replay itself look like a reconnect, and every cold start
+ * bought resync sequences nothing had asked for.
+ *
  * [online] — what the UI shows — is the link corrected by the evidence: a link the requests have
  * disproved is not online. The resync trigger, by contrast, is taken on the **plumbing**: a request
  * failing is never itself a reason to resync, and a link that comes back is one even if the last
@@ -64,8 +73,10 @@ internal enum class Reachability {
  *
  * The trigger is deliberately *cheaper to earn* than the state, because the two cost different
  * things: believing the plumbing wrongly strands the user behind a lie, whereas trying the plumbing
- * wrongly costs one request that fails. So while the requests are dying, any event that genuinely
- * moves the plumbing asks for another attempt even without a link edge — see [settle].
+ * wrongly costs a [ReconnectRefresh] sequence that fails — up to [ReconnectRefresh.MAX_TRIES]
+ * requests over ~22 s, not one, and at most one such sequence at a time since the caller
+ * cancels-and-replaces. So while the requests are dying, any event that genuinely moves the
+ * plumbing asks for another attempt even without a link edge — see [settle].
  *
  * A failure is therefore *not* cleared by the link moving, only by a later request: the reconnect
  * refresh runs within a second and a half of the link returning, so the correction is never far
@@ -103,9 +114,12 @@ internal class ReconnectGate(link: Boolean) {
      * transport we had never seen turns up while requests are known to be dying ([settle]).
      */
     fun onTransportAvailable(handle: Long): Boolean {
-        // add() is false when the framework simply re-announces a transport we already hold: that
-        // is not the plumbing moving, so it must not ask for anything.
-        val moved = transports.add(handle)
+        // Moving means "different from something we had", never "different from nothing": with no
+        // transport recorded yet this is the registration replay telling us what was already there
+        // (see [settle]). add() is false when the framework simply re-announces one we already
+        // hold — also not a move.
+        val known = transports.isNotEmpty()
+        val moved = transports.add(handle) && known
         transportsUp = true
         return settle(moved)
     }
@@ -119,9 +133,10 @@ internal class ReconnectGate(link: Boolean) {
 
     /** This app was given a default route (the tunnel, under an always-on VPN). */
     fun onRouteAvailable(handle: Long): Boolean {
-        // A tunnel that reconnects comes back as a *new* network, so a different handle here is the
-        // one visible trace of a rebuild that never took the link down (see [settle]).
-        val moved = route != handle
+        // A tunnel that reconnects comes back as a *new* network, so a handle that differs from the
+        // one we were holding is the one visible trace of a rebuild that never took the link down
+        // (see [settle]). Holding none is the registration replay, not a rebuild.
+        val moved = route != null && route != handle
         route = handle
         routeUp = true
         return settle(moved)
@@ -166,19 +181,24 @@ internal class ReconnectGate(link: Boolean) {
      *    events it contains.
      *  - **the plumbing moved while requests are known to be dying** ([moved] with the verdict at
      *    [Reachability.FAILED]). A VPN that blackholes traffic without touching its network never
-     *    takes the link down, so its rebuild produces no edge — and the app would sit behind a
+     *    takes the link down, so its rebuild produces no edge — and the open app would sit behind a
      *    correct "offline" banner forever, never trying again, until the user thought to pull to
-     *    refresh. That is the reported symptom, and mail that silently stops arriving. The rebuilt
-     *    tunnel *is* visible though: it comes back as a new network, so a route with a handle we
-     *    did not have is a plausible "the tunnel is back" — and a plausible one is enough, because
-     *    what we do with it is **attempt a request, not declare a state**. The attempt validates
-     *    itself: it comes back (we really are online) or it dies (nothing changes). Nothing here
-     *    ever talks us back online on the framework's word alone.
+     *    refresh. That is the reported symptom. The rebuilt tunnel *is* visible though: it comes
+     *    back as a new network, so a route with a handle differing from the one we were holding is
+     *    a plausible "the tunnel is back" — and a plausible one is enough, because what we do with
+     *    it is **attempt a request, not declare a state**. The attempt validates itself: it comes
+     *    back (we really are online) or it dies (nothing changes). Nothing here ever talks us back
+     *    online on the framework's word alone.
+     *
+     * Scope, so the claim is not read wider than it is: this is the **in-app** resync, and only
+     * while an inbox is open — [ConnectivityWatcher] is owned by the inbox view model. With the app
+     * closed, new mail arrives through UnifiedPush and the fallback worker, which have their own
+     * schedule and are untouched here.
      *
      * Bounded by construction, so this cannot become a poll: it only ever fires while the verdict
-     * is FAILED, only on an event that genuinely changed something, and a re-announced route or
-     * transport changes nothing. While the link is believed healthy the behaviour is exactly what
-     * it was — no extra request, no battery.
+     * is FAILED, only on an event that changed an identity we were already holding, and a
+     * re-announced route or transport changes nothing. While the link is believed healthy the
+     * behaviour is exactly what it was — no extra request, no battery.
      */
     private fun settle(moved: Boolean = false): Boolean {
         val up = transportsUp && routeUp && !blocked
