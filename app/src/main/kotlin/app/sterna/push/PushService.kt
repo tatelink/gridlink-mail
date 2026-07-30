@@ -141,7 +141,13 @@ class PushService : Service() {
             // announces the mail that arrived during the gap.
             group.forEach { credentials ->
                 val reset = shouldResetBaseline(credentials.id, userInitiated, currentId, unified)
+                // Deliberately per account, so one account's failure does not cost the whole group
+                // its connection — but never silently: a seed that fails leaves that account on a
+                // stale baseline, and the NEXT pass then announces against it. Without this line
+                // that shows up as an unexplained burst (or an unexplained silence) hours later,
+                // with nothing in the log tying it to this arm.
                 runCatching { FetchAndNotify.run(this, credentials, resetBaselines = reset) }
+                    .onFailure { Log.w(TAG, "Baseline pass failed for account ${credentials.id}", it) }
             }
             // Any credential in the group reaches the shared session; prefer the login's own.
             val owner = group.firstOrNull { it.id == loginId } ?: group.first()
