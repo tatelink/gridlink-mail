@@ -365,8 +365,8 @@ private fun conversationQuery(
  * Sent-role folder — pinned to its OWN account, so a sibling account's colliding mailbox id
  * can't widen this account's chip — [+ account id]; the outer WHERE binds like `g`; the
  * account-wide total sub-query `t` takes none. The
- * representative row, unread state and favourite state come from `g` (strictly folder-scoped — a
- * thread with only Sent members must not surface a row); `threadCount` (the chip) is `c`'s count of the
+ * representative row and unread state come from `g` (strictly folder-scoped — a thread with
+ * only Sent members must not surface a row); `threadCount` (the chip) is `c`'s count of the
  * thread's messages in the viewed mailboxes PLUS its Sent replies, matching exactly what the
  * unfolded conversation shows; `threadTotal` is `t`'s count of its cached messages across
  * the whole account and only gates the expand affordance. Both count joins pin the
@@ -387,17 +387,22 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
         SortOrder.SUBJECT -> "LOWER(TRIM(e.subject)) ASC"
         SortOrder.SENDER -> "LOWER(TRIM(COALESCE(e.fromName, e.fromEmail))) ASC"
         SortOrder.UNREAD_FIRST -> "g.threadUnread ASC, e.sortKey DESC"
-        // g.threadFlagged, NOT e.flagged: a conversation is a favourite when ANY of its in-view
-        // messages is starred. The old unconditional pin read e.flagged — the flag of the
-        // thread's LATEST message — so starring an old reply left the thread where it was, which
-        // is not what starring anything in a thread looks like it should do (issue #111).
-        SortOrder.FLAGGED_FIRST -> "g.threadFlagged DESC, e.sortKey DESC"
+        // e.flagged — the REPRESENTATIVE row's star, i.e. the one the row actually draws — and
+        // deliberately not MAX(flagged) over the thread. Sorting on "any message of the thread
+        // is starred" is defensible and was tried, but it sorts on a state the row does not
+        // show: a thread would sit at the top wearing an empty star, and tapping that star
+        // twice would not dislodge it, because an invisible older message is what holds it
+        // there. That is the exact WYSIWYG break this fix exists to remove (issue #111).
+        // Ordering on the drawn flag keeps "what pins it" and "what you see" the same thing.
+        // (The sibling aggregate threadUnread can afford the other choice: it IS projected, so
+        // UNREAD_FIRST's ordering and the row's bold text agree.)
+        SortOrder.FLAGGED_FIRST -> "e.flagged DESC, e.sortKey DESC"
     }
     return """
         SELECT e.*, c.threadCount AS threadCount, t.threadTotal AS threadTotal, g.threadUnread AS threadUnread
         FROM emails e
         JOIN (
-            SELECT accountId AS gacc, COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread, MAX(flagged) AS threadFlagged
+            SELECT accountId AS gacc, COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread
             FROM emails
             WHERE mailboxId IN ($placeholders)$accountInner AND $notSnoozed
             GROUP BY gacc, tkey$having

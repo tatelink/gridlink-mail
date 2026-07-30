@@ -368,17 +368,41 @@ class ConversationSqlTest {
         assertEquals(listOf("s2", "s", "p"), ids(run(SortOrder.FLAGGED_FIRST)))
     }
 
-    @Test fun favouritesFirstFollowsAStarOnAnyMessageOfTheThread() {
-        // A thread whose OLD message is starred and whose latest is not. The old pin read
-        // e.flagged — the representative (latest) row's flag — so this thread did not move;
-        // FLAGGED_FIRST reads the thread's own state (g.threadFlagged) and pins it.
-        insert("t1", threadId = "T", seen = 1, flagged = 1, sortKey = 100) // starred, older
-        insert("t2", threadId = "T", seen = 1, flagged = 0, sortKey = 200) // representative, not starred
-        insert("plain", threadId = null, seen = 1, flagged = 0, sortKey = 300)
+    @Test fun favouritesFirstOrdersOnTheStarTheRowActuallyDraws() {
+        // Collapsed rows draw the REPRESENTATIVE message's star, and that is what the order
+        // follows — not "any message of the thread is starred". Ordering on the thread-wide
+        // MAX(flagged) was tried and rejected: a thread would then sit at the top wearing an
+        // empty star, and tapping that star twice would not shift it, because an invisible
+        // older message held it there. Pinning the reader cannot see or undo is the very
+        // WYSIWYG break this change removes.
+        //
+        // Thread T carries a star on an OLD message; its representative t2 is unstarred, so T
+        // does not pin. Thread U's representative u2 IS starred, so U does.
+        insert("t1", threadId = "T", seen = 1, flagged = 1, sortKey = 100) // starred, older, not drawn
+        insert("t2", threadId = "T", seen = 1, flagged = 0, sortKey = 200) // representative, unstarred
+        insert("u1", threadId = "U", seen = 1, flagged = 0, sortKey = 250)
+        insert("u2", threadId = "U", seen = 1, flagged = 1, sortKey = 300) // representative, starred
+        insert("plain", threadId = null, seen = 1, flagged = 0, sortKey = 400)
 
         val rows = run(SortOrder.FLAGGED_FIRST)
-        assertEquals(listOf("t2", "plain"), ids(rows)) // the thread pins, shown by its latest message
+        assertEquals(listOf("u2", "plain", "t2"), ids(rows))
         assertEquals(2, rows[0]["threadCount"])
+        // Worth stating plainly: on IMAP this distinction cannot arise at all — threadId is
+        // always null there (ImapMailService), so every message is its own thread and the
+        // representative's flag IS the thread's. It is a JMAP-only shade of meaning.
+    }
+
+    @Test fun favouritesFirstCoexistsWithTheUnreadOnlyFilter() {
+        // The only combination of the new order left unexercised: FLAGGED_FIRST alongside
+        // unreadOnly, whose HAVING MIN(seen) = 0 sits in the same grouped query.
+        insert("fu", threadId = null, seen = 0, flagged = 1, sortKey = 100) // starred + unread → kept, pinned
+        insert("fr", threadId = null, seen = 1, flagged = 1, sortKey = 400) // starred but read → filtered out
+        insert("pu", threadId = null, seen = 0, flagged = 0, sortKey = 300) // plain + unread → kept
+        insert("pr", threadId = null, seen = 1, flagged = 0, sortKey = 200) // plain + read → filtered out
+
+        // The star pins inside the filtered set; it does not smuggle a read message back in.
+        assertEquals(listOf("fu", "pu"), ids(run(SortOrder.FLAGGED_FIRST, unreadOnly = true)))
+        assertEquals(listOf("fu", "pu"), runFlat("inbox", sort = SortOrder.FLAGGED_FIRST, unreadOnly = true))
     }
 
     // -- flat (uncollapsed) mode, colliding mailbox ids -----------------------------------
@@ -395,11 +419,12 @@ class ConversationSqlTest {
         vararg mailboxes: String,
         accountId: String? = null,
         sort: SortOrder = SortOrder.DATE_DESC,
+        unreadOnly: Boolean = false,
     ): List<String> {
         val sql = pagingSql(
             mailboxCount = mailboxes.size,
             sort = sort,
-            unreadOnly = false,
+            unreadOnly = unreadOnly,
             hasAccountId = accountId != null,
         )
         return db.prepareStatement(sql).use { ps ->
@@ -470,8 +495,9 @@ class ConversationSqlTest {
     //
     // The flat query had NO favourite-pin coverage at all before this — every case above
     // inserts flagged = 0, so the prefix could have been removed or kept and nothing here
-    // would have noticed. The flat list is what most readers actually see (conversation view
-    // is off by default), so it gets the same fixture as the collapsed one.
+    // would have noticed. Conversation view is ON by default, so this is the second list
+    // rather than the main one, but it is a wholly separate query (pagingSql) that carried
+    // the same defect, and one whose only pin coverage was the one it never had.
 
     @Test fun flatOrdersDoNotPinFavourites() {
         insertSortFixture()
