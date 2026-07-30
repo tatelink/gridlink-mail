@@ -125,6 +125,7 @@
     <string name="message_images_stop_sender">No mostrar automáticamente las imágenes de este remitente</string>
     <string name="message_open_link_title">¿Abrir este enlace?</string>
     <string name="message_open_link_open">Abrir</string>
+    <string name="message_open_link_copy">Copiar enlace</string>
     <string name="message_mark_unread">Marcar como no leído</string>
     <string name="message_delete">Eliminar</string>
     <string name="message_more">Más</string>

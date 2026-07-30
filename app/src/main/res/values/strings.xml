@@ -200,6 +200,7 @@
     <string name="message_images_stop_sender">Don\'t auto-show images from this sender</string>
     <string name="message_open_link_title">Open this link?</string>
     <string name="message_open_link_open">Open</string>
+    <string name="message_open_link_copy">Copy link</string>
     <string name="message_mark_unread">Mark unread</string>
     <string name="message_delete">Delete</string>
     <string name="message_more">More</string>

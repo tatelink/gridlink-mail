@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -2463,6 +2464,7 @@ private fun EmailWebView(
     modifier: Modifier,
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     // When confirmation is on, a tapped link is held here until the user approves it.
     var pendingLink by remember { mutableStateOf<Uri?>(null) }
     // Body laid out: JS is disabled, so this comes from the native scroll range, reported once it has
@@ -2660,10 +2662,42 @@ private fun EmailWebView(
     )
 
     pendingLink?.let { uri ->
+        val link = uri.toString()
         AlertDialog(
             onDismissRequest = { pendingLink = null },
             title = { Text(stringResource(R.string.message_open_link_title)) },
-            text = { Text(uri.toString()) },
+            text = {
+                Column {
+                    Text(link)
+                    // Copy the address instead of handing it to whatever app claims it (#108):
+                    // the confirmation used to be a dead end — open it in the default handler, or
+                    // give up. Copying lets the reader paste it wherever they meant it to go.
+                    //
+                    // It sits UNDER the URL, not as a third action button: Material's dialog has
+                    // exactly two action slots, and a third label crammed into one of them shares
+                    // that slot's single row — it cannot wrap, so the longer translations would be
+                    // clipped on a narrow screen. Here it also sits on the address it copies, the
+                    // way the sign-in code does. Copying closes the dialog: that IS the feedback,
+                    // and it is the whole gesture — the reader is leaving for somewhere else. No
+                    // message of our own on top, because Android 13+ already shows one and two
+                    // confirmations for one tap is one too many.
+                    TextButton(
+                        onClick = {
+                            clipboard.setText(AnnotatedString(link))
+                            pendingLink = null
+                        },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.message_open_link_copy))
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = { openExternally(context, uri); pendingLink = null }) {
                     Text(stringResource(R.string.message_open_link_open))
