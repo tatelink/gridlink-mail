@@ -33,6 +33,9 @@
     <string name="compose_discard_title">¿Descartar mensaje?</string>
     <string name="compose_discard_message">No has guardado los cambios.</string>
     <string name="compose_discard_message_encrypted">Este mensaje está cifrado, así que no puede guardarse como borrador: un borrador se almacena en el servidor de correo tal como lo escribiste, legible por cualquiera que tenga acceso. Si sales ahora, el mensaje se descarta.</string>
+    <string name="compose_discard_title_outbox">¿Descartar los cambios?</string>
+    <string name="compose_discard_message_outbox">Solo se descartan tus cambios: el mensaje sigue en la bandeja de salida. Elimínalo ahí si quieres deshacerte de él.</string>
+    <string name="compose_discard_changes">Descartar cambios</string>
     <string name="compose_discard_save">Guardar borrador</string>
     <string name="compose_discard_discard">Descartar</string>
     <string name="compose_discard_cancel">Cancelar</string>
