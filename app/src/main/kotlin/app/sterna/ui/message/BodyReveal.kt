@@ -142,3 +142,53 @@ internal object BodyReveal {
         )
     }
 }
+
+/**
+ * The reader's running [BarState] for one body, and the two events that feed it.
+ *
+ * A PLAIN holder, deliberately not Compose state. The fold needs the last scroll offset to tell a
+ * reader who moved from a measurement that landed late, and that offset changes on every scroll
+ * frame — so holding the whole [BarState] in a `mutableStateOf` would invalidate the reader's
+ * composition sixty times a second, on the very scroll path Codeberg #5/#6 were about. The live
+ * offset is kept out of composition on purpose everywhere else in the reader (the header's
+ * translate reads it in the layout phase only); this keeps the bar's bookkeeping out of it too.
+ * Only [shown] — a Boolean that changes a handful of times per message — is worth observing, and
+ * the caller mirrors it into a Compose state where writing the same value again costs nothing.
+ *
+ * The two methods are the two writers, so the rule about which of them may decide what lives here
+ * rather than at the call sites: they fold into ONE state, which is the whole point (#63).
+ */
+internal class BarReveal {
+    /** Whether the bar belongs on screen after every report folded in so far. */
+    var shown: Boolean = false
+        private set
+
+    /** Everything folded in so far. Exposed for tests; the reader only ever reads [shown]. */
+    var state: BarState = BarState()
+        private set
+
+    /**
+     * The body's height poll finished. [resting] is the scroll geometry it measured, and is null
+     * when it did not actually measure — it capped out and fell back to the tallest reading or the
+     * view's own height. A fallback height is not a measurement, so it decides nothing at all here:
+     * it neither reveals the bar nor takes one back, and the settle poll below has the last word,
+     * exactly as before #63. Returns [shown].
+     */
+    fun bodyReady(resting: BodyMetrics?, thresholdPx: Int): Boolean {
+        if (resting == null) return shown
+        return fold(resting.scrollY, resting.maxScrollPx, thresholdPx)
+    }
+
+    /**
+     * A live scroll report: the reader moved, or the load's settle poll fired its one terminal
+     * report now that the scroll range is final. Returns [shown].
+     */
+    fun scrolled(scrollY: Int, maxScrollPx: Int, thresholdPx: Int): Boolean =
+        fold(scrollY, maxScrollPx, thresholdPx)
+
+    private fun fold(scrollY: Int, maxScrollPx: Int, thresholdPx: Int): Boolean {
+        state = BodyReveal.barAfterReport(state, scrollY, maxScrollPx, thresholdPx)
+        shown = state.shown
+        return shown
+    }
+}

@@ -174,13 +174,35 @@ class BarOrderingTest {
         //      the body fits, so the bar comes up with it;
         //   2. the images land, the body is now five screens tall, and the load's settle poll fires
         //      its one terminal report with the grown range.
-        // Asking the per-report rule twice gives two answers, and the second one is the blink:
-        assertTrue(BodyReveal.barVisible(scrollY = 0, maxScrollPx = 0, thresholdPx = threshold))
-        assertFalse(BodyReveal.barVisible(scrollY = 0, maxScrollPx = 7080, thresholdPx = threshold))
-        // The shipped rule keeps it: the reader never moved, so nothing retracts it.
+        // Each verdict was right about the geometry it saw, which is why nothing about a single
+        // report can catch this. The reader never moved, so nothing may retract it.
         val states = replay(0 to 0, 0 to 7080)
         assertTrue("the bar was shown on report 1", states[0].shown)
         assertTrue("the bar came up and then went away again (#63)", states[1].shown)
+    }
+
+    @Test fun `DELIBERATE - a bar left on a body that grew under it stays until the reader scrolls`() {
+        // The no-retraction rule is asymmetric on purpose, and this is the case where it leaves the
+        // bar somewhere it does not belong: the body was measured as fitting, so the bar came up at
+        // scrollY 0; the images then made it five screens long while the reader had not moved. The
+        // bar is now at the TOP of a long message, offering "end of message" when it is not — a
+        // WYSIWYG deviation, accepted rather than overlooked. The alternative is to take it away
+        // again, which is precisely the blink the reporter filmed and the thing promised on 28 July
+        // never to do. It costs one stale affordance until the first scroll; the other way costs the
+        // bug. This test exists so the next reader knows the behaviour was chosen, not missed.
+        var state = BarState()
+        state = BodyReveal.barAfterReport(state, scrollY = 0, maxScrollPx = 0, thresholdPx = threshold)
+        assertTrue(state.shown)
+        state = BodyReveal.barAfterReport(state, scrollY = 0, maxScrollPx = 7080, thresholdPx = threshold)
+        assertTrue("the bar stays put on a body that grew under it", state.shown)
+        // …and it really is stale: the reader is at the top of a body it can scroll for 7080px, so
+        // the resting rule on its own would say no. The fold overrides it knowingly.
+        assertEquals(0, state.scrollY)
+        assertFalse(BodyReveal.barVisible(state.scrollY, state.maxScrollPx, threshold))
+        // It self-corrects on the reader's very first scroll, however small.
+        assertFalse(
+            BodyReveal.barAfterReport(state, scrollY = 1, maxScrollPx = 7080, thresholdPx = threshold).shown,
+        )
     }
 
     @Test fun `growth keeps arriving and the bar still never leaves`() {
@@ -276,5 +298,68 @@ class BarOrderingTest {
             high = maxOf(high, r)
             assertEquals(high, state.maxScrollPx)
         }
+    }
+}
+
+/**
+ * [BarReveal] — the seam the reader's two callbacks delegate to, so what each writer is ALLOWED to
+ * decide is testable instead of living in a composable. The rule itself is pinned above; what these
+ * add is that the two writers share one running state and that an unmeasured height is inert.
+ */
+class BarRevealTest {
+
+    private val threshold = 12
+
+    @Test fun `a fresh body has no bar and nothing measured`() {
+        val bar = BarReveal()
+        assertFalse(bar.shown)
+        assertEquals(BarState(), bar.state)
+    }
+
+    @Test fun `the readiness report and the scroll reports fold into one state`() {
+        // The wiring #63 was missing: the height poll reveals the bar on a body that fits, and the
+        // load's settle poll then fires its terminal report on the OTHER callback with the grown
+        // range. Two separate states here would let the second undo the first.
+        val bar = BarReveal()
+        assertTrue(bar.bodyReady(BodyMetrics(scrollY = 0, maxScrollPx = 0), threshold))
+        assertTrue("the two writers kept separate books", bar.scrolled(0, 7080, threshold))
+        assertEquals("the scroll report's range was not carried over", 7080, bar.state.maxScrollPx)
+    }
+
+    @Test fun `a range measured by the height poll is carried into the scroll reports`() {
+        // The other direction: the poll measured a long body, then a mid-reflow scroll report
+        // arrives with a briefly tiny range. Sharing the state is what stops it claiming "it fits".
+        val bar = BarReveal()
+        assertFalse(bar.bodyReady(BodyMetrics(scrollY = 0, maxScrollPx = 7080), threshold))
+        assertFalse("a reflow blip revealed the bar", bar.scrolled(0, 0, threshold))
+    }
+
+    @Test fun `an unmeasured height decides nothing`() {
+        // Guard: a fallback height (the poll capped out) is not a measurement. It may neither
+        // reveal the bar nor take one back, and it must not even be folded in — letting it through
+        // is how a long body claims it fits and blinks.
+        val bar = BarReveal()
+        assertFalse("a fallback height revealed the bar", bar.bodyReady(null, threshold))
+        assertEquals("a fallback height was folded in", BarState(), bar.state)
+        assertTrue(bar.scrolled(0, 0, threshold))
+        assertTrue("a fallback height took the bar back", bar.bodyReady(null, threshold))
+        assertEquals(0, bar.state.maxScrollPx)
+    }
+
+    @Test fun `shown always mirrors the folded state`() {
+        val bar = BarReveal()
+        val reports = listOf(0 to 0, 0 to 7080, 7080 to 7080, 3000 to 7080, 3000 to 9000)
+        for ((y, max) in reports) {
+            val returned = bar.scrolled(y, max, threshold)
+            assertEquals(bar.state.shown, bar.shown)
+            assertEquals(bar.shown, returned)
+        }
+    }
+
+    @Test fun `the reader reaching the end and scrolling away still works through the seam`() {
+        val bar = BarReveal()
+        assertFalse(bar.bodyReady(BodyMetrics(scrollY = 0, maxScrollPx = 7080), threshold))
+        assertTrue(bar.scrolled(7080, 7080, threshold))
+        assertFalse(bar.scrolled(3000, 7080, threshold))
     }
 }
