@@ -61,6 +61,7 @@ import app.sterna.core.jmap.JmapClient
 import app.sterna.core.jmap.JmapException
 import app.sterna.core.imap.CryptoEnvelope
 import app.sterna.core.imap.CryptoKind
+import app.sterna.core.imap.ImapUidValidityChanged
 import app.sterna.core.imap.MimeBody
 import app.sterna.core.imap.MimeParser
 import app.sterna.core.imap.OutgoingAttachment
@@ -584,6 +585,16 @@ class MailRepository(
 
     @Volatile
     private var context: Context? = null
+
+    /**
+     * IMAP folders the server has renumbered under us (Codeberg #99): what was keyed by UID and
+     * could not heal itself has just been dropped, and anything holding its own view of that
+     * folder should let it go too.
+     *
+     * A signal, not a call: the notification baseline lives in `:app`, and the data layer must
+     * not reach across the layer boundary to poke it.
+     */
+    val renumberedMailboxes: Flow<MailboxRenumbered> get() = imap.renumberedMailboxes
 
     private val tokenRefresher = OAuthTokenRefresher(oauthClient, accountStore)
 
@@ -2391,12 +2402,13 @@ class MailRepository(
     private suspend fun imapDestroyGroup(
         credentials: AccountCredentials, source: String, ids: List<String>,
         succeeded: MutableSet<String>, failed: MutableSet<String>,
+        expectedUidValidity: Long? = null,
     ) {
         val uidToId = ids.mapNotNull { id -> ImapMailService.uidOf(id)?.let { it to id } }.toMap()
         failed += ids.filter { ImapMailService.uidOf(it) == null }
         if (uidToId.isEmpty()) return
         val rows = emailDao.emailsByIds(credentials.id, uidToId.values.toList())
-        imap.deleteBatch(credentials, source, uidToId.keys.toList())
+        imap.deleteBatch(credentials, source, uidToId.keys.toList(), expectedUidValidity)
         uidToId.values.forEach { emailDao.deleteById(credentials.id, it); succeeded += it }
         adjustCountsForRemoval(rows, destMailboxId = null)
     }
@@ -2600,13 +2612,26 @@ class MailRepository(
     /** Permanently destroy a whole selection (one account) — the held-back bulk destroy
      *  (Codeberg #23/#29). THROWS on a transport-level failure (offline, dead connection) so
      *  the destroy worker retries instead of abandoning a confirmed destroy;
-     *  [BulkResult.failed] only carries per-id rejections (unparsable id, `notDestroyed`). */
-    suspend fun destroyAll(credentials: AccountCredentials, emailIds: List<String>): BulkResult {
+     *  [BulkResult.failed] only carries per-id rejections (unparsable id, `notDestroyed`).
+     *
+     *  [expectedUidValidity] is the IMAP numbering the ids were read under, when the caller has
+     *  one to offer (the Empty-trash snapshot does; an immediate destroy of rows the user is
+     *  looking at does not). A folder renumbered since then throws rather than destroying by
+     *  numbers that now mean something else (Codeberg #99). */
+    suspend fun destroyAll(
+        credentials: AccountCredentials,
+        emailIds: List<String>,
+        expectedUidValidity: Long? = null,
+    ): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
         if (credentials.protocol == MailProtocol.IMAP) {
             val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
             emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
-                if (source == null) failed += ids else imapDestroyGroup(credentials, source, ids, succeeded, failed)
+                if (source == null) {
+                    failed += ids
+                } else {
+                    imapDestroyGroup(credentials, source, ids, succeeded, failed, expectedUidValidity)
+                }
             }
             return BulkResult(succeeded, failed)
         }
@@ -2731,7 +2756,14 @@ class MailRepository(
 
     // ---- folder management ----
 
-    /** Create a new folder, then refresh the cached folder list. */
+    /**
+     * Create a new folder, then refresh the cached folder list.
+     *
+     * The typed [name] is Unicode and so is [parentId] — an IMAP folder id is its path DECODED
+     * from modified UTF-7 (Codeberg #101) — so the two simply concatenate here and the encoding
+     * happens at the socket. Building the path from a raw wire form and a typed name is what used
+     * to send a Cyrillic folder name as raw UTF-8 and have the server refuse or mangle it.
+     */
     suspend fun createFolder(credentials: AccountCredentials, name: String, parentId: String? = null) {
         if (credentials.protocol == MailProtocol.IMAP) {
             // IMAP nests by path; the parent's id is its full path.
@@ -2775,6 +2807,11 @@ class MailRepository(
      * Delete a folder AND its subfolders (deepest first — servers refuse to destroy a
      * parent that still has children), plus their cached messages and watch flags.
      * Returns every deleted folder id so the caller can clean per-folder state.
+     *
+     * The children are found by `startsWith(mailboxId + delimiter)`, so BOTH sides must be in
+     * the same representation: they are, because a listed path and a cached folder id are both
+     * the Unicode decoding of the wire name (Codeberg #101). Mixing the two would make this
+     * match nothing — a folder delete that silently deletes nothing, or the wrong set.
      */
     suspend fun deleteFolder(credentials: AccountCredentials, mailboxId: String): List<String> {
         val targets: List<String>
@@ -3082,11 +3119,29 @@ class MailRepository(
         // Collect anything a killed process or a raced Undo left behind before adding to it.
         purgeSnapshotDao.deleteOlderThan(now - TrashPurge.SNAPSHOT_TTL_MS)
         suspend fun cached() = cachedIds(listOf(credentials.id to trashMailboxId)).map { it.emailId }
+        // The IMAP numbering the frozen ids belong to (Codeberg #99). Read from the SELECT that
+        // enumerates the folder; if the server could not be asked and the cached ids stand in, it
+        // stays the numbering those cached ids were fetched under. Null on JMAP, where an id
+        // survives anything a mailbox can go through.
+        //
+        // Read BEFORE the enumeration, and that ordering is the whole point: if the folder turns
+        // out to have been renumbered, the enumeration refuses, the cached ids stand in — and
+        // those ids belong to the OLD numbering, which is what must be recorded. Reading it
+        // afterwards would pick up the new one the refusal just recorded and hand the purge a
+        // stale list stamped as current, i.e. exactly the destroy this guard exists to prevent.
+        val uidValidityBefore =
+            if (credentials.protocol == MailProtocol.IMAP) imap.recordedUidValidity(credentials.id, trashMailboxId)
+            else null
+        var observedUidValidity: Long? = null
         val ids = if (credentials.protocol == MailProtocol.IMAP) {
             TrashPurge.imapSnapshotIds(
                 accountId = credentials.id,
                 mailboxId = trashMailboxId,
-                serverUids = { imap.allUids(credentials, trashMailboxId, TrashPurge.SNAPSHOT_MAX) },
+                serverUids = {
+                    val snapshot = imap.snapshotUids(credentials, trashMailboxId, TrashPurge.SNAPSHOT_MAX)
+                    observedUidValidity = snapshot.uidValidity
+                    snapshot.uids
+                },
                 cached = { cached() },
             )
         } else {
@@ -3120,7 +3175,10 @@ class MailRepository(
             }
         }
         val purgeId = UUID.randomUUID().toString()
-        val rows = TrashPurge.snapshotRows(purgeId, credentials.id, trashMailboxId, ids, now)
+        val uidValidity = TrashPurge.snapshotUidValidity(observedUidValidity, uidValidityBefore)
+        val rows = TrashPurge.snapshotRows(
+            purgeId, credentials.id, trashMailboxId, ids, now, uidValidity = uidValidity,
+        )
         rows.chunked(PURGE_SNAPSHOT_INSERT_BATCH).forEach { purgeSnapshotDao.insertAll(it) }
         return TrashPurgeSnapshot(purgeId, rows.size)
     }
@@ -3135,17 +3193,44 @@ class MailRepository(
      * propagates (the worker retries) and the retry picks up exactly the ids not yet destroyed.
      *
      * An empty or missing snapshot destroys NOTHING. That is the point: no snapshot, no order.
+     *
+     * ON IMAP the order also has a numbering, and it is checked before anything is destroyed
+     * (Codeberg #99). The delay between the confirmation and this call is UNBOUNDED — the worker
+     * waits for connectivity, so a device left offline defers it indefinitely — and a folder can
+     * be renumbered in between, which makes every id in the list name a different message. Two
+     * refusals follow from that:
+     * - a snapshot carrying NO numbering cannot be checked, so it destroys nothing and is
+     *   dropped. That covers a purge confirmed by the previous version, and one built from the
+     *   cache for a folder whose numbering was never observed;
+     * - a numbering that no longer matches the server's aborts the purge where it stands. The
+     *   refusal is NOT caught as a failure to be retried: the snapshot is void, and the caches
+     *   that cannot heal themselves have already been dropped by the invalidation.
      */
     suspend fun purgeSnapshot(credentials: AccountCredentials, purgeId: String): Int {
         var destroyed = 0
-        for (wave in 1..TrashPurge.MAX_WAVES) {
-            // Read AND destroy scoped to (purgeId, accountId): an email id means something only
-            // inside its own account (issue #31) and only inside its own confirmation (#99).
-            val ids = purgeSnapshotDao.wave(purgeId, credentials.id, TrashPurge.DESTROY_WAVE)
-            if (ids.isEmpty()) break
-            val result = destroyAll(credentials, ids)
-            purgeSnapshotDao.deleteIds(purgeId, credentials.id, ids)
-            destroyed += result.succeeded.size
+        val head = purgeSnapshotDao.head(purgeId, credentials.id)
+        val imapPurge = credentials.protocol == MailProtocol.IMAP
+        if (imapPurge && head != null && !UidValidity.mayDestroy(head.uidValidity)) {
+            purgeSnapshotDao.deleteSnapshot(purgeId)
+            return 0
+        }
+        val expectedUidValidity = if (imapPurge) head?.uidValidity else null
+        try {
+            for (wave in 1..TrashPurge.MAX_WAVES) {
+                // Read AND destroy scoped to (purgeId, accountId): an email id means something only
+                // inside its own account (issue #31) and only inside its own confirmation (#99).
+                val ids = purgeSnapshotDao.wave(purgeId, credentials.id, TrashPurge.DESTROY_WAVE)
+                if (ids.isEmpty()) break
+                val result = destroyAll(credentials, ids, expectedUidValidity)
+                purgeSnapshotDao.deleteIds(purgeId, credentials.id, ids)
+                destroyed += result.succeeded.size
+            }
+        } catch (renumbered: ImapUidValidityChanged) {
+            // Not swallowed and not retried: the folder is not the one the user confirmed
+            // emptying. Destroy nothing more, drop the order.
+            purgeSnapshotDao.deleteSnapshot(purgeId)
+            refreshMailboxes(credentials)
+            return destroyed
         }
         purgeSnapshotDao.deleteSnapshot(purgeId)
         // Post-purge reconcile: re-fetch the folder list so the drawer counts reflect the
@@ -3173,9 +3258,15 @@ class MailRepository(
      * message rescued OUT of the Trash during the undo window — opened and filed elsewhere,
      * or an Undo that moved it back — was still on the list and got destroyed IN ITS NEW
      * FOLDER, the one place where the frozen list destroys more than the old re-read did, and
-     * against the user's explicit rescue. (IMAP is unaffected: an id there encodes folder+UID,
-     * so a `UID MOVE` leaves the snapshotted id pointing at a UID that no longer exists. The
-     * withdrawal is harmless there and deliberately not conditional on the protocol.)
+     * against the user's explicit rescue.
+     *
+     * IMAP is affected LESS, not "unaffected" — the sentence that used to stand here said an
+     * id encodes folder+UID, so a `UID MOVE` leaves it pointing at a UID that no longer exists.
+     * True, and true only until the folder is renumbered: UIDVALIDITY changing is exactly the
+     * event that makes a vacated UID mean something again (RFC 3501 §2.3.1.1), and then a stale
+     * id names whatever now holds that number. So the withdrawal is not merely harmless on IMAP,
+     * it is one of the two things standing between a stale id and a destroy — the other being
+     * the UIDVALIDITY recorded with the snapshot, which is what [purgeSnapshot] verifies.
      *
      * Called at the TOP of every mover, on the ids the caller asked to move, BEFORE the server
      * round-trip: a rescue that races the purge's first wave then still wins, and a move that

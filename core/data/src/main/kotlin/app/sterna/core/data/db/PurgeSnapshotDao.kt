@@ -39,6 +39,18 @@ interface PurgeSnapshotDao {
     @Query("SELECT COUNT(*) FROM purge_snapshot WHERE purgeId = :purgeId AND accountId = :accountId")
     suspend fun count(purgeId: String, accountId: String): Int
 
+    /**
+     * What the snapshot as a whole says: which folder it froze and under which UIDVALIDITY.
+     * Every row of one purge carries the same pair, so one row answers it. Null when the purge
+     * has no snapshot at all — which the caller must read exactly like a null uidValidity:
+     * no order, destroy nothing.
+     */
+    @Query(
+        "SELECT mailboxId, uidValidity FROM purge_snapshot " +
+            "WHERE purgeId = :purgeId AND accountId = :accountId LIMIT 1",
+    )
+    suspend fun head(purgeId: String, accountId: String): PurgeSnapshotHead?
+
     @Query(
         "DELETE FROM purge_snapshot WHERE purgeId = :purgeId AND accountId = :accountId " +
             "AND emailId IN (:emailIds)",
@@ -75,3 +87,9 @@ interface PurgeSnapshotDao {
     @Query("DELETE FROM purge_snapshot WHERE createdAt < :cutoff")
     suspend fun deleteOlderThan(cutoff: Long)
 }
+
+/** Projection for [PurgeSnapshotDao.head]: the folder a snapshot froze and its numbering. */
+data class PurgeSnapshotHead(
+    val mailboxId: String,
+    val uidValidity: Long?,
+)

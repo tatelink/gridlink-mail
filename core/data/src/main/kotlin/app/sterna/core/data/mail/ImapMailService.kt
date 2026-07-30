@@ -8,9 +8,11 @@ import app.sterna.core.data.db.EmailRecipients
 import app.sterna.core.data.db.MailboxEntity
 import app.sterna.core.imap.ImapClient
 import app.sterna.core.imap.ImapIdleConnection
+import app.sterna.core.imap.ImapMailboxStatus
 import app.sterna.core.imap.ImapMessage
 import app.sterna.core.imap.ImapSearchCriteria
 import app.sterna.core.imap.ImapSession
+import app.sterna.core.imap.ImapUidValidityChanged
 import app.sterna.core.imap.MailSecurity
 import app.sterna.core.imap.MailServerConfig
 import app.sterna.core.imap.MimeParser
@@ -25,6 +27,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -93,6 +96,8 @@ class ImapMailService(
     private val imapClient: ImapClient,
     private val smtpClient: SmtpClient,
     private val tokenRefresher: OAuthTokenRefresher,
+    /** Where each folder's UIDVALIDITY is remembered; [UidValidityStore.None] verifies nothing. */
+    private val uidValidity: UidValidityStore = UidValidityStore.None,
 ) {
     /** A pooled, reusable connection for one account. */
     private class Pooled {
@@ -159,6 +164,11 @@ class ImapMailService(
                 runCatching { session.close() }
                 pooled.session = null
                 throw cancelled
+            } catch (renumbered: ImapUidValidityChanged) {
+                // Not a transport failure: the connection is healthy and the answer would be the
+                // same on a fresh one. Retrying would only ask the server to renumber the folder
+                // back. Keep the session and let the refusal through (Codeberg #99).
+                throw renumbered
             } catch (t: Throwable) {
                 runCatching { session.close() }
                 pooled.session = null
@@ -166,6 +176,61 @@ class ImapMailService(
             }
         }
     }
+
+    /**
+     * THE CHOKEPOINT for anything addressed by UID: SELECT the folder, check that its numbering
+     * is still the one our UIDs belong to, then run [block] (Codeberg #99).
+     *
+     * Every command below that names a UID — a flag, a move, a destroy, a body fetch — is
+     * preceded by a `select()` whose status was, until now, read and thrown away. It carries the
+     * folder's UIDVALIDITY, and UIDVALIDITY changing is the one event that makes a UID mean a
+     * DIFFERENT message rather than no message (RFC 3501 §2.3.1.1). Doing the check here, once,
+     * is what stops a caller from forgetting it.
+     *
+     * [expectedUidValidity] overrides the remembered value for a caller that carries its own —
+     * an "Empty trash" snapshot was frozen under a numbering of its own, possibly hours before
+     * the destroy worker gets connectivity, and that is the value its ids belong to.
+     *
+     * A mismatch invalidates what cannot heal itself and propagates: nothing is retried, nothing
+     * is swallowed. The remembered value is written AFTER the block succeeds, and the read is
+     * done BEFORE the session is taken, because the store is suspending and the session block
+     * is not.
+     *
+     * Multi-folder reads ([loadFolder], [loadWatchedFolders], [search]) deliberately do not come
+     * through here: they select folders they have just discovered, they destroy nothing, and
+     * failing a whole inbox refresh over one renumbered folder would be the wrong trade. The
+     * folder gets checked the moment anything is done to a message in it.
+     */
+    private suspend fun <T> onMailbox(
+        credentials: AccountCredentials,
+        mailboxId: String,
+        budgetMs: Int = 0,
+        expectedUidValidity: Long? = null,
+        block: (ImapSession, ImapMailboxStatus) -> T,
+    ): T {
+        val expected = expectedUidValidity ?: uidValidity.recorded(credentials.id, mailboxId)
+        var observed = 0L
+        val result = try {
+            withSession(credentials, budgetMs) { session ->
+                val status = session.select(mailboxId, expected)
+                observed = status.uidValidity
+                block(session, status)
+            }
+        } catch (renumbered: ImapUidValidityChanged) {
+            uidValidity.invalidate(credentials.id, mailboxId, renumbered.observed)
+            throw renumbered
+        }
+        uidValidity.record(credentials.id, mailboxId, observed)
+        return result
+    }
+
+    /** The numbering last observed for a folder, for a caller that has to record it elsewhere
+     *  (the Empty-trash snapshot, when it falls back to the cached ids). */
+    suspend fun recordedUidValidity(accountId: String, mailboxId: String): Long? =
+        uidValidity.recorded(accountId, mailboxId)
+
+    /** Folders whose UIDVALIDITY moved under us — a signal, so no layer has to reach into another. */
+    val renumberedMailboxes: Flow<MailboxRenumbered> get() = uidValidity.renumbered
 
     /**
      * Open a dedicated IDLE connection on the account's INBOX for push. Separate from the
@@ -311,8 +376,7 @@ class ImapMailService(
         mailboxId: String,
         offset: Int,
         limit: Int,
-    ): Pair<List<EmailEntity>, Int> = withSession(credentials) { session ->
-        val status = session.select(mailboxId)
+    ): Pair<List<EmailEntity>, Int> = onMailbox(credentials, mailboxId) { session, status ->
         val messages = session.fetchPage(status.exists, offset, limit)
             .map { it.toEntity(credentials.id, mailboxId) }
         messages to status.exists
@@ -324,15 +388,15 @@ class ImapMailService(
 
     /** Set or clear an IMAP flag (e.g. \Seen, \Flagged) on a message. */
     suspend fun setFlag(credentials: AccountCredentials, mailboxId: String, uid: Long, flag: String, set: Boolean) =
-        withSession(credentials) { it.select(mailboxId); it.setFlag(uid, flag, set) }
+        onMailbox(credentials, mailboxId) { session, _ -> session.setFlag(uid, flag, set) }
 
     /** Move a message to [destMailbox]; returns its new UID there (for undo), or null. */
     suspend fun move(credentials: AccountCredentials, sourceMailbox: String, uid: Long, destMailbox: String): Long? =
-        withSession(credentials) { it.select(sourceMailbox); it.move(uid, destMailbox) }
+        onMailbox(credentials, sourceMailbox) { session, _ -> session.move(uid, destMailbox) }
 
     /** Permanently delete a message (\Deleted, then erased by UID) when there's no Trash. */
     suspend fun deleteMessage(credentials: AccountCredentials, mailboxId: String, uid: Long) =
-        withSession(credentials) { it.select(mailboxId); it.delete(uid) }
+        onMailbox(credentials, mailboxId) { session, _ -> session.delete(uid) }
 
     /**
      * Move many messages from one source folder to [destMailbox] in a single session —
@@ -341,11 +405,23 @@ class ImapMailService(
      * whole batch back; empty if the server reported none.
      */
     suspend fun moveBatch(credentials: AccountCredentials, sourceMailbox: String, uids: List<Long>, destMailbox: String): Map<Long, Long> =
-        withSession(credentials) { it.select(sourceMailbox); it.move(uids, destMailbox) }
+        onMailbox(credentials, sourceMailbox) { session, _ -> session.move(uids, destMailbox) }
 
-    /** Permanently delete many messages from one folder in a single session (Codeberg #29). */
-    suspend fun deleteBatch(credentials: AccountCredentials, mailboxId: String, uids: List<Long>) =
-        withSession(credentials) { it.select(mailboxId); it.delete(uids) }
+    /**
+     * Permanently delete many messages from one folder in a single session (Codeberg #29).
+     *
+     * [expectedUidValidity] is the numbering the caller's UIDs were read under — the one frozen
+     * with an "Empty trash" snapshot. A folder renumbered since then refuses the whole call
+     * ([ImapUidValidityChanged]) instead of destroying whatever now holds those numbers (#99).
+     */
+    suspend fun deleteBatch(
+        credentials: AccountCredentials,
+        mailboxId: String,
+        uids: List<Long>,
+        expectedUidValidity: Long? = null,
+    ) = onMailbox(credentials, mailboxId, expectedUidValidity = expectedUidValidity) { session, _ ->
+        session.delete(uids)
+    }
 
     /**
      * At most [cap] UIDs currently in [mailboxId] — one SELECT + one `UID SEARCH ALL`, no
@@ -364,17 +440,17 @@ class ImapMailService(
      * the cached ids. Waiting out a black-holed network on this path would leave a success
      * message on screen over an untouched list.
      */
-    suspend fun allUids(credentials: AccountCredentials, mailboxId: String, cap: Int): List<Long> =
-        withSession(credentials, budgetMs = ENUMERATE_BUDGET_MS) { session ->
-            session.select(mailboxId)
-            session.allUids(cap)
+    suspend fun snapshotUids(credentials: AccountCredentials, mailboxId: String, cap: Int): ImapUidSnapshot =
+        onMailbox(credentials, mailboxId, budgetMs = ENUMERATE_BUDGET_MS) { session, status ->
+            // The numbering comes back WITH the ids: they are only an order for as long as it
+            // holds, so the caller freezes the two together (Codeberg #99).
+            ImapUidSnapshot(session.allUids(cap), status.uidValidity)
         }
 
     /** Fetch several messages by UID from one folder in a single session (e.g. to re-cache a restored batch). */
     suspend fun fetchByUids(credentials: AccountCredentials, mailboxId: String, uids: List<Long>): List<EmailEntity> =
         if (uids.isEmpty()) emptyList()
-        else withSession(credentials) { session ->
-            session.select(mailboxId)
+        else onMailbox(credentials, mailboxId) { session, _ ->
             session.fetchUids(uids).map { it.toEntity(credentials.id, mailboxId) }
         }
 
@@ -444,24 +520,19 @@ class ImapMailService(
         uid: Long,
         section: String,
         encoding: String?,
-    ): ByteArray = withSession(credentials) { session ->
-        session.select(mailboxId)
+    ): ByteArray = onMailbox(credentials, mailboxId) { session, _ ->
         MimeParser.decodeBytes(session.fetchSection(uid, section), encoding)
     }
 
     /** Fetch one message by UID into a cache entity (used to restore after an undo). */
     suspend fun fetchByUid(credentials: AccountCredentials, mailboxId: String, uid: Long): EmailEntity? =
-        withSession(credentials) { session ->
-            session.select(mailboxId)
+        onMailbox(credentials, mailboxId) { session, _ ->
             session.fetchByUid(uid)?.toEntity(credentials.id, mailboxId)
         }
 
     /** Raw RFC822 source of a message (caller parses out the body/attachments). */
     suspend fun fetchSource(credentials: AccountCredentials, mailboxId: String, uid: Long): String =
-        withSession(credentials) { session ->
-            session.select(mailboxId)
-            session.fetchSource(uid)
-        }
+        onMailbox(credentials, mailboxId) { session, _ -> session.fetchSource(uid) }
 
     private fun ImapMessage.toEntity(accountId: String, mailboxId: String): EmailEntity {
         val id = emailId(accountId, mailboxId, uid)
@@ -555,6 +626,15 @@ class ImapMailService(
  * folder's local attachment filter hit its scan cap before running out of candidates.
  */
 data class ImapSearchHits(val messages: List<EmailEntity>, val complete: Boolean)
+
+/**
+ * A folder's UIDs and the numbering they belong to, read in the same SELECT.
+ *
+ * The two travel together on purpose: a list of UIDs without its UIDVALIDITY is a list of
+ * numbers that may already mean something else (Codeberg #99). [uidValidity] is 0 when the
+ * server reported none.
+ */
+data class ImapUidSnapshot(val uids: List<Long>, val uidValidity: Long)
 
 /**
  * The IMAP-expressible part of a [SearchQuery]. `hasAttachment` is deliberately absent: IMAP

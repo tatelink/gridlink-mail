@@ -10,11 +10,25 @@ import java.net.Socket
 import java.time.OffsetDateTime
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import java.util.Base64
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
 class ImapException(message: String) : Exception(message)
+
+/**
+ * The selected mailbox has been renumbered: its UIDVALIDITY is no longer the one the caller's
+ * UIDs were read under, so those UIDs mean nothing (RFC 3501 §2.3.1.1).
+ *
+ * Deliberately NOT an [ImapException]: it is not a protocol error and not a transport failure,
+ * and the existing `catch (e: ImapException)` / reconnect-and-retry paths must not absorb it.
+ * Retrying cannot help — the folder really was renumbered — and treating it as a failure to be
+ * swallowed is how a stale UID gets acted on. See [ImapSession.select].
+ */
+class ImapUidValidityChanged(
+    val mailbox: String,
+    val expected: Long,
+    val observed: Long,
+) : Exception("UIDVALIDITY of $mailbox changed from $expected to $observed")
 
 /**
  * Turn on RFC 2818 endpoint identification so the TLS handshake verifies the peer
@@ -286,19 +300,36 @@ class ImapSession(private var socket: Socket) : Closeable {
         return changed
     }
 
+    /**
+     * A mailbox name as it must appear in a command: Unicode in, modified UTF-7 out
+     * ([encodeModifiedUtf7]), then quoted.
+     *
+     * EVERY command that names a mailbox goes through this — SELECT, CREATE, RENAME (both
+     * arguments), DELETE, the destination of UID MOVE and of its UID COPY fallback, APPEND —
+     * and it lives here rather than at the callers precisely so that adding a command cannot
+     * quietly skip it. Above this class a mailbox path is Unicode and nothing else (Codeberg
+     * #101): decoding LIST without encoding these seven would make a Cyrillic folder readable
+     * and unopenable.
+     *
+     * Encode BEFORE quote, never after: the encoded form is pure ASCII, so [quote]'s refusal of
+     * CR/LF — the guard against a folder name injecting a second authenticated command — still
+     * holds, and a newline can no longer even reach it.
+     */
+    private fun mailboxArg(path: String): String = quote(encodeModifiedUtf7(path))
+
     /** Create a mailbox (folder). Succeeds quietly if it already exists. */
     fun createFolder(path: String) {
-        runCatching { command("CREATE ${quote(path)}") }
+        runCatching { command("CREATE ${mailboxArg(path)}") }
     }
 
     /** Rename a mailbox from [oldPath] to [newPath]. */
     fun renameFolder(oldPath: String, newPath: String) {
-        command("RENAME ${quote(oldPath)} ${quote(newPath)}")
+        command("RENAME ${mailboxArg(oldPath)} ${mailboxArg(newPath)}")
     }
 
     /** Delete a mailbox. */
     fun deleteFolder(path: String) {
-        command("DELETE ${quote(path)}")
+        command("DELETE ${mailboxArg(path)}")
     }
 
     /** Move a message to another mailbox; returns its new UID in the destination if reported. */
@@ -327,9 +358,9 @@ class ImapSession(private var socket: Socket) : Closeable {
         for (chunk in uids.distinct().chunked(UID_SET_CHUNK)) {
             val set = compressUidSet(chunk)
             if (set.isEmpty()) continue
-            val result = runCatching { command("UID MOVE $set ${quote(destination)}") }.getOrElse {
+            val result = runCatching { command("UID MOVE $set ${mailboxArg(destination)}") }.getOrElse {
                 val byUid = hasCapability(CAP_UIDPLUS)
-                val copy = command("UID COPY $set ${quote(destination)}")
+                val copy = command("UID COPY $set ${mailboxArg(destination)}")
                 command("UID STORE $set +FLAGS (\\Deleted)")
                 // Best effort, unlike in [delete]: the copy has already landed, so failing here
                 // would have the caller retry a move that would copy a second time. Leaving the
@@ -402,8 +433,25 @@ class ImapSession(private var socket: Socket) : Closeable {
     /** LIST every mailbox, inferring a role from special-use attributes or the name. */
     fun listFolders(): List<ImapFolder> = parseListFolders(command("LIST \"\" \"*\"").untagged)
 
-    fun select(path: String): ImapMailboxStatus {
-        val result = command("SELECT ${quote(path)}")
+    /**
+     * SELECT a mailbox and read back its status.
+     *
+     * [expectedUidValidity] is the UIDVALIDITY this caller's UIDs were read under. When the
+     * server now reports a different one, every UID in that folder has been reassigned (RFC 3501
+     * §2.3.1.1) — a UID that used to mean one message now means another, or nothing — and the
+     * call is refused with [ImapUidValidityChanged] BEFORE a single command that names a UID
+     * goes out. That is the whole IMAP side of Codeberg #99: a held-back "Empty trash" that
+     * finds a renumbered folder must destroy nothing, not destroy "whatever holds those numbers
+     * now".
+     *
+     * `null`, the default, asks nothing and is what every discovery path passes: the first
+     * SELECT of a folder has nothing to compare against. A server that reports no UIDVALIDITY at
+     * all (0) cannot be checked either way, and is not turned into a refusal — that would break
+     * the folder outright on a non-conforming server, which is the wrong direction for a guard
+     * whose job is to be conservative about DESTROYING.
+     */
+    fun select(path: String, expectedUidValidity: Long? = null): ImapMailboxStatus {
+        val result = command("SELECT ${mailboxArg(path)}")
         var exists = 0
         var uidValidity = 0L
         var uidNext = 0L
@@ -413,6 +461,11 @@ class ImapSession(private var socket: Socket) : Closeable {
             val flat = resp.joinToString(" ") { it?.toString() ?: "NIL" }
             Regex("UIDVALIDITY (\\d+)").find(flat)?.let { uidValidity = it.groupValues[1].toLong() }
             Regex("UIDNEXT (\\d+)").find(flat)?.let { uidNext = it.groupValues[1].toLong() }
+        }
+        if (expectedUidValidity != null && expectedUidValidity > 0L &&
+            uidValidity > 0L && uidValidity != expectedUidValidity
+        ) {
+            throw ImapUidValidityChanged(path, expectedUidValidity, uidValidity)
         }
         return ImapMailboxStatus(exists, uidValidity, uidNext)
     }
@@ -616,7 +669,7 @@ class ImapSession(private var socket: Socket) : Closeable {
         val bytes = message.toByteArray(Charsets.UTF_8)
         val tag = "a${++tagN}"
         val flagPart = if (flags.isNotBlank()) "($flags) " else ""
-        output.write("$tag APPEND ${quote(mailbox)} $flagPart{${bytes.size}}\r\n".toByteArray(Charsets.UTF_8))
+        output.write("$tag APPEND ${mailboxArg(mailbox)} $flagPart{${bytes.size}}\r\n".toByteArray(Charsets.UTF_8))
         output.flush()
         val cont = input.readResponse()
         if (cont.getOrNull(0) != "+") throw ImapException("APPEND not accepted: $cont")
@@ -727,53 +780,6 @@ class ImapSession(private var socket: Socket) : Closeable {
                 .getOrDefault(0L)
         }
 
-        /** Decode RFC 2047 encoded-words ("=?utf-8?B?..?=" / "=?..?Q?..?=") in a header. */
-        fun decodeWords(text: String?): String? {
-            if (text == null) return null
-            val pattern = Regex("=\\?([^?]+)\\?([BbQq])\\?([^?]*)\\?=")
-            return pattern.replace(text) { m ->
-                val charset = runCatching { charset(m.groupValues[1].substringBefore('*')) }.getOrDefault(Charsets.UTF_8)
-                val enc = m.groupValues[2].uppercase()
-                val data = m.groupValues[3]
-                runCatching {
-                    val bytes = if (enc == "B") {
-                        Base64.getMimeDecoder().decode(data)
-                    } else {
-                        decodeQ(data)
-                    }
-                    String(bytes, charset)
-                }.getOrDefault(m.value)
-            }.let { stripBidiAndControls(it) }.trim()
-        }
-
-        /**
-         * Remove control characters and Unicode bidi overrides from a decoded header before it
-         * is shown. A crafted display name can otherwise embed RTL/LTR overrides (e.g. to make
-         * "moc.knab@troppus" read as a bank address) or control chars for spoofing/UI confusion.
-         */
-        private fun stripBidiAndControls(s: String): String = s.filterNot { c ->
-            val code = c.code
-            (code in 0x00..0x08) || (code in 0x0B..0x1F) || (code in 0x7F..0x9F) ||
-                (code in 0x202A..0x202E) || (code in 0x2066..0x2069) || code == 0x200F || code == 0x200E
-        }
-
-        private fun decodeQ(data: String): ByteArray {
-            val out = ArrayList<Byte>(data.length)
-            var i = 0
-            while (i < data.length) {
-                when (val c = data[i]) {
-                    '_' -> { out.add(' '.code.toByte()); i++ }
-                    '=' -> {
-                        val hex = data.substring(i + 1, (i + 3).coerceAtMost(data.length))
-                        val byte = if (hex.length == 2) hex.toIntOrNull(16) else null
-                        if (byte != null) { out.add(byte.toByte()); i += 3 }
-                        else { out.add('='.code.toByte()); i++ } // dangling/invalid escape: keep literal '='
-                    }
-                    else -> { out.add(c.code.toByte()); i++ }
-                }
-            }
-            return out.toByteArray()
-        }
     }
 }
 
@@ -902,6 +908,14 @@ internal class ImapResult(
  * children keep their full path and re-parent to top level (the drawer infers parents
  * from the path, finds the dropped container missing, and promotes them). INBOX is
  * never dropped, even if a server mislabels it.
+ *
+ * THE ONE PLACE a mailbox name is decoded ([decodeModifiedUtf7], Codeberg #101): everything
+ * above this function holds Unicode, and [ImapSession] encodes again on its way out.
+ *
+ * [ImapFolder.path] is the FAITHFUL decoding — nothing filtered — because it is an identifier:
+ * it has to encode back to the exact bytes the server sent or the folder stops opening. The
+ * anti-spoofing filter therefore applies to [ImapFolder.name], the display leaf, and only
+ * there. A path is never displayed and a name is never sent.
  */
 internal fun parseListFolders(untagged: List<List<Any?>>): List<ImapFolder> =
     untagged.mapNotNull { resp ->
@@ -910,8 +924,8 @@ internal fun parseListFolders(untagged: List<List<Any?>>): List<ImapFolder> =
         @Suppress("UNCHECKED_CAST")
         val attrs = (resp.getOrNull(2) as? List<Any?>)?.mapNotNull { it as? String } ?: emptyList()
         val delim = resp.getOrNull(3) as? String ?: "/"
-        val path = resp.getOrNull(4) as? String ?: return@mapNotNull null
-        val name = path.substringAfterLast(delim)
+        val path = decodeModifiedUtf7(resp.getOrNull(4) as? String ?: return@mapNotNull null)
+        val name = stripBidiAndControls(path.substringAfterLast(delim))
         val nonSelectable = attrs.any {
             it.equals("\\Noselect", ignoreCase = true) || it.equals("\\NonExistent", ignoreCase = true)
         }

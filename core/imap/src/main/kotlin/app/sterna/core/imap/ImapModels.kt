@@ -38,8 +38,13 @@ internal fun xoauth2Payload(username: String, accessToken: String): String {
 
 /** A mailbox returned by LIST, with any role inferred from its name/attributes. */
 data class ImapFolder(
+    /** The display leaf, decoded and stripped of bidi/control characters. Never sent back. */
     val name: String,
-    /** The raw IMAP mailbox path (what SELECT takes). */
+    /**
+     * The mailbox path in UNICODE, decoded from modified UTF-7 (Codeberg #101) — the app's
+     * identifier for the folder, and what every `ImapSession` command takes. It is re-encoded
+     * at the socket, so it must stay a faithful decoding: nothing is filtered out of it.
+     */
     val path: String,
     /** A normalised role ("inbox", "sent", "drafts", "trash", "junk", "archive") or null. */
     val role: String?,

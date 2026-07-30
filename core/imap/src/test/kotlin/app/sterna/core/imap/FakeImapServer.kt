@@ -68,9 +68,13 @@ internal class FakeImapServer(
 /** A canned OK response with no untagged lines. */
 internal fun ok(tag: String) = "$tag OK done\r\n"
 
-/** A canned SELECT response for a folder holding [exists] messages. */
-internal fun selectResponse(tag: String, exists: Int = 10): String =
-    "* $exists EXISTS\r\n* OK [UIDVALIDITY 1] ok\r\n* OK [UIDNEXT ${exists + 1}] ok\r\n$tag OK [READ-WRITE] selected\r\n"
+/**
+ * A canned SELECT response for a folder holding [exists] messages, announcing [uidValidity] as
+ * its numbering — the value a renumbering test moves (Codeberg #99).
+ */
+internal fun selectResponse(tag: String, exists: Int = 10, uidValidity: Long = 1L): String =
+    "* $exists EXISTS\r\n* OK [UIDVALIDITY $uidValidity] ok\r\n* OK [UIDNEXT ${exists + 1}] ok\r\n" +
+        "$tag OK [READ-WRITE] selected\r\n"
 
 /** A canned `UID SEARCH` result listing [uids]. */
 internal fun searchResponse(tag: String, uids: List<Long>): String =
