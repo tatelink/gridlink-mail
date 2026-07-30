@@ -2,6 +2,8 @@ package app.sterna.ui.compose
 
 import app.sterna.core.data.pgp.PgpMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -35,9 +37,30 @@ class DiscardWordingTest {
         // Reached by closing the padlock BY HAND on a message reopened from the outbox — an already
         // encrypted row cannot be reopened at all (OutboxLogic.canEdit refuses it, its ciphertext
         // is not in the row). The encrypted wording ends on "Leaving now discards the message",
-        // which is false here: the row is still in the outbox. The outbox wording wins, because it
+        // which is false here: the row is still in the outbox. An outbox wording wins, because it
         // is the one that says what actually became of the mail.
-        assertEquals(DiscardWording.OUTBOX, discardWording(editingOutbox = true, mayKeepDraft = false))
+        assertTrue(discardWording(editingOutbox = true, mayKeepDraft = false).fromOutbox)
+    }
+
+    @Test fun theOutboxWordingSplitsOnWhetherSaveDraftIsOnOffer() {
+        // The body has to be true of BOTH buttons in front of the user, and "Save draft" is the one
+        // that takes the message OUT of the outbox (it consumes the queued row). So the sentence
+        // that mentions drafts is used only where that button exists; the other layout, which can
+        // only leave, gets the shorter sentence and may point at the outbox's own delete.
+        assertEquals(DiscardWording.OUTBOX, discardWording(editingOutbox = true, mayKeepDraft = true))
+        assertEquals(
+            DiscardWording.OUTBOX_ENCRYPTED,
+            discardWording(editingOutbox = true, mayKeepDraft = false),
+        )
+    }
+
+    @Test fun bothOutboxLayoutsShareTheirTitleAndTheirDiscardButton() {
+        // Only the body differs between the two: [fromOutbox] is what the title and the button key
+        // on, so they cannot drift apart as the body splits.
+        assertTrue(discardWording(editingOutbox = true, mayKeepDraft = true).fromOutbox)
+        assertTrue(discardWording(editingOutbox = true, mayKeepDraft = false).fromOutbox)
+        assertFalse(discardWording(editingOutbox = false, mayKeepDraft = true).fromOutbox)
+        assertFalse(discardWording(editingOutbox = false, mayKeepDraft = false).fromOutbox)
     }
 
     @Test fun theDialogAndTheToolbarAgreeOnWhatMayBecomeADraft() {

@@ -1,6 +1,9 @@
 package app.sterna.ui.compose
 
+import app.sterna.send.SendOutbox
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -83,5 +86,55 @@ class ComposeTitleTest {
     @Test fun aHeldOutboxRowOnlyTitlesAComposerThatWasActuallyRestored() {
         // Belt and braces: the flag alone, without the navigation argument, is not an edit.
         assertEquals(ComposeTitle.NEW, title(restore = false, editingOutbox = true))
+    }
+
+    // --- where the flag itself comes from --------------------------------------------------------
+    //
+    // The defect was never in the title's `when`; it was in what the `when` was handed. These cover
+    // the input, which the ViewModel now asks [holdsQueuedOutboxRow] for in both places it needs it.
+
+    private fun draft(editingOutboxId: Long?) = SendOutbox.ComposeDraft(
+        to = "jordan@example.org",
+        cc = "",
+        bcc = "",
+        subject = "Report",
+        body = "Body",
+        fromAccountId = "acc1",
+        fromIdentityEmail = "alex@example.org",
+        attachments = emptyList(),
+        inReplyTo = emptyList(),
+        references = emptyList(),
+        editingOutboxId = editingOutboxId,
+    )
+
+    @Test fun aRestoreCarryingAQueuedRowHoldsIt() {
+        assertTrue(holdsQueuedOutboxRow(restore = true, restored = draft(editingOutboxId = 7L)))
+    }
+
+    @Test fun aRestoreThatFoundNothingHoldsNothing() {
+        // THE historical defect, at its source: the app was killed, so the argument survived and the
+        // handed-over draft did not. `restore=true` on its own must not mean "a row is behind this".
+        assertFalse(holdsQueuedOutboxRow(restore = true, restored = null))
+    }
+
+    @Test fun anUndoneSendHoldsNothingEither() {
+        // A draft is there, but undoing the send already dropped its row: nothing to hand back.
+        assertFalse(holdsQueuedOutboxRow(restore = true, restored = draft(editingOutboxId = null)))
+    }
+
+    @Test fun aComposerThatIsNotARestoreHoldsNothing() {
+        // A draft left unconsumed in the handle must not leak into an ordinary compose — this is
+        // what stops the leave dialog describing an outbox row that is not behind this screen.
+        assertFalse(holdsQueuedOutboxRow(restore = false, restored = draft(editingOutboxId = 7L)))
+    }
+
+    @Test fun theTitleAgreesWithWhatTheComposerActuallyHolds() {
+        // The two halves joined the way the ViewModel joins them: the flag the screen is given is
+        // this function's answer, so an empty restored composer can no longer read "Edit".
+        val killed = holdsQueuedOutboxRow(restore = true, restored = null)
+        assertEquals(ComposeTitle.NEW, title(restore = true, editingOutbox = killed))
+
+        val reopened = holdsQueuedOutboxRow(restore = true, restored = draft(editingOutboxId = 7L))
+        assertEquals(ComposeTitle.OUTBOX_EDIT, title(restore = true, editingOutbox = reopened))
     }
 }

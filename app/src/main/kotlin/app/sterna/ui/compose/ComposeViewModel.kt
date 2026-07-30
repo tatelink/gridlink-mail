@@ -126,8 +126,13 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      * Nothing handed over (the app was killed and the in-memory draft died with it) reads false,
      * which is the truth — there is no row in front of the user and nothing to edit. [prepare] then
      * settles it for every way of opening the composer, so the seed is never the last word.
+     *
+     * The seed asks [holdsQueuedOutboxRow] with `restore = true` because that argument has not
+     * reached the ViewModel yet: it answers "IF this is a restore, is a row behind it?". Safe on its
+     * own — [composeTitle] re-tests `restore`, and [prepare] overwrites this a moment later with the
+     * real one, before any tap can reach the leave dialog.
      */
-    private val _editingOutbox = MutableStateFlow(outbox.restored.value?.editingOutboxId != null)
+    private val _editingOutbox = MutableStateFlow(holdsQueuedOutboxRow(true, outbox.restored.value))
     val editingOutbox: StateFlow<Boolean> = _editingOutbox.asStateFlow()
 
     private val _onlyCopy = MutableStateFlow(false)
@@ -568,7 +573,7 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         // draft does not, so `restore=true` with nothing in hand is an EMPTY composer and must be
         // described as one — not as the edit of a message that is no longer there. Set here rather
         // than in the restore branch alone so no other path can inherit a stale answer.
-        _editingOutbox.value = restore && outbox.restored.value?.editingOutboxId != null
+        _editingOutbox.value = holdsQueuedOutboxRow(restore, outbox.restored.value)
         this.accountId = accountId
         val options = store.accounts().flatMap { acc ->
             store.identities(acc.id).map { FromOption(acc.id, it) }

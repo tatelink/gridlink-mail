@@ -33,9 +33,10 @@
     <string name="compose_discard_title">Bericht verwijderen?</string>
     <string name="compose_discard_message">Je hebt je wijzigingen niet opgeslagen.</string>
     <string name="compose_discard_message_encrypted">Dit bericht is versleuteld en kan daarom niet als concept worden bewaard: een concept wordt precies zoals je het schreef op de mailserver opgeslagen, leesbaar voor iedereen met toegang. Als je nu weggaat, wordt het bericht verwijderd.</string>
-    <string name="compose_discard_title_outbox">Wijzigingen verwijderen?</string>
-    <string name="compose_discard_message_outbox">Alleen je wijzigingen gaan verloren: het bericht zelf blijft in Postvak uit staan. Verwijder het daar als je het kwijt wilt.</string>
-    <string name="compose_discard_changes">Wijzigingen verwijderen</string>
+    <string name="compose_discard_title_outbox">Wijzigingen niet opslaan?</string>
+    <string name="compose_discard_message_outbox">Je wijzigingen gaan verloren, het bericht niet: dat blijft in Postvak uit staan, of gaat naar Concepten als je het opslaat.</string>
+    <string name="compose_discard_message_outbox_encrypted">Je wijzigingen gaan verloren, het bericht niet: dat blijft in Postvak uit staan. Verwijder het daar als je het kwijt wilt.</string>
+    <string name="compose_discard_changes">Niet opslaan</string>
     <string name="compose_discard_save">Concept opslaan</string>
     <string name="compose_discard_discard">Verwijderen</string>
     <string name="compose_discard_cancel">Annuleren</string>

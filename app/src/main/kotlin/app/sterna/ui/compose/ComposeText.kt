@@ -5,6 +5,7 @@ import app.sterna.core.data.text.htmlEscape
 import app.sterna.core.data.text.htmlEscapeMultiline
 import app.sterna.core.data.text.htmlToText
 import app.sterna.core.jmap.model.Email
+import app.sterna.send.SendOutbox
 import app.sterna.util.isValidEmail
 
 /**
@@ -243,6 +244,21 @@ internal fun initialComposeFocus(
     else -> ComposeFocus.BODY
 }
 
+/**
+ * Whether a composer opened with [restore] is really holding a queued outbox row — the INPUT the
+ * historical defect lived in, so it is a function of its own rather than an expression buried in the
+ * ViewModel (#96).
+ *
+ * [restore] is the navigation argument and survives the app being killed. [restored] is the draft
+ * handed over in memory and does NOT: after a process death it is null while the argument still says
+ * `true`, which is precisely the state that titled an empty composer "Edit". Both have to agree.
+ *
+ * A draft handed over with no [SendOutbox.ComposeDraft.editingOutboxId] is an undone send: its row
+ * was dropped when the send was undone, so there is nothing in the outbox to be editing either.
+ */
+internal fun holdsQueuedOutboxRow(restore: Boolean, restored: SendOutbox.ComposeDraft?): Boolean =
+    restore && restored?.editingOutboxId != null
+
 /** What the composer's top bar calls this message. Mapped to a string by the screen. */
 internal enum class ComposeTitle { NEW, REPLY, FORWARD, DRAFT, OUTBOX_EDIT }
 
@@ -282,8 +298,20 @@ internal fun composeTitle(
     else -> ComposeTitle.NEW
 }
 
-/** Which wording the "you are leaving without saving" dialog uses. */
-internal enum class DiscardWording { PLAIN, ENCRYPTED, OUTBOX }
+/**
+ * Which wording the "you are leaving without saving" dialog uses. [fromOutbox] is what the title and
+ * the discard button key on — those two read the same whether or not a draft is on offer.
+ */
+internal enum class DiscardWording(val fromOutbox: Boolean) {
+    PLAIN(false),
+    ENCRYPTED(false),
+
+    /** Out of the outbox, with "Save draft" offered beside "Discard changes". */
+    OUTBOX(true),
+
+    /** Out of the outbox while encrypting, so only "Discard changes" and "Cancel" are offered. */
+    OUTBOX_ENCRYPTED(true),
+}
 
 /**
  * What the leave dialog must say, which is not always "this message will be lost" (#70).
@@ -305,9 +333,17 @@ internal enum class DiscardWording { PLAIN, ENCRYPTED, OUTBOX }
  * dialog says why instead of offering a button that would upload the plaintext (#35). Where the
  * message GOES outranks why it cannot become a draft — an encrypted message out of the outbox is
  * still not destroyed by leaving — so [editingOutbox] is tested first.
+ *
+ * The outbox case splits on [mayKeepDraft] all the same, because the sentence has to be true of BOTH
+ * buttons in front of the user, not only the one it is describing. With "Save draft" offered, that
+ * button CONSUMES the queued row (`consumeEditingOutbox`): the message leaves the outbox for Drafts,
+ * so a flat "it stays in the outbox" is false of the button sitting right next to it. Without it,
+ * only leaving is possible and the shorter sentence is the true one — and it may then point at the
+ * outbox's own delete, which is the only way left to be rid of the message.
  */
 internal fun discardWording(editingOutbox: Boolean, mayKeepDraft: Boolean): DiscardWording = when {
-    editingOutbox -> DiscardWording.OUTBOX
+    editingOutbox && mayKeepDraft -> DiscardWording.OUTBOX
+    editingOutbox -> DiscardWording.OUTBOX_ENCRYPTED
     !mayKeepDraft -> DiscardWording.ENCRYPTED
     else -> DiscardWording.PLAIN
 }

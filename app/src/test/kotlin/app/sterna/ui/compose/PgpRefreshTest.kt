@@ -60,6 +60,50 @@ class PgpRefreshTest {
         assertEquals(PgpDropReason.NONE, refresh(first.mode, available = false).dropped)
     }
 
+    // --- the ordering the second check exists to settle ------------------------------------------
+    //
+    // Reopening a signed/encrypted message runs two checks around one restore, and which of them
+    // lands first is not fixed: with the provider merely unreachable the first check waits for it
+    // and resumes AFTER the restore, while with OpenPGP absent from the account it short-circuits
+    // and finishes BEFORE. That is what made the padlock survive or vanish by accident of timing.
+    // Both sequences must now end the same way, and say the same thing once.
+
+    /** Replay a run of checks over [start], returning the mode left and every reason given aloud. */
+    private fun checks(start: PgpMode, times: Int): Pair<PgpMode, List<PgpDropReason>> {
+        var mode = start
+        val said = mutableListOf<PgpDropReason>()
+        repeat(times) {
+            val outcome = refresh(mode, available = false, userSet = true)
+            mode = outcome.mode
+            if (outcome.dropped != PgpDropReason.NONE) said += outcome.dropped
+        }
+        return mode to said
+    }
+
+    @Test fun theRestoreLandingBeforeBothChecksEndsUpOffAndSaysSoOnce() {
+        // The restore put ENCRYPT back first; both checks then run against it.
+        assertEquals(PgpMode.OFF to listOf(PgpDropReason.NO_PROVIDER), checks(PgpMode.ENCRYPT, times = 2))
+    }
+
+    @Test fun theRestoreLandingBetweenTheTwoChecksEndsUpTheSameWay() {
+        // The first check finished on an untouched composer and had nothing to report; the restore
+        // then put ENCRYPT back, and only the second check sees it.
+        val (afterFirst, saidFirst) = checks(PgpMode.OFF, times = 1)
+        assertEquals(emptyList<PgpDropReason>(), saidFirst)
+        assertEquals(PgpMode.OFF, afterFirst)
+
+        val restored = PgpMode.ENCRYPT
+        assertEquals(PgpMode.OFF to listOf(PgpDropReason.NO_PROVIDER), checks(restored, times = 1))
+    }
+
+    @Test fun aProviderThatIsStillThereLeavesTheRestoredModeAloneInEitherOrder() {
+        // The same two checks on a working provider must not undo the restore: the mode was set by
+        // the message, so it counts as the user's and neither pass may rewrite it.
+        var mode = PgpMode.SIGN
+        repeat(2) { mode = refresh(mode, available = true, encryptByDefault = true, userSet = true).mode }
+        assertEquals(PgpMode.SIGN, mode)
+    }
+
     @Test fun anAccountThatEncryptsByDefaultOpensLocked() {
         val outcome = refresh(PgpMode.OFF, available = true, encryptByDefault = true, userSet = false)
         assertEquals(PgpMode.ENCRYPT, outcome.mode)
