@@ -156,6 +156,7 @@ fun ComposeScreen(
     val recipientKeys by viewModel.recipientKeys.collectAsStateWithLifecycle()
     val pgpKeylessRecipients by viewModel.pgpKeylessRecipients.collectAsStateWithLifecycle()
     val onlyCopy by viewModel.onlyCopy.collectAsStateWithLifecycle()
+    val editingOutbox by viewModel.editingOutbox.collectAsStateWithLifecycle()
     val attachmentsTouched by viewModel.attachmentsTouched.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -498,16 +499,38 @@ fun ComposeScreen(
         // Discard and Cancel. Offering "Save draft" here was the leak: the toolbar hid the action,
         // this dialog uploaded the same text one tap later.
         val mayKeepDraft = draftSaveAllowed(pgpMode)
+        // What the dialog is allowed to CLAIM, decided by [discardWording] (#70): a message pulled
+        // back out of the Outbox is not destroyed by leaving — its row goes back in the queue and
+        // it is sent — so it may not be announced as "Discard message?". The buttons on offer are a
+        // separate question, still [mayKeepDraft]'s (#35).
+        val wording = discardWording(editingOutbox, mayKeepDraft)
+        val discardLabel = stringResource(
+            if (wording == DiscardWording.OUTBOX) {
+                R.string.compose_discard_changes
+            } else {
+                R.string.compose_discard_discard
+            },
+        )
         AlertDialog(
             onDismissRequest = { showDiscard = false },
-            title = { Text(stringResource(R.string.compose_discard_title)) },
+            title = {
+                Text(
+                    stringResource(
+                        if (wording == DiscardWording.OUTBOX) {
+                            R.string.compose_discard_title_outbox
+                        } else {
+                            R.string.compose_discard_title
+                        },
+                    ),
+                )
+            },
             text = {
                 Text(
                     stringResource(
-                        if (mayKeepDraft) {
-                            R.string.compose_discard_message
-                        } else {
-                            R.string.compose_discard_message_encrypted
+                        when (wording) {
+                            DiscardWording.OUTBOX -> R.string.compose_discard_message_outbox
+                            DiscardWording.ENCRYPTED -> R.string.compose_discard_message_encrypted
+                            DiscardWording.PLAIN -> R.string.compose_discard_message
                         },
                     ),
                 )
@@ -523,7 +546,7 @@ fun ComposeScreen(
                         showDiscard = false
                         // Same discard as above: the edits go, a queued message goes back (#70).
                         cancel()
-                    }) { Text(stringResource(R.string.compose_discard_discard)) }
+                    }) { Text(discardLabel) }
                 }
             },
             dismissButton = {
@@ -532,7 +555,7 @@ fun ComposeScreen(
                         showDiscard = false
                         // Discards the edits, not the queued message: that one goes back (#70).
                         cancel()
-                    }) { Text(stringResource(R.string.compose_discard_discard)) }
+                    }) { Text(discardLabel) }
                 } else {
                     // Encrypted: Discard is the confirm button, so this one only closes the
                     // dialog — back to the composer, message intact, still encrypted.
@@ -564,22 +587,16 @@ fun ComposeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    // A reopened draft says so (#96): "New mail" was shown for everything that was
-                    // not a reply, and a draft you are coming back to is not a new mail. Same word
-                    // the list uses to badge that message, so it is recognisably the one you tapped.
-                    // A send resumed from the Outbox says "Edit" for the same reason — it is a queued
-                    // message you are editing, not a new one (restore with a queued row behind it;
-                    // an undone send, restore with no row, stays "New mail"). A forward carries the
-                    // same replyTo as a reply, so it must be caught FIRST or it reads "Reply" (#96);
-                    // it reuses the menu's own "Forward" label rather than mint a tenth title string.
+                    // The rule itself is [composeTitle], out of here so it can be tested (#96);
+                    // this only turns its answer into words.
                     Text(
                         stringResource(
-                            when {
-                                draftId != null -> R.string.draft_label
-                                mode == "forward" -> R.string.message_forward
-                                replyTo != null -> R.string.compose_title_reply
-                                restore && !onlyCopy -> R.string.outbox_edit
-                                else -> R.string.compose_title_new
+                            when (composeTitle(draftId, mode, replyTo, restore, editingOutbox)) {
+                                ComposeTitle.DRAFT -> R.string.draft_label
+                                ComposeTitle.FORWARD -> R.string.message_forward
+                                ComposeTitle.REPLY -> R.string.compose_title_reply
+                                ComposeTitle.OUTBOX_EDIT -> R.string.outbox_edit
+                                ComposeTitle.NEW -> R.string.compose_title_new
                             },
                         ),
                     )
