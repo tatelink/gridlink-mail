@@ -129,3 +129,152 @@ class BarVisibleTest {
         assertEquals(0, BodyReveal.maxScroll(contentRangePx = 0, viewportPx = 1920))
     }
 }
+
+/**
+ * The ORDERING of the bar's two writers — the part [BarVisibleTest] above cannot reach.
+ *
+ * [BodyReveal.barVisible] answers one question about one geometry. The reader asks it several
+ * times per open, from two independent writers (the height poll's resting measurement and the live
+ * scroll reports, the second of which the load's settle poll also fires once), against a body that
+ * is still growing while they run. Every case below is a SEQUENCE of reports, because the defect
+ * these pin down does not exist in any single one of them: each verdict was right about the
+ * geometry it saw, and the bar still appeared and then went away again (Codeberg #63).
+ *
+ * The rule under test: a measured range only grows, and a bar already on screen is taken back only
+ * by the reader moving.
+ */
+class BarOrderingTest {
+
+    private val threshold = 12 // ~4dp on a 3x screen
+
+    /** The reader's fold, spelled out so a sequence reads like the one the device produces. */
+    private fun replay(vararg reports: Pair<Int, Int>): List<BarState> {
+        var state = BarState()
+        return reports.map { (scrollY, maxScrollPx) ->
+            state = BodyReveal.barAfterReport(state, scrollY, maxScrollPx, threshold)
+            state
+        }
+    }
+
+    @Test fun `nothing reported yet means no bar`() {
+        // Not seeded from "this message has no body": that seeding WAS the 1.3.12 blink.
+        assertFalse(BarState().shown)
+        assertEquals(0, BarState().maxScrollPx)
+    }
+
+    @Test fun `a body that fits shows the bar on the very first report`() {
+        // One report, one reveal: the bar lands in the same frame as the body, which is the whole
+        // point of carrying the resting geometry on the readiness callback.
+        assertTrue(replay(0 to 0).single().shown)
+    }
+
+    @Test fun `a late measurement does not take back a bar already shown`() {
+        // THE DEFECT, in the order the device produces it on a cold open:
+        //   1. the height poll settles while the newsletter's remote images are still decoding —
+        //      the body fits, so the bar comes up with it;
+        //   2. the images land, the body is now five screens tall, and the load's settle poll fires
+        //      its one terminal report with the grown range.
+        // Asking the per-report rule twice gives two answers, and the second one is the blink:
+        assertTrue(BodyReveal.barVisible(scrollY = 0, maxScrollPx = 0, thresholdPx = threshold))
+        assertFalse(BodyReveal.barVisible(scrollY = 0, maxScrollPx = 7080, thresholdPx = threshold))
+        // The shipped rule keeps it: the reader never moved, so nothing retracts it.
+        val states = replay(0 to 0, 0 to 7080)
+        assertTrue("the bar was shown on report 1", states[0].shown)
+        assertTrue("the bar came up and then went away again (#63)", states[1].shown)
+    }
+
+    @Test fun `growth keeps arriving and the bar still never leaves`() {
+        // A newsletter that relayouts for a while: several reports, each taller than the last, none
+        // of them a scroll. `shown` must be monotone across all of them.
+        val states = replay(0 to 0, 0 to 400, 0 to 2200, 0 to 6400, 0 to 7080, 0 to 7080)
+        assertTrue(states.all { it.shown })
+    }
+
+    @Test fun `a long body still keeps the bar down until the reader reaches the end`() {
+        // The other half of the promise: no bar shown early on a body that does not fit.
+        val states = replay(0 to 7080, 0 to 7080)
+        assertFalse(states[0].shown)
+        assertFalse(states[1].shown)
+    }
+
+    @Test fun `the reader reaching the end shows the bar and scrolling away hides it again`() {
+        // The end-of-message affordance itself must NOT be frozen by the no-retraction rule: it is
+        // the reader's own gesture, not a measurement landing late.
+        val states = replay(0 to 7080, 7080 to 7080, 3000 to 7080)
+        assertFalse("at the top", states[0].shown)
+        assertTrue("at the end", states[1].shown)
+        assertFalse("scrolled back up", states[2].shown)
+    }
+
+    @Test fun `a shorter range arriving later cannot make a long body claim it fits`() {
+        // Layout reports a body shorter than it has already measured only mid-reflow (or on a
+        // load-time scroll reset). Taking that number would show the bar on a five-screen body.
+        val states = replay(0 to 7080, 0 to 0)
+        assertFalse("a reflow blip revealed the bar on a long body", states[1].shown)
+        assertEquals(7080, states[1].maxScrollPx)
+    }
+
+    @Test fun `a shorter range does not survive into the reader's own scroll either`() {
+        // Same guard one step further out: after the blip, the reader scrolls a little. The range
+        // it is judged against must still be the tallest measured, not the blip's.
+        val states = replay(0 to 7080, 0 to 0, 300 to 0)
+        assertFalse(states[2].shown)
+        assertEquals(7080, states[2].maxScrollPx)
+    }
+
+    @Test fun `the writers may arrive in either order`() {
+        // The height poll normally settles before the settle poll's terminal report, but a load
+        // whose height came from a fallback first can be followed by a real measurement, so the
+        // measured report can land second. Neither order may retract, and neither may shrink.
+        val settleFirst = replay(0 to 0, 0 to 7080)
+        val measuredFirst = replay(0 to 7080, 0 to 0)
+        assertTrue(settleFirst.last().shown)
+        assertFalse(measuredFirst.last().shown)
+        assertEquals(7080, settleFirst.last().maxScrollPx)
+        assertEquals(7080, measuredFirst.last().maxScrollPx)
+    }
+
+    @Test fun `a report that both moves the reader and grows the body follows the reader`() {
+        // The reader scrolled: this report is not a late measurement, so it decides normally.
+        val states = replay(0 to 0, 900 to 7080)
+        assertTrue(states[0].shown)
+        assertFalse("the reader moved off the end", states[1].shown)
+    }
+
+    @Test fun `a reload puts the reader back at the top`() {
+        // Toggling "show images" reloads the same message: the scroll resets to 0, which IS a move,
+        // so a bar shown at the old end is re-decided against the new geometry rather than frozen.
+        val states = replay(0 to 7080, 7080 to 7080, 0 to 9000)
+        assertTrue(states[1].shown)
+        assertFalse(states[2].shown)
+    }
+
+    @Test fun `at a fixed scroll offset the bar can only ever turn on`() {
+        // The invariant itself, over every sequence of ranges a laying-out body could report at
+        // rest: once up, never down. This is the promise made publicly on 28 July.
+        val ranges = listOf(0, 1, threshold, threshold + 1, 400, 7080, 40, 9000, 0)
+        for (start in ranges.indices) {
+            var state = BarState()
+            var everShown = false
+            for (i in start until ranges.size) {
+                state = BodyReveal.barAfterReport(state, scrollY = 0, ranges[i], threshold)
+                if (state.shown) everShown = true
+                assertTrue(
+                    "bar retracted at rest: ranges=${ranges.drop(start)} step=$i",
+                    state.shown || !everShown,
+                )
+            }
+        }
+    }
+
+    @Test fun `the measured range never decreases`() {
+        val ranges = listOf(0, 4000, 120, 9000, 30, 9000)
+        var state = BarState()
+        var high = 0
+        for (r in ranges) {
+            state = BodyReveal.barAfterReport(state, scrollY = 0, r, threshold)
+            high = maxOf(high, r)
+            assertEquals(high, state.maxScrollPx)
+        }
+    }
+}

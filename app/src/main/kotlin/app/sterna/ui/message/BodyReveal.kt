@@ -26,6 +26,25 @@ internal sealed interface HeightPoll {
 internal data class BodyMetrics(val scrollY: Int, val maxScrollPx: Int)
 
 /**
+ * Everything the reader needs to decide the Reply/Forward bar, carried forward one report at a
+ * time by [BodyReveal.barAfterReport].
+ *
+ * The bar is ONE value with TWO writers: the height poll's resting measurement (which reveals the
+ * bar in the same frame as the body) and the live scroll reports (which reveal it at the end of a
+ * long body, and which the load's settle poll also fires once). They do not arrive in a fixed
+ * order, and neither knows what the other decided — so the state they share lives here, and the
+ * ordering rule that keeps a late report from undoing an early one is written once, in one place.
+ */
+internal data class BarState(
+    /** Whether the bar belongs on screen. */
+    val shown: Boolean = false,
+    /** The tallest scroll range reported for this body so far. A measured range only ever grows. */
+    val maxScrollPx: Int = 0,
+    /** The scroll offset the last report carried: a report that repeats it moved nothing. */
+    val scrollY: Int = 0,
+)
+
+/**
  * The message body is drawn by a WebView that the reader keeps INVISIBLE (alpha 0, spinner on
  * top) until it has reported a laid-out height, so a half-laid-out body is never shown. That
  * report is produced by a single poll started from `onPageFinished`, and it is the ONLY thing
@@ -83,4 +102,43 @@ internal object BodyReveal {
      */
     fun barVisible(scrollY: Int, maxScrollPx: Int, thresholdPx: Int): Boolean =
         maxScrollPx <= thresholdPx || scrollY >= maxScrollPx - thresholdPx
+
+    /**
+     * Fold one report — a resting measurement or a live scroll — into the bar's [BarState].
+     *
+     * [barVisible] answers "does this geometry want the bar", which is the right question only if
+     * the geometry is final. It is not: a body grows for as long as it is laying out (remote images
+     * decoding, a newsletter's tables reflowing), and the reader receives SEVERAL reports for one
+     * open, from two independent writers, in no guaranteed order. Answering each of them
+     * independently is what makes the bar appear and then go away again (Codeberg #63): the height
+     * poll settles on a still-short body, the bar comes up with the body, and the load's settle poll
+     * then reports the grown range and takes it straight back.
+     *
+     * So the decision is an ORDERING rule over the reports, not a verdict on the latest one:
+     *
+     *  - **A measured range only grows.** A report shorter than one already seen is a body caught
+     *    mid-layout (or a scroll range reset at load), never a body that shrank; taking the smaller
+     *    number would let a long body claim it fits. This is the same reasoning as the tallest-seen
+     *    reading the height poll reports at its cap, applied ACROSS the two writers rather than
+     *    inside one of them.
+     *  - **A bar already shown is taken back only by the reader moving.** Wanting it and then not
+     *    wanting it, at an unchanged scroll offset, can only mean a measurement landed late — and
+     *    that is exactly the retraction the reader sees as a blink. Scrolling away from the end of a
+     *    message still hides it, because that report moves [scrollY]; it is the reader's own gesture,
+     *    not a spontaneous change.
+     *
+     * Nothing here can show the bar on its own: it still takes a report, and the caller only reports
+     * geometry it actually measured (a settled height, or a scroll seen after the load settled). An
+     * unsettled height decides nothing, here as before.
+     */
+    fun barAfterReport(prev: BarState, scrollY: Int, maxScrollPx: Int, thresholdPx: Int): BarState {
+        val range = maxOf(prev.maxScrollPx, maxScrollPx)
+        val readerMoved = scrollY != prev.scrollY
+        val wants = barVisible(scrollY, range, thresholdPx)
+        return BarState(
+            shown = if (prev.shown && !readerMoved) true else wants,
+            maxScrollPx = range,
+            scrollY = scrollY,
+        )
+    }
 }
