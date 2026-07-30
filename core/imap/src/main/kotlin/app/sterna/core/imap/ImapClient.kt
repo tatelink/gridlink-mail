@@ -348,11 +348,33 @@ class ImapSession(private var socket: Socket) : Closeable {
         return mapping
     }
 
-    /** Fetch a single message by UID (envelope + flags), or null if not found. */
+    /** Fetch a single message by UID (envelope + flags), or null if not found — or hidden. */
     fun fetchByUid(uid: Long): ImapMessage? {
         val result = command("UID FETCH $uid (UID FLAGS INTERNALDATE ENVELOPE BODYSTRUCTURE)")
-        return result.untagged.firstNotNullOfOrNull { parseFetch(it) }
+        return result.messages().firstOrNull()
     }
+
+    /**
+     * The messages of a FETCH response — and the ONE place a message flagged `\Deleted` is
+     * dropped, so that it cannot appear in a folder list, a search result, a notification or a
+     * restored batch (Codeberg #99).
+     *
+     * Every fetch in this class funnels through here ([fetchPage], [fetchUids], [fetchByUid],
+     * and the search scan by way of [fetchUids]), which is why the rule is stated once instead of
+     * at each caller. `\Deleted` means the server has been told the message is to go and only an
+     * EXPUNGE will finish the job; until then it is still returned by FETCH, by any client. A
+     * purge that legitimately stops short of the EXPUNGE — no UIDPLUS and somebody else's message
+     * flagged in the folder, see [delete] — would otherwise have its messages walk straight back
+     * into the list on the next sync, which reads as "Empty trash did nothing".
+     *
+     * HIDING IS NOT DELETING, and nothing here makes those messages unreachable: the Empty-trash
+     * snapshot enumerates with `UID SEARCH ALL` ([allUids]) and the purge asks `UID SEARCH
+     * DELETED`, neither of which is a FETCH. The destroy path still sees, and still destroys,
+     * exactly what it did before. Clear the flag from another client and the message comes back
+     * on the next fetch, since nothing about it was cached.
+     */
+    private fun ImapResult.messages(): List<ImapMessage> =
+        untagged.mapNotNull { parseFetch(it) }.filterNot { it.deleted }
 
     private fun parseCopyUid(result: ImapResult): Long? {
         val text = (result.untagged + listOf(result.tagged)).joinToString(" ") { resp ->
@@ -405,12 +427,18 @@ class ImapSession(private var socket: Socket) : Closeable {
         if (highest < 1) return emptyList()
         val lowest = (highest - limit + 1).coerceAtLeast(1)
         val result = command("FETCH $lowest:$highest (UID FLAGS INTERNALDATE ENVELOPE BODYSTRUCTURE)")
-        return result.untagged.mapNotNull { parseFetch(it) }.sortedByDescending { it.uid }
+        return result.messages().sortedByDescending { it.uid }
     }
 
-    /** Number of unseen messages in the selected mailbox. */
+    /**
+     * Number of unseen messages in the selected mailbox, `\Deleted` ones excluded.
+     *
+     * `UNDELETED` is not a detail: this count is what the IMAP account badge shows, while the
+     * list it labels drops those same messages ([messages]). Counting them here would put an
+     * unread badge over a folder with nothing in it to open.
+     */
     fun unseenCount(): Int {
-        val result = command("SEARCH UNSEEN")
+        val result = command("SEARCH UNSEEN UNDELETED")
         val line = result.untagged.firstOrNull { it.getOrNull(1) == "SEARCH" } ?: return 0
         return line.drop(2).count { it is String }
     }
@@ -478,11 +506,11 @@ class ImapSession(private var socket: Socket) : Closeable {
             .take(cap)
     }
 
-    /** Fetch several messages by UID (envelope + flags). */
+    /** Fetch several messages by UID (envelope + flags); `\Deleted` ones are not returned. */
     fun fetchUids(uids: List<Long>): List<ImapMessage> {
         if (uids.isEmpty()) return emptyList()
         val result = command("UID FETCH ${uids.joinToString(",")} (UID FLAGS INTERNALDATE ENVELOPE BODYSTRUCTURE)")
-        return result.untagged.mapNotNull { parseFetch(it) }
+        return result.messages()
     }
 
     /** Raw content of one MIME section (e.g. an attachment), still transfer-encoded. */
@@ -657,6 +685,7 @@ class ImapSession(private var socket: Socket) : Closeable {
             seen = flags.any { it.equals("\\Seen", true) },
             flagged = flags.any { it.equals("\\Flagged", true) },
             answered = flags.any { it.equals("\\Answered", true) },
+            deleted = flags.any { it.equals("\\Deleted", true) },
             hasAttachment = hasAttachment(map["BODYSTRUCTURE"]),
             messageId = messageId,
             inReplyTo = inReplyTo,

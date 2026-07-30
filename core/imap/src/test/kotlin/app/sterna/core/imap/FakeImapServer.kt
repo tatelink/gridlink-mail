@@ -79,10 +79,16 @@ internal fun searchResponse(tag: String, uids: List<Long>): String =
 /**
  * A canned `UID FETCH` result: one envelope per requested uid, with an attachment part in the
  * BODYSTRUCTURE when [withAttachment] says so — that is exactly what the local attachment
- * filter reads.
+ * filter reads. [flags] gives the FLAGS list of each uid, `\Seen` unless a test says otherwise.
  */
-internal fun fetchResponse(tag: String, uids: List<Long>, withAttachment: (Long) -> Boolean): String {
+internal fun fetchResponse(
+    tag: String,
+    uids: List<Long>,
+    flags: (Long) -> String = { "\\Seen" },
+    withAttachment: (Long) -> Boolean,
+): String {
     val body = uids.joinToString("") { uid ->
+        val flagList = flags(uid)
         val structure = if (withAttachment(uid)) {
             """(("text" "plain" ("charset" "utf-8") NIL NIL "7bit" 12 1)""" +
                 """("application" "pdf" ("name" "f.pdf") NIL NIL "base64" 900 NIL """ +
@@ -90,7 +96,7 @@ internal fun fetchResponse(tag: String, uids: List<Long>, withAttachment: (Long)
         } else {
             """("text" "plain" ("charset" "utf-8") NIL NIL "7bit" 12 1)"""
         }
-        "* $uid FETCH (UID $uid FLAGS (\\Seen) INTERNALDATE \"01-Jun-2026 10:00:00 +0000\" " +
+        "* $uid FETCH (UID $uid FLAGS ($flagList) INTERNALDATE \"01-Jun-2026 10:00:00 +0000\" " +
             "ENVELOPE (\"Mon, 1 Jun 2026 10:00:0${uid % 10} +0000\" \"Message $uid\" " +
             "((\"Alex Rivera\" NIL \"alex.rivera\" \"masto.top\")) NIL NIL " +
             "((\"Team\" NIL \"team\" \"masto.top\")) NIL NIL NIL \"<$uid@masto.top>\") " +
