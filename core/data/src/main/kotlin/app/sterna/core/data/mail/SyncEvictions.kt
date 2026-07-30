@@ -1,6 +1,7 @@
 package app.sterna.core.data.mail
 
 import android.os.SystemClock
+import app.sterna.core.data.db.EmailRetentionRow
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -80,6 +81,36 @@ internal fun sparedEvictions(
  */
 internal fun ghostEvictions(cachedIds: List<String>, notFound: Set<String>?): List<String> =
     if (notFound.isNullOrEmpty()) emptyList() else cachedIds.filter { it in notFound }
+
+/**
+ * Which cached ids the RETENTION window evicts after a refresh landed — the "Messages to sync"
+ * setting applied to one mailbox, as opposed to [deltaEvictions]/[ghostEvictions], which act on
+ * what the SERVER said. Nothing here is authoritative about the message still existing: every id
+ * this returns is a message the server still has and that we are choosing not to keep offline.
+ *
+ * A row is evicted only when ALL of the following hold:
+ * - it is dated (`sortKey > 0`) and older than [cutoffMillis]. An undated row is undated, not
+ *   ancient — the old SQL prune already spared those and this keeps it;
+ * - it is not in [freshIds], the page the refresh that triggered this prune just brought back
+ *   from the server.
+ *
+ * That second clause is Codeberg #110. The window bounds what we keep IN ADDITION to the current
+ * page; it may not delete the page itself. Without it a ten-message folder whose eight oldest
+ * predated the window showed all ten (the page had landed) and then dropped to two a moment later
+ * (the prune ran) — the flicker the reporter described, and mail the server was still offering.
+ * The user's own setting was destroying the folder's real contents rather than bounding them.
+ *
+ * [freshIds] is empty when the refresh had no page to show for itself — the JMAP incremental
+ * branch applies a delta rather than re-querying the folder, so it has no page to spare. Such a
+ * sync only ever prunes rows the cache already held, never rows it just fetched.
+ */
+internal fun retentionEvictions(
+    cached: List<EmailRetentionRow>,
+    cutoffMillis: Long,
+    freshIds: Set<String>,
+): List<String> = cached
+    .filter { it.sortKey > 0 && it.sortKey < cutoffMillis && it.id !in freshIds }
+    .map { it.id }
 
 /**
  * Whether this sync cycle should run a mailbox's existence sweep. The sweep costs one

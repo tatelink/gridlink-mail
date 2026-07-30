@@ -1,16 +1,23 @@
 package app.sterna.core.data.mail
 
+import app.sterna.core.data.db.EmailRetentionRow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The eviction decisions of the incremental sync (see SyncEvictions.kt): which cached ids a
- * delta drops, and which the ghost sweep drops. Together they encode the ghost invariant —
- * an externally-destroyed message must leave the cache within one sync cycle — without
- * reopening the recently-mutated spare's protections (a live row is never pruned off a stale
- * snapshot; only an authoritative per-id notFound overrides the spare).
+ * The eviction decisions of a sync (see SyncEvictions.kt): which cached ids a delta drops, which
+ * the ghost sweep drops, and which the retention window drops. The first two encode the ghost
+ * invariant — an externally-destroyed message must leave the cache within one sync cycle —
+ * without reopening the recently-mutated spare's protections (a live row is never pruned off a
+ * stale snapshot; only an authoritative per-id notFound overrides the spare).
+ *
+ * [retentionEvictions] is the odd one out and the reason it is worth stating: it drops rows the
+ * server STILL HAS, on the user's "Messages to sync" setting alone. That makes it the only
+ * eviction that can destroy live mail, so its cases here are written from the other side — what
+ * it must NOT touch (Codeberg #110) — with a negative witness so "spares more" can't pass for
+ * "works".
  */
 class SyncEvictionsTest {
 
@@ -122,6 +129,72 @@ class SyncEvictionsTest {
         assertEquals(
             emptyList<Pair<String, SpareReason>>(),
             sparedEvictions(listOf("e1"), setOf("e1"), emptyList(), isProtected = { true }),
+        )
+    }
+
+    // -- retentionEvictions (the "Messages to sync" age window) ---------------------------
+
+    private val day = 86_400_000L
+    private val now = 1_800_000_000_000L
+
+    /** A cached row [daysAgo] days old (0 days = now); [daysAgo] < 0 means "no parsable date". */
+    private fun row(id: String, daysAgo: Long) =
+        EmailRetentionRow(id, if (daysAgo < 0) 0L else now - daysAgo * day)
+
+    @Test fun theFreshPageIsNeverPrunedByTheAgeWindow() {
+        // Codeberg #110 in the reporter's own numbers: a ten-message folder, eight of them from
+        // December, on the default 90-day window. The refresh re-queried the folder and the
+        // server returned all ten — so all ten are what the folder HOLDS. The window may bound
+        // what we keep in addition to that page; it may not delete the page. Pruning them was
+        // the flicker he saw: ten rows, then two.
+        val cached = (1..8).map { row("dec$it", 220) } + row("jul17", 13) + row("jul29", 1)
+        val fresh = cached.mapTo(HashSet()) { it.id }
+        assertEquals(
+            emptyList<String>(),
+            retentionEvictions(cached, cutoffMillis = now - 90 * day, freshIds = fresh),
+        )
+    }
+
+    @Test fun anOldRowTheFreshPageDidNotCarryIsStillPruned() {
+        // The negative witness, and the reason the case above proves anything: sparing the page
+        // must not amount to switching the window off. A row that has fallen off the server's
+        // newest page AND out of the window is exactly what retention is for.
+        val cached = listOf(row("stillThere", 220), row("scrolledInLongAgo", 400), row("recent", 1))
+        assertEquals(
+            listOf("scrolledInLongAgo"),
+            retentionEvictions(
+                cached,
+                cutoffMillis = now - 90 * day,
+                freshIds = setOf("stillThere", "recent"),
+            ),
+        )
+    }
+
+    @Test fun aSyncWithNoPageOfItsOwnStillPrunesTheCache() {
+        // The JMAP incremental branch returns no page (it applied a delta), so nothing is spared
+        // and the window applies to the cache as it stands. Retention still has to work there —
+        // sparing "the page" must not become sparing everything whenever there is no page.
+        assertEquals(
+            listOf("old"),
+            retentionEvictions(
+                listOf(row("old", 200), row("new", 2)),
+                cutoffMillis = now - 90 * day,
+                freshIds = emptySet(),
+            ),
+        )
+    }
+
+    @Test fun undatedRowsAreNotAncient() {
+        // sortKey 0 = the message carried no date we could parse. The SQL prune this replaced
+        // spared them (`sortKey > 0`) and so must this: undated is not old, and treating 0 as
+        // epoch would delete every such row on the first refresh.
+        assertEquals(
+            emptyList<String>(),
+            retentionEvictions(
+                listOf(row("noDate", -1)),
+                cutoffMillis = now - 90 * day,
+                freshIds = emptySet(),
+            ),
         )
     }
 

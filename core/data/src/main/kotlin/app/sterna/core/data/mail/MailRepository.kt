@@ -723,6 +723,12 @@ class MailRepository(
      * back to a full query. Both paths are UNCOLLAPSED: the cache holds every in-folder
      * thread member (conversations collapse at display time), so per-thread unread/bold
      * state and reconciliation see non-representative members too.
+     *
+     * Returns the ids of the fresh page when the full query ran, and NULL when the delta applied
+     * (that branch has no page — the server told us what CHANGED, not what the folder holds).
+     * The retention prune spares those ids, so the distinction has to survive the call rather
+     * than be guessed at: reading "no page" as "an empty page" would let the prune delete the
+     * folder the sync had just re-fetched (Codeberg #110).
      */
     private suspend fun syncMailbox(
         session: JmapSession,
@@ -733,7 +739,7 @@ class MailRepository(
         // Local StoredAccount id used to tag cached rows (distinct from the JMAP
         // [accountId] used for API calls), so per-account routing and storage work.
         localAccountId: String,
-    ) {
+    ): List<String>? {
         val key = syncKey(localAccountId, mailboxId)
         val stored = loadSyncState(key)
         if (stored != null) {
@@ -818,7 +824,7 @@ class MailRepository(
                     // once-per-process credit back and the next sync retries immediately.
                     if (!swept) ghostSweeps.releaseFailed(localAccountId, mailboxId, claim)
                 }
-                return
+                return null
             }
         }
         // Cold cache, or the server can't compute changes — full query.
@@ -832,6 +838,32 @@ class MailRepository(
         } else {
             dropSyncState(key)
         }
+        return page.emails.map { it.id }
+    }
+
+    /**
+     * Apply an account's age window to a mailbox once a refresh has landed: drop what falls
+     * outside it, EXCEPT the ids [freshIds] — the page that same refresh just brought back from
+     * the server (Codeberg #110).
+     *
+     * The window is a bound on what we keep offline in addition to the current page, never a
+     * licence to delete the current page: a folder whose real contents are older than the window
+     * must still show its real contents. Deciding in Kotlin rather than in one `DELETE … WHERE
+     * sortKey < cutoff` is what makes that expressible at all, and puts the rule next to the
+     * delta and sweep evictions where it can be unit-tested — see [retentionEvictions].
+     */
+    private suspend fun pruneRetention(
+        accountId: String,
+        mailboxId: String,
+        cutoffMillis: Long,
+        freshIds: Set<String>,
+    ) {
+        val gone = retentionEvictions(emailDao.retentionRows(accountId, mailboxId), cutoffMillis, freshIds)
+        if (gone.isEmpty()) return
+        // Chunked for the same reason the ghost sweep chunks: the ids go into an `IN (...)` and a
+        // deep cache can hold more of them than SQLite will bind in one statement.
+        gone.chunked(MAX_CHANGES).forEach { emailDao.deleteByIds(accountId, it) }
+        android.util.Log.i("MailSync", "retention $accountId/$mailboxId: pruned ${gone.size} older than $cutoffMillis")
     }
 
     /**
@@ -1680,8 +1712,14 @@ class MailRepository(
         // refresh): otherwise the drawer keeps stale — or, right after a migration, empty —
         // folders although the list we already fetched is good. Failure persists the rows,
         // then rethrows; the prune stays success-only.
-        val syncError = runCatching { syncMailbox(session, accountId, auth, target.id, limit, credentials.id) }.exceptionOrNull()
-        if (syncError == null && pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, target.id, pruneBeforeMillis)
+        val sync = runCatching { syncMailbox(session, accountId, auth, target.id, limit, credentials.id) }
+        val syncError = sync.exceptionOrNull()
+        // The prune spares the page this very sync brought back (null = the delta branch ran and
+        // there was no page): the window bounds what we keep on top of the folder's current
+        // contents, it does not delete them — Codeberg #110.
+        if (syncError == null && pruneBeforeMillis != null) {
+            pruneRetention(credentials.id, target.id, pruneBeforeMillis, sync.getOrNull().orEmpty().toSet())
+        }
         // Folder counters land AFTER the email rows: badge and list update together, and an
         // optimistic nudge from a concurrent action isn't overwritten mid-refresh by counters
         // fetched before the rows synced.
@@ -1708,7 +1746,17 @@ class MailRepository(
         val load = imap.loadFolder(credentials, mailboxId, limit)
         emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds(credentials.id))
         mailboxDao.replaceAll(credentials.id, load.mailboxes)
-        if (pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, load.targetMailboxId, pruneBeforeMillis)
+        // Spares the page just fetched: IMAP re-queries the folder on every refresh, so this set
+        // IS the folder's newest window as the server has it. Pruning it away is what made a
+        // ten-message folder flash all ten and settle on two (Codeberg #110).
+        if (pruneBeforeMillis != null) {
+            pruneRetention(
+                credentials.id,
+                load.targetMailboxId,
+                pruneBeforeMillis,
+                load.messages.mapTo(HashSet()) { it.id },
+            )
+        }
         return MailboxMeta(load.accountName, load.targetMailboxId, load.targetName, load.unread)
     }
 
