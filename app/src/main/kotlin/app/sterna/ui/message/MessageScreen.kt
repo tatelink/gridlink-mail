@@ -2368,7 +2368,7 @@ internal object NavFadeGuard {
  * Tuning: raise it (3.0 ≈ 18°) if a page still flips while reading, lower it (2.0 ≈ 27°) if a
  * deliberate sideways swipe has to be aimed. Ties go to reading, which is what the view is for.
  */
-private const val SWIPE_HORIZONTAL_DOMINANCE = 2.5f
+private const val SWIPE_HORIZONTAL_DOMINANCE = 3.0f
 
 /**
  * The message-body WebView. It fills the viewport and OWNS its vertical scroll, so Blink culls
