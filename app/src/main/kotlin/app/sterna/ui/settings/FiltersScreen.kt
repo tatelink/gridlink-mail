@@ -302,9 +302,14 @@ private fun RuleEditScreen(
             }
             SettingsSection(stringResource(R.string.settings_filter_then)) {
                 val noMove = stringResource(R.string.settings_filter_move_none)
+                // A rule written before targets became whole paths holds a bare folder name,
+                // which is no longer one of the offered options. It is kept in the list, and
+                // kept selected: opening a rule must not quietly retarget it — only the user
+                // picking another folder may.
+                val stored = rule.moveTo?.takeIf { it !in folders }
                 SettingChoiceRow(
                     title = stringResource(R.string.settings_filter_move_to),
-                    options = listOf<String?>(null) + folders,
+                    options = listOf<String?>(null) + folders + listOfNotNull(stored),
                     selected = rule.moveTo,
                     optionLabel = { it ?: noMove },
                     onSelect = { rule = rule.copy(moveTo = it) },

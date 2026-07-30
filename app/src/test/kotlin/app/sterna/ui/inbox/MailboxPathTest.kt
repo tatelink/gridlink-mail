@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Where a folder sits, as a picker row says it (#109).
+ * Where a folder sits, as a picker row says it (#109) and as a server-side rule must name it.
  *
  * The reported case: "ProjectA.Done" and "ProjectB.Done" both read "Done" in the move-to-folder
  * picker, so there is no telling which is which — while the drawer's tree has always shown it.
@@ -122,5 +122,46 @@ class MailboxPathTest {
         val b = jmap("mb2", "B", parentId = "mb1")
         assertEquals("A", mailboxPathLabel(b, listOf(a, b)))
         assertEquals("B", mailboxPathLabel(a, listOf(a, b)))
+    }
+
+    // ---- what a server-side rule must name ------------------------------------------------
+
+    @Test fun `an IMAP rule names the whole path, in the server's own delimiter`() {
+        val done = imap("INBOX.ProjectA.Done")
+        assertEquals("INBOX.ProjectA.Done", mailboxFilePath(done, listOf(done)))
+        val q1 = imap("Work/2026/Q1", delimiter = '/')
+        assertEquals("Work/2026/Q1", mailboxFilePath(q1, listOf(q1)))
+    }
+
+    @Test fun `a JMAP rule names the chain of folder names`() {
+        val work = jmap("mb1", "Work")
+        val year = jmap("mb2", "2026", parentId = "mb1")
+        val q1 = jmap("mb3", "Q1", parentId = "mb2")
+        assertEquals("Work/2026/Q1", mailboxFilePath(q1, listOf(work, year, q1)))
+    }
+
+    @Test fun `a folder at the root is named by itself`() {
+        assertEquals("Bills", mailboxFilePath(imap("Bills"), listOf(imap("Bills"))))
+        val jmapRoot = jmap("mb1", "Bills")
+        assertEquals("Bills", mailboxFilePath(jmapRoot, listOf(jmapRoot)))
+    }
+
+    @Test fun `a standard folder is still named by its path, never by its label`() {
+        // The display hides the path here; the value must not — a rule filing into Trash on a
+        // Dovecot server has to say INBOX.Trash.
+        val trash = imap("INBOX.Trash", role = "trash")
+        assertEquals("INBOX.Trash", mailboxFilePath(trash, listOf(trash)))
+    }
+
+    @Test fun `the value keeps what the display filters out`() {
+        // A path sent to the server must reproduce the folder the server named, byte for byte;
+        // only the label is sanitized.
+        val spoof = Mailbox(id = "INBOX.pro\u202EjectA.Done", name = "Done")
+        assertEquals("INBOX.pro\u202EjectA.Done", mailboxFilePath(spoof, listOf(spoof)))
+    }
+
+    @Test fun `an opaque id is never mistaken for a path`() {
+        val opaque = jmap("a1.b2", "Bills")
+        assertEquals("Bills", mailboxFilePath(opaque, listOf(opaque)))
     }
 }

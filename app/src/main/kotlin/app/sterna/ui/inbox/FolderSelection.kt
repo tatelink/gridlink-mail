@@ -81,6 +81,23 @@ internal fun mailboxAncestors(mailbox: Mailbox, mailboxes: List<Mailbox>): List<
 }
 
 /**
+ * The path a SERVER-SIDE rule must name to file mail into [mailbox] — a value, not a label: it
+ * goes on the wire (a Sieve `fileinto`), so it is never translated and never sanitized, and it
+ * keeps the exact spelling the server used. Sieve names a subfolder by its whole path, so a
+ * leaf on its own ("Done") names the wrong folder, or none, as soon as two folders share it.
+ *
+ * For IMAP that path is the id itself, delimiter and all. For JMAP the ids are opaque, so it is
+ * the chain of names joined by [JMAP_PATH_SEPARATOR], the separator a JMAP server's own Sieve
+ * uses to spell its mailbox tree.
+ */
+internal fun mailboxFilePath(mailbox: Mailbox, mailboxes: List<Mailbox>): String {
+    val chain = parentNameChain(mailbox, mailboxes)
+    if (chain.isNotEmpty()) return (chain + mailbox.name).joinToString(JMAP_PATH_SEPARATOR)
+    if (imapParentPath(mailbox) != null) return mailbox.id
+    return mailbox.name
+}
+
+/**
  * The line shown UNDER a folder's name in a picker so two folders with the same leaf can be
  * told apart (#109): "ProjectA.Done" and "ProjectB.Done" both read "Done" otherwise, while the
  * drawer's tree has always shown the difference. Null when there is nothing to add — a folder
@@ -99,6 +116,9 @@ internal fun mailboxPathLabel(mailbox: Mailbox, mailboxes: List<Mailbox>): Strin
     if (ancestors.isEmpty()) return null
     return elideOutermost(ancestors)
 }
+
+/** Separator between two segments of a JMAP mailbox path, on the wire. */
+private const val JMAP_PATH_SEPARATOR = "/"
 
 /** Separator between two ancestors on screen — spaced, so it cannot be read as part of a name. */
 private const val PATH_LABEL_SEPARATOR = " / "

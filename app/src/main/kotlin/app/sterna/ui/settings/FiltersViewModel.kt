@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.sterna.container
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.mail.FilterRulesState
+import app.sterna.ui.inbox.mailboxFilePath
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -21,7 +22,14 @@ data class FiltersUiState(
     val foreignActive: Boolean = false,
     val accountLabel: String = "",
     val rules: List<FilterRule> = emptyList(),
-    /** Mailbox names offered in the "move to folder" picker. */
+    /**
+     * Folder PATHS offered in the "move to folder" picker, and stored as the rule's target.
+     *
+     * A path, not a name: a rule runs on the server, and Sieve names a subfolder by its whole
+     * path — "Done" alone reaches the wrong folder, or none, the moment two folders share that
+     * last segment. The path is also what the row displays: what is picked is what the rule
+     * says, with no second spelling in between.
+     */
     val folders: List<String> = emptyList(),
     val saving: Boolean = false,
     val errorKind: FiltersError? = null,
@@ -61,8 +69,12 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
         _state.update { it.copy(loading = true, errorKind = null) }
         viewModelScope.launch {
             try {
-                val folders = runCatching { repo.observeMailboxes(credentials.id).first().map { mb -> mb.name } }
-                    .getOrDefault(emptyList())
+                // Whole paths, resolved against the account's own folder list: the rule is
+                // executed by the server, which knows "INBOX.ProjectA.Done", not "Done".
+                val folders = runCatching {
+                    repo.observeMailboxes(credentials.id).first()
+                        .let { all -> all.map { mb -> mailboxFilePath(mb, all) } }
+                }.getOrDefault(emptyList())
                 when (val result = repo.loadFilterRules(credentials)) {
                     FilterRulesState.Unsupported -> {
                         serverRules = emptyList()
