@@ -333,18 +333,35 @@ fun InboxScreen(
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     targets.forEach { folder ->
-                        Text(
-                            text = mailboxDisplayName(folder.role, folder.name),
-                            style = MaterialTheme.typography.bodyLarge,
+                        // Nested folders sharing a leaf ("ProjectA.Done", "ProjectB.Done") are
+                        // one and the same row without their parent path underneath (#109).
+                        // Resolved against the WHOLE folder list, not the offered subset: the
+                        // folder being moved out of is excluded there, and it may be a parent.
+                        val path = mailboxPathLabel(folder, moveTargetMailboxes)
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
                                     viewModel.moveSelectedTo(folder.id)
                                     showMoveSheet = false
                                 }
-                                .semantics { role = Role.Button }
+                                .semantics(mergeDescendants = true) { role = Role.Button }
                                 .padding(vertical = 12.dp),
-                        )
+                        ) {
+                            Text(
+                                text = mailboxDisplayName(folder.role, folder.name),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            if (path != null) {
+                                Text(
+                                    text = path,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
             },

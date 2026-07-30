@@ -235,6 +235,15 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     ) { folders, current -> moveTargets(folders, current) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * The open message's account's folders, WHOLE — the context the picker resolves a folder's
+     * parent path against (#109). [moveTargets] cannot serve: it drops the folder the message
+     * is filed under, which is often the very parent that names its siblings.
+     */
+    val accountMailboxes: StateFlow<List<Mailbox>> = _ownerAccountId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList()) else repo.observeMailboxes(id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** OpenPGP state of the opened message (status card + header badges). */
     private val _crypto = MutableStateFlow<CryptoUiState>(CryptoUiState.None)
     val crypto = _crypto.asStateFlow()

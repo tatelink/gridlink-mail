@@ -137,6 +137,7 @@ import app.sterna.core.jmap.model.EmailBodyPart
 import android.text.format.DateUtils
 import app.sterna.ui.canSnoozeIn
 import app.sterna.ui.inbox.mailboxDisplayName
+import app.sterna.ui.inbox.mailboxPathLabel
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.isOutgoingFolder
 import app.sterna.ui.snoozed.SnoozeDeadlineHeader
@@ -650,6 +651,8 @@ private fun MessageActions(
     // one (#73). Empty (single-folder account, folders not cached yet) hides the entry rather
     // than opening a picker with nothing to pick.
     val folders by viewModel.moveTargets.collectAsStateWithLifecycle()
+    // The account's whole folder list, only to spell out a target's parent path (#109).
+    val accountFolders by viewModel.accountMailboxes.collectAsStateWithLifecycle()
     val loaded = state as? MessageState.Loaded ?: return
     val senderEmail = loaded.email.from.firstOrNull()?.email
     val senderAllowed = senderEmail?.lowercase()?.let { it in imageAllowlist } == true
@@ -870,9 +873,9 @@ private fun MessageActions(
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     folders.forEach { folder ->
-                        Text(
-                            text = mailboxDisplayName(folder.role, folder.name),
-                            style = MaterialTheme.typography.bodyLarge,
+                        // Same rows as the list's picker, parent path included (#109).
+                        val path = mailboxPathLabel(folder, accountFolders)
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
@@ -885,9 +888,23 @@ private fun MessageActions(
                                         folder.id,
                                     )
                                 }
-                                .semantics { role = Role.Button }
+                                .semantics(mergeDescendants = true) { role = Role.Button }
                                 .padding(vertical = 12.dp),
-                        )
+                        ) {
+                            Text(
+                                text = mailboxDisplayName(folder.role, folder.name),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            if (path != null) {
+                                Text(
+                                    text = path,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
             },
