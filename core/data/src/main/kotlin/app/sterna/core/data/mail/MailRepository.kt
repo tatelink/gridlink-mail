@@ -2731,7 +2731,14 @@ class MailRepository(
 
     // ---- folder management ----
 
-    /** Create a new folder, then refresh the cached folder list. */
+    /**
+     * Create a new folder, then refresh the cached folder list.
+     *
+     * The typed [name] is Unicode and so is [parentId] — an IMAP folder id is its path DECODED
+     * from modified UTF-7 (Codeberg #101) — so the two simply concatenate here and the encoding
+     * happens at the socket. Building the path from a raw wire form and a typed name is what used
+     * to send a Cyrillic folder name as raw UTF-8 and have the server refuse or mangle it.
+     */
     suspend fun createFolder(credentials: AccountCredentials, name: String, parentId: String? = null) {
         if (credentials.protocol == MailProtocol.IMAP) {
             // IMAP nests by path; the parent's id is its full path.
@@ -2775,6 +2782,11 @@ class MailRepository(
      * Delete a folder AND its subfolders (deepest first — servers refuse to destroy a
      * parent that still has children), plus their cached messages and watch flags.
      * Returns every deleted folder id so the caller can clean per-folder state.
+     *
+     * The children are found by `startsWith(mailboxId + delimiter)`, so BOTH sides must be in
+     * the same representation: they are, because a listed path and a cached folder id are both
+     * the Unicode decoding of the wire name (Codeberg #101). Mixing the two would make this
+     * match nothing — a folder delete that silently deletes nothing, or the wrong set.
      */
     suspend fun deleteFolder(credentials: AccountCredentials, mailboxId: String): List<String> {
         val targets: List<String>
