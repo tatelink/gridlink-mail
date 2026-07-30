@@ -766,11 +766,15 @@ class MailRepository(
                 // `destroy` here is the one-shot loss [deltaEvictions] documents: the row survives
                 // a message the server no longer has, and only the ghost sweep can still remove it.
                 val spared = sparedEvictions(queryChanges.removed, added, changes.destroyed, isProtected)
-                spared.forEach { (id, reason) ->
+                // ONE line, not one per id: this is the only sync line whose length scales with the
+                // data (a delta can spare up to MAX_CHANGES ids), and the count-then-ids shape says
+                // the same thing while leaving the count readable even if logcat truncates the tail.
+                if (spared.isNotEmpty()) {
                     android.util.Log.i(
                         "MailSync",
-                        "spared $localAccountId/$mailboxId/$id: ${reason.log} not evicted " +
-                            "(locally mutated < ${RECENT_MUTATION_MS}ms ago)",
+                        "spared $localAccountId/$mailboxId: ${spared.size} not evicted " +
+                            "(locally mutated < ${RECENT_MUTATION_MS}ms ago): " +
+                            spared.joinToString { (id, reason) -> "$id ${reason.log}" },
                     )
                 }
                 val cachedIds = emailDao.idsForMailbox(localAccountId, mailboxId).toSet()
@@ -844,6 +848,12 @@ class MailRepository(
      * stale, and a destroyed id can't be protected back to life). Best-effort by design:
      * any transport/parse failure prunes NOTHING (only an explicit notFound may evict) and
      * returns false so the caller can retry the once-per-session sweep later.
+     *
+     * A CANCELLED caller is not a failed sweep and does not return at all: leaving the screen
+     * mid-sweep would otherwise log a failure and hand the session credit back on behalf of a
+     * caller that no longer exists — noise in the one channel that diagnoses ghosts. The throw
+     * propagates, the floor stamp stays consumed, and the mailbox is checked again one interval
+     * later like any other.
      */
     private suspend fun pruneGhostRows(
         session: JmapSession,
@@ -854,20 +864,22 @@ class MailRepository(
     ): Boolean {
         val cached = emailDao.idsForMailbox(localAccountId, mailboxId)
         if (cached.isEmpty()) return true
-        val attempt = runCatching {
-            // Chunked so a deep cache can't exceed the server's maxObjectsInGet. A chunk that
-            // throws fails the WHOLE attempt: the ids already answered for are discarded with it,
-            // because a partial answer says nothing about the ids that were never asked about.
+        // null = the check never answered, and that is what [ghostEvictions] prunes nothing for:
+        // the eviction cannot be reached from a failure path by construction, rather than by an
+        // early return someone has to remember not to move. getOrElseUnlessCancelled, not
+        // getOrNull, so a cancellation stays an instruction to stop (see its own doc).
+        val notFound: Set<String>? = runCatching {
+            // Chunked so a deep cache can't exceed the server's maxObjectsInGet — one request per
+            // MAX_CHANGES ids. A chunk that throws fails the WHOLE attempt: the ids already
+            // answered for are discarded with it, because a partial answer says nothing about the
+            // ids that were never asked about.
             cached.chunked(MAX_CHANGES).flatMapTo(mutableSetOf()) { chunk ->
                 client.missingEmailIds(session, accountId, chunk, auth)
             }
-        }
-        // getOrNull() is what carries "no answer" into [ghostEvictions], which prunes nothing for
-        // it — the eviction can therefore never be reached by a failure path, by construction
-        // rather than by an early return someone has to remember not to move.
-        val ghosts = ghostEvictions(cached, attempt.getOrNull())
+        }.getOrElseUnlessCancelled { null }
+        val ghosts = ghostEvictions(cached, notFound)
         if (ghosts.isNotEmpty()) pruneServerGone(localAccountId, ghosts)
-        if (attempt.isFailure) {
+        if (notFound == null) {
             // A failed sweep prunes nothing and looks exactly like a clean one from the outside —
             // say so, or a ghost surviving a sweep can't be told from a sweep that never landed.
             android.util.Log.i("MailSync", "ghost sweep $localAccountId/$mailboxId: failed over ${cached.size} cached")

@@ -1,5 +1,6 @@
 package app.sterna.core.data.mail
 
+import android.os.SystemClock
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -87,10 +88,11 @@ internal fun ghostEvictions(cachedIds: List<String>, notFound: Set<String>?): Li
  * on any activity anywhere in the account (another folder, a flag change, a delivery).
  *
  * The gate keeps both halves of the ghost invariant while cutting the recurring cost:
- * - [firstThisSession]: the once-per-mailbox-per-process sweep. Subsumed by the floor for a
- *   mailbox never swept in this process (its elapsed time is "since the epoch"), so what this
- *   clause really carries is the RETRY of a sweep that failed in transport — see
- *   [GhostSweepSchedule.releaseFailed].
+ * - [firstThisSession]: the once-per-mailbox-per-process sweep. Usually subsumed by the floor for
+ *   a mailbox never swept in this process (its elapsed time counts from zero), but not always —
+ *   the clock is monotonic-since-boot, so an app started in the first minutes after a reboot has
+ *   not "waited" an interval yet. What this clause carries beyond that is the RETRY of a sweep
+ *   that failed in transport — see [GhostSweepSchedule.releaseFailed].
  * - [vanishedFromMailbox]: THIS mailbox's delta reported an id genuinely leaving it, which is
  *   the shape of a destroy the recently-mutated spare can eat — sweep at once, no waiting.
  * - [millisSinceLastSweep] ≥ [minIntervalMs]: the floor, and it is UNCONDITIONAL — it does not
@@ -161,11 +163,13 @@ internal fun sweepReason(
  * - it bounds how long a ghost can be looked at. A user who pulls to refresh sees the row go on the
  *   first refresh five minutes after the last sweep; a user who does nothing waits for the next
  *   sync of that mailbox, i.e. at most the ~30-min fallback fetch worker;
- * - it costs, per mailbox, at most one ids-only `Email/get` (ids in, ids + notFound out) per five
- *   minutes OF ACTUAL SYNC ACTIVITY — not per five minutes of wall clock. The reporter's ten
- *   accounts refreshed together therefore add at most ten such requests per five minutes in the
- *   foreground, and in the background the bill is set by the fetch worker's 30-min period, not by
- *   this floor: one extra request per account per folder per run;
+ * - it costs, per mailbox, one ids-only `Email/get` PER 200 CACHED ROWS (the sweep chunks at
+ *   `MAX_CHANGES`, and each chunk is its own POST) per five minutes OF ACTUAL SYNC ACTIVITY — not
+ *   per five minutes of wall clock. A freshly synced 50-row inbox is one request; a folder the
+ *   user has scrolled to 600 rows is three. The reporter's ten accounts refreshed together
+ *   therefore add ten such requests per five minutes in the foreground on fresh caches and around
+ *   thirty on deep ones, and in the background the bill is set by the fetch worker's 30-min
+ *   period, not by this floor;
  * - a burst of pull-to-refresh is absorbed: ten pulls in a minute still sweep once.
  *
  * Lowering it buys a shorter ghost lifetime at a linear cost in requests; raising it leaves the
@@ -184,16 +188,23 @@ internal const val GHOST_SWEEP_MIN_INTERVAL_MS = 5 * 60_000L
  *
  * In-memory only, like the sync cursors' cache: a cold start starts every mailbox eligible, which
  * is what prunes ghosts inherited from a previous process.
+ *
+ * The clock is MONOTONIC (`elapsedRealtime`, not `currentTimeMillis`). The premise of the whole
+ * fix is a process that lives for days, and over days a wall clock moves backwards — NTP
+ * corrections, a timezone-less RTC catching up, the user setting the date. A backwards jump makes
+ * the elapsed time negative and stalls the floor until the clock catches up, which is exactly the
+ * "heals within a bounded time, without restarting" guarantee this class exists to make.
  */
 internal class GhostSweepSchedule(
     private val minIntervalMs: Long = GHOST_SWEEP_MIN_INTERVAL_MS,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = SystemClock::elapsedRealtime,
 ) {
-    /** When each (account, mailbox) was last swept. Absent = never in this process. */
+    /** When each (account, mailbox) was last swept. Absent (or 0) = never in this process. */
     private val lastSweep = ConcurrentHashMap<String, Long>()
 
-    /** (account, mailbox) pairs whose once-per-process credit is still unspent. */
-    private val pendingFirstSweep = ConcurrentHashMap.newKeySet<String>()
+    /** (account, mailbox) pairs that have SPENT their once-per-process credit — `add` returning
+     *  true is what grants it, so membership means the credit is gone, not pending. */
+    private val sweptThisSession = ConcurrentHashMap.newKeySet<String>()
 
     // NUL-separated, unlike MailRepository's sync-state key: "$account$mailbox" is ambiguous
     // (account "a1" + mailbox "b" collides with account "a" + mailbox "1b"), and this key is
@@ -206,6 +217,13 @@ internal class GhostSweepSchedule(
      * throttled rather than re-checking the same mailbox. A REFUSED claim leaves the clock
      * untouched — if refusals restamped it, a user pulling to refresh every few seconds would
      * postpone the sweep for ever and the ghost would outlive the fix.
+     *
+     * Decide and record happen inside one `compute`, i.e. atomically per key: push, the fallback
+     * worker and a pull-to-refresh can all sync the same mailbox at the same moment, and a
+     * read-then-write would grant each of them the same window. Nothing could be over-deleted by
+     * that (two identical existence checks prune the same ids), but the loser's log line would
+     * claim a floor it did not open. Inside `compute` the loser sees the winner's stamp and reads
+     * back as throttled, which is what actually happened.
      */
     fun claim(
         accountId: String,
@@ -214,23 +232,30 @@ internal class GhostSweepSchedule(
         vanishedFromMailbox: Boolean,
     ): SweepClaim {
         val k = key(accountId, mailboxId)
-        val firstThisSession = pendingFirstSweep.add(k)
+        val firstThisSession = sweptThisSession.add(k)
         val now = clock()
-        val since = now - (lastSweep[k] ?: 0L)
-        val sweep = shouldSweepGhosts(firstThisSession, stateAdvanced, vanishedFromMailbox, since, minIntervalMs)
-        val reason = sweepReason(firstThisSession, stateAdvanced, vanishedFromMailbox, since, minIntervalMs)
-        if (sweep) lastSweep[k] = now
+        var sweep = false
+        var reason = ""
+        // Never returns null: "never swept" is stored as 0 rather than as an absent key, so the
+        // mapping function has one shape and the elapsed time is computed the same way either way.
+        lastSweep.compute(k) { _, last ->
+            val since = now - (last ?: 0L)
+            sweep = shouldSweepGhosts(firstThisSession, stateAdvanced, vanishedFromMailbox, since, minIntervalMs)
+            reason = sweepReason(firstThisSession, stateAdvanced, vanishedFromMailbox, since, minIntervalMs)
+            if (sweep) now else (last ?: 0L)
+        }
         return SweepClaim(sweep = sweep, reason = reason, firstThisSession = firstThisSession)
     }
 
     /**
      * The claimed sweep never landed (transport failure — it pruned nothing by construction):
      * hand back the once-per-process credit so the NEXT sync retries instead of waiting out the
-     * floor. The floor stamp stays consumed, so a claim that was not the session's first is
-     * retried one interval later rather than on every sync.
+     * floor. The floor stamp stays consumed, so a claim that was NOT the session's first is
+     * retried one interval later rather than on every sync — a bounded delay, deliberately
+     * preferred to a failing sweep re-firing on every single sync of an unhappy server.
      */
     fun releaseFailed(accountId: String, mailboxId: String, claim: SweepClaim) {
-        if (claim.firstThisSession) pendingFirstSweep.remove(key(accountId, mailboxId))
+        if (claim.firstThisSession) sweptThisSession.remove(key(accountId, mailboxId))
     }
 }
 

@@ -12,7 +12,8 @@ import org.junit.Test
  * long-lived process does with it — the reporter's app holds a push foreground service, so "it
  * heals on the next launch" was never an answer.
  *
- * A fake clock stands in for the wall clock so a five-minute floor can be crossed without waiting.
+ * A fake clock stands in for the schedule's monotonic one (`SystemClock.elapsedRealtime`, which a
+ * JVM test cannot call anyway) so a five-minute floor can be crossed without waiting it out.
  */
 class GhostSweepScheduleTest {
 
@@ -156,6 +157,48 @@ class GhostSweepScheduleTest {
         val retry = b.quietSync()
         assertTrue("the failed sweep must be retried at once", retry.sweep)
         assertEquals("session", retry.reason)
+    }
+
+    @Test fun aFailedSweepThatWasNotTheSessionsFirstWaitsOutAWholeFloor() {
+        // The documented other half of releaseFailed, and a deliberate choice rather than an
+        // oversight: only the once-per-process credit is handed back, so a sweep that fails on the
+        // recurring path is retried one interval later instead of on every single sync. An unhappy
+        // server therefore cannot turn a failing existence check into a per-sync request storm; the
+        // price is that a ghost can outlive one extra interval when the network drops mid-sweep.
+        val b = bench()
+        assertTrue(b.quietSync().sweep) // spends the session credit
+        b.elapse(floor)
+        val recurring = b.quietSync()
+        assertTrue(recurring.sweep)
+        assertEquals("floor/idle", recurring.reason)
+        b.schedule.releaseFailed("acc", "a", recurring) // it failed in transport: no-op by design
+        b.elapse(10_000)
+        assertFalse("a failed recurring sweep must not retry on the next sync", b.quietSync().sweep)
+        b.elapse(floor - 10_000)
+        assertTrue("…but it is retried one interval later", b.quietSync().sweep)
+    }
+
+    @Test fun onlyOneOfManySimultaneousSyncsIsGrantedTheSameWindow() {
+        // Push, the fallback worker and a pull-to-refresh can sync one mailbox at the same instant.
+        // Deciding and stamping atomically is what stops them all being granted the same floor:
+        // nothing extra could be deleted (the checks are identical and read-only), but the log
+        // would claim several sweeps where one ran. Sixteen claims at one frozen instant, exactly
+        // one interval after the last sweep — exactly one may be granted.
+        val b = bench()
+        assertTrue(b.quietSync().sweep)
+        b.elapse(floor)
+        val granted = java.util.concurrent.atomic.AtomicInteger()
+        val start = java.util.concurrent.CountDownLatch(1)
+        val threads = (1..16).map {
+            Thread {
+                start.await()
+                if (b.quietSync().sweep) granted.incrementAndGet()
+            }
+        }
+        threads.forEach { it.start() }
+        start.countDown()
+        threads.forEach { it.join() }
+        assertEquals(1, granted.get())
     }
 
     @Test fun aSweepThatSucceededIsNotRepeatedByAReleaseOfSomeoneElsesClaim() {
