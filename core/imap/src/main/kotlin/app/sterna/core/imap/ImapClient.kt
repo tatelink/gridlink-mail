@@ -306,26 +306,44 @@ class ImapSession(private var socket: Socket) : Closeable {
 
     /**
      * Move many messages to [destination] with one `UID MOVE <set> <dest>` per chunk
-     * (falling back to `UID COPY` + `+FLAGS (\Deleted)` + `UID EXPUNGE`), instead of one
+     * (falling back to `UID COPY` + `+FLAGS (\Deleted)` + a purge), instead of one
      * command per message — the bulk-action fix (Codeberg #29). The caller must have
      * SELECTed the source mailbox. Returns the source-UID → destination-UID mapping parsed
      * from COPYUID (RFC 4315 / RFC 6851), empty when the server reports none — the move
      * still happened; only per-message Undo positioning is lost. Chunked to stay well under
      * command-length limits.
+     *
+     * The copy fallback leaves the originals to be erased, and how that is done depends on
+     * UIDPLUS exactly as it does in [delete] — same question, same single answer: see
+     * [purgeWithoutUidPlus]. The capability is consulted BEFORE the first COPY, so a session
+     * that cannot even answer that question fails without having duplicated anything.
      */
     fun move(uids: List<Long>, destination: String): Map<Long, Long> {
         val mapping = LinkedHashMap<Long, Long>()
+        // The no-UIDPLUS purge covers the whole folder, so it is worth at most one command for
+        // the whole move, however many chunks took the fallback.
+        var awaitingFolderPurge = false
         for (chunk in uids.distinct().chunked(UID_SET_CHUNK)) {
             val set = compressUidSet(chunk)
             if (set.isEmpty()) continue
             val result = runCatching { command("UID MOVE $set ${quote(destination)}") }.getOrElse {
+                val byUid = hasCapability(CAP_UIDPLUS)
                 val copy = command("UID COPY $set ${quote(destination)}")
                 command("UID STORE $set +FLAGS (\\Deleted)")
-                runCatching { command("UID EXPUNGE $set") }.onFailure { runCatching { command("EXPUNGE") } }
+                // Best effort, unlike in [delete]: the copy has already landed, so failing here
+                // would have the caller retry a move that would copy a second time. Leaving the
+                // original flagged is the cheaper error. (`command` is blocking, not suspending —
+                // this catch cannot swallow a coroutine cancellation.)
+                if (byUid) {
+                    runCatching { command("UID EXPUNGE $set") }
+                } else {
+                    awaitingFolderPurge = true
+                }
                 copy
             }
             mapping.putAll(parseCopyUidMap(result))
         }
+        if (awaitingFolderPurge) finishPurgeWithoutUidPlus()
         return mapping
     }
 
@@ -485,17 +503,38 @@ class ImapSession(private var socket: Socket) : Closeable {
     fun delete(uid: Long) = delete(listOf(uid))
 
     /**
-     * Permanently delete many messages with one `UID STORE <set> +FLAGS (\Deleted)` +
-     * `UID EXPUNGE <set>` per chunk (Codeberg #29). Falls back to a plain `EXPUNGE` when the
-     * server lacks UIDPLUS, matching the single-message path. The caller must have SELECTed
-     * the mailbox.
+     * Permanently delete many messages with one `UID STORE <set> +FLAGS (\Deleted)` per chunk
+     * (Codeberg #29), erased with `UID EXPUNGE <set>` — "erase exactly these" — when the server
+     * implements UIDPLUS (RFC 4315). The caller must have SELECTed the mailbox.
+     *
+     * Whether it does is asked ONCE, before the first chunk is touched, and not chunk by chunk:
+     * the answer cannot change mid-operation, and the alternative it selects is folder-wide, so
+     * asking per chunk would mean applying a folder-wide command up to fifty times over an
+     * "Empty trash" (Codeberg #99). What happens when the answer is no is [purgeWithoutUidPlus]
+     * — one decision, taken in one place, applied once per operation.
+     *
+     * A refused `UID EXPUNGE` on a server that DOES advertise UIDPLUS throws, and the destroy
+     * worker retries: unlike a move, a repeated destroy costs nothing.
      */
     fun delete(uids: List<Long>) {
-        for (chunk in uids.distinct().chunked(UID_SET_CHUNK)) {
-            val set = compressUidSet(chunk)
-            if (set.isEmpty()) continue
+        val sets = uids.distinct().chunked(UID_SET_CHUNK).map { compressUidSet(it) }.filter { it.isNotEmpty() }
+        if (sets.isEmpty()) return
+        val byUid = hasCapability(CAP_UIDPLUS)
+        for (set in sets) {
             command("UID STORE $set +FLAGS (\\Deleted)")
-            runCatching { command("UID EXPUNGE $set") }.onFailure { command("EXPUNGE") }
+            if (byUid) command("UID EXPUNGE $set")
+        }
+        if (!byUid) finishPurgeWithoutUidPlus()
+    }
+
+    /**
+     * Close a purge on a server without UIDPLUS, according to [purgeWithoutUidPlus]. Called at
+     * most once per operation, after every message meant to go has been flagged `\Deleted`.
+     */
+    private fun finishPurgeWithoutUidPlus() {
+        when (purgeWithoutUidPlus) {
+            PurgeWithoutUidPlus.LEAVE_FLAGGED -> Unit
+            PurgeWithoutUidPlus.EXPUNGE_WHOLE_FOLDER -> command("EXPUNGE")
         }
     }
 
@@ -713,6 +752,43 @@ internal fun capabilitiesInResponseCode(line: List<Any?>): Set<String>? {
     val code = Regex("\\[CAPABILITY([^\\]]*)\\]", RegexOption.IGNORE_CASE).find(flat) ?: return null
     return code.groupValues[1].split(' ').filter { it.isNotBlank() }.map { it.uppercase() }.toSet()
 }
+
+/**
+ * What a permanent purge does on a server that does NOT implement UIDPLUS (RFC 4315), i.e. one
+ * where `UID EXPUNGE <set>` — "erase exactly these" — does not exist.
+ *
+ * IMAP offers no third answer that is both safe and complete. The only other way to erase is a
+ * bare `EXPUNGE`, which erases EVERY message flagged `\Deleted` in the selected folder: the ones
+ * this app just flagged, but equally ones flagged from another client, or flagged long ago and
+ * left there. So either the app destroys mail nobody designated, or it stops short of the purge
+ * the screen announced and leaves the messages flagged for the server to erase in its own time.
+ *
+ * This is a product decision, not a technical one, which is why it is a single named value
+ * rather than a condition spread over the purge paths.
+ */
+internal enum class PurgeWithoutUidPlus {
+    /**
+     * Flag `\Deleted` and stop. Nothing is erased that the user did not designate; in exchange
+     * the messages are still on the server, and a folder resync brings them back into view
+     * (nothing in the app hides a `\Deleted` message today).
+     */
+    LEAVE_FLAGGED,
+
+    /**
+     * One bare `EXPUNGE` for the whole operation. The folder really is emptied — including any
+     * message flagged `\Deleted` by somebody else, which is destroyed with no way back.
+     */
+    EXPUNGE_WHOLE_FOLDER,
+}
+
+/**
+ * THE policy line. Changing this single assignment switches every purge path in this file
+ * ([ImapSession.delete] and the copy fallback of [ImapSession.move]) and nothing else.
+ *
+ * It ships as [PurgeWithoutUidPlus.LEAVE_FLAGGED]: destroying less than ordered is a defect the
+ * user can still recover from, destroying more is not (Codeberg #99).
+ */
+internal val purgeWithoutUidPlus = PurgeWithoutUidPlus.LEAVE_FLAGGED
 
 /**
  * Cap on how many UIDs go into one `UID MOVE`/`UID STORE` sequence-set, so an enormous
