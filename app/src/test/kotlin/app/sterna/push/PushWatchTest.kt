@@ -12,9 +12,10 @@ import org.junit.Test
  * and showing [PushStatus.NotWatched] instead of a 30-minute poll that never runs. Linked
  * sub-accounts are handled by the caller (they stay [PushStatus.Periodic]) and are not this function.
  *
- * The second half covers [isCarriedByOpenConnection] (issue #61): once an account IS watched, the
+ * The second part covers [isCarriedByOpenConnection] (issue #61): once an account IS watched, the
  * status line still has to find the connection that carries it, and connections are keyed by login,
- * not by account.
+ * not by account. The third asks the same question for the 30-minute fallback poll
+ * ([shouldPollInbox]), which used to read a process-wide "is the service running" flag instead.
  */
 class PushWatchTest {
 
@@ -77,5 +78,41 @@ class PushWatchTest {
 
     @Test fun `an account the service does not watch is not carried`() {
         assertFalse(isCarriedByOpenConnection("other", grouped, openConnections = setOf("login")))
+    }
+
+    // --- the fallback poll asks per account, not "is the service up" -----------------------------
+    //
+    // Same account-vs-connection confusion as above, on the other side of the app: the 30-minute
+    // safety poll (issue #11) used to read the service's process-wide isRunning flag. The service
+    // survives the failure of every connection it holds — its reconnect loop retries forever and its
+    // only stopSelf is an empty watched set — so that flag said "push is fine" with nothing
+    // connected, and the poll skipped the inbox it was written to rescue. One account is enough to
+    // hit it; the first test below fails on the pre-fix tree.
+
+    @Test fun `a service with no open connection for this account still polls its inbox`() {
+        assertTrue(shouldPollInbox(pushConnected = false, linked = false))
+    }
+
+    /** The witness: with the connection genuinely open, the poll must stay out of the inbox. */
+    @Test fun `an open connection for this account keeps the poll out of its inbox`() {
+        assertFalse(shouldPollInbox(pushConnected = true, linked = false))
+    }
+
+    /** Issue #31: the server never puts a shared sub-account's changes on the login's socket. */
+    @Test fun `a linked sub-account is polled even under an open connection`() {
+        assertTrue(shouldPollInbox(pushConnected = true, linked = true))
+    }
+
+    @Test fun `IMAP watched extras are polled while IDLE holds the inbox`() {
+        assertTrue(hasExtrasToPoll(isImap = true, watchedFolders = setOf("f1")))
+    }
+
+    @Test fun `IMAP with no watched extra has nothing left to poll`() {
+        assertFalse(hasExtrasToPoll(isImap = true, watchedFolders = emptySet()))
+    }
+
+    /** A JMAP EventSource covers the watched extras itself — polling them again is waste. */
+    @Test fun `JMAP watched extras are left to the EventSource`() {
+        assertFalse(hasExtrasToPoll(isImap = false, watchedFolders = setOf("f1")))
     }
 }
