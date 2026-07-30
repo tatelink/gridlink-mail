@@ -2385,7 +2385,7 @@ class MailRepository(
             .onFailure { failed += uidToId.values }
     }
 
-    /** Batch-destroy one IMAP folder's [ids] permanently with a single `UID STORE`+`EXPUNGE`.
+    /** Batch-destroy one IMAP folder's [ids] permanently with a single `UID STORE`+`UID EXPUNGE`.
      *  A failed command THROWS (transport-level, retryable) rather than marking the ids failed:
      *  the held-back destroy worker must retry a user-confirmed destroy, not abandon it. */
     private suspend fun imapDestroyGroup(

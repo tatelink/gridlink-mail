@@ -330,7 +330,7 @@ class ImapMailService(
     suspend fun move(credentials: AccountCredentials, sourceMailbox: String, uid: Long, destMailbox: String): Long? =
         withSession(credentials) { it.select(sourceMailbox); it.move(uid, destMailbox) }
 
-    /** Permanently delete a message (\Deleted + EXPUNGE) when there's no Trash. */
+    /** Permanently delete a message (\Deleted, then erased by UID) when there's no Trash. */
     suspend fun deleteMessage(credentials: AccountCredentials, mailboxId: String, uid: Long) =
         withSession(credentials) { it.select(mailboxId); it.delete(uid) }
 
