@@ -17,6 +17,9 @@ import org.junit.Test
  * The ramps are written out as literals rather than built from a [ColorScheme], so the derivation is
  * tested as the pure function it is — no Compose theme, no Robolectric. The values are the Material 3
  * baseline light and dark schemes; what the tests rely on is only that the two differ.
+ *
+ * What binds these ramps to the scheme the phone is actually showing is [monogramRamps], and that
+ * lives in [MonogramRampsTest]: nothing here would notice if it read the wrong roles.
  */
 class MonogramColorTest {
 
@@ -69,10 +72,25 @@ class MonogramColorTest {
         )
     }
 
+    /**
+     * The size of the palette, pinned exactly rather than bounded loosely.
+     *
+     * 18 is a decision, not an accident — see TONE_COUNT for the measurements behind it — so this
+     * asserts equality: narrowing it (fewer tones, or three ramps collapsing into one) and widening
+     * it both have to come with a deliberate edit here. 500 seeds is far past the 60 it takes to
+     * reach every slot, so the count is the palette's, not the sample's.
+     */
+    @Test fun `the palette offers exactly eighteen badges`() {
+        val everything = (0 until 500).map { monogramColor("seed-$it@example.org", lightRamps) }
+        assertEquals(18, everything.distinct().size)
+    }
+
     /** Flattening the colours would destroy the point of colouring a badge; this is the floor. */
     @Test fun `a realistic address book spreads over the whole set of badges`() {
         val distinct = addresses.map { monogramColor(it, lightRamps) }.distinct()
-        assertTrue("only ${distinct.size} distinct badge colours", distinct.size >= 10)
+        // 15 of the 18 for these 30 addresses. The floor is set above 12 on purpose: it is the most
+        // a twelve-slot palette could ever reach, so a narrowing cannot slip past this test.
+        assertTrue("only ${distinct.size} distinct badge colours", distinct.size >= 14)
     }
 
     @Test fun `a blank seed still yields a palette colour`() {
@@ -95,12 +113,9 @@ class MonogramColorTest {
 
     @Test fun `every badge lies inside one of the palette's ramps`() {
         for (ramps in listOf(lightRamps, darkRamps, monochromeRamps)) {
-            for (address in addresses) {
-                val badge = monogramColor(address, ramps)
-                assertTrue(
-                    "$address fell outside the palette",
-                    ramps.any { within(badge, it) },
-                )
+            for (seed in 0 until 500) {
+                val badge = monogramColor("seed-$seed@example.org", ramps)
+                assertTrue("$badge fell outside the palette", ramps.any { within(badge, it) })
             }
         }
     }
@@ -119,6 +134,15 @@ class MonogramColorTest {
 
     // --- and stays legible -----------------------------------------------------------------------
 
+    /**
+     * Measured, not hoped for: the worst badge of the 18 reaches 2.47:1 in light, 3.84:1 in dark and
+     * 2.55:1 monochrome. The floor below is set just under the light figure, so it is a standard the
+     * palette actually meets rather than a tripwire far beneath it — re-paling the start of the
+     * ramps, which is the one change that would lower it, trips this immediately. For reference the
+     * hue wheel this replaced bottomed out at 2.05:1, so the change improved legibility.
+     *
+     * Every slot is checked, not only the ones the sample addresses happen to land on.
+     */
     @Test fun `every badge keeps a visible contrast against the surface it sits on`() {
         val cases = listOf(
             Triple("light", lightRamps, lightSurface),
@@ -126,9 +150,10 @@ class MonogramColorTest {
             Triple("monochrome", monochromeRamps, monochromeSurface),
         )
         for ((name, ramps, surface) in cases) {
-            for (address in addresses) {
-                val contrast = contrastRatio(monogramColor(address, ramps), surface)
-                assertTrue("$name: $address only reached $contrast:1", contrast >= 2.0f)
+            for (seed in 0 until 500) {
+                val badge = monogramColor("seed-$seed@example.org", ramps)
+                val contrast = contrastRatio(badge, surface)
+                assertTrue("$name: $badge only reached $contrast:1", contrast >= 2.4f)
             }
         }
     }

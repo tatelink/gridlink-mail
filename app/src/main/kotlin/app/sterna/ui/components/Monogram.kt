@@ -63,10 +63,29 @@ internal fun ColorScheme.monogramRamps(): List<ToneRamp> = listOf(
     ToneRamp(tertiaryContainer, onTertiaryContainer),
 )
 
-/** Tones taken along each ramp, and where they sit on it (0.28, 0.48, 0.68, 0.88). */
-private const val TONE_COUNT = 4
-private const val FIRST_TONE = 0.28f
-private const val TONE_GAP = 0.20f
+/**
+ * Tones taken along each ramp: six, from 0.32 to 0.90 — 18 badges over the three families.
+ *
+ * Both ends are chosen, not rounded to. Starting at 0.32 rather than at the container itself keeps
+ * the palest badge at 2.47:1 against the surface (3.84:1 dark, 2.55:1 monochrome), above what the
+ * old hue wheel managed at its worst (2.05:1). Stopping at 0.90 rather than at `onContainer` avoids
+ * the deep end, where the three families converge on near-black in a light scheme and near-white in
+ * a dark one.
+ *
+ * Six is where the measurements stop paying. Slicing finer keeps lowering the odds of two contacts
+ * drawing the identical badge (18 slots put it at 1.6 colliding pairs among 8 correspondents,
+ * against 2.3 at twelve), but it buys no extra recognition: the closest pair of badges in a dark
+ * scheme falls from 4.4 to 3.2 ΔE00 at eight steps, which is below what the eye separates on a
+ * scrolling list, and the count of mutually distinguishable badges (≥10 ΔE00) sits around ten in a
+ * light scheme and under nine in a dark one whatever the step count. That ceiling is the palette's,
+ * not this function's — Material You exposes three accent hues, so the badges live on three lines
+ * through colour space and no amount of sampling adds a fourth direction to them. It is lower than
+ * the old wheel's ~17, and that is the real cost
+ * of the change; the wheel's 360 values were never 360 distinguishable colours either.
+ */
+private const val TONE_COUNT = 6
+private const val FIRST_TONE = 0.32f
+private const val TONE_GAP = 0.116f
 
 /**
  * A stable badge colour for [seed], expressed in the tones of the palette in use.
@@ -75,9 +94,12 @@ private const val TONE_GAP = 0.20f
  * — the point of colouring a badge at all is recognising a correspondent at a glance, and that
  * survives here; what changes is only where the colour comes from.
  *
- * Trade-off, deliberate: a monochrome palette gives three families of the same hue, so badges are
- * then told apart by lightness alone and carry less information than the old wheel did. That is what
- * choosing a monochrome palette means, and it reaches nobody who did not choose one.
+ * Trade-off number one, and it reaches everyone: 18 badges where the old wheel had 360 values. See
+ * [TONE_COUNT] for what that costs, what widening it further would and would not buy, and why the
+ * ceiling belongs to the palette rather than to this function.
+ *
+ * Trade-off number two, and it reaches only whoever chose it: a monochrome palette gives three
+ * families of the same hue, so badges are then told apart by lightness alone.
  *
  * Not to be confused with [accountColorOf], the accent a user picks for an account by hand: that one
  * is an explicit choice and is passed to [Monogram] as `color`, which short-circuits this entirely.
