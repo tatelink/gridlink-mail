@@ -74,7 +74,7 @@ internal fun moveTargets(mailboxes: List<Mailbox>, currentMailboxId: String?): L
  * account's folders would spell out a path nobody has.
  */
 internal fun mailboxAncestors(mailbox: Mailbox, mailboxes: List<Mailbox>): List<String> {
-    val chain = parentNameChain(mailbox, mailboxes)
+    val (chain, _) = parentNameChain(mailbox, mailboxes)
     if (chain.isNotEmpty()) return chain
     val (parentPath, delimiter) = imapParentPath(mailbox) ?: return emptyList()
     return parentPath.split(delimiter).filter { it.isNotEmpty() }
@@ -86,13 +86,25 @@ internal fun mailboxAncestors(mailbox: Mailbox, mailboxes: List<Mailbox>): List<
  * keeps the exact spelling the server used. Sieve names a subfolder by its whole path, so a
  * leaf on its own ("Done") names the wrong folder, or none, as soon as two folders share it.
  *
- * For IMAP that path is the id itself, delimiter and all. For JMAP the ids are opaque, so it is
- * the chain of names joined by [JMAP_PATH_SEPARATOR], the separator a JMAP server's own Sieve
- * uses to spell its mailbox tree.
+ * Null when this folder cannot be named with certainty — a nested folder whose parent is not in
+ * the list, a `parentId` loop, or a name that itself contains [JMAP_PATH_SEPARATOR], which no
+ * `fileinto` syntax can tell from a folder boundary. A folder that cannot be named is left out
+ * of the rule editor's choices: not offering it is visible, filing mail somewhere nobody chose
+ * is not — the very failure this function exists to end.
+ *
+ * ⚠ Only the JMAP branch runs today: server-side rules ARE JMAP-only
+ * (`MailRepository.loadFilterRules` answers `Unsupported` for every IMAP account), and this
+ * function has one caller, the rule editor. The IMAP branch is written and tested against the
+ * day IMAP filters exist; nothing has ever sent it on a wire.
  */
-internal fun mailboxFilePath(mailbox: Mailbox, mailboxes: List<Mailbox>): String {
-    val chain = parentNameChain(mailbox, mailboxes)
-    if (chain.isNotEmpty()) return (chain + mailbox.name).joinToString(JMAP_PATH_SEPARATOR)
+internal fun mailboxFilePath(mailbox: Mailbox, mailboxes: List<Mailbox>): String? {
+    val (chain, rooted) = parentNameChain(mailbox, mailboxes)
+    if (!rooted) return null
+    if (chain.isNotEmpty()) {
+        val segments = chain + mailbox.name
+        if (segments.any { JMAP_PATH_SEPARATOR in it }) return null
+        return segments.joinToString(JMAP_PATH_SEPARATOR)
+    }
     if (imapParentPath(mailbox) != null) return mailbox.id
     return mailbox.name
 }
@@ -117,7 +129,14 @@ internal fun mailboxPathLabel(mailbox: Mailbox, mailboxes: List<Mailbox>): Strin
     return elideOutermost(ancestors)
 }
 
-/** Separator between two segments of a JMAP mailbox path, on the wire. */
+/**
+ * Separator assumed between two segments of a JMAP mailbox path on the wire.
+ *
+ * NOT established: JMAP itself has no path syntax (a mailbox is an opaque id and a parent), so
+ * how a server's Sieve spells a nested mailbox in `fileinto` is the server's own convention,
+ * and "/" is the common one. Unverified against a live server so far — if a server disagrees,
+ * this constant is the single place to change.
+ */
 private const val JMAP_PATH_SEPARATOR = "/"
 
 /** Separator between two ancestors on screen — spaced, so it cannot be read as part of a name. */
@@ -162,20 +181,31 @@ private fun elideMiddle(text: String, maxChars: Int): String {
     return text.take(kept - kept / 2) + ELLIPSIS + text.takeLast(kept / 2)
 }
 
-/** The `parentId` chain of names above [mailbox], outermost first; empty for IMAP (no such
- *  field) and for a JMAP folder at the root. Stops at a parent the list does not hold, and the
- *  visited set keeps a cyclic `parentId` from hanging the picker. */
-private fun parentNameChain(mailbox: Mailbox, mailboxes: List<Mailbox>): List<String> {
-    val parentId = mailbox.parentId ?: return emptyList()
+/**
+ * The `parentId` chain of names above [mailbox], outermost first, and whether the walk actually
+ * reached a folder at the root. Empty (and rooted) for IMAP, which has no such field, and for a
+ * JMAP folder already at the root.
+ *
+ * The walk stops short — and says so — on a parent the list does not hold, or on a `parentId`
+ * loop. What it gathered is still worth SHOWING, but it no longer spells a whole path, so it
+ * must never be sent as one: a path cut halfway names a different folder, silently.
+ */
+private fun parentNameChain(
+    mailbox: Mailbox,
+    mailboxes: List<Mailbox>,
+): Pair<List<String>, Boolean> {
+    val parentId = mailbox.parentId ?: return emptyList<String>() to true
     val byId = mailboxes.associateBy { it.id }
     val chain = ArrayDeque<String>()
     val seen = mutableSetOf(mailbox.id)
     var parent = byId[parentId]
-    while (parent != null && seen.add(parent.id)) {
+    while (parent != null) {
+        if (!seen.add(parent.id)) return chain.toList() to false
         chain.addFirst(parent.name)
-        parent = parent.parentId?.let(byId::get)
+        val next = parent.parentId ?: return chain.toList() to true
+        parent = byId[next]
     }
-    return chain.toList()
+    return chain.toList() to false
 }
 
 /**

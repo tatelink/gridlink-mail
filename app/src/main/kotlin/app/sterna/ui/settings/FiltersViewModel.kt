@@ -71,9 +71,11 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
             try {
                 // Whole paths, resolved against the account's own folder list: the rule is
                 // executed by the server, which knows "INBOX.ProjectA.Done", not "Done".
+                // mapNotNull: a folder the app cannot name with certainty is not offered at
+                // all, rather than offered under a path that means another folder.
                 val folders = runCatching {
                     repo.observeMailboxes(credentials.id).first()
-                        .let { all -> all.map { mb -> mailboxFilePath(mb, all) } }
+                        .let { all -> all.mapNotNull { mb -> mailboxFilePath(mb, all) } }
                 }.getOrDefault(emptyList())
                 when (val result = repo.loadFilterRules(credentials)) {
                     FilterRulesState.Unsupported -> {
