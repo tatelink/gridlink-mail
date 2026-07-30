@@ -1983,8 +1983,13 @@ class MailRepository(
         } else {
             val blobId = email.blobId ?: error("Message has no blob id.")
             val ctx = connect(credentials)
+            // ISO-8859-1, like the IMAP branch above: a raw message source is a byte container
+            // in this app (one char per octet — see MimeParser's KDoc), whichever protocol
+            // fetched it. ONE convention, or the readers downstream — MimeParser, and the
+            // signature verification that needs the sender's exact bytes — would have to know
+            // where the string came from.
             client.downloadBlob(ctx.session, ctx.accountId, blobId, "message/rfc822", "message.eml", ctx.auth)
-                .toString(Charsets.UTF_8)
+                .toString(Charsets.ISO_8859_1)
         }
         rawSourceCache.put(cryptoKey(credentials.id, emailId), raw)
         return raw
@@ -2024,8 +2029,13 @@ class MailRepository(
                     senderAddress = sender,
                     interactionResult = interactionResult,
                 )
+                // ISO-8859-1, not UTF-8: the signed entity is a verbatim slice of the message
+                // source, which is a byte container (one char per wire byte — see MimeParser's
+                // KDoc). Only this reading hands the verifier the exact octets the sender
+                // hashed; UTF-8 would re-encode every 8-bit byte and the signature would not
+                // match. Armor is ASCII either way.
                 CryptoKind.PGP_SIGNED -> pgp.decryptVerify(
-                    canonicalizeCrlf(envelope.signedEntityRaw!!).toByteArray(Charsets.UTF_8),
+                    canonicalizeCrlf(envelope.signedEntityRaw!!).toByteArray(Charsets.ISO_8859_1),
                     senderAddress = sender,
                     detachedSignature = envelope.signatureArmor!!.toByteArray(Charsets.UTF_8),
                     interactionResult = interactionResult,
@@ -2067,7 +2077,12 @@ class MailRepository(
                 // The plaintext is a full MIME entity: parse it, mark its parts as
                 // "pgp:" sections so attachment downloads slice from the decrypted
                 // entity in memory, and resolve inline images locally.
-                val entity = decrypted.plaintext.toString(Charsets.UTF_8)
+                //
+                // ISO-8859-1 because MimeParser takes a byte container, not text (see its KDoc):
+                // this entity has its own Content-Type charsets and its own attachments, and
+                // decoding it as UTF-8 here would decide that question before the parser can
+                // read it — and lose the octets of any attachment inside it.
+                val entity = decrypted.plaintext.toString(Charsets.ISO_8859_1)
                 val body = MimeParser.parseBody(entity)
                 val display = email.withBody(body).run {
                     copy(

@@ -177,6 +177,68 @@ class MailboxNameTest {
         }
     }
 
+    // ---- a name that is not modified UTF-7 at all --------------------------------------------
+
+    /** The wire bytes of [name] in raw UTF-8, as the byte container a parsed token is. */
+    private fun rawUtf8(name: String): String =
+        String(name.toByteArray(Charsets.UTF_8), Charsets.ISO_8859_1)
+
+    private fun listing(nameToken: String) = FakeImapServer { tag, line ->
+        when {
+            line.startsWith("LIST") -> "* LIST () \"/\" $nameToken\r\n" + ok(tag)
+            else -> ok(tag)
+        }
+    }
+
+    /**
+     * A folder whose name travels as RAW UTF-8 rather than modified UTF-7 — not hypothetical,
+     * Sterna itself created such folders up to 1.4.3, which is why [select] carries a retry for
+     * them. The parser hands those octets over as octets, so the DISPLAY name has to be read
+     * before it is shown; without that, `stripBidiAndControls` eats the U+0080–U+009F half of
+     * every UTF-8 continuation byte and the drawer shows truncated mojibake.
+     *
+     * What is NOT claimed: such a folder becomes openable. It never was — its path can only be
+     * re-encoded as modified UTF-7, which is not what the server called it, and `select` refuses
+     * rather than guess. This is a display fix and nothing more, which is why `path` is asserted
+     * to still be the server's exact bytes.
+     */
+    @Test fun `a raw UTF-8 folder name delivered as a literal is displayed as text`() {
+        val wire = rawUtf8(flagged.second)
+        listing("{${wire.length}}\r\n$wire").use { server ->
+            val folder = server.session().use { it.listFolders().first() }
+
+            assertEquals(flagged.second, folder.name)
+            assertEquals("the identifier must stay the server's bytes", wire, folder.path)
+        }
+    }
+
+    /** The same name in the quoted form, which is what most servers send. Quoted and atom tokens
+     *  have always been read one char per byte, so this one was mojibake before too. */
+    @Test fun `a raw UTF-8 folder name delivered quoted is displayed as text`() {
+        val wire = rawUtf8(flagged.second)
+        listing("\"$wire\"").use { server ->
+            val folder = server.session().use { it.listFolders().first() }
+
+            assertEquals(flagged.second, folder.name)
+            assertEquals(wire, folder.path)
+        }
+    }
+
+    /**
+     * THE GUARD, and the reason the wire form is what gets tested rather than the decoded one: a
+     * legitimately encoded name whose characters all happen to sit in 0x80–0xFF must NOT be
+     * re-read. `&AMMAqQ-` really is a folder called "Ã©", and its latin-1 bytes happen to be
+     * valid UTF-8 for "é" — reinterpreting it would rename it on screen.
+     */
+    @Test fun `a properly encoded name is never reinterpreted`() {
+        listing("\"&AMMAqQ-\"").use { server ->
+            val folder = server.session().use { it.listFolders().first() }
+
+            assertEquals("Ã©", folder.name)
+            assertEquals("Ã©", folder.path)
+        }
+    }
+
     @Test fun `a Cyrillic folder is listed decoded and selected re-encoded`() {
         folderServer(flagged.first).use { server ->
             val folders = server.session().use { session ->

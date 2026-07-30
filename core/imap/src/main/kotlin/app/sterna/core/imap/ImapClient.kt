@@ -733,8 +733,17 @@ class ImapSession(private var socket: Socket) : Closeable {
         @Suppress("UNCHECKED_CAST")
         val fromAddr = (envelope?.getOrNull(2) as? List<Any?>)?.firstOrNull() as? List<Any?>
         val fromName = decodeWords(fromAddr?.getOrNull(0) as? String)
-        val mailbox = fromAddr?.getOrNull(2) as? String
-        val hostPart = fromAddr?.getOrNull(3) as? String
+        // The local part and the domain need [decodeHeaderBytes] just as much as the display
+        // name beside them, and for a sharper reason: an address is not shown and forgotten, it
+        // is PERSISTED (EmailEntity.fromEmail), indexed for search, offered as a contact
+        // suggestion and prefilled as the recipient of a reply. Getting it wrong sends mail to an
+        // address that does not exist.
+        //
+        // Not hypothetical. RFC 3501 forbids 8-bit bytes in a quoted-string, so a conforming
+        // server hands over ANY non-ASCII envelope value as a literal — precisely the token whose
+        // reading changed. An EAI address (RFC 6531, which Stalwart speaks) arrives that way.
+        val mailbox = (fromAddr?.getOrNull(2) as? String)?.let(::decodeHeaderBytes)
+        val hostPart = (fromAddr?.getOrNull(3) as? String)?.let(::decodeHeaderBytes)
         val fromEmail = if (mailbox != null && hostPart != null) "$mailbox@$hostPart" else null
         // Envelope "to" (index 5): every parseable address — Sent-folder rows show the
         // recipients, not the sender (Codeberg #59). Group-syntax delimiters (no host) are
@@ -743,8 +752,9 @@ class ImapSession(private var socket: Socket) : Closeable {
         val toAddrs = ((envelope?.getOrNull(5) as? List<Any?>).orEmpty()).mapNotNull { entry ->
             val addr = entry as? List<Any?> ?: return@mapNotNull null
             val name = decodeWords(addr.getOrNull(0) as? String)
-            val box = addr.getOrNull(2) as? String
-            val host = addr.getOrNull(3) as? String
+            // Same treatment as the From address above, and for the same reason.
+            val box = (addr.getOrNull(2) as? String)?.let(::decodeHeaderBytes)
+            val host = (addr.getOrNull(3) as? String)?.let(::decodeHeaderBytes)
             val email = if (box != null && host != null) "$box@$host" else null
             if (email == null && name == null) null else ImapAddress(name = name, email = email)
         }
@@ -948,8 +958,21 @@ internal fun parseListFolders(untagged: List<List<Any?>>): List<ImapFolder> =
         @Suppress("UNCHECKED_CAST")
         val attrs = (resp.getOrNull(2) as? List<Any?>)?.mapNotNull { it as? String } ?: emptyList()
         val delim = resp.getOrNull(3) as? String ?: "/"
-        val path = decodeMailboxPath(resp.getOrNull(4) as? String ?: return@mapNotNull null)
-        val name = stripBidiAndControls(path.substringAfterLast(delim))
+        val wire = resp.getOrNull(4) as? String ?: return@mapNotNull null
+        val path = decodeMailboxPath(wire)
+        val leaf = path.substringAfterLast(delim)
+        // A conforming name is modified UTF-7, i.e. pure ASCII on the wire, and its decoding is
+        // already text — nothing to reinterpret. A name that arrived with 8-bit bytes is not
+        // conforming: some client sent raw UTF-8 (Sterna itself did, up to 1.4.3 — see the
+        // retry in [select]), [decodeMailboxPath] rightly kept it verbatim, and what the parser
+        // hands over is therefore octets. Reading them before displaying them is the difference
+        // between "Помеченные" and a truncated mojibake, since [stripBidiAndControls] eats
+        // U+0080–U+009F. Testing the WIRE form, not the decoded one, is what keeps this free of
+        // false positives: a legitimately decoded name can never trigger it.
+        //
+        // [path] is deliberately NOT touched. It is the identifier, it has to reproduce the
+        // server's exact bytes, and it is the only reason the folder stays addressable.
+        val name = stripBidiAndControls(if (wire.any { it.code >= 0x80 }) decodeHeaderBytes(leaf) else leaf)
         val nonSelectable = attrs.any {
             it.equals("\\Noselect", ignoreCase = true) || it.equals("\\NonExistent", ignoreCase = true)
         }

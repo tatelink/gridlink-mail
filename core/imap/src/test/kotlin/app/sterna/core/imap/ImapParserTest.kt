@@ -10,6 +10,26 @@ class ImapParserTest {
     private fun parse(raw: String): List<Any?> =
         ImapParser(ByteArrayInputStream(raw.toByteArray(Charsets.UTF_8))).readResponse()
 
+    /**
+     * The same entry point taking the WIRE BYTES. The `String` overload cannot express the case
+     * that matters here: it encodes what it is given as UTF-8, so a lone 0xE9 — a latin-1 "é",
+     * perfectly legal in an 8-bit body — is unrepresentable, and the charset defect was
+     * therefore untestable through it.
+     */
+    private fun parseBytes(raw: ByteArray): List<Any?> =
+        ImapParser(ByteArrayInputStream(raw)).readResponse()
+
+    private fun bytes(vararg parts: Any): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        for (p in parts) when (p) {
+            is String -> out.write(p.toByteArray(Charsets.US_ASCII))
+            is Int -> out.write(p)
+            is ByteArray -> out.write(p)
+            else -> error("unsupported piece: $p")
+        }
+        return out.toByteArray()
+    }
+
     @Test
     fun parsesAtoms() {
         assertEquals(listOf("*", "OK", "hello"), parse("* OK hello\r\n"))
@@ -40,6 +60,44 @@ class ImapParserTest {
         val args = r[3] as List<Any?>
         assertEquals("BODY[]", args[0])
         assertEquals("hello world", args[1])
+    }
+
+    /**
+     * A literal is a byte container: every octet comes back as the char of the same value, so
+     * `toByteArray(ISO_8859_1)` reproduces the wire exactly.
+     *
+     * This is the whole defect in one assertion. Decoded as UTF-8, a lone 0xE9 is malformed, the
+     * JVM's REPLACE action turns it into U+FFFD and the octet is gone — before any reader has
+     * looked at the part's `charset=`, and with nothing left for it to look at. Every 8-bit body
+     * and every `8bit`/`binary` attachment goes through this one line.
+     */
+    @Test
+    fun aLiteralKeepsEveryByteVerbatim() {
+        val r = parseBytes(bytes("* 1 FETCH (BODY[] {4}\r\ncaf", 0xE9, ")\r\n"))
+        @Suppress("UNCHECKED_CAST")
+        val args = r[3] as List<Any?>
+        val literal = args[1] as String
+
+        assertEquals(4, literal.length)
+        assertEquals(0xE9, literal[3].code)
+        assertEquals(
+            listOf<Byte>(0x63, 0x61, 0x66, 0xE9.toByte()),
+            literal.toByteArray(Charsets.ISO_8859_1).toList(),
+        )
+    }
+
+    /** And the bytes of a multi-byte character survive as their own chars, to be reassembled
+     *  later by whoever knows the charset — never decoded, never merged, never lost. */
+    @Test
+    fun aLiteralDoesNotDecodeUtf8ByItself() {
+        // "é" in UTF-8 is C3 A9; "日" is E6 97 A5.
+        val r = parseBytes(bytes("* 1 FETCH (BODY[] {5}\r\n", 0xC3, 0xA9, 0xE6, 0x97, 0xA5, ")\r\n"))
+        @Suppress("UNCHECKED_CAST")
+        val args = r[3] as List<Any?>
+        val literal = args[1] as String
+
+        assertEquals(5, literal.length)
+        assertEquals("é日", String(literal.toByteArray(Charsets.ISO_8859_1), Charsets.UTF_8))
     }
 
     @Test
