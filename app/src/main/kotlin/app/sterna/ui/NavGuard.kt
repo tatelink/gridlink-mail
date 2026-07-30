@@ -1,6 +1,11 @@
 package app.sterna.ui
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavBackStackEntry
 
 /**
@@ -43,4 +48,45 @@ private fun NavBackStackEntry.isSettled(): Boolean =
  */
 internal fun NavBackStackEntry.navigateOnce(action: () -> Unit) {
     if (isSettled()) action()
+}
+
+/**
+ * The same guarantee as [navigateOnce] for an action that LEAVES the app — the About rows that
+ * hand a URL to a browser (#106 follow-up: they were left out of the navigation pass because they
+ * do not navigate, and a double tap opened the browser twice).
+ *
+ * [navigateOnce] alone cannot cover them. It works because `navigate()` demotes the entry below
+ * RESUMED *synchronously*, before the second tap is dispatched. `startActivity()` does not: the
+ * browser takes hundreds of milliseconds to come up and our activity stays resumed meanwhile, so a
+ * second tap arrives with the entry still settled and starts a second one. The lifecycle read
+ * therefore has to be paired with a latch that remembers we already left.
+ *
+ * The latch is released by the entry returning to RESUMED, i.e. by the user actually coming back to
+ * this screen — not by a timer. There is no delay to tune and nothing to get wrong on a slow
+ * device: while the browser is up, the app owes the user nothing, and the first tap that lands
+ * after they return is honoured. The latch is shared by every caller holding the same opener, so
+ * two fingers on two different rows in one frame also open one page, which is the behaviour
+ * [navigateOnce] gives the rows just above them.
+ *
+ * [action] reports whether it really did leave, and only then is the latch armed: on a device with
+ * no browser at all the launch throws, nothing happened on screen, and the row must stay live
+ * rather than go quietly dead until the user walks out of this screen and back.
+ *
+ * Returns the opener rather than gating inside the row component on purpose: SettingsCategoryRow
+ * has thirteen call sites, nine of which navigate and are already guarded — a guard in there would
+ * be a tap-debounce hidden in a shared widget.
+ */
+@Composable
+internal fun rememberLeaveOnce(entry: NavBackStackEntry): (() -> Boolean) -> Unit {
+    val left = remember { mutableStateOf(false) }
+    DisposableEffect(entry) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) left.value = false
+        }
+        entry.lifecycle.addObserver(observer)
+        onDispose { entry.lifecycle.removeObserver(observer) }
+    }
+    return { action ->
+        if (!left.value && entry.isSettled()) left.value = action()
+    }
 }

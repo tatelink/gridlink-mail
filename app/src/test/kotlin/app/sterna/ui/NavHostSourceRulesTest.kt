@@ -43,6 +43,31 @@ class NavHostSourceRulesTest {
         )
     }
 
+    /**
+     * The About rows do not navigate, they hand a URL to a browser — which is why the #106 pass
+     * skipped them and a double tap opened it twice. They go through `rememberLeaveOnce`'s opener
+     * now, and this keeps a fifth row from being wired the bare way.
+     *
+     * NARROWER THAN IT LOOKS, and deliberately so: it only sees calls of the file-local `openUrl`
+     * helper. A future row that builds its own ACTION_VIEW intent inline is invisible to it, and
+     * three buttons already do exactly that further down SettingsScreen.kt (the Microsoft
+     * app-password link, the device-approval browser button, the OpenKeychain install link). They
+     * are outside this fix's scope; widening the rule to every `startActivity(` would only make
+     * them carry an opt-out marker, which is decoration, not protection.
+     */
+    @Test
+    fun `every browser hand-off in a NavHost file goes through the leave guard`() {
+        val offenders = mainSources()
+            .filter { "NavHost(" in it.readText() }
+            .flatMap { file ->
+                val lines = file.readLines()
+                lines.indices
+                    .filter { lines[it].isUrlHandOff() && !lines.isGuarded(it, LEAVE_GUARD, URL_CALL) }
+                    .map { "${file.name}:${it + 1}" }
+            }
+        assertTrue("browser hand-offs not guarded by $LEAVE_GUARD: $offenders", offenders.isEmpty())
+    }
+
     @Test
     fun `the resumed-entry check lives in exactly one place`() {
         val offenders = mainSources()
@@ -100,20 +125,28 @@ class NavHostSourceRulesTest {
 
     private fun String.isNavAction() = "nav.navigate(" in this || "nav.popBackStack(" in this
 
+    /** A call of SettingsScreen's file-local URL helper, in code — its own declaration and the
+     * prose about it do not count. */
+    private fun String.isUrlHandOff(): Boolean {
+        val code = trimStart()
+        if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) return false
+        return URL_CALL in this && "fun $URL_CALL" !in this
+    }
+
     /**
      * Guarded either on the same line, or by the enclosing block: walking up to the first line
      * indented LESS than the action, that line must be the `navigateOnce {` that opened the block.
      * Indentation rather than brace counting, because the string templates inside the route
      * literals carry braces of their own and make naive counting lie.
      */
-    private fun List<String>.isGuarded(index: Int): Boolean {
+    private fun List<String>.isGuarded(index: Int, guard: String = GUARD, call: String = "nav."): Boolean {
         val line = this[index]
-        if (GUARD in line.substringBefore("nav.")) return true
+        if (guard in line.substringBefore(call)) return true
         val indent = line.indentWidth()
         for (i in index - 1 downTo 0) {
             val candidate = this[i]
             if (candidate.isBlank() || candidate.indentWidth() >= indent) continue
-            return GUARD in candidate
+            return guard in candidate
         }
         return false
     }
@@ -132,6 +165,8 @@ class NavHostSourceRulesTest {
 
     companion object {
         private const val GUARD = "navigateOnce {"
+        private const val LEAVE_GUARD = "leaveOnce {"
+        private const val URL_CALL = "openUrl("
         private const val EXEMPT = "unguarded:"
 
         /** Repo root, found by walking up from the module's working directory. */

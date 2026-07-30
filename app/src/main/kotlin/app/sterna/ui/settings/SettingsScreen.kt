@@ -136,6 +136,7 @@ import app.sterna.push.PushStatus
 import app.sterna.ui.SCREEN_SLIDE_MS
 import app.sterna.ui.appLabelOf
 import app.sterna.ui.navigateOnce
+import app.sterna.ui.rememberLeaveOnce
 import app.sterna.ui.rememberMotionEnabled
 import app.sterna.R
 import app.sterna.ui.connect.ConnectScreen
@@ -224,6 +225,11 @@ fun SettingsScreen(
             val accounts by accountsViewModel.accounts.collectAsStateWithLifecycle()
             val currentId by accountsViewModel.currentId.collectAsStateWithLifecycle()
             val currentLabel = accounts.firstOrNull { it.id == currentId }?.label().orEmpty()
+            val context = LocalContext.current
+            // The About rows leave the app instead of navigating, so they need the sibling of
+            // [navigateOnce]: a double tap used to hand the same URL to the browser twice (#106
+            // follow-up). One opener for all of them, so two rows tapped together also open once.
+            val leaveOnce = rememberLeaveOnce(entry)
             SettingsHub(
                 onBack = onBack,
                 onOpenAccounts = { entry.navigateOnce { nav.navigate("accounts") } },
@@ -235,6 +241,7 @@ fun SettingsScreen(
                 onOpenPrivacy = { entry.navigateOnce { nav.navigate("privacy") } },
                 onOpenStorage = { entry.navigateOnce { nav.navigate("storage") } },
                 onOpenBackup = { entry.navigateOnce { nav.navigate("backup") } },
+                onOpenUrl = { url -> leaveOnce { openUrl(context, url) } },
                 currentAccountLabel = currentLabel,
             )
         }
@@ -327,6 +334,7 @@ private fun SettingsHub(
     onOpenPrivacy: () -> Unit,
     onOpenStorage: () -> Unit,
     onOpenBackup: () -> Unit,
+    onOpenUrl: (String) -> Unit,
     currentAccountLabel: String,
 ) {
     DetailScaffold(title = stringResource(R.string.settings_hub_title), onBack = onBack) { padding ->
@@ -360,28 +368,30 @@ private fun SettingsHub(
                 SettingsCategoryRow(Icons.Filled.BeachAccess, stringResource(R.string.settings_vacation_title), stringResource(R.string.settings_vacation_summary), onOpenVacation)
                 SettingsCategoryRow(Icons.Filled.FilterAlt, stringResource(R.string.settings_filters_title), stringResource(R.string.settings_filters_summary), onOpenFilters)
             }
+            // These four rows hand a URL to a browser instead of navigating; [onOpenUrl] carries
+            // the guard that keeps a double tap from opening it twice. No Context is taken here on
+            // purpose, so a row added later cannot fire an intent of its own without saying so.
             SettingsSection(stringResource(R.string.settings_about_section)) {
-                val context = LocalContext.current
                 SettingsCategoryRow(
                     Icons.Filled.Info,
                     stringResource(R.string.settings_about_version),
                     "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${BuildConfig.VERSION_DATE}",
-                ) { openUrl(context, "$REPO_URL/releases") }
+                ) { onOpenUrl("$REPO_URL/releases") }
                 SettingsCategoryRow(
                     Icons.Filled.Code,
                     stringResource(R.string.settings_about_source),
                     REPO_URL.removePrefix("https://"),
-                ) { openUrl(context, REPO_URL) }
+                ) { onOpenUrl(REPO_URL) }
                 SettingsCategoryRow(
                     Icons.Filled.Description,
                     stringResource(R.string.settings_about_license),
                     "GPL-3.0-only",
-                ) { openUrl(context, "$REPO_URL/src/branch/main/LICENSE") }
+                ) { onOpenUrl("$REPO_URL/src/branch/main/LICENSE") }
                 SettingsCategoryRow(
                     Icons.Filled.Person,
                     stringResource(R.string.settings_about_author),
                     "emon",
-                ) { openUrl(context, "https://codeberg.org/emon") }
+                ) { onOpenUrl("https://codeberg.org/emon") }
             }
         }
     }
@@ -390,9 +400,13 @@ private fun SettingsHub(
 /** Where Sterna Mail lives; the About section links here (repo, releases, license). */
 private const val REPO_URL = "https://codeberg.org/emon/sterna-mail"
 
-private fun openUrl(context: android.content.Context, url: String) {
-    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-}
+/**
+ * Hands a URL to whatever handles it, and says whether anything took it — a device with no browser
+ * at all throws ActivityNotFound. Call it through the opener from [rememberLeaveOnce]: it has no
+ * re-entrancy protection of its own, and firing it twice opens the browser twice (#106 follow-up).
+ */
+private fun openUrl(context: android.content.Context, url: String): Boolean =
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.isSuccess
 
 @Composable
 private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
