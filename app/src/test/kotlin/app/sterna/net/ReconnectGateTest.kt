@@ -262,6 +262,31 @@ class ReconnectGateTest {
         assertEquals(1, live.resyncs)
     }
 
+    @Test fun `the callbacks replayed at registration are not the plumbing moving`() {
+        // The view model does `refresh(); connectivity.start()`, and the gate is seeded from the
+        // synchronous connectivity read — the latches are up, but no network identity is known yet.
+        // Under a tunnel that swallows traffic the first refresh dies on a multi-second timeout
+        // while the replay lands in milliseconds, so the two can arrive in either order. Learning
+        // what was already there is not a change, and must cost nothing whichever order it is.
+        val live = Live(link = true)
+        live.refreshDiedOnTheTransport()
+        live.transportUp(WIFI)
+        live.routeUp(TUNNEL)
+        assertEquals("first sight of a network is not a rebuild", 0, live.resyncs)
+        assertFalse(live.online)
+    }
+
+    @Test fun `a tunnel rebuilt after that cold start is still a reason to try again`() {
+        // The counterpart: ignoring first sight must not cost us the case the rule exists for.
+        val live = Live(link = true)
+        live.refreshDiedOnTheTransport()
+        live.transportUp(WIFI)
+        live.routeUp(TUNNEL)
+        assertEquals(0, live.resyncs)
+        live.routeUp(TUNNEL_AGAIN)
+        assertEquals(1, live.resyncs)
+    }
+
     @Test fun `a re-announced network is not the plumbing moving`() {
         // The bound that stops this becoming a poll: the framework re-runs its callbacks freely.
         val live = tunnelled()
