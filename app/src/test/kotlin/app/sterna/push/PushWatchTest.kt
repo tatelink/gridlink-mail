@@ -16,6 +16,16 @@ import org.junit.Test
  * status line still has to find the connection that carries it, and connections are keyed by login,
  * not by account. The third asks the same question for the 30-minute fallback poll
  * ([shouldPollInbox]), which used to read a process-wide "is the service running" flag instead.
+ * The fourth ([shouldResetBaseline], [seedsSilently]) decides which accounts a user-initiated arm
+ * may reseed silently.
+ *
+ * KNOWN GAP, stated rather than papered over: every test here is a pure decision function. Nothing
+ * exercises the code that CALLS them — `MailFetchWorker.doWork`, `PushService.watch`,
+ * `PushController.apply`, `InboxViewModel` — because each needs an Android Context, a service or a
+ * WorkManager, and this module has no Robolectric. Both defects these functions were extracted from
+ * were wiring defects, so the gap is exactly where the bugs were: negating an argument at a call
+ * site, or passing the wrong one, leaves every test below green. The call sites are covered by
+ * reading and by the on-device bench, not here.
  */
 class PushWatchTest {
 
@@ -84,10 +94,14 @@ class PushWatchTest {
     //
     // Same account-vs-connection confusion as above, on the other side of the app: the 30-minute
     // safety poll (issue #11) used to read the service's process-wide isRunning flag. The service
-    // survives the failure of every connection it holds — its reconnect loop retries forever and its
-    // only stopSelf is an empty watched set — so that flag said "push is fine" with nothing
-    // connected, and the poll skipped the inbox it was written to rescue. One account is enough to
-    // hit it; the first test below fails on the pre-fix tree.
+    // survives the failure of every connection it holds — the reconnect loop retries forever and
+    // never stops it — so that flag said "push is fine" with nothing connected, and the poll skipped
+    // the inbox it was written to rescue. One account is enough to hit it.
+    //
+    // What these tests pin is the RULE, not the wiring. The rule did not exist before the fix, so
+    // saying they "fail on the old tree" would be meaningless; what they do is fix the decision so
+    // that reverting it to the old one — poll only when no service is up — turns the first test red.
+    // The worker's call site is not covered here (see the class KDoc).
 
     @Test fun `a service with no open connection for this account still polls its inbox`() {
         assertTrue(shouldPollInbox(pushConnected = false, linked = false))
@@ -123,7 +137,8 @@ class PushWatchTest {
     // looking at that inbox. Arming, however, covers every watched account at once: with "push for
     // all accounts" on, one arm used to reseed all of them, and the accounts the user was NOT
     // looking at lost their pending mail's notification for good — every later pass diffs against
-    // the baseline that just absorbed it. The first test below fails on the pre-fix tree.
+    // the baseline that just absorbed it. Same caveat as above: the predicate is new, so these pin
+    // the rule, not the wiring that feeds it.
     //
     // The witnesses matter as much as the case: without them these tests would also pass with the
     // reseed deleted outright, which is the opposite defect (a fresh install or a baseline version

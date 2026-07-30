@@ -65,12 +65,12 @@ class MailFetchWorker(context: Context, params: WorkerParameters) : CoroutineWor
             // catch-up fan-out that runs whenever the login's own push wakes).
             val linked = store.account(credentials.id)?.isLinked == true
             // Asked per ACCOUNT, never "is the service up": the service outlives the failure of
-            // every connection it holds (its retry loop runs forever, and its only stopSelf is an
-            // empty watched set), so a process-wide flag reads "push is fine" while nothing is
-            // connected — and this account's inbox would then never be polled by the one thing
-            // meant to rescue it (see [PushService.isConnected], the same account-vs-connection
-            // hop as issue #61). False when the service is down or the account is unknown to it,
-            // so the default is to poll: a wasted delta costs a request, a wrong skip costs mail.
+            // every connection it holds — nothing in the retry loop ever stops it, so a
+            // process-wide flag reads "push is fine" while nothing is connected, and this
+            // account's inbox would never be polled by the one thing meant to rescue it (see
+            // [PushService.isConnected], the same account-vs-connection hop as issue #61).
+            // False when the service is down or the account is unknown to it, so the default is
+            // to poll: a wasted delta costs a request, a wrong skip costs mail.
             val connected = PushService.isConnected(credentials.id)
             val pollInbox = shouldPollInbox(connected, linked)
             val pollExtras = hasExtrasToPoll(
@@ -105,13 +105,22 @@ class MailFetchWorker(context: Context, params: WorkerParameters) : CoroutineWor
  *
  * [pushConnected] is deliberately per-account — "is the connection carrying THIS account open right
  * now" ([PushService.isConnected]) — and not "is the service running". The service is not evidence
- * of a connection: the service catches every failure into a 5-second retry loop that never gives
- * up, so with the sockets all dead the service still exists, its process-wide flag still reads
- * true, and the inbox of a single-account install goes unpolled forever — the exact case the worker
- * was written for (issue #11). One live connection is not needed for the bug either: none is.
+ * of a connection: a connection that fails goes into a 5-second retry loop that never gives up and
+ * never stops the service. (The service does stop itself in three places — a refused
+ * `startForeground`, an Android 15+ FGS timeout, an empty watched set — but all three go through
+ * `onDestroy`, which clears the flag. None of them is a connection failure.) So with every socket
+ * dead the service still exists, its process-wide flag still reads true, and the inbox of a
+ * single-account install goes unpolled forever — the exact case the worker was written for
+ * (issue #11). One live connection is not needed for the bug either: none is.
  *
  * A linked sub-account (issue #31) is polled even while its login's connection is open, because the
  * server never puts an ACL-shared account's changes on that socket.
+ *
+ * **This can only add polls, never remove one.** `isConnected` returns false whenever the service
+ * instance is null, and the instance and the process-wide flag are set together in `onCreate` and
+ * cleared together in `onDestroy`; so `isConnected(x)` implies the flag, and every account this
+ * skips was already skipped before. Whatever else is wrong with the fallback poll, this change
+ * cannot be what stops a fetch that used to happen.
  *
  * Pure so the decision is unit-tested without a service or WorkManager. NB what it can prove is
  * narrow: "connected" means we hold a Closeable we believe is open, so a socket that died without
