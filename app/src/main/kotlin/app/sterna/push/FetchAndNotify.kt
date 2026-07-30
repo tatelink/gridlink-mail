@@ -78,7 +78,7 @@ object FetchAndNotify {
             } else {
                 emptyList()
             }
-            if ((resetBaselines && isInbox) || !hasBaseline) {
+            if (seedsSilently(resetBaselines, isInbox, hasBaseline)) {
                 // First sight of a folder (or an explicit reset): seed silently instead of
                 // flooding notifications for its whole existing content.
                 NewMailNotifier.seed(context, credentials.id, folder.mailboxId, folder.emails + returned)
@@ -123,3 +123,19 @@ object FetchAndNotify {
         }
     }
 }
+
+/**
+ * Does this folder take its content into the baseline silently, instead of announcing the diff?
+ *
+ * Two independent reasons, and the second is not negotiable: a folder seen for the first time has
+ * no baseline to diff against, so announcing would mean notifying its entire existing content — a
+ * fresh install, a newly watched folder or a baseline version bump would empty weeks of mail into
+ * the notification shade. It holds whatever [resetBaselines] says.
+ *
+ * [resetBaselines] is the narrow one: the inbox the user is looking at, on an arm the user caused
+ * (see [shouldResetBaseline], which decides which accounts that is). Watched extras never take it —
+ * a Sieve folder is not on screen at app-open, so mail filed there while push was down must still
+ * notify (issue #16).
+ */
+internal fun seedsSilently(resetBaselines: Boolean, isInbox: Boolean, hasBaseline: Boolean): Boolean =
+    (resetBaselines && isInbox) || !hasBaseline
