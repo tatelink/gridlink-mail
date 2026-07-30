@@ -1355,8 +1355,16 @@ fun InboxScreen(
                     onToggleFavourite = {
                         val favouriting = !email.isFlagged
                         viewModel.toggleFlag(email)
-                        // Favourites pin to the top — scroll there so it's visibly landing.
-                        if (favouriting) scope.launch { listState.animateScrollToItem(0) }
+                        // Only "Favourites first" moves the row on starring, so only there is
+                        // there anywhere to follow it to (#111). Under any other order the row
+                        // stays put, and scrolling away would just cost the reader their place —
+                        // which is what this did unconditionally while the pin was hard-wired.
+                        // Search results are excluded outright: they read no sort order at all,
+                        // and `listState` is the BROWSE list's, so a jump here scrolls a list
+                        // the reader isn't even looking at.
+                        if (favouriting && !fromSearch && ui.sortOrder == SortOrder.FLAGGED_FIRST) {
+                            scope.launch { listState.animateScrollToItem(0) }
+                        }
                     },
                     selected = email.emailKey() in selectedKeys,
                     gesturesEnabled = !selectionActive,
