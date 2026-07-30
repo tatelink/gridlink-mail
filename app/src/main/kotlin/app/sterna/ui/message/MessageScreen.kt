@@ -140,6 +140,7 @@ import app.sterna.ui.canSnoozeIn
 import app.sterna.ui.inbox.mailboxDisplayName
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.isOutgoingFolder
+import app.sterna.ui.rememberLeaveOnce
 import app.sterna.ui.snoozed.SnoozeDeadlineHeader
 import app.sterna.util.LinkCleaner
 import app.sterna.util.MailDates
@@ -1538,6 +1539,11 @@ private fun ParticipantRow(
     val clipboard = LocalClipboardManager.current
     val copiedMsg = stringResource(R.string.status_address_copied)
     val noContactsAppMsg = stringResource(R.string.participant_no_contacts_app)
+    // Adding to Contacts CREATES something, and the contacts editor is slow enough to come up that
+    // a second tap lands while the screen is still ours: without this it filed the same person
+    // twice, and the duplicate is left behind in the user's address book long after the mail is
+    // forgotten. One latch per row: the next participant is another intention, not a stutter.
+    val leaveOnce = rememberLeaveOnce()
     val hasName = !addr.name.isNullOrBlank()
     var menuOpen by remember { mutableStateOf(false) }
     Row(
@@ -1566,8 +1572,12 @@ private fun ParticipantRow(
             }
         }
         IconButton(onClick = {
-            if (!addToContacts(context, addr)) {
-                Toast.makeText(context, noContactsAppMsg, Toast.LENGTH_SHORT).show()
+            leaveOnce {
+                val opened = addToContacts(context, addr)
+                // No contacts app: say so and keep the button live — nothing was created, so
+                // there is nothing to protect against a second tap.
+                if (!opened) Toast.makeText(context, noContactsAppMsg, Toast.LENGTH_SHORT).show()
+                opened
             }
         }) {
             Icon(
@@ -1844,6 +1854,9 @@ private fun CalendarEventCard(
     onOpenInvitation: () -> Unit,
 ) {
     val context = LocalContext.current
+    // "Add to calendar" CREATES something too: the event editor takes a moment to appear, and until
+    // this guard a second tap put the same meeting in the calendar twice.
+    val leaveOnce = rememberLeaveOnce()
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
@@ -1918,10 +1931,16 @@ private fun CalendarEventCard(
                 }
                 Spacer(Modifier.height(10.dp))
                 Button(onClick = {
-                    if (!addToCalendar(context, event)) {
-                        // No event editor on the device — fall back to opening the raw invite.
-                        Toast.makeText(context, R.string.calendar_no_app, Toast.LENGTH_SHORT).show()
-                        onOpenInvitation()
+                    leaveOnce {
+                        val opened = addToCalendar(context, event)
+                        if (!opened) {
+                            // No event editor on the device — fall back to opening the raw invite.
+                            // Reported as "did not leave": the fallback is a download first, it can
+                            // still fail, and nothing has been created for a second tap to double.
+                            Toast.makeText(context, R.string.calendar_no_app, Toast.LENGTH_SHORT).show()
+                            onOpenInvitation()
+                        }
+                        opened
                     }
                 }) {
                     Icon(Icons.Filled.Event, contentDescription = null)
@@ -2465,6 +2484,11 @@ private fun EmailWebView(
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    // Both ways out of this body go through ONE latch, because they are one action: tapping a link.
+    // The confirmation dialog is not itself protection — two taps inside the same frame both reach
+    // its Open button — and with the confirmation setting OFF, which is the default and the path
+    // most mail is read on, there is no dialog at all between the tap and the browser.
+    val leaveOnce = rememberLeaveOnce()
     // When confirmation is on, a tapped link is held here until the user approves it.
     var pendingLink by remember { mutableStateOf<Uri?>(null) }
     // Body laid out: JS is disabled, so this comes from the native scroll range, reported once it has
@@ -2480,7 +2504,9 @@ private fun EmailWebView(
     val client = remember { BlockingWebViewClient() }
     client.blockRemote = blockRemote
     client.stripTracking = stripTracking
-    client.onOpenUrl = { uri -> if (confirmLinks) pendingLink = uri else openExternally(context, uri) }
+    client.onOpenUrl = { uri ->
+        if (confirmLinks) pendingLink = uri else leaveOnce { openExternally(context, uri) }
+    }
     // The body's resting scroll geometry as measured by the height poll, when that poll actually
     // measured (two agreeing readings) rather than fell back. It is what lets the host decide the
     // Reply/Forward bar in the same frame as the body's reveal (#63); null keeps the old,
@@ -2699,7 +2725,7 @@ private fun EmailWebView(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { openExternally(context, uri); pendingLink = null }) {
+                TextButton(onClick = { leaveOnce { openExternally(context, uri) }; pendingLink = null }) {
                     Text(stringResource(R.string.message_open_link_open))
                 }
             },
@@ -2712,13 +2738,18 @@ private fun EmailWebView(
     }
 }
 
-/** Open a URL in the system's default handler (browser/chooser); no-op if none can. */
-private fun openExternally(context: Context, uri: Uri) {
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    } catch (e: Exception) {
-        // No app can handle the URL — silently ignore rather than crash.
-    }
+/**
+ * Open a URL in the system's default handler (browser/chooser), and say whether anything took it —
+ * a device with no browser at all throws. It used to swallow that and return nothing, which reads
+ * the same on screen but is not the same to the guard above: an opener that cannot tell a hand-off
+ * from a dud would latch a dead link and leave the reader tapping a link that can never work.
+ */
+private fun openExternally(context: Context, uri: Uri): Boolean = try {
+    context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    true
+} catch (e: Exception) {
+    // No app can handle the URL — silently ignore rather than crash.
+    false
 }
 
 /** A Compose [Color] as a CSS hex string (#RRGGBB). */

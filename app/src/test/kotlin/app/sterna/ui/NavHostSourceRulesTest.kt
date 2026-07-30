@@ -44,28 +44,41 @@ class NavHostSourceRulesTest {
     }
 
     /**
-     * The About rows do not navigate, they hand a URL to a browser — which is why the #106 pass
-     * skipped them and a double tap opened it twice. They go through `rememberLeaveOnce`'s opener
-     * now, and this keeps a fifth row from being wired the bare way.
+     * Leaving for another app is the other half of the problem [navigateOnce] solves, and the
+     * harder half: `startActivity` does not demote us out of RESUMED the way `navigate()` does, so
+     * the screen stays live for the few hundred milliseconds the other app takes to appear and a
+     * second tap lands on a screen that still looks settled. Two browser windows is an annoyance;
+     * Add to contacts and Add to calendar CREATE something, and the duplicate outlives the mail.
      *
-     * NARROWER THAN IT LOOKS, and deliberately so: it only sees calls of the file-local `openUrl`
-     * helper. A future row that builds its own ACTION_VIEW intent inline is invisible to it, and
-     * three buttons already do exactly that further down SettingsScreen.kt (the Microsoft
-     * app-password link, the device-approval browser button, the OpenKeychain install link). They
-     * are outside this fix's scope; widening the rule to every `startActivity(` would only make
-     * them carry an opt-out marker, which is decoration, not protection.
+     * This used to cover only calls of SettingsScreen's `openUrl` helper, on the grounds that
+     * widening it while nine other hand-offs stayed unguarded would only spread opt-out markers
+     * around — decoration, not protection. Those nine are guarded now, so the wide rule is the
+     * protection: EVERY hand-off in the app module, in any file, NavHost or not.
+     *
+     * Three ways to satisfy it, and no fourth:
+     *  - the tap goes through the opener from `rememberLeaveOnce` (`leaveOnce { … }`), anywhere in
+     *    the enclosing blocks;
+     *  - the line lives in a helper that REPORTS whether it left (a `: Boolean` return) — those are
+     *    the openers themselves, and their own call sites are checked by this same rule;
+     *  - it carries [EXEMPT] with the reason, for a hand-off that is not a tap at all.
      */
     @Test
-    fun `every browser hand-off in a NavHost file goes through the leave guard`() {
-        val offenders = mainSources()
-            .filter { "NavHost(" in it.readText() }
-            .flatMap { file ->
-                val lines = file.readLines()
-                lines.indices
-                    .filter { lines[it].isUrlHandOff() && !lines.isGuarded(it, LEAVE_GUARD, URL_CALL) }
-                    .map { "${file.name}:${it + 1}" }
-            }
-        assertTrue("browser hand-offs not guarded by $LEAVE_GUARD: $offenders", offenders.isEmpty())
+    fun `every hand-off to another app goes through the leave guard`() {
+        val offenders = mainSources().flatMap { file ->
+            val lines = file.readLines()
+            lines.indices
+                .filter { i ->
+                    lines[i].isAppHandOff() &&
+                        !lines.isInsideLeaveGuard(i) &&
+                        !lines.reportsWhetherItLeft(i) &&
+                        !lines.isExempt(i)
+                }
+                .map { "${file.name}:${it + 1}" }
+        }
+        assertTrue(
+            "hand-offs to another app neither guarded by $LEAVE_GUARD nor marked '$EXEMPT': $offenders",
+            offenders.isEmpty(),
+        )
     }
 
     @Test
@@ -125,12 +138,47 @@ class NavHostSourceRulesTest {
 
     private fun String.isNavAction() = "nav.navigate(" in this || "nav.popBackStack(" in this
 
-    /** A call of SettingsScreen's file-local URL helper, in code — its own declaration and the
-     * prose about it do not count. */
-    private fun String.isUrlHandOff(): Boolean {
+    /**
+     * A line that hands something to another app, in code — the prose about it and the openers' own
+     * declarations do not count. Both the raw `startActivity(` and the named openers written around
+     * it, so that pointing a new button at `addToContacts(…)` is caught as surely as building the
+     * intent inline.
+     */
+    private fun String.isAppHandOff(): Boolean {
         val code = trimStart()
         if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) return false
-        return URL_CALL in this && "fun $URL_CALL" !in this
+        if ("fun " in code) return false
+        return HAND_OFFS.any { it in code }
+    }
+
+    /**
+     * Guarded by the opener on this line or by any block enclosing it. Walks strictly outwards by
+     * indentation (same reason as [isGuarded]: string templates make brace counting lie), and
+     * through EVERY level rather than only the innermost, because an opener that reports success
+     * naturally wraps a `runCatching { … }` between the guard and the launch.
+     */
+    private fun List<String>.isInsideLeaveGuard(index: Int): Boolean {
+        if (LEAVE_GUARD in this[index]) return true
+        var indent = this[index].indentWidth()
+        for (i in index - 1 downTo 0) {
+            val candidate = this[i]
+            if (candidate.isBlank() || candidate.indentWidth() >= indent) continue
+            if (LEAVE_GUARD in candidate) return true
+            indent = candidate.indentWidth()
+        }
+        return false
+    }
+
+    /**
+     * The line sits in a helper that answers "did we actually leave?" — the shape the guard needs,
+     * since a launch that threw must not arm the latch. Such a helper is not a tap: whoever calls
+     * it is, and this rule sees that call too.
+     */
+    private fun List<String>.reportsWhetherItLeft(index: Int): Boolean {
+        for (i in index downTo 0) {
+            if (FUN_DECLARATION.containsMatchIn(this[i])) return ": Boolean" in this[i]
+        }
+        return false
     }
 
     /**
@@ -139,14 +187,14 @@ class NavHostSourceRulesTest {
      * Indentation rather than brace counting, because the string templates inside the route
      * literals carry braces of their own and make naive counting lie.
      */
-    private fun List<String>.isGuarded(index: Int, guard: String = GUARD, call: String = "nav."): Boolean {
+    private fun List<String>.isGuarded(index: Int): Boolean {
         val line = this[index]
-        if (guard in line.substringBefore(call)) return true
+        if (GUARD in line.substringBefore("nav.")) return true
         val indent = line.indentWidth()
         for (i in index - 1 downTo 0) {
             val candidate = this[i]
             if (candidate.isBlank() || candidate.indentWidth() >= indent) continue
-            return guard in candidate
+            return GUARD in candidate
         }
         return false
     }
@@ -166,8 +214,18 @@ class NavHostSourceRulesTest {
     companion object {
         private const val GUARD = "navigateOnce {"
         private const val LEAVE_GUARD = "leaveOnce {"
-        private const val URL_CALL = "openUrl("
         private const val EXEMPT = "unguarded:"
+
+        /** Every way the app hands something to another app: the intent itself, and the openers. */
+        private val HAND_OFFS = listOf(
+            "startActivity(",
+            "openUrl(",
+            "openExternally(",
+            "addToContacts(",
+            "addToCalendar(",
+        )
+
+        private val FUN_DECLARATION = Regex("""^\s*(private |internal |public )?(suspend )?fun \w""")
 
         /** Repo root, found by walking up from the module's working directory. */
         private val root: File by lazy {
