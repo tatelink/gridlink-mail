@@ -31,6 +31,11 @@ object TrashPurge {
      * The rows to persist for a confirmation: [ids] as read at that instant, de-duplicated,
      * blanks dropped, truncated to [cap], each carrying the account and folder it came from so
      * it can never be resolved against another account (issue #31).
+     *
+     * [uidValidity] is the IMAP numbering those ids were read under, null on JMAP and null when
+     * no numbering could be established. It is part of the order, not an annotation on it: the
+     * ids are only meaningful while the folder still carries that number, and the destroy can
+     * run hours later (see [PurgeSnapshotEntity.uidValidity]).
      */
     fun snapshotRows(
         purgeId: String,
@@ -39,12 +44,13 @@ object TrashPurge {
         ids: List<String>,
         now: Long,
         cap: Int = SNAPSHOT_MAX,
+        uidValidity: Long? = null,
     ): List<PurgeSnapshotEntity> =
         ids.asSequence()
             .filter { it.isNotBlank() }
             .distinct()
             .take(cap.coerceAtLeast(0))
-            .map { PurgeSnapshotEntity(purgeId, accountId, mailboxId, it, now) }
+            .map { PurgeSnapshotEntity(purgeId, accountId, mailboxId, it, now, uidValidity) }
             .toList()
 
     /**
@@ -77,6 +83,13 @@ object TrashPurge {
      *   read). That must propagate: no snapshot, no order. Swallowing it would turn a
      *   cancelled confirmation into a snapshot of the cache — a destroy list the user just
      *   revoked.
+     *
+     * A folder RENUMBERED between the last sync and this enumeration arrives as the first case
+     * (the SELECT refuses, see `ImapMailService.onMailbox`), so the cached ids stand in — and
+     * they belong to the numbering that has just gone. The caller records that OLD numbering with
+     * the snapshot, which makes the purge refuse when it runs: nothing is destroyed, the folder
+     * is re-listed by the next refresh, and emptying it again works on the real content. That is
+     * the conservative outcome by construction, not by accident.
      */
     suspend fun imapSnapshotIds(
         accountId: String,
@@ -94,4 +107,19 @@ object TrashPurge {
         } catch (unreachable: Throwable) {
             cached()
         }
+
+    /**
+     * The numbering to record with a snapshot: what the server reported when the folder was
+     * enumerated, or — when it could not be asked and the CACHED ids stood in — the numbering
+     * those cached ids were last known to belong to.
+     *
+     * The fallback matters. Without it every offline "Empty trash" would produce an unverifiable
+     * order and destroy nothing when connectivity came back, which is not conservatism, it is a
+     * feature that silently stops working. The cached ids were fetched under the recorded
+     * numbering; that is exactly the number they belong to.
+     *
+     * Null (nothing observed, nothing recorded) stays null, and null means destroy nothing.
+     */
+    fun snapshotUidValidity(observed: Long?, recorded: Long?): Long? =
+        observed?.takeIf { it > 0L } ?: recorded?.takeIf { it > 0L }
 }

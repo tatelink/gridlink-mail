@@ -35,4 +35,18 @@ data class PurgeSnapshotEntity(
     val emailId: String,
     /** Confirmation time, so an abandoned snapshot can be swept instead of lingering forever. */
     val createdAt: Long,
+    /**
+     * The IMAP UIDVALIDITY the folder was enumerated under, or null when there is none to record
+     * (a JMAP account, a snapshot written before this column existed, or a folder whose numbering
+     * was never observed).
+     *
+     * An IMAP email id is `imap:account:folder:UID`, and a UID only means anything inside one
+     * numbering: a server that renumbers the folder — a migration, a rebuilt index, a restore —
+     * makes every id in this snapshot name a DIFFERENT message. Recorded on the order because
+     * the order is what has to be checked against the folder when it finally runs, and the gap
+     * between the two is unbounded (the destroy worker waits for connectivity).
+     *
+     * Null means unverifiable, and unverifiable means destroy nothing.
+     */
+    val uidValidity: Long? = null,
 )

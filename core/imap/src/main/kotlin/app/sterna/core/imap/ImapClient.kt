@@ -16,6 +16,21 @@ import javax.net.ssl.SSLSocketFactory
 class ImapException(message: String) : Exception(message)
 
 /**
+ * The selected mailbox has been renumbered: its UIDVALIDITY is no longer the one the caller's
+ * UIDs were read under, so those UIDs mean nothing (RFC 3501 §2.3.1.1).
+ *
+ * Deliberately NOT an [ImapException]: it is not a protocol error and not a transport failure,
+ * and the existing `catch (e: ImapException)` / reconnect-and-retry paths must not absorb it.
+ * Retrying cannot help — the folder really was renumbered — and treating it as a failure to be
+ * swallowed is how a stale UID gets acted on. See [ImapSession.select].
+ */
+class ImapUidValidityChanged(
+    val mailbox: String,
+    val expected: Long,
+    val observed: Long,
+) : Exception("UIDVALIDITY of $mailbox changed from $expected to $observed")
+
+/**
  * Turn on RFC 2818 endpoint identification so the TLS handshake verifies the peer
  * certificate's CN/SAN against [host]. A bare [SSLSocket] only validates the chain,
  * not the hostname, so without this an attacker with any CA-valid certificate can
@@ -418,7 +433,24 @@ class ImapSession(private var socket: Socket) : Closeable {
     /** LIST every mailbox, inferring a role from special-use attributes or the name. */
     fun listFolders(): List<ImapFolder> = parseListFolders(command("LIST \"\" \"*\"").untagged)
 
-    fun select(path: String): ImapMailboxStatus {
+    /**
+     * SELECT a mailbox and read back its status.
+     *
+     * [expectedUidValidity] is the UIDVALIDITY this caller's UIDs were read under. When the
+     * server now reports a different one, every UID in that folder has been reassigned (RFC 3501
+     * §2.3.1.1) — a UID that used to mean one message now means another, or nothing — and the
+     * call is refused with [ImapUidValidityChanged] BEFORE a single command that names a UID
+     * goes out. That is the whole IMAP side of Codeberg #99: a held-back "Empty trash" that
+     * finds a renumbered folder must destroy nothing, not destroy "whatever holds those numbers
+     * now".
+     *
+     * `null`, the default, asks nothing and is what every discovery path passes: the first
+     * SELECT of a folder has nothing to compare against. A server that reports no UIDVALIDITY at
+     * all (0) cannot be checked either way, and is not turned into a refusal — that would break
+     * the folder outright on a non-conforming server, which is the wrong direction for a guard
+     * whose job is to be conservative about DESTROYING.
+     */
+    fun select(path: String, expectedUidValidity: Long? = null): ImapMailboxStatus {
         val result = command("SELECT ${mailboxArg(path)}")
         var exists = 0
         var uidValidity = 0L
@@ -429,6 +461,11 @@ class ImapSession(private var socket: Socket) : Closeable {
             val flat = resp.joinToString(" ") { it?.toString() ?: "NIL" }
             Regex("UIDVALIDITY (\\d+)").find(flat)?.let { uidValidity = it.groupValues[1].toLong() }
             Regex("UIDNEXT (\\d+)").find(flat)?.let { uidNext = it.groupValues[1].toLong() }
+        }
+        if (expectedUidValidity != null && expectedUidValidity > 0L &&
+            uidValidity > 0L && uidValidity != expectedUidValidity
+        ) {
+            throw ImapUidValidityChanged(path, expectedUidValidity, uidValidity)
         }
         return ImapMailboxStatus(exists, uidValidity, uidNext)
     }
