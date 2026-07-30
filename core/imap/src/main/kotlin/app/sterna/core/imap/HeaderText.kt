@@ -18,11 +18,15 @@ import java.util.Base64
  * A word whose charset is unknown, or whose payload will not decode, is KEPT VERBATIM: a
  * malformed subject must survive as text, not disappear. That fallback is the reason this is
  * not a one-liner around a JVM decoder.
+ *
+ * The input is a byte container ([ImapParser]'s convention), so [decodeHeaderBytes] runs FIRST:
+ * an encoded-word is pure ASCII and passes through it untouched, while a header that carries its
+ * bytes raw — against the standard, but common — becomes text before anything filters it.
  */
 internal fun decodeWords(text: String?): String? {
     if (text == null) return null
     val pattern = Regex("=\\?([^?]+)\\?([BbQq])\\?([^?]*)\\?=")
-    return pattern.replace(text) { m ->
+    return pattern.replace(decodeHeaderBytes(text)) { m ->
         val cs = charsetOrUtf8(m.groupValues[1].substringBefore('*'))
         val enc = m.groupValues[2].uppercase()
         val data = m.groupValues[3]
@@ -35,6 +39,34 @@ internal fun decodeWords(text: String?): String? {
             String(bytes, cs)
         }.getOrDefault(m.value)
     }.let { stripBidiAndControls(it) }.trim()
+}
+
+/**
+ * Turn a header the parser handed over as a byte container (one char per wire byte, see
+ * [ImapParser]) into text, for the case RFC 2047 exists to avoid and senders use anyway: 8-bit
+ * bytes sitting raw in a `Subject` or a `From` display name.
+ *
+ * A header does not declare a charset, so there is nothing to obey and the reading has to be
+ * inferred. Valid UTF-8 is taken as UTF-8 (RFC 6532, and what modern senders emit); anything
+ * else keeps its ISO-8859-1 reading, which is the legacy convention and — unlike a lossy UTF-8
+ * decode — never destroys an octet. Pure ASCII, which is every conforming header and every
+ * encoded-word, is returned unchanged without allocating.
+ *
+ * This has to happen BEFORE [stripBidiAndControls], and that is the whole reason it exists as
+ * its own function: that filter removes U+0080–U+009F, which is precisely where UTF-8
+ * continuation bytes land when they are read one-per-char.
+ */
+internal fun decodeHeaderBytes(text: String): String {
+    if (text.none { it.code >= 0x80 }) return text
+    // A string holding real text rather than octets (chars past U+00FF) is not a byte container
+    // and has nothing to reinterpret — never round-trip it, ISO-8859-1 would write '?' over it.
+    if (text.any { it.code > 0xFF }) return text
+    val decoder = Charsets.UTF_8.newDecoder()
+        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+    return runCatching {
+        decoder.decode(java.nio.ByteBuffer.wrap(text.toByteArray(Charsets.ISO_8859_1))).toString()
+    }.getOrDefault(text)
 }
 
 /**

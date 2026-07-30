@@ -53,6 +53,14 @@ data class CryptoEnvelope(
  * Minimal MIME parser: extracts the best body (text/html → text/plain, decoding
  * transfer-encoding + charset) and lists file attachments with their IMAP body
  * section so they can be fetched on demand.
+ *
+ * INPUT CONVENTION — every `raw`/`content` string reaching this object is a FAITHFUL BYTE
+ * CONTAINER: one char per wire byte, ISO-8859-1, exactly what [ImapParser] produces (see its
+ * KDoc) and what [decodeBytes] has always assumed. A message is bytes until its own headers say
+ * what those bytes mean; this object is where they finally say it. Handing it a string that has
+ * already been decoded into text (chars past U+00FF, or a "café" that is really text and not two
+ * bytes) makes [decode] mangle it — the PGP read path converts its decrypted entity with
+ * ISO-8859-1 for exactly this reason.
  */
 object MimeParser {
     /** Bound multipart nesting so a maliciously deep message can't blow the stack. */
@@ -153,7 +161,12 @@ object MimeParser {
     /**
      * Every top-level header field of a raw message, in original order with duplicates kept
      * (folded continuation lines joined) — the IMAP counterpart of JMAP's `headers` property,
-     * for the reader's "view headers" action (issue #60). Values are otherwise unaltered.
+     * for the reader's "view headers" action (issue #60). Values are otherwise unaltered:
+     * encoded-words are NOT decoded here, this screen shows the header as it was sent.
+     *
+     * [decodeHeaderBytes] is the one exception, and it is not a decoding: the source is a byte
+     * container, so a conforming (ASCII) header passes through untouched while one carrying its
+     * bytes raw is shown as the text those bytes are, rather than as one box per octet.
      */
     fun rawHeaders(raw: String): List<Pair<String, String>> {
         val out = mutableListOf<Pair<String, String>>()
@@ -161,7 +174,9 @@ object MimeParser {
         fun flush() {
             val line = sb.toString()
             val colon = line.indexOf(':')
-            if (colon > 0) out.add(line.substring(0, colon).trim() to line.substring(colon + 1).trim())
+            if (colon > 0) {
+                out.add(line.substring(0, colon).trim() to decodeHeaderBytes(line.substring(colon + 1).trim()))
+            }
             sb.clear()
         }
         for (line in splitHeaders(raw).first.split(Regex("\\r?\\n"))) {
@@ -316,7 +331,14 @@ object MimeParser {
         return null
     }
 
-    /** Decode a fetched part body (BODY[section]) to raw bytes using its transfer-encoding. */
+    /**
+     * Decode a fetched part body (BODY[section]) to raw bytes using its transfer-encoding.
+     *
+     * The `ISO_8859_1` conversions are the byte-container convention (see the object KDoc), not a
+     * guess at a charset: an attachment has no charset, it has octets. This is what a `8bit` or
+     * `binary` attachment lands on disk as, so a parser that could not return the octets wrote
+     * `?` (0x3F) over every one it had lost — silently, since nothing on screen says so.
+     */
     fun decodeBytes(content: String, encoding: String?): ByteArray = when (encoding?.lowercase()) {
         "base64" -> runCatching {
             Base64.getMimeDecoder().decode(content.filter { it != '\r' && it != '\n' })
@@ -385,12 +407,24 @@ object MimeParser {
         return parts
     }
 
+    /**
+     * A part's body as text: undo the transfer-encoding, then read the resulting bytes with the
+     * part's declared [charset].
+     *
+     * `base64` and `quoted-printable` are ASCII on the wire, so they survive the parse intact and
+     * have always had their charset applied to the bytes they rebuild. `7bit`/`8bit`/`binary` are
+     * the ones that were missing it: their body IS the bytes, and it used to be returned as-is —
+     * whatever charset the part declared. Under the byte-container convention (see the object
+     * KDoc) those chars are the octets, so recovering them and re-reading them under [charset] is
+     * all it takes. For a UTF-8 part — the overwhelming majority — the round trip reproduces the
+     * same text; for an ISO-8859-1 or KOI8-R one it produces the text instead of mojibake.
+     */
     private fun decode(body: String, cte: String, charset: java.nio.charset.Charset): String = when (cte) {
         "base64" -> runCatching {
             String(Base64.getMimeDecoder().decode(body.filter { it != '\r' && it != '\n' }), charset)
         }.getOrDefault(body)
         "quoted-printable" -> decodeQuotedPrintable(body, charset)
-        else -> body
+        else -> String(body.toByteArray(Charsets.ISO_8859_1), charset)
     }
 
     private fun decodeQuotedPrintable(input: String, charset: java.nio.charset.Charset): String {
