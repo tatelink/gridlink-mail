@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -131,19 +131,10 @@ fun ConnectScreen(
         if (state is ConnectState.NeedsServer) showAdvanced = true
     }
 
-    var imapHost by rememberSaveable { mutableStateOf("") }
-    var imapPort by rememberSaveable { mutableStateOf("993") }
-    var imapSecurity by rememberSaveable { mutableStateOf(ConnectionSecurity.TLS) }
-    // An OAuth provider (Outlook) is selected: hide the server/port fields — they're
-    // irrelevant since sign-in is by OAuth, not a manually-configured server.
-    var oauthSelected by rememberSaveable { mutableStateOf(false) }
-    var smtpHost by rememberSaveable { mutableStateOf("") }
-    var smtpPort by rememberSaveable { mutableStateOf("465") }
-    var smtpSecurity by rememberSaveable { mutableStateOf(ConnectionSecurity.TLS) }
+    // Quick setup and the server fields it fills are one piece of state, so the chips, the fields
+    // and the Connect button can never disagree about which provider is selected (#105).
+    var preset by rememberSaveable(stateSaver = PresetFormSaver) { mutableStateOf(PresetForm.NONE) }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
-    // The app-password help page for the selected preset (Gmail…), or null when the
-    // provider doesn't need one (or signs in by OAuth).
-    var appPasswordUrl by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
     // Focusing any credential field scrolls the WHOLE credential block (account name, email,
@@ -231,17 +222,13 @@ fun ConnectScreen(
         }
     }
 
-    val ready = if (oauthSelected) {
-        // Outlook (OAuth): only the email is needed; "Connect" launches the browser flow.
-        username.isNotBlank()
-    } else {
-        username.isNotBlank() && password.isNotBlank() && when (protocol) {
-            // JMAP server is optional — autodiscovery derives it from the email domain.
-            MailProtocol.JMAP -> true
-            MailProtocol.IMAP -> imapHost.isNotBlank() && imapPort.toIntOrNull() != null &&
-                smtpHost.isNotBlank() && smtpPort.toIntOrNull() != null
-        }
-    }
+    // Where Connect goes and whether it has enough to go there — one decision, shared by the
+    // button's label, its enabled state and the secret field's meaning.
+    val route = connectRoute(preset, protocol, useApiToken, server)
+    val ready = connectReady(
+        route, username, password,
+        preset.imapHost, preset.imapPort, preset.smtpHost, preset.smtpPort,
+    )
 
     Scaffold(
         topBar = { TopAppBar(title = { Text(stringResource(R.string.connect_add_account)) }) },
@@ -354,12 +341,20 @@ fun ConnectScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = protocol == MailProtocol.JMAP,
-                    onClick = { protocol = MailProtocol.JMAP },
+                    onClick = {
+                        protocol = MailProtocol.JMAP
+                        // Leaving IMAP disarms an OAuth preset, so Connect can't still be
+                        // pointing at the Microsoft flow while the screen says JMAP (#105).
+                        preset = presetForProtocol(preset, MailProtocol.JMAP)
+                    },
                     label = { Text(stringResource(R.string.connect_jmap)) },
                 )
                 FilterChip(
                     selected = protocol == MailProtocol.IMAP,
-                    onClick = { protocol = MailProtocol.IMAP },
+                    onClick = {
+                        protocol = MailProtocol.IMAP
+                        preset = presetForProtocol(preset, MailProtocol.IMAP)
+                    },
                     label = { Text(stringResource(R.string.connect_imap_smtp)) },
                 )
             }
@@ -427,31 +422,20 @@ fun ConnectScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     MAIL_PROVIDERS.forEach { provider ->
-                        AssistChip(
-                            onClick = {
-                                if (provider.oauth) {
-                                    // Just select Outlook (collapse the server fields); the
-                                    // "Connect" button launches the OAuth/browser flow.
-                                    oauthSelected = true
-                                    appPasswordUrl = null
-                                } else {
-                                    oauthSelected = false
-                                    imapHost = provider.imapHost
-                                    imapPort = provider.imapPort
-                                    imapSecurity = provider.imapSecurity
-                                    smtpHost = provider.smtpHost
-                                    smtpPort = provider.smtpPort
-                                    smtpSecurity = provider.smtpSecurity
-                                    appPasswordUrl = provider.appPasswordUrl
-                                }
-                            },
+                        // FilterChip, not AssistChip: the selected provider is visible, and
+                        // tapping it again lets go of it. Outlook used to be a one-way door —
+                        // it hid the server fields with nothing on screen to bring them back
+                        // (#105).
+                        FilterChip(
+                            selected = preset.selected == provider.name,
+                            onClick = { preset = presetChipTapped(preset, provider) },
                             label = { Text(provider.name) },
                         )
                     }
                 }
                 // Outlook signs in by OAuth, so the app-password note and the manual
-                // server/port fields don't apply — hide them once it's selected.
-                if (!oauthSelected) {
+                // server/port fields don't apply — hide them while it's selected.
+                if (preset.serverFieldsVisible) {
                     Text(
                         stringResource(R.string.connect_provider_app_password_note),
                         style = MaterialTheme.typography.bodySmall,
@@ -459,7 +443,7 @@ fun ConnectScreen(
                     )
                     // Selected preset needs an app-specific password (Gmail…): one tap to
                     // the provider's page to create one, since their normal password is refused.
-                    appPasswordUrl?.let { url ->
+                    preset.appPasswordUrl?.let { url ->
                         TextButton(
                             onClick = {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -478,19 +462,19 @@ fun ConnectScreen(
 
                     Text(stringResource(R.string.connect_incoming_imap), style = MaterialTheme.typography.labelLarge)
                     HostPortRow(
-                        host = imapHost, onHost = { imapHost = it },
-                        port = imapPort, onPort = { imapPort = it },
+                        host = preset.imapHost, onHost = { preset = preset.copy(imapHost = it) },
+                        port = preset.imapPort, onPort = { preset = preset.copy(imapPort = it) },
                         hostPlaceholder = stringResource(R.string.connect_imap_host_placeholder),
                     )
-                    SecurityChips(imapSecurity) { imapSecurity = it }
+                    SecurityChips(preset.imapSecurity) { preset = preset.copy(imapSecurity = it) }
 
                     Text(stringResource(R.string.connect_outgoing_smtp), style = MaterialTheme.typography.labelLarge)
                     HostPortRow(
-                        host = smtpHost, onHost = { smtpHost = it },
-                        port = smtpPort, onPort = { smtpPort = it },
+                        host = preset.smtpHost, onHost = { preset = preset.copy(smtpHost = it) },
+                        port = preset.smtpPort, onPort = { preset = preset.copy(smtpPort = it) },
                         hostPlaceholder = stringResource(R.string.connect_smtp_host_placeholder),
                     )
-                    SecurityChips(smtpSecurity) { smtpSecurity = it }
+                    SecurityChips(preset.smtpSecurity) { preset = preset.copy(smtpSecurity = it) }
                 }
             }
 
@@ -531,7 +515,7 @@ fun ConnectScreen(
                     ) { username = it },
                 )
                 // In API-token mode this same secret field holds the token (labelled accordingly).
-                val tokenMode = protocol == MailProtocol.JMAP && !oauthSelected && useApiToken
+                val tokenMode = route == ConnectRoute.JMAP_TOKEN
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
@@ -565,21 +549,15 @@ fun ConnectScreen(
                 val busy = state is ConnectState.Connecting || state is ConnectState.Discovering
                 Button(
                     onClick = {
-                        if (oauthSelected) {
-                            viewModel.connectOutlookOAuth(username, accountName)
-                        } else if (protocol == MailProtocol.JMAP) {
-                            if (useApiToken) {
-                                viewModel.connectToken(server, username, password, accountName)
-                            } else if (server.isBlank()) {
-                                viewModel.connectAuto(username, password, accountName)
-                            } else {
-                                viewModel.connect(server, username, password, accountName)
-                            }
-                        } else {
-                            viewModel.connectImap(
+                        when (route) {
+                            ConnectRoute.OUTLOOK_OAUTH -> viewModel.connectOutlookOAuth(username, accountName)
+                            ConnectRoute.JMAP_TOKEN -> viewModel.connectToken(server, username, password, accountName)
+                            ConnectRoute.JMAP_AUTODISCOVER -> viewModel.connectAuto(username, password, accountName)
+                            ConnectRoute.JMAP_SERVER -> viewModel.connect(server, username, password, accountName)
+                            ConnectRoute.IMAP_PASSWORD -> viewModel.connectImap(
                                 username, password, accountName,
-                                imapHost, imapPort.toInt(), imapSecurity,
-                                smtpHost, smtpPort.toInt(), smtpSecurity,
+                                preset.imapHost, preset.imapPort.toInt(), preset.imapSecurity,
+                                preset.smtpHost, preset.smtpPort.toInt(), preset.smtpSecurity,
                             )
                         }
                     },
@@ -917,30 +895,34 @@ private fun ImportSignInPanel(target: ConnectViewModel.SignInTarget, viewModel: 
     }
 }
 
-/** A known mail provider's IMAP/SMTP settings, applied by the quick-setup chips. */
-private data class MailProvider(
-    val name: String,
-    val imapHost: String,
-    val imapPort: String,
-    val imapSecurity: ConnectionSecurity,
-    val smtpHost: String,
-    val smtpPort: String,
-    val smtpSecurity: ConnectionSecurity,
-    /** When true the chip starts the OAuth sign-in flow instead of filling host/port. */
-    val oauth: Boolean = false,
-    /** Page where the user creates an app-specific password (their normal one is refused). */
-    val appPasswordUrl: String? = null,
-)
-
-private val MAIL_PROVIDERS = listOf(
-    MailProvider("Gmail", "imap.gmail.com", "993", ConnectionSecurity.TLS, "smtp.gmail.com", "465", ConnectionSecurity.TLS, appPasswordUrl = "https://myaccount.google.com/apppasswords"),
-    // Outlook authenticates over IMAP/SMTP with OAuth (XOAUTH2) — Microsoft has disabled
-    // password IMAP — so this chip launches the OAuth flow rather than filling host/port.
-    MailProvider("Outlook", "outlook.office365.com", "993", ConnectionSecurity.TLS, "smtp.office365.com", "587", ConnectionSecurity.STARTTLS, oauth = true),
-    MailProvider("Yahoo", "imap.mail.yahoo.com", "993", ConnectionSecurity.TLS, "smtp.mail.yahoo.com", "465", ConnectionSecurity.TLS),
-    MailProvider("iCloud", "imap.mail.me.com", "993", ConnectionSecurity.TLS, "smtp.mail.me.com", "587", ConnectionSecurity.STARTTLS),
-    MailProvider("Fastmail", "imap.fastmail.com", "993", ConnectionSecurity.TLS, "smtp.fastmail.com", "465", ConnectionSecurity.TLS),
-    MailProvider("Proton Bridge", "127.0.0.1", "1143", ConnectionSecurity.STARTTLS, "127.0.0.1", "1025", ConnectionSecurity.STARTTLS),
+/**
+ * Keeps the quick-setup selection across a rotation or a process death, like the separate fields it
+ * replaced. Every member is a String, a Boolean or an enum name, so the list is plainly saveable.
+ */
+private val PresetFormSaver = listSaver<PresetForm, String>(
+    save = {
+        listOf(
+            it.selected.orEmpty(), it.oauth.toString(),
+            it.imapHost, it.imapPort, it.imapSecurity.name,
+            it.smtpHost, it.smtpPort, it.smtpSecurity.name,
+            it.appPasswordUrl.orEmpty(),
+        )
+    },
+    restore = {
+        PresetForm(
+            // No provider name and no help page are ever the empty string, so "" stands in for
+            // "none" — the saved list holds no nulls.
+            selected = it[0].ifEmpty { null },
+            oauth = it[1] == "true",
+            imapHost = it[2],
+            imapPort = it[3],
+            imapSecurity = ConnectionSecurity.valueOf(it[4]),
+            smtpHost = it[5],
+            smtpPort = it[6],
+            smtpSecurity = ConnectionSecurity.valueOf(it[7]),
+            appPasswordUrl = it[8].ifEmpty { null },
+        )
+    },
 )
 
 @Composable
