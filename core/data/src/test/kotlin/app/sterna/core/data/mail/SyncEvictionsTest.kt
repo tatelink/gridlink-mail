@@ -61,10 +61,68 @@ class SyncEvictionsTest {
             isProtected = { it == "ghost" },
         )
         assertEquals(emptyList<String>(), delta)
-        // ...but the same sync cycle's ghost sweep does, because Email/get's notFound is an
-        // authoritative point lookup that the spare deliberately does not shield.
+        // ...but the ghost sweep does, because Email/get's notFound is an authoritative point
+        // lookup that the spare deliberately does not shield. WHETHER that sweep runs in this
+        // cycle is a separate question, decided by shouldSweepGhosts — see the #107 probe cases.
         val swept = ghostEvictions(cachedIds = listOf("ghost", "alive"), notFound = setOf("ghost"))
         assertEquals(listOf("ghost"), swept)
+    }
+
+    // -- sparedEvictions (what the sync log reports) --------------------------------------
+
+    @Test fun aDestroyArrivingInsideTheSparingWindowIsNamedAsADestroy() {
+        // The scenario the class doc admits to and nothing asserted until now: the server says the
+        // message is GONE while the id is still inside its 45 s local-mutation window (the user
+        // read or flagged it moments before it was destroyed elsewhere). The delta keeps the row…
+        val removed = listOf("ghost")
+        val destroyed = listOf("ghost")
+        val protect: (String) -> Boolean = { it == "ghost" }
+        assertEquals(emptyList<String>(), deltaEvictions(removed, setOf(), destroyed, protect))
+        // …and the log must say WHICH row and that it was a destroy, not a mere removal — that
+        // word is the whole difference between a benign spare and a ghost.
+        assertEquals(
+            listOf("ghost" to SpareReason.DESTROY),
+            sparedEvictions(removed, setOf(), destroyed, protect),
+        )
+    }
+
+    @Test fun aDestroyOutranksARemovalForTheSameId() {
+        // Reported in both deltas at once: "removal" would understate it — the message is gone.
+        assertEquals(
+            listOf("x" to SpareReason.DESTROY),
+            sparedEvictions(listOf("x"), emptySet(), listOf("x"), isProtected = { true }),
+        )
+    }
+
+    @Test fun aSparedRemovalIsReportedAsSuchAndNotAsADestroy() {
+        // The spare's normal, benign job: a just-flagged row reported as removed off a
+        // pre-mutation query state. It must NOT be logged as a destroy, or the log cries wolf
+        // on every flag change and the real losses drown in it.
+        assertEquals(
+            listOf("justFlagged" to SpareReason.REMOVAL),
+            sparedEvictions(listOf("justFlagged"), emptySet(), emptyList()) { it == "justFlagged" },
+        )
+    }
+
+    @Test fun anEvictedIdIsNeverAlsoReportedAsSpared() {
+        // The two functions partition the delta: what is evicted is not logged as kept, and what
+        // is logged as kept is not evicted. A log claiming otherwise would be actively misleading.
+        val removed = listOf("kept", "gone")
+        val destroyed = listOf("destroyedKept")
+        val protect: (String) -> Boolean = { it.startsWith("kept") || it.endsWith("Kept") }
+        val evicted = deltaEvictions(removed, emptySet(), destroyed, protect)
+        val spared = sparedEvictions(removed, emptySet(), destroyed, protect).map { it.first }
+        assertEquals(listOf("gone"), evicted)
+        assertEquals(setOf("destroyedKept", "kept"), spared.toSet())
+        assertTrue(evicted.none { it in spared })
+    }
+
+    @Test fun aReorderedRowIsNotReportedAsSpared() {
+        // Present in removed AND added = a reorder. Nothing was skipped, so nothing to log.
+        assertEquals(
+            emptyList<Pair<String, SpareReason>>(),
+            sparedEvictions(listOf("e1"), setOf("e1"), emptyList(), isProtected = { true }),
+        )
     }
 
     // -- ghostEvictions ------------------------------------------------------------------
@@ -142,5 +200,96 @@ class SyncEvictionsTest {
                 millisSinceLastSweep = 10 * floor, minIntervalMs = floor,
             ),
         )
+    }
+
+    // -- what happens AFTER a spared destroy (Codeberg #107 probe) ------------------------
+    //
+    // These three pin the CURRENT behaviour of the gate in the exact sequence a swallowed destroy
+    // produces. They are characterisation tests, not regression guards: each asserts what the
+    // shipped code does today, so all three pass on the pre-probe tree. Their value is that they
+    // make the residual hole explicit and would break the moment the gate is changed — at which
+    // point they must be re-read, not merely re-baselined.
+
+    @Test fun aDestroyReportedOnlyInTheChangesDeltaDoesNotTripTheImmediateSweep() {
+        // vanishedFromMailbox is computed from queryChanges.removed ALONE (MailRepository), so a
+        // destroy the server reports only in Email/changes.destroyed does not count as "something
+        // left this mailbox" — even though it is the very shape the spare can swallow. The
+        // immediate sweep therefore does not fire, and the row waits out the floor instead.
+        assertFalse(
+            shouldSweepGhosts(
+                firstThisSession = false, stateAdvanced = true, vanishedFromMailbox = false,
+                millisSinceLastSweep = 30_000, minIntervalMs = floor,
+            ),
+        )
+        assertEquals(
+            "skip/throttled",
+            sweepReason(
+                firstThisSession = false, stateAdvanced = true, vanishedFromMailbox = false,
+                millisSinceLastSweep = 30_000, minIntervalMs = floor,
+            ),
+        )
+    }
+
+    @Test fun onceTheCursorsHaveAdvancedPastTheLostNoticeNoRefreshEverResweeps() {
+        // THE hole this probe exists to expose. The delta that lost the destroy notice also
+        // STORED the new cursors, so every later sync of a quiet account compares equal:
+        // stateAdvanced = false. The gate's floor is behind that AND, so however long the user
+        // waits and however many times they pull to refresh, no existence check is run — the row
+        // survives every refresh and only a process restart (firstThisSession) or clearing the
+        // cache removes it. That is precisely the reporter's "even after refreshing".
+        listOf(0L, floor, 100 * floor).forEach { elapsed ->
+            assertFalse(
+                "no sweep after ${elapsed}ms of a quiet account",
+                shouldSweepGhosts(
+                    firstThisSession = false, stateAdvanced = false, vanishedFromMailbox = false,
+                    millisSinceLastSweep = elapsed, minIntervalMs = floor,
+                ),
+            )
+            assertEquals(
+                "skip/idle",
+                sweepReason(
+                    firstThisSession = false, stateAdvanced = false, vanishedFromMailbox = false,
+                    millisSinceLastSweep = elapsed, minIntervalMs = floor,
+                ),
+            )
+        }
+    }
+
+    @Test fun freshAccountActivityIsWhatEventuallyHealsIt() {
+        // The counterpart: the ghost is not immortal in principle — the next thing that moves the
+        // ACCOUNT-wide state (a delivery, a flag change anywhere) re-opens the floor branch. So
+        // the defect is bounded by traffic, which is exactly why it is intermittent and why it
+        // shows on a secondary account of ten rather than on the busy one.
+        assertTrue(
+            shouldSweepGhosts(
+                firstThisSession = false, stateAdvanced = true, vanishedFromMailbox = false,
+                millisSinceLastSweep = floor, minIntervalMs = floor,
+            ),
+        )
+        assertEquals(
+            "floor",
+            sweepReason(
+                firstThisSession = false, stateAdvanced = true, vanishedFromMailbox = false,
+                millisSinceLastSweep = floor, minIntervalMs = floor,
+            ),
+        )
+    }
+
+    // -- sweepReason must never contradict the gate ---------------------------------------
+
+    @Test fun theLoggedReasonAgreesWithTheGateOverTheWholeInputGrid() {
+        // The log is only worth reading if "skip/..." means exactly "no sweep ran". Pin it over
+        // every combination rather than trusting two hand-kept `when` branches to stay in step.
+        val bools = listOf(false, true)
+        for (first in bools) for (advanced in bools) for (vanished in bools) {
+            for (elapsed in listOf(0L, floor - 1, floor, 10 * floor)) {
+                val swept = shouldSweepGhosts(first, advanced, vanished, elapsed, floor)
+                val reason = sweepReason(first, advanced, vanished, elapsed, floor)
+                assertTrue(
+                    "first=$first advanced=$advanced vanished=$vanished elapsed=$elapsed → $reason",
+                    swept == !reason.startsWith("skip"),
+                )
+            }
+        }
     }
 }

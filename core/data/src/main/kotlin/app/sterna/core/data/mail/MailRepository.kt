@@ -281,9 +281,32 @@ private fun pagingQuery(
     // (Stalwart numbers mailboxes per-account, so different accounts' inboxes collide).
     // Unified views leave it null to span all accounts.
     accountId: String? = null,
-): SimpleSQLiteQuery {
-    val placeholders = mailboxIds.joinToString(",") { "?" }
-    val accountFilter = if (accountId != null) " AND accountId = ?" else ""
+): SimpleSQLiteQuery = SimpleSQLiteQuery(
+    pagingSql(mailboxIds.size, sort, unreadOnly, accountId != null),
+    (mailboxIds + listOfNotNull(accountId)).toTypedArray(),
+)
+
+/**
+ * The flat (uncollapsed) list SQL — pure, so it is unit-tested against real SQLite like
+ * [conversationSql].
+ *
+ * Bind order: the mailbox ids, then the account id when [hasAccountId].
+ *
+ * [hasAccountId] is what separates the two callers, and the difference is deliberate: a
+ * single-folder view pins its account, so a same-server sibling whose server-assigned mailbox id
+ * collides can never leak in; the unified inbox binds the ids BARE, because its whole job is to
+ * span accounts. That bare binding selects on the id STRING alone, so it also picks up any other
+ * account's folder carrying the same id — see ConversationSqlTest's flat-mode cases for what that
+ * does and does not cost.
+ */
+internal fun pagingSql(
+    mailboxCount: Int,
+    sort: SortOrder,
+    unreadOnly: Boolean,
+    hasAccountId: Boolean,
+): String {
+    val placeholders = List(mailboxCount) { "?" }.joinToString(",")
+    val accountFilter = if (hasAccountId) " AND accountId = ?" else ""
     val seenFilter = if (unreadOnly) " AND seen = 0" else ""
     val orderBy = "flagged DESC, " + when (sort) {
         SortOrder.DATE_DESC -> "sortKey DESC"
@@ -294,8 +317,7 @@ private fun pagingQuery(
     }
     // Hide messages snoozed into the future (re-appear once their time passes).
     val notSnoozed = " AND ${notSnoozedSql("emails")}"
-    val sql = "SELECT * FROM emails WHERE mailboxId IN ($placeholders)$accountFilter$seenFilter$notSnoozed ORDER BY $orderBy"
-    return SimpleSQLiteQuery(sql, (mailboxIds + listOfNotNull(accountId)).toTypedArray())
+    return "SELECT * FROM emails WHERE mailboxId IN ($placeholders)$accountFilter$seenFilter$notSnoozed ORDER BY $orderBy"
 }
 
 /**
@@ -738,10 +760,28 @@ class MailRepository(
                 // Never evict an id we just flagged/read locally: a delta computed from
                 // the pre-mutation query state can report it as removed even though it's
                 // still in the mailbox (it only changed a keyword).
-                val toRemove = deltaEvictions(queryChanges.removed, added, changes.destroyed) {
-                    isRecentlyMutated(localAccountId, it)
+                //
+                // The verdict is MEMOISED for this delta so the eviction and the log below can
+                // never disagree: the protection window can expire between two calls, and a log
+                // line claiming a row was spared while it was in fact evicted (or the reverse)
+                // would be worse than no log at all.
+                val protectionVerdict = HashMap<String, Boolean>()
+                val isProtected: (String) -> Boolean = { id ->
+                    protectionVerdict.getOrPut(id) { isRecentlyMutated(localAccountId, id) }
                 }
+                val toRemove = deltaEvictions(queryChanges.removed, added, changes.destroyed, isProtected)
                 if (toRemove.isNotEmpty()) emailDao.deleteByIds(localAccountId, toRemove)
+                // Every eviction the recently-mutated spare skipped, named and motivated. A
+                // `destroy` here is the one-shot loss [deltaEvictions] documents: the row survives
+                // a message the server no longer has, and only the ghost sweep can still remove it.
+                val spared = sparedEvictions(queryChanges.removed, added, changes.destroyed, isProtected)
+                spared.forEach { (id, reason) ->
+                    android.util.Log.i(
+                        "MailSync",
+                        "spared $localAccountId/$mailboxId/$id: ${reason.log} not evicted " +
+                            "(locally mutated < ${RECENT_MUTATION_MS}ms ago)",
+                    )
+                }
                 val cachedIds = emailDao.idsForMailbox(localAccountId, mailboxId).toSet()
                 val toFetch = ((added - cachedIds) + changes.updated.filter { it in cachedIds }).distinct()
                 if (toFetch.isNotEmpty()) {
@@ -749,7 +789,6 @@ class MailRepository(
                     emailDao.upsertAll(fetched.map { it.toEntity(localAccountId, mailboxId) })
                 }
                 putSyncState(key, SyncState(queryChanges.newQueryState!!, changes.newState!!))
-                android.util.Log.i("MailSync", "incremental $mailboxId: +${toFetch.size} -${toRemove.size}")
                 // Ghost sweep: a server-side destroy can reach us through NEITHER delta —
                 // Stalwart omits a delegated (shared) account's destroys from Email/changes
                 // and Email/queryChanges entirely (verified raw: same cursors report the
@@ -766,12 +805,30 @@ class MailRepository(
                     changes.newState != stored.emailState
                 val firstThisSession = sweptMailboxes.add(key)
                 val now = System.currentTimeMillis()
+                val vanishedFromMailbox = queryChanges.removed.any { it !in added }
+                val sinceLastSweep = now - (lastGhostSweep[key] ?: 0L)
                 val sweep = shouldSweepGhosts(
                     firstThisSession = firstThisSession,
                     stateAdvanced = stateAdvanced,
-                    vanishedFromMailbox = queryChanges.removed.any { it !in added },
-                    millisSinceLastSweep = now - (lastGhostSweep[key] ?: 0L),
+                    vanishedFromMailbox = vanishedFromMailbox,
+                    millisSinceLastSweep = sinceLastSweep,
                     minIntervalMs = GHOST_SWEEP_MIN_INTERVAL_MS,
+                )
+                val sweepWhy = sweepReason(
+                    firstThisSession = firstThisSession,
+                    stateAdvanced = stateAdvanced,
+                    vanishedFromMailbox = vanishedFromMailbox,
+                    millisSinceLastSweep = sinceLastSweep,
+                    minIntervalMs = GHOST_SWEEP_MIN_INTERVAL_MS,
+                )
+                // One line per incremental sync, carrying the sweep verdict: a ghost that survives
+                // a refresh is either a sweep that ran and did not prune it, or a sweep that never
+                // ran at all, and only this distinguishes them. `sweep=skip/...` on every manual
+                // refresh means no existence check is happening however often the user pulls.
+                android.util.Log.i(
+                    "MailSync",
+                    "incremental $localAccountId/$mailboxId: +${toFetch.size} -${toRemove.size} " +
+                        "spared=${spared.size} sweep=$sweepWhy",
                 )
                 if (sweep) {
                     lastGhostSweep[key] = now
@@ -828,12 +885,18 @@ class MailRepository(
             cached.chunked(MAX_CHANGES).flatMapTo(mutableSetOf()) { chunk ->
                 client.missingEmailIds(session, accountId, chunk, auth)
             }
-        }.getOrElse { return false }
-        val ghosts = ghostEvictions(cached, notFound)
-        if (ghosts.isNotEmpty()) {
-            pruneServerGone(localAccountId, ghosts)
-            android.util.Log.i("MailSync", "ghost sweep $mailboxId: -${ghosts.size}")
+        }.getOrElse {
+            // A failed sweep prunes nothing and looks exactly like a clean one from the outside —
+            // say so, or a ghost surviving a sweep can't be told from a sweep that never landed.
+            android.util.Log.i("MailSync", "ghost sweep $localAccountId/$mailboxId: failed over ${cached.size} cached")
+            return false
         }
+        val ghosts = ghostEvictions(cached, notFound)
+        if (ghosts.isNotEmpty()) pruneServerGone(localAccountId, ghosts)
+        android.util.Log.i(
+            "MailSync",
+            "ghost sweep $localAccountId/$mailboxId: -${ghosts.size} of ${cached.size} cached",
+        )
         return true
     }
 

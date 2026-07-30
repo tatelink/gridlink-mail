@@ -12,8 +12,12 @@ package app.sterna.core.data.mail
  *   a keyword, and evicting it would drop a live message (audit C9's protection).
  *
  * The spare can therefore eat a REAL destroy notice while the cursors advance past it —
- * a one-shot loss no later delta repeats. That residual ghost is healed by the ghost
- * sweep ([ghostEvictions]) in the same sync cycle, so the protection here stays strict.
+ * a one-shot loss no later delta repeats. The ghost sweep ([ghostEvictions]) is what heals that,
+ * so the protection here stays strict — but NOT necessarily in the same sync cycle: the sweep runs
+ * only when [shouldSweepGhosts] lets it, and that gate is not satisfied by every shape of loss (see
+ * its own note, and SyncEvictionsTest's #107 probe cases). Which ids the spare kept, and whether
+ * the delta called them destroyed or merely removed, is reported by [sparedEvictions] to the sync
+ * log so the two can be told apart on a device instead of inferred.
  */
 internal fun deltaEvictions(
     removed: List<String>,
@@ -21,6 +25,40 @@ internal fun deltaEvictions(
     destroyed: List<String>,
     isProtected: (String) -> Boolean,
 ): List<String> = ((removed.toSet() - added).toList() + destroyed).filterNot(isProtected)
+
+/** Why [deltaEvictions] kept a cached id the delta named. Ordered by severity for the log. */
+internal enum class SpareReason(val log: String) {
+    /** The server said the message NO LONGER EXISTS and the spare kept the row anyway — the
+     *  one-shot loss the class doc warns about, and the only shape that leaves a true ghost. */
+    DESTROY("destroy"),
+
+    /** The server said the message left this mailbox. Usually benign (a keyword change reported
+     *  off a pre-mutation query state, which is exactly what the spare exists for). */
+    REMOVAL("removal"),
+}
+
+/**
+ * The ids [deltaEvictions] would have evicted but did not, each with what the delta said about it.
+ * Purely for the sync log: it turns the class doc's admission ("the spare can eat a REAL destroy
+ * notice") into something readable on a device, so a surviving ghost can be attributed instead of
+ * guessed at. Same inputs and same [isProtected] as [deltaEvictions] — pass the SAME predicate
+ * instance, or the log can disagree with what was actually evicted.
+ *
+ * [SpareReason.DESTROY] wins over [SpareReason.REMOVAL] when a delta reports both: an id the server
+ * has destroyed is gone whatever the query says about its membership.
+ */
+internal fun sparedEvictions(
+    removed: List<String>,
+    added: Set<String>,
+    destroyed: List<String>,
+    isProtected: (String) -> Boolean,
+): List<Pair<String, SpareReason>> {
+    val destroyedIds = destroyed.toSet()
+    val vanished = removed.toSet() - added
+    return (destroyedIds + vanished)
+        .filter(isProtected)
+        .map { it to if (it in destroyedIds) SpareReason.DESTROY else SpareReason.REMOVAL }
+}
 
 /**
  * Which cached ids the ghost sweep evicts: exactly the cached ids the server explicitly
@@ -50,6 +88,13 @@ internal fun ghostEvictions(cachedIds: List<String>, notFound: Set<String>): Lis
  *
  * Worst case per mailbox: one sweep per [minIntervalMs] of continuous account activity, plus
  * one per delta that actually removed something from that mailbox.
+ *
+ * KNOWN LIMIT of the shape above, pinned by SyncEvictionsTest (Codeberg #107 probe, NOT yet
+ * decided either way): the floor sits BEHIND [stateAdvanced]. The sync that loses a destroy notice
+ * also stores the cursors it came with, so every later sync of a quiet account compares equal and
+ * the gate answers false however long the interval has run. A row left behind by a lost notice can
+ * therefore survive an unbounded number of manual refreshes, until the account sees fresh activity
+ * or the process restarts and [firstThisSession] applies again.
  */
 internal fun shouldSweepGhosts(
     firstThisSession: Boolean,
@@ -59,3 +104,32 @@ internal fun shouldSweepGhosts(
     minIntervalMs: Long,
 ): Boolean = firstThisSession ||
     (stateAdvanced && (vanishedFromMailbox || millisSinceLastSweep >= minIntervalMs))
+
+/**
+ * WHICH clause of [shouldSweepGhosts] decided, as a log token. Same inputs, same order of tests, so
+ * the sync log says not just whether a mailbox was swept but why it was not — the difference that
+ * separates "the sweep ran and found nothing" from "no sweep has run since the notice was lost".
+ *
+ * A token starting with `skip` means no sweep, and SyncEvictionsTest pins that correspondence over
+ * the whole input grid so the two can never drift apart:
+ * - `session` — the once-per-mailbox-per-process sweep;
+ * - `removal` — this mailbox's delta reported something leaving;
+ * - `floor` — the recurring sweep's interval elapsed;
+ * - `skip/idle` — NEITHER state moved, so the gate refuses whatever the interval says. This is what
+ *   a manual pull-to-refresh on a quiet account looks like;
+ * - `skip/throttled` — the account moved, but nothing left this mailbox and the interval has not
+ *   elapsed.
+ */
+internal fun sweepReason(
+    firstThisSession: Boolean,
+    stateAdvanced: Boolean,
+    vanishedFromMailbox: Boolean,
+    millisSinceLastSweep: Long,
+    minIntervalMs: Long,
+): String = when {
+    firstThisSession -> "session"
+    !stateAdvanced -> "skip/idle"
+    vanishedFromMailbox -> "removal"
+    millisSinceLastSweep >= minIntervalMs -> "floor"
+    else -> "skip/throttled"
+}
