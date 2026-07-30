@@ -79,8 +79,19 @@ class ImapSession(private var socket: Socket) : Closeable {
     private var output: OutputStream = socket.outputStream
     private var tagN = 0
 
+    /**
+     * What the server says it supports, learned once and kept for the life of the session,
+     * `null` until then. See [capabilities].
+     */
+    private var advertisedCapabilities: Set<String>? = null
+
     internal fun readGreeting() {
-        input.readResponse() // untagged "* OK ..."
+        // Untagged "* OK [CAPABILITY …] ready". Its capability list is deliberately NOT kept:
+        // it is what the server offers to an anonymous, possibly not-yet-encrypted client, and
+        // RFC 3501 §7.1 says it may differ from what the same server offers once STARTTLS and
+        // authentication have happened — which is the only state this session ever acts in.
+        // [capabilities] learns the post-authentication list instead.
+        input.readResponse()
     }
 
     internal fun upgradeTls(host: String, port: Int) {
@@ -93,7 +104,36 @@ class ImapSession(private var socket: Socket) : Closeable {
     }
 
     internal fun login(username: String, password: String) {
-        command("LOGIN ${quote(username)} ${quote(password)}")
+        rememberCapabilities(command("LOGIN ${quote(username)} ${quote(password)}").tagged)
+    }
+
+    /**
+     * What this server supports, as capability names, upper-cased (RFC 3501 §6.1.1 — names are
+     * case-insensitive). Post-authentication and cached: asked at most once per session, and
+     * usually not asked at all, because most servers volunteer the list in the `[CAPABILITY …]`
+     * response code of their LOGIN/AUTHENTICATE completion.
+     *
+     * Deliberately a set of names and not a boolean per feature: the first caller needs UIDPLUS
+     * (whether `UID EXPUNGE` exists, see [delete]), and the next one will need something else
+     * (`UTF8=ACCEPT`, Codeberg #101). A server answering the query with no list at all is taken
+     * at its word — an empty set, i.e. every optional extension absent, which is the reading that
+     * makes each caller take its conservative branch.
+     */
+    fun capabilities(): Set<String> =
+        advertisedCapabilities ?: parseCapabilities(command("CAPABILITY").untagged)
+            .also { advertisedCapabilities = it }
+
+    /** Whether the server advertises [name], e.g. `UIDPLUS`. Case-insensitive. */
+    fun hasCapability(name: String): Boolean = name.uppercase() in capabilities()
+
+    /**
+     * Take the `[CAPABILITY …]` response code of an authentication completion as the session's
+     * capability list. Free — it saves the round trip [capabilities] would otherwise make — and
+     * authoritative: unlike the greeting's, this list is the post-authentication one.
+     */
+    private fun rememberCapabilities(taggedLine: List<Any?>) {
+        val advertised = capabilitiesInResponseCode(taggedLine) ?: return
+        if (advertised.isNotEmpty()) advertisedCapabilities = advertised
     }
 
     /**
@@ -116,6 +156,7 @@ class ImapSession(private var socket: Socket) : Closeable {
                 tag -> {
                     val status = resp.getOrNull(1) as? String ?: "BAD"
                     if (status != "OK") throw ImapException("AUTHENTICATE … failed: ${resp.drop(1).joinToString(" ")}")
+                    rememberCapabilities(resp)
                     return
                 }
                 "+" -> {
@@ -315,12 +356,6 @@ class ImapSession(private var socket: Socket) : Closeable {
         }
         val m = Regex("COPYUID\\s+\\d+\\s+([\\d,:]+)\\s+([\\d,:]+)").find(text) ?: return emptyMap()
         return copyUidMapping(m.groupValues[1], m.groupValues[2])
-    }
-
-    private fun flatten(v: Any?): String = when (v) {
-        is List<*> -> v.joinToString(" ") { flatten(it) }
-        null -> "NIL"
-        else -> v.toString()
     }
 
     /** LIST every mailbox, inferring a role from special-use attributes or the name. */
@@ -640,6 +675,43 @@ class ImapSession(private var socket: Socket) : Closeable {
 internal fun quote(s: String): String {
     if (s.any { it == '\r' || it == '\n' }) throw ImapException("Illegal newline in IMAP argument")
     return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+}
+
+/** Render one parsed response token back to text, so a response code can be matched in it. */
+internal fun flatten(v: Any?): String = when (v) {
+    is List<*> -> v.joinToString(" ") { flatten(it) }
+    null -> "NIL"
+    else -> v.toString()
+}
+
+/** The UIDPLUS extension (RFC 4315): the one that provides `UID EXPUNGE <set>`. */
+internal const val CAP_UIDPLUS = "UIDPLUS"
+
+/**
+ * Capability names from the untagged `* CAPABILITY …` line of a `CAPABILITY` command, upper-cased.
+ * Empty when the server answered without one — read as "no optional extension", the conservative
+ * reading, rather than as an unknown to be asked about again.
+ */
+internal fun parseCapabilities(untagged: List<List<Any?>>): Set<String> =
+    untagged.firstOrNull { (it.getOrNull(1) as? String)?.equals("CAPABILITY", ignoreCase = true) == true }
+        ?.drop(2)
+        ?.mapNotNull { (it as? String)?.uppercase() }
+        ?.toSet()
+        .orEmpty()
+
+/**
+ * Capability names from a `[CAPABILITY …]` response code on [line], or `null` when it carries
+ * none — which is not the same as carrying an empty one, hence the nullable return: a login
+ * completion without the code leaves the question open for a later `CAPABILITY` command.
+ *
+ * Matched over the flattened line rather than token by token: `[` and `]` are not IMAP token
+ * delimiters, so the parser hands back atoms like `[CAPABILITY` and `UIDPLUS]`. This is the same
+ * shape [ImapSession.select] uses to read `[UIDVALIDITY n]`.
+ */
+internal fun capabilitiesInResponseCode(line: List<Any?>): Set<String>? {
+    val flat = line.joinToString(" ") { flatten(it) }
+    val code = Regex("\\[CAPABILITY([^\\]]*)\\]", RegexOption.IGNORE_CASE).find(flat) ?: return null
+    return code.groupValues[1].split(' ').filter { it.isNotBlank() }.map { it.uppercase() }.toSet()
 }
 
 /**
