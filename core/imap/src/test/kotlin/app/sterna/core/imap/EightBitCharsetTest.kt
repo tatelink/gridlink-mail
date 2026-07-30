@@ -1,6 +1,7 @@
 package app.sterna.core.imap
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import java.nio.charset.Charset
 
@@ -34,7 +35,8 @@ class EightBitCharsetTest {
     private fun sourceResponse(tag: String, uid: Long, source: String): String =
         "* 1 FETCH (UID $uid BODY[] {${source.length}}\r\n$source)\r\n$tag OK fetched\r\n"
 
-    private fun fetchedBody(source: String): MimeBody =
+    /** [source] fetched back off a real socket, as the app would receive it. */
+    private fun fetchedSource(source: String): String =
         FakeImapServer { tag, line ->
             when {
                 line.startsWith("SELECT") -> selectResponse(tag, exists = 1)
@@ -44,9 +46,11 @@ class EightBitCharsetTest {
         }.use { server ->
             server.session().use { session ->
                 session.select("INBOX")
-                MimeParser.parseBody(session.fetchSource(7L))
+                session.fetchSource(7L)
             }
         }
+
+    private fun fetchedBody(source: String): MimeBody = MimeParser.parseBody(fetchedSource(source))
 
     private fun eightBitSource(text: String, charset: Charset, declared: String): String =
         "Content-Type: text/plain; charset=$declared\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" +
@@ -95,18 +99,7 @@ class EightBitCharsetTest {
             append("$b64\r\n")
             append("--B--\r\n")
         }
-        val fetched = FakeImapServer { tag, line ->
-            when {
-                line.startsWith("SELECT") -> selectResponse(tag, exists = 1)
-                line.startsWith("UID FETCH") -> sourceResponse(tag, 7L, source)
-                else -> ok(tag)
-            }
-        }.use { server ->
-            server.session().use { session ->
-                session.select("INBOX")
-                session.fetchSource(7L)
-            }
-        }
+        val fetched = fetchedSource(source)
         val (cte, encoded) = MimeParser.partAt(fetched, "2")!!
         assertEquals("base64", cte)
         assertEquals(fileBytes.toList(), MimeParser.decodeBytes(encoded, cte).toList())
@@ -139,29 +132,83 @@ class EightBitCharsetTest {
         assertEquals(0, MimeParser.decodeBytes(fetched, "8bit").count { it == 0x3F.toByte() })
     }
 
+    // ---- The bytes the PGP path hands to the verifier -----------------------------------------
+
+    /**
+     * The nearest a JVM test in this module can get to `MailRepository.decryptMessage`, which is
+     * not constructible off-device (its fields build `android.util.LruCache`). What it holds to
+     * account is the CLAIM that path rests on: a signed entity is a verbatim slice of the message
+     * source, the source is a byte container, so `toByteArray(ISO_8859_1)` — and only that — hands
+     * the verifier the octets the sender hashed. RFC 3156 signatures are byte-exact; a re-encoded
+     * body is not a wrong-looking body, it is a signature that will not verify.
+     */
+    @Test
+    fun `a signed entity is recoverable as the exact bytes the sender sent`() {
+        val entityBytes = (
+            "Content-Type: text/plain; charset=iso-8859-1\r\n" +
+                "Content-Transfer-Encoding: 8bit\r\n\r\nRéunion à Noël"
+            ).toByteArray(Charsets.ISO_8859_1)
+        val entity = String(entityBytes, Charsets.ISO_8859_1)
+        val source = buildString {
+            append("From: a@b.c\r\n")
+            append("Content-Type: multipart/signed; protocol=\"application/pgp-signature\"; ")
+            append("boundary=\"S\"\r\n\r\n")
+            append("--S\r\n$entity\r\n")
+            append("--S\r\nContent-Type: application/pgp-signature\r\n\r\n")
+            append("-----BEGIN PGP SIGNATURE-----\r\nAAAA\r\n-----END PGP SIGNATURE-----\r\n")
+            append("--S--\r\n")
+        }
+        val envelope = MimeParser.detectCrypto(fetchedSource(source))!!
+        val signed = envelope.signedEntityRaw!!
+
+        assertEquals(CryptoKind.PGP_SIGNED, envelope.kind)
+        // The reading the repository uses: the wire, byte for byte.
+        assertEquals(entityBytes.toList(), signed.toByteArray(Charsets.ISO_8859_1).toList())
+        // And the reading it used to use, kept as an assertion so the difference is not a
+        // matter of opinion: UTF-8 re-encodes every 8-bit byte and yields different bytes.
+        assertNotEquals(entityBytes.toList(), signed.toByteArray(Charsets.UTF_8).toList())
+    }
+
     // ---- Headers -----------------------------------------------------------------------------
 
-    private fun envelopeResponse(tag: String, uid: Long, subject: String): String =
+    /** An IMAP literal token: `{n}` then the bytes. RFC 3501 forbids 8-bit bytes in a
+     *  quoted-string, so this is the ONLY shape a conforming server can send a non-ASCII
+     *  envelope value in — which is exactly the token whose reading this branch changed. */
+    private fun literal(value: String): String = "{${value.length}}\r\n$value"
+
+    private fun envelopeResponse(
+        tag: String,
+        uid: Long,
+        subject: String,
+        localPart: String = "alex.rivera",
+        domain: String = "masto.top",
+    ): String =
         "* 1 FETCH (UID $uid FLAGS (\\Seen) INTERNALDATE \"01-Jun-2026 10:00:00 +0000\" " +
-            "ENVELOPE (\"Mon, 1 Jun 2026 10:00:00 +0000\" {${subject.length}}\r\n$subject " +
-            "((\"Alex Rivera\" NIL \"alex.rivera\" \"masto.top\")) NIL NIL NIL NIL NIL NIL " +
+            "ENVELOPE (\"Mon, 1 Jun 2026 10:00:00 +0000\" ${literal(subject)} " +
+            "((\"Alex Rivera\" NIL ${literal(localPart)} ${literal(domain)})) NIL NIL NIL NIL NIL NIL " +
             "\"<$uid@masto.top>\") " +
             "BODYSTRUCTURE (\"text\" \"plain\" (\"charset\" \"utf-8\") NIL NIL \"7bit\" 12 1))\r\n" +
             "$tag OK fetched\r\n"
 
-    private fun fetchedSubject(subject: String): String? =
+    private fun fetchedMessage(
+        subject: String,
+        localPart: String = "alex.rivera",
+        domain: String = "masto.top",
+    ): ImapMessage? =
         FakeImapServer { tag, line ->
             when {
                 line.startsWith("SELECT") -> selectResponse(tag, exists = 1)
-                line.startsWith("UID FETCH") -> envelopeResponse(tag, 7L, subject)
+                line.startsWith("UID FETCH") -> envelopeResponse(tag, 7L, subject, localPart, domain)
                 else -> ok(tag)
             }
         }.use { server ->
             server.session().use { session ->
                 session.select("INBOX")
-                session.fetchByUid(7L)?.subject
+                session.fetchByUid(7L)
             }
         }
+
+    private fun fetchedSubject(subject: String): String? = fetchedMessage(subject)?.subject
 
     /**
      * THE WITNESS that the header path was moved with the body path. A header carries no charset,
@@ -187,5 +234,60 @@ class EightBitCharsetTest {
         assertEquals("Réunion", fetchedSubject("=?utf-8?B?UsOpdW5pb24=?="))
         assertEquals("Réunion", fetchedSubject("=?iso-8859-1?Q?R=E9union?="))
         assertEquals("Plain ASCII", fetchedSubject("Plain ASCII"))
+    }
+
+    /**
+     * THE ADDRESS, which is the one value here that is not merely displayed. `fromEmail` is
+     * persisted in the cache, indexed for search, offered as a contact suggestion and prefilled
+     * as the recipient of a reply — so a mangled one does not look wrong, it SENDS WRONG.
+     *
+     * An internationalised address (RFC 6531, which Stalwart speaks) is non-ASCII, and RFC 3501
+     * leaves a conforming server no choice but to deliver it as a literal. The subject beside it
+     * was already asserted; the address in the same response was not, and that is precisely how
+     * this stayed invisible.
+     */
+    @Test
+    fun `an EAI address in the envelope is read, not left as octets`() {
+        val message = fetchedMessage(
+            subject = wire("Тест", Charsets.UTF_8),
+            localPart = wire("тест", Charsets.UTF_8),
+            domain = wire("почта.рф", Charsets.UTF_8),
+        )
+        assertEquals("Тест", message?.subject)
+        assertEquals("тест@почта.рф", message?.fromEmail)
+    }
+
+    /** The recipients travel the same way and are read the same way (Sent-folder rows). */
+    @Test
+    fun `an EAI recipient address is read too`() {
+        val to = "((NIL NIL ${literal(wire("получатель", Charsets.UTF_8))} " +
+            "${literal(wire("почта.рф", Charsets.UTF_8))}))"
+        val response = { tag: String ->
+            "* 1 FETCH (UID 7 FLAGS (\\Seen) INTERNALDATE \"01-Jun-2026 10:00:00 +0000\" " +
+                "ENVELOPE (\"Mon, 1 Jun 2026 10:00:00 +0000\" \"Hi\" " +
+                "((\"Alex\" NIL \"alex\" \"masto.top\")) NIL NIL $to NIL NIL NIL " +
+                "\"<7@masto.top>\") " +
+                "BODYSTRUCTURE (\"text\" \"plain\" (\"charset\" \"utf-8\") NIL NIL \"7bit\" 12 1))\r\n" +
+                "$tag OK fetched\r\n"
+        }
+        val message = FakeImapServer { tag, line ->
+            when {
+                line.startsWith("SELECT") -> selectResponse(tag, exists = 1)
+                line.startsWith("UID FETCH") -> response(tag)
+                else -> ok(tag)
+            }
+        }.use { server ->
+            server.session().use { session ->
+                session.select("INBOX")
+                session.fetchByUid(7L)
+            }
+        }
+        assertEquals(listOf("получатель@почта.рф"), message?.to?.map { it.email })
+    }
+
+    /** An ordinary ASCII address is untouched, literal or not. */
+    @Test
+    fun `an ASCII address is unchanged`() {
+        assertEquals("alex.rivera@masto.top", fetchedMessage("Hi")?.fromEmail)
     }
 }

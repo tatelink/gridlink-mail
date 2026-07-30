@@ -418,14 +418,37 @@ object MimeParser {
      * KDoc) those chars are the octets, so recovering them and re-reading them under [charset] is
      * all it takes. For a UTF-8 part — the overwhelming majority — the round trip reproduces the
      * same text; for an ISO-8859-1 or KOI8-R one it produces the text instead of mojibake.
+     *
+     * That round trip is two full copies of the part, so the case where it is PROVABLY a no-op
+     * skips it (see [isAsciiUnder]): the ordinary `7bit` ASCII part, which is most mail, went from
+     * returning the body by reference to allocating a byte array plus a second string of it —
+     * ~75 MB of churn on a body near [MAX_BODY_CHARS], on devices that have already made this
+     * project pay for allocation (#71, #99).
      */
     private fun decode(body: String, cte: String, charset: java.nio.charset.Charset): String = when (cte) {
         "base64" -> runCatching {
             String(Base64.getMimeDecoder().decode(body.filter { it != '\r' && it != '\n' }), charset)
         }.getOrDefault(body)
         "quoted-printable" -> decodeQuotedPrintable(body, charset)
-        else -> String(body.toByteArray(Charsets.ISO_8859_1), charset)
+        else -> if (isAsciiUnder(body, charset)) body else String(body.toByteArray(Charsets.ISO_8859_1), charset)
     }
+
+    /**
+     * Whether re-reading [body]'s octets under [charset] is guaranteed to return [body] itself,
+     * so the copy can be skipped.
+     *
+     * The proof, and it is why this is a whitelist of three rather than a guess: in UTF-8,
+     * US-ASCII and ISO-8859-1 alike, every byte 0x00–0x7F decodes to the char of the same value
+     * and to nothing else. So if the body holds only such chars, byte reading then charset
+     * reading is the identity. It says nothing about the other charsets a part may declare —
+     * UTF-16 and ISO-2022-JP, to name two, do not read a lone ASCII byte as itself — and those
+     * take the copy. `charsetOf` resolves both a missing and an unknown charset to UTF-8, and a
+     * plain `7bit` part usually declares `us-ascii` or nothing, so the shortcut covers the case
+     * it is meant to cover.
+     */
+    private fun isAsciiUnder(body: String, charset: java.nio.charset.Charset): Boolean =
+        (charset == Charsets.UTF_8 || charset == Charsets.US_ASCII || charset == Charsets.ISO_8859_1) &&
+            body.none { it.code >= 0x80 }
 
     private fun decodeQuotedPrintable(input: String, charset: java.nio.charset.Charset): String {
         val out = ArrayList<Byte>(input.length)

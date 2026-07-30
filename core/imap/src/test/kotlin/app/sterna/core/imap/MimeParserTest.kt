@@ -221,6 +221,34 @@ class MimeParserTest {
         )
     }
 
+    /**
+     * The shortcut that keeps an ordinary `7bit` part from being copied twice: when the body is
+     * pure ASCII AND the charset reads an ASCII byte as itself, the round trip is provably the
+     * identity, so it is skipped. Asserted under all three whitelisted charsets, because the
+     * shortcut is only sound for those.
+     */
+    @Test
+    fun anAsciiSevenBitBodyIsUnchangedUnderEveryAsciiTransparentCharset() {
+        for (declared in listOf("us-ascii", "utf-8", "iso-8859-1", "nosuchcharset")) {
+            val raw = "Content-Type: text/plain; charset=$declared\r\n" +
+                "Content-Transfer-Encoding: 7bit\r\n\r\nHello world"
+            assertEquals(declared, "Hello world", MimeParser.parseBody(raw).text)
+        }
+    }
+
+    /**
+     * THE WITNESS that the shortcut checks the charset and not just the bytes. A UTF-16 body is
+     * ASCII-looking byte by byte — "Hi" is 00 48 00 69, every octet under 0x80 — yet reading
+     * those bytes as UTF-16 is the whole point. Skipping the copy on the byte test alone would
+     * have handed the reader NUL-separated letters.
+     */
+    @Test
+    fun aUtf16BodyStillTakesTheCharsetPath() {
+        val raw = "Content-Type: text/plain; charset=utf-16be\r\n" +
+            "Content-Transfer-Encoding: 8bit\r\n\r\n" + wire("Hi", charset("UTF-16BE"))
+        assertEquals("Hi", MimeParser.parseBody(raw).text)
+    }
+
     /** An HTML part gets the same treatment as a plain one — same call, both branches. */
     @Test
     fun anEightBitHtmlPartIsDecodedToo() {
