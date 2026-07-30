@@ -128,6 +128,13 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
 
     fun switchAccount(id: String) {
         accountStore.setCurrent(id)
+        // Switching account always lands the list on a single folder, so the unified view is over
+        // before the new account is armed. Say so HERE rather than letting the list say it: the
+        // arm below runs synchronously inside refresh(), while the list only reselects on the
+        // recomposition that follows, so the mirror would still read "unified" at the one moment
+        // it is consulted — and every switch out of the unified inbox would silently reseed every
+        // watched account instead of only the one being switched to.
+        PushController.unifiedInboxVisible = false
         refresh()
     }
 }

@@ -105,6 +105,7 @@
     <string name="inbox_sort_subject">Temat</string>
     <string name="inbox_sort_sender">Nadawca</string>
     <string name="inbox_sort_unread_first">Najpierw nieprzeczytane</string>
+    <string name="inbox_sort_flagged_first">Najpierw oznaczone</string>
     <string name="inbox_unflag">Usuń oznaczenie</string>
     <string name="inbox_flag">Oznacz</string>
     <string name="folder_inbox">Odebrane</string>
@@ -125,6 +126,7 @@
     <string name="message_images_stop_sender">Nie pokazuj automatycznie obrazów od tego nadawcy</string>
     <string name="message_open_link_title">Otworzyć ten link?</string>
     <string name="message_open_link_open">Otwórz</string>
+    <string name="message_open_link_copy">Kopiuj link</string>
     <string name="message_mark_unread">Oznacz jako nieprzeczytane</string>
     <string name="message_delete">Usuń</string>
     <string name="message_more">Więcej</string>
@@ -163,6 +165,7 @@
     <string name="participant_copy_name_address">Kopiuj nazwę i adres</string>
     <string name="a11y_participant_more">Więcej akcji</string>
     <string name="status_address_copied">Skopiowano adres</string>
+    <string name="status_link_copied">Skopiowano link</string>
     <string name="participant_no_contacts_app">Brak aplikacji do dodawania kontaktów.</string>
     <!-- Calendar invite -->
     <string name="calendar_invite">Zaproszenie do kalendarza</string>

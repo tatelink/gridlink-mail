@@ -140,12 +140,12 @@ import app.sterna.ui.rememberLeaveOnce
 import app.sterna.ui.rememberMotionEnabled
 import app.sterna.R
 import app.sterna.ui.connect.ConnectScreen
+import app.sterna.ui.components.AppPasswordHelpLink
 import app.sterna.ui.components.PendingImportAccountsSection
 import app.sterna.core.data.account.AuthType
 import app.sterna.core.data.mail.OAuthProvider
 import android.widget.Toast
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -2090,25 +2090,6 @@ private fun AccountDetailScreen(
     }
 }
 
-/** Microsoft's app-password creation page (used for the OAuth→app-password fallback). */
-private const val MS_APP_PASSWORD_URL = "https://account.live.com/proofs/AppPassword"
-
-/** One-tap link opening the Microsoft app-password page. */
-@Composable
-private fun AppPasswordHelpLink() {
-    val context = LocalContext.current
-    TextButton(
-        onClick = {
-            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(MS_APP_PASSWORD_URL))) }
-        },
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-    ) {
-        Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(stringResource(R.string.connect_app_password_help))
-    }
-}
-
 /**
  * Minimal inline device-approval panel for the account detail sign-in card: the user code (tap to
  * copy), an open-browser button, and a Cancel. Mirrors ConnectScreen's private DeviceApprovalContent
@@ -2124,6 +2105,9 @@ private fun InlineDeviceApproval(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val copiedMsg = stringResource(R.string.connect_oauth_code_copied)
+    // As in the connect screen's copy of this panel: two approval windows for one sign-in leaves
+    // the user completing one of them while the other waits for something that will never come.
+    val leaveOnce = rememberLeaveOnce()
     Text(stringResource(R.string.connect_oauth_step1), style = MaterialTheme.typography.bodyMedium)
     Row(
         modifier = Modifier
@@ -2142,10 +2126,12 @@ private fun InlineDeviceApproval(
     Button(
         onClick = {
             val target = verificationUriComplete ?: verificationUri
-            runCatching {
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse(target)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
+            leaveOnce {
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(target)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }.isSuccess
             }
         },
         modifier = Modifier.fillMaxWidth(),
@@ -2169,6 +2155,8 @@ private fun PgpAccountSection(
     viewModel: AccountsViewModel,
 ) {
     val context = LocalContext.current
+    // The F-Droid install link below leaves for a store page; opening it twice stacks two.
+    val leaveOnce = rememberLeaveOnce()
     val pgpAvailable by viewModel.pgpAvailable.collectAsStateWithLifecycle()
     val pgpSetup by viewModel.pgpSetup.collectAsStateWithLifecycle()
     // Observe the LIVE account so the switches/key reflect changes made by the
@@ -2196,11 +2184,7 @@ private fun PgpAccountSection(
             modifier = Modifier.padding(horizontal = 16.dp),
         )
         OutlinedButton(
-            onClick = {
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse(OPENKEYCHAIN_FDROID_URL)),
-                )
-            },
+            onClick = { leaveOnce { openUrl(context, OPENKEYCHAIN_FDROID_URL) } },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             Text(stringResource(R.string.settings_pgp_install))

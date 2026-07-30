@@ -105,6 +105,7 @@
     <string name="inbox_sort_subject">Oggetto</string>
     <string name="inbox_sort_sender">Mittente</string>
     <string name="inbox_sort_unread_first">Prima i non letti</string>
+    <string name="inbox_sort_flagged_first">Prima gli speciali</string>
     <string name="inbox_unflag">Rimuovi contrassegno</string>
     <string name="inbox_flag">Contrassegna</string>
     <string name="folder_inbox">Posta in arrivo</string>
@@ -125,6 +126,7 @@
     <string name="message_images_stop_sender">Non mostrare automaticamente le immagini di questo mittente</string>
     <string name="message_open_link_title">Aprire questo collegamento?</string>
     <string name="message_open_link_open">Apri</string>
+    <string name="message_open_link_copy">Copia collegamento</string>
     <string name="message_mark_unread">Segna come da leggere</string>
     <string name="message_delete">Elimina</string>
     <string name="message_more">Altro</string>
@@ -163,6 +165,7 @@
     <string name="participant_copy_name_address">Copia nome e indirizzo</string>
     <string name="a11y_participant_more">Altre azioni</string>
     <string name="status_address_copied">Indirizzo copiato</string>
+    <string name="status_link_copied">Collegamento copiato</string>
     <string name="participant_no_contacts_app">Nessuna app per aggiungere contatti.</string>
     <!-- Calendar invite -->
     <string name="calendar_invite">Invito al calendario</string>

@@ -46,6 +46,23 @@ sealed interface PushStatus {
  */
 object PushController {
 
+    /**
+     * The last selection the inbox list made: true if that was the cross-account unified inbox.
+     * Mirrored from the list's own selection, which is where the answer lives and which nothing
+     * persists.
+     *
+     * Not "what is on screen right now", and the difference is real — the list keeps this flag
+     * while the user is in Settings or the reader, and the mirror only moves when the list itself
+     * reselects. Read by [shouldResetBaseline] alone, to decide which accounts a user-initiated
+     * arm may reseed silently; false is the safe answer, since it reseeds fewer accounts and so
+     * announces more. It starts false because a cold start always lands on a single folder — the
+     * unified selection is not restored across process death — and an account switch clears it up
+     * front, before arming, rather than waiting for the recomposition that would otherwise set it
+     * a beat too late.
+     */
+    @Volatile
+    var unifiedInboxVisible: Boolean = false
+
     fun transportFor(context: Context, credentials: AccountCredentials): Transport =
         transportFor(context, credentials, isBatterySaver(context))
 
@@ -120,7 +137,8 @@ object PushController {
     /**
      * Recompute every account's transport and (re)arm the machinery accordingly.
      * [userInitiated] true only for direct user actions (app open, settings toggles):
-     * it silently reseeds the INBOX baselines. Background triggers (transport
+     * it silently reseeds the INBOX baseline of the account whose inbox the user is
+     * actually looking at ([shouldResetBaseline]). Background triggers (transport
      * callbacks, workers) pass false so gap mail is diffed and announced.
      */
     fun apply(context: Context, userInitiated: Boolean) {
@@ -140,11 +158,16 @@ object PushController {
         // 30-minute worker carries everything UnifiedPush doesn't.
         val batterySaver = isBatterySaver(appContext)
         val direct = accounts.filter { transportFor(appContext, it, batterySaver).isDirect }
+        val currentId = store.currentId()
         if (direct.isEmpty()) {
             PushService.stop(appContext)
             // No foreground service: catch up through the worker path. On a user-initiated
-            // arm the inbox reseeds silently (it is on screen); background arms diff.
-            accounts.forEach { PushFetchWorker.enqueue(appContext, it.id, resetInbox = userInitiated) }
+            // arm the inbox on screen reseeds silently; every other account diffs, and so do
+            // background arms.
+            accounts.forEach {
+                val reset = shouldResetBaseline(it.id, userInitiated, currentId, unifiedInboxVisible)
+                PushFetchWorker.enqueue(appContext, it.id, resetInbox = reset)
+            }
         } else {
             // Android 12+ can refuse a foreground-service start at the CALLER itself — a background
             // trigger (transport callback, worker) hits ForegroundServiceStartNotAllowedException
@@ -154,15 +177,47 @@ object PushController {
             // Swallow it and fall back to the periodic worker exactly as the no-direct branch does,
             // so mail still flows within ~30 minutes and nothing claims a live connection it lacks.
             try {
-                PushService.start(appContext, resetBaseline = userInitiated)
+                // The service applies [shouldResetBaseline] per account itself, as it arms them:
+                // what it is handed here is the "was this a user action" half of the answer.
+                PushService.start(appContext, userInitiated = userInitiated)
             } catch (e: RuntimeException) {
                 android.util.Log.w(
                     "PushController",
                     "foreground push start refused at caller; periodic poll takes over",
                     e,
                 )
-                accounts.forEach { PushFetchWorker.enqueue(appContext, it.id, resetInbox = userInitiated) }
+                accounts.forEach {
+                    val reset = shouldResetBaseline(it.id, userInitiated, currentId, unifiedInboxVisible)
+                    PushFetchWorker.enqueue(appContext, it.id, resetInbox = reset)
+                }
             }
         }
     }
 }
+
+/**
+ * May a user-initiated arm swallow this account's inbox backlog into the baseline instead of
+ * announcing it?
+ *
+ * Only for the inbox the user is actually looking at. That is the whole justification for the
+ * silent reseed — announcing a backlog the user has in front of them is noise — and it holds for
+ * exactly one account at a time, or for all of them in the unified inbox, where every account's
+ * mail really is on screen. Arming push is not a per-account event: one arm reseeded every watched
+ * account, so with "push for all accounts" on, opening the app (or ticking one folder on one
+ * account) silently absorbed every OTHER account's pending mail into its baseline. Nothing
+ * announces it afterwards — the 30-minute worker and the foreground refresh both diff against that
+ * same baseline, and the swallowed ids are in it — so no notification is ever emitted for those
+ * messages. The mail itself is cached, listed and counted as unread; it just never rings.
+ *
+ * The two halves are opposite failure modes and both are live. Reseed too widely and mail goes
+ * unannounced; reseed too narrowly — background arms, a fresh install, a baseline version bump —
+ * and the app empties weeks of backlog into the notification shade. Hence [userInitiated] gating
+ * everything, and hence the caller's untouched `!hasBaseline` seed, which keeps the first sight of
+ * any folder silent whatever this returns.
+ */
+internal fun shouldResetBaseline(
+    accountId: String,
+    userInitiated: Boolean,
+    currentAccountId: String?,
+    unifiedInbox: Boolean,
+): Boolean = userInitiated && (unifiedInbox || accountId == currentAccountId)

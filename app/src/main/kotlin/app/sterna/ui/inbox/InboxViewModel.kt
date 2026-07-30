@@ -700,10 +700,19 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _selectedKeys.collect { refreshSelectionReadState(it) }
         }
+        // Tell the push side which inbox is on screen. A user-initiated arm may silently reseed
+        // the baseline of the inbox the user is looking at, and only that one — in the unified
+        // view that is every account's (see shouldResetBaseline, in the push package). This is
+        // the only place the answer exists: the selection is view state and nothing persists it.
+        viewModelScope.launch {
+            selection.collect { PushController.unifiedInboxVisible = it is Sel.Unified }
+        }
     }
 
     override fun onCleared() {
         connectivity.stop()
+        // No list on screen: fall back to the safe answer (announce rather than swallow).
+        PushController.unifiedInboxVisible = false
         super.onCleared()
     }
 

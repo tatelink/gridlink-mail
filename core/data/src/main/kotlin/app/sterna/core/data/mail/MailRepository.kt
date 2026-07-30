@@ -258,10 +258,13 @@ private const val UNREAD_RESOLVE_MAX = 10_000
 private const val SET_SEEN_BATCH = 500
 
 /**
- * Build the dynamic ORDER BY / WHERE for the paged list. Favourites (flagged)
- * always pin to the top, then the chosen [sort]; [unreadOnly] adds a seen filter.
- * Mailbox ids are bound as parameters; the sort expression is a fixed whitelist
- * (never user input), so it is safe to inline.
+ * Build the dynamic ORDER BY / WHERE for the paged list: purely the chosen [sort];
+ * [unreadOnly] adds a seen filter. Mailbox ids are bound as parameters; the sort
+ * expression is a fixed whitelist (never user input), so it is safe to inline.
+ *
+ * No order is prefixed any more. Favourites used to be pinned above ALL of them, which made
+ * every menu entry a half-truth (issue #111); pinning is now its own entry,
+ * [SortOrder.FLAGGED_FIRST], that the reader chooses.
  */
 private fun pagingQuery(
     mailboxIds: List<String>,
@@ -299,12 +302,13 @@ internal fun pagingSql(
     val placeholders = List(mailboxCount) { "?" }.joinToString(",")
     val accountFilter = if (hasAccountId) " AND accountId = ?" else ""
     val seenFilter = if (unreadOnly) " AND seen = 0" else ""
-    val orderBy = "flagged DESC, " + when (sort) {
+    val orderBy = when (sort) {
         SortOrder.DATE_DESC -> "sortKey DESC"
         SortOrder.DATE_ASC -> "sortKey ASC"
         SortOrder.SUBJECT -> "LOWER(TRIM(subject)) ASC"
         SortOrder.SENDER -> "LOWER(TRIM(COALESCE(fromName, fromEmail))) ASC"
         SortOrder.UNREAD_FIRST -> "seen ASC, sortKey DESC"
+        SortOrder.FLAGGED_FIRST -> "flagged DESC, sortKey DESC"
     }
     // Hide messages snoozed into the future (re-appear once their time passes).
     val notSnoozed = " AND ${notSnoozedSql("emails")}"
@@ -377,12 +381,22 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
     val notSnoozed = notSnoozedSql("emails")
     val notSnoozedOuter = notSnoozedSql("e")
     val having = if (unreadOnly) " HAVING MIN(seen) = 0" else ""
-    val orderBy = "e.flagged DESC, " + when (sort) {
+    val orderBy = when (sort) {
         SortOrder.DATE_DESC -> "e.sortKey DESC"
         SortOrder.DATE_ASC -> "e.sortKey ASC"
         SortOrder.SUBJECT -> "LOWER(TRIM(e.subject)) ASC"
         SortOrder.SENDER -> "LOWER(TRIM(COALESCE(e.fromName, e.fromEmail))) ASC"
         SortOrder.UNREAD_FIRST -> "g.threadUnread ASC, e.sortKey DESC"
+        // e.flagged — the REPRESENTATIVE row's star, i.e. the one the row actually draws — and
+        // deliberately not MAX(flagged) over the thread. Sorting on "any message of the thread
+        // is starred" is defensible and was tried, but it sorts on a state the row does not
+        // show: a thread would sit at the top wearing an empty star, and tapping that star
+        // twice would not dislodge it, because an invisible older message is what holds it
+        // there. That is the exact WYSIWYG break this fix exists to remove (issue #111).
+        // Ordering on the drawn flag keeps "what pins it" and "what you see" the same thing.
+        // (The sibling aggregate threadUnread can afford the other choice: it IS projected, so
+        // UNREAD_FIRST's ordering and the row's bold text agree.)
+        SortOrder.FLAGGED_FIRST -> "e.flagged DESC, e.sortKey DESC"
     }
     return """
         SELECT e.*, c.threadCount AS threadCount, t.threadTotal AS threadTotal, g.threadUnread AS threadUnread
@@ -723,6 +737,15 @@ class MailRepository(
      * back to a full query. Both paths are UNCOLLAPSED: the cache holds every in-folder
      * thread member (conversations collapse at display time), so per-thread unread/bold
      * state and reconciliation see non-representative members too.
+     *
+     * Returns THE IDS THIS CYCLE FETCHED FROM THE SERVER, whichever branch ran: the full query's
+     * whole page, or the delta's `toFetch`. Never null, and never a partial list — everything in
+     * it has just been written to the cache, and the retention prune spares exactly it.
+     *
+     * The two branches must both answer, which is the correction of a first version of the
+     * Codeberg #110 fix that answered only for the full query: the delta branch writes rows the
+     * cache has NEVER held (`added - cachedIds`), so a message an external client or a Sieve rule
+     * files into a deep folder was fetched and then deleted by the prune in the same refresh.
      */
     private suspend fun syncMailbox(
         session: JmapSession,
@@ -733,7 +756,7 @@ class MailRepository(
         // Local StoredAccount id used to tag cached rows (distinct from the JMAP
         // [accountId] used for API calls), so per-account routing and storage work.
         localAccountId: String,
-    ) {
+    ): List<String> {
         val key = syncKey(localAccountId, mailboxId)
         val stored = loadSyncState(key)
         if (stored != null) {
@@ -778,7 +801,7 @@ class MailRepository(
                     )
                 }
                 val cachedIds = emailDao.idsForMailbox(localAccountId, mailboxId).toSet()
-                val toFetch = ((added - cachedIds) + changes.updated.filter { it in cachedIds }).distinct()
+                val toFetch = deltaFetches(added, cachedIds, changes.updated)
                 if (toFetch.isNotEmpty()) {
                     val fetched = client.getEmailsByIds(session, accountId, toFetch, auth)
                     emailDao.upsertAll(fetched.map { it.toEntity(localAccountId, mailboxId) })
@@ -818,7 +841,12 @@ class MailRepository(
                     // once-per-process credit back and the next sync retries immediately.
                     if (!swept) ghostSweeps.releaseFailed(localAccountId, mailboxId, claim)
                 }
-                return
+                // The rows this delta just wrote (line above): mostly ids the cache NEVER held —
+                // `added - cachedIds` — so the retention prune has to spare them exactly as it
+                // spares a full query's page. Returning nothing here was Codeberg #110 again on
+                // the other branch: a 2019 message filed into a deep Inbox by a Sieve rule was
+                // fetched, written, and deleted by the prune in the very same refresh.
+                return toFetch
             }
         }
         // Cold cache, or the server can't compute changes — full query.
@@ -832,6 +860,55 @@ class MailRepository(
         } else {
             dropSyncState(key)
         }
+        return page.emails.map { it.id }
+    }
+
+    /**
+     * Apply an account's sync window to a mailbox once a refresh has landed: drop what falls
+     * outside it, EXCEPT what that same sync just fetched from the server ([freshIds], Codeberg
+     * #110), what the recently-mutated spare is protecting, and the [keepNewest] newest rows.
+     *
+     * The window is a bound on what we keep offline in addition to what the server just sent,
+     * never a licence to delete it: a folder whose real contents are older than the window must
+     * still show its real contents. Deciding in Kotlin rather than in one `DELETE … WHERE sortKey
+     * < cutoff` is what makes that expressible at all, and puts the rule next to the delta and
+     * sweep evictions where it can be unit-tested — see [retentionEvictions].
+     *
+     * The recently-mutated set is read HERE rather than passed in, because a caller that forgot it
+     * would silently undo `replaceMailbox`'s reconcile spare a few lines after it ran — and on
+     * these paths that spare set is the prune's only reachable victim, so forgetting it is not a
+     * small mistake.
+     *
+     * [cutoffMillis] and [keepNewest] must come from the SAME `SyncWindow` — its `maxAgeDays` and
+     * its `limit`. They are the one setting's two halves (the age it keeps, the number it keeps at
+     * least), and only the caller that computed the cutoff knows which window that was.
+     *
+     * [freshIds] null means the caller cannot say what was fetched; [retentionEvictions] then
+     * prunes nothing at all.
+     */
+    private suspend fun pruneRetention(
+        accountId: String,
+        mailboxId: String,
+        cutoffMillis: Long,
+        freshIds: Set<String>?,
+        keepNewest: Int,
+    ) {
+        val gone = retentionEvictions(
+            cached = emailDao.retentionRows(accountId, mailboxId),
+            cutoffMillis = cutoffMillis,
+            freshIds = freshIds,
+            spareIds = recentlyMutatedIds(accountId).toSet(),
+            keepNewest = keepNewest,
+        )
+        if (gone.isEmpty()) return
+        // Chunked for the same reason the ghost sweep chunks: the ids go into an `IN (...)` and a
+        // deep cache can hold more of them than SQLite will bind in one statement.
+        gone.chunked(MAX_CHANGES).forEach { emailDao.deleteByIds(accountId, it) }
+        android.util.Log.i(
+            "MailSync",
+            "retention $accountId/$mailboxId: pruned ${gone.size}, " +
+                "spared ${freshIds?.size ?: -1} fetched + floor $keepNewest",
+        )
     }
 
     /**
@@ -972,8 +1049,8 @@ class MailRepository(
 
     /**
      * Paged list of cached emails for [mailboxIds] (one folder, or several for the
-     * unified inbox), sorted server-side-style in SQL: favourites pinned, then the
-     * chosen [sort]; [unreadOnly] filters to unseen. Only a few pages are held in
+     * unified inbox), sorted server-side-style in SQL by the chosen [sort] and nothing
+     * else; [unreadOnly] filters to unseen. Only a few pages are held in
      * memory at once, so very large folders no longer load (or freeze) all at once.
      */
     fun pagedMailbox(
@@ -1652,8 +1729,10 @@ class MailRepository(
         credentials: AccountCredentials,
         mailboxId: String? = null,
         limit: Int = 50,
-        // Prune cached messages older than this epoch-millis cutoff (the age-based
-        // sync window); null keeps everything within [limit].
+        // Prune cached messages older than this epoch-millis cutoff (the age-based sync window);
+        // null prunes nothing. When set, [limit] is read as the window's retention FLOOR as well
+        // as its fetch size: the folder's newest [limit] rows are kept whatever their age, so the
+        // two must come from the same SyncWindow.
         pruneBeforeMillis: Long? = null,
     ): MailboxMeta {
         if (credentials.protocol == MailProtocol.IMAP) return refreshImap(credentials, mailboxId, limit, pruneBeforeMillis)
@@ -1680,8 +1759,15 @@ class MailRepository(
         // refresh): otherwise the drawer keeps stale — or, right after a migration, empty —
         // folders although the list we already fetched is good. Failure persists the rows,
         // then rethrows; the prune stays success-only.
-        val syncError = runCatching { syncMailbox(session, accountId, auth, target.id, limit, credentials.id) }.exceptionOrNull()
-        if (syncError == null && pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, target.id, pruneBeforeMillis)
+        val sync = runCatching { syncMailbox(session, accountId, auth, target.id, limit, credentials.id) }
+        val syncError = sync.exceptionOrNull()
+        // The prune spares whatever this very sync fetched — the full query's page, or the
+        // delta's newly-written rows. `getOrNull()` is null only when the sync threw, which the
+        // guard already excludes; passing it through unmapped keeps the second lock in place
+        // (a null there prunes nothing rather than everything). Codeberg #110.
+        if (syncError == null && pruneBeforeMillis != null) {
+            pruneRetention(credentials.id, target.id, pruneBeforeMillis, sync.getOrNull()?.toSet(), limit)
+        }
         // Folder counters land AFTER the email rows: badge and list update together, and an
         // optimistic nudge from a concurrent action isn't overwritten mid-refresh by counters
         // fetched before the rows synced.
@@ -1708,7 +1794,18 @@ class MailRepository(
         val load = imap.loadFolder(credentials, mailboxId, limit)
         emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds(credentials.id))
         mailboxDao.replaceAll(credentials.id, load.mailboxes)
-        if (pruneBeforeMillis != null) emailDao.deleteOlderThan(credentials.id, load.targetMailboxId, pruneBeforeMillis)
+        // Spares the page just fetched: IMAP re-queries the folder on every refresh, so this set
+        // IS the folder's newest window as the server has it. Pruning it away is what made a
+        // ten-message folder flash all ten and settle on two (Codeberg #110).
+        if (pruneBeforeMillis != null) {
+            pruneRetention(
+                credentials.id,
+                load.targetMailboxId,
+                pruneBeforeMillis,
+                load.messages.mapTo(HashSet()) { it.id },
+                limit,
+            )
+        }
         return MailboxMeta(load.accountName, load.targetMailboxId, load.targetName, load.unread)
     }
 
@@ -1900,8 +1997,13 @@ class MailRepository(
         } else {
             val blobId = email.blobId ?: error("Message has no blob id.")
             val ctx = connect(credentials)
+            // ISO-8859-1, like the IMAP branch above: a raw message source is a byte container
+            // in this app (one char per octet — see MimeParser's KDoc), whichever protocol
+            // fetched it. ONE convention, or the readers downstream — MimeParser, and the
+            // signature verification that needs the sender's exact bytes — would have to know
+            // where the string came from.
             client.downloadBlob(ctx.session, ctx.accountId, blobId, "message/rfc822", "message.eml", ctx.auth)
-                .toString(Charsets.UTF_8)
+                .toString(Charsets.ISO_8859_1)
         }
         rawSourceCache.put(cryptoKey(credentials.id, emailId), raw)
         return raw
@@ -1941,8 +2043,13 @@ class MailRepository(
                     senderAddress = sender,
                     interactionResult = interactionResult,
                 )
+                // ISO-8859-1, not UTF-8: the signed entity is a verbatim slice of the message
+                // source, which is a byte container (one char per wire byte — see MimeParser's
+                // KDoc). Only this reading hands the verifier the exact octets the sender
+                // hashed; UTF-8 would re-encode every 8-bit byte and the signature would not
+                // match. Armor is ASCII either way.
                 CryptoKind.PGP_SIGNED -> pgp.decryptVerify(
-                    canonicalizeCrlf(envelope.signedEntityRaw!!).toByteArray(Charsets.UTF_8),
+                    canonicalizeCrlf(envelope.signedEntityRaw!!).toByteArray(Charsets.ISO_8859_1),
                     senderAddress = sender,
                     detachedSignature = envelope.signatureArmor!!.toByteArray(Charsets.UTF_8),
                     interactionResult = interactionResult,
@@ -1984,7 +2091,12 @@ class MailRepository(
                 // The plaintext is a full MIME entity: parse it, mark its parts as
                 // "pgp:" sections so attachment downloads slice from the decrypted
                 // entity in memory, and resolve inline images locally.
-                val entity = decrypted.plaintext.toString(Charsets.UTF_8)
+                //
+                // ISO-8859-1 because MimeParser takes a byte container, not text (see its KDoc):
+                // this entity has its own Content-Type charsets and its own attachments, and
+                // decoding it as UTF-8 here would decide that question before the parser can
+                // read it — and lose the octets of any attachment inside it.
+                val entity = decrypted.plaintext.toString(Charsets.ISO_8859_1)
                 val body = MimeParser.parseBody(entity)
                 val display = email.withBody(body).run {
                     copy(

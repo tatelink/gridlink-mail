@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -137,8 +138,10 @@ import app.sterna.core.jmap.model.EmailBodyPart
 import android.text.format.DateUtils
 import app.sterna.ui.canSnoozeIn
 import app.sterna.ui.inbox.mailboxDisplayName
+import app.sterna.ui.inbox.mailboxPathLabel
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.isOutgoingFolder
+import app.sterna.ui.rememberLeaveOnce
 import app.sterna.ui.snoozed.SnoozeDeadlineHeader
 import app.sterna.util.LinkCleaner
 import app.sterna.util.MailDates
@@ -650,6 +653,8 @@ private fun MessageActions(
     // one (#73). Empty (single-folder account, folders not cached yet) hides the entry rather
     // than opening a picker with nothing to pick.
     val folders by viewModel.moveTargets.collectAsStateWithLifecycle()
+    // The account's whole folder list, only to spell out a target's parent path (#109).
+    val accountFolders by viewModel.accountMailboxes.collectAsStateWithLifecycle()
     val loaded = state as? MessageState.Loaded ?: return
     val senderEmail = loaded.email.from.firstOrNull()?.email
     val senderAllowed = senderEmail?.lowercase()?.let { it in imageAllowlist } == true
@@ -870,9 +875,9 @@ private fun MessageActions(
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     folders.forEach { folder ->
-                        Text(
-                            text = mailboxDisplayName(folder.role, folder.name),
-                            style = MaterialTheme.typography.bodyLarge,
+                        // Same rows as the list's picker, parent path included (#109).
+                        val path = mailboxPathLabel(folder, accountFolders)
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
@@ -885,9 +890,26 @@ private fun MessageActions(
                                         folder.id,
                                     )
                                 }
-                                .semantics { role = Role.Button }
+                                .semantics(mergeDescendants = true) { role = Role.Button }
                                 .padding(vertical = 12.dp),
-                        )
+                        ) {
+                            Text(
+                                text = mailboxDisplayName(folder.role, folder.name),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            if (path != null) {
+                                Text(
+                                    text = path,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    // Two lines, for the reason spelled out in InboxScreen's
+                                    // copy of this row: one line elides at the end, in dp, and
+                                    // would cut off the nearest parent at a large font size.
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
             },
@@ -1537,6 +1559,11 @@ private fun ParticipantRow(
     val clipboard = LocalClipboardManager.current
     val copiedMsg = stringResource(R.string.status_address_copied)
     val noContactsAppMsg = stringResource(R.string.participant_no_contacts_app)
+    // Adding to Contacts CREATES something, and the contacts editor is slow enough to come up that
+    // a second tap lands while the screen is still ours: without this it filed the same person
+    // twice, and the duplicate is left behind in the user's address book long after the mail is
+    // forgotten. One latch per row: the next participant is another intention, not a stutter.
+    val leaveOnce = rememberLeaveOnce()
     val hasName = !addr.name.isNullOrBlank()
     var menuOpen by remember { mutableStateOf(false) }
     Row(
@@ -1565,8 +1592,12 @@ private fun ParticipantRow(
             }
         }
         IconButton(onClick = {
-            if (!addToContacts(context, addr)) {
-                Toast.makeText(context, noContactsAppMsg, Toast.LENGTH_SHORT).show()
+            leaveOnce {
+                val opened = addToContacts(context, addr)
+                // No contacts app: say so and keep the button live — nothing was created, so
+                // there is nothing to protect against a second tap.
+                if (!opened) Toast.makeText(context, noContactsAppMsg, Toast.LENGTH_SHORT).show()
+                opened
             }
         }) {
             Icon(
@@ -1843,6 +1874,9 @@ private fun CalendarEventCard(
     onOpenInvitation: () -> Unit,
 ) {
     val context = LocalContext.current
+    // "Add to calendar" CREATES something too: the event editor takes a moment to appear, and until
+    // this guard a second tap put the same meeting in the calendar twice.
+    val leaveOnce = rememberLeaveOnce()
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
@@ -1917,10 +1951,16 @@ private fun CalendarEventCard(
                 }
                 Spacer(Modifier.height(10.dp))
                 Button(onClick = {
-                    if (!addToCalendar(context, event)) {
-                        // No event editor on the device — fall back to opening the raw invite.
-                        Toast.makeText(context, R.string.calendar_no_app, Toast.LENGTH_SHORT).show()
-                        onOpenInvitation()
+                    leaveOnce {
+                        val opened = addToCalendar(context, event)
+                        if (!opened) {
+                            // No event editor on the device — fall back to opening the raw invite.
+                            // Reported as "did not leave": the fallback is a download first, it can
+                            // still fail, and nothing has been created for a second tap to double.
+                            Toast.makeText(context, R.string.calendar_no_app, Toast.LENGTH_SHORT).show()
+                            onOpenInvitation()
+                        }
+                        opened
                     }
                 }) {
                     Icon(Icons.Filled.Event, contentDescription = null)
@@ -2463,6 +2503,13 @@ private fun EmailWebView(
     modifier: Modifier,
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val linkCopiedMsg = stringResource(R.string.status_link_copied)
+    // Both ways out of this body go through ONE latch, because they are one action: tapping a link.
+    // The confirmation dialog is not itself protection — two taps inside the same frame both reach
+    // its Open button — and with the confirmation setting OFF, which is the default and the path
+    // most mail is read on, there is no dialog at all between the tap and the browser.
+    val leaveOnce = rememberLeaveOnce()
     // When confirmation is on, a tapped link is held here until the user approves it.
     var pendingLink by remember { mutableStateOf<Uri?>(null) }
     // Body laid out: JS is disabled, so this comes from the native scroll range, reported once it has
@@ -2478,7 +2525,9 @@ private fun EmailWebView(
     val client = remember { BlockingWebViewClient() }
     client.blockRemote = blockRemote
     client.stripTracking = stripTracking
-    client.onOpenUrl = { uri -> if (confirmLinks) pendingLink = uri else openExternally(context, uri) }
+    client.onOpenUrl = { uri ->
+        if (confirmLinks) pendingLink = uri else leaveOnce { openExternally(context, uri) }
+    }
     // The body's resting scroll geometry as measured by the height poll, when that poll actually
     // measured (two agreeing readings) rather than fell back. It is what lets the host decide the
     // Reply/Forward bar in the same frame as the body's reveal (#63); null keeps the old,
@@ -2660,12 +2709,61 @@ private fun EmailWebView(
     )
 
     pendingLink?.let { uri ->
+        val link = uri.toString()
         AlertDialog(
             onDismissRequest = { pendingLink = null },
             title = { Text(stringResource(R.string.message_open_link_title)) },
-            text = { Text(uri.toString()) },
+            text = {
+                Column {
+                    // The address takes what is LEFT once the button has its height, and scrolls
+                    // inside that. Material's text slot is a height-bounded box with no scrolling of
+                    // its own: written as a plain Column, a long address ate the whole slot and the
+                    // button was measured at zero height — not crowded, gone, and untappable. The
+                    // addresses that need this dialog most are exactly the long ones (tracking links
+                    // run to hundreds of characters), and in landscape or at a large font scale a
+                    // few hundred is already enough.
+                    Text(
+                        link,
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                    )
+                    // Copy the address instead of handing it to whatever app claims it (#108):
+                    // the confirmation used to be a dead end — open it in the default handler, or
+                    // give up. Copying lets the reader paste it wherever they meant it to go.
+                    //
+                    // It sits UNDER the address, not as a third action button: Material's dialog has
+                    // exactly two action slots, and a third label crammed into one of them shares
+                    // that slot's single row — it cannot wrap, so the longer translations would be
+                    // clipped on a narrow screen. Here it sits on the address it copies instead.
+                    TextButton(
+                        onClick = {
+                            clipboard.setText(AnnotatedString(link))
+                            // Every other copy in the app says so, this one included — the sign-in
+                            // code's tap-to-copy is the same gesture and shows the same kind of
+                            // message. From Android 13 the system announces the copy itself and
+                            // ours would double it, so ours stands down there and only there.
+                            // minSdk is 26: without this, five Android versions get no answer at
+                            // all beyond the dialog closing.
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                                Toast.makeText(context, linkCopiedMsg, Toast.LENGTH_SHORT).show()
+                            }
+                            pendingLink = null
+                        },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.message_open_link_copy))
+                    }
+                }
+            },
             confirmButton = {
-                TextButton(onClick = { openExternally(context, uri); pendingLink = null }) {
+                TextButton(onClick = { leaveOnce { openExternally(context, uri) }; pendingLink = null }) {
                     Text(stringResource(R.string.message_open_link_open))
                 }
             },
@@ -2678,13 +2776,18 @@ private fun EmailWebView(
     }
 }
 
-/** Open a URL in the system's default handler (browser/chooser); no-op if none can. */
-private fun openExternally(context: Context, uri: Uri) {
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    } catch (e: Exception) {
-        // No app can handle the URL — silently ignore rather than crash.
-    }
+/**
+ * Open a URL in the system's default handler (browser/chooser), and say whether anything took it —
+ * a device with no browser at all throws. It used to swallow that and return nothing, which reads
+ * the same on screen but is not the same to the guard above: an opener that cannot tell a hand-off
+ * from a dud would latch a dead link and leave the reader tapping a link that can never work.
+ */
+private fun openExternally(context: Context, uri: Uri): Boolean = try {
+    context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    true
+} catch (e: Exception) {
+    // No app can handle the URL — silently ignore rather than crash.
+    false
 }
 
 /** A Compose [Color] as a CSS hex string (#RRGGBB). */

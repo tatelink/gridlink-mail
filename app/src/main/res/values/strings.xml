@@ -169,6 +169,7 @@
     <string name="inbox_sort_subject">Subject</string>
     <string name="inbox_sort_sender">Sender</string>
     <string name="inbox_sort_unread_first">Unread first</string>
+    <string name="inbox_sort_flagged_first">Favourites first</string>
     <string name="inbox_unflag">Unflag</string>
     <string name="a11y_favourite">Add to favourites</string>
     <string name="a11y_unfavourite">Remove from favourites</string>
@@ -200,6 +201,7 @@
     <string name="message_images_stop_sender">Don\'t auto-show images from this sender</string>
     <string name="message_open_link_title">Open this link?</string>
     <string name="message_open_link_open">Open</string>
+    <string name="message_open_link_copy">Copy link</string>
     <string name="message_mark_unread">Mark unread</string>
     <string name="message_delete">Delete</string>
     <string name="message_more">More</string>
@@ -242,6 +244,7 @@
     <string name="participant_copy_name_address">Copy name and address</string>
     <string name="a11y_participant_more">More actions</string>
     <string name="status_address_copied">Address copied</string>
+    <string name="status_link_copied">Link copied</string>
     <string name="participant_no_contacts_app">No app to add contacts.</string>
     <!-- Calendar invite -->
     <string name="calendar_invite">Calendar invite</string>

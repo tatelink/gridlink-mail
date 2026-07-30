@@ -126,6 +126,137 @@ class MimeParserTest {
         assertEquals(fileB64, MimeParser.partAt(raw, "2")?.second?.trim())
     }
 
+    // ---- 8-bit bodies and their declared charset ---------------------------------------------
+
+    /**
+     * What [ImapParser] hands over: the wire bytes of [text] in [charset], as a byte container
+     * (one char per octet). Writing the test message as an ordinary Kotlin string instead would
+     * quietly assume the very decoding under test.
+     */
+    private fun wire(text: String, charset: java.nio.charset.Charset): String =
+        String(text.toByteArray(charset), Charsets.ISO_8859_1)
+
+    private fun eightBitMessage(text: String, charset: java.nio.charset.Charset, declared: String): String =
+        "Content-Type: text/plain; charset=$declared\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" +
+            wire(text, charset)
+
+    /**
+     * The reported defect: a message sent in 8 bits with a charset other than UTF-8. Nothing
+     * decoded it — `8bit` fell through the transfer-encoding switch untouched — so the declared
+     * charset was never applied, and the bytes had already been replaced with U+FFFD upstream.
+     */
+    @Test
+    fun anEightBitLatin1BodyIsReadWithItsDeclaredCharset() {
+        val body = MimeParser.parseBody(
+            eightBitMessage("Café à Noël", Charsets.ISO_8859_1, "iso-8859-1"),
+        )
+        assertEquals("Café à Noël", body.text)
+    }
+
+    /** Cyrillic in its native charset: almost every character is 8-bit, so almost every
+     *  character was destroyed rather than a handful of accents. */
+    @Test
+    fun anEightBitKoi8BodyIsReadWithItsDeclaredCharset() {
+        val koi8 = charset("KOI8-R")
+        val body = MimeParser.parseBody(eightBitMessage("Привет, мир", koi8, "koi8-r"))
+        assertEquals("Привет, мир", body.text)
+    }
+
+    /**
+     * THE WITNESS for "the parser reads bytes now": a UTF-8 body in 8 bits is the ordinary case,
+     * and it must come out identical. Applying the byte reading without applying the declared
+     * charset afterwards would turn every one of these into latin-1 gibberish — a far bigger
+     * regression than the defect being fixed.
+     */
+    @Test
+    fun anEightBitUtf8BodyIsStillCorrect() {
+        val body = MimeParser.parseBody(eightBitMessage("Café 日本語 🐦", Charsets.UTF_8, "utf-8"))
+        assertEquals("Café 日本語 🐦", body.text)
+    }
+
+    /** An 8-bit part with no declared charset falls back to UTF-8, as everywhere else. */
+    @Test
+    fun anEightBitBodyWithNoCharsetFallsBackToUtf8() {
+        val raw = "Content-Type: text/plain\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" +
+            wire("Café", Charsets.UTF_8)
+        assertEquals("Café", MimeParser.parseBody(raw).text)
+    }
+
+    /**
+     * THE WITNESS for the majority case: `base64` and `quoted-printable` are ASCII on the wire
+     * and have always worked. They must be bit-for-bit unaffected — breaking them to fix `8bit`
+     * would trade the rare case for the common one.
+     */
+    @Test
+    fun base64AndQuotedPrintableAreUnaffected() {
+        val b64 = Base64.getEncoder().encodeToString("Café à Noël".toByteArray(Charsets.ISO_8859_1))
+        val base64Raw = "Content-Type: text/plain; charset=iso-8859-1\r\n" +
+            "Content-Transfer-Encoding: base64\r\n\r\n$b64"
+        assertEquals("Café à Noël", MimeParser.parseBody(base64Raw).text)
+
+        val qpRaw = "Content-Type: text/plain; charset=iso-8859-1\r\n" +
+            "Content-Transfer-Encoding: quoted-printable\r\n\r\nCaf=E9 =E0 No=EBl"
+        assertEquals("Café à Noël", MimeParser.parseBody(qpRaw).text)
+
+        val utf8B64 = Base64.getEncoder().encodeToString("日本語".toByteArray(Charsets.UTF_8))
+        val utf8Raw = "Content-Type: text/plain; charset=utf-8\r\n" +
+            "Content-Transfer-Encoding: base64\r\n\r\n$utf8B64"
+        assertEquals("日本語", MimeParser.parseBody(utf8Raw).text)
+    }
+
+    /**
+     * The silent half of the defect. An attachment carried as `8bit`/`binary` is written to disk
+     * as bytes, and a parser that had lost them wrote `?` (0x3F) in their place — a data defect
+     * with nothing on screen to hint at it.
+     */
+    @Test
+    fun anEightBitAttachmentKeepsItsOctets() {
+        val original = byteArrayOf(0x50.toByte(), 0xC3.toByte(), 0xA9.toByte(), 0x00, 0xFF.toByte(), 0x7F)
+        val asParsed = String(original, Charsets.ISO_8859_1)
+        assertEquals(original.toList(), MimeParser.decodeBytes(asParsed, "8bit").toList())
+        assertEquals(original.toList(), MimeParser.decodeBytes(asParsed, "binary").toList())
+        assertFalse(
+            "a lost byte shows up as '?'",
+            MimeParser.decodeBytes(asParsed, "8bit").contains(0x3F.toByte()),
+        )
+    }
+
+    /**
+     * The shortcut that keeps an ordinary `7bit` part from being copied twice: when the body is
+     * pure ASCII AND the charset reads an ASCII byte as itself, the round trip is provably the
+     * identity, so it is skipped. Asserted under all three whitelisted charsets, because the
+     * shortcut is only sound for those.
+     */
+    @Test
+    fun anAsciiSevenBitBodyIsUnchangedUnderEveryAsciiTransparentCharset() {
+        for (declared in listOf("us-ascii", "utf-8", "iso-8859-1", "nosuchcharset")) {
+            val raw = "Content-Type: text/plain; charset=$declared\r\n" +
+                "Content-Transfer-Encoding: 7bit\r\n\r\nHello world"
+            assertEquals(declared, "Hello world", MimeParser.parseBody(raw).text)
+        }
+    }
+
+    /**
+     * THE WITNESS that the shortcut checks the charset and not just the bytes. A UTF-16 body is
+     * ASCII-looking byte by byte — "Hi" is 00 48 00 69, every octet under 0x80 — yet reading
+     * those bytes as UTF-16 is the whole point. Skipping the copy on the byte test alone would
+     * have handed the reader NUL-separated letters.
+     */
+    @Test
+    fun aUtf16BodyStillTakesTheCharsetPath() {
+        val raw = "Content-Type: text/plain; charset=utf-16be\r\n" +
+            "Content-Transfer-Encoding: 8bit\r\n\r\n" + wire("Hi", charset("UTF-16BE"))
+        assertEquals("Hi", MimeParser.parseBody(raw).text)
+    }
+
+    /** An HTML part gets the same treatment as a plain one — same call, both branches. */
+    @Test
+    fun anEightBitHtmlPartIsDecodedToo() {
+        val raw = "Content-Type: text/html; charset=iso-8859-1\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" +
+            wire("<p>Café</p>", Charsets.ISO_8859_1)
+        assertEquals("<p>Café</p>", MimeParser.parseBody(raw).html)
+    }
+
     // ---- Hostile structure ------------------------------------------------------------------
 
     @Test
@@ -228,5 +359,21 @@ class MimeParserTest {
         assertEquals("<abc@example.com>", MimeParser.headerOf(raw, "message-id"))
         assertEquals("<one@example.com> <two@example.com>", MimeParser.headerOf(raw, "References"))
         assertEquals(null, MimeParser.headerOf(raw, "In-Reply-To"))
+    }
+
+    /**
+     * "View headers" shows a header as it was sent — encoded-words stay encoded, deliberately.
+     * A header carrying its bytes raw is the one case where "as sent" needs a reading chosen for
+     * it, or the screen shows one box per octet instead of the value.
+     */
+    @Test
+    fun rawHeadersShowRawEightBitValuesAsText() {
+        val raw = "Subject: " + wire("Réunion", Charsets.UTF_8) + "\r\n" +
+            "X-Legacy: " + wire("Réunion", Charsets.ISO_8859_1) + "\r\n" +
+            "X-Encoded: =?utf-8?B?UsOpdW5pb24=?=\r\n\r\nbody"
+        val headers = MimeParser.rawHeaders(raw).toMap()
+        assertEquals("Réunion", headers["Subject"])
+        assertEquals("Réunion", headers["X-Legacy"])
+        assertEquals("=?utf-8?B?UsOpdW5pb24=?=", headers["X-Encoded"])
     }
 }

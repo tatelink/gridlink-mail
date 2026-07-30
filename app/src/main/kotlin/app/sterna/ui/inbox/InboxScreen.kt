@@ -333,18 +333,40 @@ fun InboxScreen(
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     targets.forEach { folder ->
-                        Text(
-                            text = mailboxDisplayName(folder.role, folder.name),
-                            style = MaterialTheme.typography.bodyLarge,
+                        // Nested folders sharing a leaf ("ProjectA.Done", "ProjectB.Done") are
+                        // one and the same row without their parent path underneath (#109).
+                        // Resolved against the WHOLE folder list, not the offered subset: the
+                        // folder being moved out of is excluded there, and it may be a parent.
+                        val path = mailboxPathLabel(folder, moveTargetMailboxes)
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
                                     viewModel.moveSelectedTo(folder.id)
                                     showMoveSheet = false
                                 }
-                                .semantics { role = Role.Button }
+                                .semantics(mergeDescendants = true) { role = Role.Button }
                                 .padding(vertical = 12.dp),
-                        )
+                        ) {
+                            Text(
+                                text = mailboxDisplayName(folder.role, folder.name),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            if (path != null) {
+                                Text(
+                                    text = path,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    // TWO lines, not one: a single line elides at the END, in
+                                    // dp, AFTER the path was already trimmed by character
+                                    // count — and at a large font size that trailing cut would
+                                    // eat the nearest parent, which is the whole point of the
+                                    // row. Two lines hold the trimmed path at any font scale.
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
             },
@@ -1355,8 +1377,16 @@ fun InboxScreen(
                     onToggleFavourite = {
                         val favouriting = !email.isFlagged
                         viewModel.toggleFlag(email)
-                        // Favourites pin to the top — scroll there so it's visibly landing.
-                        if (favouriting) scope.launch { listState.animateScrollToItem(0) }
+                        // Only "Favourites first" moves the row on starring, so only there is
+                        // there anywhere to follow it to (#111). Under any other order the row
+                        // stays put, and scrolling away would just cost the reader their place —
+                        // which is what this did unconditionally while the pin was hard-wired.
+                        // Search results are excluded outright: they read no sort order at all,
+                        // and `listState` is the BROWSE list's, so a jump here scrolls a list
+                        // the reader isn't even looking at.
+                        if (favouriting && !fromSearch && ui.sortOrder == SortOrder.FLAGGED_FIRST) {
+                            scope.launch { listState.animateScrollToItem(0) }
+                        }
                     },
                     selected = email.emailKey() in selectedKeys,
                     gesturesEnabled = !selectionActive,
@@ -2173,6 +2203,7 @@ private fun sortLabel(order: SortOrder): Int = when (order) {
     SortOrder.SUBJECT -> R.string.inbox_sort_subject
     SortOrder.SENDER -> R.string.inbox_sort_sender
     SortOrder.UNREAD_FIRST -> R.string.inbox_sort_unread_first
+    SortOrder.FLAGGED_FIRST -> R.string.inbox_sort_flagged_first
 }
 
 /** One folder in the drawer tree: the mailbox, its [depth], and whether it has children. */

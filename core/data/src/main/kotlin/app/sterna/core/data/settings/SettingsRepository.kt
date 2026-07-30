@@ -25,8 +25,15 @@ enum class PreviewLines(val lines: Int) { NONE(0), ONE(1), THREE(3), FIVE(5) }
 /** An action bound to a swipe gesture on a message row. */
 enum class SwipeAction { NONE, TOGGLE_READ, DELETE, ARCHIVE, FLAG }
 
-/** How the message list is ordered. */
-enum class SortOrder { DATE_DESC, DATE_ASC, SUBJECT, SENDER, UNREAD_FIRST }
+/**
+ * How the message list is ordered.
+ *
+ * [FLAGGED_FIRST] is a sort like any other, not a modifier: until 1.4.5 favourites were pinned
+ * above every one of these orders unconditionally, so "Newest first" silently meant "newest
+ * first, except the starred ones" (issue #111). Pinning is now something the reader picks.
+ * Entries are persisted BY NAME, so appending is safe and reorders nothing already stored.
+ */
+enum class SortOrder { DATE_DESC, DATE_ASC, SUBJECT, SENDER, UNREAD_FIRST, FLAGGED_FIRST }
 
 /** Reading text size for the message body (WebView text zoom, in percent). */
 enum class MessageTextSize(val zoom: Int) { SMALL(85), NORMAL(100), LARGE(125), HUGE(150) }

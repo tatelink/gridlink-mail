@@ -36,8 +36,16 @@ internal class FakeImapServer(
     private fun serve() {
         runCatching {
             server.accept().use { socket ->
+                // Asymmetric on purpose. READING is UTF-8 because that is what the client writes
+                // (a `UID SEARCH CHARSET UTF-8 SUBJECT "école"` really does go out as UTF-8, and
+                // a test asserts on that line as text). WRITING is ISO-8859-1 so a scripted
+                // response goes out BYTE FOR BYTE: one char of the response string, one octet on
+                // the wire. Without it no test could put a raw 8-bit byte in front of the parser
+                // — the writer would helpfully UTF-8-encode it and the case under test would
+                // never reach the socket. Safe for every existing test: none of them puts a
+                // non-ASCII character in a response (the Cyrillic ones travel in modified UTF-7).
                 val reader = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8))
-                val writer = OutputStreamWriter(socket.outputStream, Charsets.UTF_8)
+                val writer = OutputStreamWriter(socket.outputStream, Charsets.ISO_8859_1)
                 writer.write("* OK fake IMAP ready\r\n")
                 writer.flush()
                 while (true) {

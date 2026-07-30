@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.Flow
 interface EmailDao {
 
     /**
-     * Paged source for the list. The sort/filter/favourite-pin ORDER BY and the
+     * Paged source for the list. The sort/filter ORDER BY and the
      * mailbox-id set vary per view, so the query is built dynamically (see
      * MailRepository.pagingQuery) and run via [RawQuery]; [observedEntities] keeps
      * the pager reactive to cache changes.
@@ -199,9 +199,18 @@ interface EmailDao {
     @Query("DELETE FROM emails WHERE accountId = :accountId")
     suspend fun deleteForAccount(accountId: String)
 
-    /** Prune messages older than [cutoff] (epoch millis) from a mailbox; keeps undated rows. */
-    @Query("DELETE FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId AND sortKey > 0 AND sortKey < :cutoff")
-    suspend fun deleteOlderThan(accountId: String, mailboxId: String, cutoff: Long)
+    /**
+     * Age (and id) of every cached row in one account's mailbox — the input the retention prune
+     * decides on (`MailRepository.pruneRetention` → `retentionEvictions`).
+     *
+     * There is deliberately NO `DELETE … WHERE sortKey < cutoff` counterpart any more (Codeberg
+     * #110): a statement that only knows the cutoff cannot know that the page the server just
+     * returned is inside it, and it deleted the freshly-synced folder out from under the list.
+     * Reading the ages and deciding in Kotlin keeps that decision in one testable place next to
+     * the delta and sweep evictions, and the eviction itself goes through [deleteByIds].
+     */
+    @Query("SELECT id, sortKey FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId")
+    suspend fun retentionRows(accountId: String, mailboxId: String): List<EmailRetentionRow>
 
     /**
      * Replace one account's cached contents of a mailbox with a fresh snapshot. [spareIds] are
@@ -224,6 +233,16 @@ interface EmailDao {
         }
     }
 }
+
+/**
+ * Projection for [EmailDao.retentionRows]: one cached row as the retention prune sees it.
+ * [sortKey] is epoch millis, and 0 on a message whose date could not be parsed — such rows are
+ * undated, not ancient, and the prune never evicts them on age.
+ */
+data class EmailRetentionRow(
+    val id: String,
+    val sortKey: Long,
+)
 
 /** Projection for [EmailDao.countsByAccount]. */
 data class AccountMessageCount(

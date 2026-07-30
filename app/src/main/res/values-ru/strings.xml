@@ -105,6 +105,7 @@
     <string name="inbox_sort_subject">Тема</string>
     <string name="inbox_sort_sender">Отправитель</string>
     <string name="inbox_sort_unread_first">Сначала непрочитанные</string>
+    <string name="inbox_sort_flagged_first">Сначала помеченные</string>
     <string name="inbox_unflag">Снять пометку</string>
     <string name="inbox_flag">Пометить</string>
     <string name="folder_inbox">Входящие</string>
@@ -125,6 +126,7 @@
     <string name="message_images_stop_sender">Не показывать изображения от этого отправителя автоматически</string>
     <string name="message_open_link_title">Открыть эту ссылку?</string>
     <string name="message_open_link_open">Открыть</string>
+    <string name="message_open_link_copy">Копировать ссылку</string>
     <string name="message_mark_unread">Отметить непрочитанным</string>
     <string name="message_delete">Удалить</string>
     <string name="message_more">Ещё</string>
@@ -163,6 +165,7 @@
     <string name="participant_copy_name_address">Копировать имя и адрес</string>
     <string name="a11y_participant_more">Другие действия</string>
     <string name="status_address_copied">Адрес скопирован</string>
+    <string name="status_link_copied">Ссылка скопирована</string>
     <string name="participant_no_contacts_app">Нет приложения для добавления контактов.</string>
     <!-- Calendar invite -->
     <string name="calendar_invite">Приглашение в календарь</string>
