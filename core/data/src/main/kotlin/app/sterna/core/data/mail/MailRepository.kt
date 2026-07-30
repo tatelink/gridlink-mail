@@ -258,10 +258,13 @@ private const val UNREAD_RESOLVE_MAX = 10_000
 private const val SET_SEEN_BATCH = 500
 
 /**
- * Build the dynamic ORDER BY / WHERE for the paged list. Favourites (flagged)
- * always pin to the top, then the chosen [sort]; [unreadOnly] adds a seen filter.
- * Mailbox ids are bound as parameters; the sort expression is a fixed whitelist
- * (never user input), so it is safe to inline.
+ * Build the dynamic ORDER BY / WHERE for the paged list: purely the chosen [sort];
+ * [unreadOnly] adds a seen filter. Mailbox ids are bound as parameters; the sort
+ * expression is a fixed whitelist (never user input), so it is safe to inline.
+ *
+ * No order is prefixed any more. Favourites used to be pinned above ALL of them, which made
+ * every menu entry a half-truth (issue #111); pinning is now its own entry,
+ * [SortOrder.FLAGGED_FIRST], that the reader chooses.
  */
 private fun pagingQuery(
     mailboxIds: List<String>,
@@ -299,12 +302,13 @@ internal fun pagingSql(
     val placeholders = List(mailboxCount) { "?" }.joinToString(",")
     val accountFilter = if (hasAccountId) " AND accountId = ?" else ""
     val seenFilter = if (unreadOnly) " AND seen = 0" else ""
-    val orderBy = "flagged DESC, " + when (sort) {
+    val orderBy = when (sort) {
         SortOrder.DATE_DESC -> "sortKey DESC"
         SortOrder.DATE_ASC -> "sortKey ASC"
         SortOrder.SUBJECT -> "LOWER(TRIM(subject)) ASC"
         SortOrder.SENDER -> "LOWER(TRIM(COALESCE(fromName, fromEmail))) ASC"
         SortOrder.UNREAD_FIRST -> "seen ASC, sortKey DESC"
+        SortOrder.FLAGGED_FIRST -> "flagged DESC, sortKey DESC"
     }
     // Hide messages snoozed into the future (re-appear once their time passes).
     val notSnoozed = " AND ${notSnoozedSql("emails")}"
@@ -361,8 +365,8 @@ private fun conversationQuery(
  * Sent-role folder — pinned to its OWN account, so a sibling account's colliding mailbox id
  * can't widen this account's chip — [+ account id]; the outer WHERE binds like `g`; the
  * account-wide total sub-query `t` takes none. The
- * representative row and unread state come from `g` (strictly folder-scoped — a thread with
- * only Sent members must not surface a row); `threadCount` (the chip) is `c`'s count of the
+ * representative row, unread state and favourite state come from `g` (strictly folder-scoped — a
+ * thread with only Sent members must not surface a row); `threadCount` (the chip) is `c`'s count of the
  * thread's messages in the viewed mailboxes PLUS its Sent replies, matching exactly what the
  * unfolded conversation shows; `threadTotal` is `t`'s count of its cached messages across
  * the whole account and only gates the expand affordance. Both count joins pin the
@@ -377,18 +381,23 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
     val notSnoozed = notSnoozedSql("emails")
     val notSnoozedOuter = notSnoozedSql("e")
     val having = if (unreadOnly) " HAVING MIN(seen) = 0" else ""
-    val orderBy = "e.flagged DESC, " + when (sort) {
+    val orderBy = when (sort) {
         SortOrder.DATE_DESC -> "e.sortKey DESC"
         SortOrder.DATE_ASC -> "e.sortKey ASC"
         SortOrder.SUBJECT -> "LOWER(TRIM(e.subject)) ASC"
         SortOrder.SENDER -> "LOWER(TRIM(COALESCE(e.fromName, e.fromEmail))) ASC"
         SortOrder.UNREAD_FIRST -> "g.threadUnread ASC, e.sortKey DESC"
+        // g.threadFlagged, NOT e.flagged: a conversation is a favourite when ANY of its in-view
+        // messages is starred. The old unconditional pin read e.flagged — the flag of the
+        // thread's LATEST message — so starring an old reply left the thread where it was, which
+        // is not what starring anything in a thread looks like it should do (issue #111).
+        SortOrder.FLAGGED_FIRST -> "g.threadFlagged DESC, e.sortKey DESC"
     }
     return """
         SELECT e.*, c.threadCount AS threadCount, t.threadTotal AS threadTotal, g.threadUnread AS threadUnread
         FROM emails e
         JOIN (
-            SELECT accountId AS gacc, COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread
+            SELECT accountId AS gacc, COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread, MAX(flagged) AS threadFlagged
             FROM emails
             WHERE mailboxId IN ($placeholders)$accountInner AND $notSnoozed
             GROUP BY gacc, tkey$having
@@ -972,8 +981,8 @@ class MailRepository(
 
     /**
      * Paged list of cached emails for [mailboxIds] (one folder, or several for the
-     * unified inbox), sorted server-side-style in SQL: favourites pinned, then the
-     * chosen [sort]; [unreadOnly] filters to unseen. Only a few pages are held in
+     * unified inbox), sorted server-side-style in SQL by the chosen [sort] and nothing
+     * else; [unreadOnly] filters to unseen. Only a few pages are held in
      * memory at once, so very large folders no longer load (or freeze) all at once.
      */
     fun pagedMailbox(

@@ -105,6 +105,7 @@
     <string name="inbox_sort_subject">Onderwerp</string>
     <string name="inbox_sort_sender">Afzender</string>
     <string name="inbox_sort_unread_first">Ongelezen eerst</string>
+    <string name="inbox_sort_flagged_first">Met ster eerst</string>
     <string name="inbox_unflag">Markering verwijderen</string>
     <string name="inbox_flag">Markeren</string>
     <string name="folder_inbox">Postvak IN</string>

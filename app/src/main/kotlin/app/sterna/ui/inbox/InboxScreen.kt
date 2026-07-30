@@ -2173,6 +2173,7 @@ private fun sortLabel(order: SortOrder): Int = when (order) {
     SortOrder.SUBJECT -> R.string.inbox_sort_subject
     SortOrder.SENDER -> R.string.inbox_sort_sender
     SortOrder.UNREAD_FIRST -> R.string.inbox_sort_unread_first
+    SortOrder.FLAGGED_FIRST -> R.string.inbox_sort_flagged_first
 }
 
 /** One folder in the drawer tree: the mailbox, its [depth], and whether it has children. */

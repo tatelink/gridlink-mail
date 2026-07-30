@@ -105,6 +105,7 @@
     <string name="inbox_sort_subject">Objet</string>
     <string name="inbox_sort_sender">Expéditeur</string>
     <string name="inbox_sort_unread_first">Non lus d\'abord</string>
+    <string name="inbox_sort_flagged_first">Suivis d\'abord</string>
     <string name="inbox_unflag">Ne plus suivre</string>
     <string name="inbox_flag">Suivre</string>
     <string name="folder_inbox">Boîte de réception</string>

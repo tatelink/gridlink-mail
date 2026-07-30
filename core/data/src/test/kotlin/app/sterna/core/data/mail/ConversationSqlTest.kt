@@ -39,12 +39,16 @@ class ConversationSqlTest {
     private fun insert(
         id: String, threadId: String?, seen: Int, flagged: Int, sortKey: Long,
         mailbox: String = "inbox", accountId: String = "acc",
+        // Only the sort-order cases care about these; every other case leaves them equal so
+        // the subject/sender orders tie and the discriminating column is the one under test.
+        subject: String = "subj", fromName: String = "N",
     ) {
         db.prepareStatement(
-            "INSERT INTO emails VALUES(?, ?, ?, ?, 'subj', 'prev', '', 'N', 'e', ?, ?, 0, ?)",
+            "INSERT INTO emails VALUES(?, ?, ?, ?, ?, 'prev', '', ?, 'e', ?, ?, 0, ?)",
         ).use { ps ->
             ps.setString(1, id); ps.setString(2, accountId); ps.setString(3, mailbox); ps.setString(4, threadId)
-            ps.setInt(5, seen); ps.setInt(6, flagged); ps.setLong(7, sortKey)
+            ps.setString(5, subject); ps.setString(6, fromName)
+            ps.setInt(7, seen); ps.setInt(8, flagged); ps.setLong(9, sortKey)
             ps.executeUpdate()
         }
     }
@@ -326,13 +330,55 @@ class ConversationSqlTest {
         assertEquals(listOf("b1" to 2, "a1" to 1), rows)
     }
 
-    @Test fun favouritesPinToTop() {
-        insert("a", threadId = null, seen = 1, flagged = 0, sortKey = 300)
-        insert("b", threadId = null, seen = 1, flagged = 1, sortKey = 100) // older but flagged
+    // -- sort orders and the favourite pin (issue #111) -----------------------------------
+    //
+    // Until 1.4.5 every ORDER BY was prefixed with `flagged DESC`, so each of the five menu
+    // entries silently meant "…, except the starred ones". Pinning is now its own entry,
+    // SortOrder.FLAGGED_FIRST, and the other five must order on their own criterion alone.
+    //
+    // One fixture serves all six orders, arranged so that the starred rows LOSE under every
+    // non-pinning order — otherwise the assertion would pass whether or not the prefix is
+    // there. `p` is unread, mid-dated, first alphabetically by subject AND sender; `s2`/`s`
+    // are starred, read, and sort behind it on every criterion but the pin.
+    private fun insertSortFixture() {
+        insert("p", threadId = null, seen = 0, flagged = 0, sortKey = 200, subject = "aaa", fromName = "Anna")
+        insert("s", threadId = null, seen = 1, flagged = 1, sortKey = 100, subject = "zzz", fromName = "Zoe")
+        insert("s2", threadId = null, seen = 1, flagged = 1, sortKey = 300, subject = "mmm", fromName = "Mona")
+    }
 
-        val rows = run()
-        assertEquals("b", rows[0]["id"]) // flagged pinned above the newer unflagged
-        assertEquals("a", rows[1]["id"])
+    private fun ids(rows: List<Map<String, Any?>>) = rows.map { it["id"] }
+
+    @Test fun conversationOrdersDoNotPinFavourites() {
+        insertSortFixture()
+
+        assertEquals(listOf("s2", "p", "s"), ids(run(SortOrder.DATE_DESC)))
+        assertEquals(listOf("s", "p", "s2"), ids(run(SortOrder.DATE_ASC)))
+        assertEquals(listOf("p", "s2", "s"), ids(run(SortOrder.SUBJECT)))
+        assertEquals(listOf("p", "s2", "s"), ids(run(SortOrder.SENDER)))
+        // The starkest case: "Unread first" used to put a starred READ message above an
+        // unread one, which is the one thing the entry's name promises it will not do.
+        assertEquals(listOf("p", "s2", "s"), ids(run(SortOrder.UNREAD_FIRST)))
+    }
+
+    @Test fun conversationFavouritesFirstPinsWhenChosen() {
+        insertSortFixture()
+
+        // The pre-1.4.5 behaviour, now reachable on purpose: starred at the top, newest-first
+        // inside each group.
+        assertEquals(listOf("s2", "s", "p"), ids(run(SortOrder.FLAGGED_FIRST)))
+    }
+
+    @Test fun favouritesFirstFollowsAStarOnAnyMessageOfTheThread() {
+        // A thread whose OLD message is starred and whose latest is not. The old pin read
+        // e.flagged — the representative (latest) row's flag — so this thread did not move;
+        // FLAGGED_FIRST reads the thread's own state (g.threadFlagged) and pins it.
+        insert("t1", threadId = "T", seen = 1, flagged = 1, sortKey = 100) // starred, older
+        insert("t2", threadId = "T", seen = 1, flagged = 0, sortKey = 200) // representative, not starred
+        insert("plain", threadId = null, seen = 1, flagged = 0, sortKey = 300)
+
+        val rows = run(SortOrder.FLAGGED_FIRST)
+        assertEquals(listOf("t2", "plain"), ids(rows)) // the thread pins, shown by its latest message
+        assertEquals(2, rows[0]["threadCount"])
     }
 
     // -- flat (uncollapsed) mode, colliding mailbox ids -----------------------------------
@@ -345,10 +391,14 @@ class ConversationSqlTest {
 
     /** Flat list over [mailboxes]; [accountId] non-null pins it to one account (folder view),
      *  null leaves it unpinned (the unified inbox). Bind order: mailboxes, then account. */
-    private fun runFlat(vararg mailboxes: String, accountId: String? = null): List<String> {
+    private fun runFlat(
+        vararg mailboxes: String,
+        accountId: String? = null,
+        sort: SortOrder = SortOrder.DATE_DESC,
+    ): List<String> {
         val sql = pagingSql(
             mailboxCount = mailboxes.size,
-            sort = SortOrder.DATE_DESC,
+            sort = sort,
             unreadOnly = false,
             hasAccountId = accountId != null,
         )
@@ -414,5 +464,28 @@ class ConversationSqlTest {
         assertEquals(listOf("e1"), runFlat("a"))                     // only accB's survives…
         assertEquals(listOf("e1"), runFlat("a", accountId = "accB")) // …and it is accB's
         assertEquals(emptyList<String>(), runFlat("a", accountId = "accA"))
+    }
+
+    // -- flat mode: sort orders and the favourite pin (issue #111) -------------------------
+    //
+    // The flat query had NO favourite-pin coverage at all before this — every case above
+    // inserts flagged = 0, so the prefix could have been removed or kept and nothing here
+    // would have noticed. The flat list is what most readers actually see (conversation view
+    // is off by default), so it gets the same fixture as the collapsed one.
+
+    @Test fun flatOrdersDoNotPinFavourites() {
+        insertSortFixture()
+
+        assertEquals(listOf("s2", "p", "s"), runFlat("inbox", sort = SortOrder.DATE_DESC))
+        assertEquals(listOf("s", "p", "s2"), runFlat("inbox", sort = SortOrder.DATE_ASC))
+        assertEquals(listOf("p", "s2", "s"), runFlat("inbox", sort = SortOrder.SUBJECT))
+        assertEquals(listOf("p", "s2", "s"), runFlat("inbox", sort = SortOrder.SENDER))
+        assertEquals(listOf("p", "s2", "s"), runFlat("inbox", sort = SortOrder.UNREAD_FIRST))
+    }
+
+    @Test fun flatFavouritesFirstPinsWhenChosen() {
+        insertSortFixture()
+
+        assertEquals(listOf("s2", "s", "p"), runFlat("inbox", sort = SortOrder.FLAGGED_FIRST))
     }
 }

@@ -169,6 +169,7 @@
     <string name="inbox_sort_subject">Subject</string>
     <string name="inbox_sort_sender">Sender</string>
     <string name="inbox_sort_unread_first">Unread first</string>
+    <string name="inbox_sort_flagged_first">Favourites first</string>
     <string name="inbox_unflag">Unflag</string>
     <string name="a11y_favourite">Add to favourites</string>
     <string name="a11y_unfavourite">Remove from favourites</string>
