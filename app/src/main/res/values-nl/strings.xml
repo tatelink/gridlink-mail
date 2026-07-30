@@ -164,6 +164,7 @@
     <string name="participant_copy_name_address">Naam en adres kopiëren</string>
     <string name="a11y_participant_more">Meer acties</string>
     <string name="status_address_copied">Adres gekopieerd</string>
+    <string name="status_link_copied">Link gekopieerd</string>
     <string name="participant_no_contacts_app">Geen app om contacten toe te voegen.</string>
     <!-- Calendar invite -->
     <string name="calendar_invite">Agenda-uitnodiging</string>

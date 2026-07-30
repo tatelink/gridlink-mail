@@ -2484,6 +2484,7 @@ private fun EmailWebView(
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val linkCopiedMsg = stringResource(R.string.status_link_copied)
     // Both ways out of this body go through ONE latch, because they are one action: tapping a link.
     // The confirmation dialog is not itself protection — two taps inside the same frame both reach
     // its Open button — and with the confirmation setting OFF, which is the default and the path
@@ -2694,22 +2695,39 @@ private fun EmailWebView(
             title = { Text(stringResource(R.string.message_open_link_title)) },
             text = {
                 Column {
-                    Text(link)
+                    // The address takes what is LEFT once the button has its height, and scrolls
+                    // inside that. Material's text slot is a height-bounded box with no scrolling of
+                    // its own: written as a plain Column, a long address ate the whole slot and the
+                    // button was measured at zero height — not crowded, gone, and untappable. The
+                    // addresses that need this dialog most are exactly the long ones (tracking links
+                    // run to hundreds of characters), and in landscape or at a large font scale a
+                    // few hundred is already enough.
+                    Text(
+                        link,
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                    )
                     // Copy the address instead of handing it to whatever app claims it (#108):
                     // the confirmation used to be a dead end — open it in the default handler, or
                     // give up. Copying lets the reader paste it wherever they meant it to go.
                     //
-                    // It sits UNDER the URL, not as a third action button: Material's dialog has
+                    // It sits UNDER the address, not as a third action button: Material's dialog has
                     // exactly two action slots, and a third label crammed into one of them shares
                     // that slot's single row — it cannot wrap, so the longer translations would be
-                    // clipped on a narrow screen. Here it also sits on the address it copies, the
-                    // way the sign-in code does. Copying closes the dialog: that IS the feedback,
-                    // and it is the whole gesture — the reader is leaving for somewhere else. No
-                    // message of our own on top, because Android 13+ already shows one and two
-                    // confirmations for one tap is one too many.
+                    // clipped on a narrow screen. Here it sits on the address it copies instead.
                     TextButton(
                         onClick = {
                             clipboard.setText(AnnotatedString(link))
+                            // Every other copy in the app says so, this one included — the sign-in
+                            // code's tap-to-copy is the same gesture and shows the same kind of
+                            // message. From Android 13 the system announces the copy itself and
+                            // ours would double it, so ours stands down there and only there.
+                            // minSdk is 26: without this, five Android versions get no answer at
+                            // all beyond the dialog closing.
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                                Toast.makeText(context, linkCopiedMsg, Toast.LENGTH_SHORT).show()
+                            }
                             pendingLink = null
                         },
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),

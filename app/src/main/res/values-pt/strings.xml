@@ -164,6 +164,7 @@
     <string name="participant_copy_name_address">Copiar nome e endereço</string>
     <string name="a11y_participant_more">Mais ações</string>
     <string name="status_address_copied">Endereço copiado</string>
+    <string name="status_link_copied">Link copiado</string>
     <string name="participant_no_contacts_app">Nenhum app para adicionar contatos.</string>
     <!-- Calendar invite -->
     <string name="calendar_invite">Convite de calendário</string>
