@@ -143,6 +143,18 @@ class SyncEvictionsTest {
         )
     }
 
+    @Test fun aSweepThatDidNotGetAnAnswerPrunesNothing() {
+        // The transport-failure contract, and the reason it is a null rather than an empty set:
+        // "the server did not answer" must not read as "the server found none of them". A sweep
+        // whose Email/get throws — no network, a 5xx, a malformed body, or a second chunk failing
+        // after the first answered — deletes NOTHING. Deleting mail is the unforgivable direction;
+        // keeping a ghost one more interval is the safe one.
+        assertEquals(
+            emptyList<String>(),
+            ghostEvictions(cachedIds = listOf("e1", "e2", "e3"), notFound = null),
+        )
+    }
+
     // -- shouldSweepGhosts ---------------------------------------------------------------
 
     private val floor = 5 * 60_000L
@@ -192,9 +204,19 @@ class SyncEvictionsTest {
         )
     }
 
-    @Test fun anIdleAccountNeverResweeps() {
-        // No state movement at all: nothing can have been destroyed since the last sweep.
+    @Test fun anIdleAccountIsThrottledButNeverBlocked() {
+        // FAILS ON THE PRE-FIX TREE (the second assertion).
+        // Was `anIdleAccountNeverResweeps`, and its old name was the defect (Codeberg #107): "no
+        // state movement" was read as "nothing can have been destroyed", which is false against a
+        // server that reports a delegated account's destroys in neither delta. A quiet account is
+        // now throttled inside the interval and swept once it elapses.
         assertFalse(
+            shouldSweepGhosts(
+                firstThisSession = false, stateAdvanced = false, vanishedFromMailbox = false,
+                millisSinceLastSweep = floor - 1, minIntervalMs = floor,
+            ),
+        )
+        assertTrue(
             shouldSweepGhosts(
                 firstThisSession = false, stateAdvanced = false, vanishedFromMailbox = false,
                 millisSinceLastSweep = 10 * floor, minIntervalMs = floor,
@@ -202,19 +224,20 @@ class SyncEvictionsTest {
         )
     }
 
-    // -- what happens AFTER a spared destroy (Codeberg #107 probe) ------------------------
+    // -- what happens AFTER a lost destroy notice (Codeberg #107) -------------------------
     //
-    // These three pin the CURRENT behaviour of the gate in the exact sequence a swallowed destroy
-    // produces. They are characterisation tests, not regression guards: each asserts what the
-    // shipped code does today, so all three pass on the pre-probe tree. Their value is that they
-    // make the residual hole explicit and would break the moment the gate is changed — at which
-    // point they must be re-read, not merely re-baselined.
+    // These pinned the hole while it was open (they were written as characterisation cases against
+    // the shipped gate). The gate has since changed, so they have been re-read and re-aimed rather
+    // than re-baselined: the case that asserted "no refresh ever resweeps" now asserts that the
+    // refresh after the interval DOES, and is marked as failing on the pre-fix tree. What has NOT
+    // changed is that a sweep must stay rare — the throttling cases below still assert that.
 
     @Test fun aDestroyReportedOnlyInTheChangesDeltaDoesNotTripTheImmediateSweep() {
         // vanishedFromMailbox is computed from queryChanges.removed ALONE (MailRepository), so a
         // destroy the server reports only in Email/changes.destroyed does not count as "something
         // left this mailbox" — even though it is the very shape the spare can swallow. The
-        // immediate sweep therefore does not fire, and the row waits out the floor instead.
+        // immediate sweep therefore does not fire, and the row waits out the floor instead. That
+        // wait is now bounded (see below), so this stays a throttle, not a hole.
         assertFalse(
             shouldSweepGhosts(
                 firstThisSession = false, stateAdvanced = true, vanishedFromMailbox = false,
@@ -230,23 +253,40 @@ class SyncEvictionsTest {
         )
     }
 
-    @Test fun onceTheCursorsHaveAdvancedPastTheLostNoticeNoRefreshEverResweeps() {
-        // THE hole this probe exists to expose. The delta that lost the destroy notice also
-        // STORED the new cursors, so every later sync of a quiet account compares equal:
-        // stateAdvanced = false. The gate's floor is behind that AND, so however long the user
-        // waits and however many times they pull to refresh, no existence check is run — the row
-        // survives every refresh and only a process restart (firstThisSession) or clearing the
-        // cache removes it. That is precisely the reporter's "even after refreshing".
-        listOf(0L, floor, 100 * floor).forEach { elapsed ->
-            assertFalse(
-                "no sweep after ${elapsed}ms of a quiet account",
+    @Test fun aQuietAccountRefreshingForEverIsSweptWhenTheIntervalElapses() {
+        // FAILS ON THE PRE-FIX TREE — it is the fix. The sync that lost the destroy notice also
+        // stored the cursors it came with, so every later sync of a quiet account compares equal:
+        // stateAdvanced = false for ever. The old gate kept its floor behind that condition, so no
+        // number of pull-to-refreshes ever ran an existence check and only a process restart or a
+        // cache wipe removed the row — the reporter's "even after refreshing… I clear the cache".
+        // The floor now stands on its own: refreshing inside the interval is still cheap, and the
+        // first refresh after it heals the row.
+        assertFalse(
+            "a refresh inside the interval must stay free",
+            shouldSweepGhosts(
+                firstThisSession = false, stateAdvanced = false, vanishedFromMailbox = false,
+                millisSinceLastSweep = floor - 1, minIntervalMs = floor,
+            ),
+        )
+        assertEquals(
+            "skip/idle",
+            sweepReason(
+                firstThisSession = false, stateAdvanced = false, vanishedFromMailbox = false,
+                millisSinceLastSweep = floor - 1, minIntervalMs = floor,
+            ),
+        )
+        listOf(floor, 2 * floor, 100 * floor).forEach { elapsed ->
+            assertTrue(
+                "the sweep must run ${elapsed}ms after the last one, quiet account or not",
                 shouldSweepGhosts(
                     firstThisSession = false, stateAdvanced = false, vanishedFromMailbox = false,
                     millisSinceLastSweep = elapsed, minIntervalMs = floor,
                 ),
             )
+            // The token is what the bench reads back: `floor/idle` is an existence check on an
+            // account whose deltas said nothing — the line that could not be printed before.
             assertEquals(
-                "skip/idle",
+                "floor/idle",
                 sweepReason(
                     firstThisSession = false, stateAdvanced = false, vanishedFromMailbox = false,
                     millisSinceLastSweep = elapsed, minIntervalMs = floor,
@@ -255,11 +295,10 @@ class SyncEvictionsTest {
         }
     }
 
-    @Test fun freshAccountActivityIsWhatEventuallyHealsIt() {
-        // The counterpart: the ghost is not immortal in principle — the next thing that moves the
-        // ACCOUNT-wide state (a delivery, a flag change anywhere) re-opens the floor branch. So
-        // the defect is bounded by traffic, which is exactly why it is intermittent and why it
-        // shows on a secondary account of ten rather than on the busy one.
+    @Test fun freshAccountActivityStillHealsItAndSaysSo() {
+        // The other half, unchanged by the fix: when the account HAS moved, the elapsed floor
+        // sweeps and logs `floor`. Two tokens for the same decision because the difference tells
+        // the bench which of the two paths healed a row.
         assertTrue(
             shouldSweepGhosts(
                 firstThisSession = false, stateAdvanced = true, vanishedFromMailbox = false,

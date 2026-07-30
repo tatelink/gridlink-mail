@@ -1,5 +1,7 @@
 package app.sterna.core.data.mail
 
+import java.util.concurrent.ConcurrentHashMap
+
 /**
  * Which cached ids a mailbox delta evicts. Pure decision logic of
  * [MailRepository.syncMailbox]'s incremental branch, extracted for unit tests:
@@ -14,10 +16,10 @@ package app.sterna.core.data.mail
  * The spare can therefore eat a REAL destroy notice while the cursors advance past it —
  * a one-shot loss no later delta repeats. The ghost sweep ([ghostEvictions]) is what heals that,
  * so the protection here stays strict — but NOT necessarily in the same sync cycle: the sweep runs
- * only when [shouldSweepGhosts] lets it, and that gate is not satisfied by every shape of loss (see
- * its own note, and SyncEvictionsTest's #107 probe cases). Which ids the spare kept, and whether
- * the delta called them destroyed or merely removed, is reported by [sparedEvictions] to the sync
- * log so the two can be told apart on a device instead of inferred.
+ * only when [shouldSweepGhosts] lets it, which since Codeberg #107 is at worst one
+ * [GHOST_SWEEP_MIN_INTERVAL_MS] later, whatever the deltas do or do not say. Which ids the spare
+ * kept, and whether the delta called them destroyed or merely removed, is reported by
+ * [sparedEvictions] to the sync log so the two can be told apart on a device instead of inferred.
  */
 internal fun deltaEvictions(
     removed: List<String>,
@@ -67,9 +69,16 @@ internal fun sparedEvictions(
  * whereas `Email/get` by id is an authoritative point lookup — an id in `notFound` cannot
  * belong to a live message, so pruning it can never re-open the spare's bug classes, and
  * a destroyed id can't be "protected back to life".
+ *
+ * [notFound] is NULL when the check did not answer at all — a transport error, a malformed
+ * response, or a chunked sweep whose second request threw after the first had answered. That
+ * case must prune NOTHING (an unanswered question is not a "no"), and it is expressed as a
+ * distinct value rather than as an empty set so the rule lives in one testable place instead
+ * of in a `return` the caller has to remember to write. Deleting less is the safe error here;
+ * deleting more destroys mail.
  */
-internal fun ghostEvictions(cachedIds: List<String>, notFound: Set<String>): List<String> =
-    if (notFound.isEmpty()) emptyList() else cachedIds.filter { it in notFound }
+internal fun ghostEvictions(cachedIds: List<String>, notFound: Set<String>?): List<String> =
+    if (notFound.isNullOrEmpty()) emptyList() else cachedIds.filter { it in notFound }
 
 /**
  * Whether this sync cycle should run a mailbox's existence sweep. The sweep costs one
@@ -78,23 +87,27 @@ internal fun ghostEvictions(cachedIds: List<String>, notFound: Set<String>): Lis
  * on any activity anywhere in the account (another folder, a flag change, a delivery).
  *
  * The gate keeps both halves of the ghost invariant while cutting the recurring cost:
- * - [firstThisSession]: the once-per-mailbox-per-process sweep, so a ghost that predates this
- *   run dies on the first sync of the session, whatever the deltas say.
+ * - [firstThisSession]: the once-per-mailbox-per-process sweep. Subsumed by the floor for a
+ *   mailbox never swept in this process (its elapsed time is "since the epoch"), so what this
+ *   clause really carries is the RETRY of a sweep that failed in transport — see
+ *   [GhostSweepSchedule.releaseFailed].
  * - [vanishedFromMailbox]: THIS mailbox's delta reported an id genuinely leaving it, which is
  *   the shape of a destroy the recently-mutated spare can eat — sweep at once, no waiting.
- * - [millisSinceLastSweep] ≥ [minIntervalMs]: the floor for the silent case (a destroy some
- *   servers report in NEITHER delta), so such a ghost still dies within one interval instead
- *   of on every single sync.
+ * - [millisSinceLastSweep] ≥ [minIntervalMs]: the floor, and it is UNCONDITIONAL — it does not
+ *   sit behind [stateAdvanced] (Codeberg #107).
  *
- * Worst case per mailbox: one sweep per [minIntervalMs] of continuous account activity, plus
- * one per delta that actually removed something from that mailbox.
+ * Why the floor may not depend on the state having moved (the #107 fix, measured on the bench):
+ * Stalwart reports a delegated account's destroys in NEITHER delta, so the row is lost while the
+ * cursors advance past it; every later sync of that quiet account then compares EQUAL. With the
+ * floor behind `stateAdvanced` the only door left was "first sync of this session", and since the
+ * app holds a push foreground service that process can live for days — the reporter's "even after
+ * refreshing… I have to clear the cache". The whole defect is that the delta never moves again, so
+ * a gate that waits for the delta to move can never heal it.
  *
- * KNOWN LIMIT of the shape above, pinned by SyncEvictionsTest (Codeberg #107 probe, NOT yet
- * decided either way): the floor sits BEHIND [stateAdvanced]. The sync that loses a destroy notice
- * also stores the cursors it came with, so every later sync of a quiet account compares equal and
- * the gate answers false however long the interval has run. A row left behind by a lost notice can
- * therefore survive an unbounded number of manual refreshes, until the account sees fresh activity
- * or the process restarts and [firstThisSession] applies again.
+ * Cost of making the floor unconditional: a mailbox that syncs while nothing happens now pays one
+ * ids-only `Email/get` per [minIntervalMs], where it used to pay none. Bounded per mailbox at one
+ * sweep per interval however often the user pulls to refresh, plus one per delta that actually
+ * removed something from that mailbox.
  */
 internal fun shouldSweepGhosts(
     firstThisSession: Boolean,
@@ -103,7 +116,8 @@ internal fun shouldSweepGhosts(
     millisSinceLastSweep: Long,
     minIntervalMs: Long,
 ): Boolean = firstThisSession ||
-    (stateAdvanced && (vanishedFromMailbox || millisSinceLastSweep >= minIntervalMs))
+    (stateAdvanced && vanishedFromMailbox) ||
+    millisSinceLastSweep >= minIntervalMs
 
 /**
  * WHICH clause of [shouldSweepGhosts] decided, as a log token. Same inputs, same order of tests, so
@@ -112,11 +126,14 @@ internal fun shouldSweepGhosts(
  *
  * A token starting with `skip` means no sweep, and SyncEvictionsTest pins that correspondence over
  * the whole input grid so the two can never drift apart:
- * - `session` — the once-per-mailbox-per-process sweep;
+ * - `session` — the first sweep of this process for the mailbox, or the retry of a failed one;
  * - `removal` — this mailbox's delta reported something leaving;
- * - `floor` — the recurring sweep's interval elapsed;
- * - `skip/idle` — NEITHER state moved, so the gate refuses whatever the interval says. This is what
- *   a manual pull-to-refresh on a quiet account looks like;
+ * - `floor` — the recurring sweep's interval elapsed on an account that had moved;
+ * - `floor/idle` — the interval elapsed on an account whose deltas said NOTHING. This token is the
+ *   #107 fix on the wire: it is the sweep that never used to happen, and the line that heals a
+ *   ghost left by a destroy the server never reported;
+ * - `skip/idle` — nothing moved and the interval has not elapsed yet (a pull-to-refresh a minute
+ *   after the last sweep);
  * - `skip/throttled` — the account moved, but nothing left this mailbox and the interval has not
  *   elapsed.
  */
@@ -128,8 +145,98 @@ internal fun sweepReason(
     minIntervalMs: Long,
 ): String = when {
     firstThisSession -> "session"
-    !stateAdvanced -> "skip/idle"
-    vanishedFromMailbox -> "removal"
-    millisSinceLastSweep >= minIntervalMs -> "floor"
-    else -> "skip/throttled"
+    stateAdvanced && vanishedFromMailbox -> "removal"
+    millisSinceLastSweep >= minIntervalMs -> if (stateAdvanced) "floor" else "floor/idle"
+    stateAdvanced -> "skip/throttled"
+    else -> "skip/idle"
 }
+
+/**
+ * Floor between two recurring existence sweeps of the SAME mailbox. The sweep's trigger can only
+ * be an account-wide state (JMAP has no per-mailbox change cursor for it), so without a floor it
+ * fires on nearly every incremental sync — one `Email/get` per 200 cached rows per watched folder,
+ * every time.
+ *
+ * Why five minutes, now that the floor also applies to a mailbox whose deltas say nothing (#107):
+ * - it bounds how long a ghost can be looked at. A user who pulls to refresh sees the row go on the
+ *   first refresh five minutes after the last sweep; a user who does nothing waits for the next
+ *   sync of that mailbox, i.e. at most the ~30-min fallback fetch worker;
+ * - it costs, per mailbox, at most one ids-only `Email/get` (ids in, ids + notFound out) per five
+ *   minutes OF ACTUAL SYNC ACTIVITY — not per five minutes of wall clock. The reporter's ten
+ *   accounts refreshed together therefore add at most ten such requests per five minutes in the
+ *   foreground, and in the background the bill is set by the fetch worker's 30-min period, not by
+ *   this floor: one extra request per account per folder per run;
+ * - a burst of pull-to-refresh is absorbed: ten pulls in a minute still sweep once.
+ *
+ * Lowering it buys a shorter ghost lifetime at a linear cost in requests; raising it leaves the
+ * reporter staring at a row he has already deleted. See [shouldSweepGhosts].
+ */
+internal const val GHOST_SWEEP_MIN_INTERVAL_MS = 5 * 60_000L
+
+/**
+ * When each mailbox may be existence-swept again. Owns the two pieces of process-lifetime
+ * bookkeeping the gate needs, so [MailRepository]'s sync path holds none of it and so the schedule
+ * can be exercised on the JVM (the repository cannot).
+ *
+ * Scoped per (account, mailbox), never per mailbox: two accounts on one server share mailbox ids
+ * (Stalwart numbers them per account, so every account's Inbox is "a"), and a shared clock would
+ * let one account's sweep silence nine others' — issues #31/#92.
+ *
+ * In-memory only, like the sync cursors' cache: a cold start starts every mailbox eligible, which
+ * is what prunes ghosts inherited from a previous process.
+ */
+internal class GhostSweepSchedule(
+    private val minIntervalMs: Long = GHOST_SWEEP_MIN_INTERVAL_MS,
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    /** When each (account, mailbox) was last swept. Absent = never in this process. */
+    private val lastSweep = ConcurrentHashMap<String, Long>()
+
+    /** (account, mailbox) pairs whose once-per-process credit is still unspent. */
+    private val pendingFirstSweep = ConcurrentHashMap.newKeySet<String>()
+
+    // NUL-separated, unlike MailRepository's sync-state key: "$account$mailbox" is ambiguous
+    // (account "a1" + mailbox "b" collides with account "a" + mailbox "1b"), and this key is
+    // in-memory only, so it costs nothing to make unambiguous.
+    private fun key(accountId: String, mailboxId: String) = "$accountId\u0000$mailboxId"
+
+    /**
+     * Decide whether this sync should sweep [mailboxId] of [accountId], and record the attempt:
+     * a granted claim consumes the floor there and then, so a sync arriving right behind it is
+     * throttled rather than re-checking the same mailbox. A REFUSED claim leaves the clock
+     * untouched — if refusals restamped it, a user pulling to refresh every few seconds would
+     * postpone the sweep for ever and the ghost would outlive the fix.
+     */
+    fun claim(
+        accountId: String,
+        mailboxId: String,
+        stateAdvanced: Boolean,
+        vanishedFromMailbox: Boolean,
+    ): SweepClaim {
+        val k = key(accountId, mailboxId)
+        val firstThisSession = pendingFirstSweep.add(k)
+        val now = clock()
+        val since = now - (lastSweep[k] ?: 0L)
+        val sweep = shouldSweepGhosts(firstThisSession, stateAdvanced, vanishedFromMailbox, since, minIntervalMs)
+        val reason = sweepReason(firstThisSession, stateAdvanced, vanishedFromMailbox, since, minIntervalMs)
+        if (sweep) lastSweep[k] = now
+        return SweepClaim(sweep = sweep, reason = reason, firstThisSession = firstThisSession)
+    }
+
+    /**
+     * The claimed sweep never landed (transport failure — it pruned nothing by construction):
+     * hand back the once-per-process credit so the NEXT sync retries instead of waiting out the
+     * floor. The floor stamp stays consumed, so a claim that was not the session's first is
+     * retried one interval later rather than on every sync.
+     */
+    fun releaseFailed(accountId: String, mailboxId: String, claim: SweepClaim) {
+        if (claim.firstThisSession) pendingFirstSweep.remove(key(accountId, mailboxId))
+    }
+}
+
+/** One [GhostSweepSchedule.claim] verdict: whether to sweep, and the token the sync log prints. */
+internal data class SweepClaim(
+    val sweep: Boolean,
+    val reason: String,
+    val firstThisSession: Boolean,
+)

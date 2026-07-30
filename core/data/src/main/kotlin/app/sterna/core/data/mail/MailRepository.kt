@@ -128,15 +128,6 @@ private const val RECENT_MUTATION_MS = 45_000L
 private const val PAGE_SIZE = 50
 
 /**
- * Floor between two recurring existence sweeps of the SAME mailbox. The sweep's trigger can only
- * be an account-wide state (JMAP has no per-mailbox change cursor for it), so without a floor it
- * fires on nearly every incremental sync — one `Email/get` per 200 cached rows per watched folder,
- * every time. A few minutes still evicts a silently-destroyed message well within a session while
- * costing at most one sweep per mailbox per interval. See [shouldSweepGhosts].
- */
-private const val GHOST_SWEEP_MIN_INTERVAL_MS = 5 * 60_000L
-
-/**
  * The per-id SetError type meaning the id does not exist in the account (RFC 8620 §5.3).
  * Authoritative — unlike a transport error it can only mean the message is gone, so action
  * paths receiving it prune the cached row (a ghost/zombie) instead of keeping it forever.
@@ -800,41 +791,28 @@ class MailRepository(
                 // every sync: the states here are ACCOUNT-WIDE, so they advance on any
                 // activity anywhere in the account and a state-only trigger would sweep the
                 // whole cache of every watched folder almost every sync. See [shouldSweepGhosts]
-                // for the gate (once per session, on a real removal here, else a time floor).
+                // for the gate (a real removal here sweeps at once, otherwise a time floor that
+                // applies WHETHER OR NOT the deltas moved — Codeberg #107: a delegated account's
+                // destroys reach us through neither delta, so a gate waiting on the deltas would
+                // wait for ever and the row only died on the next cold start).
                 val stateAdvanced = queryChanges.newQueryState != stored.queryState ||
                     changes.newState != stored.emailState
-                val firstThisSession = sweptMailboxes.add(key)
-                val now = System.currentTimeMillis()
                 val vanishedFromMailbox = queryChanges.removed.any { it !in added }
-                val sinceLastSweep = now - (lastGhostSweep[key] ?: 0L)
-                val sweep = shouldSweepGhosts(
-                    firstThisSession = firstThisSession,
-                    stateAdvanced = stateAdvanced,
-                    vanishedFromMailbox = vanishedFromMailbox,
-                    millisSinceLastSweep = sinceLastSweep,
-                    minIntervalMs = GHOST_SWEEP_MIN_INTERVAL_MS,
-                )
-                val sweepWhy = sweepReason(
-                    firstThisSession = firstThisSession,
-                    stateAdvanced = stateAdvanced,
-                    vanishedFromMailbox = vanishedFromMailbox,
-                    millisSinceLastSweep = sinceLastSweep,
-                    minIntervalMs = GHOST_SWEEP_MIN_INTERVAL_MS,
-                )
+                val claim = ghostSweeps.claim(localAccountId, mailboxId, stateAdvanced, vanishedFromMailbox)
                 // One line per incremental sync, carrying the sweep verdict: a ghost that survives
                 // a refresh is either a sweep that ran and did not prune it, or a sweep that never
-                // ran at all, and only this distinguishes them. `sweep=skip/...` on every manual
-                // refresh means no existence check is happening however often the user pulls.
+                // ran at all, and only this distinguishes them. `sweep=floor/idle` is the #107 fix
+                // doing its work: an existence check on an account whose deltas reported nothing.
                 android.util.Log.i(
                     "MailSync",
                     "incremental $localAccountId/$mailboxId: +${toFetch.size} -${toRemove.size} " +
-                        "spared=${spared.size} sweep=$sweepWhy",
+                        "spared=${spared.size} sweep=${claim.reason}",
                 )
-                if (sweep) {
-                    lastGhostSweep[key] = now
+                if (claim.sweep) {
                     val swept = pruneGhostRows(session, accountId, auth, mailboxId, localAccountId)
-                    // A failed sweep keeps its once-per-session credit so the next sync retries.
-                    if (!swept && firstThisSession) sweptMailboxes.remove(key)
+                    // A failed sweep pruned nothing, so it must not count as one: give its
+                    // once-per-process credit back and the next sync retries immediately.
+                    if (!swept) ghostSweeps.releaseFailed(localAccountId, mailboxId, claim)
                 }
                 return
             }
@@ -853,15 +831,11 @@ class MailRepository(
     }
 
     /**
-     * Mailboxes (by sync key) already existence-swept this app session — grants each mailbox
-     * one unconditional sweep per process so ghosts that predate this run (their destroy
-     * notice lost before the fix, or lost while the app was killed) are pruned on the first
-     * sync even when the account has seen no new activity since.
+     * When each (account, mailbox) may be existence-swept again: the first sync of a process
+     * sweeps — which prunes ghosts inherited from a previous run — and afterwards a mailbox is
+     * swept at most once per [GHOST_SWEEP_MIN_INTERVAL_MS], whether or not its deltas moved.
      */
-    private val sweptMailboxes: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
-
-    /** When each mailbox (by sync key) was last existence-swept, for the recurring sweep's floor. */
-    private val lastGhostSweep: MutableMap<String, Long> = java.util.concurrent.ConcurrentHashMap()
+    private val ghostSweeps = GhostSweepSchedule()
 
     /**
      * Existence sweep for one mailbox's cached rows: ids-only `Email/get` on everything still
@@ -880,19 +854,25 @@ class MailRepository(
     ): Boolean {
         val cached = emailDao.idsForMailbox(localAccountId, mailboxId)
         if (cached.isEmpty()) return true
-        val notFound = runCatching {
-            // Chunked so a deep cache can't exceed the server's maxObjectsInGet.
+        val attempt = runCatching {
+            // Chunked so a deep cache can't exceed the server's maxObjectsInGet. A chunk that
+            // throws fails the WHOLE attempt: the ids already answered for are discarded with it,
+            // because a partial answer says nothing about the ids that were never asked about.
             cached.chunked(MAX_CHANGES).flatMapTo(mutableSetOf()) { chunk ->
                 client.missingEmailIds(session, accountId, chunk, auth)
             }
-        }.getOrElse {
+        }
+        // getOrNull() is what carries "no answer" into [ghostEvictions], which prunes nothing for
+        // it — the eviction can therefore never be reached by a failure path, by construction
+        // rather than by an early return someone has to remember not to move.
+        val ghosts = ghostEvictions(cached, attempt.getOrNull())
+        if (ghosts.isNotEmpty()) pruneServerGone(localAccountId, ghosts)
+        if (attempt.isFailure) {
             // A failed sweep prunes nothing and looks exactly like a clean one from the outside —
             // say so, or a ghost surviving a sweep can't be told from a sweep that never landed.
             android.util.Log.i("MailSync", "ghost sweep $localAccountId/$mailboxId: failed over ${cached.size} cached")
             return false
         }
-        val ghosts = ghostEvictions(cached, notFound)
-        if (ghosts.isNotEmpty()) pruneServerGone(localAccountId, ghosts)
         android.util.Log.i(
             "MailSync",
             "ghost sweep $localAccountId/$mailboxId: -${ghosts.size} of ${cached.size} cached",
