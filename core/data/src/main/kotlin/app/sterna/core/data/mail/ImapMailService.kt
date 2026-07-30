@@ -27,7 +27,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -196,10 +195,13 @@ class ImapMailService(
      * done BEFORE the session is taken, because the store is suspending and the session block
      * is not.
      *
-     * Multi-folder reads ([loadFolder], [loadWatchedFolders], [search]) deliberately do not come
-     * through here: they select folders they have just discovered, they destroy nothing, and
-     * failing a whole inbox refresh over one renumbered folder would be the wrong trade. The
-     * folder gets checked the moment anything is done to a message in it.
+     * The discovery reads ([loadFolder], [loadWatchedFolders]) do not come through here: they
+     * select folders they have just listed, so refusing there would fail a whole inbox refresh
+     * over one renumbered folder. They still COMPARE AND RECORD, through [reconcileNumbering] —
+     * without that, browsing a folder would leave its numbering unrecorded, an offline "Empty
+     * trash" would then have nothing to stand in for the unreachable server, and the body cache
+     * would only be dropped by whatever happened to touch a message afterwards. Refusing and
+     * reconciling are different questions; only the first belongs here.
      */
     private suspend fun <T> onMailbox(
         credentials: AccountCredentials,
@@ -208,11 +210,11 @@ class ImapMailService(
         expectedUidValidity: Long? = null,
         block: (ImapSession, ImapMailboxStatus) -> T,
     ): T {
-        val expected = expectedUidValidity ?: uidValidity.recorded(credentials.id, mailboxId)
+        val recorded = uidValidity.recorded(credentials.id, mailboxId)
         var observed = 0L
         val result = try {
             withSession(credentials, budgetMs) { session ->
-                val status = session.select(mailboxId, expected)
+                val status = session.select(mailboxId, expectedUidValidity ?: recorded)
                 observed = status.uidValidity
                 block(session, status)
             }
@@ -220,8 +222,33 @@ class ImapMailService(
             uidValidity.invalidate(credentials.id, mailboxId, renumbered.observed)
             throw renumbered
         }
-        uidValidity.record(credentials.id, mailboxId, observed)
+        rememberNumbering(credentials.id, mailboxId, recorded, observed)
         return result
+    }
+
+    /**
+     * Apply what a SELECT just observed, WITHOUT refusing anything: record it, or — when it does
+     * not match what was recorded — invalidate the caches keyed by the old numbering first.
+     *
+     * The comparison is the same one [onMailbox] makes; only the consequence differs. A read that
+     * merely lists a folder has nothing to abort, but it is still the first thing to notice the
+     * renumbering, and the body cache has to be dropped BEFORE the caller shows a message from it.
+     */
+    private suspend fun rememberNumbering(accountId: String, mailboxId: String, recorded: Long?, observed: Long) {
+        when (UidValidity.verdict(recorded, observed)) {
+            UidValidity.Verdict.CHANGED -> uidValidity.invalidate(accountId, mailboxId, observed)
+            // The overwhelmingly common answer, and it costs nothing: every folder select of
+            // every refresh comes through here, and rewriting the same number would be a
+            // database write per folder per sync on devices that can least afford one.
+            UidValidity.Verdict.SAME, UidValidity.Verdict.UNVERIFIABLE -> Unit
+            UidValidity.Verdict.FIRST_SIGHT -> uidValidity.record(accountId, mailboxId, observed)
+        }
+    }
+
+    /** [rememberNumbering] for a caller that had nothing in hand beforehand (the discovery reads). */
+    private suspend fun reconcileNumbering(accountId: String, mailboxId: String, observed: Long) {
+        if (observed <= 0L) return
+        rememberNumbering(accountId, mailboxId, uidValidity.recorded(accountId, mailboxId), observed)
     }
 
     /** The numbering last observed for a folder, for a caller that has to record it elsewhere
@@ -229,8 +256,17 @@ class ImapMailService(
     suspend fun recordedUidValidity(accountId: String, mailboxId: String): Long? =
         uidValidity.recorded(accountId, mailboxId)
 
-    /** Folders whose UIDVALIDITY moved under us — a signal, so no layer has to reach into another. */
-    val renumberedMailboxes: Flow<MailboxRenumbered> get() = uidValidity.renumbered
+    /**
+     * Called when a folder turns out to have been renumbered, with `(accountId, mailboxId)`.
+     *
+     * The data layer drops what it owns (bodies, destroy lists) itself; the notification baseline
+     * lives in `:app` and cannot be reached from here, so the app layer sets this at startup —
+     * the same shape as `MailRepository.onAccountPruned`, and for the same reason. Left unset it
+     * does nothing.
+     */
+    var onMailboxRenumbered: ((String, String) -> Unit)?
+        get() = uidValidity.onRenumbered
+        set(value) { uidValidity.onRenumbered = value }
 
     /**
      * Open a dedicated IDLE connection on the account's INBOX for push. Separate from the
@@ -299,42 +335,58 @@ class ImapMailService(
             }
         }
 
-    /** Connect, list folders, and fetch the newest [limit] of the target folder. */
+    /**
+     * Connect, list folders, and fetch the newest [limit] of the target folder.
+     *
+     * Selects a folder it has just listed, so it cannot be refused on its numbering — but it is
+     * usually the FIRST thing to see that numbering, and browsing a folder must be enough to
+     * record it: an offline "Empty trash" afterwards has nothing else to go on, and the body
+     * cache has to be dropped before the user can open a message from the list this returns.
+     * Hence [reconcileNumbering] on the way out (Codeberg #99).
+     */
     suspend fun loadFolder(
         credentials: AccountCredentials,
         requestedMailboxId: String?,
         limit: Int,
-    ): ImapFolderLoad = withSession(credentials) { session ->
-        val folders = session.listFolders()
-        val mailboxes = folders.mapIndexed { index, folder ->
-            MailboxEntity(
-                accountId = credentials.id,
-                id = folder.path,
-                name = folder.name,
-                role = folder.role,
-                sortOrder = rolePriority(folder.role) * 1000 + index,
-                totalEmails = 0,
-                unreadEmails = 0,
+    ): ImapFolderLoad {
+        var numbering: Pair<String, Long>? = null
+        val load = withSession(credentials) { session ->
+            val folders = session.listFolders()
+            val mailboxes = folders.mapIndexed { index, folder ->
+                MailboxEntity(
+                    accountId = credentials.id,
+                    id = folder.path,
+                    name = folder.name,
+                    role = folder.role,
+                    sortOrder = rolePriority(folder.role) * 1000 + index,
+                    totalEmails = 0,
+                    unreadEmails = 0,
+                )
+            }
+            val target = folders.firstOrNull { it.path == requestedMailboxId }
+                ?: folders.firstOrNull { it.role == "inbox" }
+                ?: folders.firstOrNull { it.path.equals("INBOX", ignoreCase = true) }
+                ?: folders.first()
+
+            val status = session.select(target.path)
+            numbering = target.path to status.uidValidity
+            val unread = session.unseenCount()
+            val messages = session.fetchPage(status.exists, offset = 0, limit = limit)
+                .map { it.toEntity(credentials.id, target.path) }
+
+            ImapFolderLoad(
+                mailboxes = mailboxes,
+                targetMailboxId = target.path,
+                targetName = target.name,
+                unread = unread,
+                accountName = credentials.username,
+                messages = messages,
             )
         }
-        val target = folders.firstOrNull { it.path == requestedMailboxId }
-            ?: folders.firstOrNull { it.role == "inbox" }
-            ?: folders.firstOrNull { it.path.equals("INBOX", ignoreCase = true) }
-            ?: folders.first()
-
-        val status = session.select(target.path)
-        val unread = session.unseenCount()
-        val messages = session.fetchPage(status.exists, offset = 0, limit = limit)
-            .map { it.toEntity(credentials.id, target.path) }
-
-        ImapFolderLoad(
-            mailboxes = mailboxes,
-            targetMailboxId = target.path,
-            targetName = target.name,
-            unread = unread,
-            accountName = credentials.username,
-            messages = messages,
-        )
+        // Before returning: a renumbering seen here drops the caches keyed by the old UIDs, so the
+        // first message the user opens from this list cannot come back as a stale cached body.
+        numbering?.let { (path, observed) -> reconcileNumbering(credentials.id, path, observed) }
+        return load
     }
 
     /**
@@ -342,32 +394,43 @@ class ImapMailService(
      * each watched folder in [extraPaths], on one session (multi-folder push, issue #16).
      * Watched paths no longer on the server come back in the second component so the
      * caller can prune the stale watch flags.
+     *
+     * Like [loadFolder] it cannot be refused on a folder's numbering — it selects what it has
+     * just listed — but it compares and records every folder it touched ([reconcileNumbering]),
+     * so a renumbering noticed by a background push pass drops the same caches a foreground one
+     * would (Codeberg #99).
      */
     suspend fun loadWatchedFolders(
         credentials: AccountCredentials,
         extraPaths: Set<String>,
         includeInbox: Boolean,
         limit: Int,
-    ): Pair<List<ImapWatchedLoad>, Set<String>> = withSession(credentials) { session ->
-        val folders = session.listFolders()
-        val inbox = folders.firstOrNull { it.role == "inbox" }
-            ?: folders.firstOrNull { it.path.equals("INBOX", ignoreCase = true) }
-            ?: folders.first()
-        val targets = buildList {
-            if (includeInbox) add(inbox)
-            extraPaths.forEach { path ->
-                val folder = folders.firstOrNull { it.path == path }
-                if (folder != null && folder.path != inbox.path) add(folder)
+    ): Pair<List<ImapWatchedLoad>, Set<String>> {
+        val numbering = mutableListOf<Pair<String, Long>>()
+        val result = withSession(credentials) { session ->
+            val folders = session.listFolders()
+            val inbox = folders.firstOrNull { it.role == "inbox" }
+                ?: folders.firstOrNull { it.path.equals("INBOX", ignoreCase = true) }
+                ?: folders.first()
+            val targets = buildList {
+                if (includeInbox) add(inbox)
+                extraPaths.forEach { path ->
+                    val folder = folders.firstOrNull { it.path == path }
+                    if (folder != null && folder.path != inbox.path) add(folder)
+                }
             }
+            val missing = extraPaths.filterTo(mutableSetOf()) { path -> folders.none { it.path == path } }
+            val loads = targets.map { folder ->
+                val status = session.select(folder.path)
+                numbering += folder.path to status.uidValidity
+                val messages = session.fetchPage(status.exists, offset = 0, limit = limit)
+                    .map { it.toEntity(credentials.id, folder.path) }
+                ImapWatchedLoad(folder.path, folder.name, folder.role, messages)
+            }
+            loads to missing
         }
-        val missing = extraPaths.filterTo(mutableSetOf()) { path -> folders.none { it.path == path } }
-        val loads = targets.map { folder ->
-            val status = session.select(folder.path)
-            val messages = session.fetchPage(status.exists, offset = 0, limit = limit)
-                .map { it.toEntity(credentials.id, folder.path) }
-            ImapWatchedLoad(folder.path, folder.name, folder.role, messages)
-        }
-        loads to missing
+        numbering.forEach { (path, observed) -> reconcileNumbering(credentials.id, path, observed) }
+        return result
     }
 
     /** Fetch the page of messages just older than the [offset] newest, for paging. */

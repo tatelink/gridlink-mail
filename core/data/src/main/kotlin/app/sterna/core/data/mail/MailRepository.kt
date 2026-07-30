@@ -62,6 +62,7 @@ import app.sterna.core.jmap.JmapException
 import app.sterna.core.imap.CryptoEnvelope
 import app.sterna.core.imap.CryptoKind
 import app.sterna.core.imap.ImapUidValidityChanged
+import app.sterna.core.imap.decodeMailboxPath
 import app.sterna.core.imap.MimeBody
 import app.sterna.core.imap.MimeParser
 import app.sterna.core.imap.OutgoingAttachment
@@ -587,14 +588,16 @@ class MailRepository(
     private var context: Context? = null
 
     /**
-     * IMAP folders the server has renumbered under us (Codeberg #99): what was keyed by UID and
-     * could not heal itself has just been dropped, and anything holding its own view of that
-     * folder should let it go too.
-     *
-     * A signal, not a call: the notification baseline lives in `:app`, and the data layer must
-     * not reach across the layer boundary to poke it.
+     * App-layer teardown for an IMAP folder the server has renumbered (Codeberg #99), by
+     * `(accountId, mailboxId)`: the data layer drops what it owns (cached bodies, pending destroy
+     * lists), and this clears the notification baseline, which lives in `:app` and cannot be
+     * reached from here. Without it the next push pass diffs the folder's new ids against the old
+     * baseline and announces mail the user has already read. Set by the app layer at startup,
+     * exactly like [onAccountPruned].
      */
-    val renumberedMailboxes: Flow<MailboxRenumbered> get() = imap.renumberedMailboxes
+    var onMailboxRenumbered: ((String, String) -> Unit)?
+        get() = imap.onMailboxRenumbered
+        set(value) { imap.onMailboxRenumbered = value }
 
     private val tokenRefresher = OAuthTokenRefresher(oauthClient, accountStore)
 
@@ -3588,6 +3591,31 @@ class MailRepository(
     }
 
     /**
+     * Bring a set of persisted watched-folder ids into the representation the app now holds, and
+     * persist the correction (Codeberg #101).
+     *
+     * Versions up to 1.4.3 stored an IMAP folder id in its RAW WIRE FORM, because nothing decoded
+     * mailbox names; folder ids are now the decoded path. A watch on "Помеченные" would therefore
+     * match no listed folder, `loadWatchedFolders` would report it missing, and the caller prunes
+     * a missing watch QUIETLY and clears its baseline — that path means "deleted or renamed
+     * server-side". A user with multi-folder push on a non-ASCII folder would have lost it on
+     * update without being told. One re-key through the same [decodeMailboxPath] the listing uses,
+     * so both sides land on the same string, including for a name that deliberately does not
+     * decode.
+     *
+     * Idempotent and self-healing: an id already in the right form maps to itself and is not
+     * rewritten, so this costs one map lookup per watched folder once the correction is made.
+     */
+    private fun rekeyWatchedFolders(accountId: String, watched: Set<String>): Set<String> {
+        if (watched.isEmpty()) return watched
+        val corrected = watched.associateWith { decodeMailboxPath(it) }.filter { it.key != it.value }
+        corrected.forEach { (stored, path) ->
+            runCatching { accountStore.replaceWatchedFolder(accountId, stored, path) }
+        }
+        return watched.map { corrected[it] ?: it }.toSet()
+    }
+
+    /**
      * Refresh the account's inbox (unless [includeInbox] is false) plus the watched
      * folders in [extraFolderIds] into the cache (multi-folder push, issue #16).
      * Independent of the current-account context, so it is safe for background push.
@@ -3602,7 +3630,9 @@ class MailRepository(
         onMissing: (String) -> Unit = {},
     ): List<FolderRefresh> {
         if (credentials.protocol == MailProtocol.IMAP) {
-            val (loads, missing) = imap.loadWatchedFolders(credentials, extraFolderIds, includeInbox, limit)
+            val (loads, missing) = imap.loadWatchedFolders(
+                credentials, rekeyWatchedFolders(credentials.id, extraFolderIds), includeInbox, limit,
+            )
             missing.forEach(onMissing)
             loads.forEach { emailDao.upsertAll(it.messages) }
             return loads.map { load ->
