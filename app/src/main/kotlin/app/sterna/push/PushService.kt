@@ -30,7 +30,16 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class PushService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Open connections, keyed by LOGIN id — one socket per login, not per account (issue #31). */
     private val connections = ConcurrentHashMap<String, Closeable>()
+
+    /**
+     * Which login's connection carries each account: account id → login id. Rebuilt on every arm,
+     * alongside the grouping in [reconnectAll]. Without it [isConnected] can only be asked about
+     * accounts that happen to BE their own login, since [connections] is keyed by login id.
+     */
+    private val carriedBy = ConcurrentHashMap<String, String>()
 
     @Volatile
     private var generation = 0
@@ -89,6 +98,7 @@ class PushService : Service() {
     private suspend fun reconnectAll(gen: Int, resetBaseline: Boolean) {
         connections.values.forEach { runCatching { it.close() } }
         connections.clear()
+        carriedBy.clear()
         val store = application.container.accountStore
         val up = application.container.unifiedPushManager
         val watched = if (store.pushAllAccounts()) store.allCredentials() else listOfNotNull(store.load())
@@ -107,6 +117,11 @@ class PushService : Service() {
         // sub-accounts every cycle too, and the fan-out below is their instant catch-up whenever
         // the login's own mail wakes us.
         val groups = accounts.groupBy { store.account(it.id)?.loginKey() ?: it.id }
+        // Record the grouping BEFORE opening anything, so the status line can resolve an account to
+        // its connection from the first refresh on (it reads "no connection yet", never "unknown
+        // account"). Cleared at the top of every arm, so a regrouped or dropped account leaves no
+        // stale entry behind.
+        groups.forEach { (loginId, group) -> group.forEach { carriedBy[it.id] = loginId } }
         groups.forEach { (loginId, group) -> watch(loginId, group, gen, resetBaseline) }
         Log.i(TAG, "Watching ${accounts.size} account(s) over ${groups.size} connection(s) for new mail")
     }
@@ -171,6 +186,8 @@ class PushService : Service() {
         instance = null
         isRunning = false
         connections.values.forEach { runCatching { it.close() } }
+        connections.clear()
+        carriedBy.clear()
         scope.cancel()
         super.onDestroy()
     }
@@ -188,9 +205,23 @@ class PushService : Service() {
         @Volatile
         private var instance: PushService? = null
 
-        /** Whether this account's direct connection is open right now (status line). */
-        fun isConnected(accountId: String): Boolean =
-            instance?.connections?.containsKey(accountId) == true
+        /**
+         * Whether the connection carrying [accountId] is open right now (status line).
+         *
+         * Asked with an ACCOUNT id, answered from a map keyed by LOGIN id — the two are the same
+         * string only for a standalone account. Resolving the account to its login first is what
+         * makes the answer mean the same thing for every account (issue #61); see
+         * [isCarriedByOpenConnection] for the rule and its test.
+         *
+         * "Carried by an open connection" is not the same claim as "instant": what a linked
+         * sub-account's open socket buys it is the group catch-up, not its own StateChanges
+         * (issue #31). Turning that into a user-facing transport stays [PushController.statusFor]'s
+         * job, and it deliberately reports [PushStatus.Periodic] for a linked sub-account.
+         */
+        fun isConnected(accountId: String): Boolean {
+            val service = instance ?: return false
+            return isCarriedByOpenConnection(accountId, service.carriedBy, service.connections.keys)
+        }
 
         fun start(context: Context, resetBaseline: Boolean) {
             val intent = Intent(context, PushService::class.java)
@@ -203,3 +234,22 @@ class PushService : Service() {
         }
     }
 }
+
+/**
+ * Is [accountId] carried by one of the [openConnections] right now?
+ *
+ * The service holds ONE connection per login and fans its changes out to the accounts grouped under
+ * that login (issue #31), so [openConnections] holds LOGIN ids while every caller of the status line
+ * holds an ACCOUNT id. [carriedBy] is the grouping the service just built (account id → login id);
+ * an account missing from it is its own login, which is why looking an account id up directly in the
+ * connection map appeared to work — it does, but only for standalone accounts, and never for one
+ * grouped under another (issue #61).
+ *
+ * Pure so the resolution is unit-tested without a service: the whole defect was the one hop that was
+ * missing here, and nothing else about it is observable from the outside.
+ */
+internal fun isCarriedByOpenConnection(
+    accountId: String,
+    carriedBy: Map<String, String>,
+    openConnections: Set<String>,
+): Boolean = (carriedBy[accountId] ?: accountId) in openConnections
