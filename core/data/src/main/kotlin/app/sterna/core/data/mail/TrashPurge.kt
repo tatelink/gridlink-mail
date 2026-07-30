@@ -56,7 +56,14 @@ object TrashPurge {
      * The order is the server's (ascending UID, oldest first) and [cap] takes the head of it —
      * the supplier already stops holding ids there, so re-sorting to prefer the newest would
      * mean materialising the whole folder first, which is the cost that cap exists to avoid.
-     * Past the cap the surplus survives and emptying again clears the next slice, as on JMAP.
+     * Past the cap the surplus survives and emptying again clears the next slice.
+     *
+     * The two protocols therefore cap at OPPOSITE ENDS of an over-cap folder: JMAP's query
+     * sorts newest first, so it keeps the newest [cap]; this keeps the oldest. Only "the
+     * surplus survives, a second Empty clears it" is common to them. The visible consequence,
+     * on a Trash above the cap, is that the messages still at the top of the list are the ones
+     * that survive here and the ones that go first on JMAP. Neither breaks the promise —
+     * nothing outside the frozen list is ever destroyed — and the cap is 10 000.
      *
      * Two failures, deliberately told apart:
      * - The server could not be asked — offline, refused, or out of time. The [cached] ids
