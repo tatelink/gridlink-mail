@@ -900,7 +900,10 @@ private fun MessageActions(
                                     text = path,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
+                                    // Two lines, for the reason spelled out in InboxScreen's
+                                    // copy of this row: one line elides at the end, in dp, and
+                                    // would cut off the nearest parent at a large font size.
+                                    maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }

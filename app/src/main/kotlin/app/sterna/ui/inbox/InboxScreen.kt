@@ -357,7 +357,12 @@ fun InboxScreen(
                                     text = path,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
+                                    // TWO lines, not one: a single line elides at the END, in
+                                    // dp, AFTER the path was already trimmed by character
+                                    // count — and at a large font size that trailing cut would
+                                    // eat the nearest parent, which is the whole point of the
+                                    // row. Two lines hold the trimmed path at any font scale.
+                                    maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }

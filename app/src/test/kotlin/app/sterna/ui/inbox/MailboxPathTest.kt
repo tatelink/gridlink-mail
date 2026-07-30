@@ -37,7 +37,8 @@ class MailboxPathTest {
         val b = imap("INBOX.ProjectB.Done")
         val folders = listOf(a, b)
         assertEquals(a.name, b.name)
-        assertNotEquals(mailboxPathLabel(a, folders), mailboxPathLabel(b, folders))
+        assertEquals("INBOX / ProjectA", mailboxPathLabel(a, folders))
+        assertEquals("INBOX / ProjectB", mailboxPathLabel(b, folders))
     }
 
     @Test fun `an IMAP slash path reads the same way`() {
@@ -89,6 +90,21 @@ class MailboxPathTest {
         assertTrue(label, label.length <= 40)
     }
 
+    @Test fun `a single ancestor too long is cut in the MIDDLE, keeping both ends`() {
+        // Nothing left to drop, so cutting either end would pick a favourite. These two differ
+        // only at the FRONT: a start-cut would have made them the same row again.
+        val alpha = imap("ProjectAlpha - Archives des vieux echanges.Done")
+        val beta = imap("ProjectBeta - Archives des vieux echanges.Done")
+        val a = mailboxPathLabel(alpha, listOf(alpha))!!
+        val b = mailboxPathLabel(beta, listOf(beta))!!
+        assertNotEquals(a, b)
+        assertTrue(a, a.startsWith("ProjectAlpha"))
+        assertTrue(b, b.startsWith("ProjectBeta"))
+        // ...and the far end survives too, for the names that differ only there.
+        assertTrue(a, a.endsWith("echanges"))
+        assertTrue(a, a.length <= 40)
+    }
+
     @Test fun `bidi overrides are stripped from a displayed path`() {
         // The IMAP layer filters the leaf it expects to show; the path was an identifier
         // until this row started displaying it (#101).
@@ -109,10 +125,19 @@ class MailboxPathTest {
         assertEquals("INBOX", mailboxPathLabel(odd, listOf(odd)))
     }
 
-    @Test fun `a parent the server hides still shows in the path`() {
-        // An IMAP \Noselect parent is dropped from the folder list; the child still lives in it.
+    @Test fun `a parent missing from the list stops JMAP, not IMAP`() {
+        // The asymmetry, and the reason the drawer's own resolver could not be reused: it
+        // requires the parent to be in the map, which IMAP does not guarantee.
+        //
+        // IMAP: a \Noselect parent never appears in LIST, yet the child's id still spells it.
         val child = imap("INBOX.ProjectA.Done")
-        assertEquals("INBOX / ProjectA", mailboxPathLabel(child, listOf(child)))
+        val listed = listOf(child, imap("INBOX.Other"))
+        assertTrue(listed.none { it.id == "INBOX.ProjectA" })
+        assertEquals("INBOX / ProjectA", mailboxPathLabel(child, listed))
+        // JMAP: the name lives in the parent's own record, so an absent parent leaves nothing
+        // to show at all.
+        val orphan = jmap("mb3", "Done", parentId = "mb2")
+        assertNull(mailboxPathLabel(orphan, listOf(orphan)))
     }
 
     @Test fun `a cycle in parentId does not hang the picker`() {

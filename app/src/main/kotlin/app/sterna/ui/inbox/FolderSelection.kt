@@ -136,6 +136,11 @@ private const val PATH_LABEL_MAX_CHARS = 40
  * row exists to show — the reported bug, one line lower. Compose's own start/middle elision
  * (`TextOverflow.StartEllipsis`) does not exist in the Compose version this app builds against,
  * so the cut is made on the string, where it is also testable.
+ *
+ * When a SINGLE ancestor is longer than the budget there is no outer folder left to drop, and
+ * cutting either end picks a favourite: "ProjectAlpha - Archives" and "ProjectBeta - Archives"
+ * differ only at the front, "Archives 2025" and "Archives 2026" only at the back. So that last
+ * name is cut in the MIDDLE, which keeps both ends and therefore both kinds of discriminant.
  */
 private fun elideOutermost(ancestors: List<String>): String {
     var kept = ancestors
@@ -144,9 +149,17 @@ private fun elideOutermost(ancestors: List<String>): String {
     ) {
         kept = kept.drop(1)
     }
-    val text = kept.joinToString(PATH_LABEL_SEPARATOR)
-    if (kept.size == ancestors.size && text.length <= PATH_LABEL_MAX_CHARS) return text
-    return ELLIPSIS + text.takeLast(PATH_LABEL_MAX_CHARS - ELLIPSIS.length)
+    val dropped = kept.size < ancestors.size
+    val budget = if (dropped) PATH_LABEL_MAX_CHARS - ELLIPSIS.length else PATH_LABEL_MAX_CHARS
+    val text = elideMiddle(kept.joinToString(PATH_LABEL_SEPARATOR), budget)
+    return if (dropped) ELLIPSIS + text else text
+}
+
+/** [text] shortened to [maxChars] by taking out its middle, keeping both ends. */
+private fun elideMiddle(text: String, maxChars: Int): String {
+    if (text.length <= maxChars) return text
+    val kept = maxChars - ELLIPSIS.length
+    return text.take(kept - kept / 2) + ELLIPSIS + text.takeLast(kept / 2)
 }
 
 /** The `parentId` chain of names above [mailbox], outermost first; empty for IMAP (no such
