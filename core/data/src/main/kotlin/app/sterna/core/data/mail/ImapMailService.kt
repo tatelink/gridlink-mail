@@ -235,10 +235,13 @@ class ImapMailService(
      * renumbering, and the body cache has to be dropped BEFORE the caller shows a message from it.
      */
     private suspend fun rememberNumbering(accountId: String, mailboxId: String, recorded: Long?, observed: Long) {
-        if (UidValidity.verdict(recorded, observed) == UidValidity.Verdict.CHANGED) {
-            uidValidity.invalidate(accountId, mailboxId, observed)
-        } else {
-            uidValidity.record(accountId, mailboxId, observed)
+        when (UidValidity.verdict(recorded, observed)) {
+            UidValidity.Verdict.CHANGED -> uidValidity.invalidate(accountId, mailboxId, observed)
+            // The overwhelmingly common answer, and it costs nothing: every folder select of
+            // every refresh comes through here, and rewriting the same number would be a
+            // database write per folder per sync on devices that can least afford one.
+            UidValidity.Verdict.SAME, UidValidity.Verdict.UNVERIFIABLE -> Unit
+            UidValidity.Verdict.FIRST_SIGHT -> uidValidity.record(accountId, mailboxId, observed)
         }
     }
 
