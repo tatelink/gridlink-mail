@@ -36,7 +36,8 @@
     <string name="compose_discard_message">You haven\'t saved your changes.</string>
     <string name="compose_discard_message_encrypted">This message is encrypted, so it can\'t be kept as a draft: a draft is stored on the mail server exactly as you typed it, readable by anyone with access to it. Leaving now discards the message.</string>
     <string name="compose_discard_title_outbox">Discard your changes?</string>
-    <string name="compose_discard_message_outbox">Only your changes are dropped: the message itself stays in the outbox. Delete it there if you want it gone.</string>
+    <string name="compose_discard_message_outbox">Your changes are dropped, but the message is not: it stays in the outbox, or moves to Drafts if you save it.</string>
+    <string name="compose_discard_message_outbox_encrypted">Your changes are dropped, but the message is not: it stays in the outbox. Delete it there if you want it gone.</string>
     <string name="compose_discard_changes">Discard changes</string>
     <string name="compose_discard_save">Save draft</string>
     <string name="compose_discard_discard">Discard</string>

@@ -506,7 +506,7 @@ fun ComposeScreen(
         // still [mayKeepDraft]'s (#35).
         val wording = discardWording(editingOutbox, mayKeepDraft)
         val discardLabel = stringResource(
-            if (wording == DiscardWording.OUTBOX) {
+            if (wording.fromOutbox) {
                 R.string.compose_discard_changes
             } else {
                 R.string.compose_discard_discard
@@ -517,7 +517,7 @@ fun ComposeScreen(
             title = {
                 Text(
                     stringResource(
-                        if (wording == DiscardWording.OUTBOX) {
+                        if (wording.fromOutbox) {
                             R.string.compose_discard_title_outbox
                         } else {
                             R.string.compose_discard_title
@@ -529,7 +529,12 @@ fun ComposeScreen(
                 Text(
                     stringResource(
                         when (wording) {
+                            // Two outbox wordings, because the body has to be true of BOTH buttons
+                            // beside it: "Save draft" takes the message OUT of the outbox, so it is
+                            // only mentioned where that button exists (#70).
                             DiscardWording.OUTBOX -> R.string.compose_discard_message_outbox
+                            DiscardWording.OUTBOX_ENCRYPTED ->
+                                R.string.compose_discard_message_outbox_encrypted
                             DiscardWording.ENCRYPTED -> R.string.compose_discard_message_encrypted
                             DiscardWording.PLAIN -> R.string.compose_discard_message
                         },
