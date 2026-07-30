@@ -1,16 +1,23 @@
 package app.sterna.core.data.mail
 
+import app.sterna.core.data.db.EmailRetentionRow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The eviction decisions of the incremental sync (see SyncEvictions.kt): which cached ids a
- * delta drops, and which the ghost sweep drops. Together they encode the ghost invariant —
- * an externally-destroyed message must leave the cache within one sync cycle — without
- * reopening the recently-mutated spare's protections (a live row is never pruned off a stale
- * snapshot; only an authoritative per-id notFound overrides the spare).
+ * The eviction decisions of a sync (see SyncEvictions.kt): which cached ids a delta drops, which
+ * the ghost sweep drops, and which the retention window drops. The first two encode the ghost
+ * invariant — an externally-destroyed message must leave the cache within one sync cycle —
+ * without reopening the recently-mutated spare's protections (a live row is never pruned off a
+ * stale snapshot; only an authoritative per-id notFound overrides the spare).
+ *
+ * [retentionEvictions] is the odd one out and the reason it is worth stating: it drops rows the
+ * server STILL HAS, on the user's "Messages to sync" setting alone. That makes it the only
+ * eviction that can destroy live mail, so its cases here are written from the other side — what
+ * it must NOT touch (Codeberg #110) — with a negative witness so "spares more" can't pass for
+ * "works".
  */
 class SyncEvictionsTest {
 
@@ -122,6 +129,233 @@ class SyncEvictionsTest {
         assertEquals(
             emptyList<Pair<String, SpareReason>>(),
             sparedEvictions(listOf("e1"), setOf("e1"), emptyList(), isProtected = { true }),
+        )
+    }
+
+    // -- deltaFetches: what an incremental sync pulls in, and therefore must protect --------
+
+    @Test fun aDeltaFetchesTheAddedIdsTheCacheNeverHeld() {
+        // The ordinary case, and the one that matters downstream: `new` has never been in the
+        // cache, so this sync is where it arrives. `alreadyHere` was added by an earlier cycle
+        // and is not re-fetched.
+        assertEquals(
+            listOf("new"),
+            deltaFetches(added = setOf("new", "alreadyHere"), cachedIds = setOf("alreadyHere"), updated = emptyList()),
+        )
+    }
+
+    @Test fun aDeltaRefetchesCachedRowsItReportsChangedButNotUnknownOnes() {
+        // `updated` is filtered by the cache on purpose: an id we do not hold has nothing to
+        // update, and fetching it would pull a message from outside the folder's window back in.
+        assertEquals(
+            listOf("mine"),
+            deltaFetches(added = emptySet(), cachedIds = setOf("mine"), updated = listOf("mine", "someoneElses")),
+        )
+    }
+
+    @Test fun anIdBothAddedAndUpdatedIsFetchedOnce() {
+        assertEquals(
+            listOf("x"),
+            deltaFetches(added = setOf("x"), cachedIds = emptySet(), updated = listOf("x")),
+        )
+    }
+
+    // -- retentionEvictions (the "Messages to sync" window) ------------------------------
+
+    private val day = 86_400_000L
+    private val now = 1_800_000_000_000L
+
+    /** The default account setting: DAYS_90 — 90 days of mail, 200 messages a page. */
+    private val cutoff90 = now - 90 * day
+    private val floor200 = 200
+
+    /** A cached row [daysAgo] days old (0 days = now); [daysAgo] < 0 means "no parsable date". */
+    private fun row(id: String, daysAgo: Long) =
+        EmailRetentionRow(id, if (daysAgo < 0) 0L else now - daysAgo * day)
+
+    @Test fun theFreshPageIsNeverPrunedByTheAgeWindow() {
+        // Codeberg #110 in the reporter's own numbers: a ten-message folder, eight of them from
+        // December, on the default 90-day window. The refresh re-queried the folder and the
+        // server returned all ten — so all ten are what the folder HOLDS. The window may bound
+        // what we keep in addition to that; it may not delete it. Pruning them was the flicker
+        // he saw: ten rows, then two.
+        //
+        // keepNewest is 0 here ON PURPOSE, so the floor cannot be what saves them: this asserts
+        // the fresh-ids clause alone, on the deep-folder case where the floor does not reach.
+        val cached = (1..8).map { row("dec$it", 220) } + row("jul17", 13) + row("jul29", 1)
+        val fresh = cached.mapTo(HashSet()) { it.id }
+        assertEquals(
+            emptyList<String>(),
+            retentionEvictions(cached, cutoff90, freshIds = fresh, spareIds = emptySet(), keepNewest = 0),
+        )
+    }
+
+    @Test fun anOldRowTheFreshPageDidNotCarryIsStillPruned() {
+        // The negative witness, and the reason the case above proves anything: sparing what the
+        // sync fetched must not amount to switching the window off. A row that has fallen off the
+        // server's newest page AND out of the window is exactly what retention is for.
+        val cached = listOf(row("stillThere", 220), row("scrolledInLongAgo", 400), row("recent", 1))
+        assertEquals(
+            listOf("scrolledInLongAgo"),
+            retentionEvictions(
+                cached,
+                cutoff90,
+                freshIds = setOf("stillThere", "recent"),
+                spareIds = emptySet(),
+                keepNewest = 0,
+            ),
+        )
+    }
+
+    @Test fun whatAnIncrementalDeltaJustFetchedIsSparedLikeAFullPage() {
+        // The delta branch's half of #110, composed from the two shipped functions rather than
+        // asserted on hand-made sets. A Sieve rule files a 2019 message into a deep folder: the
+        // delta reports it added, the cache has never held it, so the sync fetches and writes it.
+        // It is old, it is not in the newest N, and the sync's page — if the branch reported
+        // nothing — would not cover it. It must still survive the refresh that delivered it.
+        val cachedIds = (1..250).mapTo(HashSet()) { "m$it" }
+        val fetched = deltaFetches(added = setOf("sieveFiled2019"), cachedIds = cachedIds, updated = emptyList())
+        val cache = (1..250).map { row("m$it", 200) } + row("sieveFiled2019", 2500)
+        assertEquals(
+            "the row this very sync fetched must not be in the evictions",
+            emptyList<String>(),
+            retentionEvictions(
+                cache,
+                cutoff90,
+                freshIds = fetched.toSet(),
+                spareIds = emptySet(),
+                keepNewest = floor200,
+            ).filter { it == "sieveFiled2019" },
+        )
+        // Control: had the delta reported nothing — the defect this replaced — the same row goes.
+        assertTrue(
+            "with no fetched ids reported, the prune deletes the message the sync just delivered",
+            "sieveFiled2019" in retentionEvictions(
+                cache,
+                cutoff90,
+                freshIds = emptySet(),
+                spareIds = emptySet(),
+                keepNewest = floor200,
+            ),
+        )
+    }
+
+    @Test fun aSyncThatCannotSayWhatItFetchedPrunesNothing() {
+        // The fail-safe direction, and the distinction the whole fix rests on: NULL is "I do not
+        // know what this sync brought in", not "it brought in nothing". The two must not behave
+        // alike, or a future path that forgets to report its fetches silently starts deleting the
+        // mail it just downloaded. Same contract as ghostEvictions' notFound, for the same reason.
+        val cache = listOf(row("old", 400), row("recent", 1))
+        assertEquals(
+            emptyList<String>(),
+            retentionEvictions(cache, cutoff90, freshIds = null, spareIds = emptySet(), keepNewest = 0),
+        )
+        // The empty set, on the same input, DOES prune — otherwise the case above would pass for
+        // the wrong reason and null would be indistinguishable from empty.
+        assertEquals(
+            listOf("old"),
+            retentionEvictions(cache, cutoff90, freshIds = emptySet(), spareIds = emptySet(), keepNewest = 0),
+        )
+    }
+
+    @Test fun theRecentlyMutatedSpareIsNotUndoneByTheWindow() {
+        // The reconcile spares a locally-restored row from the fresh page's reconcile
+        // (EmailDao.deleteNotInSparing); the prune runs a few lines later on the same folder and
+        // must not delete it anyway. Concretely: delete a 2019 message in a 300-message folder,
+        // undo it, refresh. The page comes back without it — the server has not caught up — so it
+        // is outside freshIds, outside the newest N, and outside the window. Only spareIds keeps
+        // the undo alive.
+        val cache = (1..200).map { row("page$it", 5) } + row("undone2019", 2500)
+        assertEquals(
+            emptyList<String>(),
+            retentionEvictions(
+                cache,
+                cutoff90,
+                freshIds = (1..200).mapTo(HashSet()) { "page$it" },
+                spareIds = setOf("undone2019"),
+                keepNewest = floor200,
+            ),
+        )
+        // Without the spare set the same refresh eats it — this is what the clause buys.
+        assertEquals(
+            listOf("undone2019"),
+            retentionEvictions(
+                cache,
+                cutoff90,
+                freshIds = (1..200).mapTo(HashSet()) { "page$it" },
+                spareIds = emptySet(),
+                keepNewest = floor200,
+            ),
+        )
+    }
+
+    @Test fun undatedRowsAreNotAncient() {
+        // sortKey 0 = the message carried no date we could parse. The SQL prune this replaced
+        // spared them (`sortKey > 0`) and so must this: undated is not old, and treating 0 as
+        // epoch would delete every such row on the first refresh. The genuinely old row next to
+        // it is the control: this asserts "undated is spared", not "nothing is pruned".
+        assertEquals(
+            listOf("old"),
+            retentionEvictions(
+                listOf(row("noDate", -1), row("old", 400)),
+                cutoff90,
+                freshIds = emptySet(),
+                spareIds = emptySet(),
+                keepNewest = 0,
+            ),
+        )
+    }
+
+    // -- the floor: the window's count keeps mail the age would drop ----------------------
+
+    @Test fun aFolderSmallerThanTheFloorLosesNothingAtAll() {
+        // The reporter's folder on a sync with nothing to spare. Ten rows against a floor of 200
+        // takes the short-circuit — no row can possibly be outside the newest 200 — which is
+        // exactly the shape of every small mailbox and worth pinning as such. The case below is
+        // the one that exercises the floor's actual computation.
+        val cached = (1..8).map { row("dec$it", 220) } + row("jul17", 13) + row("jul29", 1)
+        assertEquals(
+            emptyList<String>(),
+            retentionEvictions(cached, cutoff90, freshIds = emptySet(), spareIds = emptySet(), keepNewest = floor200),
+        )
+    }
+
+    @Test fun theFloorKeepsTheNewestNWhenItHasToBeComputed() {
+        // Same ten-message folder plus one older row scrolled in long ago, against a floor of 10:
+        // the cache is now bigger than the floor, so the ranking really runs. The folder's ten
+        // survive and only the eleventh, oldest, row goes.
+        val cached = (1..8).map { row("dec$it", 220) } + row("jul17", 13) + row("jul29", 1) +
+            row("scrolledIn2015", 4000)
+        assertEquals(
+            listOf("scrolledIn2015"),
+            retentionEvictions(cached, cutoff90, freshIds = emptySet(), spareIds = emptySet(), keepNewest = 10),
+        )
+    }
+
+    @Test fun pastTheFloorTheAgeWindowStillApplies() {
+        // The floor is a floor, not an off switch: on a folder deeper than the setting's count,
+        // the rows below the newest N and outside the age window are still evicted. A busy inbox
+        // keeps its ninety days, not its whole history.
+        val cached = (1..5).map { row("old$it", 200) } + (1..3).map { row("recent$it", 2) }
+        assertEquals(
+            // Newest 4 = the three recent + the newest of the old five (ties broken on id, so
+            // that is "old1"); the remaining four old rows fall outside both floor and window.
+            listOf("old2", "old3", "old4", "old5"),
+            retentionEvictions(cached, cutoff90, freshIds = emptySet(), spareIds = emptySet(), keepNewest = 4),
+        )
+    }
+
+    @Test fun theFloorCountsTheNEWESTRowsAndNotJustAnyN() {
+        // Which N the floor keeps is the whole decision: keeping an arbitrary N would leave the
+        // list showing December while July sat pruned. All four rows here are outside the 90-day
+        // window, so only the floor decides — c (200 days) and d (100 days) are the newest two
+        // and survive, a and b do not. Sorted because the function returns the cache's own order
+        // and that is not what is under test here.
+        val cached = listOf(row("b", 300), row("d", 100), row("a", 400), row("c", 200))
+        assertEquals(
+            listOf("a", "b"),
+            retentionEvictions(cached, cutoff90, freshIds = emptySet(), spareIds = emptySet(), keepNewest = 2)
+                .sorted(),
         )
     }
 

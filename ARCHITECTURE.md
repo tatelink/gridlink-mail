@@ -65,7 +65,11 @@ pages fetched by offset on scroll) over one pooled, serialised connection per
 account.
 
 The per-account **sync window** (by count or age, default 90 days) bounds what
-stays cached; the scroll mediator pages past it on demand.
+stays cached; the scroll mediator pages past it on demand. It bounds what is
+kept *in addition to* the folder's current page — the page a refresh just
+fetched is never pruned by it, whatever its age. An age window also keeps the
+folder's newest N messages regardless of age (N being that window's page size),
+so a quiet folder is never emptied down to whatever happens to be recent.
 
 ## Conversations
 
