@@ -573,6 +573,7 @@
     <string name="search_recipient">Destinatario</string>
     <string name="search_subject">Asunto</string>
     <string name="search_has_attachment">Con archivo adjunto</string>
+    <string name="search_flagged">Solo destacados</string>
     <string name="search_after">Después de</string>
     <string name="search_before">Antes de</string>
     <string name="search_date_any">Cualquiera</string>

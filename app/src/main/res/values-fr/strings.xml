@@ -573,6 +573,7 @@
     <string name="search_recipient">Destinataire</string>
     <string name="search_subject">Objet</string>
     <string name="search_has_attachment">Avec pièce jointe</string>
+    <string name="search_flagged">Suivis uniquement</string>
     <string name="search_after">Après le</string>
     <string name="search_before">Avant le</string>
     <string name="search_date_any">Indifférent</string>

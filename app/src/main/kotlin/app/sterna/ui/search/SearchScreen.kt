@@ -347,6 +347,25 @@ fun SearchScreen(
                                 onCheckedChange = { viewModel.updateQuery(query.copy(hasAttachment = it)) },
                             )
                         }
+                        // Gathering flagged mail lives here rather than in the drawer: a drawer
+                        // entry could only list what the cache holds, so it would promise "your
+                        // flagged mail" while hiding everything in a never-synced folder. A search
+                        // reports what it found, and the server answers `FLAGGED` / `$flagged`
+                        // across the whole account.
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                stringResource(R.string.search_flagged),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Switch(
+                                checked = query.flagged,
+                                onCheckedChange = { viewModel.updateQuery(query.copy(flagged = it)) },
+                            )
+                        }
                         SearchDateRow(stringResource(R.string.search_after), query.afterMillis) { picked ->
                             viewModel.updateQuery(query.copy(afterMillis = picked?.let(::searchAfterBound)))
                         }
@@ -431,6 +450,7 @@ private fun CriteriaSummary(query: SearchQuery, onClick: () -> Unit) {
             SearchCriterion.RECIPIENT -> criterionPair(R.string.search_recipient, filter.text)
             SearchCriterion.SUBJECT -> criterionPair(R.string.search_subject, filter.text)
             SearchCriterion.ATTACHMENT -> stringResource(R.string.search_has_attachment)
+            SearchCriterion.FLAGGED -> stringResource(R.string.search_flagged)
             // The date labels are already worded as prepositions ("After", "Après le", "Depois
             // de"), so they take the value without a colon — hence a second join pattern.
             SearchCriterion.AFTER -> stringResource(

@@ -707,6 +707,7 @@
     <string name="search_recipient">Recipient</string>
     <string name="search_subject">Subject</string>
     <string name="search_has_attachment">Has attachment</string>
+    <string name="search_flagged">Flagged only</string>
     <string name="search_after">After</string>
     <string name="search_before">Before</string>
     <string name="search_date_any">Any</string>

@@ -575,6 +575,7 @@
     <string name="search_recipient">Получатель</string>
     <string name="search_subject">Тема</string>
     <string name="search_has_attachment">С вложением</string>
+    <string name="search_flagged">Только помеченные</string>
     <string name="search_after">После</string>
     <string name="search_before">До</string>
     <string name="search_date_any">Любая</string>

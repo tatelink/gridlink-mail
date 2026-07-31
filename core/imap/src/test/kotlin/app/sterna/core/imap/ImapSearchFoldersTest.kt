@@ -186,6 +186,66 @@ class ImapSearchFoldersTest {
         }
     }
 
+    /**
+     * The flagged filter, end to end on a socket: `FLAGGED` really leaves the client as a SEARCH
+     * key, so the SERVER decides which UIDs come back.
+     *
+     * The counts are the point. The 300 unflagged messages in this folder are never fetched: the
+     * server names the two flagged UIDs and one FETCH brings them home. Had the filter been built
+     * like the attachment one, the client would have pulled envelopes in batches of fifty looking
+     * for stars — a scan cap and a truncated count for a question IMAP answers in one word.
+     */
+    @Test
+    fun `flagged is answered by the server, not walked through on the client`() {
+        val flaggedUids = listOf(42L, 77L)
+        FakeImapServer { tag, line ->
+            when {
+                line.startsWith("SELECT") -> selectResponse(tag, exists = 300)
+                // Only a search CARRYING the key gets the short list; anything else gets the
+                // whole folder, so a dropped key would blow the fetch count wide open.
+                line.startsWith("UID SEARCH") ->
+                    searchResponse(tag, if ("FLAGGED" in line) flaggedUids else (1L..300L).toList())
+                line.startsWith("UID FETCH") -> fetchResponse(tag, uidsOf(line), flags = { "\\Flagged" }) { false }
+                else -> ok(tag)
+            }
+        }.use { server ->
+            val starred = buildImapSearch(ImapSearchCriteria(flagged = true))
+            val hits = server.session().use { session ->
+                session.searchFolders(listOf("INBOX"), starred, requireAttachment = false, limit = 50)
+            }
+            assertEquals(listOf("UID SEARCH FLAGGED"), server.issued().filter { it.startsWith("UID SEARCH") })
+            assertEquals(listOf(77L, 42L), hits.single().messages.map { it.uid })
+            assertTrue(hits.single().messages.all { it.flagged })
+            // One FETCH of two UIDs: no batched candidate walk, no scan cap, so the answer is whole.
+            val fetches = server.issued().filter { it.startsWith("UID FETCH") }
+            assertEquals(1, fetches.size)
+            assertEquals(flaggedUids.size, uidsOf(fetches.single()).size)
+            assertFalse(hits.single().scanTruncated)
+        }
+    }
+
+    /** The witness: with the switch off, no FLAGGED key is sent and the folder answers in full. */
+    @Test
+    fun `an unticked flagged switch sends no FLAGGED key`() {
+        FakeImapServer { tag, line ->
+            when {
+                line.startsWith("SELECT") -> selectResponse(tag)
+                line.startsWith("UID SEARCH") -> searchResponse(tag, listOf(8L))
+                line.startsWith("UID FETCH") -> fetchResponse(tag, uidsOf(line)) { false }
+                else -> ok(tag)
+            }
+        }.use { server ->
+            val plain = buildImapSearch(ImapSearchCriteria(subject = "facture", flagged = false))
+            server.session().use { session ->
+                session.searchFolders(listOf("INBOX"), plain, requireAttachment = false, limit = 50)
+            }
+            assertEquals(
+                listOf("""UID SEARCH SUBJECT "facture""""),
+                server.issued().filter { it.startsWith("UID SEARCH") },
+            )
+        }
+    }
+
     /** One unreadable folder must neither sink the search nor disappear in silence. */
     @Test
     fun `a folder that fails is reported and the others still answer`() {

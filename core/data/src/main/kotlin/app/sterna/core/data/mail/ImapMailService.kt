@@ -701,13 +701,16 @@ data class ImapUidSnapshot(val uids: List<Long>, val uidValidity: Long)
 
 /**
  * The IMAP-expressible part of a [SearchQuery]. `hasAttachment` is deliberately absent: IMAP
- * `SEARCH` has no key for it, so it is passed separately and applied locally.
+ * `SEARCH` has no key for it, so it is passed separately and applied locally. `flagged` is NOT
+ * in that situation — `FLAGGED` is a standard search key — so it travels here, with the criteria
+ * the server resolves itself.
  */
 internal fun SearchQuery.toImapCriteria() = ImapSearchCriteria(
     text = text,
     from = from,
     recipient = recipient,
     subject = subject,
+    flagged = flagged,
     afterMillis = afterMillis,
     beforeMillis = beforeMillis,
 )

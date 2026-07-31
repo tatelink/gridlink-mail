@@ -13,6 +13,11 @@ import java.util.Locale
  * [recipient] matches `To` OR `Cc`: a message addressed to an alias in copy was received at
  * that address just as much as one in To.
  *
+ * [flagged] IS here, unlike "has an attachment": `FLAGGED` is a standard search key, so the
+ * server answers it and no message has to be fetched to find out. Passing it through the local
+ * filter instead would have cost an envelope FETCH per candidate, a scan cap and a truncated
+ * count, for a question the server answers in one word.
+ *
  * [afterMillis]/[beforeMillis] are epoch-millis bounds; IMAP compares them against the
  * server's INTERNALDATE with DAY granularity, so they are rendered as calendar days (UTC).
  */
@@ -21,6 +26,7 @@ data class ImapSearchCriteria(
     val from: String = "",
     val recipient: String = "",
     val subject: String = "",
+    val flagged: Boolean = false,
     val afterMillis: Long? = null,
     val beforeMillis: Long? = null,
 )
@@ -56,6 +62,9 @@ private val IMAP_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("d-MMM-uu
  *   search field).
  * - With no key at all (an attachment-only search) the list is `ALL`: an empty key list is a
  *   syntax error, and the local attachment filter narrows it down afterwards.
+ * - `FLAGGED` takes no argument and is the cheapest key there is (a flag test, no header or body
+ *   to open), so it goes FIRST: servers evaluate left to right, and it is the key most likely to
+ *   throw away the bulk of the folder before anything expensive is read.
  */
 fun buildImapSearch(criteria: ImapSearchCriteria): ImapSearchCommand {
     val keys = mutableListOf<String>()
@@ -64,6 +73,7 @@ fun buildImapSearch(criteria: ImapSearchCriteria): ImapSearchCommand {
     val subject = criteria.subject.trim()
     val text = criteria.text.trim()
 
+    if (criteria.flagged) keys += "FLAGGED"
     if (from.isNotEmpty()) keys += "FROM ${quote(from)}"
     if (recipient.isNotEmpty()) keys += "OR TO ${quote(recipient)} CC ${quote(recipient)}"
     if (subject.isNotEmpty()) keys += "SUBJECT ${quote(subject)}"
