@@ -89,21 +89,30 @@ internal data class ListScope(
 internal object ThreadMemberStream {
 
     /**
-     * The members of every unfolded conversation, keyed by thread, recomputed whenever the set of
-     * unfolded rows changes, the [scope] the list was built with changes, or the cache itself
-     * changes underneath.
+     * The WHOLE membership of every unfolded conversation, keyed by thread — exactly the messages
+     * the row's chip counts — recomputed whenever the set of unfolded rows changes, the [scope] the
+     * list was built with changes, the cache changes underneath, or a snooze starts or lapses.
      *
-     * [read] is the observed cache query (`MailRepository.observeThreadEmails`), [representative]
-     * the id the collapsed row already draws — excluded from the list below it, see
-     * [ConversationExpansion.membersBelow] — and [fallbackAccountId] the current account, used only
+     * The representative is NOT taken out here, and that is deliberate. It used to be, from an id
+     * recorded when the row was tapped, and that put the very snapshot this path exists to remove
+     * one notch further down: the members became a live reading while the id subtracted from them
+     * stayed frozen, so a message arriving in an open conversation was drawn twice — once on the
+     * row, which picks its representative live, and once beneath it — while the message it
+     * displaced vanished, under a chip that went on counting right. The subtraction now happens
+     * where BOTH values are drawn, on the row's own representative: see [membersBelow].
+     *
+     * [read] is the observed cache query (`MailRepository.observeThreadEmails`), [snoozed] the
+     * account-qualified ids an active snooze hides — the chip's SQL excludes them and the two must
+     * count the same messages, which also means the unfold has to see the snooze LAPSE, and the
+     * message table alone never says so — and [fallbackAccountId] the current account, used only
      * for a thread key that carries none, exactly as the one-shot load did.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun members(
         expanded: Flow<Set<ThreadKey>>,
         scope: Flow<ListScope>,
+        snoozed: Flow<Set<EmailKey>>,
         fallbackAccountId: () -> String?,
-        representative: (ThreadKey) -> String?,
         read: (accountId: String, folders: List<String>, threadKey: String) -> Flow<List<Email>>,
     ): Flow<Map<ThreadKey, List<Email>>> =
         combine(expanded, scope) { keys, s -> keys to s }
@@ -111,21 +120,23 @@ internal object ThreadMemberStream {
                 if (keys.isEmpty()) {
                     flowOf(emptyMap())
                 } else {
-                    combine(keys.map { key -> one(key, s, fallbackAccountId, representative, read) }) { it.toMap() }
+                    combine(keys.map { key -> one(key, s, fallbackAccountId, read) }) { it.toMap() }
                 }
+            }
+            .combine(snoozed) { all, hidden ->
+                if (hidden.isEmpty()) all
+                else all.mapValues { (_, members) -> members.filterNot { it.emailKey() in hidden } }
             }
 
     private fun one(
         key: ThreadKey,
         scope: ListScope,
         fallbackAccountId: () -> String?,
-        representative: (ThreadKey) -> String?,
         read: (accountId: String, folders: List<String>, threadKey: String) -> Flow<List<Email>>,
     ): Flow<Pair<ThreadKey, List<Email>>> {
         val accountId = key.accountId ?: fallbackAccountId() ?: return flowOf(key to emptyList())
         // The SAME decision, on the SAME recorded resolution, that the chip's query was bound with.
-        return read(accountId, scope.folders(accountId), key.threadId)
-            .map { all -> key to ConversationExpansion.membersBelow(all, representative(key).orEmpty()) }
+        return read(accountId, scope.folders(accountId), key.threadId).map { all -> key to all }
     }
 
     /**
@@ -161,6 +172,46 @@ internal object ThreadMemberStream {
 }
 
 /**
+ * The members currently masked from the live reading of the unfolded rows — and, above all, the
+ * only way to mask one.
+ *
+ * The mask covers ONE window: a gesture has already taken a row off the screen, and the cache row
+ * it was drawn from only leaves when the server acknowledges the move, so a reading landing in
+ * between would put it straight back under the reader's thumb. That window is exactly the length
+ * of the call, which is why [hiding] is the whole API: it raises the mask, runs the call, and
+ * lifts the mask in a `finally`.
+ *
+ * The shape matters more than it looks. The mask used to be a plain set that callers raised and
+ * lowered themselves, and lowering it was a DUTY — one every path but one discharged. The path
+ * that forgot was the selection bar's "Snooze": it masked the messages it snoozed and never
+ * unmasked them, and a snooze does not remove anything, it writes a date and leaves the message
+ * where it is. So the message came back into the chip's count at its due date, and never back
+ * under the row; folding and unfolding did not help, because nothing lifts a mask nobody lifts.
+ * Here there is no duty to forget: whatever the call does — succeed, fail, snooze, or throw — the
+ * mask comes down with it, and what the reader then sees is decided by the cache and the snooze
+ * table, which are the things that actually know.
+ */
+internal class ThreadMemberMask {
+    private val hidden = mutableSetOf<EmailKey>()
+
+    /** The masked members, for the reading to drop — see [ThreadMemberStream.reconcile]. */
+    val keys: Set<EmailKey> get() = hidden
+
+    /** Mask [keys] for the duration of [op], and no longer. */
+    suspend fun <T> hiding(keys: Set<EmailKey>, op: suspend () -> T): T {
+        hidden += keys
+        return try {
+            op()
+        } finally {
+            hidden -= keys
+        }
+    }
+
+    /** Forget everything: the rows the mask applied to are no longer on screen at all. */
+    fun clear() = hidden.clear()
+}
+
+/**
  * Pure helpers for inline conversation expansion in the inbox list — extracted from
  * [InboxViewModel] so the expand-state and member-selection rules are unit-testable
  * without an Android runtime.
@@ -178,8 +229,19 @@ internal object ConversationExpansion {
         if (key in expanded) expanded - key else expanded + key
 
     /**
-     * The members to list beneath a collapsed conversation row: every cached message of the
-     * thread except the representative ([representativeId]) already shown on the row itself.
+     * The members to list beneath an unfolded conversation row: every message of the thread except
+     * the representative ([representativeId]) the row itself is drawing.
+     *
+     * Called AT THE DRAW SITE, with the id of the message that row is showing at that instant —
+     * never with a copy taken earlier. The representative is a live value: the paging query picks
+     * it as the newest message of the thread in the viewed folder(s) and re-picks it on every
+     * write, so mail arriving in an open conversation changes it. Subtracting a remembered one
+     * takes the wrong message out: the newcomer is drawn on the row AND listed below it, the
+     * message it displaced disappears altogether, and the count — one row plus N−1 members — still
+     * comes to N, which is why this went unseen.
+     *
+     * The off-by-one is the point: the chip counts the WHOLE conversation, the list beneath a row
+     * holds one fewer, because the row is already drawing that one.
      */
     fun membersBelow(all: List<Email>, representativeId: String): List<Email> =
         all.filter { it.id != representativeId }

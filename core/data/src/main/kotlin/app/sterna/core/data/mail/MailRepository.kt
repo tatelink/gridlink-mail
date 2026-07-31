@@ -3047,17 +3047,6 @@ class MailRepository(
     /** Un-snooze one account's message now (re-appears in its list). */
     suspend fun unsnooze(accountId: String, emailId: String) = snoozedDao.delete(accountId, emailId)
 
-    /** One account's ids currently hidden by an active snooze (until in the future) — the same
-     *  predicate the list/chip SQL uses, for callers that filter in memory (e.g. the unfolded
-     *  conversation). Account-scoped (issue #31): snoozes are keyed per account, so account A
-     *  snoozing id X must not hide account B's same-id message. */
-    suspend fun activeSnoozedIds(accountId: String): Set<String> {
-        val now = System.currentTimeMillis()
-        return snoozedDao.all()
-            .filter { it.accountId == accountId && it.until > now }
-            .mapTo(mutableSetOf()) { it.emailId }
-    }
-
     /** The deadline of the active snooze on [accountId]'s [emailId], or null when it is not
      *  snoozed (a lapsed row counts as not snoozed — same predicate as the list SQL). Snoozes are
      *  keyed per account (issue #31), so the lookup carries the account. */
@@ -3066,6 +3055,32 @@ class MailRepository(
 
     /** Live list of snoozed messages with their cached headers, for the "Snoozed" screen. */
     fun snoozedFlow(): Flow<List<SnoozedListRow>> = snoozedDao.observeAll()
+
+    /**
+     * The ids an active snooze currently hides, account-qualified, AS A LIVE READING — the same
+     * predicate the list and chip SQL apply, for the one reader that cannot express it in SQL.
+     *
+     * The list and the chip join this table, so Room re-runs them when a snooze is written or
+     * lapses. The unfolded conversation's members are read from `emails` alone, so nothing told
+     * them a snooze had ended: the chip came back up at the due date and the message did not come
+     * back under the row. Two readings of one write, on this table as on the other.
+     *
+     * A lapsed row counts as not snoozed (same predicate as the SQL); the row itself is deleted at
+     * the due date by the snooze worker, which is the write this flow re-emits on.
+     *
+     * Account-qualified (issue #31): snoozes are keyed per account, so account A snoozing id X
+     * must not hide account B's same-id message.
+     */
+    fun observeActiveSnoozed(): Flow<Set<EmailKey>> =
+        snoozedDao.observeAll()
+            .map { rows ->
+                val now = System.currentTimeMillis()
+                rows.filter { it.until > now }.mapTo(mutableSetOf()) { EmailKey(it.accountId, it.emailId) }
+            }
+            // The underlying query joins `emails` for the Snoozed screen's headers, so it re-emits
+            // on every write to the message table; the answer this reader wants changes far less
+            // often than that.
+            .distinctUntilChanged()
 
     /** A single cached email of one account by id (e.g. to notify when a snooze fires). */
     suspend fun cachedEmail(accountId: String, emailId: String): Email? =

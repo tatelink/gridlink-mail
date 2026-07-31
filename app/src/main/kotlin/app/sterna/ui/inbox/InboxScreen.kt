@@ -1410,9 +1410,16 @@ fun InboxScreen(
                     modifier = rowModifier,
                 )
                 if (expandable) {
+                    // The conversation minus the message THIS ROW is drawing, subtracted here
+                    // because here is the only place both are in hand. The representative is a
+                    // live value — the newest message of the thread in the viewed folder(s),
+                    // re-picked on every write — so mail arriving in an open conversation changes
+                    // it, and subtracting an id remembered from the tap drew the newcomer twice
+                    // and dropped the message it displaced, under a chip that still counted right.
+                    val members = ConversationExpansion.membersBelow(threadMembers[threadKey].orEmpty(), email.id)
                     ThreadChildren(
                         visible = isExpanded,
-                        members = threadMembers[threadKey].orEmpty(),
+                        members = members,
                         unified = ui.unified,
                         accounts = accounts,
                         rightAction = swipe.right,
@@ -1427,12 +1434,14 @@ fun InboxScreen(
                         selectedKeys = selectedKeys,
                         onOpenChild = { child ->
                             viewModel.onEmailOpened(child.id)
-                            // Position in the unfolded conversation: the representative holds
-                            // slot 0, the members follow in the order shown. Only a fallback —
-                            // the reader resolves the opening page by id first.
-                            val childIndex = threadMembers[threadKey].orEmpty()
-                                .indexOfFirst { it.id == child.id } + 1
-                            onOpenThreadMessage(child.id, child.accountId, threadKey, childIndex)
+                            // The reading view pages over exactly what this row was showing when
+                            // the reader tapped: the representative it draws, then the members
+                            // beneath it, recorded from here rather than rebuilt from a
+                            // representative remembered since the unfold. The index is only a
+                            // fallback — the reader resolves the opening page by id first.
+                            val order = viewModel.recordThreadOrder(threadKey, email, members)
+                            val childIndex = order.indexOfFirst { it.first == child.id }
+                            onOpenThreadMessage(child.id, child.accountId, threadKey, childIndex.coerceAtLeast(0))
                         },
                         onSwipeChild = { action, child -> performSwipe(action, child, viewModel, ui) },
                         onToggleChildFavourite = { child -> viewModel.toggleChildFlag(child) },

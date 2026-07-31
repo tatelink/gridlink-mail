@@ -274,10 +274,14 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     val expandedThreads: StateFlow<Set<ThreadKey>> = _expandedThreads.asStateFlow()
 
     /**
-     * The members of each expanded thread, keyed by thread key — the thread's other messages in
-     * the viewed folder(s) plus its Sent replies (newest-first, the latest/representative excluded
-     * since the collapsed row already shows it). Folder-scoped by design: a member deleted to
-     * Trash leaves THIS conversation and shows up in the Trash folder's conversation instead.
+     * The WHOLE membership of each expanded thread, keyed by thread key — the thread's messages in
+     * the viewed folder(s) plus its Sent replies, newest-first: exactly the messages the row's chip
+     * counts. Folder-scoped by design: a member deleted to Trash leaves THIS conversation and shows
+     * up in the Trash folder's conversation instead.
+     *
+     * The representative is IN here. The row draws it and the list beneath the row leaves it out —
+     * see [ConversationExpansion.membersBelow] — but that subtraction happens where the row is
+     * drawn, on the representative that row is drawing at that instant, and nowhere else.
      *
      * A LIVE reading of the local cache, kept in step by [observeThreadMembers] for as long as the
      * row stays unfolded — never a snapshot taken at the tap. The chip above it is a live query
@@ -291,22 +295,31 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val completedThreads = mutableSetOf<ThreadKey>()
 
     /**
-     * The representative (id + owning account) of each expanded thread key — the message shown
-     * on the collapsed row, which [_threadMembers] deliberately excludes. Recorded on expand so
-     * [threadEntries] can hand the reading view the WHOLE conversation, representative included,
-     * without re-querying anything.
+     * The conversation a message was opened FROM, as the reading view's swipe context: the messages
+     * the unfolded row was showing at the moment the reader tapped one, in the order it showed them
+     * (the representative on the row first, then the members beneath it).
+     *
+     * Recorded by [recordThreadOrder] at the tap, from the screen — the one place that holds both
+     * halves — and deliberately not rebuilt here from a representative remembered since the unfold:
+     * the row re-picks its representative on every write, and a remembered one names a message that
+     * may no longer be the one on the row.
      */
-    private val threadReps = mutableMapOf<ThreadKey, Pair<String, String?>>()
+    private val threadOrder = mutableMapOf<ThreadKey, List<Pair<String, String?>>>()
 
     /**
-     * The conversation a message was opened from, as the reading view's swipe context: the
-     * unfolded thread's messages in list order (representative first). Empty when the thread
-     * is unknown — the reader then falls back to showing the single message it was given.
+     * Record what the unfolded [key] row is showing — [representative] on the row, [members]
+     * beneath it — as the swipe context of a message opened from it, and answer with that order so
+     * the caller can say which page it is opening.
      */
-    fun threadEntries(key: ThreadKey): List<Pair<String, String?>> {
-        val (repId, repAccountId) = threadReps[key] ?: return emptyList()
-        return ConversationExpansion.threadEntries(repId, repAccountId, _threadMembers.value[key].orEmpty())
-    }
+    fun recordThreadOrder(key: ThreadKey, representative: Email, members: List<Email>): List<Pair<String, String?>> =
+        ConversationExpansion.threadEntries(representative.id, representative.accountId, members)
+            .also { threadOrder[key] = it }
+
+    /**
+     * The conversation a message was opened from. Empty when the thread is unknown — the reader
+     * then falls back to showing the single message it was given.
+     */
+    fun threadEntries(key: ThreadKey): List<Pair<String, String?>> = threadOrder[key].orEmpty()
 
     /** The conversation an email belongs to: its account plus its threadId (or its own id when
      *  thread-less). Account-qualified — see [ThreadKey]. */
@@ -325,10 +338,6 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             _expandedThreads.value = _expandedThreads.value - key
             return
         }
-        // The representative BEFORE the key joins the expanded set: the member stream reacts to
-        // that set and needs to know which message the row already draws, or it would list it
-        // twice for a beat.
-        threadReps[key] = rep.id to rep.accountId
         _expandedThreads.value = _expandedThreads.value + key
         viewModelScope.launch { expandThread(rep, key) }
     }
@@ -368,8 +377,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             ThreadMemberStream.members(
                 expanded = _expandedThreads,
                 scope = listScope,
+                // The snooze table, observed — not asked once per emission. The members are read
+                // from `emails` alone, so nothing in that query notices a snooze starting or
+                // lapsing, and the reader watched the chip come back up at the due date with
+                // nothing appearing under the row. It also takes a decrypt-and-parse of the
+                // account store off a path that runs on every write to the message table.
+                snoozed = repo.observeActiveSnoozed(),
                 fallbackAccountId = { store.load()?.id },
-                representative = { key -> threadReps[key]?.first },
                 read = { accountId, folders, threadKey -> repo.observeThreadEmails(accountId, folders, threadKey) },
             ).collect { live -> drawThreadMembers(live) }
         }
@@ -377,23 +391,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Draw a live reading: membership from the cache, content from what is already on screen, minus
-     * the members a swipe has taken away while its round-trip is in flight ([ThreadMemberStream.reconcile]).
-     *
-     * Members hidden by an active snooze stay out, as they do from the chip — its SQL excludes them
-     * and the two must count the same messages (both come back when the snooze lapses).
+     * the members a call in flight has taken away ([ThreadMemberStream.reconcile], [maskedMembers]).
      */
-    private suspend fun drawThreadMembers(live: Map<ThreadKey, List<Email>>) {
+    private fun drawThreadMembers(live: Map<ThreadKey, List<Email>>) {
         val drawn = _threadMembers.value
-        val fallbackAccountId = store.load()?.id
-        val snoozed = live.keys.mapNotNullTo(mutableSetOf()) { it.accountId ?: fallbackAccountId }
-            .associateWith { runCatching { repo.activeSnoozedIds(it) }.getOrDefault(emptySet()) }
         val next = live.mapValues { (key, members) ->
-            val hidden = snoozed[key.accountId ?: fallbackAccountId].orEmpty()
-            ThreadMemberStream.reconcile(
-                drawn = drawn[key].orEmpty(),
-                live = members.filterNot { it.id in hidden },
-                removed = removedMembers,
-            )
+            ThreadMemberStream.reconcile(drawn = drawn[key].orEmpty(), live = members, removed = maskedMembers.keys)
         }
         // Equal maps are not re-emitted (StateFlow conflates on equality) and the reconcile keeps
         // the drawn instances, so an unfolded conversation nothing happened to does not recompose.
@@ -401,13 +404,32 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Members a swipe has removed from the screen while the server round-trip is still running.
-     * Their cache rows outlive the gesture by a moment, so a live reading landing in that window
-     * would otherwise put the row back under the reader's thumb. Same tombstone idea as
-     * [searchRemoved], and emptied the same way — when the thread's expansion is dropped, or when
-     * every unfolded row is.
+     * The members currently masked from that live reading, and the only way to mask one: see
+     * [ThreadMemberMask]. Raised for the length of the call that removes a member and lowered by
+     * the same call, so no path can leave a message buried.
      */
-    private val removedMembers = mutableSetOf<EmailKey>()
+    private val maskedMembers = ThreadMemberMask()
+
+    /**
+     * Take [keys] off the unfolded rows for the length of [op] — the window in which the gesture
+     * has already flown the row away and its cache row, which only goes on the server's
+     * acknowledgement, would put it straight back.
+     *
+     * The mask comes down with [op], whichever way it ends. On success there is nothing left to
+     * hide: the repository ops are network-first and have already dropped the row. On failure the
+     * member must be listed again, and is. And after an op that removed nothing at all — a snooze
+     * writes a date and leaves the message where it is — what hides the message afterwards is the
+     * snooze itself, which the reading watches and which ends by itself. The screen catches up on
+     * the next reading; nothing here has to remember to put anything back.
+     */
+    private suspend fun <T> hidingThreadMembers(keys: Set<EmailKey>, op: suspend () -> T): T {
+        if (_threadMembers.value.isNotEmpty()) {
+            _threadMembers.value = _threadMembers.value
+                .mapValues { (_, members) -> members.filterNot { it.emailKey() in keys } }
+                .filterValues { it.isNotEmpty() }
+        }
+        return maskedMembers.hiding(keys, op)
+    }
 
     /**
      * Toggle the favourite star on one message inside an expanded conversation. The write reaches
@@ -500,15 +522,6 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         searchState.value = searchState.value.copy(
             results = results.map { if (it.emailKey() in keys) transform(it) else it },
         )
-    }
-
-    /** Drop several messages from the expanded conversations (bulk removals). */
-    private fun dropThreadMembers(keys: Set<EmailKey>) {
-        if (_threadMembers.value.isEmpty()) return
-        removedMembers += keys
-        _threadMembers.value = _threadMembers.value
-            .mapValues { (_, members) -> members.filterNot { it.emailKey() in keys } }
-            .filterValues { it.isNotEmpty() }
     }
 
     /**
@@ -960,8 +973,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _expandedThreads.value = emptySet()
         _threadMembers.value = emptyMap()
         completedThreads.clear()
-        threadReps.clear()
-        removedMembers.clear()
+        threadOrder.clear()
+        maskedMembers.clear()
     }
 
     /** Swipe action: toggle read/unread (cache update drives the list). */
@@ -1011,8 +1024,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         pendingDeleteTargets = targets
         pendingDeleteEmails = emails
         viewModelScope.launch {
-            targets.forEach { (credentials, id) -> repo.evict(credentials.id, id) }
-            emails.forEach { dropThreadMember(it) }
+            // The eviction is local and immediate, so the mask only has to cover it: once the rows
+            // are out of the cache the live reading has nothing to put back, and if the destroy is
+            // later undone — or the worker gives up and the folder re-syncs — the members return
+            // on their own instead of staying under a mask the Undo path alone knew how to lift.
+            hidingThreadMembers(emails.mapTo(mutableSetOf()) { it.emailKey() }) {
+                targets.forEach { (credentials, id) -> repo.evict(credentials.id, id) }
+            }
             dropSearchResults(emails.mapTo(mutableSetOf()) { it.emailKey() })
             _pendingDelete.value = label
             targets.groupBy({ it.first.id }, { it.second }).forEach { (accountId, ids) ->
@@ -1052,7 +1070,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         pendingDeleteEmails = emptyList()
         _pendingDelete.value = null
         restoreSearchResults(restored.map { it.emailKey() })
-        restoreThreadMembers(restored.map { it.emailKey() })
+        // Nothing to un-mask: the mask came down with the eviction that raised it. The rows the
+        // re-query brings back are listed again by the live reading, like any other write.
         // A full re-query, not an incremental refresh: the messages were only evicted locally and
         // are still in Trash on the server, so queryChanges reports no change and would leave the
         // view empty. Dropping the sync cursors forces a fresh query that brings them back.
@@ -1158,10 +1177,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Drop a thread's inline-expansion state — its conversation is leaving the list. */
     private fun dropThreadExpansion(key: ThreadKey) {
         _expandedThreads.value = _expandedThreads.value - key
-        removedMembers -= _threadMembers.value[key].orEmpty().mapTo(mutableSetOf()) { it.emailKey() }
         _threadMembers.value = _threadMembers.value - key
         completedThreads -= key
-        threadReps -= key
+        threadOrder -= key
     }
 
     /**
@@ -1234,37 +1252,6 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Drop [email] from any expanded conversation. The collapsed-row swipe clears the whole thread
-     * via [threadSwipeRemove]; this covers a single child message swiped away inside an unfolded
-     * conversation. The row must leave NOW, and its cache row only leaves when the server
-     * acknowledges the move — hence the removal here and the tombstone that keeps the next live
-     * reading from undoing it.
-     */
-    private fun dropThreadMember(email: Email) {
-        val key = threadKeyOf(email)
-        val members = _threadMembers.value[key] ?: return
-        // The cache row survives the gesture until the server acknowledges it; the live reading
-        // would put the row straight back under the reader's thumb without this tombstone.
-        removedMembers += email.emailKey()
-        val remaining = members.filterNot { it.id == email.id }
-        _threadMembers.value =
-            if (remaining.isEmpty()) _threadMembers.value - key
-            else _threadMembers.value + (key to remaining)
-    }
-
-    /**
-     * The messages among [keys] did not leave after all — the action failed, or was undone. Lift
-     * their tombstones so the live reading lists them again; the cache row is (or is about to be)
-     * back, and nothing else would ever put them on screen.
-     *
-     * Called beside every [restoreSearchResults], which is the same statement about the other
-     * snapshot: a removal that is taken back must be taken back everywhere it was applied.
-     */
-    private fun restoreThreadMembers(keys: Collection<EmailKey>) {
-        removedMembers -= keys.toSet()
-    }
-
-    /**
      * Remove [email] optimistically (so the row leaves instantly — never stuck mid-swipe), run
      * the server [op], then either offer Undo on success or restore the row + report the error.
      */
@@ -1275,13 +1262,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // counts from the true source once the server acknowledged. The swipe animation has
             // already flown the row off; it leaves the list when the ack lands. The op returns
             // the destination the message went to, for the Undo.
-            dropThreadMember(email)
             dropSearchResults(setOf(email.emailKey()))
             // The UI row may not carry its source folder (e.g. a server-fetched thread member) —
             // fall back to the cached row, captured before the op drops it, so a moved message
             // always gets its Undo.
             val source = email.mailboxId ?: repo.cachedEmail(credentials.id, email.id)?.mailboxId
-            runCatching { op(credentials, email.id) }
+            hidingThreadMembers(setOf(email.emailKey())) { runCatching { op(credentials, email.id) } }
                 .onSuccess { dest ->
                     if (source != null) {
                         _undo.value = UndoAction(listOf(UndoEntry(email.id, email.accountId, source, dest)), label)
@@ -1290,7 +1276,6 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 .onFailure {
                     _message.value = it.message ?: getApplication<Application>().getString(R.string.status_action_failed)
                     restoreSearchResults(listOf(email.emailKey()))
-                    restoreThreadMembers(listOf(email.emailKey()))
                     refresh() // the failed row was never dropped locally — just reconcile the list
                 }
         }
@@ -1301,7 +1286,6 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         val action = _undo.value ?: return
         _undo.value = null
         restoreSearchResults(action.entries.map { EmailKey(it.accountId, it.emailId) })
-        restoreThreadMembers(action.entries.map { EmailKey(it.accountId, it.emailId) })
         viewModelScope.launch {
             // Group by account and restore each account's whole set in one batch (one UID MOVE /
             // Email/set per source folder), so undoing a large selection doesn't hit the same
@@ -1587,24 +1571,27 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         val keys = _selectedKeys.value
         if (clearAfter) clearSelection()
-        // Every bulk op removes its messages from the current view; their cache rows only go on
-        // the server's acknowledgement, so drop them from the unfolded rows too or they linger.
-        dropThreadMembers(keys)
         viewModelScope.launch {
             var failed = 0
             // For a reversible bulk op (move to Trash/Archive/folder), capture each message's
             // source mailbox so the whole batch can be moved back — the same Undo a swipe of one
             // message already offers, so bulk and swipe behave the same (Codeberg #23).
             val undoEntries = mutableListOf<UndoEntry>()
-            repo.cachedEmailsByIds(keys).forEach { email ->
-                val credentials = credentialsFor(email)
-                if (credentials == null) { failed++; return@forEach }
-                runCatching { op(credentials, email.id) }
-                    .onSuccess { email.mailboxId?.let { mb -> undoEntries += UndoEntry(email.id, email.accountId, mb, null) } }
-                    .onFailure {
-                        failed++
-                        android.util.Log.w("SternaBulk", "bulk op failed for ${email.id}", it)
-                    }
+            // The selection leaves the unfolded rows for the length of the batch and no longer:
+            // this path's op is a snooze, which removes nothing at all — it writes a date — so a
+            // mask left standing here was the one thing keeping the message off the screen, and
+            // it kept it off for good, past the due date the chip had already counted it back in.
+            hidingThreadMembers(keys) {
+                repo.cachedEmailsByIds(keys).forEach { email ->
+                    val credentials = credentialsFor(email)
+                    if (credentials == null) { failed++; return@forEach }
+                    runCatching { op(credentials, email.id) }
+                        .onSuccess { email.mailboxId?.let { mb -> undoEntries += UndoEntry(email.id, email.accountId, mb, null) } }
+                        .onFailure {
+                            failed++
+                            android.util.Log.w("SternaBulk", "bulk op failed for ${email.id}", it)
+                        }
+                }
             }
             // A large selection can empty the whole loaded window of a huge folder. The rows
             // are gone locally, but an incremental refresh re-fetches nothing (the tens of
@@ -1628,8 +1615,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * single repo call that itself batches per source folder — one `UID MOVE <set>` (IMAP)
      * or one `Email/set` (JMAP) instead of one server command per message. This is the fix
      * for large selections failing on IMAP (Codeberg #29). Everything #23 added is preserved:
-     * dropThreadMembers, an UndoEntry per surviving message for a reversible op,
-     * resetSyncState()+refresh() (a big move can empty the loaded window of a huge folder),
+     * the members leaving the unfolded rows, an UndoEntry per surviving message for a reversible
+     * op, resetSyncState()+refresh() (a big move can empty the loaded window of a huge folder),
      * and the failure toast only when something actually failed.
      */
     private fun bulkBatched(
@@ -1640,7 +1627,6 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         val targetKeys = keys ?: _selectedKeys.value
         if (clearAfter) clearSelection()
-        dropThreadMembers(targetKeys)
         viewModelScope.launch {
             val emails = repo.cachedEmailsByIds(targetKeys)
             // Only the cached (acted-on) rows leave the search snapshot — never a row the
@@ -1648,26 +1634,28 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             dropSearchResults(emails.mapTo(mutableSetOf()) { it.emailKey() })
             val failedKeys = mutableSetOf<EmailKey>()
             val undoEntries = mutableListOf<UndoEntry>()
-            // AccountCredentials is a data class, so all of an account's messages group together —
-            // and each account's batch receives exactly ITS ids, never a colliding sibling's.
-            emails.groupBy { credentialsFor(it) }.forEach { (credentials, group) ->
-                if (credentials == null) { failedKeys += group.map { it.emailKey() }; return@forEach }
-                val result = runCatching { batchOp(credentials, group.map { it.id }) }
-                    .getOrElse {
-                        android.util.Log.w("SternaBulk", "batch op failed for ${credentials.id}", it)
-                        MailRepository.BulkResult(emptySet(), group.mapTo(mutableSetOf()) { e -> e.id })
-                    }
-                failedKeys += group.filter { it.id in result.failed }.map { it.emailKey() }
-                if (undoLabel != null) {
-                    group.forEach { email ->
-                        if (email.id in result.succeeded) {
-                            email.mailboxId?.let { mb -> undoEntries += UndoEntry(email.id, email.accountId, mb, result.dest) }
+            hidingThreadMembers(targetKeys) {
+                // AccountCredentials is a data class, so all of an account's messages group
+                // together — and each account's batch receives exactly ITS ids, never a
+                // colliding sibling's.
+                emails.groupBy { credentialsFor(it) }.forEach { (credentials, group) ->
+                    if (credentials == null) { failedKeys += group.map { it.emailKey() }; return@forEach }
+                    val result = runCatching { batchOp(credentials, group.map { it.id }) }
+                        .getOrElse {
+                            android.util.Log.w("SternaBulk", "batch op failed for ${credentials.id}", it)
+                            MailRepository.BulkResult(emptySet(), group.mapTo(mutableSetOf()) { e -> e.id })
+                        }
+                    failedKeys += group.filter { it.id in result.failed }.map { it.emailKey() }
+                    if (undoLabel != null) {
+                        group.forEach { email ->
+                            if (email.id in result.succeeded) {
+                                email.mailboxId?.let { mb -> undoEntries += UndoEntry(email.id, email.accountId, mb, result.dest) }
+                            }
                         }
                     }
                 }
             }
             restoreSearchResults(failedKeys)
-            restoreThreadMembers(failedKeys)
             repo.resetSyncState()
             refresh()
             // After the full re-query settles: re-cache the touched conversations' members

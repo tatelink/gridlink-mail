@@ -13,8 +13,10 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -29,16 +31,19 @@ import org.junit.Test
  * unfolded list had never been given. Neither corrected itself while the folder stayed open.
  *
  * The fake here is the `emails` table: one mutable list, read through the SAME scope decision the
- * chip is bound with ([ListScope.folders]). The chip is that table counted over those folders, the
- * unfold is [ThreadMemberStream] reading it, and every case moves the table or the scope UNDER an
- * already-unfolded row and asks whether the two still say the same thing.
+ * chip is bound with ([ListScope.folders]). It answers all three questions the screen asks of it —
+ * the chip's count, the row's representative, and the members — so every case can move the table or
+ * the scope UNDER an already-unfolded row and ask whether the three still say one thing.
  *
- * The witness in the first case is the shape this replaces: the same reading taken once and kept.
+ * [screen] is what the reader actually sees, assembled the way [InboxScreen] assembles it: the row
+ * draws the representative, and beneath it go the members minus that same message. That last
+ * subtraction is the reason this file has to model the row at all — done anywhere but at the draw,
+ * on anything but the id the row is drawing, it takes the wrong message out.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ThreadMemberStreamTest {
 
-    /** The `emails` table, and the two queries that read it — one per side of the row. */
+    /** The `emails` table, and the three readings the screen takes of it. */
     private class Cache {
         val rows = MutableStateFlow<List<Email>>(emptyList())
 
@@ -58,12 +63,21 @@ class ThreadMemberStreamTest {
         fun chip(scope: ListScope, key: ThreadKey): Int =
             members(rows.value, key.accountId.orEmpty(), scope.folders(key.accountId), key.threadId).size
 
+        /**
+         * The message the collapsed row draws: the shipped SQL's `g` sub-query — MAX(sortKey) over
+         * the VIEWED folder(s) only, no Sent. A live value, re-picked on every write, which is the
+         * whole point: it is not the message that was there when the row was unfolded.
+         */
+        fun representative(scope: ListScope, key: ThreadKey): Email? =
+            members(rows.value, key.accountId.orEmpty(), scope.viewedMailboxIds, key.threadId).firstOrNull()
+
         private fun members(all: List<Email>, accountId: String, folders: List<String>, threadKey: String) =
             all.filter { it.accountId == accountId && it.mailboxId in folders && (it.threadId ?: it.id) == threadKey }
                 .sortedByDescending { it.receivedAt }
 
+        /** Keyed (account, id), like the table: two accounts of one server share message ids. */
         fun put(email: Email) {
-            rows.value = rows.value.filterNot { it.id == email.id } + email
+            rows.value = rows.value.filterNot { it.id == email.id && it.accountId == email.accountId } + email
         }
 
         fun moveTo(id: String, mailboxId: String?) {
@@ -94,17 +108,24 @@ class ThreadMemberStreamTest {
         cache: Cache,
         expanded: Flow<Set<ThreadKey>>,
         scope: Flow<ListScope>,
-        representativeId: String = "in2",
+        snoozed: Flow<Set<EmailKey>> = MutableStateFlow(emptySet()),
     ) = ThreadMemberStream.members(
         expanded = expanded,
         scope = scope,
+        snoozed = snoozed,
         fallbackAccountId = { "accA" },
-        representative = { representativeId },
         read = cache::read,
     )
 
-    /** The row on screen: the representative it draws, plus the members listed beneath it. */
-    private fun unfoldedSize(members: Map<ThreadKey, List<Email>>): Int = members[key].orEmpty().size + 1
+    /**
+     * The unfolded row as the reader sees it: the representative on the row, then the members
+     * beneath it — the live reading minus the message the row is drawing, subtracted at the draw
+     * exactly as [InboxScreen] subtracts it.
+     */
+    private fun Cache.screen(scope: ListScope, drawn: Map<ThreadKey, List<Email>>, k: ThreadKey = key): List<String> {
+        val rep = representative(scope, k) ?: return emptyList()
+        return listOf(rep.id) + ConversationExpansion.membersBelow(drawn[k].orEmpty(), rep.id).map { it.id }
+    }
 
     /**
      * What the screen currently holds, kept up to date by a collection running beside the test —
@@ -130,7 +151,7 @@ class ThreadMemberStreamTest {
         advanceUntilIdle()
 
         assertEquals(2, cache.chip(scope.value, key))
-        assertEquals(2, unfoldedSize(drawn.value))
+        assertEquals(listOf("in2", "in1"), cache.screen(scope.value, drawn.value))
 
         // The row is still open when the Sent folder finally resolves.
         val onceSynced = ListScope(listOf("inbox"), listOf("accA" to "sentbox"))
@@ -141,13 +162,12 @@ class ThreadMemberStreamTest {
         advanceUntilIdle()
 
         assertEquals(3, cache.chip(onceSynced, key))
-        assertEquals(3, unfoldedSize(drawn.value))
-        assertEquals(listOf("se1", "in1"), drawn.value[key].orEmpty().map { it.id })
+        assertEquals(listOf("in2", "se1", "in1"), cache.screen(onceSynced, drawn.value))
 
         // …and what that snapshot would still be showing: a chip of 3 over an unfold of 2, which is
         // the defect, with nothing on screen to explain the difference.
-        assertEquals(2, snapshotAtUnfold.size + 1)
-        assertNotEquals(cache.chip(onceSynced, key), snapshotAtUnfold.size + 1)
+        assertEquals(2, snapshotAtUnfold.size)
+        assertNotEquals(cache.chip(onceSynced, key), snapshotAtUnfold.size)
     }
 
     @Test fun `a message arriving in a conversation already unfolded joins it`() = runTest {
@@ -157,14 +177,63 @@ class ThreadMemberStreamTest {
         val scope = MutableStateFlow(ListScope(listOf("inbox"), listOf("accA" to "sentbox")))
         val drawn = draw { stream(cache, MutableStateFlow(setOf(key)), scope) }
         advanceUntilIdle()
-        assertEquals(3, unfoldedSize(drawn.value))
+        assertEquals(3, cache.screen(scope.value, drawn.value).size)
 
         cache.put(mail("in3", "inbox", "2026-07-01T12:00:00Z"))
         advanceUntilIdle()
 
         assertEquals(4, cache.chip(scope.value, key))
-        assertEquals(4, unfoldedSize(drawn.value))
-        assertEquals(listOf("in3", "se1", "in1"), drawn.value[key].orEmpty().map { it.id })
+        // in3 is newer than in2, so it becomes the message the ROW draws, and what goes beneath is
+        // the rest of the conversation — in2 included, se1 first, nothing twice.
+        assertEquals(listOf("in3", "se1", "in2", "in1"), cache.screen(scope.value, drawn.value))
+    }
+
+    /**
+     * The defect the live members introduced, and the reason the subtraction had to move: the
+     * members became a reading and the representative subtracted from them stayed a memory.
+     */
+    @Test fun `a message arriving in an unfolded conversation is not drawn twice over a vanished one`() = runTest {
+        val cache = Cache().apply { anAnsweredThread() }
+        val scope = MutableStateFlow(ListScope(listOf("inbox"), listOf("accA" to "sentbox")))
+        val drawn = draw { stream(cache, MutableStateFlow(setOf(key)), scope) }
+        advanceUntilIdle()
+        // What the row was drawing when it was unfolded, and what the old code went on subtracting.
+        val recordedAtUnfold = cache.representative(scope.value, key)!!.id
+        assertEquals("in2", recordedAtUnfold)
+
+        cache.put(mail("in3", "inbox", "2026-07-01T12:00:00Z"))
+        advanceUntilIdle()
+
+        val onScreen = cache.screen(scope.value, drawn.value)
+        assertEquals("no message may be drawn twice: $onScreen", onScreen.distinct(), onScreen)
+        assertTrue("the displaced representative must still be listed: $onScreen", "in2" in onScreen)
+        assertEquals("one row plus its members must come to the chip", cache.chip(scope.value, key), onScreen.size)
+
+        // The witness: the same reading, subtracted with the representative recorded at the tap —
+        // in3 drawn on the row AND listed under it, in2 gone, and the count still 4, which is
+        // exactly why this survived a chip that had just been made truthful.
+        val stale = listOf("in3") +
+            ConversationExpansion.membersBelow(drawn.value[key].orEmpty(), recordedAtUnfold).map { it.id }
+        assertEquals(listOf("in3", "in3", "se1", "in1"), stale)
+        assertEquals(cache.chip(scope.value, key), stale.size)
+        assertFalse("the witness must actually lose the old representative", "in2" in stale)
+    }
+
+    @Test fun `a representative that leaves the folder hands its row to the next message`() = runTest {
+        // Opened from the conversation and archived from the reader: the row must fall back on the
+        // newest message left, and list the others once each — not keep subtracting a message the
+        // folder no longer holds and show one member too many under a chip that has already
+        // dropped it.
+        val cache = Cache().apply { anAnsweredThread() }
+        val scope = MutableStateFlow(ListScope(listOf("inbox"), listOf("accA" to "sentbox")))
+        val drawn = draw { stream(cache, MutableStateFlow(setOf(key)), scope) }
+        advanceUntilIdle()
+
+        cache.moveTo("in2", "archive")
+        advanceUntilIdle()
+
+        assertEquals(2, cache.chip(scope.value, key))
+        assertEquals(listOf("in1", "se1"), cache.screen(scope.value, drawn.value))
     }
 
     @Test fun `a member that leaves the viewed folders leaves the unfolded list`() = runTest {
@@ -179,8 +248,7 @@ class ThreadMemberStreamTest {
         advanceUntilIdle()
 
         assertEquals(2, cache.chip(scope.value, key))
-        assertEquals(2, unfoldedSize(drawn.value))
-        assertEquals(listOf("se1"), drawn.value[key].orEmpty().map { it.id })
+        assertEquals(listOf("in2", "se1"), cache.screen(scope.value, drawn.value))
     }
 
     @Test fun `folding and unfolding again reads the conversation, it does not replay it`() = runTest {
@@ -191,7 +259,7 @@ class ThreadMemberStreamTest {
         val scope = MutableStateFlow(ListScope(listOf("inbox"), listOf("accA" to "sentbox")))
         val drawn = draw { stream(cache, expanded, scope) }
         advanceUntilIdle()
-        assertEquals(3, unfoldedSize(drawn.value))
+        assertEquals(3, cache.screen(scope.value, drawn.value).size)
 
         expanded.value = emptySet()
         advanceUntilIdle()
@@ -202,7 +270,7 @@ class ThreadMemberStreamTest {
         advanceUntilIdle()
 
         assertEquals(4, cache.chip(scope.value, key))
-        assertEquals(4, unfoldedSize(drawn.value))
+        assertEquals(4, cache.screen(scope.value, drawn.value).size)
     }
 
     @Test fun `a conversation of another account keeps its own Sent folder in the unified list`() = runTest {
@@ -215,19 +283,11 @@ class ThreadMemberStreamTest {
         cache.put(mail("bSent", "sentB", "2026-07-01T10:30:00Z", account = "accB"))
         val keyB = ThreadKey("accB", "T1")
         val scope = MutableStateFlow(ListScope(listOf("inbox"), listOf("accA" to "sentA", "accB" to "sentB")))
-        val drawn = draw {
-            ThreadMemberStream.members(
-                expanded = MutableStateFlow(setOf(key, keyB)),
-                scope = scope,
-                fallbackAccountId = { "accA" },
-                representative = { k -> if (k == key) "a1" else "b1" },
-                read = cache::read,
-            )
-        }
+        val drawn = draw { stream(cache, MutableStateFlow(setOf(key, keyB)), scope) }
         advanceUntilIdle()
 
-        assertEquals(listOf("aSent"), drawn.value[key].orEmpty().map { it.id })
-        assertEquals(listOf("bSent"), drawn.value[keyB].orEmpty().map { it.id })
+        assertEquals(listOf("a1", "aSent"), cache.screen(scope.value, drawn.value))
+        assertEquals(listOf("b1", "bSent"), cache.screen(scope.value, drawn.value, keyB))
 
         // The witness: scoped to A's Sent folder alone, B's row would list nothing — so the two
         // rows are genuinely being read with different folders and not with one pooled set.
@@ -246,12 +306,11 @@ class ThreadMemberStreamTest {
 
     @Test fun `the representative is never listed twice under its own row`() = runTest {
         val cache = Cache().apply { anAnsweredThread() }
-        val drawn = draw {
-            stream(cache, MutableStateFlow(setOf(key)), MutableStateFlow(ListScope(listOf("inbox"), listOf("accA" to "sentbox"))))
-        }
+        val scope = MutableStateFlow(ListScope(listOf("inbox"), listOf("accA" to "sentbox")))
+        val drawn = draw { stream(cache, MutableStateFlow(setOf(key)), scope) }
         advanceUntilIdle()
 
-        assertEquals(listOf("se1", "in1"), drawn.value[key].orEmpty().map { it.id })
+        assertEquals(listOf("in2", "se1", "in1"), cache.screen(scope.value, drawn.value))
     }
 
     @Test fun `a live reading answers the same folders the chip counted, in the same order`() = runTest {
@@ -271,12 +330,105 @@ class ThreadMemberStreamTest {
         steps.forEach { step ->
             step()
             advanceUntilIdle()
-            assertEquals(cache.chip(scope.value, key), unfoldedSize(drawn.value))
+            val onScreen = cache.screen(scope.value, drawn.value)
+            assertEquals(cache.chip(scope.value, key), onScreen.size)
+            assertEquals(onScreen.distinct(), onScreen)
         }
 
         // The witness: the sequence genuinely moved the number around, so the equality above is not
         // one constant compared with itself.
         assertEquals(2, cache.chip(scope.value, key))
+    }
+
+    // -- a snooze hides a member, and stops hiding it by itself ------------------------------
+
+    @Test fun `a snoozed member leaves the unfolded row and comes back when the snooze lapses`() = runTest {
+        // The chip's SQL excludes snoozed messages, so the list beneath it must too — and, because
+        // the snooze is a row in another table, the unfold has to WATCH that table: the members are
+        // read from `emails` alone and nothing there changes when a snooze starts or ends. The
+        // reader's report was the second half: the chip came back up at the due date and the
+        // message never came back under the row.
+        val cache = Cache().apply { anAnsweredThread() }
+        val scope = MutableStateFlow(ListScope(listOf("inbox"), listOf("accA" to "sentbox")))
+        val snoozed = MutableStateFlow(emptySet<EmailKey>())
+        val drawn = draw { stream(cache, MutableStateFlow(setOf(key)), scope, snoozed) }
+        advanceUntilIdle()
+        assertEquals(listOf("in2", "se1", "in1"), cache.screen(scope.value, drawn.value))
+
+        snoozed.value = setOf(EmailKey("accA", "in1"))
+        advanceUntilIdle()
+        assertEquals(listOf("in2", "se1"), cache.screen(scope.value, drawn.value))
+
+        // The due date: the worker deletes the snooze row, and the member is listed again with no
+        // write to the message table at all.
+        snoozed.value = emptySet()
+        advanceUntilIdle()
+        assertEquals(listOf("in2", "se1", "in1"), cache.screen(scope.value, drawn.value))
+    }
+
+    @Test fun `a snooze hides only its own account's message`() = runTest {
+        // Snoozes are keyed per account (issue #31): two accounts of one server share message ids
+        // as they share thread ids, and hiding by bare id would blank the sibling's homonym.
+        val cache = Cache()
+        cache.put(mail("m1", "inbox", "2026-07-01T09:00:00Z"))
+        cache.put(mail("m2", "inbox", "2026-07-01T10:00:00Z"))
+        cache.put(mail("m1", "inbox", "2026-07-01T09:30:00Z", account = "accB"))
+        cache.put(mail("m2", "inbox", "2026-07-01T10:30:00Z", account = "accB"))
+        val keyB = ThreadKey("accB", "T1")
+        val scope = MutableStateFlow(ListScope(listOf("inbox")))
+        val snoozed = MutableStateFlow(setOf(EmailKey("accA", "m1")))
+        val drawn = draw { stream(cache, MutableStateFlow(setOf(key, keyB)), scope, snoozed) }
+        advanceUntilIdle()
+
+        assertEquals(listOf("m2"), cache.screen(scope.value, drawn.value))
+        assertEquals(listOf("m2", "m1"), cache.screen(scope.value, drawn.value, keyB))
+    }
+
+    // -- the mask, and the fact that it comes down ------------------------------------------
+
+    @Test fun `a masked member is out of the reading for the length of the call, and back after`() = runTest {
+        val mask = ThreadMemberMask()
+        val hidden = EmailKey("acc", "m1")
+        val seenDuring = mask.hiding(setOf(hidden)) { mask.keys.toSet() }
+        assertEquals(setOf(hidden), seenDuring)
+        assertEquals(emptySet<EmailKey>(), mask.keys)
+    }
+
+    @Test fun `a mask comes down even when the call it covers throws`() = runTest {
+        // The offline swipe, and the offline bulk: the action failed, the message never left, and
+        // the reader must see it again.
+        val mask = ThreadMemberMask()
+        val hidden = EmailKey("acc", "m1")
+        runCatching { mask.hiding(setOf(hidden)) { error("offline") } }
+        assertEquals(emptySet<EmailKey>(), mask.keys)
+    }
+
+    @Test fun `a mask comes down after a call that removed nothing at all`() = runTest {
+        // "Snooze" from the selection bar: it writes a date and leaves the message where it is, so
+        // the mask was the only thing keeping it off the screen — and it kept it off for good,
+        // past the due date the chip had already counted it back in. The mask now ends with the
+        // call, and what hides the message afterwards is the snooze, which ends by itself.
+        val cache = Cache().apply { anAnsweredThread() }
+        val scope = MutableStateFlow(ListScope(listOf("inbox"), listOf("accA" to "sentbox")))
+        val snoozed = MutableStateFlow(emptySet<EmailKey>())
+        val mask = ThreadMemberMask()
+        val drawn = draw {
+            stream(cache, MutableStateFlow(setOf(key)), scope, snoozed).map { live ->
+                live.mapValues { (_, members) ->
+                    ThreadMemberStream.reconcile(drawn = emptyList(), live = members, removed = mask.keys)
+                }
+            }
+        }
+        advanceUntilIdle()
+
+        val target = EmailKey("accA", "in1")
+        mask.hiding(setOf(target)) { snoozed.value = setOf(target) } // the op: a date, nothing else
+        advanceUntilIdle()
+        assertEquals("snoozed, so out of the row and out of the chip", listOf("in2", "se1"), cache.screen(scope.value, drawn.value))
+
+        snoozed.value = emptySet() // the due date
+        advanceUntilIdle()
+        assertEquals(listOf("in2", "se1", "in1"), cache.screen(scope.value, drawn.value))
     }
 
     // -- what a live reading may and may not redraw -----------------------------------------

@@ -120,6 +120,72 @@ class ConversationScopeWiringTest {
         )
     }
 
+    // -- the representative: read where it is DRAWN ------------------------------------------
+
+    @Test fun `the members listed under a row exclude the representative that row draws`() {
+        val reads = codeLines(INBOX_SCREEN).filter { "threadMembers[" in it }
+        assertEquals(
+            "InboxScreen must read the unfolded members ONCE, into a value the children and their " +
+                "positions both come from: two reads are two answers. Read at:\n" +
+                reads.joinToString("\n"),
+            1, reads.size,
+        )
+        assertTrue(
+            "that read must subtract the representative THE ROW ITSELF DRAWS (email.id) through " +
+                "ConversationExpansion.membersBelow. The representative is a live value — the " +
+                "newest message of the thread in the viewed folder(s), recomputed on every write — " +
+                "so subtracting a copy of it taken when the row was unfolded draws the new " +
+                "representative twice and drops the old one, under a chip that still counts right. " +
+                "Read was:\n${reads.singleOrNull()}",
+            MEMBERS_BELOW.containsMatchIn(reads.singleOrNull().orEmpty()),
+        )
+    }
+
+    @Test fun `nothing records the representative the unfolded list is subtracted with`() {
+        val stream = body(CONVERSATION_EXPANSION, "members") + "\n" + body(CONVERSATION_EXPANSION, "one")
+        assertTrue(
+            "ThreadMemberStream must be given no representative: taking one is the snapshot this " +
+                "whole path exists to remove, moved one notch down — the members became live and " +
+                "the id subtracted from them stayed frozen at the tap. The subtraction belongs " +
+                "where the representative is drawn. Body was:\n$stream",
+            "representative" !in stream,
+        )
+        assertTrue(
+            "InboxViewModel must keep no map of recorded representatives: it is a fourth source " +
+                "for a value the row already holds, and a source more always ends up diverging. " +
+                "Found:\n" + codeLines(INBOX_VIEW_MODEL).filter { "threadReps" in it }.joinToString("\n"),
+            codeLines(INBOX_VIEW_MODEL).none { "threadReps" in it },
+        )
+    }
+
+    // -- the mask over the unfolded rows -----------------------------------------------------
+
+    @Test fun `a member hidden from the unfolded rows is hidden for the length of one call`() {
+        val byHand = codeLines(INBOX_VIEW_MODEL).filter { BY_HAND.containsMatchIn(it) }
+        assertEquals(
+            "no path may raise or lift the unfolded rows' mask by hand. The mask hides a member " +
+                "whose removal is still in flight from a LIVE reading; making its lifting a " +
+                "caller's duty is how the selection bar's snooze lost a message for good — it " +
+                "raised the mask, never lifted it, and the message came back into the chip's " +
+                "count at its due date and never back under the row. Every hiding is scoped to " +
+                "the call that justifies it ($SCOPED_HIDE). By hand at:\n" + byHand.joinToString("\n"),
+            0, byHand.size,
+        )
+        val helper = body(INBOX_VIEW_MODEL, SCOPED_HIDE)
+        assertTrue(
+            "$SCOPED_HIDE must go through ThreadMemberMask, which owns the mask and is the only " +
+                "thing that raises or lowers it. Body was:\n$helper",
+            ".hiding(" in helper,
+        )
+        val hiding = body(CONVERSATION_EXPANSION, "hiding")
+        assertTrue(
+            "ThreadMemberMask.hiding must lower the mask in a finally: lowering it on the success " +
+                "path only is a duty again, and a failed — or a merely local — op would leave the " +
+                "grave standing. Body was:\n$hiding",
+            "finally" in hiding,
+        )
+    }
+
     // -- the chip's side ----------------------------------------------------------------------
 
     @Test fun `the chip binds the Sent folders the shared decision hands it`() {
@@ -194,7 +260,8 @@ class ConversationScopeWiringTest {
      */
     private fun body(file: File, name: String): String {
         val lines = codeLines(file)
-        val declaration = Regex("""\b(fun|val|var)\s+$name\b""")
+        // `fun <T> name(...)`: the type parameters sit between the keyword and the name.
+        val declaration = Regex("""\b(fun|val|var)\s+(<[^>]*>\s+)?$name\b""")
         val start = lines.indexOfFirst { declaration.containsMatchIn(it) }
         check(start >= 0) { "${file.name} declares no '$name' — did it get renamed?" }
         val indent = lines[start].indentWidth()
@@ -229,8 +296,19 @@ class ConversationScopeWiringTest {
         private const val SHARED_DECISION = "ConversationScope.folders("
         private const val SHARED_SENT = "ConversationScope.sentFolders("
 
+        /** The row's own representative, subtracted from the members at the place both are drawn. */
+        private val MEMBERS_BELOW =
+            Regex("""membersBelow\(\s*threadMembers\[threadKey]\.orEmpty\(\)\s*,\s*email\.id\s*\)""")
+
+        /** The only form allowed to hide a member from the unfolded rows. */
+        private const val SCOPED_HIDE = "hidingThreadMembers"
+
+        /** Raising or lifting that mask outside [SCOPED_HIDE] — the shape a caller can forget. */
+        private val BY_HAND = Regex("""\b(removedMembers|restoreThreadMembers|dropThreadMembers?)\b""")
+
         private const val APP_SOURCES = "app/src/main/kotlin"
         private const val INBOX_VIEW_MODEL_PATH = "$APP_SOURCES/app/sterna/ui/inbox/InboxViewModel.kt"
+        private const val INBOX_SCREEN_PATH = "$APP_SOURCES/app/sterna/ui/inbox/InboxScreen.kt"
         private const val CONVERSATION_EXPANSION_PATH = "$APP_SOURCES/app/sterna/ui/inbox/ConversationExpansion.kt"
         private const val REPOSITORY_PATH = "core/data/src/main/kotlin/app/sterna/core/data/mail/MailRepository.kt"
 
@@ -245,6 +323,7 @@ class ConversationScopeWiringTest {
         }
 
         private val INBOX_VIEW_MODEL: File by lazy { File(root, INBOX_VIEW_MODEL_PATH) }
+        private val INBOX_SCREEN: File by lazy { File(root, INBOX_SCREEN_PATH) }
         private val CONVERSATION_EXPANSION: File by lazy { File(root, CONVERSATION_EXPANSION_PATH) }
         private val MAIL_REPOSITORY: File by lazy { File(root, REPOSITORY_PATH) }
     }
