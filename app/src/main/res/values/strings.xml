@@ -359,7 +359,6 @@
     <string name="settings_conversation_subtitle">Group messages of the same thread into one row, with a count. Threads come from the server, so this groups messages in JMAP accounts; in an IMAP account each message stays on its own row.</string>
     <string name="settings_unarchive_on_reply_title">Unarchive on new reply</string>
     <string name="settings_unarchive_on_reply_subtitle">When a new reply arrives, bring the conversation’s archived messages back to the inbox.</string>
-    <string name="settings_conversation_imap_note">These settings need a JMAP account. IMAP has no server-side threads, so each message stays on its own.</string>
     <string name="settings_swipe_actions_section">Swipe actions</string>
     <string name="settings_signature_section">Signature</string>
     <string name="settings_signature_on_replies_title">Signature in replies</string>

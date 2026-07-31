@@ -668,7 +668,6 @@
     <string name="settings_conversation_subtitle">Grupuj wiadomości z tego samego wątku w jeden wiersz, z licznikiem. Wątki pochodzą z serwera: na kontach JMAP wiadomości są grupowane, na koncie IMAP każda wiadomość zostaje w osobnym wierszu.</string>
     <string name="settings_unarchive_on_reply_title">Cofnij archiwizację po nowej odpowiedzi</string>
     <string name="settings_unarchive_on_reply_subtitle">Gdy nadejdzie nowa odpowiedź, przywróć zarchiwizowane wiadomości z rozmowy do Odebranych.</string>
-    <string name="settings_conversation_imap_note">Te ustawienia wymagają konta JMAP. IMAP nie ma wątków po stronie serwera, więc każda wiadomość pozostaje osobno.</string>
     <string name="compose_many_recipients_title">Wysłać do wielu osób?</string>
     <string name="compose_many_recipients_message">Ta wiadomość zostanie wysłana do %1$d odbiorców.</string>
     <string name="compose_many_recipients_send">Wyślij do wszystkich</string>

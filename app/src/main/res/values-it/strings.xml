@@ -666,7 +666,6 @@
     <string name="settings_conversation_subtitle">Raggruppa i messaggi della stessa conversazione in un\'unica riga, con un conteggio. Le conversazioni vengono dal server: negli account JMAP i messaggi vengono raggruppati, in un account IMAP ogni messaggio resta sulla propria riga.</string>
     <string name="settings_unarchive_on_reply_title">Annulla l\'archiviazione all\'arrivo di una risposta</string>
     <string name="settings_unarchive_on_reply_subtitle">Quando arriva una nuova risposta, riporta nella posta in arrivo i messaggi archiviati della conversazione.</string>
-    <string name="settings_conversation_imap_note">Queste impostazioni richiedono un account JMAP. IMAP non ha conversazioni lato server, quindi ogni messaggio resta a sé.</string>
     <string name="compose_many_recipients_title">Inviare a molte persone?</string>
     <string name="compose_many_recipients_message">Questo messaggio verrà inviato a %1$d destinatari.</string>
     <string name="compose_many_recipients_send">Invia a tutti</string>

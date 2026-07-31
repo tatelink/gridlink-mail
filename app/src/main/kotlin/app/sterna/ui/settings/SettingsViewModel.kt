@@ -308,12 +308,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setSwipeLeftAction(action) }
     }
 
-    /** Every configured account is IMAP. NO CALLER since the Conversations section stopped greying
-     *  its switches: the setting must not depend on which accounts happen to exist (a single JMAP
-     *  account used to re-enable it and hide the IMAP note while IMAP mail still grouped nothing).
-     *  Kept, not deleted, in case a screen needs the question again — delete it if none does. */
-    fun isImapOnly(): Boolean = isImapOnly(store.accounts().map { it.protocol })
-
     val conversationView = settings.conversationView.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
