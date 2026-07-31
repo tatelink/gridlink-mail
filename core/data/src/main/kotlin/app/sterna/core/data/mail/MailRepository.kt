@@ -434,7 +434,10 @@ private fun conversationQuery(
     // (accountId, sentId) per Sent pair [+ account id]; the outer WHERE binds like the
     // in-view sub-query; the account-wide total sub-query binds nothing (it is scoped by
     // joining on the representative's accountId).
-    val sent = sentMailboxes.distinct()
+    // The chip's Sent scope comes from [ConversationScope] — the SAME function the unfolded list
+    // gets its folders from, on the same resolution — so the number on the row and the messages
+    // under it cannot describe two different conversations.
+    val sent = ConversationScope.sentFolders(sentMailboxes, accountId)
     val perClause = mailboxIds + listOfNotNull(accountId)
     val chipClause = mailboxIds + sent.flatMap { listOf(it.first, it.second) } + listOfNotNull(accountId)
     val args = perClause + chipClause + perClause
@@ -3745,19 +3748,20 @@ class MailRepository(
         else emailDao.cachedThreadEmails(accountId, mailboxIds, threadKey).map { it.toEmail() }
 
     /**
-     * The cached Sent-role mailbox id of each of [accountIds] (accounts without a cached Sent
-     * folder are skipped). Backs the conversation view's "this folder plus Sent replies"
-     * scope: the chip count and the unfolded member list both extend the viewed folder(s)
-     * with these, so a conversation never shows (or counts) Trash/Spam/Drafts members.
-     */
-    suspend fun sentMailboxIds(accountIds: List<String>): List<String> =
-        accountIds.distinct().mapNotNull { mailboxDao.idForRole(it, "sent") }
-
-    /**
-     * Reactive variant of [sentMailboxIds], as account-pinned (accountId, mailboxId) pairs
-     * for the conversation chip's Sent scope: re-resolves when the folder table changes, so
-     * a fresh install's chips pick the Sent folder up on the first folder sync instead of
-     * waiting for the next paging-key change, and never bleed across colliding mailbox ids.
+     * The cached Sent-role folder of each of [accountIds], as account-pinned
+     * (accountId, mailboxId) pairs (accounts without a cached Sent folder are skipped).
+     *
+     * THE conversation view's Sent resolution — the single one. It backs the "this folder plus
+     * Sent replies" scope that the chip count and the unfolded member list both extend the viewed
+     * folder(s) with (see [ConversationScope]), so a conversation never shows, nor counts,
+     * Trash/Spam/Drafts members. There is deliberately no one-shot variant: the unfold reads the
+     * value this flow last handed the list rather than looking the folder up again, because two
+     * lookups are two answers and the reader sees the difference as a chip that lies.
+     *
+     * Reactive because it must be: it re-resolves when the folder table changes, so a fresh
+     * install's chips pick the Sent folder up on the first folder sync instead of staying wrong
+     * until the next paging-key change. Pinned to their account so colliding mailbox ids across
+     * same-server accounts never bleed into a sibling's conversation.
      */
     fun observeSentMailboxes(accountIds: List<String>): Flow<List<Pair<String, String>>> =
         mailboxDao.observeSentMailboxes(accountIds.distinct())

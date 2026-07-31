@@ -19,6 +19,7 @@ import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.db.OutboxState
 import app.sterna.core.data.getOrElseUnlessCancelled
+import app.sterna.core.data.mail.ConversationScope
 import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.mail.InboxRow
 import app.sterna.core.data.mail.MailRepository
@@ -329,7 +330,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         // Display scope of the unfolded conversation: the viewed folder(s) plus the thread's
         // own account's Sent folder — a conversation is folder-scoped, so members sitting in
         // Trash/Spam/Drafts (or any other folder) belong to THAT folder's conversation and
-        // never surface here. The Sent id resolves once per expansion, not per row.
+        // never surface here. The Sent folder is not looked up here: it is the one the list was
+        // drawn with, so the unfold shows exactly what the row's chip counted.
         val allowed = expansionMailboxIds(rep)
         // Members hidden by an active snooze stay out of the unfolded list too — the chip's
         // SQL excludes them, and the expansion must show exactly what the chip counts (they
@@ -364,15 +366,27 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _threadMembers.value = _threadMembers.value + (key to ConversationExpansion.mergeMembers(current, scoped, rep.id))
     }
 
-    /** The mailbox ids an unfolded conversation may show: the current view's plus the Sent
-     *  folder of the thread's own account (resolved per-account, so a unified-view thread of
-     *  a non-current account gets ITS Sent folder, not the current account's). */
-    private suspend fun expansionMailboxIds(rep: Email): Set<String> {
-        val accountId = rep.accountId ?: store.load()?.id
-        val sent = if (accountId == null) emptyList()
-        else runCatching { repo.sentMailboxIds(listOf(accountId)) }.getOrDefault(emptyList())
-        return (currentMailboxIds() + sent).toSet()
-    }
+    /**
+     * The mailbox ids an unfolded conversation may show: the current view's plus the Sent folder
+     * of the thread's OWN account (per-account, so a unified-view thread of a non-current account
+     * gets its own Sent folder, not the current account's).
+     *
+     * The Sent resolution is the one the list on screen was built with ([listSentMailboxes]) —
+     * the same value the row's chip counted over, through the same [ConversationScope.folders].
+     * Looking the folder up again here is what made a chip of 3 unfold to 2: the second lookup
+     * could come back empty (a failure, swallowed) while the chip had already counted the Sent
+     * reply. One resolution, one decision, so the two cannot disagree.
+     *
+     * The account is the REPRESENTATIVE's, falling back to the current account only for a message
+     * that never came from the cache — never the other way round, or the unified view would scope
+     * another account's conversation to the current account's Sent folder.
+     */
+    private fun expansionMailboxIds(rep: Email): Set<String> =
+        ConversationScope.folders(
+            viewedMailboxIds = currentMailboxIds(),
+            sentMailboxes = listSentMailboxes,
+            accountId = rep.accountId ?: store.load()?.id,
+        )
 
     /**
      * Cached thread members minus the representative already shown on the collapsed row.
@@ -622,9 +636,22 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /** The accounts' Sent folders backing the chip's "plus Sent replies" scope — live from the
      *  folder cache in conversation mode (deduped upstream, so the pager only rebuilds when a
-     *  Sent id actually changes); flat mode needs none. */
+     *  Sent id actually changes); flat mode needs none. Every emission is also kept in
+     *  [listSentMailboxes], because unfolding a row must reuse what that row's chip counted. */
     private fun sentScopes(key: PageKey, accountIds: List<String>): Flow<List<Pair<String, String>>> =
-        if (key.conversationView) repo.observeSentMailboxes(accountIds) else flowOf(emptyList())
+        (if (key.conversationView) repo.observeSentMailboxes(accountIds) else flowOf(emptyList<Pair<String, String>>()))
+            .onEach { listSentMailboxes = it }
+
+    /**
+     * The Sent resolution the list currently on screen was built with: the very pairs the chips
+     * counted over. Recorded here on the way into the pager ([sentScopes]) and read back by
+     * [expansionMailboxIds], so the unfold and the chip describe one conversation rather than two.
+     *
+     * A resolution that changes rebuilds the pager, which redraws the chips — the recorded value
+     * and the drawn chips move together. Written from the paging flow and read from the UI
+     * coroutine, hence @Volatile.
+     */
+    @Volatile private var listSentMailboxes: List<Pair<String, String>> = emptyList()
 
     // "All inboxes (N)" sums the SAME live per-inbox aggregates the folder badges below it
     // read (mode-aware: unread threads in conversation view, unread messages in flat view),
