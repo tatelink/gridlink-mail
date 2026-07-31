@@ -71,8 +71,10 @@ interface EmailFtsDao {
      * an instant coverage floor while the full index crawl (whole mailbox) runs in the background.
      * Cached Trash/Junk rows are skipped ([excludedRoles], the same role source the search
      * excludes), so the index doesn't carry rows a search may never surface. It is only an economy,
-     * NOT the guarantee: a message indexed in the Inbox and thrown away afterwards stays in the
-     * index until the next re-seed. What keeps it out of the results is [search]'s own filter.
+     * NOT a cleanup: [deleteCachedRows] can only clear index rows whose message is STILL cached, so
+     * a row left behind by a message that is gone would survive every re-seed. What removes those
+     * is `EmailDao.deleteById`/`deleteByIds`, at the moment the message leaves; what hides rows
+     * that are merely mislabelled is [search]'s own filter.
      */
     @Transaction
     suspend fun seedFromEmails(excludedRoles: Collection<String>) {
@@ -84,12 +86,25 @@ interface EmailFtsDao {
      * Prefix full-text search. [match] is a pre-built FTS4 MATCH expression (e.g. `eco* log*`).
      * Ranked newest-first; [limit] caps the result set.
      *
-     * A hit whose folder is one of [excludedRoles] (Trash/Junk/Spam — the same role source the
-     * server filter uses) is dropped HERE, at query time, not by keeping the index clean: a message
-     * indexed while it sat in the Inbox stays indexed after it is thrown away, and every path that
-     * moves mail (swipe, menu, server rule, reconciliation, undo) would otherwise have to remember
-     * to un-index it — one forgotten path and deleted mail is searchable again. Filtering the query
-     * needs no such invariant: whatever ends up in the index, only searchable folders come out.
+     * Deleted mail is kept out of these results by TWO disjoint defences, and this query is only
+     * one of them. Neither subsumes the other; do not remove either as redundant.
+     *
+     * THIS one drops a hit whose index row is LABELLED with an excluded folder ([excludedRoles],
+     * Trash/Junk/Spam — the same role source the server filter uses). Rows get labelled that way
+     * when they were WRITTEN with the excluded mailbox already on them: the folder cache carried no
+     * role yet when the crawl indexed them, the role arrived from the server afterwards, or the row
+     * came from `MIGRATION_14_15`, which repopulated the index straight `FROM emails` with no
+     * exclusion at all.
+     *
+     * It cannot catch the ordinary "I deleted this and search gave it back" case, because NOTHING
+     * rewrites `email_fts.mailboxId`: a message indexed while it sat in the Inbox still carries the
+     * Inbox here after it is thrown away, so the role this looks up is the Inbox's and the hit is
+     * returned. That case is closed at the other end — `EmailDao.deleteById`/`deleteByIds` delete
+     * the index row along with the cached message, and every path that takes mail out of a folder
+     * funnels through those two.
+     *
+     * In short: this filter catches rows that are still there but mislabelled; the un-indexing on
+     * delete catches messages that are gone.
      *
      * The folder is matched by (accountId, mailboxId) against the local `mailboxes` cache, so the
      * search stays instant and offline. A hit whose folder is NOT cached is KEPT: the index and the

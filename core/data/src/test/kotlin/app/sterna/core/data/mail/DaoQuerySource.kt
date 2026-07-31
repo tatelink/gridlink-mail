@@ -30,6 +30,38 @@ internal object DaoQuerySource {
      */
     fun emailDaoQuery(functionName: String): String = daoQuery("EmailDao", functionName)
 
+    /**
+     * The Kotlin body of `fun [functionName]` in [daoName], braces included.
+     *
+     * A `@Transaction` default method composes several statements, and running those statements
+     * one after another in a test proves what each does but NOT that the shipped function still
+     * calls both. This is how a test checks the wiring itself; the lookup fails loudly if the
+     * function is renamed or stops having a body.
+     */
+    fun daoFunctionBody(daoName: String, functionName: String): String {
+        val source = daoSource(daoName)
+        val fn = Regex("""\bfun\s+$functionName\s*\(""").find(source)
+            ?: error("$daoName has no function named '$functionName' — did it get renamed?")
+        // The brace must be this signature's own, right after its closing ')': an abstract DAO
+        // function has none, and taking "the next '{' in the file" would silently hand back some
+        // later function's body.
+        val open = bodyBrace(source, fn.range.last)
+        check(open >= 0) {
+            "'$functionName' in $daoName has no body — is it still the @Transaction that composes " +
+                "its statements, or has it gone back to a single abstract @Query?"
+        }
+        var depth = 0
+        var i = open
+        while (i < source.length) {
+            when (source[i]) {
+                '{' -> depth++
+                '}' -> if (--depth == 0) return source.substring(open, i + 1)
+            }
+            i++
+        }
+        error("Unbalanced braces in $daoName.$functionName")
+    }
+
     /** [emailDaoQuery] for any DAO of the `db` package, named without its `.kt` ([daoName]). */
     fun daoQuery(daoName: String, functionName: String): String {
         val source = daoSource(daoName)
@@ -63,6 +95,28 @@ internal object DaoQuerySource {
             out = out.replace(":$name", List(count) { "?" }.joinToString(","))
         }
         return out to order
+    }
+
+    /**
+     * Index of the `{` opening the body of the function whose parameter list starts at [paren],
+     * or -1 when the function is abstract. Walks the parameter list to its closing `)` (it may
+     * span lines), then accepts only a `{` on that same line — anything else means no body.
+     */
+    private fun bodyBrace(source: String, paren: Int): Int {
+        var depth = 0
+        var i = paren
+        while (i < source.length) {
+            when (source[i]) {
+                '(' -> depth++
+                ')' -> if (--depth == 0) {
+                    var j = i + 1
+                    while (j < source.length && source[j] == ' ') j++
+                    return if (j < source.length && source[j] == '{') j else -1
+                }
+            }
+            i++
+        }
+        return -1
     }
 
     /** The double-quoted literals of [text] up to its first unbalanced `)`, in order. */

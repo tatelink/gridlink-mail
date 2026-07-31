@@ -1469,6 +1469,9 @@ class MailRepository(
      * Trash/Junk/Spam are filtered by the query itself, from [NOT_SEARCHED_ROLES] — the single role
      * source the server-side filter also uses, so both halves of the search union (local index and
      * server answer) hide the same folders instead of the local half putting deleted mail back.
+     * That filter only sees rows LABELLED with an excluded folder; a message that was indexed in
+     * the Inbox and then deleted keeps the Inbox as its label forever, and is kept out by
+     * `EmailDao.deleteById`/`deleteByIds` un-indexing it as it goes. See `EmailFtsDao.search`.
      */
     suspend fun searchIndex(query: String, limit: Int = LOCAL_SEARCH_LIMIT): List<Email> {
         val match = ftsMatch(query) ?: return emptyList()

@@ -59,6 +59,15 @@ interface EmailDao {
     @Upsert
     suspend fun upsertAll(emails: List<EmailEntity>)
 
+    /**
+     * Prune the cached page of a mailbox down to [keepIds] — window eviction, NOT removal: the
+     * messages dropped here are still sitting in that folder on the server, they merely fell out
+     * of the recent window the list caches.
+     *
+     * Which is why this must NOT touch the search index, unlike [deleteById]/[deleteByIds]: the
+     * index deliberately outlives the display cache (that is what makes offline search cover more
+     * than the last page), and un-indexing on eviction would hollow it out on every scroll.
+     */
     @Query("DELETE FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId AND id NOT IN (:keepIds)")
     suspend fun deleteNotIn(accountId: String, mailboxId: String, keepIds: List<String>)
 
@@ -80,11 +89,59 @@ interface EmailDao {
     @Query("UPDATE emails SET flagged = :flagged WHERE accountId = :accountId AND id = :id")
     suspend fun setFlagged(accountId: String, id: String, flagged: Boolean)
 
+    /**
+     * Take one message OUT OF THIS PLACE: drop its cached row **and its search-index row**, in one
+     * transaction.
+     *
+     * Every path that removes mail from a folder funnels through this function or [deleteByIds] —
+     * swipe, menu, delete, move, archive, mark-as-spam, permanent purge, undo, reconciliation of a
+     * move the server made, some twenty call sites in `MailRepository`. Un-indexing HERE instead of
+     * at each of them is the point: the index cannot be left holding a message the cache no longer
+     * has, and a move path written next year is covered without anyone remembering to.
+     *
+     * Contrast [deleteNotIn] / [deleteNotInSparing], which must NOT un-index and deliberately do
+     * not: they evict rows whose messages are still exactly where they were, merely fallen out of
+     * the cached page. Wiring those to the index would empty it as the user scrolls. The line is
+     * the whole correctness of this: here = "this message left this place"; there = "this page is
+     * no longer cached".
+     *
+     * The un-indexing is unconditional, destination unknown — none is available at most call sites,
+     * and a permanent destroy has none at all. So a move to a *searchable* folder (archive) also
+     * drops the message from the offline half of search until the next index crawl
+     * (`syncSearchIndex`) or cache re-seed (`seedIndexFromCache`). That is the cheap error: the
+     * server half of the same union still finds it. The expensive error is the other direction — a
+     * deleted message coming back in the results with its subject and preview, which is exactly
+     * what un-indexing nowhere produced.
+     */
+    @Transaction
+    suspend fun deleteById(accountId: String, id: String) {
+        deleteRowById(accountId, id)
+        unindexById(accountId, id)
+    }
+
+    /** [deleteById] for several ids of one account — same cache-and-index pairing. */
+    @Transaction
+    suspend fun deleteByIds(accountId: String, ids: List<String>) {
+        if (ids.isEmpty()) return
+        deleteRowsByIds(accountId, ids)
+        unindexByIds(accountId, ids)
+    }
+
+    // The two halves of [deleteById] / [deleteByIds]. Call the pair above, not these. Both halves
+    // are scoped by accountId for the same reason the rest of this DAO is (issue #31): an email id
+    // is unique only within its account, so an unscoped delete would take out a same-server sibling
+    // account's cached row — or its index entry.
     @Query("DELETE FROM emails WHERE accountId = :accountId AND id = :id")
-    suspend fun deleteById(accountId: String, id: String)
+    suspend fun deleteRowById(accountId: String, id: String)
 
     @Query("DELETE FROM emails WHERE accountId = :accountId AND id IN (:ids)")
-    suspend fun deleteByIds(accountId: String, ids: List<String>)
+    suspend fun deleteRowsByIds(accountId: String, ids: List<String>)
+
+    @Query("DELETE FROM email_fts WHERE accountId = :accountId AND emailId = :id")
+    suspend fun unindexById(accountId: String, id: String)
+
+    @Query("DELETE FROM email_fts WHERE accountId = :accountId AND emailId IN (:ids)")
+    suspend fun unindexByIds(accountId: String, ids: List<String>)
 
     /** Cached message count for one account's mailbox (end-of-pagination check). */
     @Query("SELECT COUNT(*) FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId")
