@@ -190,6 +190,13 @@ internal object ThreadMemberStream {
  * Here there is no duty to forget: whatever the call does — succeed, fail, snooze, or throw — the
  * mask comes down with it, and what the reader then sees is decided by the cache and the snooze
  * table, which are the things that actually know.
+ *
+ * INVARIANT, for the next caller: this is a SET, not a counter. Two [hiding] calls overlapping on
+ * the same member would have the inner one lift a mask the outer still needs, and the member would
+ * come back under the reader's thumb for the rest of the outer call. Nothing reaches that today —
+ * the one gesture that raises the mask twice, bulk delete, PARTITIONS its selection into the
+ * held-back destroy and the move, so the two sets are disjoint by construction. A path that masks a
+ * member already masked has to make the mask count first.
  */
 internal class ThreadMemberMask {
     private val hidden = mutableSetOf<EmailKey>()

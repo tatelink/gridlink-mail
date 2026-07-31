@@ -28,6 +28,8 @@ import java.sql.DriverManager
  * Two cases guard the LINE the un-indexing must not cross, and they matter as much as the deletion
  * itself: the retention window evicts messages that are still in their folder and must leave their
  * index rows alone, and an index that cannot be written must not stop a message from being deleted.
+ * A third guards the exception on that line — deleting what already sits in the Trash un-indexes,
+ * one message at a time exactly as in bulk, because the Trash is out of search at both ends.
  */
 class DeletedMailLeavesTheIndexSqlTest {
     private lateinit var db: Connection
@@ -264,12 +266,15 @@ class DeletedMailLeavesTheIndexSqlTest {
     }
 
     @Test fun anActionThatMovedNothingKeepsTheIndexRowOfWhatItDidNotMove() {
-        // Archiving a message that is already in the Archive, moving one to the folder it is in,
-        // deleting one that is already in the Trash: nothing leaves anything, and the row only goes
+        // Archiving a message that is already in the Archive, moving one to the folder it is in:
+        // nothing leaves anything, the message stays in a SEARCHABLE folder, and the row only goes
         // because the action was empty. Sending those through the delete path un-indexed messages
         // sitting untouched on the server — and it is the SWIPE paths, the most used of all. Deep in
         // a folder, past the sync window, that was permanent: the IMAP index crawl does not exist
         // and the re-seed only rewrites rows whose message is still cached.
+        //
+        // Deleting a message that is already in the Trash is NOT one of these — see
+        // [aTrashDeleteTakesTheIndexRowOneByOneAsInBulk].
         folder("mb-archive", role = "archive")
         message("already", "mb-archive")
         message("other", "mb-archive")
@@ -284,8 +289,9 @@ class DeletedMailLeavesTheIndexSqlTest {
     @Test fun everyNoOpBranchGoesThroughTheEvictionThatSparesTheIndex() {
         // The wiring the case above cannot see: which repository paths hand their empty actions to
         // it. Each of these has a branch where the destination IS the source; a new one that reaches
-        // for deleteById instead has to fail here.
-        val missing = listOf("archive", "moveToMailbox", "delete", "archiveAll", "moveAllToMailbox")
+        // for deleteById instead has to fail here. The delete paths are deliberately absent, and
+        // the case below is what holds them out.
+        val missing = listOf("archive", "moveToMailbox", "archiveAll", "moveAllToMailbox")
             .filterNot { "$NO_OP_EVICTION(" in DaoQuerySource.mailFunctionBody("MailRepository", it) }
         assertEquals(
             "these MailRepository paths no longer call $NO_OP_EVICTION(): an action that moves " +
@@ -294,19 +300,93 @@ class DeletedMailLeavesTheIndexSqlTest {
         )
     }
 
+    @Test fun aTrashDeleteTakesTheIndexRowOneByOneAsInBulk() {
+        // The exception to the rule above, and the two paths must state it the same way: deleting a
+        // message that is ALREADY in the Trash moves nothing on the server either, but the Trash is
+        // excluded from search at both ends — the query's folder filter and the re-seed — so an
+        // index row surviving there carries the folder the message sat in BEFORE it was thrown
+        // away. That is exactly the stale row that hands a deleted message back with its subject and
+        // preview, so taking it is right, not merely harmless. The bulk path (deleteAll) always said
+        // so; the single one (delete) was toggled to the index-sparing eviction and the two then
+        // contradicted each other, one swipe apart.
+        val paths = listOf("delete", "deleteAll")
+        val sparing = paths.filter { "$NO_OP_EVICTION(" in DaoQuerySource.mailFunctionBody("MailRepository", it) }
+        assertEquals(
+            "the delete paths must NOT evict through $NO_OP_EVICTION: it spares the search-index " +
+                "row, and a row left in the index for a message in the Trash carries its previous " +
+                "folder — the stale hit that gives a deleted message back",
+            emptyList<String>(), sparing,
+        )
+        val removals = paths.associateWith { cacheRemovalsIn(it) }
+        assertEquals(
+            "these delete paths no longer remove any cached row through EmailDao — has the delete " +
+                "stopped emptying the local list, or does it go through a wrapper this rule does " +
+                "not know about ($REMOVAL_WRAPPERS)?",
+            emptyList<String>(), removals.filterValues { it.isEmpty() }.keys.toList(),
+        )
+        assertEquals(
+            "these delete paths empty the cache with an EmailDao function that leaves the search " +
+                "index alone — a message deleted from the Trash would keep an index row labelled " +
+                "with the folder it was in before, and come back in the results",
+            emptyList<String>(),
+            removals.flatMap { (path, functions) ->
+                functions.filterNot(::unindexes).map { "MailRepository.$path → EmailDao.$it" }
+            },
+        )
+
+        // And the effect itself, replayed on the statements each path actually issues.
+        folder("mb-trash", role = "trash")
+        message("one-by-one", "mb-trash")
+        message("in-bulk", "mb-trash")
+        removals.forEach { (path, functions) ->
+            val id = if (path == "delete") "one-by-one" else "in-bulk"
+            functions.forEach { function ->
+                deletePath(function, mapOf("accountId" to "acc", "id" to id, "ids" to listOf(id)))
+            }
+        }
+        assertEquals(emptyList<String>(), cached())
+        assertEquals(emptyList<String>(), indexed())
+    }
+
     /**
-     * The `EmailDao` function `MailRepository.evictAlreadyThere` — the shared cleanup of an action
-     * that moved nothing — evicts with, read out of its own body like [retentionEviction].
+     * The `EmailDao` functions `MailRepository.[path]` empties the display cache through: its own
+     * `emailDao.x(` calls plus those of the removal wrappers it delegates to ([REMOVAL_WRAPPERS]),
+     * keeping the ones whose statements DELETE from `emails`.
      */
-    private fun noOpEviction(): String =
+    private fun cacheRemovalsIn(path: String): Set<String> {
+        val body = DaoQuerySource.mailFunctionBody("MailRepository", path)
+        val direct = Regex("""emailDao\.(\w+)\(""").findAll(body).map { it.groupValues[1] }.toList()
+        val delegated = REMOVAL_WRAPPERS.filter { "$it(" in body }.map { daoRemovalIn(it) }
+        return (direct + delegated).filter(::deletesCache).toSet()
+    }
+
+    private fun deletesCache(function: String): Boolean =
+        DaoQuerySource.emailDaoStatements(function).any { it.sql.contains("DELETE FROM emails", ignoreCase = true) }
+
+    private fun unindexes(function: String): Boolean =
+        DaoQuerySource.emailDaoStatements(function).any { it.sql.contains("DELETE FROM email_fts", ignoreCase = true) }
+
+    /**
+     * The `EmailDao` function the `MailRepository` wrapper [repositoryFunction] evicts with, read
+     * out of that wrapper's own body — so a case follows whatever the shipped path calls instead of
+     * asserting against a hand-picked function it may no longer use. The eviction is the DAO call
+     * whose statements DELETE (the others read the rows to decide on).
+     */
+    private fun daoRemovalIn(repositoryFunction: String): String =
         Regex("""emailDao\.(\w+)\(""")
-            .findAll(DaoQuerySource.mailFunctionBody("MailRepository", NO_OP_EVICTION))
+            .findAll(DaoQuerySource.mailFunctionBody("MailRepository", repositoryFunction))
             .map { it.groupValues[1] }
             .distinct()
             .firstOrNull { name ->
                 DaoQuerySource.emailDaoStatements(name).any { it.sql.trimStart().startsWith("DELETE", ignoreCase = true) }
             }
-            ?: error("MailRepository.$NO_OP_EVICTION no longer evicts anything through EmailDao")
+            ?: error("MailRepository.$repositoryFunction no longer evicts anything through EmailDao")
+
+    /**
+     * The `EmailDao` function `MailRepository.evictAlreadyThere` — the shared cleanup of an action
+     * that moved nothing — evicts with, read out of its own body like [retentionEviction].
+     */
+    private fun noOpEviction(): String = daoRemovalIn(NO_OP_EVICTION)
 
     @Test fun theDeletePathIsOneTransaction() {
         // Restored after being dropped on the theory that only a transaction could let a broken
@@ -398,7 +478,12 @@ class DeletedMailLeavesTheIndexSqlTest {
 
     private companion object {
         /** The `MailRepository` function every "the destination is where it already is" branch
-         *  hands its ids to — named once, so the two rules above cannot drift apart. */
+         *  hands its ids to — named once, so the two rules above cannot drift apart. The delete
+         *  paths are the exception, and [REMOVAL_WRAPPERS] is how the rule sees what they use. */
         const val NO_OP_EVICTION = "evictAlreadyThere"
+
+        /** `MailRepository`'s own removal wrappers: a path's cache removal is either a direct
+         *  `emailDao.` call or one of these, and each resolves to the DAO function it evicts with. */
+        val REMOVAL_WRAPPERS = listOf("deleteFromCacheAndIndex", NO_OP_EVICTION)
     }
 }

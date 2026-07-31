@@ -2728,11 +2728,16 @@ class MailRepository(
     }
 
     /**
-     * The local cleanup of an action that MOVED NOTHING: archive/move/delete asked for a folder the
+     * The local cleanup of an action that MOVED NOTHING: archive or move asked for a folder the
      * message is already in, so the server was never touched and the message is exactly where it
      * was. The cached row still goes (the list is showing a folder the user just acted on, and the
      * row comes back with the next page like any other), but the search-index row must NOT — this is
      * `EmailDao.deleteNotIn`'s case, not `deleteByIds`'.
+     *
+     * NOT the delete paths' case, single or bulk: "already in the Trash" is a no-op on the server
+     * too, but the Trash is excluded from search at both ends, so the index row left standing there
+     * carries the message's PREVIOUS folder and is the stale row that hands a deleted message back.
+     * Those two branches un-index — see [delete] and [deleteAll].
      *
      * The distinction is not academic: these are the swipe paths, the most exercised of all. Paging
      * deep into Archive past the sync window and re-archiving what is already there took both rows
@@ -2987,7 +2992,8 @@ class MailRepository(
                     // And un-indexed, unlike the other no-op branches ([evictAlreadyThere]): the
                     // Trash is excluded from search at BOTH ends, so an index row still standing
                     // for a message sitting in the Trash carries an EARLIER label and is exactly
-                    // the stale row that hands a thrown-away message back. Taking it is right.
+                    // the stale row that hands a thrown-away message back. Taking it is right —
+                    // and the single-message [delete] says the same thing, deliberately.
                     source == trash -> deleteFromCacheAndIndex(credentials.id, ids)
                     else -> imapMoveGroup(credentials, source, ids, trash, succeeded, failed)
                 }
@@ -3444,15 +3450,22 @@ class MailRepository(
         val row = emailDao.emailsByIds(credentials.id, listOf(emailId)).firstOrNull()
         if (credentials.protocol == MailProtocol.IMAP) {
             val trash = imapRoleFolder(credentials, "trash") ?: error("This account has no Trash folder.")
-            var noop = false
             imapTarget(emailId)?.let { (mb, uid) ->
-                if (mb == trash) { noop = true; return@let } // already in the Trash — nothing moves
+                // Already in the Trash: nothing moves — but the cached row AND its index row both
+                // go, exactly as the bulk twin ([deleteAll]) does, and for its reason. This is the
+                // one "the destination is where it already is" branch that is NOT
+                // [evictAlreadyThere]'s: the others leave the message in a SEARCHABLE folder, where
+                // its index row is still true. The Trash is excluded from search at both ends (the
+                // query's folder filter and the re-seed), so an index row surviving here carries
+                // the label the message had BEFORE it was thrown away — the stale row that hands a
+                // deleted message back with its subject and preview. Taking it is right.
+                if (mb == trash) return@let
                 imap.move(credentials, mb, uid, trash)?.let {
                     lastImapMove[emailId] = ImapLoc(trash, it)
                     recentLocalMoves.mark(credentials.id, ImapMailService.emailId(credentials.id, trash, it))
                 }
             }
-            if (noop) evictAlreadyThere(credentials.id, listOf(emailId)) else emailDao.deleteById(credentials.id, emailId)
+            emailDao.deleteById(credentials.id, emailId)
             adjustCountsForRemoval(listOfNotNull(row), trash)
             return trash
         }

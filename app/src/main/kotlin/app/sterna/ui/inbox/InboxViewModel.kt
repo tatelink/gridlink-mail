@@ -419,12 +419,21 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * has already flown the row away and its cache row, which only goes on the server's
      * acknowledgement, would put it straight back.
      *
-     * The mask comes down with [op], whichever way it ends. On success there is nothing left to
-     * hide: the repository ops are network-first and have already dropped the row. On failure the
-     * member must be listed again, and is. And after an op that removed nothing at all — a snooze
-     * writes a date and leaves the message where it is — what hides the message afterwards is the
-     * snooze itself, which the reading watches and which ends by itself. The screen catches up on
-     * the next reading; nothing here has to remember to put anything back.
+     * The mask comes down with [op], whichever way it ends — but taking it down is NOT a redraw.
+     * Nothing here writes [_threadMembers] back: the member is listed again on the next emission of
+     * the live reading, which is the next write to the message table. On success that is exactly
+     * right — the repository ops are network-first, the row is already gone, there is nothing to put
+     * back. After an op that removed nothing at all — a snooze writes a date and leaves the message
+     * where it is — the snooze table's own emission redraws the rows, and the snooze ends by itself.
+     *
+     * The case that shows is a failure with nothing to emit behind it: offline, swipe a member of an
+     * unfolded conversation to the archive and the failure banner appears while the member stays off
+     * the row, because the failure path's `refresh()` writes nothing when there is no server to read
+     * from. It comes back with the next write, or when the row is folded and unfolded; the chip
+     * above it counts it throughout. Not a regression — the mask's earlier shape did not redraw
+     * either — and left as is deliberately: putting the members back from here means re-inserting
+     * copies this class is holding into a list the cache owns, which is the snapshot this whole path
+     * exists to remove.
      */
     private suspend fun <T> hidingThreadMembers(keys: Set<EmailKey>, op: suspend () -> T): T {
         if (_threadMembers.value.isNotEmpty()) {

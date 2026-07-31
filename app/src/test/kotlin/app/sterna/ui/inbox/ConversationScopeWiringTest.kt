@@ -22,7 +22,9 @@ import java.io.File
  * Verified against the mutations it exists for, one rule failing per mutation: scoping the unfold
  * with `emptyList()`, re-reading the selection at unfold time, giving the chip's pagers
  * `emptyList()` instead of the resolution their own flow produced, resolving the Sent folder a
- * second time, and reading the members once instead of observing them.
+ * second time, reading the members once instead of observing them, feeding the stream an empty
+ * snooze set instead of the observed table, unwrapping one caller of the mask, and dropping the
+ * recording of the conversation's order at the tap.
  *
  * What it does NOT do: it does not check that the value recorded is the value the pager used, only
  * that it is recorded where the pager is built and read where the unfold is scoped.
@@ -71,6 +73,15 @@ class ConversationScopeWiringTest {
             "the members must come from the OBSERVED repository query: a one-shot read is the " +
                 "snapshot this replaces. Body was:\n$body",
             "repo.observeThreadEmails(" in body,
+        )
+        assertTrue(
+            "observeThreadMembers must hand the stream the OBSERVED snooze table ($SNOOZE_SOURCE)): " +
+                "the members are read from `emails` alone, so nothing in that query notices a " +
+                "snooze starting or lapsing. Handed an empty set instead, every rule here and the " +
+                "whole suite stay green while a snoozed child is listed under a row whose chip " +
+                "excludes it — and a child snoozed from the selection bar comes back under the " +
+                "reader's thumb the moment the mask goes down. Body was:\n$body",
+            "snoozed = $SNOOZE_SOURCE" in body,
         )
         assertTrue(
             "the unfold must not re-read the selection: the folders it shows are the ones the list " +
@@ -183,6 +194,51 @@ class ConversationScopeWiringTest {
                 "path only is a duty again, and a failed — or a merely local — op would leave the " +
                 "grave standing. Body was:\n$hiding",
             "finally" in hiding,
+        )
+    }
+
+    @Test fun `every path that takes a member off the unfolded rows wraps its call in the mask`() {
+        // The rule above checks the wrapper EXISTS and goes through the mask; it says nothing about
+        // it being used. Unwrap a single caller — leave the op bare — and everything stays green
+        // while that gesture's child lands back under the reader's thumb for the length of the
+        // network call, which is the one thing the mask is for. So: the callers, by name, and how
+        // many there are. A new path that removes a member has to come here and say so.
+        val missing = MASKED_PATHS.filterNot { "$SCOPED_HIDE(" in body(INBOX_VIEW_MODEL, it) }
+        assertEquals(
+            "these InboxViewModel paths remove a member from the unfolded rows without wrapping " +
+                "the call in $SCOPED_HIDE: the cache row outlives the gesture, and the live reading " +
+                "puts the child straight back under the thumb",
+            emptyList<String>(), missing,
+        )
+        val calls = codeLines(INBOX_VIEW_MODEL).filter { isCall(it) }
+        assertEquals(
+            "$SCOPED_HIDE has ${MASKED_PATHS.size} call sites (${MASKED_PATHS.joinToString()}) and " +
+                "this counts them, because the rule above cannot tell a wrapper that is called from " +
+                "one that merely exists. A new masked path is welcome — add it to MASKED_PATHS. One " +
+                "that DISAPPEARED is the defect. Calls found:\n" + calls.joinToString("\n"),
+            MASKED_PATHS.size, calls.size,
+        )
+    }
+
+    // -- the swipe context a conversation opens with ------------------------------------------
+
+    @Test fun `opening a message inside a conversation records the order the row is showing`() {
+        // Nothing else pins this: drop the call and the recorded order stays empty, so the reading
+        // view's swipe — an existing feature — falls back to the single message it was handed and
+        // the conversation it was opened from is no longer pageable. Every test stays green.
+        val calls = codeLines(INBOX_SCREEN).filter { "$RECORD_ORDER(" in it }
+        assertEquals(
+            "InboxScreen must record the unfolded conversation's order at the tap, exactly once — " +
+                "it is the only place holding both the representative the row draws and the members " +
+                "drawn beneath it. Found:\n" + calls.joinToString("\n"),
+            1, calls.size,
+        )
+        assertTrue(
+            "the recorded order must be the row's OWN representative (email) plus the members it " +
+                "is drawing (members, the single subtracted read) — rebuilding it from anything " +
+                "else is the remembered representative this path exists to remove. Call was:\n" +
+                calls.single(),
+            RECORDED_ORDER.containsMatchIn(calls.single()),
         )
     }
 
@@ -300,8 +356,27 @@ class ConversationScopeWiringTest {
         private val MEMBERS_BELOW =
             Regex("""membersBelow\(\s*threadMembers\[threadKey]\.orEmpty\(\)\s*,\s*email\.id\s*\)""")
 
+        /** The observed snooze table the member stream must be fed — the chip's SQL excludes an
+         *  active snooze, and the unfold has to see it start AND lapse. */
+        private const val SNOOZE_SOURCE = "repo.observeActiveSnoozed("
+
         /** The only form allowed to hide a member from the unfolded rows. */
         private const val SCOPED_HIDE = "hidingThreadMembers"
+
+        /** A CALL to it, never its declaration (`fun <T> hidingThreadMembers(...)`) — the whole
+         *  point of the count is the call sites, and a declaration always answers for itself. */
+        private fun isCall(line: String) = "$SCOPED_HIDE(" in line && "fun " !in line
+
+        /** The paths that take a member off the unfolded rows, and must therefore mask it: the
+         *  swipe of one message, the held-back destroy, and the two selection-bar batches. */
+        private val MASKED_PATHS = listOf("heldBackDestroy", "swipeRemove", "bulk", "bulkBatched")
+
+        /** The swipe context of a message opened from inside an unfolded conversation. */
+        private const val RECORD_ORDER = "viewModel.recordThreadOrder"
+
+        /** Recorded from what the row is DRAWING: its own representative and the members below. */
+        private val RECORDED_ORDER =
+            Regex("""$RECORD_ORDER\(\s*threadKey\s*,\s*email\s*,\s*members\s*\)""")
 
         /** Raising or lifting that mask outside [SCOPED_HIDE] — the shape a caller can forget. */
         private val BY_HAND = Regex("""\b(removedMembers|restoreThreadMembers|dropThreadMembers?)\b""")
