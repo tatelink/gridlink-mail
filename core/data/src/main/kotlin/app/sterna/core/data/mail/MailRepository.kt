@@ -200,27 +200,58 @@ internal fun excludedSearchFolderIds(folders: List<MailboxIdRole>): List<String>
 internal val NOT_SEARCHED_ROLES = setOf("trash", "junk", "spam")
 
 /**
- * Whether an IMAP search answer may be presented as a TOTAL rather than as "what was found".
+ * Whether a search answer may be presented as a TOTAL ("3 results") rather than as a floor
+ * ("at least 3" — and never the flat "No results" that an empty answer would otherwise state as a
+ * fact). Protocol-independent: IMAP walks folders, JMAP queries the account in one shot, and both
+ * answer the same three questions.
  *
- * Three independent ways it may not be, all of which the screen treats identically ("at least N",
- * and never the flat "No results" of an empty answer):
- *  - [knownFolders] is empty, so the walk ran on the inbox alone as a fallback (or on nothing at
- *    all). "The whole account" was really a cached fraction of it, and a search that gathers —
- *    "flagged only" above all — would then hide every star filed in a folder never synced. This
- *    is the same objection that kept this feature out of the navigation drawer: a view that
- *    announces "your flagged mail" and shows part of it lies.
- *  - [walkComplete] is false: a folder refused to be searched, or an attachment scan hit its cap.
- *  - the walk filled the caller's cap ([found] = [limit]), so the server may have had more.
+ * All three must hold, and the screen treats the three failures identically:
+ *  - [scopeCoversAccount]: the search looked at the ACCOUNT, not at a fraction of it. A search that
+ *    gathers — "flagged only" above all — would otherwise hide every star filed in a folder that was
+ *    never synced. This is the same objection that kept that view out of the navigation drawer: a
+ *    screen announcing "your flagged mail" while showing part of it lies.
+ *  - [scanComplete]: the search ran to its end. A folder can refuse to be searched, an attachment
+ *    scan can stop on its own cap.
+ *  - [found] < [limit]: the answer did not fill the caller's cap, so the server had no more to give.
  *
- * Named and pure so all three are pinned by a test; inline at the call site, dropping one was
- * invisible.
+ * ⚠ [scopeCoversAccount] is a fact about the account's FOLDER LIST, never about a list DERIVED from
+ * it. "The cache told us nothing" and "the cache told us there is nothing to leave out" are two
+ * different states, and an empty derived list cannot tell them apart: an account with no Trash and
+ * no Junk folder has an empty exclusion list while its folder cache is perfectly populated, and
+ * reading emptiness off that list would deny it a total forever. Each protocol therefore derives the
+ * fact its own way and passes the ANSWER here — see [imapSearchComplete] for how the IMAP walk
+ * derives it, which is not the same question as the one a whole-account query has to ask.
+ *
+ * Named and pure so each reason is pinned by a test on its own; inline at a call site, dropping one
+ * was invisible.
+ */
+internal fun searchAnswerIsTotal(
+    scopeCoversAccount: Boolean,
+    scanComplete: Boolean,
+    found: Int,
+    limit: Int,
+): Boolean = scopeCoversAccount && scanComplete && found < limit
+
+/**
+ * [searchAnswerIsTotal] as the IMAP walk asks it.
+ *
+ * IMAP derives "did we cover the account?" from [knownFolders], the searchable ids the walk was
+ * BUILT from: when that list is empty the walk falls back to the inbox alone (or to nothing at all),
+ * so whatever came back describes one folder rather than the account. That is the derived list on
+ * purpose here — an account whose only cached folders are Trash and Junk has nothing left to walk
+ * and lands on the same fallback, which the raw folder list would not show.
  */
 internal fun imapSearchComplete(
     knownFolders: List<String>,
     walkComplete: Boolean,
     found: Int,
     limit: Int,
-): Boolean = knownFolders.isNotEmpty() && walkComplete && found < limit
+): Boolean = searchAnswerIsTotal(
+    scopeCoversAccount = knownFolders.isNotEmpty(),
+    scanComplete = walkComplete,
+    found = found,
+    limit = limit,
+)
 
 internal fun requireSingleLineAddresses(addresses: List<String>) {
     require(addresses.none { addr -> addr.any { it == '\r' || it == '\n' } }) {
