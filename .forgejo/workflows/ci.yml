@@ -6,15 +6,37 @@ on:
   pull_request:
 
 # Runs on a self-hosted Forgejo runner (see ci/README.md). The runner maps the
-# `docker` label to catthehacker/ubuntu:act-22.04. Only actions/checkout is used
-# (Codeberg mirrors it); the Android SDK installs via plain shell. Steps are split
-# and verbose (set -eux) so any failure is obvious in the run log.
+# `docker` label to catthehacker/ubuntu:act-22.04. The Android SDK installs via
+# plain shell. Steps are split and verbose (set -eux) so any failure is obvious
+# in the run log.
+#
+# NO `uses:` STEPS, DELIBERATELY — the checkout is done by hand below. To run an
+# action, the runner copies it into the job container, and Docker 29.7.0 stopped
+# creating the destination's missing parent directories on that copy: every
+# `docker cp src=... dst=/var/run/act/actions/<hash>/` now fails with "Could not
+# find the file", so ANY action fails the job before it starts. Reproduced on the
+# host, and upgrading the runner (6.3.1 -> 12.13.2) does not help; it is act's
+# copy that assumes the old behaviour. A workflow made only of `run:` steps has
+# nothing to copy, so it is immune. This also drops the dependency on
+# data.forgejo.org, whose month-old cached clone of the action had itself gone
+# stale when the upstream `v4` tag moved.
 jobs:
   build:
     runs-on: docker
     steps:
+      # Hand-rolled equivalent of actions/checkout@v4, see the note above. The
+      # repository is public, so no credentials are needed; depth 1 because the
+      # build never reads history. GITHUB_REF is the pushed branch (or the PR
+      # merge ref), which is what the run is meant to build.
       - name: Checkout
-        uses: actions/checkout@v4
+        run: |
+          set -eux
+          git --version
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git fetch --depth 1 origin "$GITHUB_REF"
+          git checkout --detach FETCH_HEAD
+          git log -1 --format='%H %s'
 
       - name: Install JDK 17
         run: |
