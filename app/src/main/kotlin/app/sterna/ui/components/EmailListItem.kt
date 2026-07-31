@@ -107,8 +107,10 @@ fun EmailListItem(
         ListDensity.SPACED -> 16.dp
     }
     val previewLines = LocalPreviewLines.current.lines
-    // Today → the time, this year → day and month, any other year → the year too, so a 2019 row
-    // and a 2026 one can no longer read the same. Shared with search, which mixes years by nature.
+    // Today → the time, this year → day and month, any other year → a short numeric date, so a
+    // 2019 row and a 2026 one can no longer read the same. Numeric on that last step to keep the
+    // stamp narrow: it shares this line with the sender's name, which must not be the field that
+    // yields. Shared with search, the one view that mixes years by construction.
     val receivedLabel = remember(email.receivedAt) { MailDates.formatListDate(email.receivedAt) }
     val motionOn = rememberMotionEnabled()
     // Return-from-message emphasis: a soft accent tint that rises then fades over ~1s, so the
