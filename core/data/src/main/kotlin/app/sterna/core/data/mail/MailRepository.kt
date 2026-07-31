@@ -199,6 +199,29 @@ internal fun excludedSearchFolderIds(folders: List<MailboxIdRole>): List<String>
 
 internal val NOT_SEARCHED_ROLES = setOf("trash", "junk", "spam")
 
+/**
+ * Whether an IMAP search answer may be presented as a TOTAL rather than as "what was found".
+ *
+ * Three independent ways it may not be, all of which the screen treats identically ("at least N",
+ * and never the flat "No results" of an empty answer):
+ *  - [knownFolders] is empty, so the walk ran on the inbox alone as a fallback (or on nothing at
+ *    all). "The whole account" was really a cached fraction of it, and a search that gathers —
+ *    "flagged only" above all — would then hide every star filed in a folder never synced. This
+ *    is the same objection that kept this feature out of the navigation drawer: a view that
+ *    announces "your flagged mail" and shows part of it lies.
+ *  - [walkComplete] is false: a folder refused to be searched, or an attachment scan hit its cap.
+ *  - the walk filled the caller's cap ([found] = [limit]), so the server may have had more.
+ *
+ * Named and pure so all three are pinned by a test; inline at the call site, dropping one was
+ * invisible.
+ */
+internal fun imapSearchComplete(
+    knownFolders: List<String>,
+    walkComplete: Boolean,
+    found: Int,
+    limit: Int,
+): Boolean = knownFolders.isNotEmpty() && walkComplete && found < limit
+
 internal fun requireSingleLineAddresses(addresses: List<String>) {
     require(addresses.none { addr -> addr.any { it == '\r' || it == '\n' } }) {
         "An address contains a line break."
@@ -3453,28 +3476,33 @@ class MailRepository(
     /**
      * Structured search across the account (results are transient, not cached).
      *
-     * IMAP takes the same criteria as JMAP: sender, recipient, subject and the date range go
-     * to the server as `SEARCH` keys (they used to be dropped in silence, so a filtered search
-     * quietly answered something else), across every cached folder of the account rather than
-     * the inbox alone. "Has an attachment" has no IMAP key and is filtered from BODYSTRUCTURE
-     * on the way back.
+     * IMAP takes the same criteria as JMAP: sender, recipient, subject, the flagged filter and
+     * the date range go to the server as `SEARCH` keys (they used to be dropped in silence, so a
+     * filtered search quietly answered something else), across every cached folder of the account
+     * rather than the inbox alone. "Has an attachment" is the one exception: no IMAP key exists
+     * for it, so it is filtered from BODYSTRUCTURE on the way back.
      *
      * The answer says whether it is whole ([MailSearchResult.complete]): a full page means the
-     * server may have had more, and an IMAP attachment scan can stop on its cap. Only a caller
-     * that knows this can put an honest count on screen.
+     * server may have had more, an IMAP attachment scan can stop on its cap, a folder can refuse
+     * to be searched, and the folder list itself can be a cached fraction of the account. Only a
+     * caller that knows this can put an honest count on screen.
      */
     suspend fun search(credentials: AccountCredentials, query: SearchQuery, limit: Int = 50): MailSearchResult {
         if (query.isEmpty()) return MailSearchResult(emptyList())
         if (credentials.protocol == MailProtocol.IMAP) {
-            // Folders come from the cache, so a search covers what the drawer knows; an account
-            // whose folders were never synced falls back to the inbox rather than nothing.
-            val folders = searchableFolderIds(mailboxDao.searchOrder(credentials.id))
-                .ifEmpty { listOfNotNull(mailboxDao.idForRole(credentials.id, "inbox")) }
-            if (folders.isEmpty()) return MailSearchResult(emptyList())
-            val hits = imap.search(credentials, folders, query.toImapCriteria(), query.hasAttachment, limit)
+            // Folders come from the cache, so "the whole account" really means "every folder the
+            // drawer has heard of"; an account whose folders were never synced falls back to the
+            // inbox rather than nothing.
+            val known = searchableFolderIds(mailboxDao.searchOrder(credentials.id))
+            val folders = known.ifEmpty { listOfNotNull(mailboxDao.idForRole(credentials.id, "inbox")) }
+            // Nothing to search at all — not even an inbox id. That is "we looked nowhere", which
+            // must never be reported as the confident "No results" the empty state states as a
+            // fact; see [imapSearchComplete] for the fallback case just above it.
+            if (folders.isEmpty()) return MailSearchResult(emptyList(), complete = false)
+            val hits = imap.search(credentials, folders, query.toImapCriteria(), query.requiresLocalScan(), limit)
             return MailSearchResult(
                 emails = hits.messages.map { it.toEmail() },
-                complete = hits.complete && hits.messages.size < limit,
+                complete = imapSearchComplete(known, hits.complete, hits.messages.size, limit),
             )
         }
         val ctx = connect(credentials)

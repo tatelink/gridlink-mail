@@ -92,14 +92,21 @@ private fun imapDay(millis: Long, plusDays: Long = 0): String =
 /**
  * One folder's matches. [mailbox] is the folder the UIDs belong to — UIDs mean nothing without it.
  *
- * [scanTruncated] says the walk gave up before examining every candidate (the attachment filter's
- * scan cap) WITHOUT filling the caller's cap: the answer may be short, and anything counting these
- * messages must say so rather than present a partial scan as a total.
+ * [incomplete] says THIS FOLDER'S answer is not whole, so anything counting these messages must
+ * say so rather than present a partial answer as a total. Two causes, deliberately one flag:
+ * the caller downstream does the same thing with either.
+ *  - the attachment filter's scan cap cut the walk short with candidates left over;
+ *  - the folder could not be searched at all (SELECT or SEARCH refused) and was skipped.
+ *
+ * The second case is why a skipped folder still produces an entry, with no messages in it: a
+ * folder that vanishes from the answer without a trace is indistinguishable, on screen, from a
+ * folder that simply held no match — and that is how a search which never ran ends up under
+ * "No results" as if it were a fact.
  */
 data class ImapFolderHits(
     val mailbox: String,
     val messages: List<ImapMessage>,
-    val scanTruncated: Boolean = false,
+    val incomplete: Boolean = false,
 )
 
 /** How many UIDs are fetched per `UID FETCH` while walking candidates for the attachment filter. */
@@ -118,15 +125,21 @@ private const val ATTACHMENT_SCAN_CAP = 1_000
  *
  * IMAP searches the SELECTed mailbox and only that one, so covering an account means
  * SELECT + UID SEARCH per folder — done on the one pooled connection, not a new one each time.
- * A folder that fails (gone, no permission, server hiccup) is reported to [onFolderError] and
- * skipped: one bad folder must not sink the whole search, nor vanish silently.
+ * A folder that fails (gone, no permission, server hiccup, a search key the server refuses) is
+ * reported to [onFolderError] and skipped: one bad folder must not sink the whole search. It is
+ * skipped LOUDLY though — it comes back as an empty [ImapFolderHits] marked
+ * [ImapFolderHits.incomplete], because the log line alone left the caller believing it had
+ * searched the folder and found nothing there. A server that refuses the whole command (an
+ * exotic one answering NO to a key it does not implement) fails EVERY folder that way, and the
+ * result was then an empty list calling itself complete: the screen stated "No results" about a
+ * search that never happened.
  *
  * When [requireAttachment] is set, IMAP has no key for it (`SEARCH` cannot express it), so the
  * server answers the other criteria and the attachment test is applied here from BODYSTRUCTURE,
  * which the envelope FETCH already carries. Candidates are then walked in batches until [limit]
  * messages have been KEPT or the candidates run out — the cap counts results, not rows examined,
  * so a filtered search cannot report three hits merely because it stopped looking after three.
- * A walk that still gives up on the scan cap marks its folder [ImapFolderHits.scanTruncated], so
+ * A walk that still gives up on the scan cap marks its folder [ImapFolderHits.incomplete], so
  * the count shown to the user can say "at least" instead of passing a partial scan off as a total.
  *
  * [stillWanted] is checked between folders: the walk is blocking and holds the account's one
@@ -150,10 +163,11 @@ fun ImapSession.searchFolders(
             searchOneFolder(command, requireAttachment, limit)
         } catch (t: Throwable) {
             onFolderError(mailbox, t)
+            hits += ImapFolderHits(mailbox, emptyList(), incomplete = true)
             continue
         }
         if (scan.messages.isNotEmpty() || scan.truncated) {
-            hits += ImapFolderHits(mailbox, scan.messages, scan.truncated)
+            hits += ImapFolderHits(mailbox, scan.messages, incomplete = scan.truncated)
         }
     }
     return hits

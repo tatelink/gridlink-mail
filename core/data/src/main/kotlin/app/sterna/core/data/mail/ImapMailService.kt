@@ -539,8 +539,9 @@ class ImapMailService(
      * IMAP UID is meaningless outside its mailbox, and the cache id is `imap:account:folder:uid`.
      * A folder that fails is logged and skipped, never silently merged away.
      *
-     * The result carries [ImapSearchHits.complete]: false when a folder's attachment scan stopped
-     * on its cap with candidates left, i.e. the list is what was found, not what exists.
+     * The result carries [ImapSearchHits.complete]: false when any folder's answer was not whole
+     * — its attachment scan stopped on its cap with candidates left, OR it could not be searched
+     * at all. The list is then what was found, not what exists.
      */
     suspend fun search(
         credentials: AccountCredentials,
@@ -571,7 +572,7 @@ class ImapMailService(
                     .flatMap { hits -> hits.messages.map { it.toEntity(credentials.id, hits.mailbox) } }
                     .sortedByDescending { it.sortKey }
                     .take(limit),
-                complete = folders.none { it.scanTruncated },
+                complete = folders.none { it.incomplete },
             )
         }
     }
@@ -714,3 +715,16 @@ internal fun SearchQuery.toImapCriteria() = ImapSearchCriteria(
     afterMillis = afterMillis,
     beforeMillis = beforeMillis,
 )
+
+/**
+ * Whether the IMAP walk has to fetch candidates and filter them HERE instead of letting the
+ * server answer — the decision that costs an envelope FETCH per candidate, a scan cap and a
+ * possibly truncated count.
+ *
+ * A named function rather than an expression at the call site so it can be pinned by a test:
+ * this is the single line that decides whether a criterion is cheap or expensive, and widening
+ * it by accident (`hasAttachment || flagged`) would be a silent, gratuitous performance
+ * regression on every starred-mail search. `flagged` must NEVER appear here: `FLAGGED` is a
+ * standard `SEARCH` key, so the server answers it without a single message being fetched.
+ */
+internal fun SearchQuery.requiresLocalScan(): Boolean = hasAttachment
