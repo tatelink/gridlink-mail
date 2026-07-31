@@ -530,33 +530,25 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
-            // Both switches act on server-side threads, which IMAP does not have (issue A6/A7). With
-            // only IMAP accounts they are inert, so grey them and say why rather than let them promise
-            // grouping that never happens. Read once: the account set does not change on this screen.
-            val imapOnly = remember { viewModel.isImapOnly() }
+            // Both switches act on server-side threads, which IMAP does not have: an IMAP account
+            // groups nothing, whatever these switches say. That fact used to live in a note shown
+            // only when EVERY account was IMAP, with both switches greyed — so adding a single JMAP
+            // account re-enabled them and hid the note while the IMAP mail on the very same list kept
+            // standing one message per row. The truth is now in the permanent subtitle, unconditional:
+            // no switch whose state depends on which accounts happen to exist (SettingsScreenHonestyTest).
             SettingsSection(stringResource(R.string.settings_conversation_section)) {
                 SettingSwitch(
                     title = stringResource(R.string.settings_conversation_title),
                     subtitle = stringResource(R.string.settings_conversation_subtitle),
                     checked = conversationView,
                     onCheckedChange = viewModel::setConversationView,
-                    enabled = !imapOnly,
                 )
                 SettingSwitch(
                     title = stringResource(R.string.settings_unarchive_on_reply_title),
                     subtitle = stringResource(R.string.settings_unarchive_on_reply_subtitle),
                     checked = unarchiveOnReply,
                     onCheckedChange = viewModel::setUnarchiveOnReply,
-                    enabled = !imapOnly,
                 )
-                if (imapOnly) {
-                    Text(
-                        stringResource(R.string.settings_conversation_imap_note),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                }
             }
             SettingsSection(stringResource(R.string.settings_message_section)) {
                 SettingChoiceRow(

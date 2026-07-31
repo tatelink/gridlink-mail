@@ -663,7 +663,7 @@
     <string name="offline_banner">Estás sin conexión</string>
     <string name="settings_conversation_section">Conversaciones</string>
     <string name="settings_conversation_title">Vista de conversación</string>
-    <string name="settings_conversation_subtitle">Agrupa los mensajes de un mismo hilo en una sola fila, con un contador.</string>
+    <string name="settings_conversation_subtitle">Agrupa los mensajes de un mismo hilo en una sola fila, con un contador. Los hilos vienen del servidor: en las cuentas JMAP los mensajes se agrupan, en una cuenta IMAP cada mensaje se queda en su propia fila.</string>
     <string name="settings_unarchive_on_reply_title">Desarchivar al llegar una respuesta</string>
     <string name="settings_unarchive_on_reply_subtitle">Cuando llega una respuesta nueva, devolver a la bandeja de entrada los mensajes archivados de la conversación.</string>
     <string name="settings_conversation_imap_note">Estos ajustes necesitan una cuenta JMAP. IMAP no tiene hilos en el servidor, así que cada mensaje va por su cuenta.</string>
