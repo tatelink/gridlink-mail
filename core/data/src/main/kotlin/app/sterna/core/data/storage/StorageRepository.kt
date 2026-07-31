@@ -116,19 +116,25 @@ class StorageRepository(
      * decision is that function's, not a `NOT IN` statement's, precisely so this call can never
      * degrade into "delete the whole cache".
      *
-     * Orphans are found through the `emails` table ([EmailDao.countsByAccount]) and removed with
-     * the same per-account deletes sign-out uses. Deliberately NOT swept:
+     * Orphans are looked for in the UNION of the tables this then deletes from — messages, folders,
+     * the search index, cached bodies — not in `emails` alone. An account can very well be left
+     * with folders and no message: `refresh()` persists the folder list before it fetches the mail,
+     * so a sign-up interrupted between the two (and every failure of the mail fetch) leaves exactly
+     * that, which is the likeliest residue there is. Inventorying on `emails` alone would walk past
+     * it and leave it in the database for good.
+     *
+     * They are removed with the same per-account deletes sign-out uses. Deliberately NOT swept:
      *  - `snoozed` — user intent rather than cache, and per-account snoozes of a gone account are
      *    inert (the not-snoozed filter correlates on accountId);
      *  - `purge_snapshot`, `mailbox_uid_validity`, the outbox and the attachment files — none of
      *    them can produce a row in a list, and the attachment cache is shared, so clearing it here
-     *    would cost every account a re-download on a housekeeping pass.
-     * A body or index row of an account with no `emails` row left is likewise not looked for: the
-     * per-account deletes below take those tables too, so the pair only survives together.
+     *    would cost every account a re-download on a housekeeping pass. They are not inventoried
+     *    either: an id known only to them would be deleted from four tables it has no row in.
      */
     suspend fun purgeOrphanedAccounts(knownAccountIds: Collection<String>): List<String> =
         withContext(Dispatchers.IO) {
-            val cached = emailDao.countsByAccount().map { it.accountId }
+            val cached = emailDao.countsByAccount().map { it.accountId } +
+                mailboxDao.accountIds() + emailFtsDao.accountIds() + emailBodyDao.accountIds()
             val orphans = OrphanedAccountCache.orphans(knownAccountIds, cached)
             orphans.forEach { accountId ->
                 // One runCatching PER table: a failure in one must not leave the rest behind.

@@ -5,10 +5,12 @@ import app.sterna.core.data.account.AuthType
 import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.account.MailProtocol
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -27,8 +29,11 @@ import org.junit.Test
  * [addAccountThenPrime] is the order that makes it impossible: prove, create, then prime with
  * credentials it stamps itself. These drive it with recording stubs — no Android, no network.
  *
- * The rollback path (a priming failure undoing a fresh account) is covered here as a decision, not
- * as a device behaviour: what the account store does under a real failure is not observed by these.
+ * The second rule pinned here is what happens when priming FAILS on an account already created:
+ * nothing. The account stays. The first version of this fix took it back out, which moved the
+ * current account somewhere else and left the folder rows `refresh()` had already written under an
+ * id no account owned — the very orphan #121 closes. [FakeAccountStore] models the store's real
+ * removal semantics so that regression stays visible here.
  */
 class AccountAddPrimingTest {
 
@@ -37,7 +42,30 @@ class AccountAddPrimingTest {
         val steps = mutableListOf<String>()
         var validated: AccountCredentials? = null
         var primed: AccountCredentials? = null
-        var removed: String? = null
+    }
+
+    /**
+     * The account list as `AccountStore` really keeps it, in the two respects this test needs:
+     * [add] makes the new account current (`KEY_CURRENT = id`), and [remove] moves current to the
+     * first remaining account whenever the id going away is the current one (AccountStore:514-521).
+     *
+     * [remove] is deliberately never wired into [addAccountThenPrime] — that IS the fix. It stays
+     * here as the witness of what the removal net used to do to a user reading her third account.
+     */
+    private class FakeAccountStore(vararg initial: String) {
+        val accounts = initial.toMutableList()
+        var current: String? = initial.lastOrNull()
+
+        fun add(id: String): String {
+            accounts += id
+            current = id
+            return id
+        }
+
+        fun remove(id: String) {
+            accounts -= id
+            if (current == id || accounts.none { it == current }) current = accounts.firstOrNull()
+        }
     }
 
     private suspend fun attemptAdd(
@@ -46,7 +74,7 @@ class AccountAddPrimingTest {
         validateFails: Throwable? = null,
         primeFails: Throwable? = null,
         persist: suspend () -> AddedAccount,
-    ): Result<String> = runCatching {
+    ): Result<PrimedAccount> = runCatching {
         addAccountThenPrime(
             probe = probe,
             validate = {
@@ -62,10 +90,6 @@ class AccountAddPrimingTest {
                 rec.steps += "prime"
                 rec.primed = it
                 primeFails?.let { e -> throw e }
-            },
-            remove = {
-                rec.steps += "remove"
-                rec.removed = it
             },
         )
     }
@@ -96,7 +120,7 @@ class AccountAddPrimingTest {
             )
             val rec = Recorder()
             val result = attemptAdd(probe, rec, persist = newAccount("acct-$name"))
-            assertEquals("$name: the add should have succeeded", "acct-$name", result.getOrNull())
+            assertEquals("$name: the add should have succeeded", "acct-$name", result.getOrNull()?.id)
             val primed = rec.primed
             assertNotNull("$name: the cache was never primed at all", primed)
             assertEquals(
@@ -120,7 +144,8 @@ class AccountAddPrimingTest {
     @Test fun `a successful add proves the credentials first, then creates, then primes`() = runTest {
         val rec = Recorder()
         val result = attemptAdd(imap, rec, persist = newAccount("acct-imap"))
-        assertEquals("acct-imap", result.getOrNull())
+        assertEquals("acct-imap", result.getOrNull()?.id)
+        assertNull("a clean add reports no priming failure", result.getOrNull()?.primeFailure)
         assertEquals(
             "the order is the fix: validating after persisting would leave an account behind on a " +
                 "typo, priming before persisting is the bug itself",
@@ -136,30 +161,79 @@ class AccountAddPrimingTest {
 
     @Test fun `credentials that fail validation create no account and write nothing`() = runTest {
         val rec = Recorder()
+        val store = FakeAccountStore("acct-a", "acct-b", "acct-c")
         val boom = IllegalStateException("LOGIN failed")
-        val result = attemptAdd(jmapPassword, rec, validateFails = boom, persist = newAccount("acct-never"))
+        val result = attemptAdd(jmapPassword, rec, validateFails = boom) {
+            AddedAccount(store.add("acct-never"), created = true)
+        }
         assertEquals("the rejection must reach the screen unchanged", boom, result.exceptionOrNull())
         assertEquals(
             "a rejected sign-in must not reach the account store at all — `Only persist once we " +
-                "know they work` is the rule this fix had to keep",
+                "know they work` is the rule this fix had to keep, and the ONLY thing that keeps " +
+                "a mistyped password from leaving an account behind",
             listOf("validate"), rec.steps,
+        )
+        assertEquals(
+            "a rejected sign-in left an account behind",
+            listOf("acct-a", "acct-b", "acct-c"), store.accounts,
         )
         assertNull(rec.primed)
     }
 
-    @Test fun `an account created by this add is taken back out when priming fails`() = runTest {
+    // -- a priming failure on a proven account: the account stays ---------------------------------
+
+    @Test fun `an account created by this add survives a failed priming`() = runTest {
         val rec = Recorder()
-        val result = attemptAdd(
-            jmapPassword, rec,
-            primeFails = IllegalStateException("no mailboxes"),
-            persist = newAccount("acct-half"),
-        )
-        assertTrue(result.isFailure)
+        val store = FakeAccountStore("acct-a", "acct-b", "acct-c")
+        val hiccup = IllegalStateException("no mailboxes")
+        val result = attemptAdd(jmapPassword, rec, primeFails = hiccup) {
+            AddedAccount(store.add("acct-new"), created = true)
+        }
         assertEquals(
-            "a half-added account must not survive the failure that stopped it",
-            "acct-half", rec.removed,
+            "the credentials were proven — a hiccup while loading the first page of mail must not " +
+                "throw the account away; its cache fills on the next refresh",
+            listOf("acct-a", "acct-b", "acct-c", "acct-new"), store.accounts,
         )
-        assertEquals(listOf("validate", "persist", "prime", "remove"), rec.steps)
+        assertEquals("acct-new", result.getOrNull()?.id)
+        assertSame(
+            "the failure must reach the caller to be logged, not vanish",
+            hiccup, result.getOrNull()?.primeFailure,
+        )
+        assertEquals(listOf("validate", "persist", "prime"), rec.steps)
+    }
+
+    @Test fun `a failed priming does not move the user to another account`() = runTest {
+        val rec = Recorder()
+        // Three accounts, the user is reading the third one.
+        val store = FakeAccountStore("acct-a", "acct-b", "acct-c")
+        assertEquals("acct-c", store.current)
+        attemptAdd(jmapPassword, rec, primeFails = IllegalStateException("network hiccup")) {
+            AddedAccount(store.add("acct-new"), created = true)
+        }
+        assertEquals(
+            "adding an account makes it current; a failed priming used to remove it, and removing " +
+                "the CURRENT account falls back to the FIRST remaining one — so a hiccup on a " +
+                "fourth add silently moved the user from her third account to her first, while the " +
+                "screen kept showing the third",
+            "acct-new", store.current,
+        )
+    }
+
+    @Test fun `leaving the screen mid-priming is not an add failure`() = runTest {
+        val rec = Recorder()
+        val store = FakeAccountStore()
+        val result = attemptAdd(jmapPassword, rec, primeFails = CancellationException("screen left")) {
+            AddedAccount(store.add("acct-new"), created = true)
+        }
+        assertTrue(
+            "cancellation must unwind, not be swallowed into a normal outcome: the coroutine is " +
+                "gone and its caller must not report it as an error the user typed",
+            result.exceptionOrNull() is CancellationException,
+        )
+        assertEquals(
+            "and the account it had already created stays — cancelling is not rejecting",
+            listOf("acct-new"), store.accounts,
+        )
     }
 
     // -- re-adding an existing account (token path) -----------------------------------------------
@@ -167,19 +241,25 @@ class AccountAddPrimingTest {
     @Test fun `re-adding a token account primes the account it found, without creating another`() = runTest {
         val rec = Recorder()
         val result = attemptAdd(jmapToken, rec) { AddedAccount("acct-existing", created = false) }
-        assertEquals("the re-add must resolve to the account already there", "acct-existing", result.getOrNull())
+        assertEquals("the re-add must resolve to the account already there", "acct-existing", result.getOrNull()?.id)
         assertEquals("acct-existing", rec.primed?.id)
     }
 
-    @Test fun `a failed priming never removes an account this add did not create`() = runTest {
+    @Test fun `a failed priming never touches an account this add did not create`() = runTest {
         val rec = Recorder()
-        attemptAdd(jmapToken, rec, primeFails = IllegalStateException("server hiccup")) {
+        val store = FakeAccountStore("acct-existing")
+        val result = attemptAdd(jmapToken, rec, primeFails = IllegalStateException("server hiccup")) {
             AddedAccount("acct-existing", created = false)
         }
-        assertNull(
+        assertEquals(
             "the account existed before this attempt — a transient failure while re-authenticating " +
                 "it must not delete the user's account",
-            rec.removed,
+            listOf("acct-existing"), store.accounts,
+        )
+        assertEquals(
+            "and the add still resolves to that account: a re-auth whose first refresh hiccups is " +
+                "not a failed add",
+            "acct-existing", result.getOrNull()?.id,
         )
     }
 }

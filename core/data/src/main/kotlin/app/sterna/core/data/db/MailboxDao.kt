@@ -25,6 +25,16 @@ interface MailboxDao {
     @Query("DELETE FROM mailboxes WHERE accountId = :accountId")
     suspend fun deleteForAccount(accountId: String)
 
+    /**
+     * Every account id with a folder row here, for the orphan sweep
+     * ([app.sterna.core.data.storage.StorageRepository.purgeOrphanedAccounts]).
+     *
+     * A failed add leaves folders and no message at all (`refresh()` persists the folder list
+     * before it can fail on the mail), so this table is where an orphan is likeliest to show first.
+     */
+    @Query("SELECT DISTINCT accountId FROM mailboxes")
+    suspend fun accountIds(): List<String>
+
     /** The id (IMAP path) of the account's first mailbox with the given role, if any. */
     @Query("SELECT id FROM mailboxes WHERE accountId = :accountId AND role = :role LIMIT 1")
     suspend fun idForRole(accountId: String, role: String): String?

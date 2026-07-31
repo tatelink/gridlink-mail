@@ -30,6 +30,11 @@ interface EmailFtsDao {
     @Query("DELETE FROM email_fts WHERE accountId = :accountId")
     suspend fun clearAccount(accountId: String)
 
+    /** Every account id with an index row here, for the orphan sweep
+     *  ([app.sterna.core.data.storage.StorageRepository.purgeOrphanedAccounts]). */
+    @Query("SELECT DISTINCT accountId FROM email_fts")
+    suspend fun accountIds(): List<String>
+
     // Deletes are scoped by accountId: email ids collide across accounts (issue #31), and an
     // unscoped delete-by-id would silently drop another account's index rows.
     @Query("DELETE FROM email_fts WHERE accountId = :accountId AND emailId IN (:ids)")
