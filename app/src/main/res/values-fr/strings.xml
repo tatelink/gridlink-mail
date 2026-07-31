@@ -722,8 +722,8 @@
     <string name="inbox_new_subfolder_in">Nouveau sous-dossier dans %1$s</string>
     <string name="inbox_folder_expand">Développer le dossier</string>
     <string name="inbox_folder_collapse">Réduire le dossier</string>
-    <string name="a11y_favourite">Ajouter aux favoris</string>
-    <string name="a11y_unfavourite">Retirer des favoris</string>
+    <string name="a11y_favourite">Suivre le message</string>
+    <string name="a11y_unfavourite">Ne plus suivre le message</string>
     <string name="a11y_has_attachment">Contient une pièce jointe</string>
     <string name="draft_label">Brouillon</string>
     <string name="a11y_conversation_pill">Conversation, %1$d messages</string>
