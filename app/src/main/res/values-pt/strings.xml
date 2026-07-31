@@ -555,6 +555,7 @@
     <string name="search_no_results">Nenhum resultado para \"%1$s\".</string>
     <string name="search_no_results_generic">Nenhuma mensagem correspondente.</string>
     <string name="search_incomplete">A pesquisa parou antes do fim. Refine os filtros ou tente novamente.</string>
+    <string name="search_still_running">A pesquisa continua</string>
     <plurals name="search_result_count">
         <item quantity="one">%1$d resultado</item>
         <item quantity="many">%1$d de resultados</item>

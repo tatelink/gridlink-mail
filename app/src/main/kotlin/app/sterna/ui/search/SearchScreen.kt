@@ -194,9 +194,11 @@ fun SearchScreen(
                             // "At least N" whenever the search stopped short of the whole answer: a
                             // truncated scan counted as a total would be a number the user can't check.
                             // Same call as the inbox's search bar so the two surfaces can't word the
-                            // same situation differently. loading = false is not a shortcut: this
-                            // screen runs ONE pass, and [SearchState.Results] replaces
-                            // [SearchState.Searching], so it never shows rows with a leg in flight.
+                            // same situation differently. loading = false: this screen runs ONE pass
+                            // and [SearchState.Results] replaces [SearchState.Searching], so the rows
+                            // on screen are always a finished pass. (SearchViewModel.run does NOT
+                            // cancel a previous launch, so a LATER search can be in flight — but the
+                            // count describes these results, and these are settled.)
                             when (searchCount(results.complete, loading = false)) {
                                 SearchCount.EXACT ->
                                     pluralStringResource(R.plurals.search_result_count, results.emails.size, results.emails.size)
@@ -221,23 +223,36 @@ fun SearchScreen(
                                 color = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.align(Alignment.Center).padding(24.dp),
                             )
-                            is SearchState.Results -> if (s.emails.isEmpty()) {
-                                val term = s.query.text.trim()
-                                // A truncated scan that returned nothing has NOT proven there is nothing: say
-                                // it stopped short, don't report "no results" as a fact — the honesty the
-                                // "At least N" counter gives a partial hit, extended to the zero case it can't reach.
-                                EmptyState(
+                            // A truncated scan that returned nothing has NOT proven there is nothing: say
+                            // it stopped short, don't report "no results" as a fact — the honesty the
+                            // "At least N" counter gives a partial hit, extended to the zero case it can't reach.
+                            // Routed through the shared decision so the inbox's search bar can't word the
+                            // same situation differently; only the wording below is this screen's own.
+                            is SearchState.Results -> when (
+                                searchDisplay(s.emails.size, loading = false, complete = s.complete)
+                            ) {
+                                SearchDisplay.INCOMPLETE_EMPTY -> EmptyState(
                                     art = EmptyArt.SEARCH,
-                                    title = when {
-                                        !s.complete -> stringResource(R.string.search_incomplete)
-                                        term.isBlank() -> stringResource(R.string.search_no_results_generic)
-                                        else -> stringResource(R.string.search_no_results, term)
-                                    },
-                                    body = if (s.complete) stringResource(R.string.empty_search_body) else null,
+                                    title = stringResource(R.string.search_incomplete),
                                     modifier = Modifier.align(Alignment.Center),
                                 )
-                            } else {
-                                LazyColumn(Modifier.fillMaxSize()) {
+                                SearchDisplay.EMPTY -> {
+                                    val term = s.query.text.trim()
+                                    EmptyState(
+                                        art = EmptyArt.SEARCH,
+                                        // This screen knows the words that were searched for, so it
+                                        // can name them; the inbox's bar shows its own generic line.
+                                        title = if (term.isBlank()) stringResource(R.string.search_no_results_generic)
+                                        else stringResource(R.string.search_no_results, term),
+                                        body = stringResource(R.string.empty_search_body),
+                                        modifier = Modifier.align(Alignment.Center),
+                                    )
+                                }
+                                // Unreachable here (loading is always false: one pass, and Results
+                                // replaces Searching) — spelled out rather than left to an else, so
+                                // adding a case to the enum has to be answered here too.
+                                SearchDisplay.SPINNER -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                                SearchDisplay.RESULTS -> LazyColumn(Modifier.fillMaxSize()) {
                                     items(s.emails, key = ::searchResultKey) { email ->
                                         // Which account a hit belongs to matters here more than anywhere:
                                         // the search spans them all. Same pill as the unified list, and

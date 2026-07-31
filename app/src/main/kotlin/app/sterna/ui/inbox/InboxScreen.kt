@@ -1483,7 +1483,7 @@ fun InboxScreen(
                 val searchActive = ui.searching && ui.searchQuery.isNotBlank()
                 val refreshLoading = pagedEmails.loadState.refresh is LoadState.Loading
                 when {
-                    searchActive -> when (searchDisplay(ui.searchResults.size, ui.searchLoading)) {
+                    searchActive -> when (searchDisplay(ui.searchResults.size, ui.searchLoading, ui.searchComplete)) {
                         SearchDisplay.RESULTS ->
                             Column(Modifier.fillMaxSize()) {
                                 Row(
@@ -1507,12 +1507,31 @@ fun InboxScreen(
                                         },
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        // weight, so a long count in a large font scale wraps
+                                        // instead of eating the whole row and squeezing the slot
+                                        // beside it to 0 dp — which would hide the progress hint
+                                        // from exactly the people who enlarge their text.
+                                        modifier = Modifier.weight(1f, fill = false),
                                     )
                                     // "At least N" alone can't say whether the search is still
                                     // running or stopped short, so a small spinner sits beside it
                                     // while a leg is in flight. Its slot is reserved whether or not
                                     // it shows, so appearing/vanishing never nudges the list.
-                                    Box(Modifier.size(12.dp), contentAlignment = Alignment.Center) {
+                                    // A spinner says nothing to a screen reader, and that very
+                                    // distinction is why it is here — so the slot carries it in
+                                    // words too, including in the stopped-short case that has no
+                                    // spinner to show.
+                                    val progressHint = when {
+                                        ui.searchLoading -> stringResource(R.string.search_still_running)
+                                        !ui.searchComplete -> stringResource(R.string.search_incomplete)
+                                        else -> null
+                                    }
+                                    Box(
+                                        Modifier.size(12.dp).semantics {
+                                            progressHint?.let { contentDescription = it }
+                                        },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
                                         if (ui.searchLoading) {
                                             CircularProgressIndicator(
                                                 Modifier.size(12.dp),
@@ -1529,6 +1548,15 @@ fun InboxScreen(
                                 }
                             }
                         SearchDisplay.SPINNER -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                        // Found nothing, but didn't get to the end (a leg failed, or its cap):
+                        // that has NOT proven there is nothing. Saying "no results, try other
+                        // words" would send the user rewording a query that never fully ran.
+                        // Same wording as the search screen, from the same decision.
+                        SearchDisplay.INCOMPLETE_EMPTY -> EmptyState(
+                            art = EmptyArt.SEARCH,
+                            title = stringResource(R.string.search_incomplete),
+                            modifier = Modifier.align(Alignment.Center),
+                        )
                         SearchDisplay.EMPTY -> EmptyState(
                             art = EmptyArt.SEARCH,
                             title = stringResource(R.string.inbox_no_results),

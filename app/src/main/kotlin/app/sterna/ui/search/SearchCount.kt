@@ -27,16 +27,40 @@ enum class SearchCount { EXACT, AT_LEAST }
 fun searchCount(complete: Boolean, loading: Boolean): SearchCount =
     if (complete && !loading) SearchCount.EXACT else SearchCount.AT_LEAST
 
-/** Which of the three mutually exclusive things a search surface puts on screen. */
-enum class SearchDisplay { RESULTS, SPINNER, EMPTY }
+/**
+ * An answer is complete only when EVERY leg ran to the end — the inbox's search bar has two, the
+ * local header index and the server's full-text index.
+ *
+ * Named, and called from the search itself, because the mistake it guards is quiet: the server leg
+ * writes its verdict last, so recording `complete = server.complete` alone let a good server answer
+ * silently forgive a local index that had already fallen over (a locked or damaged FTS table, the
+ * ground of #71) — and with it every hit only that index finds, accent-folded and prefix-matched,
+ * gone from a count still calling itself a total.
+ */
+fun searchComplete(local: Boolean, server: Boolean): Boolean = local && server
+
+/** Which of the four mutually exclusive things a search surface puts on screen. */
+enum class SearchDisplay {
+    RESULTS,
+    SPINNER,
+    /** Nothing found, but the search stopped short — so nothing has been PROVEN absent. */
+    INCOMPLETE_EMPTY,
+    /** Nothing found by a search that ran to the end: the only case that may say "no results". */
+    EMPTY,
+}
 
 /**
- * Results win over the spinner: once there are rows, they stay: replacing them with a spinner
- * when the second pass starts would take away what the user is already reading. The spinner is
- * for the empty-and-still-working case only, so "no results" is never stated before it's true.
+ * Results win over the spinner: once there are rows, they stay, because replacing them with a
+ * spinner when the second pass starts would take away what the user is already reading.
+ *
+ * The two empty cases are NOT the same claim, and telling them apart is the same honesty as
+ * [searchCount] one step further. "No results" asserts that nothing matches; a search that
+ * stopped short (still running, or a leg that failed / hit its cap) has established no such
+ * thing, and saying so invites the user to reword a query that was never actually run.
  */
-fun searchDisplay(resultCount: Int, loading: Boolean): SearchDisplay = when {
+fun searchDisplay(resultCount: Int, loading: Boolean, complete: Boolean): SearchDisplay = when {
     resultCount > 0 -> SearchDisplay.RESULTS
     loading -> SearchDisplay.SPINNER
+    !complete -> SearchDisplay.INCOMPLETE_EMPTY
     else -> SearchDisplay.EMPTY
 }
