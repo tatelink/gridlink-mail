@@ -263,6 +263,69 @@ class DeletedMailLeavesTheIndexSqlTest {
         )
     }
 
+    @Test fun anActionThatMovedNothingKeepsTheIndexRowOfWhatItDidNotMove() {
+        // Archiving a message that is already in the Archive, moving one to the folder it is in,
+        // deleting one that is already in the Trash: nothing leaves anything, and the row only goes
+        // because the action was empty. Sending those through the delete path un-indexed messages
+        // sitting untouched on the server — and it is the SWIPE paths, the most used of all. Deep in
+        // a folder, past the sync window, that was permanent: the IMAP index crawl does not exist
+        // and the re-seed only rewrites rows whose message is still cached.
+        folder("mb-archive", role = "archive")
+        message("already", "mb-archive")
+        message("other", "mb-archive")
+
+        deletePath(noOpEviction(), mapOf("accountId" to "acc", "ids" to listOf("already")))
+
+        assertEquals(listOf("other"), cached())
+        assertEquals(listOf("already", "other"), indexed())
+        assertEquals(listOf("already", "other"), search())
+    }
+
+    @Test fun everyNoOpBranchGoesThroughTheEvictionThatSparesTheIndex() {
+        // The wiring the case above cannot see: which repository paths hand their empty actions to
+        // it. Each of these has a branch where the destination IS the source; a new one that reaches
+        // for deleteById instead has to fail here.
+        val missing = listOf("archive", "moveToMailbox", "delete", "archiveAll", "moveAllToMailbox")
+            .filterNot { "$NO_OP_EVICTION(" in DaoQuerySource.mailFunctionBody("MailRepository", it) }
+        assertEquals(
+            "these MailRepository paths no longer call $NO_OP_EVICTION(): an action that moves " +
+                "nothing must evict the cached row WITHOUT un-indexing it",
+            emptyList<String>(), missing,
+        )
+    }
+
+    /**
+     * The `EmailDao` function `MailRepository.evictAlreadyThere` — the shared cleanup of an action
+     * that moved nothing — evicts with, read out of its own body like [retentionEviction].
+     */
+    private fun noOpEviction(): String =
+        Regex("""emailDao\.(\w+)\(""")
+            .findAll(DaoQuerySource.mailFunctionBody("MailRepository", NO_OP_EVICTION))
+            .map { it.groupValues[1] }
+            .distinct()
+            .firstOrNull { name ->
+                DaoQuerySource.emailDaoStatements(name).any { it.sql.trimStart().startsWith("DELETE", ignoreCase = true) }
+            }
+            ?: error("MailRepository.$NO_OP_EVICTION no longer evicts anything through EmailDao")
+
+    @Test fun theDeletePathIsOneTransaction() {
+        // Restored after being dropped on the theory that only a transaction could let a broken
+        // index block a delete. It cannot: SQLite auto-rolls-back on SQLITE_FULL / IOERR / BUSY /
+        // NOMEM / INTERRUPT, and SQLITE_CORRUPT — the damaged-FTS case of issue #71 — is not among
+        // them, so the swallowed failure below commits either way. Without the transaction, the
+        // errors that ARE auto-rolled-back (a transient SQLITE_BUSY: the push service writing while
+        // the screen deletes) undid the un-index alone and left an orphan index row that no re-seed
+        // ever clears — the deleted message came back in search for good.
+        listOf("deleteById", "deleteByIds").forEach { function ->
+            assertEquals(
+                "EmailDao.$function must stay @Transaction: the runCatching inside it already keeps " +
+                    "a sick index from blocking the delete, and dropping the transaction is what lets " +
+                    "a rolled-back un-index leave an index row whose message is gone",
+                true, DaoQuerySource.isTransactional("EmailDao", function),
+            )
+        }
+    }
+
     @Test fun anIndexTooBrokenToWriteStillLetsTheMailBeDeleted() {
         // Issue #71's ground: a search table that cannot be written (damaged, or locked). Deleting
         // is a folder action, not a search feature — it must land whatever the index says. It could
@@ -271,11 +334,15 @@ class DeletedMailLeavesTheIndexSqlTest {
         // it from (these paths are network-first, the move is done before this runs).
         folder("mb-inbox", role = "inbox")
         message("thrown", "mb-inbox")
+        message("kept", "mb-inbox")
         db.createStatement().use { it.executeUpdate("DROP TABLE email_fts") }
+        // Stated before the delete, so "the cache row is gone" below is the delete's doing and not
+        // a row that was never written: without it the case passes on an empty database.
+        assertEquals(listOf("kept", "thrown"), cached())
 
         val outcome = runCatching { deletePath("deleteById", mapOf("accountId" to "acc", "id" to "thrown")) }
 
-        assertEquals(emptyList<String>(), cached())
+        assertEquals("the cache delete did not stand", listOf("kept"), cached())
         assertEquals("the delete path let an index failure escape", null, outcome.exceptionOrNull()?.message)
     }
 
@@ -327,5 +394,11 @@ class DeletedMailLeavesTheIndexSqlTest {
         assertEquals(listOf("page1"), cached())
         assertEquals(listOf("page1", "page2"), indexed())
         assertEquals(listOf("page1", "page2"), search())
+    }
+
+    private companion object {
+        /** The `MailRepository` function every "the destination is where it already is" branch
+         *  hands its ids to — named once, so the two rules above cannot drift apart. */
+        const val NO_OP_EVICTION = "evictAlreadyThere"
     }
 }

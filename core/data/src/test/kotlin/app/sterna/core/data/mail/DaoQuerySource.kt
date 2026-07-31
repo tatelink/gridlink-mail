@@ -176,8 +176,13 @@ internal object DaoQuerySource {
 
     /**
      * Index of the `{` opening the body of the function whose parameter list starts at [paren],
-     * or -1 when the function is abstract. Walks the parameter list to its closing `)` (it may
-     * span lines), then accepts only a `{` on that same line — anything else means no body.
+     * or -1 when the function has no block body. Walks the parameter list to its closing `)` (it may
+     * span lines), then accepts only a `{` on that same line — anything else means no body, so a
+     * lookup can never wander off and hand back some later function's braces.
+     *
+     * A declared return type may sit between the two (`): String? {`) and nothing else may: an
+     * expression body (`): Flow<X> = flow {`) opens a brace on that line too, and returning ITS
+     * braces would silently give a caller a lambda instead of the function.
      */
     private fun bodyBrace(source: String, paren: Int): Int {
         var depth = 0
@@ -185,15 +190,21 @@ internal object DaoQuerySource {
         while (i < source.length) {
             when (source[i]) {
                 '(' -> depth++
-                ')' -> if (--depth == 0) {
-                    var j = i + 1
-                    while (j < source.length && source[j] == ' ') j++
-                    return if (j < source.length && source[j] == '{') j else -1
-                }
+                ')' -> if (--depth == 0) return braceOnLineOf(source, i + 1)
             }
             i++
         }
         return -1
+    }
+
+    /** The block-body `{` on the line starting at [from], or -1 — see [bodyBrace]. */
+    private fun braceOnLineOf(source: String, from: Int): Int {
+        val eol = source.indexOf('\n', from).let { if (it < 0) source.length else it }
+        val brace = source.substring(from, eol).indexOf('{')
+        if (brace < 0) return -1
+        val between = source.substring(from, from + brace).trim()
+        if ('=' in between) return -1
+        return if (between.isEmpty() || between.startsWith(":")) from + brace else -1
     }
 
     /** The double-quoted literals of [text] up to its first unbalanced `)`, in order. */

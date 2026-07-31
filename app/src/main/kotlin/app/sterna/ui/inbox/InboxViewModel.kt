@@ -1029,7 +1029,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // later undone — or the worker gives up and the folder re-syncs — the members return
             // on their own instead of staying under a mask the Undo path alone knew how to lift.
             hidingThreadMembers(emails.mapTo(mutableSetOf()) { it.emailKey() }) {
-                targets.forEach { (credentials, id) -> repo.evict(credentials.id, id) }
+                // Batched per account, like the destroy that follows: this is the bulk delete path,
+                // and evicting one id at a time scanned the whole search index once per message.
+                targets.groupBy({ it.first.id }, { it.second }).forEach { (accountId, ids) ->
+                    repo.evictAll(accountId, ids)
+                }
             }
             dropSearchResults(emails.mapTo(mutableSetOf()) { it.emailKey() })
             _pendingDelete.value = label
@@ -1382,7 +1386,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 return@launch
             }
-            repo.cachedIds(listOf(target)).forEach { repo.evict(credentials.id, it.emailId) }
+            // One batched eviction of the whole folder: a full Trash is the case this path exists
+            // for, and per-message eviction rescanned the search index once per message.
+            repo.evictAll(credentials.id, repo.cachedIds(listOf(target)).map { it.emailId })
             // An empty photo is not an order (#99). The purge destroys the snapshot and nothing
             // else, so work with no ids behind it has nothing to do: a Trash that held nothing,
             // or one whose rows were never cached, arms no destroy at all.

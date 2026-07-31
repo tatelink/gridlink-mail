@@ -87,10 +87,12 @@ interface EmailDao {
 
     /**
      * Evict [ids] from the display cache and LEAVE THEIR INDEX ROWS ALONE — [deleteNotIn]'s by-id
-     * sibling, for the retention window (`MailRepository.pruneRetention`).
+     * sibling, for the retention window (`MailRepository.pruneRetention`) and for an action that
+     * moved nothing (`MailRepository.evictAlreadyThere`: archiving what is already archived).
      *
      * Same rule, stated by id rather than by page: these messages are still sitting in their folder
-     * on the server, they merely fell outside the age/count this account keeps offline. Sending
+     * on the server, they merely fell outside the age/count this account keeps offline — or the
+     * action asked for the folder they are already in. Sending
      * them through [deleteByIds] instead un-indexed them, and offline search stopped covering
      * anything older than the sync window — on EVERY refresh, and irreversibly on IMAP, where
      * nothing re-indexes a message the cache no longer holds (the crawl `syncSearchIndex` is JMAP
@@ -112,7 +114,8 @@ interface EmailDao {
     suspend fun setFlagged(accountId: String, id: String, flagged: Boolean)
 
     /**
-     * Take one message OUT OF THIS PLACE: drop its cached row, then its search-index row.
+     * Take one message OUT OF THIS PLACE: drop its cached row, then its search-index row, in one
+     * transaction whose index half is allowed to fail.
      *
      * Every path that removes mail from a folder funnels through this function or [deleteByIds] —
      * swipe, menu, delete, move, archive, mark-as-spam, permanent purge, undo, reconciliation of a
@@ -134,22 +137,29 @@ interface EmailDao {
      * deleted message coming back in the results with its subject and preview, which is exactly
      * what un-indexing nowhere produced.
      *
-     * NOT one transaction, and the order matters: the cache row goes first and on its own, the
-     * un-indexing is only ATTEMPTED and its failure is logged and swallowed. Held in one
-     * `@Transaction`, an index too damaged or too locked to write — issue #71's ground — rolled the
-     * cache delete back with it, and since these paths are network-first the server had ALREADY
-     * moved the message: the action was reported as failed and the message reappeared in the list
-     * it had just left. A sick index must degrade search, never block a delete.
+     * The order matters, and so does WHERE the failure is caught: the cache row goes first, the
+     * un-indexing is only ATTEMPTED and its failure is logged and swallowed INSIDE the transaction.
+     * An index too damaged or too locked to write — issue #71's ground — must not take the cache
+     * delete down with it: these paths are network-first, the server has ALREADY moved the message,
+     * so a rolled-back delete was reported as a failure and put the message back in the list it had
+     * just left. A sick index must degrade search, never block a delete.
      *
-     * What that costs is atomicity: a process death between the two statements, or an index that
-     * refused the write, leaves an index row whose message is gone — and no re-seed clears that one
-     * (`EmailFtsDao.seedFromEmails` only rewrites rows whose message is still cached). It is
-     * exactly the state that shipped before this un-indexing existed, on the rare paths where the
-     * write fails instead of on every delete, and [EmailFtsDao.search]'s folder filter still hides
-     * it whenever the label is an excluded folder. A search result that should not be there is a
-     * smaller failure than mail that cannot be deleted. `MailRepository.pruneServerGone` has always
-     * guarded the very same FTS delete this way.
+     * Catching inside `@Transaction` rather than dropping the transaction is what keeps both. SQLite
+     * rolls a statement's transaction back automatically for `SQLITE_FULL`, `SQLITE_IOERR`,
+     * `SQLITE_BUSY`, `SQLITE_NOMEM` and `SQLITE_INTERRUPT` only — `SQLITE_CORRUPT`, the damaged-FTS
+     * case, is not on that list, so a swallowed failure commits the cache delete normally. Without
+     * the transaction, the half that IS auto-rolled-back is the cheap one to lose (a transient
+     * `SQLITE_BUSY` — the push service writing while the screen deletes) and it left the cache row
+     * gone with its index row standing: the deleted message came back in search FOREVER, since no
+     * re-seed touches an orphan (`EmailFtsDao.seedFromEmails` only rewrites rows whose message is
+     * still cached) and only "clear cache" removes it. [EmailFtsDao.search]'s folder filter hides
+     * such a row only when its label happens to be an excluded folder, which in the reported case
+     * is precisely what it is not: the label is the Inbox.
+     *
+     * What remains uncovered is a process death between the two statements — the transaction closes
+     * that too. `MailRepository.pruneServerGone` guards the very same FTS delete in the same shape.
      */
+    @Transaction
     suspend fun deleteById(accountId: String, id: String) {
         deleteRowById(accountId, id)
         runCatching { unindexById(accountId, id) }
@@ -157,13 +167,14 @@ interface EmailDao {
     }
 
     /**
-     * [deleteById] for several ids of one account — same cache-then-index pairing, same deliberate
-     * absence of a transaction around it.
+     * [deleteById] for several ids of one account — same cache-then-index pairing, same transaction
+     * with the same swallowed index failure inside it.
      *
      * Prefer this to a loop of [deleteById] on the bulk paths: `email_fts` is an FTS4 table whose
      * `emailId` is `notindexed`, so every un-index SCANS the whole index — a 200-message selection
      * cost 200 full scans instead of one.
      */
+    @Transaction
     suspend fun deleteByIds(accountId: String, ids: List<String>) {
         if (ids.isEmpty()) return
         deleteRowsByIds(accountId, ids)
