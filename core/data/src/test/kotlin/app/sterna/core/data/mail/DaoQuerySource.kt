@@ -30,30 +30,94 @@ internal object DaoQuerySource {
      * whether the calling line wraps it in a `runCatching` — i.e. whether the shipped code lets
      * that statement fail without taking the rest of the path down with it.
      */
-    data class DaoStatement(val function: String, val sql: String, val guarded: Boolean)
+    data class DaoStatement(
+        val function: String,
+        val sql: String,
+        val guarded: Boolean,
+        val fallback: Boolean = false,
+    )
 
     /**
-     * The statements `EmailDao.[functionName]` issues, in the order its source issues them: its own
-     * `@Query` when it has one, otherwise the queries of the functions its body calls.
+     * What running `EmailDao.[functionName]` does, in the shape a replay has to honour: the [main]
+     * statements, whether they run as ONE transaction ([atomic] — the function's own `@Transaction`
+     * or that of the composed function it hands them to), and the [fallback] statements a `catch`
+     * replays when the main part throws.
      *
-     * This is how a JVM SQL test replays a `@Transaction`-style composition without assuming what
-     * it composes: drop the un-indexing from the DAO body and it disappears from here too, so the
-     * tests that assert an index row is gone turn red instead of quietly checking a path the app no
-     * longer runs. Calls to anything that is not a `@Query` of the same DAO (`isEmpty`, a log) are
-     * not statements and are skipped.
+     * The distinction is the whole point of reading the body: "both statements, or neither, and a
+     * separate replay when that fails" and "both statements, one of them allowed to fail silently"
+     * commit the same rows in the nominal case and different ones the moment a statement is
+     * refused — which is exactly the case these tests exist for.
      */
-    fun emailDaoStatements(functionName: String): List<DaoStatement> {
+    data class DaoPath(val main: List<DaoStatement>, val fallback: List<DaoStatement>, val atomic: Boolean)
+
+    /**
+     * [DaoPath] for `EmailDao.[functionName]`: its own `@Query` when it has one, otherwise the
+     * statements of the functions its body calls — following a call into a composed function of the
+     * same DAO, so a path split into "the transactional pair" plus "what to do when it fails" is
+     * replayed whole.
+     *
+     * This is how a JVM SQL test replays a `@Transaction`-style composition without assuming what it
+     * composes: drop the un-indexing from the DAO body and it disappears from here too, so the tests
+     * that assert an index row is gone turn red instead of quietly checking a path the app no longer
+     * runs. Calls to anything that is neither a `@Query` nor a composed function of the same DAO
+     * (`isEmpty`, a log) are not statements and are skipped.
+     */
+    fun emailDaoPath(functionName: String): DaoPath = emailDaoPath(functionName, mutableSetOf())
+
+    private fun emailDaoPath(functionName: String, following: MutableSet<String>): DaoPath {
         queryOrNull("EmailDao", functionName)?.let {
-            return listOf(DaoStatement(functionName, it, guarded = false))
+            return DaoPath(listOf(DaoStatement(functionName, it, guarded = false)), emptyList(), atomic = false)
         }
+        following += functionName
         val body = daoFunctionBody("EmailDao", functionName)
-        return body.lines().flatMap { line ->
-            Regex("""(\w+)\(""").findAll(line).mapNotNull { m ->
-                val called = m.groupValues[1]
-                queryOrNull("EmailDao", called)
-                    ?.let { DaoStatement(called, it, guarded = line.contains("runCatching")) }
+        val main = mutableListOf<DaoStatement>()
+        val fallback = mutableListOf<DaoStatement>()
+        var atomic = isTransactional("EmailDao", functionName)
+        var depth = 0
+        var catchDepth = -1
+        body.lines().forEach { line ->
+            val inCatch = catchDepth >= 0
+            val into = if (inCatch) fallback else main
+            Regex("""(\w+)\(""").findAll(line).forEach { match ->
+                val called = match.groupValues[1]
+                if (called in following) return@forEach
+                val sql = queryOrNull("EmailDao", called)
+                if (sql != null) {
+                    into += DaoStatement(called, sql, guarded = "runCatching" in line, fallback = inCatch)
+                    return@forEach
+                }
+                if (!hasBody("EmailDao", called)) return@forEach
+                val composed = emailDaoPath(called, following)
+                check(composed.fallback.isEmpty()) {
+                    "EmailDao.$called carries a fallback of its own; this replay follows one level " +
+                        "of composition and would run it in the wrong place"
+                }
+                into += composed.main.map {
+                    it.copy(guarded = it.guarded || "runCatching" in line, fallback = inCatch)
+                }
+                if (!inCatch && composed.atomic) atomic = true
+            }
+            depth += line.count { it == '{' } - line.count { it == '}' }
+            when {
+                "catch (" in line -> catchDepth = depth
+                catchDepth >= 0 && depth < catchDepth -> catchDepth = -1
             }
         }
+        following -= functionName
+        return DaoPath(main, fallback, atomic)
+    }
+
+    /** Every statement `EmailDao.[functionName]` can issue, nominal path and fallback alike — for
+     *  the rules that ask WHAT a path touches rather than in which order or under which guard. */
+    fun emailDaoStatements(functionName: String): List<DaoStatement> =
+        emailDaoPath(functionName).let { it.main + it.fallback }
+
+    /** Whether [daoName] declares a `fun [functionName]` with a block body — a composed path a
+     *  replay can follow, as opposed to an abstract `@Query` or a function that does not exist. */
+    private fun hasBody(daoName: String, functionName: String): Boolean {
+        val source = daoSource(daoName)
+        val fn = Regex("""\bfun\s+$functionName\s*\(""").find(source) ?: return false
+        return bodyBrace(source, fn.range.last) >= 0
     }
 
     /**

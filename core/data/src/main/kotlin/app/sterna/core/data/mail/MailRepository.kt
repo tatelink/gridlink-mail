@@ -200,6 +200,26 @@ internal fun excludedSearchFolderIds(folders: List<MailboxIdRole>): List<String>
 internal val NOT_SEARCHED_ROLES = setOf("trash", "junk", "spam")
 
 /**
+ * Whether an action that MOVED NOTHING may leave the message's search-index row standing: only when
+ * the folder it stayed in ([mailboxId], with its [role]) is one a search looks at.
+ *
+ * The index row of a message that never left a SEARCHABLE folder is still true, and taking it would
+ * cost offline coverage nothing brings back — the whole point of `MailRepository.evictAlreadyThere`.
+ * In Trash/Junk/Spam there is nothing to preserve: the index does not cover them at either end (the
+ * crawl and the re-seed skip them, the query filters them out), so the surviving row is an orphan
+ * whose message is no longer cached — and `EmailFtsDao.seedFromEmails` only rewrites rows whose
+ * message IS cached, so no re-seed ever clears it. It stays hidden only while the folder cache still
+ * knows that folder's role; a folder renamed or dropped server-side, or a cache reset, and the
+ * message comes back in the results for good.
+ *
+ * Decided through [excludedSearchFolderIds], not against a second copy of [NOT_SEARCHED_ROLES]: same
+ * function the index crawl and the search filter use, down to the trim/lowercase, so this rule
+ * cannot drift from what a search actually covers.
+ */
+internal fun noOpKeepsIndexRow(mailboxId: String, role: String?): Boolean =
+    excludedSearchFolderIds(listOf(MailboxIdRole(mailboxId, role))).isEmpty()
+
+/**
  * Whether a search answer may be presented as a TOTAL ("3 results") rather than as a floor
  * ("at least 3" — and never the flat "No results" that an empty answer would otherwise state as a
  * fact). Protocol-independent: IMAP walks folders, JMAP queries the account in one shot, and both
@@ -2570,7 +2590,7 @@ class MailRepository(
                 }
             }
             if (noop) {
-                evictAlreadyThere(credentials.id, listOf(emailId))
+                evictAlreadyThere(credentials.id, dest, listOf(emailId))
                 return null
             }
             emailDao.deleteById(credentials.id, emailId)
@@ -2636,7 +2656,7 @@ class MailRepository(
                 false
             } ?: false
             if (already) {
-                evictAlreadyThere(credentials.id, listOf(emailId))
+                evictAlreadyThere(credentials.id, targetMailboxId, listOf(emailId))
                 return null
             }
             emailDao.deleteById(credentials.id, emailId)
@@ -2728,26 +2748,36 @@ class MailRepository(
     }
 
     /**
-     * The local cleanup of an action that MOVED NOTHING: archive or move asked for a folder the
-     * message is already in, so the server was never touched and the message is exactly where it
-     * was. The cached row still goes (the list is showing a folder the user just acted on, and the
-     * row comes back with the next page like any other), but the search-index row must NOT — this is
-     * `EmailDao.deleteNotIn`'s case, not `deleteByIds`'.
+     * The local cleanup of an action that MOVED NOTHING: archive or move asked for [mailboxId], the
+     * folder the message is already in, so the server was never touched and the message is exactly
+     * where it was. The cached row still goes (the list is showing a folder the user just acted on,
+     * and the row comes back with the next page like any other); whether the search-index row goes
+     * with it depends on the FOLDER, not on the action — [noOpKeepsIndexRow].
      *
-     * NOT the delete paths' case, single or bulk: "already in the Trash" is a no-op on the server
-     * too, but the Trash is excluded from search at both ends, so the index row left standing there
-     * carries the message's PREVIOUS folder and is the stale row that hands a deleted message back.
-     * Those two branches un-index — see [delete] and [deleteAll].
+     * In a searched folder the row must stay. This is `EmailDao.deleteNotIn`'s case, not
+     * `deleteByIds`': the message is untouched on the server and its index row is still true, and
+     * these are the swipe paths, the most exercised of all. Paging deep into Archive past the sync
+     * window and re-archiving what is already there took both rows away, and nothing brought the
+     * index row back — the IMAP crawl does not exist and the re-seed only rewrites rows whose
+     * message is still cached. Those messages left offline search for good.
      *
-     * The distinction is not academic: these are the swipe paths, the most exercised of all. Paging
-     * deep into Archive past the sync window and re-archiving what is already there took both rows
-     * away, and nothing brought the index row back — the IMAP crawl does not exist and the re-seed
-     * only rewrites rows whose message is still cached. Those messages left offline search for good.
+     * In Trash/Junk/Spam it must go. The same two branches are how the app files a message into Junk
+     * (report-spam onto one already there) and how the folder picker files one into the Trash it is
+     * already in — and there the index covers nothing at either end, so sparing the row preserves no
+     * coverage and merely leaves an orphan the re-seed can never clear. The delete paths ([delete],
+     * [deleteAll]) reach for [deleteFromCacheAndIndex] directly for the same reason.
+     *
+     * The role comes from the folder cache; a folder it does not know keeps the sparing behaviour,
+     * which is the harmless direction (a stale index row in a folder that IS searched is true).
      *
      * Chunked like [deleteFromCacheAndIndex]: the ids go into one `IN (...)`.
      */
-    private suspend fun evictAlreadyThere(accountId: String, ids: Collection<String>) {
+    private suspend fun evictAlreadyThere(accountId: String, mailboxId: String, ids: Collection<String>) {
         if (ids.isEmpty()) return
+        if (!noOpKeepsIndexRow(mailboxId, mailboxDao.roleForId(accountId, mailboxId))) {
+            deleteFromCacheAndIndex(accountId, ids)
+            return
+        }
         ids.chunked(MAX_CHANGES).forEach { emailDao.evictFromCacheKeepingIndex(accountId, it) }
     }
 
@@ -2898,7 +2928,7 @@ class MailRepository(
                     source == null -> failed += ids
                     // Already in the archive: nothing moved, so the index row stays (see
                     // [evictAlreadyThere]).
-                    source == dest -> { evictAlreadyThere(credentials.id, ids); succeeded += ids }
+                    source == dest -> { evictAlreadyThere(credentials.id, dest, ids); succeeded += ids }
                     else -> imapMoveGroup(credentials, source, ids, dest, succeeded, failed)
                 }
             }
@@ -2959,8 +2989,11 @@ class MailRepository(
             emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
                 when {
                     source == null -> failed += ids
-                    // Already in the destination: nothing moved (see [evictAlreadyThere]).
-                    source == targetMailboxId -> { evictAlreadyThere(credentials.id, ids); succeeded += ids }
+                    // Already in the destination: nothing moved — and whether its index row stays
+                    // depends on the destination's role, Junk and Trash included ([evictAlreadyThere]).
+                    source == targetMailboxId -> {
+                        evictAlreadyThere(credentials.id, targetMailboxId, ids); succeeded += ids
+                    }
                     else -> imapMoveGroup(credentials, source, ids, targetMailboxId, succeeded, failed)
                 }
             }
@@ -2989,11 +3022,15 @@ class MailRepository(
                     // Already in Trash: nothing to move — drop the row locally only. Deliberately
                     // in NEITHER set: there is no move to undo and nothing failed.
                     //
-                    // And un-indexed, unlike the other no-op branches ([evictAlreadyThere]): the
-                    // Trash is excluded from search at BOTH ends, so an index row still standing
-                    // for a message sitting in the Trash carries an EARLIER label and is exactly
-                    // the stale row that hands a thrown-away message back. Taking it is right —
-                    // and the single-message [delete] says the same thing, deliberately.
+                    // And un-indexed: the Trash is excluded from search at BOTH ends — the crawl
+                    // and the re-seed skip it, the query filters it out — so there is no coverage
+                    // to preserve here, and a row left standing is an orphan whose message is no
+                    // longer cached, which no re-seed can clear. Not, as this said, because the
+                    // row carries an EARLIER label: an IMAP id encodes its folder, so the index
+                    // row of an in-Trash id says Trash. That is what keeps it invisible — for
+                    // exactly as long as the folder cache still knows that folder's role.
+                    // The no-op branches decide the same question the same way ([evictAlreadyThere]),
+                    // and so does the single-message [delete].
                     source == trash -> deleteFromCacheAndIndex(credentials.id, ids)
                     else -> imapMoveGroup(credentials, source, ids, trash, succeeded, failed)
                 }
@@ -3452,13 +3489,16 @@ class MailRepository(
             val trash = imapRoleFolder(credentials, "trash") ?: error("This account has no Trash folder.")
             imapTarget(emailId)?.let { (mb, uid) ->
                 // Already in the Trash: nothing moves — but the cached row AND its index row both
-                // go, exactly as the bulk twin ([deleteAll]) does, and for its reason. This is the
-                // one "the destination is where it already is" branch that is NOT
-                // [evictAlreadyThere]'s: the others leave the message in a SEARCHABLE folder, where
-                // its index row is still true. The Trash is excluded from search at both ends (the
-                // query's folder filter and the re-seed), so an index row surviving here carries
-                // the label the message had BEFORE it was thrown away — the stale row that hands a
-                // deleted message back with its subject and preview. Taking it is right.
+                // go, exactly as the bulk twin ([deleteAll]) does, and for its reason. The Trash is
+                // excluded from search at both ends (the query's folder filter, the crawl and the
+                // re-seed), so an index row surviving here preserves no coverage whatever: it is
+                // simply an orphan, and the re-seed only rewrites rows whose message is still
+                // cached, so nothing ever clears it. It is hidden only while the folder cache knows
+                // the folder's role — a folder renamed or dropped server-side and the message comes
+                // back in the results for good. (It does NOT carry the label the message had before
+                // it was thrown away: an IMAP id encodes its folder, so an in-Trash id's index row
+                // says Trash.) [evictAlreadyThere] asks the same question of the folder the message
+                // stayed in, and spares the row only where a search actually looks.
                 if (mb == trash) return@let
                 imap.move(credentials, mb, uid, trash)?.let {
                     lastImapMove[emailId] = ImapLoc(trash, it)
@@ -3938,12 +3978,19 @@ class MailRepository(
      * `email_fts` is FTS4 with `emailId` declared `notindexed`, so each un-index scans the ENTIRE
      * index — a bulk delete of 200, or an Empty trash, meant that many scans. Chunked to what
      * SQLite will bind in one `IN (...)`.
+     *
+     * Read, evict and decount CHUNK BY CHUNK, not all the counts at the end: an Empty trash of a
+     * thousand messages is several statements, and one of them refusing used to leave every row it
+     * had already removed uncounted — the drawer keeping a badge for mail no longer there until a
+     * refresh corrected it. Per chunk, whatever left the cache has been subtracted.
      */
     suspend fun evictAll(accountId: String, emailIds: Collection<String>) {
         if (emailIds.isEmpty()) return
-        val rows = emailIds.chunked(MAX_CHANGES).flatMap { emailDao.emailsByIds(accountId, it) }
-        deleteFromCacheAndIndex(accountId, emailIds)
-        adjustCountsForRemoval(rows, destMailboxId = null)
+        emailIds.chunked(MAX_CHANGES).forEach { chunk ->
+            val rows = emailDao.emailsByIds(accountId, chunk)
+            deleteFromCacheAndIndex(accountId, chunk)
+            adjustCountsForRemoval(rows, destMailboxId = null)
+        }
     }
 
     /**

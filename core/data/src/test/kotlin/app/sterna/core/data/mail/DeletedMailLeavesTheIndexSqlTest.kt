@@ -25,11 +25,16 @@ import java.sql.DriverManager
  * unhooking the un-indexing in the DAO turns these red instead of leaving them checking a path the
  * app no longer runs.
  *
- * Two cases guard the LINE the un-indexing must not cross, and they matter as much as the deletion
+ * Other cases guard the LINE the un-indexing must not cross, and they matter as much as the deletion
  * itself: the retention window evicts messages that are still in their folder and must leave their
  * index rows alone, and an index that cannot be written must not stop a message from being deleted.
- * A third guards the exception on that line — deleting what already sits in the Trash un-indexes,
- * one message at a time exactly as in bulk, because the Trash is out of search at both ends.
+ *
+ * The line is drawn on the FOLDER, not on the action. An action that moved nothing spares the index
+ * row in a folder a search looks at and takes it in Trash/Junk/Spam, where the index covers nothing
+ * at either end and a spared row is an orphan — the same rule the delete paths follow when they
+ * un-index what already sat in the Trash. And a statement refused on its own must leave the two rows
+ * in step, which is what says the pair runs in one transaction with its recovery outside rather than
+ * with a swallowed failure inside.
  */
 class DeletedMailLeavesTheIndexSqlTest {
     private lateinit var db: Connection
@@ -123,17 +128,30 @@ class DeletedMailLeavesTheIndexSqlTest {
      * Reading the body means the replay stops issuing the un-index the moment the DAO stops issuing
      * it, and rolls the cache delete back exactly when the DAO would.
      */
-    private fun deletePath(function: String, values: Map<String, Any>) {
-        val statements = DaoQuerySource.emailDaoStatements(function)
-        check(statements.isNotEmpty()) { "EmailDao.$function composes no statement" }
-        val atomic = DaoQuerySource.isTransactional("EmailDao", function)
+    private fun deletePath(function: String, values: Map<String, Any>, busy: Busy? = null) {
+        val path = DaoQuerySource.emailDaoPath(function)
+        check(path.main.isNotEmpty()) { "EmailDao.$function composes no statement" }
+        val outcome = runCatching { replayPart(path.main, path.atomic, values, busy) }
+        if (outcome.isSuccess) return
+        // The `catch` the shipped body carries, if it carries one; without it the failure escapes
+        // to the caller exactly as it would in the app.
+        if (path.fallback.isEmpty()) throw outcome.exceptionOrNull()!!
+        replayPart(path.fallback, atomic = false, values, busy)
+    }
+
+    private fun replayPart(
+        statements: List<DaoQuerySource.DaoStatement>,
+        atomic: Boolean,
+        values: Map<String, Any>,
+        busy: Busy?,
+    ) {
         if (!atomic) {
-            statements.forEach { replay(it, values) }
+            statements.forEach { replay(it, values, busy) }
             return
         }
         db.autoCommit = false
         try {
-            statements.forEach { replay(it, values) }
+            statements.forEach { replay(it, values, busy) }
             db.commit()
         } catch (e: Exception) {
             db.rollback() // what @Transaction does with an exception it did not catch
@@ -144,8 +162,33 @@ class DeletedMailLeavesTheIndexSqlTest {
     }
 
     /** One replayed statement, failing the way the shipped body lets it fail. */
-    private fun replay(statement: DaoQuerySource.DaoStatement, values: Map<String, Any>) {
-        if (statement.guarded) runCatching { exec(statement.sql, values) } else exec(statement.sql, values)
+    private fun replay(statement: DaoQuerySource.DaoStatement, values: Map<String, Any>, busy: Busy?) {
+        val run = {
+            if (busy?.refuses(statement.sql) == true) throw java.sql.SQLException("database is locked (SQLITE_BUSY)")
+            exec(statement.sql, values)
+        }
+        if (statement.guarded) runCatching { run() } else run()
+    }
+
+    /**
+     * A lock SQLite refuses ONE statement over, leaving the transaction around it standing —
+     * `SQLITE_BUSY`, the push service writing while the screen deletes. SQLite documents that for
+     * `SQLITE_FULL`, `SQLITE_IOERR`, `SQLITE_BUSY` and `SQLITE_NOMEM` it MAY abort only the statement
+     * in progress and leave the transaction running (`sqlite3_get_autocommit()` is what tells the two
+     * apart), which is the case that matters here: the code decides what happens next, and a
+     * swallowed error means it commits the half that landed. Modelled by refusing the statement
+     * without executing it, as the engine does — and the lock clears on its own, hence [times].
+     */
+    private class Busy(private val onSql: String, private var times: Int) {
+        var fired = 0
+            private set
+
+        fun refuses(sql: String): Boolean {
+            if (onSql !in sql || times == 0) return false
+            times--
+            fired++
+            return true
+        }
     }
 
     /** Run a shipped `@Query` statement, binding [values] by Room's parameter names. */
@@ -279,18 +322,37 @@ class DeletedMailLeavesTheIndexSqlTest {
         message("already", "mb-archive")
         message("other", "mb-archive")
 
-        deletePath(noOpEviction(), mapOf("accountId" to "acc", "ids" to listOf("already")))
+        deletePath(noOpEviction("archive"), mapOf("accountId" to "acc", "ids" to listOf("already")))
 
         assertEquals(listOf("other"), cached())
         assertEquals(listOf("already", "other"), indexed())
         assertEquals(listOf("already", "other"), search())
     }
 
-    @Test fun everyNoOpBranchGoesThroughTheEvictionThatSparesTheIndex() {
-        // The wiring the case above cannot see: which repository paths hand their empty actions to
-        // it. Each of these has a branch where the destination IS the source; a new one that reaches
-        // for deleteById instead has to fail here. The delete paths are deliberately absent, and
-        // the case below is what holds them out.
+    @Test fun aNoOpInAFolderSearchNeverLooksAtTakesTheIndexRowWithIt() {
+        // The other side of the line the case above draws, and the reason it cannot be drawn on
+        // "did anything move?" alone: the same two no-op branches are ALSO how a message is filed
+        // into Junk (report-spam onto a message already there) and how the folder picker files one
+        // into the Trash it is already in. There the index row is not true-but-idle, it is dead
+        // weight: search covers neither folder, at either end, so nothing is being preserved — and
+        // the row can never be cleaned up either, the re-seed only rewriting rows whose message is
+        // still cached. One such gesture, one permanent orphan.
+        folder("mb-junk", role = "junk")
+        message("reported", "mb-junk")
+        message("other", "mb-junk")
+
+        deletePath(noOpEviction("junk"), mapOf("accountId" to "acc", "ids" to listOf("reported")))
+
+        assertEquals(listOf("other"), cached())
+        assertEquals("an index row was left for a message in a folder search never looks at", listOf("other"), indexed())
+    }
+
+    @Test fun everyNoOpBranchGoesThroughTheEvictionThatWeighsTheFolder() {
+        // The wiring the two cases above cannot see: which repository paths hand their empty actions
+        // to the one eviction that asks what folder the message stayed in. Each of these has a branch
+        // where the destination IS the source; a new one that reaches for deleteById instead has to
+        // fail here. The delete paths are deliberately absent, and the case below is what holds them
+        // out.
         val missing = listOf("archive", "moveToMailbox", "archiveAll", "moveAllToMailbox")
             .filterNot { "$NO_OP_EVICTION(" in DaoQuerySource.mailFunctionBody("MailRepository", it) }
         assertEquals(
@@ -301,20 +363,22 @@ class DeletedMailLeavesTheIndexSqlTest {
     }
 
     @Test fun aTrashDeleteTakesTheIndexRowOneByOneAsInBulk() {
-        // The exception to the rule above, and the two paths must state it the same way: deleting a
-        // message that is ALREADY in the Trash moves nothing on the server either, but the Trash is
-        // excluded from search at both ends — the query's folder filter and the re-seed — so an
-        // index row surviving there carries the folder the message sat in BEFORE it was thrown
-        // away. That is exactly the stale row that hands a deleted message back with its subject and
-        // preview, so taking it is right, not merely harmless. The bulk path (deleteAll) always said
-        // so; the single one (delete) was toggled to the index-sparing eviction and the two then
-        // contradicted each other, one swipe apart.
+        // The two delete paths must state it the same way: deleting a message that is ALREADY in the
+        // Trash moves nothing on the server either, but the Trash is excluded from search at both
+        // ends — the query's folder filter, the crawl and the re-seed — so an index row surviving
+        // there preserves NO coverage; it is only an orphan, and the re-seed rewrites rows whose
+        // message is still cached, so nothing ever clears it. Not, as this comment used to say,
+        // because the row carries the folder the message sat in BEFORE: an IMAP id encodes its
+        // folder, so an in-Trash id's index row says Trash. That is what keeps it invisible, and
+        // only while the folder cache still holds that folder's role. The bulk path (deleteAll)
+        // always un-indexed; the single one (delete) was toggled to the index-sparing eviction and
+        // the two then contradicted each other, one swipe apart.
         val paths = listOf("delete", "deleteAll")
         val sparing = paths.filter { "$NO_OP_EVICTION(" in DaoQuerySource.mailFunctionBody("MailRepository", it) }
         assertEquals(
-            "the delete paths must NOT evict through $NO_OP_EVICTION: it spares the search-index " +
-                "row, and a row left in the index for a message in the Trash carries its previous " +
-                "folder — the stale hit that gives a deleted message back",
+            "the delete paths must NOT evict through $NO_OP_EVICTION: they know their destination " +
+                "is the Trash, which search covers at neither end, so the index row they would " +
+                "spare is an orphan no re-seed can clear",
             emptyList<String>(), sparing,
         )
         val removals = paths.associateWith { cacheRemovalsIn(it) }
@@ -326,8 +390,8 @@ class DeletedMailLeavesTheIndexSqlTest {
         )
         assertEquals(
             "these delete paths empty the cache with an EmailDao function that leaves the search " +
-                "index alone — a message deleted from the Trash would keep an index row labelled " +
-                "with the folder it was in before, and come back in the results",
+                "index alone — a message deleted from the Trash would keep an index row the folder " +
+                "cache alone hides, and a renamed or forgotten folder would give it back",
             emptyList<String>(),
             removals.flatMap { (path, functions) ->
                 functions.filterNot(::unindexes).map { "MailRepository.$path → EmailDao.$it" }
@@ -384,26 +448,96 @@ class DeletedMailLeavesTheIndexSqlTest {
 
     /**
      * The `EmailDao` function `MailRepository.evictAlreadyThere` — the shared cleanup of an action
-     * that moved nothing — evicts with, read out of its own body like [retentionEviction].
+     * that moved nothing — evicts a folder with this [role] with, read out of its own body like
+     * [retentionEviction].
+     *
+     * The wrapper is chosen by the SHIPPED rule ([noOpKeepsIndexRow]), so these cases follow whatever
+     * the app decides rather than restating it; what they insist on is that both branches exist. A
+     * no-op eviction with nowhere to send a Trash/Junk/Spam folder has only one behaviour, and it is
+     * the wrong one for half its call sites.
      */
-    private fun noOpEviction(): String = daoRemovalIn(NO_OP_EVICTION)
+    private fun noOpEviction(role: String?): String {
+        val keepsIndexRow = noOpKeepsIndexRow("mb-any", role)
+        val body = DaoQuerySource.mailFunctionBody("MailRepository", NO_OP_EVICTION)
+        check(keepsIndexRow || "$INDEXING_REMOVAL(" in body) {
+            "MailRepository.$NO_OP_EVICTION has no branch that un-indexes: an action that moves " +
+                "nothing in a folder search never looks at (role '$role') leaves an index row for a " +
+                "message the index covers at neither end — an orphan no re-seed can clear, since " +
+                "the re-seed only rewrites rows whose message is still cached"
+        }
+        return daoRemovalIn(if (keepsIndexRow) NO_OP_EVICTION else INDEXING_REMOVAL)
+    }
+
+    @Test fun theNoOpEvictionAsksWhetherTheFolderIsSearchedAtAll() {
+        val body = DaoQuerySource.mailFunctionBody("MailRepository", NO_OP_EVICTION)
+        assertEquals(
+            "MailRepository.$NO_OP_EVICTION must decide through the shipped rule (noOpKeepsIndexRow): " +
+                "whether the index row may stay is not 'did anything move?' but 'is this folder " +
+                "searched at all?'",
+            true, "noOpKeepsIndexRow(" in body,
+        )
+        assertEquals(
+            "MailRepository.$NO_OP_EVICTION restates the roles a search skips instead of asking the " +
+                "single source (NOT_SEARCHED_ROLES, through excludedSearchFolderIds): a second copy " +
+                "is what lets the index and the search disagree about what a folder is",
+            emptyList<String>(), NOT_SEARCHED_ROLES.filter { "\"$it\"" in body },
+        )
+    }
 
     @Test fun theDeletePathIsOneTransaction() {
         // Restored after being dropped on the theory that only a transaction could let a broken
-        // index block a delete. It cannot: SQLite auto-rolls-back on SQLITE_FULL / IOERR / BUSY /
-        // NOMEM / INTERRUPT, and SQLITE_CORRUPT — the damaged-FTS case of issue #71 — is not among
-        // them, so the swallowed failure below commits either way. Without the transaction, the
-        // errors that ARE auto-rolled-back (a transient SQLITE_BUSY: the push service writing while
-        // the screen deletes) undid the un-index alone and left an orphan index row that no re-seed
-        // ever clears — the deleted message came back in search for good.
+        // index block a delete. It cannot — the fallback below is what keeps the delete landing.
+        // Without the transaction, a statement refused on its own (a transient SQLITE_BUSY: the push
+        // service writing while the screen deletes) took the un-index away and left the cache delete
+        // standing: an orphan index row that no re-seed ever clears, so the deleted message came back
+        // in search for good.
         listOf("deleteById", "deleteByIds").forEach { function ->
             assertEquals(
-                "EmailDao.$function must stay @Transaction: the runCatching inside it already keeps " +
-                    "a sick index from blocking the delete, and dropping the transaction is what lets " +
-                    "a rolled-back un-index leave an index row whose message is gone",
-                true, DaoQuerySource.isTransactional("EmailDao", function),
+                "the statements EmailDao.$function issues must run as ONE transaction — its own " +
+                    "@Transaction or that of the pair it delegates to — so a refused un-index cannot " +
+                    "leave the cache delete committed on its own",
+                true, DaoQuerySource.emailDaoPath(function).atomic,
             )
         }
+    }
+
+    @Test fun theTransactionDoesNotSwallowTheIndexFailureInsideItself() {
+        // The form this replaced: both statements in the transaction, the un-index wrapped in a
+        // runCatching INSIDE it. It reads as "the delete lands whatever the index does", and it does
+        // — but for the failure that motivated the transaction it is the wrong shape. SQLite aborts
+        // a BUSY statement and CONTINUES the transaction, so the swallowed error let the block return
+        // normally, the transaction committed, and the cache row left without its index row: the very
+        // orphan the transaction is there to prevent. A `runCatching` also swallows the
+        // CancellationException of a screen closed mid-delete, with the same result.
+        listOf("deleteById", "deleteByIds").forEach { function ->
+            assertEquals(
+                "EmailDao.$function guards a statement INSIDE its transaction: a failure swallowed " +
+                    "there commits the half that succeeded. The recovery belongs outside — let the " +
+                    "transaction fail whole, then replay the cache delete on its own",
+                emptyList<String>(),
+                DaoQuerySource.emailDaoPath(function).main.filter { it.guarded }.map { it.function },
+            )
+        }
+    }
+
+    @Test fun aRefusedIndexStatementTakesNeitherHalfWithIt() {
+        // The case the shape rules above are about, played out. The index delete is refused once —
+        // a lock, not a corruption — and the two halves must end up in step: either both rows go or
+        // neither does, and the message must not be left cached-out but still searchable.
+        folder("mb-inbox", role = "inbox")
+        message("thrown", "mb-inbox")
+        message("kept", "mb-inbox")
+        val busy = Busy(onSql = "DELETE FROM email_fts", times = 1)
+
+        deletePath("deleteById", mapOf("accountId" to "acc", "id" to "thrown"), busy)
+
+        assertEquals("the index refusal was never exercised", 1, busy.fired)
+        assertEquals(listOf("kept"), cached())
+        assertEquals(
+            "a refused un-index left an index row whose cached message is gone — the orphan no " +
+                "re-seed clears, and the deleted message comes back in search for good",
+            listOf("kept"), indexed(),
+        )
     }
 
     @Test fun anIndexTooBrokenToWriteStillLetsTheMailBeDeleted() {
@@ -482,8 +616,12 @@ class DeletedMailLeavesTheIndexSqlTest {
          *  paths are the exception, and [REMOVAL_WRAPPERS] is how the rule sees what they use. */
         const val NO_OP_EVICTION = "evictAlreadyThere"
 
+        /** The wrapper that takes the index row with the cached one — where the no-op eviction
+         *  sends a folder no search looks at. */
+        const val INDEXING_REMOVAL = "deleteFromCacheAndIndex"
+
         /** `MailRepository`'s own removal wrappers: a path's cache removal is either a direct
          *  `emailDao.` call or one of these, and each resolves to the DAO function it evicts with. */
-        val REMOVAL_WRAPPERS = listOf("deleteFromCacheAndIndex", NO_OP_EVICTION)
+        val REMOVAL_WRAPPERS = listOf(INDEXING_REMOVAL, NO_OP_EVICTION)
     }
 }

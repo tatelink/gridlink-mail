@@ -123,6 +123,29 @@ class RepresentativeAnchorSqlTest {
         assertEquals(1, representativeCount())
     }
 
+    @Test fun aSiblingAccountsIdenticalCopyIsNeitherAnchorNorCounted() {
+        // The case [scopesToAccountAndMailbox] cannot see, and the reason the OUTER
+        // `accountId = :accountId AND mailboxId = :mailboxId` has to stay: both parameters survive
+        // in the correlated sub-select, so dropping the outer scope still compiles, still binds the
+        // same names, and every other case here still passes — the sub-select keeps answering for
+        // (acc, inbox) and other accounts' rows simply fail the `sortKey =` comparison.
+        //
+        // Unless they TIE. Two sub-accounts of one server (issue #31) receive the same message —
+        // same receivedAt, so the same sortKey, and the same server thread id — and the sibling's
+        // copy then equals the MAX the sub-select computed for THIS account: unscoped, it joins the
+        // result. It inflates the representative count, which is the end-of-pagination test, and it
+        // can BE the anchor handed to the server as a pagination id — an id of another account,
+        // which the server does not find, dropping the pager onto the positional fallback the code
+        // itself calls jump-prone. Inserted first, so a tie is not resolved in the shipped query's
+        // favour by insertion order.
+        insert("B-dup", threadId = "T-dup", sortKey = 100, accountId = "accB")
+        insert("A-dup", threadId = "T-dup", sortKey = 100)
+        insert("A-new", threadId = "T-a", sortKey = 300)
+
+        assertEquals("A-dup", anchor())
+        assertEquals(2, representativeCount())
+    }
+
     @Test fun emptyMailboxYieldsNoAnchor() {
         assertEquals(null, anchor())
         assertEquals(0, representativeCount())

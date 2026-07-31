@@ -69,8 +69,10 @@ class SettingsScreenHonestyTest {
     @Test fun `the screen never asks whether every account is IMAP`() {
         val mentions = codeLines(SETTINGS_SCREEN).filter { "ImapOnly" in it || "imapOnly" in it }
         assertEquals(
-            "SettingsScreen must not consult isImapOnly(): the honest statement is unconditional, " +
-                "and any use of that question on this screen is a condition growing back. Found:\n" +
+            "SettingsScreen must not ask whether every account is IMAP: the honest statement is " +
+                "unconditional, and any form of that question on this screen is a condition growing " +
+                "back. The function it used to call (isImapOnly) is gone — bringing it, or a local " +
+                "equivalent, back here is the regression. Found:\n" +
                 mentions.joinToString("\n"),
             emptyList<String>(), mentions,
         )

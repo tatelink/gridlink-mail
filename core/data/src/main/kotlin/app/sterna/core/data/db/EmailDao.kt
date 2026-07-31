@@ -7,6 +7,7 @@ import androidx.room.RawQuery
 import androidx.room.Transaction
 import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -114,8 +115,8 @@ interface EmailDao {
     suspend fun setFlagged(accountId: String, id: String, flagged: Boolean)
 
     /**
-     * Take one message OUT OF THIS PLACE: drop its cached row, then its search-index row, in one
-     * transaction whose index half is allowed to fail.
+     * Take one message OUT OF THIS PLACE: drop its cached row and its search-index row, together in
+     * one transaction, with the recovery for a failed index write sitting OUTSIDE that transaction.
      *
      * Every path that removes mail from a folder funnels through this function or [deleteByIds] —
      * swipe, menu, delete, move, archive, mark-as-spam, permanent purge, undo, reconciliation of a
@@ -137,53 +138,85 @@ interface EmailDao {
      * deleted message coming back in the results with its subject and preview, which is exactly
      * what un-indexing nowhere produced.
      *
-     * The order matters, and so does WHERE the failure is caught: the cache row goes first, the
-     * un-indexing is only ATTEMPTED and its failure is logged and swallowed INSIDE the transaction.
-     * An index too damaged or too locked to write — issue #71's ground — must not take the cache
-     * delete down with it: these paths are network-first, the server has ALREADY moved the message,
-     * so a rolled-back delete was reported as a failure and put the message back in the list it had
-     * just left. A sick index must degrade search, never block a delete.
+     * Two properties are wanted at once, and they pull against each other: the two rows go together
+     * or not at all, AND a sick index — issue #71's ground: an FTS table too damaged or too locked
+     * to write — never stops a message from being deleted. These paths are network-first, the server
+     * has ALREADY moved the message, so a delete reported as failed puts back in the list a message
+     * that is no longer there.
      *
-     * Catching inside `@Transaction` rather than dropping the transaction is what keeps both. SQLite
-     * rolls a statement's transaction back automatically for `SQLITE_FULL`, `SQLITE_IOERR`,
-     * `SQLITE_BUSY`, `SQLITE_NOMEM` and `SQLITE_INTERRUPT` only — `SQLITE_CORRUPT`, the damaged-FTS
-     * case, is not on that list, so a swallowed failure commits the cache delete normally. Without
-     * the transaction, the half that IS auto-rolled-back is the cheap one to lose (a transient
-     * `SQLITE_BUSY` — the push service writing while the screen deletes) and it left the cache row
-     * gone with its index row standing: the deleted message came back in search FOREVER, since no
-     * re-seed touches an orphan (`EmailFtsDao.seedFromEmails` only rewrites rows whose message is
+     * So: the pair runs in one transaction ([deleteRowAndIndexById]) with NOTHING caught inside it,
+     * and the recovery sits OUTSIDE — if the transaction cannot land whole, the cache delete is
+     * replayed on its own and the un-index is attempted once more, best-effort.
+     *
+     * The earlier shape swallowed the index failure INSIDE the transaction, and that is wrong for
+     * the very failure the transaction was restored for. SQLite aborts a `SQLITE_BUSY` statement and
+     * CONTINUES its transaction (the push service writing while the screen deletes); the swallowed
+     * error let the block return normally, the transaction committed, and the cache row went with
+     * its index row left standing — the orphan that hands a deleted message back in search FOREVER,
+     * since no re-seed touches it (`EmailFtsDao.seedFromEmails` only rewrites rows whose message is
      * still cached) and only "clear cache" removes it. [EmailFtsDao.search]'s folder filter hides
-     * such a row only when its label happens to be an excluded folder, which in the reported case
-     * is precisely what it is not: the label is the Inbox.
+     * such a row only when its label happens to be an excluded folder, which in the reported case is
+     * precisely what it is not: the label is the Inbox. `runCatching` swallows
+     * [CancellationException] too, so a screen closed mid-delete produced the same orphan; here a
+     * cancellation propagates and nothing is committed.
      *
-     * What remains uncovered is a process death between the two statements — the transaction closes
-     * that too. `MailRepository.pruneServerGone` guards the very same FTS delete in the same shape.
+     * What remains: an index that stays unwritable keeps its row while the cached message goes. That
+     * one is unavoidable — the delete is not optional — and it is why the retry outside exists, a
+     * lock having usually cleared by then. `MailRepository.pruneServerGone` guards the very same FTS
+     * delete in the same shape.
      */
-    @Transaction
     suspend fun deleteById(accountId: String, id: String) {
+        try {
+            deleteRowAndIndexById(accountId, id)
+        } catch (e: CancellationException) {
+            throw e // the caller went away: commit neither half, let the next attempt do both
+        } catch (e: Exception) {
+            android.util.Log.w("MailSync", "deleting $id with its index row failed", e)
+            deleteRowById(accountId, id)
+            runCatching { unindexById(accountId, id) }
+                .onFailure { android.util.Log.w("MailSync", "un-index of $id failed; its cached row is gone anyway", it) }
+        }
+    }
+
+    /** [deleteById]'s two halves as one all-or-nothing statement pair — see its comment for why
+     *  nothing is caught in here. */
+    @Transaction
+    suspend fun deleteRowAndIndexById(accountId: String, id: String) {
         deleteRowById(accountId, id)
-        runCatching { unindexById(accountId, id) }
-            .onFailure { android.util.Log.w("MailSync", "un-index of $id failed; its cached row is gone anyway", it) }
+        unindexById(accountId, id)
     }
 
     /**
      * [deleteById] for several ids of one account — same cache-then-index pairing, same transaction
-     * with the same swallowed index failure inside it.
+     * with nothing caught inside it, same replay outside when it cannot land whole.
      *
      * Prefer this to a loop of [deleteById] on the bulk paths: `email_fts` is an FTS4 table whose
      * `emailId` is `notindexed`, so every un-index SCANS the whole index — a 200-message selection
      * cost 200 full scans instead of one.
      */
-    @Transaction
     suspend fun deleteByIds(accountId: String, ids: List<String>) {
         if (ids.isEmpty()) return
-        deleteRowsByIds(accountId, ids)
-        runCatching { unindexByIds(accountId, ids) }
-            .onFailure { android.util.Log.w("MailSync", "un-index of ${ids.size} ids failed; cached rows gone anyway", it) }
+        try {
+            deleteRowsAndIndexByIds(accountId, ids)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("MailSync", "deleting ${ids.size} ids with their index rows failed", e)
+            deleteRowsByIds(accountId, ids)
+            runCatching { unindexByIds(accountId, ids) }
+                .onFailure { android.util.Log.w("MailSync", "un-index of ${ids.size} ids failed; cached rows gone anyway", it) }
+        }
     }
 
-    // The two halves of [deleteById] / [deleteByIds] — and, for the cache half on its own,
-    // [evictFromCacheKeepingIndex]. Call those, not these. Both halves
+    /** [deleteByIds]' two halves as one all-or-nothing statement pair — see [deleteById]. */
+    @Transaction
+    suspend fun deleteRowsAndIndexByIds(accountId: String, ids: List<String>) {
+        deleteRowsByIds(accountId, ids)
+        unindexByIds(accountId, ids)
+    }
+
+    // The two halves of [deleteRowAndIndexById] / [deleteRowsAndIndexByIds] — and, for the cache
+    // half on its own, [evictFromCacheKeepingIndex]. Call those, not these. Both halves
     // are scoped by accountId for the same reason the rest of this DAO is (issue #31): an email id
     // is unique only within its account, so an unscoped delete would take out a same-server sibling
     // account's cached row — or its index entry.
