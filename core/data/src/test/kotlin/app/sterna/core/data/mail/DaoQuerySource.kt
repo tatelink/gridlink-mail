@@ -18,11 +18,73 @@ import java.io.File
  */
 internal object DaoQuerySource {
     private const val DAO_DIR = "core/data/src/main/kotlin/app/sterna/core/data/db/"
+    private const val MAIL_DIR = "core/data/src/main/kotlin/app/sterna/core/data/mail/"
 
     private val sources = mutableMapOf<String, String>()
 
     private fun daoSource(daoName: String): String =
         sources.getOrPut(daoName) { locate("$DAO_DIR$daoName.kt").readText() }
+
+    /**
+     * One statement a DAO function issues: which `@Query` function carried it, its [sql], and
+     * whether the calling line wraps it in a `runCatching` — i.e. whether the shipped code lets
+     * that statement fail without taking the rest of the path down with it.
+     */
+    data class DaoStatement(val function: String, val sql: String, val guarded: Boolean)
+
+    /**
+     * The statements `EmailDao.[functionName]` issues, in the order its source issues them: its own
+     * `@Query` when it has one, otherwise the queries of the functions its body calls.
+     *
+     * This is how a JVM SQL test replays a `@Transaction`-style composition without assuming what
+     * it composes: drop the un-indexing from the DAO body and it disappears from here too, so the
+     * tests that assert an index row is gone turn red instead of quietly checking a path the app no
+     * longer runs. Calls to anything that is not a `@Query` of the same DAO (`isEmpty`, a log) are
+     * not statements and are skipped.
+     */
+    fun emailDaoStatements(functionName: String): List<DaoStatement> {
+        queryOrNull("EmailDao", functionName)?.let {
+            return listOf(DaoStatement(functionName, it, guarded = false))
+        }
+        val body = daoFunctionBody("EmailDao", functionName)
+        return body.lines().flatMap { line ->
+            Regex("""(\w+)\(""").findAll(line).mapNotNull { m ->
+                val called = m.groupValues[1]
+                queryOrNull("EmailDao", called)
+                    ?.let { DaoStatement(called, it, guarded = line.contains("runCatching")) }
+            }
+        }
+    }
+
+    /**
+     * Whether `[daoName].[functionName]` carries `@Transaction` — a replay of a composed path has
+     * to honour that: inside one, a statement that throws takes its predecessors down with it;
+     * without it, each statement stands (and commits) on its own.
+     *
+     * Read from the annotation lines sitting directly above the declaration, not by searching the
+     * file backwards: KDoc prose naming the annotation would otherwise answer for the code.
+     */
+    fun isTransactional(daoName: String, functionName: String): Boolean {
+        val source = daoSource(daoName)
+        val fn = Regex("""\bfun\s+$functionName\s*\(""").find(source)
+            ?: error("$daoName has no function named '$functionName' — did it get renamed?")
+        return source.substring(0, fn.range.first).lines().dropLast(1).asReversed()
+            .map { it.trim() }
+            .takeWhile { it.startsWith("@") }
+            .any { it == "@Transaction" }
+    }
+
+    /**
+     * The Kotlin body of `fun [functionName]` in a file of the `mail` package ([fileName] without
+     * its `.kt`) — same purpose as [daoFunctionBody] one layer up: a test that wants to know which
+     * DAO call a repository path makes reads the path itself rather than restating it.
+     */
+    fun mailFunctionBody(fileName: String, functionName: String): String =
+        functionBody(
+            sources.getOrPut("mail/$fileName") { locate("$MAIL_DIR$fileName.kt").readText() },
+            fileName,
+            functionName,
+        )
 
     /**
      * The SQL of the `@Query` annotating `fun [functionName]` in `EmailDao`, with Room's named
@@ -38,16 +100,18 @@ internal object DaoQuerySource {
      * calls both. This is how a test checks the wiring itself; the lookup fails loudly if the
      * function is renamed or stops having a body.
      */
-    fun daoFunctionBody(daoName: String, functionName: String): String {
-        val source = daoSource(daoName)
+    fun daoFunctionBody(daoName: String, functionName: String): String =
+        functionBody(daoSource(daoName), daoName, functionName)
+
+    private fun functionBody(source: String, owner: String, functionName: String): String {
         val fn = Regex("""\bfun\s+$functionName\s*\(""").find(source)
-            ?: error("$daoName has no function named '$functionName' — did it get renamed?")
+            ?: error("$owner has no function named '$functionName' — did it get renamed?")
         // The brace must be this signature's own, right after its closing ')': an abstract DAO
         // function has none, and taking "the next '{' in the file" would silently hand back some
         // later function's body.
         val open = bodyBrace(source, fn.range.last)
         check(open >= 0) {
-            "'$functionName' in $daoName has no body — is it still the @Transaction that composes " +
+            "'$functionName' in $owner has no body — is it still the function that composes " +
                 "its statements, or has it gone back to a single abstract @Query?"
         }
         var depth = 0
@@ -59,21 +123,34 @@ internal object DaoQuerySource {
             }
             i++
         }
-        error("Unbalanced braces in $daoName.$functionName")
+        error("Unbalanced braces in $owner.$functionName")
     }
 
     /** [emailDaoQuery] for any DAO of the `db` package, named without its `.kt` ([daoName]). */
-    fun daoQuery(daoName: String, functionName: String): String {
+    fun daoQuery(daoName: String, functionName: String): String =
+        queryOrNull(daoName, functionName)
+            ?: error("'$functionName' in $daoName is not annotated with @Query — did it get renamed?")
+
+    /**
+     * The SQL of `[daoName].[functionName]`'s `@Query`, or null when that function does not exist
+     * or carries no `@Query` of its OWN. "Of its own" is the whole point: the nearest preceding
+     * annotation in the file belongs to another function as soon as a declaration sits between the
+     * two, and handing back that neighbour's SQL would have a test quietly execute a statement the
+     * function it names never issues.
+     */
+    fun queryOrNull(daoName: String, functionName: String): String? {
         val source = daoSource(daoName)
-        val fn = Regex("""\bfun\s+$functionName\s*\(""").find(source)
-            ?: error("$daoName has no function named '$functionName' — did it get renamed?")
+        val fn = Regex("""\bfun\s+$functionName\s*\(""").find(source) ?: return null
         val head = source.substring(0, fn.range.first)
         val annotation = head.lastIndexOf("@Query(")
-        check(annotation >= 0) { "'$functionName' in $daoName is not annotated with @Query" }
+        if (annotation < 0 || head.substring(annotation).contains(DECLARATION)) return null
         val literals = stringLiterals(head.substring(annotation + "@Query(".length))
         check(literals.isNotEmpty()) { "@Query on '$functionName' holds no string literal" }
         return literals.joinToString("")
     }
+
+    /** A function declaration — what tells an annotation apart from the one before it. */
+    private val DECLARATION = Regex("""\bfun\s+\w+\s*\(""")
 
     /**
      * The same query with Room's named parameters replaced by positional `?`, plus the order the

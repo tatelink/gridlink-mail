@@ -1008,9 +1008,15 @@ class MailRepository(
             keepNewest = keepNewest,
         )
         if (gone.isEmpty()) return
+        // The INDEX SURVIVES this, hence `evictFromCacheKeepingIndex` and not `deleteByIds`: every
+        // id here belongs to a message the server still has, sitting where it always was (see
+        // [retentionEvictions]). Un-indexing them capped offline search at the sync window on every
+        // single refresh — and on IMAP for good, since nothing re-indexes a row the cache no longer
+        // holds. This is `EmailDao.deleteNotIn`'s case, by id instead of by page.
+        //
         // Chunked for the same reason the ghost sweep chunks: the ids go into an `IN (...)` and a
         // deep cache can hold more of them than SQLite will bind in one statement.
-        gone.chunked(MAX_CHANGES).forEach { emailDao.deleteByIds(accountId, it) }
+        gone.chunked(MAX_CHANGES).forEach { emailDao.evictFromCacheKeepingIndex(accountId, it) }
         android.util.Log.i(
             "MailSync",
             "retention $accountId/$mailboxId: pruned ${gone.size}, " +
@@ -1079,7 +1085,16 @@ class MailRepository(
     /**
      * Drop rows the server authoritatively no longer has (an explicit per-id `notFound`) —
      * cache row, cached body and search-index entry — so they can't linger as zombies that
-     * ignore every action. NO folder-count nudge, unlike the action-path removals: the
+     * ignore every action.
+     *
+     * The index delete here is now a belt-and-braces repeat of what `EmailDao.deleteByIds` already
+     * did on the line above, and it is KEPT for the shape it is written in: `runCatching`. An index
+     * that cannot be written — locked, or damaged, issue #71's ground — must never abort the
+     * removal of the cached row, which is the only thing standing between the user and a message
+     * that keeps coming back. That is the rule `EmailDao.deleteById`/`deleteByIds` were rewritten
+     * to follow, and this call is where it was first written down.
+     *
+     * NO folder-count nudge, unlike the action-path removals: the
      * server's counts never included these ids at the time we learn of them (the destroy
      * happened server-side and the cached mailbox counts have been refreshed from the server
      * since), so a local decrement would double-subtract; the live Room-derived badges
@@ -2653,6 +2668,20 @@ class MailRepository(
     }
 
     /**
+     * The bulk paths' cache+index removal: `EmailDao.deleteByIds` over [ids], chunked to what
+     * SQLite will bind in one `IN (...)` — [MAX_CHANGES], the bound the ghost sweep and the
+     * retention prune already use for their own id lists.
+     *
+     * They each used to call the single-id form in a loop. `email_fts` is FTS4 with `emailId`
+     * declared `notindexed`, so one un-index is a full scan of the whole index: a select-all of
+     * 200 messages meant 200 scans where one statement does.
+     */
+    private suspend fun deleteFromCacheAndIndex(accountId: String, ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        ids.chunked(MAX_CHANGES).forEach { emailDao.deleteByIds(accountId, it) }
+    }
+
+    /**
      * Batch-move one IMAP source folder's [ids] to [dest] (dest != source) with a single
      * `UID MOVE <set>`, recording each id's new destination UID (from COPYUID) in
      * [lastImapMove] so Undo can move the whole set back. Ids whose UID can't be parsed, or
@@ -2674,9 +2703,9 @@ class MailRepository(
                         lastImapMove[id] = ImapLoc(dest, it)
                         recentLocalMoves.mark(credentials.id, ImapMailService.emailId(credentials.id, dest, it))
                     }
-                    emailDao.deleteById(credentials.id, id)
-                    succeeded += id
                 }
+                deleteFromCacheAndIndex(credentials.id, uidToId.values)
+                succeeded += uidToId.values
                 adjustCountsForRemoval(rows.filter { it.id in uidToId.values }, dest)
             }
             .onFailure { failed += uidToId.values }
@@ -2695,7 +2724,8 @@ class MailRepository(
         if (uidToId.isEmpty()) return
         val rows = emailDao.emailsByIds(credentials.id, uidToId.values.toList())
         imap.deleteBatch(credentials, source, uidToId.keys.toList(), expectedUidValidity)
-        uidToId.values.forEach { emailDao.deleteById(credentials.id, it); succeeded += it }
+        deleteFromCacheAndIndex(credentials.id, uidToId.values)
+        succeeded += uidToId.values
         adjustCountsForRemoval(rows, destMailboxId = null)
     }
 
@@ -2708,7 +2738,8 @@ class MailRepository(
         return runCatching { client.move(ctx.session, ctx.accountId, emailIds, target, ctx.auth) }
             .map { result ->
                 val moved = emailIds.filter { it in result.done }.toSet()
-                moved.forEach { recentLocalMoves.mark(localAccountId, it); emailDao.deleteById(localAccountId, it) }
+                moved.forEach { recentLocalMoves.mark(localAccountId, it) }
+                deleteFromCacheAndIndex(localAccountId, moved)
                 adjustCountsForRemoval(rows.filter { it.id in moved }, target)
                 // notFound rejections are ghosts (destroyed server-side): prune their rows so
                 // they leave the list, but keep them in `failed` — nothing was moved to [target],
@@ -2728,7 +2759,7 @@ class MailRepository(
         val rows = emailDao.emailsByIds(localAccountId, emailIds)
         val result = client.destroy(ctx.session, ctx.accountId, emailIds, ctx.auth)
         val destroyed = emailIds.filter { it in result.done }.toSet()
-        destroyed.forEach { emailDao.deleteById(localAccountId, it) }
+        deleteFromCacheAndIndex(localAccountId, destroyed)
         adjustCountsForRemoval(rows.filter { it.id in destroyed }, destMailboxId = null)
         // A notFound rejection means the id was ALREADY destroyed (e.g. server-side by another
         // client) — the requested end state holds, so prune the row (no count nudge: the server's
@@ -2795,7 +2826,7 @@ class MailRepository(
             emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
                 when {
                     source == null -> failed += ids
-                    source == dest -> ids.forEach { emailDao.deleteById(credentials.id, it); succeeded += it }
+                    source == dest -> { deleteFromCacheAndIndex(credentials.id, ids); succeeded += ids }
                     else -> imapMoveGroup(credentials, source, ids, dest, succeeded, failed)
                 }
             }
@@ -2856,7 +2887,7 @@ class MailRepository(
             emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
                 when {
                     source == null -> failed += ids
-                    source == targetMailboxId -> ids.forEach { emailDao.deleteById(credentials.id, it); succeeded += it }
+                    source == targetMailboxId -> { deleteFromCacheAndIndex(credentials.id, ids); succeeded += ids }
                     else -> imapMoveGroup(credentials, source, ids, targetMailboxId, succeeded, failed)
                 }
             }
@@ -2884,7 +2915,7 @@ class MailRepository(
                     source == null || trash == null -> failed += ids
                     // Already in Trash: nothing to move — drop the row locally only. Deliberately
                     // in NEITHER set: there is no move to undo and nothing failed.
-                    source == trash -> ids.forEach { emailDao.deleteById(credentials.id, it) }
+                    source == trash -> deleteFromCacheAndIndex(credentials.id, ids)
                     else -> imapMoveGroup(credentials, source, ids, trash, succeeded, failed)
                 }
             }

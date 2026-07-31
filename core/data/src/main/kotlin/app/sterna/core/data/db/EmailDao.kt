@@ -67,6 +67,8 @@ interface EmailDao {
      * Which is why this must NOT touch the search index, unlike [deleteById]/[deleteByIds]: the
      * index deliberately outlives the display cache (that is what makes offline search cover more
      * than the last page), and un-indexing on eviction would hollow it out on every scroll.
+     *
+     * [evictFromCacheKeepingIndex] is the same rule applied to a list of ids rather than to a page.
      */
     @Query("DELETE FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId AND id NOT IN (:keepIds)")
     suspend fun deleteNotIn(accountId: String, mailboxId: String, keepIds: List<String>)
@@ -83,6 +85,26 @@ interface EmailDao {
     )
     suspend fun deleteNotInSparing(accountId: String, mailboxId: String, keepIds: List<String>, spareIds: List<String>)
 
+    /**
+     * Evict [ids] from the display cache and LEAVE THEIR INDEX ROWS ALONE — [deleteNotIn]'s by-id
+     * sibling, for the retention window (`MailRepository.pruneRetention`).
+     *
+     * Same rule, stated by id rather than by page: these messages are still sitting in their folder
+     * on the server, they merely fell outside the age/count this account keeps offline. Sending
+     * them through [deleteByIds] instead un-indexed them, and offline search stopped covering
+     * anything older than the sync window — on EVERY refresh, and irreversibly on IMAP, where
+     * nothing re-indexes a message the cache no longer holds (the crawl `syncSearchIndex` is JMAP
+     * only, and `EmailFtsDao.seedFromEmails` reads the cache).
+     *
+     * It exists as its own named function, rather than the retention prune calling a raw half of
+     * [deleteByIds], so the cheap correct choice is available BY NAME at the call site instead of
+     * being one letter away from the wrong one.
+     */
+    suspend fun evictFromCacheKeepingIndex(accountId: String, ids: List<String>) {
+        if (ids.isEmpty()) return
+        deleteRowsByIds(accountId, ids)
+    }
+
     @Query("UPDATE emails SET seen = :seen WHERE accountId = :accountId AND id = :id")
     suspend fun setSeen(accountId: String, id: String, seen: Boolean)
 
@@ -90,8 +112,7 @@ interface EmailDao {
     suspend fun setFlagged(accountId: String, id: String, flagged: Boolean)
 
     /**
-     * Take one message OUT OF THIS PLACE: drop its cached row **and its search-index row**, in one
-     * transaction.
+     * Take one message OUT OF THIS PLACE: drop its cached row, then its search-index row.
      *
      * Every path that removes mail from a folder funnels through this function or [deleteByIds] —
      * swipe, menu, delete, move, archive, mark-as-spam, permanent purge, undo, reconciliation of a
@@ -99,11 +120,11 @@ interface EmailDao {
      * at each of them is the point: the index cannot be left holding a message the cache no longer
      * has, and a move path written next year is covered without anyone remembering to.
      *
-     * Contrast [deleteNotIn] / [deleteNotInSparing], which must NOT un-index and deliberately do
-     * not: they evict rows whose messages are still exactly where they were, merely fallen out of
-     * the cached page. Wiring those to the index would empty it as the user scrolls. The line is
-     * the whole correctness of this: here = "this message left this place"; there = "this page is
-     * no longer cached".
+     * Contrast [deleteNotIn] / [deleteNotInSparing] / [evictFromCacheKeepingIndex], which must NOT
+     * un-index and deliberately do not: they evict rows whose messages are still exactly where they
+     * were, merely fallen out of the cached page or of the sync window. Wiring those to the index
+     * would empty it as the user scrolls. The line is the whole correctness of this: here = "this
+     * message left this place"; there = "this page is no longer cached".
      *
      * The un-indexing is unconditional, destination unknown — none is available at most call sites,
      * and a permanent destroy has none at all. So a move to a *searchable* folder (archive) also
@@ -112,22 +133,46 @@ interface EmailDao {
      * server half of the same union still finds it. The expensive error is the other direction — a
      * deleted message coming back in the results with its subject and preview, which is exactly
      * what un-indexing nowhere produced.
+     *
+     * NOT one transaction, and the order matters: the cache row goes first and on its own, the
+     * un-indexing is only ATTEMPTED and its failure is logged and swallowed. Held in one
+     * `@Transaction`, an index too damaged or too locked to write — issue #71's ground — rolled the
+     * cache delete back with it, and since these paths are network-first the server had ALREADY
+     * moved the message: the action was reported as failed and the message reappeared in the list
+     * it had just left. A sick index must degrade search, never block a delete.
+     *
+     * What that costs is atomicity: a process death between the two statements, or an index that
+     * refused the write, leaves an index row whose message is gone — and no re-seed clears that one
+     * (`EmailFtsDao.seedFromEmails` only rewrites rows whose message is still cached). It is
+     * exactly the state that shipped before this un-indexing existed, on the rare paths where the
+     * write fails instead of on every delete, and [EmailFtsDao.search]'s folder filter still hides
+     * it whenever the label is an excluded folder. A search result that should not be there is a
+     * smaller failure than mail that cannot be deleted. `MailRepository.pruneServerGone` has always
+     * guarded the very same FTS delete this way.
      */
-    @Transaction
     suspend fun deleteById(accountId: String, id: String) {
         deleteRowById(accountId, id)
-        unindexById(accountId, id)
+        runCatching { unindexById(accountId, id) }
+            .onFailure { android.util.Log.w("MailSync", "un-index of $id failed; its cached row is gone anyway", it) }
     }
 
-    /** [deleteById] for several ids of one account — same cache-and-index pairing. */
-    @Transaction
+    /**
+     * [deleteById] for several ids of one account — same cache-then-index pairing, same deliberate
+     * absence of a transaction around it.
+     *
+     * Prefer this to a loop of [deleteById] on the bulk paths: `email_fts` is an FTS4 table whose
+     * `emailId` is `notindexed`, so every un-index SCANS the whole index — a 200-message selection
+     * cost 200 full scans instead of one.
+     */
     suspend fun deleteByIds(accountId: String, ids: List<String>) {
         if (ids.isEmpty()) return
         deleteRowsByIds(accountId, ids)
-        unindexByIds(accountId, ids)
+        runCatching { unindexByIds(accountId, ids) }
+            .onFailure { android.util.Log.w("MailSync", "un-index of ${ids.size} ids failed; cached rows gone anyway", it) }
     }
 
-    // The two halves of [deleteById] / [deleteByIds]. Call the pair above, not these. Both halves
+    // The two halves of [deleteById] / [deleteByIds] — and, for the cache half on its own,
+    // [evictFromCacheKeepingIndex]. Call those, not these. Both halves
     // are scoped by accountId for the same reason the rest of this DAO is (issue #31): an email id
     // is unique only within its account, so an unscoped delete would take out a same-server sibling
     // account's cached row — or its index entry.

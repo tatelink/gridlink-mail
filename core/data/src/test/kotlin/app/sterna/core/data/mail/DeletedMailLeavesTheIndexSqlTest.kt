@@ -21,9 +21,13 @@ import java.sql.DriverManager
  * are gone. Both tests must stay.
  *
  * The statements executed here are read out of the shipped DAO by [DaoQuerySource], never retyped —
- * including WHICH statements the delete path is made of, taken from the `@Transaction` body itself,
- * so unhooking the un-indexing in the DAO turns these red instead of leaving them checking a path
- * the app no longer runs.
+ * including WHICH statements the delete path is made of, taken from the composed body itself, so
+ * unhooking the un-indexing in the DAO turns these red instead of leaving them checking a path the
+ * app no longer runs.
+ *
+ * Two cases guard the LINE the un-indexing must not cross, and they matter as much as the deletion
+ * itself: the retention window evicts messages that are still in their folder and must leave their
+ * index rows alone, and an index that cannot be written must not stop a message from being deleted.
  */
 class DeletedMailLeavesTheIndexSqlTest {
     private lateinit var db: Connection
@@ -106,20 +110,40 @@ class DeletedMailLeavesTheIndexSqlTest {
     // ---- the shipped statements ---------------------------------------------------------------
 
     /**
-     * Replay one of `EmailDao`'s `@Transaction` delete functions: the statements ITS OWN BODY
-     * calls, in the order it calls them.
+     * Replay one of `EmailDao`'s composed delete functions: the statements ITS OWN BODY calls, in
+     * the order it calls them, with the two properties of the shipped body that decide what a
+     * failure does — whether it is wrapped in `@Transaction`, and whether the call is guarded by a
+     * `runCatching`.
      *
      * A JVM SQL test cannot invoke the Kotlin body, so the alternative would be to assume which
      * halves it composes — and an assumption would keep passing after someone deletes the
-     * un-indexing call. Reading the body means the replay stops issuing the un-index the moment
-     * the DAO stops issuing it, and the assertions below go red.
+     * un-indexing call, or puts the two statements back under one all-or-nothing transaction.
+     * Reading the body means the replay stops issuing the un-index the moment the DAO stops issuing
+     * it, and rolls the cache delete back exactly when the DAO would.
      */
     private fun deletePath(function: String, values: Map<String, Any>) {
-        val body = DaoQuerySource.daoFunctionBody("EmailDao", function)
-        val called = Regex("""^\s*(\w+)\(""", RegexOption.MULTILINE)
-            .findAll(body).map { it.groupValues[1] }.toList()
-        check(called.isNotEmpty()) { "EmailDao.$function composes no statement" }
-        called.forEach { exec(DaoQuerySource.emailDaoQuery(it), values) }
+        val statements = DaoQuerySource.emailDaoStatements(function)
+        check(statements.isNotEmpty()) { "EmailDao.$function composes no statement" }
+        val atomic = DaoQuerySource.isTransactional("EmailDao", function)
+        if (!atomic) {
+            statements.forEach { replay(it, values) }
+            return
+        }
+        db.autoCommit = false
+        try {
+            statements.forEach { replay(it, values) }
+            db.commit()
+        } catch (e: Exception) {
+            db.rollback() // what @Transaction does with an exception it did not catch
+            throw e
+        } finally {
+            db.autoCommit = true
+        }
+    }
+
+    /** One replayed statement, failing the way the shipped body lets it fail. */
+    private fun replay(statement: DaoQuerySource.DaoStatement, values: Map<String, Any>) {
+        if (statement.guarded) runCatching { exec(statement.sql, values) } else exec(statement.sql, values)
     }
 
     /** Run a shipped `@Query` statement, binding [values] by Room's parameter names. */
@@ -238,6 +262,55 @@ class DeletedMailLeavesTheIndexSqlTest {
             },
         )
     }
+
+    @Test fun anIndexTooBrokenToWriteStillLetsTheMailBeDeleted() {
+        // Issue #71's ground: a search table that cannot be written (damaged, or locked). Deleting
+        // is a folder action, not a search feature — it must land whatever the index says. It could
+        // not while both statements were one @Transaction: the un-index threw, the cache delete was
+        // rolled back with it, and the message came back into a list the server had already emptied
+        // it from (these paths are network-first, the move is done before this runs).
+        folder("mb-inbox", role = "inbox")
+        message("thrown", "mb-inbox")
+        db.createStatement().use { it.executeUpdate("DROP TABLE email_fts") }
+
+        val outcome = runCatching { deletePath("deleteById", mapOf("accountId" to "acc", "id" to "thrown")) }
+
+        assertEquals(emptyList<String>(), cached())
+        assertEquals("the delete path let an index failure escape", null, outcome.exceptionOrNull()?.message)
+    }
+
+    @Test fun aRetentionEvictionKeepsTheIndexRowsOfTheMailItDropped() {
+        // The sync window is not a removal: these messages are still in their folder on the server,
+        // they merely fell outside what the account keeps offline (`retentionEvictions`). Routing
+        // that through the delete path un-indexed them, so offline search stopped covering anything
+        // older than the window on every refresh — and on IMAP for good, nothing re-indexing a row
+        // the cache no longer holds. The function is read out of `pruneRetention` itself.
+        folder("mb-inbox", role = "inbox")
+        message("old", "mb-inbox")
+        message("recent", "mb-inbox")
+
+        deletePath(retentionEviction(), mapOf("accountId" to "acc", "ids" to listOf("old")))
+
+        assertEquals(listOf("recent"), cached())
+        assertEquals(listOf("old", "recent"), indexed())
+        assertEquals(listOf("old", "recent"), search())
+    }
+
+    /**
+     * The `EmailDao` function `MailRepository.pruneRetention` evicts with — read out of that
+     * function's own body, so the case above follows whatever the retention path calls instead of
+     * asserting against a hand-picked function it may no longer use. The eviction is the DAO call
+     * whose statements DELETE (the other one reads the rows to decide on).
+     */
+    private fun retentionEviction(): String =
+        Regex("""emailDao\.(\w+)\(""")
+            .findAll(DaoQuerySource.mailFunctionBody("MailRepository", "pruneRetention"))
+            .map { it.groupValues[1] }
+            .distinct()
+            .firstOrNull { name ->
+                DaoQuerySource.emailDaoStatements(name).any { it.sql.trimStart().startsWith("DELETE", ignoreCase = true) }
+            }
+            ?: error("MailRepository.pruneRetention no longer evicts anything through EmailDao")
 
     @Test fun pruningTheCachedPageDoesNotUnindexAnything() {
         // deleteNotIn is window eviction: the message is still in its folder, it just fell out of

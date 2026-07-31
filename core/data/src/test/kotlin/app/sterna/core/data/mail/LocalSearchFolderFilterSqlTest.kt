@@ -12,13 +12,19 @@ import java.sql.DriverManager
  * ([app.sterna.core.data.db.EmailFtsDao.search]) hides the folders a search must not surface —
  * Trash/Junk/Spam, the roles of [NOT_SEARCHED_ROLES], which the server half already excludes.
  *
- * The defect this pins: the index is built once and the exclusion used to live only at INDEXING
- * time, so a message indexed while it sat in the Inbox stayed indexed after being thrown away, and
- * the search union put it back in the results — subject, preview and all — while the advanced
- * (server-only) search correctly showed nothing. Every case therefore carries the same witness:
- * **the row is still in `email_fts`**. That is what proves the FILTER did the work; a test that
- * merely deleted the index row would also pass against the old, broken query and would guard
- * nothing.
+ * What this filter covers, and all it covers: index rows that are still there but LABELLED with an
+ * excluded folder. Rows get that label when they were WRITTEN with the excluded mailbox already on
+ * them — the folder cache carried no role yet when the crawl indexed them, the role arrived from
+ * the server afterwards, or the row came from `MIGRATION_14_15`, which repopulated the index
+ * straight `FROM emails` with no exclusion at all. NOTHING in the app rewrites
+ * `email_fts.mailboxId`, so the cases below fabricate that label with an `UPDATE` the app never
+ * runs ([labelIndexRow]); a message deleted out of the Inbox keeps the INBOX on its index row and
+ * is invisible to this filter. That other half — the message is gone, the row must go with it — is
+ * `EmailDao.deleteById`/`deleteByIds`, pinned by [DeletedMailLeavesTheIndexSqlTest].
+ *
+ * Every case therefore carries the same witness: **the row is still in `email_fts`**. That is what
+ * proves the FILTER did the work; a test that merely deleted the index row would also pass against
+ * the old, broken query and would guard nothing.
  *
  * The statement executed here is read out of the shipped DAO by [DaoQuerySource], not retyped, so
  * changing the DAO's SQL changes this test's SQL with it.
@@ -82,9 +88,15 @@ class LocalSearchFolderFilterSqlTest {
         }
     }
 
-    /** Move an already indexed message: only the mailbox of its INDEX row changes, as a real move
-     *  leaves it (nothing on the move path un-indexes it — that is the whole point). */
-    private fun moveIndexedTo(emailId: String, mailboxId: String) {
+    /**
+     * Put an excluded folder's id on an index row — the state this filter exists for.
+     *
+     * This UPDATE is a fixture, NOT something the app runs: no code path rewrites
+     * `email_fts.mailboxId`. It stands in for a row that was WRITTEN carrying that mailbox (a
+     * folder whose role was still unknown to the cache when the crawl indexed it, a role the server
+     * sent later, a row from `MIGRATION_14_15`), which is the only way such a row exists.
+     */
+    private fun labelIndexRow(emailId: String, mailboxId: String) {
         db.prepareStatement("UPDATE email_fts SET mailboxId = ? WHERE emailId = ?").use {
             it.setString(1, mailboxId); it.setString(2, emailId); it.executeUpdate()
         }
@@ -124,26 +136,26 @@ class LocalSearchFolderFilterSqlTest {
         assertEquals(listOf("kept"), search("token*"))
     }
 
-    @Test fun theSameMessageThrownAwayDisappearsFromResultsWhileStayingInTheIndex() {
+    @Test fun aRowLabelledTrashIsHiddenFromResultsWhileStayingInTheIndex() {
         folder("mb-inbox", role = "inbox")
         folder("mb-trash", role = "trash")
         index("thrown", "mb-inbox")
         assertEquals(listOf("thrown"), search("token*"))
 
-        moveIndexedTo("thrown", "mb-trash")
+        labelIndexRow("thrown", "mb-trash")
 
         assertEquals(emptyList<String>(), search("token*"))
         // The witness: nothing cleaned the index — the QUERY is what hides the message.
         assertEquals(listOf("thrown"), indexedIds("token*"))
     }
 
-    @Test fun theSameMessageMarkedAsJunkDisappearsFromResultsWhileStayingInTheIndex() {
+    @Test fun aRowLabelledJunkIsHiddenFromResultsWhileStayingInTheIndex() {
         folder("mb-inbox", role = "inbox")
         folder("mb-junk", role = "junk")
         index("junked", "mb-inbox")
         assertEquals(listOf("junked"), search("token*"))
 
-        moveIndexedTo("junked", "mb-junk")
+        labelIndexRow("junked", "mb-junk")
 
         assertEquals(emptyList<String>(), search("token*"))
         assertEquals(listOf("junked"), indexedIds("token*"))
