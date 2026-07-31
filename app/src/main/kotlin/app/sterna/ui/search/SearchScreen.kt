@@ -377,7 +377,26 @@ fun SearchScreen(
                 // sits just under the handle and is translated up by its own measured height when
                 // closed (clipped away by the parent Box), sliding into view as the handle is dragged.
                 Surface(
-                    tonalElevation = 2.dp,
+                    // No tonalElevation. Material 3 implements it by tinting the surface with the
+                    // primary colour, and in this theme `background` and `surface` are the SAME
+                    // colour (Color.kt) — the top app bar's default container included — so a
+                    // tinted panel was the only tinted thing on the screen: it read as a different
+                    // shade from the title bar and the search box right above it, most visibly in
+                    // the dark theme, where a teal tint over a near-black background shows far more
+                    // than the same 2 dp over light grey.
+                    //
+                    // shadowElevation is kept, but do NOT read it as the thing that now carries the
+                    // panel's depth: it draws nothing anyone can see. A 6 dp shadow spreads 6-9 dp,
+                    // and every edge of it is covered — below by the handle, which is drawn AFTER
+                    // the panel, at exactly its bottom edge, 18 dp tall and fully opaque; above by
+                    // the parent's clipToBounds; at the sides by the screen edge. It is here as a
+                    // correct declaration of what the panel is, and so that it works the day the
+                    // handle stops sitting flush against it.
+                    //
+                    // Which leaves the scrim as the ONE thing telling the user this panel floats
+                    // over the results rather than pushing them. That is a real reduction and it is
+                    // deliberate — the tint was measurably the wrong tool, since it broke the
+                    // screen's colour — but it is one marker, not three.
                     shadowElevation = 6.dp,
                     modifier = Modifier
                         .fillMaxWidth()
