@@ -908,6 +908,11 @@ class MailRepository(
         // [accountId] used for API calls), so per-account routing and storage work.
         localAccountId: String,
     ): List<String> {
+        // Same belt as [refresh] (#121): this is the other entry point that tags cached rows with
+        // a local account id, and a blank one strands every row it writes.
+        require(localAccountId.isNotBlank()) {
+            "syncMailbox() needs a real account id: caching mail under a blank one strands it (#121)."
+        }
         val key = syncKey(localAccountId, mailboxId)
         val stored = loadSyncState(key)
         if (stored != null) {
@@ -1926,6 +1931,15 @@ class MailRepository(
         // two must come from the same SyncWindow.
         pruneBeforeMillis: Long? = null,
     ): MailboxMeta {
+        // The belt behind ConnectViewModel's braces (#121). Every row this writes is tagged with
+        // credentials.id; with a blank one they land under an account that does not exist, show up
+        // in the unified list with no chip, never re-sync, and are only ever removed by the orphan
+        // sweep. The three add paths used to prime the cache before creating the account, which is
+        // exactly how that happened — they now create first. Throw rather than skip: a silent
+        // no-op would hide a fourth add path making the same mistake.
+        require(credentials.id.isNotBlank()) {
+            "refresh() needs a real account id: caching mail under a blank one strands it (#121)."
+        }
         if (credentials.protocol == MailProtocol.IMAP) return refreshImap(credentials, mailboxId, limit, pruneBeforeMillis)
         val auth = jmapAuth(credentials)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
