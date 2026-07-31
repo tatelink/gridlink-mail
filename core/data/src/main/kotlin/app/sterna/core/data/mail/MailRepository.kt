@@ -1452,10 +1452,14 @@ class MailRepository(
      * Local full-text search over [syncSearchIndex]'s index: accent-folded, PREFIX-matched
      * ("eco*"), so it is instant, offline and monotonic as the user types (unlike the server's
      * stemmed full-text). Returns newest-first, capped at [limit]. Blank/empty query → no results.
+     *
+     * Trash/Junk/Spam are filtered by the query itself, from [NOT_SEARCHED_ROLES] — the single role
+     * source the server-side filter also uses, so both halves of the search union (local index and
+     * server answer) hide the same folders instead of the local half putting deleted mail back.
      */
     suspend fun searchIndex(query: String, limit: Int = LOCAL_SEARCH_LIMIT): List<Email> {
         val match = ftsMatch(query) ?: return emptyList()
-        return emailFtsDao.search(match, limit).map { it.toEmail() }
+        return emailFtsDao.search(match, NOT_SEARCHED_ROLES, limit).map { it.toEmail() }
     }
 
     /** Build an FTS4 MATCH expression: each word becomes a prefix term, AND-combined ("eco* log*"). */

@@ -17,21 +17,27 @@ import java.io.File
  * validating a stale copy.
  */
 internal object DaoQuerySource {
-    private const val EMAIL_DAO = "core/data/src/main/kotlin/app/sterna/core/data/db/EmailDao.kt"
+    private const val DAO_DIR = "core/data/src/main/kotlin/app/sterna/core/data/db/"
 
-    private val emailDaoSource: String by lazy { locate(EMAIL_DAO).readText() }
+    private val sources = mutableMapOf<String, String>()
+
+    private fun daoSource(daoName: String): String =
+        sources.getOrPut(daoName) { locate("$DAO_DIR$daoName.kt").readText() }
 
     /**
      * The SQL of the `@Query` annotating `fun [functionName]` in `EmailDao`, with Room's named
      * parameters left in place (`:accountId`, …) — [bindOrder] turns them into positional `?`.
      */
-    fun emailDaoQuery(functionName: String): String {
-        val source = emailDaoSource
+    fun emailDaoQuery(functionName: String): String = daoQuery("EmailDao", functionName)
+
+    /** [emailDaoQuery] for any DAO of the `db` package, named without its `.kt` ([daoName]). */
+    fun daoQuery(daoName: String, functionName: String): String {
+        val source = daoSource(daoName)
         val fn = Regex("""\bfun\s+$functionName\s*\(""").find(source)
-            ?: error("EmailDao has no function named '$functionName' — did it get renamed?")
+            ?: error("$daoName has no function named '$functionName' — did it get renamed?")
         val head = source.substring(0, fn.range.first)
         val annotation = head.lastIndexOf("@Query(")
-        check(annotation >= 0) { "'$functionName' in EmailDao is not annotated with @Query" }
+        check(annotation >= 0) { "'$functionName' in $daoName is not annotated with @Query" }
         val literals = stringLiterals(head.substring(annotation + "@Query(".length))
         check(literals.isNotEmpty()) { "@Query on '$functionName' holds no string literal" }
         return literals.joinToString("")
