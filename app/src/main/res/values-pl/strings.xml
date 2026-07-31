@@ -334,7 +334,7 @@
     <string name="settings_filter_move_to">Przenieś do folderu</string>
     <string name="settings_filter_move_none">(nie przenoś)</string>
     <string name="settings_filter_mark_read">Oznacz jako przeczytane</string>
-    <string name="settings_filter_flag">Oznacz</string>
+    <string name="settings_filter_flag">Oznacz gwiazdką</string>
     <string name="settings_filter_delete">Usuń regułę</string>
     <string name="settings_filter_summary_move">Przenieś do %1$s</string>
     <string name="settings_filter_field_from">Nadawca</string>
@@ -722,7 +722,7 @@
     <string name="inbox_new_subfolder_in">Nowy podfolder w %1$s</string>
     <string name="inbox_folder_expand">Rozwiń folder</string>
     <string name="inbox_folder_collapse">Zwiń folder</string>
-    <string name="a11y_favourite">Dodaj oznaczenie</string>
+    <string name="a11y_favourite">Oznacz</string>
     <string name="a11y_unfavourite">Usuń oznaczenie</string>
     <string name="a11y_has_attachment">Zawiera załącznik</string>
     <string name="draft_label">Wersja robocza</string>

@@ -725,7 +725,7 @@
     <string name="inbox_new_subfolder_in">Новая вложенная папка в %1$s</string>
     <string name="inbox_folder_expand">Развернуть папку</string>
     <string name="inbox_folder_collapse">Свернуть папку</string>
-    <string name="a11y_favourite">Добавить пометку</string>
+    <string name="a11y_favourite">Пометить</string>
     <string name="a11y_unfavourite">Снять пометку</string>
     <string name="a11y_has_attachment">Есть вложение</string>
     <string name="draft_label">Черновик</string>
