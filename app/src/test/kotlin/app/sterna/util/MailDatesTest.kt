@@ -1,5 +1,6 @@
 package app.sterna.util
 
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -44,5 +45,106 @@ class MailDatesTest {
         assertFalse("no trailing Z: $formatted", formatted.endsWith("Z"))
         assertTrue("year present: $formatted", formatted.contains("2026"))
         assertTrue("local time present: $formatted", formatted.contains("11:12"))
+    }
+
+    // --- List rows: today / this year / another year -----------------------------------------
+    //
+    // Three steps: today shows the time, an earlier day of the current year "d MMM", any other
+    // year a short numeric date in the language's own order. The month NAME follows the device
+    // language, so the "d MMM" step is pinned by shape; the numeric step takes an explicit locale
+    // and is pinned literally, which is the only way to prove the order really follows the tongue.
+
+    @Test fun aMessageFromTodayIsPlacedByItsTime() {
+        assertEquals(
+            "09:12",
+            MailDates.formatListDate("2026-08-24T07:12:33Z", paris, LocalDate.of(2026, 8, 24)),
+        )
+    }
+
+    @Test fun anEarlierDayOfTheCurrentYearOmitsTheYear() {
+        val label = MailDates.formatListDate("2026-08-24T07:12:33Z", paris, LocalDate.of(2026, 11, 2))
+        assertFalse("no year while it is the current one: $label", label.contains("2026"))
+        assertFalse("a past day is a date, not a clock: $label", label.contains(":"))
+        assertTrue("day of month present: $label", label.startsWith("24 "))
+    }
+
+    @Test fun anotherYearIsNumericInTheLanguagesOwnOrder() {
+        // 19 December 1989, read in two languages. English-US puts the month first, French the
+        // day: same instant, two orders, and nothing hand-written decides which — the locale does.
+        val reference = LocalDate.of(2026, 11, 2)
+        val us = MailDates.formatListDate("1989-12-19T08:12:33Z", paris, reference, Locale.US)
+        val fr = MailDates.formatListDate("1989-12-19T08:12:33Z", paris, reference, Locale.FRENCH)
+        assertEquals("12/19/89", us)
+        assertTrue("French leads with the day: $fr", fr.startsWith("19/12/"))
+        // The year's WIDTH is the language's business, not ours: CLDR gives French four digits
+        // ("19/12/1989") and American English two. Pinning it here would be forcing a French
+        // habit onto languages that don't share it, so only its value is checked.
+        assertTrue("year of the message: $fr", fr.endsWith("89"))
+    }
+
+    @Test fun anotherYearCarriesNoMonthNameSoTheStampStaysNarrow() {
+        // The whole point of the numeric step: it shares its line with the sender's name, which
+        // must not be the field that yields. Digits and separators only, and short.
+        val label = MailDates.formatListDate(
+            "1989-12-19T08:12:33Z", paris, LocalDate.of(2026, 11, 2), Locale.GERMAN,
+        )
+        assertEquals("19.12.89", label)
+        assertFalse("no month name: $label", label.any { it.isLetter() })
+    }
+
+    @Test fun twoDecember19thsAYearApartCannotReadAlike() {
+        val reference = LocalDate.of(2026, 11, 2)
+        val thisYear = MailDates.formatListDate("2026-12-19T08:12:33Z", paris, reference, Locale.US)
+        val longAgo = MailDates.formatListDate("1989-12-19T08:12:33Z", paris, reference, Locale.US)
+        assertEquals("19 Dec", thisYear)
+        assertEquals("12/19/89", longAgo)
+    }
+
+    @Test fun newYearsEveSeenTheNextMorningShowsItsYear() {
+        // 1 Jan is "this year"; the message from the day before is not, however close it is.
+        val label = MailDates.formatListDate(
+            "2025-12-31T22:30:00Z", paris, LocalDate.of(2026, 1, 1), Locale.US,
+        )
+        assertEquals("12/31/25", label)
+    }
+
+    @Test fun newYearsDaySeenOnNewYearsEveOfTheSameYearDoesNot() {
+        val label = MailDates.formatListDate("2026-01-01T09:00:00Z", paris, LocalDate.of(2026, 12, 31))
+        assertFalse("same year, no year shown: $label", label.contains("2026"))
+        assertFalse("still the month-name step, not the numeric one: $label", label.contains("/"))
+    }
+
+    @Test fun midnightIsTheReadersMidnightNotUtcs() {
+        // 23:30 UTC is already 01:30 the next day in Paris: for a reader whose calendar says the
+        // 25th, this is today's mail. Comparing dates in UTC would render "24 Aug" instead.
+        assertEquals(
+            "01:30",
+            MailDates.formatListDate("2026-08-24T23:30:00Z", paris, LocalDate.of(2026, 8, 25)),
+        )
+    }
+
+    @Test fun aWesternZoneCanStillBeInThePreviousYear() {
+        // 02:00 UTC on 1 Jan 2026 is 21:00 on 31 Dec 2025 in New York. In UTC the row would jump a
+        // year and fall to the numeric step; in the reader's zone it is simply today, at 21:00.
+        val newYork = ZoneId.of("America/New_York")
+        assertEquals(
+            "21:00",
+            MailDates.formatListDate("2026-01-01T02:00:00Z", newYork, LocalDate.of(2025, 12, 31)),
+        )
+    }
+
+    @Test fun aListRowWithNoUsableDateStaysEmpty() {
+        val reference = LocalDate.of(2026, 11, 2)
+        assertEquals("", MailDates.formatListDate(null, paris, reference))
+        assertEquals("", MailDates.formatListDate("", paris, reference))
+        assertEquals("", MailDates.formatListDate("not a date", paris, reference))
+        assertEquals("", MailDates.formatListDate("2026-13-45T99:99:99Z", paris, reference))
+    }
+
+    @Test fun anOffsetTimestampIsAcceptedOnAListRowToo() {
+        assertEquals(
+            "09:12",
+            MailDates.formatListDate("2026-08-24T08:12:33+01:00", paris, LocalDate.of(2026, 8, 24)),
+        )
     }
 }

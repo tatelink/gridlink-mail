@@ -1,6 +1,5 @@
 package app.sterna.ui.components
 
-import app.sterna.appLocale
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -55,12 +54,8 @@ import androidx.compose.ui.unit.dp
 import app.sterna.R
 import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.jmap.model.Email
+import app.sterna.util.MailDates
 import kotlinx.coroutines.delay
-import java.time.Instant
-import java.time.OffsetDateTime
-import java.time.ZoneId
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
 
 /**
  * One row in a message list: monogram, sender, subject, preview, time + state.
@@ -112,7 +107,11 @@ fun EmailListItem(
         ListDensity.SPACED -> 16.dp
     }
     val previewLines = LocalPreviewLines.current.lines
-    val receivedLabel = remember(email.receivedAt) { formatReceived(email.receivedAt) }
+    // Today → the time, this year → day and month, any other year → a short numeric date, so a
+    // 2019 row and a 2026 one can no longer read the same. Numeric on that last step to keep the
+    // stamp narrow: it shares this line with the sender's name, which must not be the field that
+    // yields. Shared with search, the one view that mixes years by construction.
+    val receivedLabel = remember(email.receivedAt) { MailDates.formatListDate(email.receivedAt) }
     val motionOn = rememberMotionEnabled()
     // Return-from-message emphasis: a soft accent tint that rises then fades over ~1s, so the
     // eye lands on the row just left. Skipped (and consumed at once) under reduced motion.
@@ -355,17 +354,4 @@ private fun DraftLabel() {
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(horizontal = 6.dp, vertical = 1.dp),
     )
-}
-
-private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm", appLocale)
-private val dateFormatter = DateTimeFormatter.ofPattern("d MMM", appLocale)
-
-private fun formatReceived(iso: String?): String {
-    if (iso.isNullOrBlank()) return ""
-    val instant = runCatching { Instant.parse(iso) }
-        .recoverCatching { OffsetDateTime.parse(iso).toInstant() }
-        .getOrNull() ?: return ""
-    val zoned = instant.atZone(ZoneId.systemDefault())
-    val today = ZonedDateTime.now().toLocalDate()
-    return zoned.format(if (zoned.toLocalDate() == today) timeFormatter else dateFormatter)
 }
