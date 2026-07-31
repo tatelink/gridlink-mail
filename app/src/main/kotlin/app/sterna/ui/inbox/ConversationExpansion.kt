@@ -1,6 +1,15 @@
 package app.sterna.ui.inbox
 
+import app.sterna.core.data.mail.ConversationScope
+import app.sterna.core.data.mail.EmailKey
+import app.sterna.core.data.mail.emailKey
 import app.sterna.core.jmap.model.Email
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 /**
  * Which conversation, in which account. Servers number threads PER ACCOUNT, so two accounts of the
@@ -37,6 +46,121 @@ data class ThreadKey(val accountId: String?, val threadId: String) {
 }
 
 /**
+ * The scope the list currently on screen was BUILT with: the folder(s) it is paging, and the Sent
+ * resolution its chips counted over. One value, recorded once where the pager is built, so the
+ * unfold describes the same conversation the row's chip announced.
+ *
+ * Both halves are recorded, not re-read. Re-reading the selection at unfold time is the same
+ * mistake the Sent lookup made, on the other argument: switching folders collapses the threads and
+ * changes the selection, but the previous folder's rows stay drawn until the new pager loads, so a
+ * chip tapped in that window unfolded with the NEW folder's scope — no members under a chip of 3.
+ */
+internal data class ListScope(
+    val viewedMailboxIds: List<String> = emptyList(),
+    val sentMailboxes: List<Pair<String, String>> = emptyList(),
+) {
+    /**
+     * The folders a conversation of [accountId] covers in this scope: the viewed folder(s) plus
+     * that account's Sent folder(s). The chip's query is bound from the same [ConversationScope]
+     * decision on the same recorded pairs, so the row's number and the messages under it are two
+     * readings of one folder set.
+     *
+     * [accountId] is the REPRESENTATIVE's — a unified-view conversation of another account keeps
+     * its own Sent folder, never the current account's (#92).
+     */
+    fun folders(accountId: String?): List<String> =
+        ConversationScope.folders(viewedMailboxIds, sentMailboxes, accountId).toList()
+}
+
+/**
+ * The messages beneath the unfolded rows, as a LIVE reading of the cache — the other half of the
+ * fix that gave the chip and the unfold one folder resolution.
+ *
+ * Sharing the input was not sharing the answer. The chip is a live query (Room re-runs it on every
+ * write to `emails`); the unfold was a snapshot taken when the row opened. So the two agreed at the
+ * instant of the tap and drifted from the next write on: a reply arriving in a thread already
+ * unfolded moved the chip to 4 and left three messages under it, and a folder cache that finished
+ * syncing after the tap rebuilt the chip with the Sent folder the snapshot never saw. Neither
+ * corrected itself while the folder stayed open.
+ *
+ * Here both sides read the same table through the same [ConversationScope] decision, and the read
+ * is a flow on either side. What the row says and what it shows are two views of one write.
+ */
+internal object ThreadMemberStream {
+
+    /**
+     * The members of every unfolded conversation, keyed by thread, recomputed whenever the set of
+     * unfolded rows changes, the [scope] the list was built with changes, or the cache itself
+     * changes underneath.
+     *
+     * [read] is the observed cache query (`MailRepository.observeThreadEmails`), [representative]
+     * the id the collapsed row already draws — excluded from the list below it, see
+     * [ConversationExpansion.membersBelow] — and [fallbackAccountId] the current account, used only
+     * for a thread key that carries none, exactly as the one-shot load did.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun members(
+        expanded: Flow<Set<ThreadKey>>,
+        scope: Flow<ListScope>,
+        fallbackAccountId: () -> String?,
+        representative: (ThreadKey) -> String?,
+        read: (accountId: String, folders: List<String>, threadKey: String) -> Flow<List<Email>>,
+    ): Flow<Map<ThreadKey, List<Email>>> =
+        combine(expanded, scope) { keys, s -> keys to s }
+            .flatMapLatest { (keys, s) ->
+                if (keys.isEmpty()) {
+                    flowOf(emptyMap())
+                } else {
+                    combine(keys.map { key -> one(key, s, fallbackAccountId, representative, read) }) { it.toMap() }
+                }
+            }
+
+    private fun one(
+        key: ThreadKey,
+        scope: ListScope,
+        fallbackAccountId: () -> String?,
+        representative: (ThreadKey) -> String?,
+        read: (accountId: String, folders: List<String>, threadKey: String) -> Flow<List<Email>>,
+    ): Flow<Pair<ThreadKey, List<Email>>> {
+        val accountId = key.accountId ?: fallbackAccountId() ?: return flowOf(key to emptyList())
+        // The SAME decision, on the SAME recorded resolution, that the chip's query was bound with.
+        return read(accountId, scope.folders(accountId), key.threadId)
+            .map { all -> key to ConversationExpansion.membersBelow(all, representative(key).orEmpty()) }
+    }
+
+    /**
+     * What to draw after a live reading: [live] decides MEMBERSHIP — a message that joined the
+     * conversation appears, one that left the viewed folders goes — while the copies already
+     * [drawn] decide CONTENT, so a row under the reader's eyes is never rewritten mid-read.
+     *
+     * That second half is the append-only rule the server completion used to carry, kept for the
+     * reason it was written (Codeberg #63): a cache row cannot carry recipients (the `emails`
+     * table has no `to` column — see EmailMapper's in-memory memo), so a self-authored member can
+     * render with the sender fallback until the memo is warm, and adopting a richer copy a beat
+     * later flipped that row's name line from the (self) sender to "To: …", monogram letter and
+     * colour with it. The expand animation absorbed the swap; with the OS "Remove animations"
+     * setting on, the rows are instantly at rest and it read as a blink. It also protects the
+     * optimistic star and read toggles, which are written on screen before the server has
+     * acknowledged anything and only reach the cache once it has.
+     *
+     * [removed] are the members a swipe has just taken off the screen while its server round-trip
+     * is still in flight: their cache rows outlive the gesture by a moment, and a live reading
+     * landing in that window would put the row back under the reader's thumb. Dropped again here,
+     * like the search snapshot's own tombstones.
+     *
+     * Identity is preserved for unchanged members, so an unchanged conversation produces an EQUAL
+     * map — which a StateFlow does not re-emit, and nothing on screen recomposes.
+     */
+    fun reconcile(drawn: List<Email>, live: List<Email>, removed: Set<EmailKey>): List<Email> {
+        val byKey = drawn.associateBy { it.emailKey() }
+        return live.mapNotNull { m ->
+            val key = m.emailKey()
+            if (key in removed) null else byKey[key] ?: m
+        }
+    }
+}
+
+/**
  * Pure helpers for inline conversation expansion in the inbox list — extracted from
  * [InboxViewModel] so the expand-state and member-selection rules are unit-testable
  * without an Android runtime.
@@ -63,7 +187,7 @@ internal object ConversationExpansion {
     /**
      * The messages of an unfolded conversation, in the order the list shows them: the
      * representative on the collapsed row first, then the members listed beneath it (see
-     * [membersBelow] / [mergeMembers], which order them newest-first). Each entry pairs the
+     * [membersBelow], which keeps the cache's newest-first order). Each entry pairs the
      * message id with its owning account, which is what the reading view's pager needs.
      *
      * This is the swipe context for a message opened from inside a conversation: the pager
@@ -79,51 +203,4 @@ internal object ConversationExpansion {
         (listOf(representativeId to representativeAccountId) + members.map { it.id to it.accountId })
             .distinctBy { it.first }
 
-    /**
-     * The server-fetched thread members an unfolded conversation may DISPLAY: those living in
-     * one of the [allowed] mailboxes (the viewed folder(s) plus the account's Sent folder).
-     * A wire member carries no local mailboxId, so membership is judged on its server
-     * [Email.mailboxIds] map — kept if ANY of its mailboxes is allowed. Members whose only
-     * homes are elsewhere (Trash, Spam, Drafts, another folder) are dropped from display:
-     * they belong to that folder's own conversation. The caller still persists ALL fetched
-     * members to the cache; only what is shown is scoped.
-     */
-    fun membersInScope(fetched: List<Email>, allowed: Set<String>): List<Email> =
-        fetched.filter { f ->
-            f.mailboxIds.keys.any { it in allowed } || f.mailboxId?.let { it in allowed } == true
-        }
-
-    /**
-     * Merge the instantly-shown [cached] members with the [fetched] full-thread members from the
-     * server, drop the representative ([representativeId]) already shown at the top, and order
-     * newest-first by receivedAt.
-     *
-     * The merge is APPEND-ONLY: a member the list is already showing keeps the copy it was drawn
-     * with, and only ids the cache had no row for are added. The server completion exists to fill
-     * in messages that fell outside the folder's short cache window — adding rows, not redrawing
-     * the ones under the user's eyes.
-     *
-     * Rewriting them used to be visible (Codeberg #63). A cache row cannot carry recipients (the
-     * `emails` table has no `to` column — see EmailMapper's in-memory memo), so after a cold start
-     * a self-authored member renders with the sender fallback; the wire copy does carry them, and
-     * swapping it in flipped that row's name line from the (self) sender to "To: …" — with the
-     * monogram changing letter and colour with it — a beat after the conversation unfolded. The
-     * expand animation absorbed that swap, so it was invisible with animations ON; with the OS
-     * "Remove animations" setting ON the rows are instantly at rest and it rendered as a blink.
-     * Keeping the drawn copy also stops a late completion from reverting an optimistic star or
-     * read toggle applied to a member while the fetch was in flight.
-     *
-     * The wire copies are still persisted by the caller, so the cache — and the recipients memo
-     * warmed on the way in — are complete for the next read; only the snapshot on screen is left
-     * alone. Keeping the cached copy also keeps the local accountId/mailboxId that action routing
-     * (account pick, destroy-vs-move) depends on and that a wire member has no way to supply.
-     */
-    fun mergeMembers(cached: List<Email>, fetched: List<Email>, representativeId: String): List<Email> {
-        val byId = LinkedHashMap<String, Email>()
-        cached.forEach { byId[it.id] = it }
-        fetched.forEach { f -> if (!byId.containsKey(f.id)) byId[f.id] = f }
-        return byId.values
-            .filter { it.id != representativeId }
-            .sortedByDescending { it.receivedAt ?: "" }
-    }
 }

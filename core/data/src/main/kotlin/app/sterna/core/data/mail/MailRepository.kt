@@ -418,16 +418,25 @@ internal fun pagingSql(
  * whether the in-view part is unread. The account-wide cached total rides along only to keep
  * the row expandable when the rest of the thread sits elsewhere.
  * [unreadOnly] keeps threads whose in-view part is unread.
+ *
+ * `internal` rather than private so a test can run the ASSEMBLY — this statement and these binds,
+ * in this order — and not a retyped copy of it: the bind order below is invisible to the compiler
+ * and a query bound one argument off answers a different question in silence.
  */
-private fun conversationQuery(
+internal fun conversationQuery(
     mailboxIds: List<String>,
     sort: SortOrder,
     unreadOnly: Boolean,
-    accountId: String? = null,
+    accountId: String?,
     // Each account's Sent folder as an (accountId, mailboxId) PAIR: binding bare Sent ids
     // across accounts would let a colliding mailbox id (an account's folder whose id equals a
     // sibling's Sent id) inflate that account's chip in the unified view.
-    sentMailboxes: List<Pair<String, String>> = emptyList(),
+    //
+    // NO DEFAULT, deliberately: omitting it compiled, and produced a chip that counted no Sent
+    // reply while the unfolded list showed one — the very divergence this whole path exists to
+    // prevent, reintroduced by a missing argument. Callers that mean "no Sent scope" say
+    // emptyList() where a reader can see them say it.
+    sentMailboxes: List<Pair<String, String>>,
 ): SimpleSQLiteQuery {
     // Bind order matches the clauses left-to-right in the SQL: the in-view sub-query binds
     // the mailbox ids [+ account id]; the chip count sub-query binds the mailbox ids, then
@@ -1158,14 +1167,15 @@ class MailRepository(
         conversationView: Boolean,
         // Each account's Sent-role folder as an (accountId, mailboxId) pair: the conversation
         // chip also counts the thread's Sent replies, so it always equals what the unfolded
-        // conversation shows — account-pinned, see [conversationQuery].
-        sentMailboxes: List<Pair<String, String>> = emptyList(),
+        // conversation shows — account-pinned, see [conversationQuery]. NO DEFAULT: an omitted
+        // Sent scope is a chip that counts fewer messages than the row unfolds into.
+        sentMailboxes: List<Pair<String, String>>,
     ): Flow<PagingData<InboxRow>> {
         if (mailboxIds.isEmpty()) return flowOf(PagingData.empty())
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(mailboxIds, sort, unreadOnly, sentMailboxes = sentMailboxes)) },
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(mailboxIds, sort, unreadOnly, accountId = null, sentMailboxes = sentMailboxes)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
@@ -1189,7 +1199,8 @@ class MailRepository(
         unreadOnly: Boolean,
         conversationView: Boolean,
         // The account's Sent-role folder as an (accountId, mailboxId) pair — see [pagedMailbox].
-        sentMailboxes: List<Pair<String, String>> = emptyList(),
+        // NO DEFAULT, same reason: this one must be said, not assumed.
+        sentMailboxes: List<Pair<String, String>>,
     ): Flow<PagingData<InboxRow>> {
         return if (conversationView) {
             Pager(
@@ -3740,15 +3751,27 @@ class MailRepository(
         }
 
     /**
-     * Cached members of a thread for inline conversation expansion and whole-thread actions:
-     * newest-first, scoped to the representative's [accountId] and [mailboxIds] (the current
-     * view's folders — plus the account's Sent folder when listing an unfolded conversation).
-     * Cache only — no network — so unfolding a conversation row is instant and works offline.
-     * [threadKey] is the representative's threadId (or its id when thread-less).
+     * Cached members of a thread for inline conversation expansion: newest-first, scoped to the
+     * representative's [accountId] and [mailboxIds] (the viewed folder(s) plus the account's Sent
+     * folder). Cache only — no network — so unfolding a conversation row is instant and works
+     * offline. [threadKey] is the representative's threadId (or its id when thread-less).
+     *
+     * LIVE, and that is the point: the chip on the collapsed row is a live query over the same
+     * table (`conversationPagingSource`), so a message written into the thread moves the chip at
+     * once. Read once into a snapshot, the messages under the row could not follow it — the row
+     * then announced one number and listed another until the folder was left. Both sides now read
+     * the same write.
+     */
+    fun observeThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): Flow<List<Email>> =
+        if (mailboxIds.isEmpty()) flowOf(emptyList())
+        else emailDao.cachedThreadEmails(accountId, mailboxIds, threadKey).map { rows -> rows.map { it.toEmail() } }
+
+    /**
+     * One reading of [observeThreadEmails], for callers that act on a thread once (a whole-thread
+     * swipe) rather than draw it.
      */
     suspend fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): List<Email> =
-        if (mailboxIds.isEmpty()) emptyList()
-        else emailDao.cachedThreadEmails(accountId, mailboxIds, threadKey).map { it.toEmail() }
+        observeThreadEmails(accountId, mailboxIds, threadKey).first()
 
     /**
      * The cached Sent-role folder of each of [accountIds], as account-pinned

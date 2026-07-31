@@ -199,12 +199,20 @@ interface EmailDao {
      * Drafts) members. [threadKey] is COALESCE(threadId, id) (a thread-less message is its
      * own thread). The account scope matters in the unified inbox, where two accounts can
      * share a server-assigned thread id.
+     *
+     * OBSERVED, like the collapsed row's chip (`conversationPagingSource` is a `@RawQuery` over
+     * the same table, so it recomputes on every write to `emails`). A one-shot read made the
+     * unfold a photograph taken once while the chip stayed live: a message arriving in a thread
+     * already open — a notification, a refresh, a reply of one's own — moved the chip and left
+     * the messages beneath it as they were, and nothing put them back in step until the folder
+     * was left. Two live reads of the same write cannot drift apart; one live and one frozen
+     * always do.
      */
     @Query(
         "SELECT * FROM emails WHERE accountId = :accountId AND mailboxId IN (:mailboxIds) " +
             "AND COALESCE(threadId, id) = :threadKey ORDER BY sortKey DESC",
     )
-    suspend fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): List<EmailEntity>
+    fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): Flow<List<EmailEntity>>
 
     /**
      * Per-folder count of unread THREADS (the conversation-mode drawer badge): one row per

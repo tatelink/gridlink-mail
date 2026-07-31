@@ -170,4 +170,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
+    // Virtual time + a background scope, to drive the unfolded conversations' live member stream
+    // (a flow of flows) without sleeping on a real clock.
+    testImplementation(libs.kotlinx.coroutines.test)
 }

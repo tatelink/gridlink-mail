@@ -7,62 +7,82 @@ import java.io.File
 
 /**
  * SOURCE LINT, NOT A BEHAVIOUR TEST — same instrument as [app.sterna.ui.NavHostSourceRulesTest],
- * and the same disclaimer: it reads two source files as text, proves nothing about what happens on
+ * and the same disclaimer: it reads source files as text, proves nothing about what happens on
  * screen, and would still pass if the code it points at were broken inside.
  *
  * It exists because the guarantee it guards is a WIRING guarantee, and nothing else can hold it.
  * `ConversationScope` decides which folders a conversation covers, and the whole fix is that the
- * chip and the unfold are handed ONE value: the Sent resolution the list on screen was built with.
- * `ConversationScopeTest` pins the decision, but it lives in `core:data` and resolves the folders
- * itself — so it stays green while either call site quietly stops using the shared value. Changing
- * the unfold's argument to `emptyList()` restores the original defect (a chip of 3 over an unfold
- * of 2) with every other test still passing; so does re-adding a second repository lookup, which is
- * the shape the defect had in the first place and the shape it will have again if someone
- * "simplifies". `InboxViewModel` is not instantiable in a JVM test — no Robolectric, no
- * instrumented tests here — so reading the source is what is left.
+ * chip and the unfold are handed ONE value — the scope the list on screen was built with — and read
+ * it the SAME way, live. `ConversationScopeTest` pins the decision but resolves the folders itself;
+ * `ThreadMemberStreamTest` pins the live reading but is handed its scope by the test. Both stay
+ * green while either call site quietly stops using the recorded value. `InboxViewModel` is not
+ * instantiable in a JVM test — no Robolectric, no instrumented tests here — so reading the source
+ * is what is left.
+ *
+ * Verified against the mutations it exists for, one rule failing per mutation: scoping the unfold
+ * with `emptyList()`, re-reading the selection at unfold time, giving the chip's pagers
+ * `emptyList()` instead of the resolution their own flow produced, resolving the Sent folder a
+ * second time, and reading the members once instead of observing them.
  *
  * What it does NOT do: it does not check that the value recorded is the value the pager used, only
- * that it is recorded where the pager is built and read where the unfold is scoped. A behaviour
- * test of that chain needs the ViewModel to run.
+ * that it is recorded where the pager is built and read where the unfold is scoped.
  */
 class ConversationScopeWiringTest {
 
-    // -- the unfold's side ------------------------------------------------------------------
+    // -- the unfold's side: one decision, on the recorded scope, read live -------------------
 
-    @Test fun `the unfold scopes itself with the Sent resolution the list was built with`() {
-        val body = body(INBOX_VIEW_MODEL, "expansionMailboxIds")
+    @Test fun `the unfold's folders come from the recorded scope, through the shared decision`() {
+        val body = body(CONVERSATION_EXPANSION, "folders")
         assertTrue(
-            "expansionMailboxIds must pass $RECORDED — the resolution the list on screen was " +
-                "built with — to ${SHARED_DECISION}, or the chip and the unfold describe two " +
-                "different conversations again. Body was:\n$body",
-            RECORDED in body && SHARED_DECISION in body,
+            "ListScope.folders must derive the unfolded conversation's folders from its OWN recorded " +
+                "fields through $SHARED_DECISION — the decision the chip's query is bound with. " +
+                "Body was:\n$body",
+            SHARED_DECISION in body && "viewedMailboxIds" in body && "sentMailboxes" in body,
         )
         assertTrue(
-            "expansionMailboxIds must not hard-code an empty Sent resolution: an unfold scoped to " +
-                "fewer folders than the chip counted is exactly the defect. Body was:\n$body",
+            "ListScope.folders must not hard-code an empty resolution: an unfold scoped to fewer " +
+                "folders than the chip counted is exactly the defect. Body was:\n$body",
             "emptyList(" !in body,
         )
     }
 
-    @Test fun `the unfold never resolves the Sent folder for itself`() {
-        val body = body(INBOX_VIEW_MODEL, "expansionMailboxIds")
+    @Test fun `the unfold reads the scope it was given, and reads it live`() {
+        val body = body(CONVERSATION_EXPANSION, "one")
         assertTrue(
-            "expansionMailboxIds must not call the repository: a second lookup is a second answer, " +
-                "and its failure used to be swallowed into 'this account has no Sent folder'. " +
-                "Body was:\n$body",
-            "repo." !in body,
+            "the member stream must scope each thread through the ListScope it is handed " +
+                "(scope.folders(...)), not resolve anything for itself. Body was:\n$body",
+            "scope.folders(" in body,
         )
-        // The expansion must keep taking its display scope from that one function, or the pins
-        // above guard a function nothing calls.
         assertTrue(
-            "expandThread must scope the unfolded conversation through expansionMailboxIds(",
-            "expansionMailboxIds(" in body(INBOX_VIEW_MODEL, "expandThread"),
+            "the member stream must OBSERVE the cache (read(...) returns a Flow): a reading taken " +
+                "once cannot follow a chip that is recomputed on every write. Body was:\n$body",
+            "read(" in body,
+        )
+    }
+
+    @Test fun `the ViewModel feeds the stream the recorded scope and an observed query`() {
+        val body = body(INBOX_VIEW_MODEL, "observeThreadMembers")
+        assertTrue(
+            "observeThreadMembers must hand $RECORDED — the scope the list on screen was built " +
+                "with — to the member stream. Body was:\n$body",
+            "scope = $RECORDED" in body,
+        )
+        assertTrue(
+            "the members must come from the OBSERVED repository query: a one-shot read is the " +
+                "snapshot this replaces. Body was:\n$body",
+            "repo.observeThreadEmails(" in body,
+        )
+        assertTrue(
+            "the unfold must not re-read the selection: the folders it shows are the ones the list " +
+                "was BUILT with, and the two differ for as long as a new pager is loading. " +
+                "Body was:\n$body",
+            RE_READ !in body,
         )
     }
 
     // -- the recording ----------------------------------------------------------------------
 
-    @Test fun `the resolution is recorded exactly where the list is built, and nowhere else`() {
+    @Test fun `the scope is recorded exactly where the list is built, and nowhere else`() {
         val assignments = codeLines(INBOX_VIEW_MODEL).count { ASSIGNMENT.containsMatchIn(it) }
         assertEquals(
             "$RECORDED must have exactly ONE writer — the flow that feeds the pager. A second " +
@@ -85,7 +105,22 @@ class ConversationScopeWiringTest {
         )
     }
 
-    // -- the chip's side --------------------------------------------------------------------
+    @Test fun `the recorded folders are the paging key's, not a fresh read of the selection`() {
+        val scopes = body(INBOX_VIEW_MODEL, "sentScopes")
+        assertTrue(
+            "sentScopes must record the folders the PAGING KEY pages, so the unfold and the chip " +
+                "are scoped to the same list. Body was:\n$scopes",
+            "viewedMailboxIds(key)" in scopes && RE_READ !in scopes,
+        )
+        val viewed = body(INBOX_VIEW_MODEL, "viewedMailboxIds")
+        assertTrue(
+            "viewedMailboxIds must read the key it is given: taking the live selection instead is " +
+                "the same second lookup, on the other argument. Body was:\n$viewed",
+            "key.sel" in viewed && "selection.value" !in viewed,
+        )
+    }
+
+    // -- the chip's side ----------------------------------------------------------------------
 
     @Test fun `the chip binds the Sent folders the shared decision hands it`() {
         // The other half of the same wiring, and just as free to drift: ConversationScopeTest
@@ -104,6 +139,33 @@ class ConversationScopeWiringTest {
         )
     }
 
+    @Test fun `both pagers are built from the resolution the chip is counted over`() {
+        // The mutation the unfold's rules cannot see: hand the PAGER an empty Sent scope and the
+        // divergence comes back the other way round — an unfold of 3 under a chip of 2 — with every
+        // other rule here satisfied. The repository's parameter has no default precisely so that
+        // omitting it does not compile; this pins the other way of saying nothing.
+        val body = body(INBOX_VIEW_MODEL, "pagedEmails")
+        assertTrue(
+            "pagedEmails must resolve the Sent scope through sentScopes(...) — the flow that also " +
+                "records it for the unfold. Body was:\n$body",
+            "sentScopes(" in body,
+        )
+        assertTrue(
+            "both pagers must be given that resolution and nothing else. Body was:\n$body",
+            "conversationView, sent)" in body,
+        )
+        assertEquals(
+            "exactly two pagers, one per selection, both fed the same way. Body was:\n$body",
+            2,
+            Regex("""repo\.paged\w+\(""").findAll(body).count(),
+        )
+        assertTrue(
+            "pagedEmails must not hand a pager an empty Sent scope: the chip would then count " +
+                "fewer messages than the row unfolds into. Body was:\n$body",
+            "emptyList(" !in body,
+        )
+    }
+
     // -- reading the sources ----------------------------------------------------------------
 
     /**
@@ -118,22 +180,23 @@ class ConversationScopeWiringTest {
     }
 
     /**
-     * The declaration of `fun [function]` in [file] and its body, as text: everything up to the
+     * The declaration of `fun`/`val` [name] in [file] and its body, as text: everything up to the
      * first line indented no deeper than the declaration — the closing brace of a block form, the
      * next declaration after an expression form. Comment lines are dropped ([codeLines]).
      *
      * The terminator only applies ONCE THE BODY HAS STARTED, at the `{` or `=` that opens it. A
-     * top-level function wrapping its parameters over several lines closes them with a `)` in
-     * column 0, and stopping there would hand every rule a signature and call it a body — which is
-     * what the first draft of this file did, silently, for the repository's half.
+     * function wrapping its parameters over several lines closes them with a `)` at the
+     * declaration's own indent, and stopping there would hand every rule a signature and call it a
+     * body — which is what the first draft of this file did, silently, for the repository's half.
      *
-     * Fails loudly when the function is not found: renaming it must break these rules rather than
-     * silently satisfy them against an empty string.
+     * Fails loudly when the declaration is not found: renaming it must break these rules rather
+     * than silently satisfy them against an empty string.
      */
-    private fun body(file: File, function: String): String {
+    private fun body(file: File, name: String): String {
         val lines = codeLines(file)
-        val start = lines.indexOfFirst { Regex("""\bfun\s+$function\s*\(""").containsMatchIn(it) }
-        check(start >= 0) { "${file.name} has no function named '$function' — did it get renamed?" }
+        val declaration = Regex("""\b(fun|val|var)\s+$name\b""")
+        val start = lines.indexOfFirst { declaration.containsMatchIn(it) }
+        check(start >= 0) { "${file.name} declares no '$name' — did it get renamed?" }
         val indent = lines[start].indentWidth()
         val out = mutableListOf<String>()
         var open = false
@@ -151,20 +214,24 @@ class ConversationScopeWiringTest {
     private fun String.indentWidth() = length - trimStart().length
 
     companion object {
-        /** The value the list on screen was built with, and the only Sent scope the unfold may use. */
-        private const val RECORDED = "listSentMailboxes"
+        /** The scope the list on screen was built with, and the only one the unfold may use. */
+        private const val RECORDED = "listScope"
 
         /** Its single writer, matched as an assignment rather than a mention. */
-        private val ASSIGNMENT = Regex("""\b$RECORDED\s*=[^=]""")
+        private val ASSIGNMENT = Regex("""\b$RECORDED\.value\s*=[^=]""")
 
         /** The one resolution both sides descend from. */
         private const val SENT_RESOLUTION = "observeSentMailboxes"
+
+        /** Reading the live selection instead of the value the list was built with. */
+        private const val RE_READ = "currentMailboxIds("
 
         private const val SHARED_DECISION = "ConversationScope.folders("
         private const val SHARED_SENT = "ConversationScope.sentFolders("
 
         private const val APP_SOURCES = "app/src/main/kotlin"
         private const val INBOX_VIEW_MODEL_PATH = "$APP_SOURCES/app/sterna/ui/inbox/InboxViewModel.kt"
+        private const val CONVERSATION_EXPANSION_PATH = "$APP_SOURCES/app/sterna/ui/inbox/ConversationExpansion.kt"
         private const val REPOSITORY_PATH = "core/data/src/main/kotlin/app/sterna/core/data/mail/MailRepository.kt"
 
         /** Repo root, walked up from the module's working directory — the rules read BOTH modules. */
@@ -178,6 +245,7 @@ class ConversationScopeWiringTest {
         }
 
         private val INBOX_VIEW_MODEL: File by lazy { File(root, INBOX_VIEW_MODEL_PATH) }
+        private val CONVERSATION_EXPANSION: File by lazy { File(root, CONVERSATION_EXPANSION_PATH) }
         private val MAIL_REPOSITORY: File by lazy { File(root, REPOSITORY_PATH) }
     }
 }

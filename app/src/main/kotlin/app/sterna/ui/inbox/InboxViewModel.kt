@@ -19,7 +19,6 @@ import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.db.OutboxState
 import app.sterna.core.data.getOrElseUnlessCancelled
-import app.sterna.core.data.mail.ConversationScope
 import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.mail.InboxRow
 import app.sterna.core.data.mail.MailRepository
@@ -275,11 +274,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     val expandedThreads: StateFlow<Set<ThreadKey>> = _expandedThreads.asStateFlow()
 
     /**
-     * Lazily-loaded members of an expanded thread, keyed by thread key — the thread's other
-     * messages in the viewed folder(s) plus its Sent replies (newest-first, the latest/
-     * representative excluded since the collapsed row already shows it). Folder-scoped by
-     * design: a member deleted to Trash leaves THIS conversation and shows up in the Trash
-     * folder's conversation instead. Loaded from the local cache on expand; no network.
+     * The members of each expanded thread, keyed by thread key — the thread's other messages in
+     * the viewed folder(s) plus its Sent replies (newest-first, the latest/representative excluded
+     * since the collapsed row already shows it). Folder-scoped by design: a member deleted to
+     * Trash leaves THIS conversation and shows up in the Trash folder's conversation instead.
+     *
+     * A LIVE reading of the local cache, kept in step by [observeThreadMembers] for as long as the
+     * row stays unfolded — never a snapshot taken at the tap. The chip above it is a live query
+     * too, and a row that announces a number must list that many messages a minute later as well
+     * as at the instant it was opened. No network on this path.
      */
     private val _threadMembers = MutableStateFlow<Map<ThreadKey, List<Email>>>(emptyMap())
     val threadMembers: StateFlow<Map<ThreadKey, List<Email>>> = _threadMembers.asStateFlow()
@@ -311,9 +314,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         ConversationExpansion.threadKey(email.accountId, email.threadId, email.id)
 
     /**
-     * Fold/unfold a conversation row in place. On expand the cached members render at once
-     * (offline-safe, zero latency); for JMAP threads a background Thread/get then completes the
-     * list with received messages that fell outside the folder's short cache window.
+     * Fold/unfold a conversation row in place. The cached members render at once (offline-safe)
+     * and then stay live for as long as the row is open — [observeThreadMembers]; for JMAP threads
+     * a background Thread/get also fills the cache with received messages that fell outside the
+     * folder's short window, which the same live reading picks up.
      */
     fun toggleThreadExpanded(rep: Email) {
         val key = threadKeyOf(rep)
@@ -321,89 +325,95 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             _expandedThreads.value = _expandedThreads.value - key
             return
         }
-        _expandedThreads.value = _expandedThreads.value + key
+        // The representative BEFORE the key joins the expanded set: the member stream reacts to
+        // that set and needs to know which message the row already draws, or it would list it
+        // twice for a beat.
         threadReps[key] = rep.id to rep.accountId
+        _expandedThreads.value = _expandedThreads.value + key
         viewModelScope.launch { expandThread(rep, key) }
     }
 
+    /**
+     * The server completion of a freshly unfolded conversation. The cache side needs no work here:
+     * the members are an OBSERVED query ([observeThreadMembers]) keyed on the expanded set, so the
+     * rows are already on their way in.
+     *
+     * JMAP only (IMAP has no Thread/get, and thread-less messages have nothing to complete), once
+     * per thread. It fetches for its PERSISTENCE: members that fell outside the folder's short sync
+     * window are written into the cache under their real folder, and the observed query — the very
+     * one the chip counts over — picks them up from there. Nothing is pushed onto the screen from
+     * the wire, so what the row lists is what the row counted, always from one table.
+     */
     private suspend fun expandThread(rep: Email, key: ThreadKey) {
-        // Display scope of the unfolded conversation: the viewed folder(s) plus the thread's
-        // own account's Sent folder — a conversation is folder-scoped, so members sitting in
-        // Trash/Spam/Drafts (or any other folder) belong to THAT folder's conversation and
-        // never surface here. The Sent folder is not looked up here: it is the one the list was
-        // drawn with, so the unfold shows exactly what the row's chip counted.
-        val allowed = expansionMailboxIds(rep)
-        // Members hidden by an active snooze stay out of the unfolded list too — the chip's
-        // SQL excludes them, and the expansion must show exactly what the chip counts (they
-        // both come back once the snooze lapses).
-        val repAccountId = rep.accountId ?: store.load()?.id
-        val snoozed = repAccountId
-            ?.let { runCatching { repo.activeSnoozedIds(it) }.getOrDefault(emptySet()) }
-            ?: emptySet()
-        // 1. Instant cache render (skip if a previous expand already loaded this thread).
-        if (!_threadMembers.value.containsKey(key)) {
-            val cached = runCatching { loadThreadMembers(rep, allowed) }.getOrDefault(emptyList())
-                .filterNot { it.id in snoozed }
-            if (key !in _expandedThreads.value) return // collapsed again while loading the cache
-            _threadMembers.value = _threadMembers.value + (key to cached)
-        }
-        // 2. Background completion from the server, once per thread. JMAP only (IMAP has no
-        //    Thread/get and thread-less messages have nothing to complete).
         if (key in completedThreads) return
         val threadId = rep.threadId ?: return
         val credentials = credentialsFor(rep) ?: return
-        val fetched = runCatching { repo.fetchThreadMembers(credentials, threadId, currentMailboxIds()) }.getOrDefault(emptyList())
+        // The folder hint that decides where a multi-mailbox member is filed: the folders the list
+        // was BUILT with, like everything else this unfold is scoped by.
+        val fetched = runCatching { repo.fetchThreadMembers(credentials, threadId, listScope.value.viewedMailboxIds) }
+            .getOrDefault(emptyList())
         if (fetched.isEmpty()) return // offline/failed — not completed, so a later expand retries
         completedThreads += key
-        if (key !in _expandedThreads.value) return // collapsed meanwhile
-        // The fetch persisted EVERY member (the cache stays complete — other folders' rows,
-        // counts and later expansions from those folders depend on it); only the DISPLAY is
-        // scoped, judging each wire member on its server mailboxIds map since it carries no
-        // local mailboxId.
-        val scoped = ConversationExpansion.membersInScope(fetched, allowed)
-            .filterNot { it.id in snoozed }
-        val current = _threadMembers.value[key].orEmpty()
-        _threadMembers.value = _threadMembers.value + (key to ConversationExpansion.mergeMembers(current, scoped, rep.id))
     }
 
     /**
-     * The mailbox ids an unfolded conversation may show: the current view's plus the Sent folder
-     * of the thread's OWN account (per-account, so a unified-view thread of a non-current account
-     * gets its own Sent folder, not the current account's).
+     * Keep [_threadMembers] equal to what the cache says the unfolded conversations hold — live,
+     * on the same folders and the same write the chips are counted from ([ThreadMemberStream]).
      *
-     * The Sent resolution is the one the list on screen was built with ([listSentMailboxes]) —
-     * the same value the row's chip counted over, through the same [ConversationScope.folders].
-     * Looking the folder up again here is what made a chip of 3 unfold to 2: the second lookup
-     * could come back empty (a failure, swallowed) while the chip had already counted the Sent
-     * reply. One resolution, one decision, so the two cannot disagree.
-     *
-     * The account is the REPRESENTATIVE's, falling back to the current account only for a message
-     * that never came from the cache — never the other way round, or the unified view would scope
-     * another account's conversation to the current account's Sent folder.
+     * Started once, for the ViewModel's life: the stream is idle (a single empty map) while nothing
+     * is unfolded, and subscribes exactly to the rows that are.
      */
-    private fun expansionMailboxIds(rep: Email): Set<String> =
-        ConversationScope.folders(
-            viewedMailboxIds = currentMailboxIds(),
-            sentMailboxes = listSentMailboxes,
-            accountId = rep.accountId ?: store.load()?.id,
-        )
-
-    /**
-     * Cached thread members minus the representative already shown on the collapsed row.
-     * Pulled from [allowed] (the viewed folder(s) plus the account's Sent folder), so the
-     * unfolded conversation lists this folder's exchange — Sent replies interleaved — but
-     * never members that live in Trash, Spam, Drafts or another folder.
-     */
-    private suspend fun loadThreadMembers(rep: Email, allowed: Set<String>): List<Email> {
-        val accountId = rep.accountId ?: store.load()?.id ?: return emptyList()
-        val all = repo.cachedThreadEmails(accountId, allowed.toList(), threadKeyOf(rep).threadId)
-        return ConversationExpansion.membersBelow(all, rep.id)
+    private fun observeThreadMembers() {
+        viewModelScope.launch {
+            ThreadMemberStream.members(
+                expanded = _expandedThreads,
+                scope = listScope,
+                fallbackAccountId = { store.load()?.id },
+                representative = { key -> threadReps[key]?.first },
+                read = { accountId, folders, threadKey -> repo.observeThreadEmails(accountId, folders, threadKey) },
+            ).collect { live -> drawThreadMembers(live) }
+        }
     }
 
     /**
-     * Toggle the favourite star on one message inside an expanded conversation. The expanded
-     * members are a cache snapshot (not a live query), so the new state is also written back
-     * into [_threadMembers] optimistically to flip the star at once.
+     * Draw a live reading: membership from the cache, content from what is already on screen, minus
+     * the members a swipe has taken away while its round-trip is in flight ([ThreadMemberStream.reconcile]).
+     *
+     * Members hidden by an active snooze stay out, as they do from the chip — its SQL excludes them
+     * and the two must count the same messages (both come back when the snooze lapses).
+     */
+    private suspend fun drawThreadMembers(live: Map<ThreadKey, List<Email>>) {
+        val drawn = _threadMembers.value
+        val fallbackAccountId = store.load()?.id
+        val snoozed = live.keys.mapNotNullTo(mutableSetOf()) { it.accountId ?: fallbackAccountId }
+            .associateWith { runCatching { repo.activeSnoozedIds(it) }.getOrDefault(emptySet()) }
+        val next = live.mapValues { (key, members) ->
+            val hidden = snoozed[key.accountId ?: fallbackAccountId].orEmpty()
+            ThreadMemberStream.reconcile(
+                drawn = drawn[key].orEmpty(),
+                live = members.filterNot { it.id in hidden },
+                removed = removedMembers,
+            )
+        }
+        // Equal maps are not re-emitted (StateFlow conflates on equality) and the reconcile keeps
+        // the drawn instances, so an unfolded conversation nothing happened to does not recompose.
+        _threadMembers.value = next
+    }
+
+    /**
+     * Members a swipe has removed from the screen while the server round-trip is still running.
+     * Their cache rows outlive the gesture by a moment, so a live reading landing in that window
+     * would otherwise put the row back under the reader's thumb. Same tombstone idea as
+     * [searchRemoved], and emptied the same way — when the thread's expansion is dropped, or when
+     * every unfolded row is.
+     */
+    private val removedMembers = mutableSetOf<EmailKey>()
+
+    /**
+     * Toggle the favourite star on one message inside an expanded conversation. The write reaches
+     * the cache only once the server has acknowledged it, so the new state is also written into
+     * [_threadMembers] at once — and the live reading keeps the copy already drawn rather than
+     * reverting it in the meantime ([ThreadMemberStream.reconcile]).
      */
     fun toggleChildFlag(child: Email) {
         val flagged = !child.isFlagged
@@ -428,9 +438,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Optimistically rewrite the seen keyword on any expanded-conversation members among [ids].
-     * The expanded members are a cache snapshot (see [_threadMembers]), so every read/unread
-     * mutation must also be written back here or the unfolded rows keep a stale unread dot.
-     * Ditto the search-results snapshot, whose rows would otherwise keep a stale bold state.
+     * The cache is written only on the server's acknowledgement, so every read/unread mutation must
+     * also be written here or the unfolded rows keep a stale unread dot until then. Ditto the
+     * search-results snapshot, whose rows would otherwise keep a stale bold state.
      */
     private fun patchThreadMembersSeen(keys: Set<EmailKey>, seen: Boolean) {
         patchSearchResults(keys) { m ->
@@ -492,18 +502,20 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /** Drop several messages from the expanded-conversation snapshot (bulk removals). */
+    /** Drop several messages from the expanded conversations (bulk removals). */
     private fun dropThreadMembers(keys: Set<EmailKey>) {
         if (_threadMembers.value.isEmpty()) return
+        removedMembers += keys
         _threadMembers.value = _threadMembers.value
             .mapValues { (_, members) -> members.filterNot { it.emailKey() in keys } }
             .filterValues { it.isNotEmpty() }
     }
 
     /**
-     * Re-sync the expanded conversations' member snapshot with the cache. Covers changes made
-     * outside this ViewModel — chiefly the reader marking a child read — which otherwise leave
-     * a stale unread dot on the unfolded row when the user comes back to the list.
+     * Re-sync the expanded conversations' members with the cache. The live reading keeps the copy
+     * already drawn (an optimistic star or read toggle must survive it), so a change made OUTSIDE
+     * this ViewModel — chiefly the reader marking a child read — needs saying explicitly, or the
+     * unfolded row keeps a stale unread dot when the user comes back to the list.
      */
     fun refreshThreadMembers() {
         val snapshot = _threadMembers.value
@@ -637,21 +649,31 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** The accounts' Sent folders backing the chip's "plus Sent replies" scope — live from the
      *  folder cache in conversation mode (deduped upstream, so the pager only rebuilds when a
      *  Sent id actually changes); flat mode needs none. Every emission is also kept in
-     *  [listSentMailboxes], because unfolding a row must reuse what that row's chip counted. */
+     *  [listScope], together with the folder(s) [key] is paging, because unfolding a row must
+     *  reuse what that row's chip counted — both halves of it. The viewed folders come from the
+     *  paging key, never from a fresh read of the selection: see [ListScope]. */
     private fun sentScopes(key: PageKey, accountIds: List<String>): Flow<List<Pair<String, String>>> =
         (if (key.conversationView) repo.observeSentMailboxes(accountIds) else flowOf(emptyList<Pair<String, String>>()))
-            .onEach { listSentMailboxes = it }
+            .onEach { listScope.value = ListScope(viewedMailboxIds(key), it) }
+
+    /** The folder(s) [key] pages — one folder, or every account's inbox when unified. */
+    private fun viewedMailboxIds(key: PageKey): List<String> = when (val sel = key.sel) {
+        is Sel.Folder -> listOfNotNull(sel.id)
+        Sel.Unified -> key.unifiedIds
+    }
 
     /**
-     * The Sent resolution the list currently on screen was built with: the very pairs the chips
-     * counted over. Recorded here on the way into the pager ([sentScopes]) and read back by
-     * [expansionMailboxIds], so the unfold and the chip describe one conversation rather than two.
+     * The scope the list currently on screen was built with — the folders it pages and the Sent
+     * pairs its chips counted over. Recorded here on the way into the pager ([sentScopes]) and
+     * read back by the live member stream ([observeThreadMembers], through [ListScope.folders]),
+     * so the unfold and the chip describe one conversation rather than two.
      *
-     * A resolution that changes rebuilds the pager, which redraws the chips — the recorded value
-     * and the drawn chips move together. Written from the paging flow and read from the UI
-     * coroutine, hence @Volatile.
+     * A scope that changes rebuilds the pager, which redraws the chips, AND re-reads the members
+     * of every row still unfolded — the recorded value, the drawn chips and the messages beneath
+     * them move together. A StateFlow, not a plain field, because "the resolution changed while a
+     * row was open" is exactly the case the snapshot could not answer.
      */
-    @Volatile private var listSentMailboxes: List<Pair<String, String>> = emptyList()
+    private val listScope = MutableStateFlow(ListScope())
 
     // "All inboxes (N)" sums the SAME live per-inbox aggregates the folder badges below it
     // read (mode-aware: unread threads in conversation view, unread messages in flat view),
@@ -724,6 +746,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     init {
         refresh()
         connectivity.start()
+        observeThreadMembers()
         // Recompute the read/unread toggle state whenever the selection set changes.
         viewModelScope.launch {
             _selectedKeys.collect { refreshSelectionReadState(it) }
@@ -938,6 +961,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _threadMembers.value = emptyMap()
         completedThreads.clear()
         threadReps.clear()
+        removedMembers.clear()
     }
 
     /** Swipe action: toggle read/unread (cache update drives the list). */
@@ -1028,6 +1052,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         pendingDeleteEmails = emptyList()
         _pendingDelete.value = null
         restoreSearchResults(restored.map { it.emailKey() })
+        restoreThreadMembers(restored.map { it.emailKey() })
         // A full re-query, not an incremental refresh: the messages were only evicted locally and
         // are still in Trash on the server, so queryChanges reports no change and would leave the
         // view empty. Dropping the sync cursors forces a fresh query that brings them back.
@@ -1133,6 +1158,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Drop a thread's inline-expansion state — its conversation is leaving the list. */
     private fun dropThreadExpansion(key: ThreadKey) {
         _expandedThreads.value = _expandedThreads.value - key
+        removedMembers -= _threadMembers.value[key].orEmpty().mapTo(mutableSetOf()) { it.emailKey() }
         _threadMembers.value = _threadMembers.value - key
         completedThreads -= key
         threadReps -= key
@@ -1208,19 +1234,34 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Drop [email] from any expanded conversation's inline member snapshot. The collapsed-row
-     * swipe clears the whole thread via [threadSwipeRemove]; this covers a single child message
-     * swiped away inside an unfolded conversation, whose rows come from [_threadMembers] (a
-     * static cache snapshot) rather than the live paged list — so without this the deleted row
-     * would linger on screen.
+     * Drop [email] from any expanded conversation. The collapsed-row swipe clears the whole thread
+     * via [threadSwipeRemove]; this covers a single child message swiped away inside an unfolded
+     * conversation. The row must leave NOW, and its cache row only leaves when the server
+     * acknowledges the move — hence the removal here and the tombstone that keeps the next live
+     * reading from undoing it.
      */
     private fun dropThreadMember(email: Email) {
         val key = threadKeyOf(email)
         val members = _threadMembers.value[key] ?: return
+        // The cache row survives the gesture until the server acknowledges it; the live reading
+        // would put the row straight back under the reader's thumb without this tombstone.
+        removedMembers += email.emailKey()
         val remaining = members.filterNot { it.id == email.id }
         _threadMembers.value =
             if (remaining.isEmpty()) _threadMembers.value - key
             else _threadMembers.value + (key to remaining)
+    }
+
+    /**
+     * The messages among [keys] did not leave after all — the action failed, or was undone. Lift
+     * their tombstones so the live reading lists them again; the cache row is (or is about to be)
+     * back, and nothing else would ever put them on screen.
+     *
+     * Called beside every [restoreSearchResults], which is the same statement about the other
+     * snapshot: a removal that is taken back must be taken back everywhere it was applied.
+     */
+    private fun restoreThreadMembers(keys: Collection<EmailKey>) {
+        removedMembers -= keys.toSet()
     }
 
     /**
@@ -1249,6 +1290,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 .onFailure {
                     _message.value = it.message ?: getApplication<Application>().getString(R.string.status_action_failed)
                     restoreSearchResults(listOf(email.emailKey()))
+                    restoreThreadMembers(listOf(email.emailKey()))
                     refresh() // the failed row was never dropped locally — just reconcile the list
                 }
         }
@@ -1259,6 +1301,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         val action = _undo.value ?: return
         _undo.value = null
         restoreSearchResults(action.entries.map { EmailKey(it.accountId, it.emailId) })
+        restoreThreadMembers(action.entries.map { EmailKey(it.accountId, it.emailId) })
         viewModelScope.launch {
             // Group by account and restore each account's whole set in one batch (one UID MOVE /
             // Email/set per source folder), so undoing a large selection doesn't hit the same
@@ -1544,8 +1587,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         val keys = _selectedKeys.value
         if (clearAfter) clearSelection()
-        // Every bulk op removes its messages from the current view; expanded-conversation
-        // members live in a static snapshot, so drop them there too or the rows linger.
+        // Every bulk op removes its messages from the current view; their cache rows only go on
+        // the server's acknowledgement, so drop them from the unfolded rows too or they linger.
         dropThreadMembers(keys)
         viewModelScope.launch {
             var failed = 0
@@ -1624,6 +1667,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             restoreSearchResults(failedKeys)
+            restoreThreadMembers(failedKeys)
             repo.resetSyncState()
             refresh()
             // After the full re-query settles: re-cache the touched conversations' members
