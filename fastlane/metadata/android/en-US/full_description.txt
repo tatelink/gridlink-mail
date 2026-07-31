@@ -6,7 +6,7 @@ Reading and organising:
 
 * Unified inbox across multiple accounts (JMAP and/or IMAP/SMTP), fully offline with a local cache
 * Multiple JMAP accounts under a single login (delegated, shared or team mailboxes), each with its own folders, notifications and Sent copies
-* Conversation threading, nested folders, configurable swipe actions, flags, archive and delete with undo
+* Conversation threading, nested folders, configurable swipe actions, stars, archive and delete with undo
 * Multi-select bulk actions, snooze, report spam, sort and unread-only filter
 * Search as you type, combining instant local results with server-side search, plus filters for sender, subject, attachments and date
 * Calendar invitations preview as an event card and go into your calendar app in one tap

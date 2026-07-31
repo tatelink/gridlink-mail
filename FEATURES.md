@@ -55,7 +55,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ **JMAP** (RFC 8620/8621) — the primary, modern backend.
 - ✅ **IMAP + SMTP** — a hand-rolled client (no JavaMail), at parity with JMAP:
   folder list, paged read with server-side load-more, MIME body + attachments,
-  flag / archive / delete with undo, SMTP send (incl. multipart attachments) with
+  star / archive / delete with undo, SMTP send (incl. multipart attachments) with
   APPEND-to-Sent, and server-side search. Add via Add account → "IMAP / SMTP"
   (host/port/security for both). The data layer routes per-account by protocol,
   so the cache, paging, and entire UI are protocol-agnostic.
@@ -73,7 +73,7 @@ The categories further down list the full feature set; this is the order of work
   bodies preserve paragraphs and unwrap `format=flowed` soft line breaks (RFC 3676)
   so they read as written instead of one run-on block or mid-sentence wraps
 - ✅ Offline reading (Room cache)
-- ✅ Mark read/unread, flag/star, archive, delete *(M3; JMAP + IMAP)*
+- ✅ Mark read/unread, star, archive, delete *(M3; JMAP + IMAP)*
 - ✅ Optional "mark as read when deleting" (Settings → Reading), so deleted mail doesn't sit unread in Trash
 - ✅ Unread shown by bold text (not a status dot)
 - ✅ Folder navigation drawer; view any mailbox *(M3)*
@@ -81,15 +81,16 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Pull-to-refresh
 - ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive; "Empty trash" (Trash overflow menu) destroys, behind the same held-back Undo, exactly the messages the folder held when you confirmed — mail filed there afterwards is not touched
 - ✅ Configurable swipe actions (left/right, in Settings → Reading)
-- ✅ Sort (newest/oldest, subject, sender, unread-first, favourites-first) + Mark-all-read
+- ✅ Sort (newest/oldest, subject, sender, unread-first, starred-first) + Mark-all-read
 - ✅ Multi-select (long-press / select-all): bulk read/unread toggle (keeps the
   selection), archive (Unarchive → Inbox from the Archive folder), move-to-folder, delete
 - ✅ Opening a folder starts at the top of its list
 - ✅ Snooze a message until later
 - ✅ Paged list (Jetpack Paging 3 + Room) — large folders load in pages while scrolling, constant memory; scroll-position indicator on the right
 - ✅ Scroll to load more — a Paging `RemoteMediator` fetches older mail from the server when you scroll past the cached window (JMAP anchor-based / IMAP UID paging), with a loading/retry footer
-- ✅ Favourite (star) per row, tappable; "Favourites first" is one of the sort orders, so
-  favourites pin to the top when you ask for it and sort normally the rest of the time
+- ✅ Star per row, tappable; "Starred first" is one of the sort orders, so starred mail pins
+  to the top when you ask for it and sorts normally the rest of the time; "Starred only" is a
+  criterion of the advanced search, which gathers them across the whole account
 - ✅ Report spam / not-spam — message overflow, context-aware (Report spam ↔ Not spam)
 
 ## Organisation & search
@@ -185,13 +186,13 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Compact inbox top bar showing folder + account
 - ✅ About section in Settings — version (with release date), source code, license and author links
 - 💡 Home-screen widget(s) (unread count / inbox)
-- ✅ Accessibility pass (v1): screen-reader labels for icon-only controls (e.g. the favourite star reads "Add/Remove from favourites" instead of the ★ glyph), decorative icons left unlabelled to avoid double-announcement, and text scales with the system font size (Compose sp); 💡 fuller TalkBack audit, large-touch-target review
+- ✅ Accessibility pass (v1): screen-reader labels for icon-only controls (e.g. the star reads "Add star"/"Remove star" instead of the ★ glyph), decorative icons left unlabelled to avoid double-announcement, and text scales with the system font size (Compose sp); 💡 fuller TalkBack audit, large-touch-target review
 
 ## "Complete app" extras
 
 - ✅ ⭐ Vacation responder / auto-reply — JMAP `VacationResponse` (RFC 8621); per-account, server-side, Settings → Vacation responder (enable + subject + message + optional date range), IMAP/no-capability gated
 - ✅ On-device storage usage + Clear cache (Settings → Storage); ✅ server mailbox quota via JMAP `Quota` (RFC 9425) shown in Settings → Storage when supported
-- ✅ Server-side filters/rules where the server supports `SieveScript` (RFC 9661) — form-based rule builder (condition → move/mark-read/flag), compiled to Sieve and round-tripped via a JSON metadata comment
+- ✅ Server-side filters/rules where the server supports `SieveScript` (RFC 9661) — form-based rule builder (condition → move/mark-read/star), compiled to Sieve and round-tripped via a JSON metadata comment
 - ✅ Calendar invite (`.ics`) preview — a `text/calendar` part is detected (captured on
   IMAP even without a filename; JMAP lists it already), the first `VEVENT` is parsed by a
   small dependency-free iCalendar reader (timezones, all-day, recurrence, `DURATION`), and

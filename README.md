@@ -144,7 +144,7 @@ Thanks to [KaKeBr](https://codeberg.org/KaKeBr) for the diagnosis and the recipe
 - Conversation view — threads collapse into one row with a message count
 - Nested folders shown as a collapsible tree; create / rename / delete, plus
   subfolders
-- Configurable swipe actions, flag/star, archive & delete with undo, multi-select
+- Configurable swipe actions, star, archive & delete with undo, multi-select
   bulk actions, snooze, report spam, empty trash (with undo), sort and unread-only
   filter
 - Search-as-you-type (server-side + instant local results) with advanced filters
