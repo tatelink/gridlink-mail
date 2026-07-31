@@ -25,6 +25,12 @@ import java.io.File
  * What it does NOT do: it does not check that the subtitle is legible, correctly translated, or
  * even displayed — only that the screen no longer couples the switches to the accounts, and that
  * every language's subtitle names both protocols.
+ *
+ * The wording rule is stricter than it looks and is meant to be: requiring the literals "JMAP" and
+ * "IMAP" constrains the SHAPE of every translated sentence, not just its content. A translator who
+ * says the same thing without naming the two protocols fails here. That is the trade accepted —
+ * the whole statement is which protocol groups and which does not, and there is no way to read a
+ * paraphrase for that meaning from a test.
  */
 class SettingsScreenHonestyTest {
 
@@ -43,6 +49,20 @@ class SettingsScreenHonestyTest {
                 "behind `if (imapOnly)` was absent in exactly the mixed case that needed it. " +
                 "Section was:\n$section",
             "if (" !in section,
+        )
+    }
+
+    @Test fun `the conversation section is not wrapped in a condition either`() {
+        // The rule above reads INSIDE the section, and a condition can grow back just above it:
+        // `if (…) { SettingsSection(...) }` shows or hides the whole thing — the same coupling,
+        // one line out of reach. The line that opens the block the section sits in is the place
+        // that can do it, so that is the line read here.
+        val enclosing = enclosingLine()
+        assertTrue(
+            "the Conversations section must not be wrapped in a condition: hiding the whole " +
+                "section on the account set is the coupling this fix removed, whatever is inside " +
+                "it. Enclosing line was:\n$enclosing",
+            "if (" !in enclosing && "when (" !in enclosing,
         )
     }
 
@@ -69,10 +89,13 @@ class SettingsScreenHonestyTest {
 
     @Test fun `every language says which protocol groups and which does not`() {
         val files = stringFiles()
-        assertEquals(
-            "the app ships nine languages; this rule must read all of them, or a locale can be " +
-                "left with the old subtitle that promises grouping IMAP never does",
-            9, files.size,
+        // A FLOOR, not a count: the rule is "every locale shipped", and pinning the exact number
+        // made a tenth translation fail a test that talks about conversations.
+        assertTrue(
+            "only ${files.size} locale string files found; the app ships at least nine, so this " +
+                "rule is no longer reading all of them and a locale can keep the old subtitle " +
+                "that promises grouping IMAP never does",
+            files.size >= 9,
         )
         val silent = files.mapNotNull { file ->
             val subtitle = SUBTITLE.find(file.readText())?.groupValues?.get(1)
@@ -96,14 +119,17 @@ class SettingsScreenHonestyTest {
      *
      * Fails loudly when the section is not found — renaming it must break these rules rather than
      * satisfy them against an empty string.
+     *
+     * THE BOUNDARY IS THE INDENTATION, which is what a source lint has to work with and is worth
+     * knowing when reading a failure: a reformatter that breaks the opening call across lines, or
+     * reindents the block, moves where this stops. The `check` below is the guard against the bad
+     * outcome — rules passing over an empty section — but it cannot tell a section that legitimately
+     * shrank from one this stopped reading early. If that day comes, teach it to brace-match rather
+     * than widen it.
      */
     private fun conversationSection(): String {
         val lines = codeLines(SETTINGS_SCREEN)
-        val start = lines.indexOfFirst { "R.string.settings_conversation_section" in it }
-        check(start >= 0) {
-            "SettingsScreen.kt no longer opens a section with R.string.settings_conversation_section " +
-                "— was it renamed or moved? These rules must be moved with it."
-        }
+        val start = sectionStart(lines)
         val indent = lines[start].indentWidth()
         val out = mutableListOf(lines[start])
         for (i in start + 1 until lines.size) {
@@ -112,7 +138,36 @@ class SettingsScreenHonestyTest {
             out += line
             if (line.indentWidth() <= indent) break
         }
+        check(out.size > 2) {
+            "the Conversations section reads as ${out.size} line(s) — the rules below would be " +
+                "true of it by vacuity. Either the section really is empty, or its indentation " +
+                "changed under this reader:\n" + out.joinToString("\n")
+        }
         return out.joinToString("\n")
+    }
+
+    /**
+     * The line that opens the block the section sits in — the nearest preceding code line indented
+     * LESS than the section itself. That is where a condition around the whole section would be
+     * written, and no rule inside the section can see one.
+     */
+    private fun enclosingLine(): String {
+        val lines = codeLines(SETTINGS_SCREEN)
+        val start = sectionStart(lines)
+        val indent = lines[start].indentWidth()
+        return (start - 1 downTo 0)
+            .map { lines[it] }
+            .firstOrNull { it.isNotBlank() && it.indentWidth() < indent }
+            ?: error("the Conversations section is at the top level of SettingsScreen.kt — has the file moved?")
+    }
+
+    private fun sectionStart(lines: List<String>): Int {
+        val start = lines.indexOfFirst { "R.string.settings_conversation_section" in it }
+        check(start >= 0) {
+            "SettingsScreen.kt no longer opens a section with R.string.settings_conversation_section " +
+                "— was it renamed or moved? These rules must be moved with it."
+        }
+        return start
     }
 
     /** As in the sibling source lints: a line whose first non-blank character opens a comment is

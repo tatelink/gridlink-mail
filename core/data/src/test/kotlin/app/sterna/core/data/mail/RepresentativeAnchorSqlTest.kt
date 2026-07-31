@@ -111,8 +111,14 @@ class RepresentativeAnchorSqlTest {
     @Test fun scopesToAccountAndMailbox() {
         insert("in1", threadId = "T1", sortKey = 100)
         insert("sent1", threadId = "T1", sortKey = 300, mailbox = "sent") // newer, other folder
-        insert("other1", threadId = "T1", sortKey = 50, accountId = "accB") // other account
-        // Within (acc, inbox), in1 is T1's newest — the Sent reply doesn't demote it.
+        // The sibling account's member is NEWER than in1 (issue #31: same-server accounts share
+        // thread ids). It has to be: at a lower sortKey it cannot win the correlated sub-select's
+        // MAX whether or not that sub-select is account-scoped, and dropping `accountId = :accountId`
+        // from it — the very regression this case is named for — went unnoticed, the two queries
+        // simply binding one `?` fewer under Room's named parameters.
+        insert("other1", threadId = "T1", sortKey = 500, accountId = "accB")
+        // Within (acc, inbox), in1 is T1's newest — neither the Sent reply nor the sibling
+        // account's newer member demotes it.
         assertEquals("in1", anchor())
         assertEquals(1, representativeCount())
     }

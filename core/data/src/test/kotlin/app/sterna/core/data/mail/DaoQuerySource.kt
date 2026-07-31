@@ -146,8 +146,26 @@ internal object DaoQuerySource {
         if (annotation < 0 || head.substring(annotation).contains(DECLARATION)) return null
         val literals = stringLiterals(head.substring(annotation + "@Query(".length))
         check(literals.isNotEmpty()) { "@Query on '$functionName' holds no string literal" }
-        return literals.joinToString("")
+        val sql = literals.joinToString("")
+        INTERPOLATION.find(sql)?.let {
+            error(
+                "@Query on '$functionName' in $daoName carries a Kotlin interpolation, '${it.value}' — " +
+                    "this reads the annotation as TEXT, so the constant is never substituted. SQLite " +
+                    "does not reject what is left either: it takes '\$NAME' for a named parameter, " +
+                    "leaves it unbound, and reads NULL — a 'LIMIT \$PAGE' would silently become no " +
+                    "limit at all and the test would pass on a query the app never runs. Inline the " +
+                    "value in the annotation, or teach this to substitute it.",
+            )
+        }
+        return sql
     }
+
+    /**
+     * A Kotlin string template surviving in an extracted statement — see [queryOrNull]. Only
+     * [bindOrder]'s `:name` form is substituted here; `$NAME` and `${'$'}{expr}` are not, and must
+     * never reach SQLite.
+     */
+    private val INTERPOLATION = Regex("""\$\{?[A-Za-z_]""")
 
     /** A function declaration — what tells an annotation apart from the one before it. */
     private val DECLARATION = Regex("""\bfun\s+\w+\s*\(""")

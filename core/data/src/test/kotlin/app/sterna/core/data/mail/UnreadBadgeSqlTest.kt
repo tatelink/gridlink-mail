@@ -136,24 +136,36 @@ class UnreadBadgeSqlTest {
     }
 
     @Test fun threadBadgeIsFolderScoped() {
-        // T1: read member in the Inbox, unread member filed in Trash — only Trash gets a badge
-        // (the Inbox row is not bold: its in-folder part is read).
+        // T1: read member in the Inbox, unread member filed in Trash — only Trash badges it (the
+        // Inbox row is not bold: its in-folder part is read). T2 is unread on BOTH sides, and it is
+        // what makes the folder scope legible in the numbers: the two folders must disagree.
+        //
+        // Without it the case survived dropping `mailboxId` from the aggregate's inner GROUP BY —
+        // the saga's regression, one badge for the whole thread instead of one per folder. SQLite
+        // hands a bare mailboxId back from an arbitrary row of the group, and it happened to pick
+        // the one the assertion named. No arrangement of one row per group can produce {1, 2}.
         insert("in1", threadId = "T1", seen = 1, sortKey = 200, mailbox = "inbox")
         insert("tr1", threadId = "T1", seen = 0, sortKey = 100, mailbox = "trash")
+        insert("in2", threadId = "T2", seen = 0, sortKey = 300, mailbox = "inbox")
+        insert("tr2", threadId = "T2", seen = 0, sortKey = 50, mailbox = "trash")
 
-        assertEquals(mapOf(("acc" to "trash") to 1), counts(threadBadgeSql))
-        assertEquals(0, boldConversationRows("acc", "inbox"))
-        assertEquals(1, boldConversationRows("acc", "trash"))
+        assertEquals(mapOf(("acc" to "inbox") to 1, ("acc" to "trash") to 2), counts(threadBadgeSql))
+        assertEquals(1, boldConversationRows("acc", "inbox"))
+        assertEquals(2, boldConversationRows("acc", "trash"))
     }
 
     @Test fun snoozedUnreadIsExcludedFromBothBadges() {
+        // The two are in DIFFERENT folders, so the aggregates say WHICH one survives and not merely
+        // how many: with both in the Inbox the counts are symmetric, and reversing the comparison
+        // (`until > now` → `<`) — hiding every message whose snooze has EXPIRED and badging the ones
+        // still asleep — read exactly the same, 1 and 1.
         insert("z1", threadId = null, seen = 0, sortKey = 100) // snoozed into the future → hidden
-        insert("z2", threadId = null, seen = 0, sortKey = 200) // snooze expired → visible again
+        insert("z2", threadId = null, seen = 0, sortKey = 200, mailbox = "archive") // expired → visible
         snooze("z1", untilMillis = Long.MAX_VALUE)
         snooze("z2", untilMillis = 1)
 
-        assertEquals(mapOf(("acc" to "inbox") to 1), counts(threadBadgeSql))
-        assertEquals(mapOf(("acc" to "inbox") to 1), counts(messageBadgeSql))
+        assertEquals(mapOf(("acc" to "archive") to 1), counts(threadBadgeSql))
+        assertEquals(mapOf(("acc" to "archive") to 1), counts(messageBadgeSql))
     }
 
     @Test fun badgesAreAccountScoped() {
