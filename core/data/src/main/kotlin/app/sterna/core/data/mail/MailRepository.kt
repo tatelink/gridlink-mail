@@ -268,19 +268,29 @@ internal fun imapSearchComplete(
  * reading the emptiness off the derived list would deny that account a total forever. See the
  * warning on [searchAnswerIsTotal].
  *
- * [searchAnswerIsTotal]'s scan question has one answer on this path: the server replies in a single
- * round trip, and a query that could not run throws out of [JmapClient.searchEmails] instead of
- * returning a short list — there is no half-done JMAP search to report. Hence the constant, written
- * here once with its reason rather than guessed at the call site.
+ * [searchAnswerIsTotal]'s scan question is answered by the gap between the two counts a search comes
+ * back with. There is no local pass to interrupt here — every criterion is evaluated server-side,
+ * unlike the IMAP attachment scan that can stop on its own cap — but the answer can still be SHORT:
+ * `Email/query` matches ids and `Email/get` fetches objects, and the get returns fewer when the
+ * server caps it (`maxObjectsInGet`) or when a message is destroyed between the two, which travel in
+ * one request but not in one instant. The crawl already draws that distinction (`CrawlPage`, and
+ * [MailRepository.syncSearchIndex] paginating on its `queryCount` for exactly this reason). So
+ * [fetched] < [matchedIds] means the list in hand is not the set that matched, and a null
+ * [matchedIds] means the server never said how many matched — neither may be dressed as a total, and
+ * the second above all: it is the one that would state "No results" as a fact.
+ *
+ * The cap is judged on [matchedIds] too, not on what came back: a query that matched exactly [limit]
+ * ids stopped at the caller's cap even if the get then handed back one object fewer.
  */
 internal fun jmapSearchComplete(
     cachedFolders: List<MailboxIdRole>,
-    found: Int,
+    matchedIds: Int?,
+    fetched: Int,
     limit: Int,
 ): Boolean = searchAnswerIsTotal(
     scopeCoversAccount = cachedFolders.isNotEmpty(),
-    scanComplete = true,
-    found = found,
+    scanComplete = matchedIds != null && fetched >= matchedIds,
+    found = matchedIds ?: fetched,
     limit = limit,
 )
 
@@ -3586,17 +3596,21 @@ class MailRepository(
         // the cached row's folder while the server still lists it, else the role-ranked pick —
         // never the server map's arbitrary first key, which could feed a search-row action
         // (delete's destroy-vs-move, undo's restore target) a Trash/Junk folder by accident.
-        val cachedMailbox = emailDao.emailsByIds(credentials.id, hits.map { it.id }).associate { it.id to it.mailboxId }
-        val resolved = hits.map { e ->
+        val cachedMailbox =
+            emailDao.emailsByIds(credentials.id, hits.emails.map { it.id }).associate { it.id to it.mailboxId }
+        val resolved = hits.emails.map { e ->
             val serverBoxes = e.mailboxIds.keys
             val mailbox = cachedMailbox[e.id]?.takeIf { it in serverBoxes }
                 ?: rankedMailboxPick(credentials.id, serverBoxes)
             e.copy(mailboxId = mailbox ?: e.mailboxId)
         }
-        // A full page means the server stopped at the cap, not that the account holds exactly that
-        // many — and a search whose scope was decided by an empty folder cache did not look where
-        // it says it looked; [jmapSearchComplete] holds both refusals.
-        return MailSearchResult(resolved, complete = jmapSearchComplete(cachedFolders, hits.size, limit))
+        // Three ways this answer can fail to be the account's answer — a full page (the server
+        // stopped at the cap), a get shorter than the query it followed, and a scope that an empty
+        // folder cache chose; [jmapSearchComplete] holds all three.
+        return MailSearchResult(
+            resolved,
+            complete = jmapSearchComplete(cachedFolders, hits.matchedIds, resolved.size, limit),
+        )
     }
 
     /**

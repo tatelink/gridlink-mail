@@ -4,6 +4,7 @@ import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.JmapSession
 import app.sterna.core.jmap.model.Quota
+import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.core.jmap.model.VacationResponse
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
@@ -187,6 +188,48 @@ class JmapClientTest {
         assertEquals(emptyList<Any>(), email.cc) // cc was JSON null
         assertEquals("alice@example.com", email.from.first().email)
         assertEquals("<p>Hi</p>", email.htmlContent())
+    }
+
+    /**
+     * A search is two method calls in one request, and they do not have to agree: `Email/query`
+     * matched three ids, `Email/get` handed back two of them (server cap, or a message destroyed in
+     * between). Reporting only what came back would let the caller state "2 results" for an account
+     * that held three, so both counts have to leave the client.
+     */
+    @Test fun searchEmails_reportsWhatTheQueryMatchedApartFromWhatTheGetReturned() = runBlocking {
+        server.enqueue(MockResponse().setBody(SEARCH_SHORT_GET_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+
+        val page = client.searchEmails(session, "acc1", SearchQuery(text = "invoice"), 50, BasicAuth("u", "p"))
+
+        assertEquals(3, page.matchedIds)
+        assertEquals(2, page.emails.size)
+    }
+
+    /** The witness: a server whose get returned everything its query matched reports equal counts. */
+    @Test fun searchEmails_reportsEqualCountsWhenTheGetReturnedEverythingTheQueryMatched() = runBlocking {
+        server.enqueue(MockResponse().setBody(SEARCH_WHOLE_GET_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+
+        val page = client.searchEmails(session, "acc1", SearchQuery(text = "invoice"), 50, BasicAuth("u", "p"))
+
+        assertEquals(2, page.matchedIds)
+        assertEquals(2, page.emails.size)
+    }
+
+    /**
+     * A query response with no `ids` array at all: the server did not say how many matched, and
+     * that must not be reported as "none matched" — a caller reading zero there would present an
+     * empty result as the account's whole answer.
+     */
+    @Test fun searchEmails_leavesTheMatchCountUnknownWhenTheServerGaveNoIds() = runBlocking {
+        server.enqueue(MockResponse().setBody(SEARCH_NO_IDS_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+
+        val page = client.searchEmails(session, "acc1", SearchQuery(text = "invoice"), 50, BasicAuth("u", "p"))
+
+        assertNull(page.matchedIds)
+        assertEquals(emptyList<Any>(), page.emails)
     }
 
     @Test fun getMailboxes_throwsOnJmapError() {
@@ -666,6 +709,55 @@ class JmapClientTest {
                     }
                   ]
                 }, "g0"]
+              ],
+              "sessionState": "abc"
+            }
+        """
+
+        /** Three ids matched, two objects returned — the shape `maxObjectsInGet` produces. */
+        const val SEARCH_SHORT_GET_JSON = """
+            {
+              "methodResponses": [
+                ["Email/query", {"accountId":"acc1","queryState":"q1","ids":["e1","e2","e3"]}, "q0"],
+                ["Email/get", {
+                  "accountId": "acc1",
+                  "state": "e1",
+                  "notFound": [],
+                  "list": [
+                    {"id":"e1","subject":"Invoice 1","from":[{"email":"alice@example.com"}]},
+                    {"id":"e2","subject":"Invoice 2","from":[{"email":"bob@example.com"}]}
+                  ]
+                }, "g0"]
+              ],
+              "sessionState": "abc"
+            }
+        """
+
+        /** The witness for it: two matched, the same two returned. */
+        const val SEARCH_WHOLE_GET_JSON = """
+            {
+              "methodResponses": [
+                ["Email/query", {"accountId":"acc1","queryState":"q1","ids":["e1","e2"]}, "q0"],
+                ["Email/get", {
+                  "accountId": "acc1",
+                  "state": "e1",
+                  "notFound": [],
+                  "list": [
+                    {"id":"e1","subject":"Invoice 1","from":[{"email":"alice@example.com"}]},
+                    {"id":"e2","subject":"Invoice 2","from":[{"email":"bob@example.com"}]}
+                  ]
+                }, "g0"]
+              ],
+              "sessionState": "abc"
+            }
+        """
+
+        /** A query response carrying no `ids` at all: the server said nothing about what matched. */
+        const val SEARCH_NO_IDS_JSON = """
+            {
+              "methodResponses": [
+                ["Email/query", {"accountId":"acc1","queryState":"q1"}, "q0"],
+                ["Email/get", {"accountId":"acc1","state":"e1","notFound":[],"list":[]}, "g0"]
               ],
               "sessionState": "abc"
             }

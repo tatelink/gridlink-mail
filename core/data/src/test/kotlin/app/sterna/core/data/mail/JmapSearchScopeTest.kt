@@ -23,6 +23,12 @@ import java.io.File
  * is already the trade the IMAP path makes with its inbox fallback. What is pinned here is that the
  * answer stops being called whole.
  *
+ * The scope is one of three reasons it may not be. The other two are the server's own: a query that
+ * matched as many ids as the caller's cap stopped AT that cap, and a get that handed back fewer
+ * objects than the query matched left the list short of what matched. Both are read off the count
+ * `Email/query` reported (`JmapClientTest` pins that the client surfaces it), never off the objects
+ * that came back, and a server that reported no count at all buys no total either.
+ *
  * Half of that can be asserted by calling the code and half cannot, exactly as in
  * [SearchNeverSyncedAccountTest]: the decision is called, the wiring is read out of the shipped
  * source because `MailRepository` opens shared preferences in its constructor and cannot be built in
@@ -42,7 +48,7 @@ class JmapSearchScopeTest {
         val cached = folders("i" to "inbox", "a" to "archive", "t" to "trash", "j" to "junk")
 
         assertEquals(listOf("t", "j"), excludedSearchFolderIds(cached))
-        assertTrue(jmapSearchComplete(cached, found = 3, limit = 50))
+        assertTrue(jmapSearchComplete(cached, matchedIds = 3, fetched = 3, limit = 50))
     }
 
     /**
@@ -54,9 +60,9 @@ class JmapSearchScopeTest {
         val cached = folders()
 
         assertEquals(emptyList<String>(), excludedSearchFolderIds(cached))
-        assertFalse(jmapSearchComplete(cached, found = 3, limit = 50))
+        assertFalse(jmapSearchComplete(cached, matchedIds = 3, fetched = 3, limit = 50))
         // Above all when it found nothing: THIS is the answer that must not read "No results".
-        assertFalse(jmapSearchComplete(cached, found = 0, limit = 50))
+        assertFalse(jmapSearchComplete(cached, matchedIds = 0, fetched = 0, limit = 50))
     }
 
     /**
@@ -69,18 +75,51 @@ class JmapSearchScopeTest {
         val cached = folders("i" to "inbox", "a" to "archive", "x" to null)
 
         assertEquals(emptyList<String>(), excludedSearchFolderIds(cached))
-        assertTrue(jmapSearchComplete(cached, found = 3, limit = 50))
+        assertTrue(jmapSearchComplete(cached, matchedIds = 3, fetched = 3, limit = 50))
     }
 
     /**
      * The cap still refuses a total on its own, for a cache that is beyond reproach: a full page
-     * means the server stopped counting, not that the account holds exactly that many.
+     * means the server stopped counting, not that the account holds exactly that many. It is the
+     * QUERY's count that hit the cap — a query that matched 50 and a get that returned 49 of them is
+     * still a capped search, so the cap is read on the count the server matched.
      */
     @Test fun `a full page is not a total even on a cached account, one hit under the cap is`() {
         val cached = folders("i" to "inbox", "t" to "trash")
 
-        assertFalse(jmapSearchComplete(cached, found = 50, limit = 50))
-        assertTrue(jmapSearchComplete(cached, found = 49, limit = 50))
+        assertFalse(jmapSearchComplete(cached, matchedIds = 50, fetched = 50, limit = 50))
+        assertFalse(jmapSearchComplete(cached, matchedIds = 50, fetched = 49, limit = 50))
+        assertTrue(jmapSearchComplete(cached, matchedIds = 49, fetched = 49, limit = 50))
+    }
+
+    /**
+     * The two counts a JMAP search comes back with are not one number: `Email/query` matches ids,
+     * `Email/get` fetches objects, and the get returns fewer when the server caps it or when a
+     * message is destroyed between the two calls. 50 matched under a cap of 50 is capped; 50 matched
+     * and 49 handed back is a list that is not what matched. Neither is a total, and the count on
+     * screen must not be read off the shorter list as though the difference did not exist.
+     */
+    @Test fun `a get that brought back less than the query matched is not a total`() {
+        val cached = folders("i" to "inbox", "t" to "trash")
+
+        assertFalse(jmapSearchComplete(cached, matchedIds = 12, fetched = 11, limit = 50))
+        // The witness: the same account, the same page, nothing lost between query and get.
+        assertTrue(jmapSearchComplete(cached, matchedIds = 12, fetched = 12, limit = 50))
+    }
+
+    /**
+     * The server said nothing about how many ids matched — no `ids` array at all. "It did not say"
+     * is not "it matched none": an answer built on it cannot be a total, and an EMPTY one above all,
+     * which would otherwise reach the screen as the flat "No results" the empty state states as a
+     * fact.
+     */
+    @Test fun `a server that never said how many ids matched cannot be quoted for a total`() {
+        val cached = folders("i" to "inbox", "t" to "trash")
+
+        assertFalse(jmapSearchComplete(cached, matchedIds = null, fetched = 0, limit = 50))
+        assertFalse(jmapSearchComplete(cached, matchedIds = null, fetched = 3, limit = 50))
+        // The witness: the same account and the same page, with the server's count present.
+        assertTrue(jmapSearchComplete(cached, matchedIds = 3, fetched = 3, limit = 50))
     }
 
     // ---- the wiring, read out of the shipped repository ----
@@ -112,6 +151,10 @@ class JmapSearchScopeTest {
             "completeness must be judged on the FOLDER list ('$cached'), not on the exclusions it derived",
             cached,
             verdict,
+        )
+        assertTrue(
+            "the cap must be judged on what the server MATCHED, not on the objects it handed back",
+            source.contains("hits.matchedIds"),
         )
     }
 

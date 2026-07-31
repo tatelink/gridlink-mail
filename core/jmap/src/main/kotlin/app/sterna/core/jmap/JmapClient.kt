@@ -15,6 +15,7 @@ import app.sterna.core.jmap.model.Mailbox
 import app.sterna.core.jmap.model.PushSubscription
 import app.sterna.core.jmap.model.StateChange
 import app.sterna.core.jmap.model.Quota
+import app.sterna.core.jmap.model.SearchPage
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.core.jmap.model.SieveScript
 import app.sterna.core.jmap.model.UploadedBlob
@@ -471,7 +472,13 @@ class JmapClient internal constructor(
             ?: emptySet()
     }
 
-    /** Full-text search across the account (Email/query `text` filter + Email/get). */
+    /**
+     * Full-text search across the account (Email/query `text` filter + Email/get).
+     *
+     * Returns both counts — see [SearchPage]: the caller has to know whether the query hit its cap
+     * and whether the get brought back everything the query matched before it may put a number on
+     * screen.
+     */
     suspend fun searchEmails(
         session: JmapSession,
         accountId: String,
@@ -479,7 +486,7 @@ class JmapClient internal constructor(
         limit: Int,
         auth: JmapAuth,
         excludeMailboxIds: List<String> = emptyList(),
-    ): List<Email> = withContext(Dispatchers.IO) {
+    ): SearchPage = withContext(Dispatchers.IO) {
         val filter = searchFilter(query, excludeMailboxIds)
         val payload = buildJsonObject {
             putJsonArray("using") {
@@ -536,7 +543,12 @@ class JmapClient internal constructor(
             // mailboxId is left null: the caller (core:data) resolves each hit's folder
             // deterministically from the returned mailboxIds map — picking the map's
             // arbitrary first key here could route a multi-mailbox hit to Trash.
-            decodeList(body, "Email/get", Email.serializer())
+            SearchPage(
+                emails = decodeList(body, "Email/get", Email.serializer()),
+                // What the QUERY matched, kept apart from what the GET returned — same reason the
+                // crawl keeps both (see [SearchPage]). Absent `ids` stays null rather than 0.
+                matchedIds = methodResponseArgs(body, "Email/query")["ids"]?.jsonArray?.size,
+            )
         }
     }
 
