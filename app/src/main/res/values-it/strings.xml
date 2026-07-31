@@ -573,6 +573,7 @@
     <string name="search_recipient">Destinatario</string>
     <string name="search_subject">Oggetto</string>
     <string name="search_has_attachment">Con allegato</string>
+    <string name="search_flagged">Solo speciali</string>
     <string name="search_after">Dopo</string>
     <string name="search_before">Prima</string>
     <string name="search_date_any">Qualsiasi</string>

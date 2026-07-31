@@ -133,7 +133,7 @@ class ImapSearchFoldersTest {
             // It had to look at more than it kept — but in batches, not one message at a time.
             assertTrue("examined $fetched candidates", fetched in 6..100)
             // The cap was filled, so this IS the answer: nothing to warn the counter about.
-            assertFalse(hits.single().scanTruncated)
+            assertFalse(hits.single().incomplete)
         }
     }
 
@@ -160,7 +160,7 @@ class ImapSearchFoldersTest {
             // The folder is reported even with nothing kept: the truncation is the information.
             assertEquals(listOf("INBOX"), hits.map { it.mailbox })
             assertTrue(hits.single().messages.isEmpty())
-            assertTrue(hits.single().scanTruncated)
+            assertTrue(hits.single().incomplete)
         }
     }
 
@@ -186,6 +186,78 @@ class ImapSearchFoldersTest {
         }
     }
 
+    /**
+     * The flagged filter, end to end on a socket: `FLAGGED` really leaves the client as a SEARCH
+     * key, and the SERVER's short answer is what comes back — two UIDs out of a 300-message
+     * folder, brought home by ONE fetch.
+     *
+     * What this does NOT prove, and must not be read as proving: that the flagged criterion
+     * leaves `requireAttachment` alone. It passes `requireAttachment = false` itself, so it could
+     * only ever establish "no walk when the walk is switched off". The decision that actually
+     * carries that guarantee is `SearchQuery.requiresLocalScan()`, pinned in core:data next to
+     * the call site that feeds it.
+     *
+     * The fake is rigged so a dropped key is loud rather than silently equivalent: without
+     * `FLAGGED` on the line the server hands back the whole folder, and everything in it is
+     * `\Seen` instead of `\Flagged`. Both the UID list and the flag assertion below then fail.
+     */
+    @Test
+    fun `flagged goes out as a search key and the server's answer needs one fetch`() {
+        val flaggedUids = listOf(42L, 77L)
+        FakeImapServer { tag, line ->
+            when {
+                line.startsWith("SELECT") -> selectResponse(tag, exists = 300)
+                // Only a search CARRYING the key gets the short list; anything else gets the
+                // whole folder, so a dropped key blows the fetch count wide open.
+                line.startsWith("UID SEARCH") ->
+                    searchResponse(tag, if ("FLAGGED" in line) flaggedUids else (1L..300L).toList())
+                // Stars only where the server said there were stars — otherwise every message
+                // would come back flagged and the assertion below could not fail.
+                line.startsWith("UID FETCH") -> fetchResponse(
+                    tag,
+                    uidsOf(line),
+                    flags = { uid -> if (uid in flaggedUids) "\\Flagged" else "\\Seen" },
+                ) { false }
+                else -> ok(tag)
+            }
+        }.use { server ->
+            val starred = buildImapSearch(ImapSearchCriteria(flagged = true))
+            val hits = server.session().use { session ->
+                session.searchFolders(listOf("INBOX"), starred, requireAttachment = false, limit = 50)
+            }
+            assertEquals(listOf("UID SEARCH FLAGGED"), server.issued().filter { it.startsWith("UID SEARCH") })
+            assertEquals(listOf(77L, 42L), hits.single().messages.map { it.uid })
+            assertTrue(hits.single().messages.all { it.flagged })
+            // One FETCH of two UIDs: no batched candidate walk, no scan cap, so the answer is whole.
+            val fetches = server.issued().filter { it.startsWith("UID FETCH") }
+            assertEquals(1, fetches.size)
+            assertEquals(flaggedUids.size, uidsOf(fetches.single()).size)
+            assertFalse(hits.single().incomplete)
+        }
+    }
+
+    /** The witness: with the switch off, no FLAGGED key is sent and the folder answers in full. */
+    @Test
+    fun `an unticked flagged switch sends no FLAGGED key`() {
+        FakeImapServer { tag, line ->
+            when {
+                line.startsWith("SELECT") -> selectResponse(tag)
+                line.startsWith("UID SEARCH") -> searchResponse(tag, listOf(8L))
+                line.startsWith("UID FETCH") -> fetchResponse(tag, uidsOf(line)) { false }
+                else -> ok(tag)
+            }
+        }.use { server ->
+            val plain = buildImapSearch(ImapSearchCriteria(subject = "facture", flagged = false))
+            server.session().use { session ->
+                session.searchFolders(listOf("INBOX"), plain, requireAttachment = false, limit = 50)
+            }
+            assertEquals(
+                listOf("""UID SEARCH SUBJECT "facture""""),
+                server.issued().filter { it.startsWith("UID SEARCH") },
+            )
+        }
+    }
+
     /** One unreadable folder must neither sink the search nor disappear in silence. */
     @Test
     fun `a folder that fails is reported and the others still answer`() {
@@ -207,8 +279,45 @@ class ImapSearchFoldersTest {
                     limit = 50,
                 ) { mailbox, _ -> failures += mailbox }
             }
-            assertEquals(listOf("INBOX"), hits.map { it.mailbox })
+            // The good folder still answers, and the bad one is still in the result — as an empty
+            // entry marked incomplete. Dropping it entirely is what let the caller believe it had
+            // searched "Broken" and found nothing there.
+            assertEquals(listOf("Broken", "INBOX"), hits.map { it.mailbox })
             assertEquals(listOf("Broken"), failures)
+            assertTrue(hits.first { it.mailbox == "Broken" }.incomplete)
+            assertTrue(hits.first { it.mailbox == "Broken" }.messages.isEmpty())
+            // The witness: a folder that answered normally is NOT marked, or the flag would mean
+            // nothing and every search would call itself partial.
+            assertFalse(hits.first { it.mailbox == "INBOX" }.incomplete)
+            assertEquals(listOf(4L), hits.first { it.mailbox == "INBOX" }.messages.map { it.uid })
+        }
+    }
+
+    /**
+     * The whole-command refusal, which is the case that made this worth fixing: an exotic server
+     * that answers `NO` to a key it does not implement fails EVERY folder the same way.
+     *
+     * The walk then finds nothing anywhere — and the answer must NOT be an empty list calling
+     * itself whole, because the screen states "No results" as a fact on exactly that shape. That
+     * is the overclaim #102 removed from this app; a search that never ran must not wear it.
+     */
+    @Test
+    fun `a server refusing the search key leaves every folder marked, not an empty complete answer`() {
+        FakeImapServer { tag, line ->
+            when {
+                line.startsWith("SELECT") -> selectResponse(tag)
+                line.startsWith("UID SEARCH") -> "$tag NO unsupported search key\r\n"
+                else -> ok(tag)
+            }
+        }.use { server ->
+            val starred = buildImapSearch(ImapSearchCriteria(flagged = true))
+            val hits = server.session().use { session ->
+                session.searchFolders(listOf("INBOX", "Archive"), starred, requireAttachment = false, limit = 50)
+            }
+            assertTrue(hits.all { it.messages.isEmpty() })
+            // Not "no matches": every folder says it could not answer.
+            assertEquals(listOf("INBOX", "Archive"), hits.map { it.mailbox })
+            assertTrue(hits.all { it.incomplete })
         }
     }
 

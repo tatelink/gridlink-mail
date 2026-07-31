@@ -575,6 +575,7 @@
     <string name="search_recipient">Odbiorca</string>
     <string name="search_subject">Temat</string>
     <string name="search_has_attachment">Z załącznikiem</string>
+    <string name="search_flagged">Tylko oznaczone</string>
     <string name="search_after">Po</string>
     <string name="search_before">Przed</string>
     <string name="search_date_any">Dowolna</string>

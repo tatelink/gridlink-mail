@@ -13,6 +13,11 @@ import java.util.Locale
  * [recipient] matches `To` OR `Cc`: a message addressed to an alias in copy was received at
  * that address just as much as one in To.
  *
+ * [flagged] IS here, unlike "has an attachment": `FLAGGED` is a standard search key, so the
+ * server answers it and no message has to be fetched to find out. Passing it through the local
+ * filter instead would have cost an envelope FETCH per candidate, a scan cap and a truncated
+ * count, for a question the server answers in one word.
+ *
  * [afterMillis]/[beforeMillis] are epoch-millis bounds; IMAP compares them against the
  * server's INTERNALDATE with DAY granularity, so they are rendered as calendar days (UTC).
  */
@@ -21,6 +26,7 @@ data class ImapSearchCriteria(
     val from: String = "",
     val recipient: String = "",
     val subject: String = "",
+    val flagged: Boolean = false,
     val afterMillis: Long? = null,
     val beforeMillis: Long? = null,
 )
@@ -56,6 +62,9 @@ private val IMAP_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("d-MMM-uu
  *   search field).
  * - With no key at all (an attachment-only search) the list is `ALL`: an empty key list is a
  *   syntax error, and the local attachment filter narrows it down afterwards.
+ * - `FLAGGED` takes no argument and is the cheapest key there is (a flag test, no header or body
+ *   to open), so it goes FIRST: servers evaluate left to right, and it is the key most likely to
+ *   throw away the bulk of the folder before anything expensive is read.
  */
 fun buildImapSearch(criteria: ImapSearchCriteria): ImapSearchCommand {
     val keys = mutableListOf<String>()
@@ -64,6 +73,7 @@ fun buildImapSearch(criteria: ImapSearchCriteria): ImapSearchCommand {
     val subject = criteria.subject.trim()
     val text = criteria.text.trim()
 
+    if (criteria.flagged) keys += "FLAGGED"
     if (from.isNotEmpty()) keys += "FROM ${quote(from)}"
     if (recipient.isNotEmpty()) keys += "OR TO ${quote(recipient)} CC ${quote(recipient)}"
     if (subject.isNotEmpty()) keys += "SUBJECT ${quote(subject)}"
@@ -82,14 +92,21 @@ private fun imapDay(millis: Long, plusDays: Long = 0): String =
 /**
  * One folder's matches. [mailbox] is the folder the UIDs belong to — UIDs mean nothing without it.
  *
- * [scanTruncated] says the walk gave up before examining every candidate (the attachment filter's
- * scan cap) WITHOUT filling the caller's cap: the answer may be short, and anything counting these
- * messages must say so rather than present a partial scan as a total.
+ * [incomplete] says THIS FOLDER'S answer is not whole, so anything counting these messages must
+ * say so rather than present a partial answer as a total. Two causes, deliberately one flag:
+ * the caller downstream does the same thing with either.
+ *  - the attachment filter's scan cap cut the walk short with candidates left over;
+ *  - the folder could not be searched at all (SELECT or SEARCH refused) and was skipped.
+ *
+ * The second case is why a skipped folder still produces an entry, with no messages in it: a
+ * folder that vanishes from the answer without a trace is indistinguishable, on screen, from a
+ * folder that simply held no match — and that is how a search which never ran ends up under
+ * "No results" as if it were a fact.
  */
 data class ImapFolderHits(
     val mailbox: String,
     val messages: List<ImapMessage>,
-    val scanTruncated: Boolean = false,
+    val incomplete: Boolean = false,
 )
 
 /** How many UIDs are fetched per `UID FETCH` while walking candidates for the attachment filter. */
@@ -108,15 +125,21 @@ private const val ATTACHMENT_SCAN_CAP = 1_000
  *
  * IMAP searches the SELECTed mailbox and only that one, so covering an account means
  * SELECT + UID SEARCH per folder — done on the one pooled connection, not a new one each time.
- * A folder that fails (gone, no permission, server hiccup) is reported to [onFolderError] and
- * skipped: one bad folder must not sink the whole search, nor vanish silently.
+ * A folder that fails (gone, no permission, server hiccup, a search key the server refuses) is
+ * reported to [onFolderError] and skipped: one bad folder must not sink the whole search. It is
+ * skipped LOUDLY though — it comes back as an empty [ImapFolderHits] marked
+ * [ImapFolderHits.incomplete], because the log line alone left the caller believing it had
+ * searched the folder and found nothing there. A server that refuses the whole command (an
+ * exotic one answering NO to a key it does not implement) fails EVERY folder that way, and the
+ * result was then an empty list calling itself complete: the screen stated "No results" about a
+ * search that never happened.
  *
  * When [requireAttachment] is set, IMAP has no key for it (`SEARCH` cannot express it), so the
  * server answers the other criteria and the attachment test is applied here from BODYSTRUCTURE,
  * which the envelope FETCH already carries. Candidates are then walked in batches until [limit]
  * messages have been KEPT or the candidates run out — the cap counts results, not rows examined,
  * so a filtered search cannot report three hits merely because it stopped looking after three.
- * A walk that still gives up on the scan cap marks its folder [ImapFolderHits.scanTruncated], so
+ * A walk that still gives up on the scan cap marks its folder [ImapFolderHits.incomplete], so
  * the count shown to the user can say "at least" instead of passing a partial scan off as a total.
  *
  * [stillWanted] is checked between folders: the walk is blocking and holds the account's one
@@ -140,10 +163,11 @@ fun ImapSession.searchFolders(
             searchOneFolder(command, requireAttachment, limit)
         } catch (t: Throwable) {
             onFolderError(mailbox, t)
+            hits += ImapFolderHits(mailbox, emptyList(), incomplete = true)
             continue
         }
         if (scan.messages.isNotEmpty() || scan.truncated) {
-            hits += ImapFolderHits(mailbox, scan.messages, scan.truncated)
+            hits += ImapFolderHits(mailbox, scan.messages, incomplete = scan.truncated)
         }
     }
     return hits

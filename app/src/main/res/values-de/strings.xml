@@ -571,6 +571,7 @@
     <string name="search_recipient">Empfänger</string>
     <string name="search_subject">Betreff</string>
     <string name="search_has_attachment">Mit Anhang</string>
+    <string name="search_flagged">Nur markierte</string>
     <string name="search_after">Nach</string>
     <string name="search_before">Vor</string>
     <string name="search_date_any">Beliebig</string>

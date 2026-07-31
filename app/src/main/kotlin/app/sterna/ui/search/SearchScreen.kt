@@ -19,9 +19,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -303,7 +305,18 @@ fun SearchScreen(
                             translationY = if (panelHeightPx == 0) -100_000f else offset.value - panelHeightPx
                         },
                 ) {
-                    Column(Modifier.fillMaxWidth()) {
+                    // Scrollable, because the panel is a fixed stack of rows in a space that is
+                    // not fixed at all: landscape, a font scale of 1.5x or 2x, or the keyboard
+                    // opening from the Subject field each cut the height it gets. Without this the
+                    // last rows — the flagged switch, and below it the Search button — are simply
+                    // clipped away by the parent Box, with no gesture that could bring them back.
+                    // Adding a row to this panel is what makes that reachable on ordinary phones,
+                    // so the row and the scroll ship together.
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                    ) {
                         OutlinedTextField(
                             value = query.from,
                             onValueChange = { viewModel.updateQuery(query.copy(from = it)) },
@@ -345,6 +358,25 @@ fun SearchScreen(
                             Switch(
                                 checked = query.hasAttachment,
                                 onCheckedChange = { viewModel.updateQuery(query.copy(hasAttachment = it)) },
+                            )
+                        }
+                        // Gathering flagged mail lives here rather than in the drawer: a drawer
+                        // entry could only list what the cache holds, so it would promise "your
+                        // flagged mail" while hiding everything in a never-synced folder. A search
+                        // reports what it found, and the server answers `FLAGGED` / `$flagged`
+                        // across the whole account.
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                stringResource(R.string.search_flagged),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Switch(
+                                checked = query.flagged,
+                                onCheckedChange = { viewModel.updateQuery(query.copy(flagged = it)) },
                             )
                         }
                         SearchDateRow(stringResource(R.string.search_after), query.afterMillis) { picked ->
@@ -431,6 +463,7 @@ private fun CriteriaSummary(query: SearchQuery, onClick: () -> Unit) {
             SearchCriterion.RECIPIENT -> criterionPair(R.string.search_recipient, filter.text)
             SearchCriterion.SUBJECT -> criterionPair(R.string.search_subject, filter.text)
             SearchCriterion.ATTACHMENT -> stringResource(R.string.search_has_attachment)
+            SearchCriterion.FLAGGED -> stringResource(R.string.search_flagged)
             // The date labels are already worded as prepositions ("After", "Après le", "Depois
             // de"), so they take the value without a colon — hence a second join pattern.
             SearchCriterion.AFTER -> stringResource(

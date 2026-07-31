@@ -571,6 +571,7 @@
     <string name="search_recipient">Ontvanger</string>
     <string name="search_subject">Onderwerp</string>
     <string name="search_has_attachment">Heeft bijlage</string>
+    <string name="search_flagged">Alleen met ster</string>
     <string name="search_after">Na</string>
     <string name="search_before">Voor</string>
     <string name="search_date_any">Alle</string>

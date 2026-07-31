@@ -49,6 +49,41 @@ class ImapSearchCommandTest {
         )
     }
 
+    /**
+     * `FLAGGED` is a standard `SEARCH` key (RFC 3501 §6.4.4) taking no argument: the SERVER
+     * answers it. This is the whole reason the flagged filter is not built like the attachment
+     * one — see the walk test for the client-side consequence.
+     */
+    @Test
+    fun `flagged alone becomes a bare FLAGGED key`() {
+        assertEquals("FLAGGED", keys(ImapSearchCriteria(flagged = true)))
+    }
+
+    /** The witness: unticked, no key. Without it the test above would pass on a constant filter. */
+    @Test
+    fun `an unticked flagged switch emits no FLAGGED key`() {
+        val command = keys(ImapSearchCriteria(from = "alex@masto.top", flagged = false))
+        assertEquals("""FROM "alex@masto.top"""", command)
+        assertFalse(command.contains("FLAGGED"))
+    }
+
+    /** Cheapest key first: it discards the bulk of the folder before a body is ever opened. */
+    @Test
+    fun `flagged leads the key list, ahead of the expensive keys`() {
+        assertEquals(
+            """FLAGGED FROM "alex@masto.top" TEXT "invoice"""",
+            keys(ImapSearchCriteria(text = "invoice", from = "alex@masto.top", flagged = true)),
+        )
+    }
+
+    /** A flag name is ASCII, so ticking the box alone must never ask for a charset declaration. */
+    @Test
+    fun `flagged on its own never declares a charset`() {
+        val command = buildImapSearch(ImapSearchCriteria(flagged = true))
+        assertFalse(command.needsUtf8)
+        assertEquals("FLAGGED", command.arguments())
+    }
+
     @Test
     fun `after becomes SINCE with an english day-month-year date`() {
         assertEquals("SINCE 1-Jun-2026", keys(ImapSearchCriteria(afterMillis = dayMillis(2026, 6, 1))))
@@ -88,12 +123,13 @@ class ImapSearchCommandTest {
                 from = "alex@masto.top",
                 recipient = "team@masto.top",
                 subject = "facture",
+                flagged = true,
                 afterMillis = dayMillis(2026, 6, 1),
                 beforeMillis = endOfDayMillis(2026, 6, 15),
             ),
         )
         assertEquals(
-            """FROM "alex@masto.top" OR TO "team@masto.top" CC "team@masto.top" """ +
+            """FLAGGED FROM "alex@masto.top" OR TO "team@masto.top" CC "team@masto.top" """ +
                 """SUBJECT "facture" SINCE 1-Jun-2026 BEFORE 16-Jun-2026 TEXT "invoice"""",
             command.keys,
         )

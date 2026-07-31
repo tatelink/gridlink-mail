@@ -52,6 +52,7 @@ private const val KEY_FROM = "form.from"
 private const val KEY_RECIPIENT = "form.recipient"
 private const val KEY_SUBJECT = "form.subject"
 private const val KEY_ATTACHMENT = "form.attachment"
+private const val KEY_FLAGGED = "form.flagged"
 private const val KEY_AFTER = "form.after"
 private const val KEY_BEFORE = "form.before"
 private const val KEY_EXPANDED = "form.expanded"
@@ -148,6 +149,7 @@ class SearchViewModel(
             recipient = handle[KEY_RECIPIENT] ?: "",
             subject = handle[KEY_SUBJECT] ?: "",
             hasAttachment = handle[KEY_ATTACHMENT] ?: false,
+            flagged = handle[KEY_FLAGGED] ?: false,
             afterMillis = handle[KEY_AFTER],
             beforeMillis = handle[KEY_BEFORE],
         ),
@@ -161,6 +163,7 @@ class SearchViewModel(
         handle[KEY_RECIPIENT] = form.query.recipient
         handle[KEY_SUBJECT] = form.query.subject
         handle[KEY_ATTACHMENT] = form.query.hasAttachment
+        handle[KEY_FLAGGED] = form.query.flagged
         handle[KEY_AFTER] = form.query.afterMillis
         handle[KEY_BEFORE] = form.query.beforeMillis
         handle[KEY_EXPANDED] = form.expanded

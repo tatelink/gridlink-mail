@@ -42,6 +42,7 @@ class SearchFilterTest {
                 recipient = "team@masto.top",
                 subject = "facture",
                 hasAttachment = true,
+                flagged = true,
                 afterMillis = 1_780_272_000_000L,
                 beforeMillis = 1_781_567_999_000L,
             ),
@@ -49,10 +50,48 @@ class SearchFilterTest {
         assertEquals(
             """{"operator":"AND","conditions":[{"text":"invoice"},{"from":"alex@masto.top"},""" +
                 """{"operator":"OR","conditions":[{"to":"team@masto.top"},{"cc":"team@masto.top"}]},""" +
-                """{"subject":"facture"},{"hasAttachment":true},""" +
+                """{"subject":"facture"},{"hasAttachment":true},{"hasKeyword":"${'$'}flagged"},""" +
                 """{"after":"2026-06-01T00:00:00Z"},{"before":"2026-06-15T23:59:59Z"}]}""",
             filter.toString(),
         )
+    }
+
+    // ---- the flagged filter ----
+
+    /**
+     * The exact JSON, keyword included: `$flagged` is the JMAP name of IMAP's `\Flagged`
+     * (RFC 8621 §4.1.1), and a server handed `flagged`, `\Flagged` or `$Flagged` would answer
+     * an empty result set rather than an error — a filter that silently finds nothing.
+     */
+    @Test
+    fun `flagged alone becomes a hasKeyword condition on the flagged keyword`() {
+        assertEquals(
+            """{"hasKeyword":"${'$'}flagged"}""",
+            searchFilter(SearchQuery(flagged = true)).toString(),
+        )
+    }
+
+    /** The witness: unticked, the condition must not be there at all. */
+    @Test
+    fun `an unticked flagged switch adds no condition`() {
+        val filter = searchFilter(SearchQuery(text = "invoice", flagged = false)).toString()
+        assertEquals("""{"text":"invoice"}""", filter)
+        assertEquals(false, filter.contains("hasKeyword"))
+    }
+
+    @Test
+    fun `flagged ANDs with the other criteria rather than widening them`() {
+        assertEquals(
+            """{"operator":"AND","conditions":[{"from":"alex@masto.top"},{"hasKeyword":"${'$'}flagged"}]}""",
+            searchFilter(SearchQuery(from = "alex@masto.top", flagged = true)).toString(),
+        )
+    }
+
+    @Test
+    fun `a flagged-only search is not an empty query`() {
+        // isEmpty() is what stops the repository before it ever builds a filter; a "flagged only"
+        // search must get past it.
+        assertEquals(false, SearchQuery(flagged = true).isEmpty())
     }
 
     @Test

@@ -30,6 +30,7 @@ class SearchCriteriaTest {
                 recipient = "jordan",
                 subject = "quote",
                 hasAttachment = true,
+                flagged = true,
                 afterMillis = 1_000L,
                 beforeMillis = 2_000L,
             ),
@@ -40,6 +41,7 @@ class SearchCriteriaTest {
                 SearchCriterion.RECIPIENT,
                 SearchCriterion.SUBJECT,
                 SearchCriterion.ATTACHMENT,
+                SearchCriterion.FLAGGED,
                 SearchCriterion.AFTER,
                 SearchCriterion.BEFORE,
             ),
@@ -61,6 +63,32 @@ class SearchCriteriaTest {
 
     @Test fun `an unchecked attachment switch is not a criterion`() {
         assertTrue(searchSummary(SearchQuery(hasAttachment = false)).isEmpty())
+    }
+
+    // ---- the flagged filter: the only way left to gather starred mail (1.4.5 unpinned it) ----
+
+    @Test fun `the flagged switch shows in the summary, so an active filter is never invisible`() {
+        // A filter the folded panel doesn't mention is exactly the WYSIWYG break #111 removed
+        // from the list: results narrowed by something the screen never names.
+        assertEquals(
+            listOf(SearchCriterion.FLAGGED),
+            searchSummary(SearchQuery(flagged = true)).map { it.criterion },
+        )
+    }
+
+    @Test fun `an unchecked flagged switch is not a criterion`() {
+        assertTrue(searchSummary(SearchQuery(flagged = false)).isEmpty())
+    }
+
+    @Test fun `flagged alone is a real search, not an empty one`() {
+        // Without this, ticking the box and pressing Search would do nothing at all: run() and
+        // the repository both bail out on isEmpty().
+        assertFalse(SearchQuery(flagged = true).isEmpty())
+        assertTrue(SearchQuery(flagged = false).isEmpty())
+    }
+
+    @Test fun `a flagged-only search folds the panel like any other`() {
+        assertFalse(SearchForm(query = SearchQuery(flagged = true)).afterSearch().expanded)
     }
 
     // ---- the fold rule ----

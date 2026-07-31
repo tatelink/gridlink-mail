@@ -2,6 +2,8 @@ package app.sterna.core.data.mail
 
 import app.sterna.core.data.db.MailboxIdRole
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SearchableFoldersTest {
@@ -59,5 +61,34 @@ class SearchableFoldersTest {
         val all = folders("i" to "inbox", "a" to "archive", "j" to "junk", "t" to "trash", "x" to null)
         assertEquals(listOf("i", "a", "x"), searchableFolderIds(all))
         assertEquals(listOf("j", "t"), excludedSearchFolderIds(all))
+    }
+
+    // ---- may the answer be called a total? ----
+    //
+    // An IMAP search only ever covers the folders the drawer has cached. When that list is empty
+    // the walk falls back to the inbox alone, and calling THAT a total is how "flagged only" would
+    // end up quietly hiding every star filed in a folder that was never synced — under a flat
+    // "No results" if there happened to be none in the inbox.
+
+    @Test fun aWalkOverKnownFoldersThatFinishedUnderTheCapIsATotal() {
+        assertTrue(imapSearchComplete(listOf("i", "a"), walkComplete = true, found = 3, limit = 50))
+    }
+
+    @Test fun theInboxFallbackIsNeverATotal() {
+        // No cached folder list: whatever the walk found, it looked at a fraction of the account.
+        assertFalse(imapSearchComplete(emptyList(), walkComplete = true, found = 3, limit = 50))
+        // Including — especially — when it found nothing.
+        assertFalse(imapSearchComplete(emptyList(), walkComplete = true, found = 0, limit = 50))
+    }
+
+    @Test fun aWalkThatCouldNotFinishIsNeverATotal() {
+        // A folder that refused to be searched, or an attachment scan stopped on its cap.
+        assertFalse(imapSearchComplete(listOf("i"), walkComplete = false, found = 3, limit = 50))
+        assertFalse(imapSearchComplete(listOf("i"), walkComplete = false, found = 0, limit = 50))
+    }
+
+    @Test fun fillingTheCapMeansTheServerMayHaveHadMore() {
+        assertFalse(imapSearchComplete(listOf("i"), walkComplete = true, found = 50, limit = 50))
+        assertTrue(imapSearchComplete(listOf("i"), walkComplete = true, found = 49, limit = 50))
     }
 }
