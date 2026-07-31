@@ -6,6 +6,7 @@ import org.junit.Before
 import org.junit.Test
 import java.sql.Connection
 import java.sql.DriverManager
+import java.sql.PreparedStatement
 
 /**
  * Verifies, against in-memory SQLite, the anchor selection of
@@ -13,21 +14,20 @@ import java.sql.DriverManager
  * [app.sterna.core.data.db.EmailDao.representativeCountForMailbox]): the fetch-older page is
  * anchored on the oldest cached row that is its thread's NEWEST within the folder — a cached
  * older thread member may sit below the contiguous window (fetched on expand), and anchoring
- * on it would skip the gap. Mirrors the DAO queries' WHERE / ORDER BY.
+ * on it would skip the gap.
+ *
+ * Both statements are read out of the shipped DAO by [DaoQuerySource], not retyped, so changing
+ * the DAO's SQL changes this test's SQL with it — a retyped copy would keep passing against a
+ * query the pager no longer runs. Each query names `:accountId` and `:mailboxId` twice (outer
+ * scope, then correlated sub-select), so [DaoQuerySource.bindOrder] is what says which `?` is
+ * which: the statement's order, not the signature's.
  */
 class RepresentativeAnchorSqlTest {
     private lateinit var db: Connection
 
-    private val anchorSql =
-        "SELECT id FROM emails e WHERE accountId = ? AND mailboxId = ? " +
-            "AND sortKey = (SELECT MAX(sortKey) FROM emails WHERE accountId = ? " +
-            "AND mailboxId = ? AND COALESCE(threadId, id) = COALESCE(e.threadId, e.id)) " +
-            "ORDER BY sortKey ASC LIMIT 1"
+    private val anchorSql = DaoQuerySource.bindOrder(DaoQuerySource.emailDaoQuery("oldestRepresentativeEmailId"))
 
-    private val countSql =
-        "SELECT COUNT(*) FROM emails e WHERE accountId = ? AND mailboxId = ? " +
-            "AND sortKey = (SELECT MAX(sortKey) FROM emails WHERE accountId = ? " +
-            "AND mailboxId = ? AND COALESCE(threadId, id) = COALESCE(e.threadId, e.id))"
+    private val countSql = DaoQuerySource.bindOrder(DaoQuerySource.emailDaoQuery("representativeCountForMailbox"))
 
     @Before fun setUp() {
         Class.forName("org.sqlite.JDBC")
@@ -61,17 +61,34 @@ class RepresentativeAnchorSqlTest {
         }
     }
 
+    /** Prepare one of the shipped statements, its `?` filled in the order [DaoQuerySource] gives. */
+    private fun prepare(
+        query: Pair<String, List<String>>,
+        accountId: String,
+        mailbox: String,
+    ): PreparedStatement {
+        val (sql, order) = query
+        val ps = db.prepareStatement(sql)
+        order.forEachIndexed { i, name ->
+            ps.setString(
+                i + 1,
+                when (name) {
+                    "accountId" -> accountId
+                    "mailboxId" -> mailbox
+                    else -> error("Unexpected parameter ':$name' in the representative queries")
+                },
+            )
+        }
+        return ps
+    }
+
     private fun anchor(accountId: String = "acc", mailbox: String = "inbox"): String? =
-        db.prepareStatement(anchorSql).use { ps ->
-            ps.setString(1, accountId); ps.setString(2, mailbox)
-            ps.setString(3, accountId); ps.setString(4, mailbox)
+        prepare(anchorSql, accountId, mailbox).use { ps ->
             ps.executeQuery().use { rs -> if (rs.next()) rs.getString(1) else null }
         }
 
     private fun representativeCount(accountId: String = "acc", mailbox: String = "inbox"): Int =
-        db.prepareStatement(countSql).use { ps ->
-            ps.setString(1, accountId); ps.setString(2, mailbox)
-            ps.setString(3, accountId); ps.setString(4, mailbox)
+        prepare(countSql, accountId, mailbox).use { ps ->
             ps.executeQuery().use { rs -> rs.next(); rs.getInt(1) }
         }
 

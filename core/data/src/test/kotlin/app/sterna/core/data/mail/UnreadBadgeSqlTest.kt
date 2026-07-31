@@ -13,27 +13,29 @@ import java.sql.DriverManager
  * ([app.sterna.core.data.db.EmailDao.observeThreadUnreadCounts] /
  * [app.sterna.core.data.db.EmailDao.observeMessageUnreadCounts]): per (accountId, mailboxId),
  * the number of unread threads (conversation mode) or unread messages (flat mode), with the
- * list's not-snoozed filter. Mirrors the DAO queries' SQL, and cross-checks the thread
- * aggregate against [conversationSql]'s bold rows — the badge must equal what the list shows.
+ * list's not-snoozed filter, and cross-checks the thread aggregate against [conversationSql]'s
+ * bold rows — the badge must equal what the list shows.
+ *
+ * The two aggregates are read out of the shipped DAO by [DaoQuerySource], not retyped, so changing
+ * the DAO's SQL changes this test's SQL with it — a retyped copy would keep passing against a
+ * query the drawer no longer runs.
  */
 class UnreadBadgeSqlTest {
     private lateinit var db: Connection
 
-    private val threadBadgeSql =
-        "SELECT accountId, mailboxId, COUNT(*) AS count FROM (" +
-            "SELECT accountId, mailboxId, COALESCE(threadId, id) AS tk FROM emails " +
-            "WHERE NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
-            "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
-            "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
-            "GROUP BY accountId, mailboxId, tk HAVING MIN(seen) = 0" +
-            ") GROUP BY accountId, mailboxId"
+    private val threadBadgeSql = badgeSql("observeThreadUnreadCounts")
 
-    private val messageBadgeSql =
-        "SELECT accountId, mailboxId, COUNT(*) AS count FROM emails " +
-            "WHERE seen = 0 AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
-            "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
-            "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
-            "GROUP BY accountId, mailboxId"
+    private val messageBadgeSql = badgeSql("observeMessageUnreadCounts")
+
+    /**
+     * The shipped statement of a badge aggregate. Both take no argument today; should one gain a
+     * parameter, this fails loudly rather than handing SQLite an unbound `?`.
+     */
+    private fun badgeSql(functionName: String): String {
+        val (sql, order) = DaoQuerySource.bindOrder(DaoQuerySource.emailDaoQuery(functionName))
+        check(order.isEmpty()) { "EmailDao.$functionName now takes $order — this test must bind them" }
+        return sql
+    }
 
     @Before fun setUp() {
         Class.forName("org.sqlite.JDBC")
