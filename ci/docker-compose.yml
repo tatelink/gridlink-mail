@@ -11,7 +11,7 @@
 # written inside the container — nothing to bind-mount.
 services:
   runner:
-    image: code.forgejo.org/forgejo/runner:6.3.1
+    image: code.forgejo.org/forgejo/runner:12.13.2
     restart: always
     network_mode: bridge
     volumes:
