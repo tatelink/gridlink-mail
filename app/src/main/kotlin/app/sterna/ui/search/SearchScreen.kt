@@ -48,6 +48,7 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -123,11 +124,34 @@ fun SearchScreen(
     val motionEnabled = rememberMotionEnabled()
     val handleDesc = stringResource(R.string.search_advanced_toggle)
     var panelHeightPx by remember { mutableIntStateOf(0) }
-    val offset = remember { Animatable(0f) }
     var firstSync by remember { mutableStateOf(true) }
     // The handle's height: reserved at the top of the results so a closed handle sits clear
     // of the first row, and reused as the handle's own size so it reads as a solid edge.
     val handleHeight = 18.dp
+
+    // How far the panel is pulled out, 0 (shut) to panelHeightPx. A PLAIN float state, written
+    // synchronously, and the only reader of the panel's position anywhere on this screen.
+    //
+    // It used to be an Animatable, whose position can only be moved from a coroutine. That is fine
+    // for a drag that owns the whole gesture, but a nested scroll must answer "how much did you
+    // take?" the instant it is asked, and there is no synchronous way to move an Animatable. Two
+    // touch events drained in the same pass of the event loop — a dropped frame, which is precisely
+    // the old-device case — would then both read the position from BEFORE either had been applied,
+    // and the first delta would be silently dropped after being reported as consumed: the panel
+    // lags behind the finger, and the nested-scroll protocol is handed a number that isn't true.
+    // Writing the float directly makes "what moved" and "what was reported" the same arithmetic,
+    // by construction. It is what AnchoredDraggableState.dispatchRawDelta does for the same reason.
+    var offsetPx by remember { mutableFloatStateOf(0f) }
+    // Kept only to DRIVE the settle animation, not to hold the position: it feeds each frame into
+    // offsetPx above. Its mutex is the point — two settles racing (the drag's own, and the one the
+    // LaunchedEffect below fires when form.expanded lands) cancel each other instead of both
+    // writing.
+    val animation = remember { Animatable(0f) }
+
+    suspend fun glideTo(target: Float) {
+        animation.snapTo(offsetPx) // start from wherever the finger actually left it
+        animation.animateTo(target) { offsetPx = value }
+    }
 
     // Follow form.expanded (Tune button, summary tap, search-fold, process restore). The
     // first pass snaps, so entering the screen already-open doesn't play an intro slide.
@@ -135,10 +159,10 @@ fun SearchScreen(
         if (panelHeightPx == 0) return@LaunchedEffect
         val target = if (form.expanded) panelHeightPx.toFloat() else 0f
         when {
-            firstSync -> { offset.snapTo(target); firstSync = false }
-            offset.value == target -> Unit
-            motionEnabled -> offset.animateTo(target)
-            else -> offset.snapTo(target)
+            firstSync -> { offsetPx = target; firstSync = false }
+            offsetPx == target -> Unit
+            motionEnabled -> glideTo(target)
+            else -> { offsetPx = target }
         }
     }
 
@@ -147,19 +171,18 @@ fun SearchScreen(
     fun settle(open: Boolean) {
         scope.launch {
             val target = if (open) panelHeightPx.toFloat() else 0f
-            if (motionEnabled) offset.animateTo(target) else offset.snapTo(target)
+            if (motionEnabled) glideTo(target) else { offsetPx = target }
         }
         viewModel.setExpanded(open)
     }
 
-    // Move the panel by [delta] px, clamped to its travel, and report how much was actually used —
-    // a nested scroll has to hand back exactly what it took, no more.
+    // Move the panel by [delta] px and report how much of it was actually used — a nested scroll
+    // has to hand back exactly what it took, so the rest can go to the content. Read and write are
+    // in the same synchronous call: the panel moves by precisely the number returned, always.
     fun nudge(delta: Float): Float {
         if (panelHeightPx == 0) return 0f
-        val target = (offset.value + delta).coerceIn(0f, panelHeightPx.toFloat())
-        val used = target - offset.value
-        if (used == 0f) return 0f
-        scope.launch { offset.snapTo(target) }
+        val used = searchPanelTakes(offsetPx, panelHeightPx.toFloat(), delta)
+        offsetPx += used
         return used
     }
 
@@ -170,7 +193,7 @@ fun SearchScreen(
         orientation = Orientation.Vertical,
         state = dragState,
         onDragStopped = { velocity ->
-            settle(searchPanelSettlesOpen(offset.value, panelHeightPx.toFloat(), velocity))
+            settle(searchPanelSettlesOpen(offsetPx, panelHeightPx.toFloat(), velocity))
         },
     )
 
@@ -181,7 +204,7 @@ fun SearchScreen(
     // consume, the way a bottom sheet behaves. On an ordinary phone in portrait at the default font
     // nothing scrolls at all, so the leftover is the whole gesture and the fold is immediate.
     //
-    // Unkeyed remember: everything it reads is either a State (panelHeightPx, offset, form) or
+    // Unkeyed remember: everything it reads is either a State (panelHeightPx, offsetPx, form) or
     // fixed for the composition's life (scope, and motionEnabled behind settle, itself remembered).
     val panelNestedScroll = remember {
         object : NestedScrollConnection {
@@ -190,7 +213,7 @@ fun SearchScreen(
                 // content scrolls, or a reversed gesture would leave it stuck half-way while the
                 // rows slid back under it.
                 if (source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
-                if (offset.value >= panelHeightPx) return Offset.Zero
+                if (offsetPx >= panelHeightPx) return Offset.Zero
                 return Offset(0f, nudge(available.y))
             }
 
@@ -209,9 +232,15 @@ fun SearchScreen(
                 // Release. Settle only if this gesture actually moved the panel: when it merely
                 // scrolled the panel's content, the fling belongs to that content and taking it
                 // would stop the list dead.
+                // The equality is exact and that is safe now: offsetPx only ever moves by whole
+                // amounts this code applied itself, so "untouched" really means untouched. It was
+                // NOT safe while the position lagged behind — a stale read could conclude the panel
+                // had not moved when it had, return here, and leave it stranded a few pixels off
+                // its resting place with nothing to ever pull it back (form.expanded unchanged, so
+                // the LaunchedEffect never re-arms).
                 val committed = if (form.expanded) panelHeightPx.toFloat() else 0f
-                if (panelHeightPx == 0 || offset.value == committed) return Velocity.Zero
-                settle(searchPanelSettlesOpen(offset.value, panelHeightPx.toFloat(), available.y))
+                if (panelHeightPx == 0 || offsetPx == committed) return Velocity.Zero
+                settle(searchPanelSettlesOpen(offsetPx, panelHeightPx.toFloat(), available.y))
                 return available
             }
         }
@@ -362,7 +391,7 @@ fun SearchScreen(
 
                 // Scrim: like the drawer's, dims the results as the panel comes over them and, once
                 // shown, catches a tap to close. Absent (and non-blocking) while fully closed.
-                val progress = if (panelHeightPx > 0) offset.value / panelHeightPx else 0f
+                val progress = if (panelHeightPx > 0) offsetPx / panelHeightPx else 0f
                 if (progress > 0f) {
                     val scrimSource = remember { MutableInteractionSource() }
                     Box(
@@ -403,7 +432,7 @@ fun SearchScreen(
                         .align(Alignment.TopStart)
                         .onSizeChanged { panelHeightPx = it.height }
                         .graphicsLayer {
-                            translationY = if (panelHeightPx == 0) -100_000f else offset.value - panelHeightPx
+                            translationY = if (panelHeightPx == 0) -100_000f else offsetPx - panelHeightPx
                         },
                 ) {
                     // Scrollable, because the panel is a fixed stack of rows in a space that is
@@ -501,7 +530,7 @@ fun SearchScreen(
                 }
 
                 // The separator / drag handle: the drawer's moving edge. It rides at the panel's
-                // bottom (translationY = offset) — the line under the search box when closed, then
+                // bottom (translationY = offsetPx) — the line under the search box when closed, then
                 // travelling DOWN with the panel as it opens, instead of sitting still while the
                 // panel crosses it. Drawn last so it stays on top of the panel's bottom edge.
                 // Draggable, and a tap toggle (like Tune) for reach; its contentDescription names
@@ -510,7 +539,7 @@ fun SearchScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopStart)
-                        .graphicsLayer { translationY = offset.value }
+                        .graphicsLayer { translationY = offsetPx }
                         .height(handleHeight)
                         .background(MaterialTheme.colorScheme.surface)
                         .then(panelDrag)

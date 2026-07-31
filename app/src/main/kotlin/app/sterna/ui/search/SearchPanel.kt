@@ -1,6 +1,27 @@
 package app.sterna.ui.search
 
 /**
+ * How much of [delta] the panel can actually take, given where it currently sits.
+ *
+ * The panel's whole travel is 0 (shut) to [panelHeightPx] (fully out), so a drag that would push it
+ * past either end only gets the part that fits; the rest belongs to whoever asked. That "rest" is
+ * not a detail: when the gesture comes from a nested scroll, the number returned here is what the
+ * panel PROMISES it consumed, and anything it claims but does not apply is silently destroyed —
+ * neither moving the panel nor scrolling the content.
+ *
+ * So the caller must move the panel by exactly this, and nothing else:
+ *
+ *     val used = searchPanelTakes(offsetPx, panelHeightPx, delta)
+ *     offsetPx += used
+ *
+ * Written as "how much it takes" rather than "where it ends up" precisely so that promise and
+ * movement are the same number by construction. A version that computed the destination separately
+ * from the amount consumed is what let the two drift apart in the first place.
+ */
+fun searchPanelTakes(offsetPx: Float, panelHeightPx: Float, delta: Float): Float =
+    (offsetPx + delta).coerceIn(0f, panelHeightPx) - offsetPx
+
+/**
  * A released drag lands the advanced-filter panel on one side or the other: this is that decision,
  * and the ONLY copy of it.
  *
