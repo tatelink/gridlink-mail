@@ -84,22 +84,27 @@ class ConversationInvariantsSqlTest {
     }
 
     /**
-     * The collapsed list, bound exactly as `conversationQuery` binds it: the mailbox ids [+ the
-     * account id] for the in-view sub-query, then the mailbox ids + each (account, Sent) pair
-     * [+ the account id] for the chip, then the mailbox ids [+ the account id] for the outer WHERE.
+     * The collapsed list, bound exactly as `conversationQuery` binds it: the (account, folder)
+     * scope pairs for the in-view sub-query, then the same pairs + each (account, Sent) pair for
+     * the chip, then the pairs once more for the outer WHERE. [accountId] pins the view to one
+     * account by scoping every folder to it — the unified list passes null and scopes each folder
+     * to its own account instead.
      */
     private fun conversation(
         vararg mailboxes: String,
         accountId: String? = null,
+        accounts: List<String> = listOfNotNull(accountId),
         sent: List<Pair<String, String>> = emptyList(),
         sort: SortOrder = SortOrder.DATE_DESC,
         unreadOnly: Boolean = false,
     ): List<Row> {
-        val sql = conversationSql(mailboxes.size, sort, unreadOnly, accountId != null, sent.size)
+        val scopes = accounts.flatMap { acc -> mailboxes.map { acc to it } }
+        val sql = conversationSql(scopes.size, sort, unreadOnly, sent.size)
+        val pairs = scopes.flatMap { listOf(it.first, it.second) }
         val args = buildList<String> {
-            addAll(mailboxes); accountId?.let { add(it) }
-            addAll(mailboxes); sent.forEach { add(it.first); add(it.second) }; accountId?.let { add(it) }
-            addAll(mailboxes); accountId?.let { add(it) }
+            addAll(pairs)
+            addAll(pairs); sent.forEach { add(it.first); add(it.second) }
+            addAll(pairs)
         }
         return db.prepareStatement(sql).use { ps ->
             args.forEachIndexed { i, a -> ps.setString(i + 1, a) }
@@ -122,17 +127,20 @@ class ConversationInvariantsSqlTest {
         }
     }
 
-    /** The flat list ([pagingSql]), bound as `pagingQuery` binds it: mailbox ids then account id. */
+    /** The flat list ([pagingSql]), bound as `pagingQuery` binds it: (account id, mailbox id)
+     *  pairs, account first — one per folder of each account in scope. */
     private fun flat(
         vararg mailboxes: String,
         accountId: String? = null,
+        accounts: List<String> = listOfNotNull(accountId),
         sort: SortOrder = SortOrder.DATE_DESC,
         unreadOnly: Boolean = false,
     ): List<String> {
-        val sql = pagingSql(mailboxes.size, sort, unreadOnly, accountId != null)
+        val scopes = accounts.flatMap { acc -> mailboxes.map { acc to it } }
+        val sql = pagingSql(scopes.size, sort, unreadOnly)
         return db.prepareStatement(sql).use { ps ->
-            mailboxes.forEachIndexed { i, m -> ps.setString(i + 1, m) }
-            accountId?.let { ps.setString(mailboxes.size + 1, it) }
+            scopes.flatMap { listOf(it.first, it.second) }
+                .forEachIndexed { i, a -> ps.setString(i + 1, a) }
             ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
         }
     }
@@ -217,7 +225,8 @@ class ConversationInvariantsSqlTest {
         insert("b2", threadId = null, sortKey = 520, accountId = "accB")
         insert("b3", threadId = null, sortKey = 510, accountId = "accB")
 
-        val rows = conversation("inbox") // unified: no account bind
+        // Unified: one (account, folder) pair per configured account, never the shared id alone.
+        val rows = conversation("inbox", accounts = listOf("accA", "accB"))
         assertEquals(listOf("a3", "b1", "b2", "b3"), rows.map { it.id })
         assertEquals(listOf(3, 1, 1, 1), rows.map { it.threadCount })
         // Half the list is collapsed and half is not, with nothing on screen to say why.
@@ -226,7 +235,7 @@ class ConversationInvariantsSqlTest {
 
         // The witness: flat mode lists all six, and account B's three rows are IDENTICAL in both
         // modes — the collapse is not a property of the list, it is a property of the account.
-        val flatIds = flat("inbox")
+        val flatIds = flat("inbox", accounts = listOf("accA", "accB"))
         assertEquals(listOf("a3", "a2", "a1", "b1", "b2", "b3"), flatIds)
         assertEquals(
             flatIds.filter { it.startsWith("b") },

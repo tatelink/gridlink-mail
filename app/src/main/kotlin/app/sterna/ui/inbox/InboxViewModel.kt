@@ -187,7 +187,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Inputs that, together, determine the current paged source. */
     private data class PageKey(
         val sel: Sel,
-        val unifiedIds: List<String>,
+        // The unified inbox's folders as (account id, inbox id) PAIRS. Bare ids listed the rows
+        // of accounts that are not in this list — a same-server sibling's colliding folder id,
+        // and above all a REMOVED account's leftovers, which no account could then label, sync or
+        // act on (Codeberg #121). MailRepository.folderScopeSql says the rest.
+        val unifiedScopes: List<Pair<String, String>>,
         val sort: SortOrder,
         val unreadOnly: Boolean,
         val conversationView: Boolean,
@@ -544,7 +548,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     private val selection = MutableStateFlow<Sel>(Sel.Folder(store.inboxMailboxId()))
     private val currentAccountId = MutableStateFlow(store.currentId())
-    private val unifiedInboxIds = MutableStateFlow(store.allInboxMailboxIds())
+    private val unifiedInboxScopes = MutableStateFlow(store.allInboxScopes())
     private val meta = MutableStateFlow(
         Meta(store.accountLabel(), store.inboxMailboxName(), store.unreadCount()),
     )
@@ -630,9 +634,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * inbox just pages the cached rows across accounts.
      */
     val pagedEmails: Flow<PagingData<InboxRow>> =
-        combine(selection, unifiedInboxIds, settings.sortOrder, unreadOnly, settings.conversationView) {
-                sel, uids, sort, unread, conversation ->
-            PageKey(sel, uids, sort, unread, conversation)
+        combine(selection, unifiedInboxScopes, settings.sortOrder, unreadOnly, settings.conversationView) {
+                sel, scopes, sort, unread, conversation ->
+            PageKey(sel, scopes, sort, unread, conversation)
         }.combine(currentAccountId) { key, accountId -> key.copy(accountId = accountId) }
         .flatMapLatest { key ->
             when (val sel = key.sel) {
@@ -652,8 +656,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 Sel.Unified -> {
-                    sentScopes(key, store.allInboxScopes().map { it.first }).flatMapLatest { sent ->
-                        repo.pagedMailbox(key.unifiedIds, key.sort, key.unreadOnly, key.conversationView, sent)
+                    // The accounts the key was built from, not a fresh read of the store: the
+                    // pager's rows and its Sent scope must describe the same set of accounts.
+                    sentScopes(key, key.unifiedScopes.map { it.first }.distinct()).flatMapLatest { sent ->
+                        repo.pagedMailbox(key.unifiedScopes, key.sort, key.unreadOnly, key.conversationView, sent)
                     }
                 }
             }
@@ -669,10 +675,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         (if (key.conversationView) repo.observeSentMailboxes(accountIds) else flowOf(emptyList<Pair<String, String>>()))
             .onEach { listScope.value = ListScope(viewedMailboxIds(key), it) }
 
-    /** The folder(s) [key] pages — one folder, or every account's inbox when unified. */
+    /** The folder(s) [key] pages — one folder, or every account's inbox when unified. Bare ids
+     *  here on purpose: this feeds the unfold's folder set ([ConversationScope.folders]), which
+     *  is account-pinned by its own caller; the LIST's scope keeps the account (see [PageKey]). */
     private fun viewedMailboxIds(key: PageKey): List<String> = when (val sel = key.sel) {
         is Sel.Folder -> listOfNotNull(sel.id)
-        Sel.Unified -> key.unifiedIds
+        Sel.Unified -> key.unifiedScopes.map { it.second }.distinct()
     }
 
     /**
@@ -692,8 +700,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     // read (mode-aware: unread threads in conversation view, unread messages in flat view),
     // so the two numbers in the drawer agree by construction for JMAP; IMAP inboxes keep
     // contributing their stored server counter (their windowed cache would under-count).
-    private val unifiedUnread = unifiedInboxIds.flatMapLatest {
-        repo.observeUnifiedInboxUnread(store.allInboxScopes())
+    private val unifiedUnread = unifiedInboxScopes.flatMapLatest { scopes ->
+        repo.observeUnifiedInboxUnread(scopes)
     }
 
     /** Codeberg #65: the offline empty state promises a resync, so watch the network — the
@@ -833,7 +841,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         collapseThreads()
         currentAccountId.value = store.currentId()
         selection.value = Sel.Folder(store.inboxMailboxId())
-        unifiedInboxIds.value = store.allInboxMailboxIds()
+        unifiedInboxScopes.value = store.allInboxScopes()
         meta.value = Meta(store.accountLabel(), store.inboxMailboxName(), store.unreadCount())
         refreshWatchedFolders()
         refresh()
@@ -895,7 +903,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching { FetchAndNotify.onInboxRefreshed(getApplication(), cred, meta.mailboxId) }
             }
         }
-        unifiedInboxIds.value = store.allInboxMailboxIds()
+        unifiedInboxScopes.value = store.allInboxScopes()
         meta.value = Meta(UNIFIED_LABEL, UNIFIED_LABEL, store.totalUnreadCount())
         // #65/#92: the unified refresh is also the connectivity probe. When every account failed and
         // none synced, treat it as the failure it is — otherwise refresh() below calls reportSuccess
@@ -909,7 +917,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         if (selection.value is Sel.Unified) return
         collapseThreads()
         selection.value = Sel.Unified
-        unifiedInboxIds.value = store.allInboxMailboxIds()
+        unifiedInboxScopes.value = store.allInboxScopes()
         meta.value = Meta(UNIFIED_LABEL, UNIFIED_LABEL, store.totalUnreadCount())
         refresh()
     }
@@ -1463,7 +1471,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /** Mailbox ids backing the current view (one folder, or all inboxes when unified). */
     private fun currentMailboxIds(): List<String> = when (val sel = selection.value) {
         is Sel.Folder -> listOfNotNull(sel.id)
-        Sel.Unified -> unifiedInboxIds.value
+        Sel.Unified -> unifiedInboxScopes.value.map { it.second }.distinct()
     }
 
     /** (account id, mailbox id) scopes backing the current view: the current account's folder,

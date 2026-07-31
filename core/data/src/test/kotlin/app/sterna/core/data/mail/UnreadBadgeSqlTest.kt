@@ -96,11 +96,12 @@ class UnreadBadgeSqlTest {
 
     /** The list's bold rows: conversationSql rows with threadUnread = 0 for one (account, folder). */
     private fun boldConversationRows(accountId: String, mailbox: String): Int {
-        val sql = conversationSql(mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false, hasAccountId = true)
+        val sql = conversationSql(scopeCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false)
         return db.prepareStatement(sql).use { ps ->
-            ps.setString(1, mailbox); ps.setString(2, accountId)
-            ps.setString(3, mailbox); ps.setString(4, accountId)
-            ps.setString(5, mailbox); ps.setString(6, accountId)
+            // One (account, folder) scope, bound account first, three times over.
+            ps.setString(1, accountId); ps.setString(2, mailbox)
+            ps.setString(3, accountId); ps.setString(4, mailbox)
+            ps.setString(5, accountId); ps.setString(6, mailbox)
             ps.executeQuery().use { rs ->
                 var bold = 0
                 while (rs.next()) if (rs.getInt("threadUnread") == 0) bold++

@@ -86,10 +86,14 @@ class ConversationQueryTest {
         mailboxIds: List<String>,
         sent: List<Pair<String, String>>,
         accountId: String? = null,
+        // The accounts whose [mailboxIds] the list is scoped to — one for a folder view, several
+        // for the unified inbox. Defaults to [accountId]'s, so only unified cases say it.
+        accounts: List<String> = listOfNotNull(accountId),
         sort: SortOrder = SortOrder.DATE_DESC,
         unreadOnly: Boolean = false,
     ): List<Row> {
-        val query = conversationQuery(mailboxIds, sort, unreadOnly, accountId, sent)
+        val scopes = accounts.flatMap { acc -> mailboxIds.map { acc to it } }
+        val query = conversationQuery(scopes, sort, unreadOnly, accountId, sent)
         val recorded = RecordingStatement().also { query.bindTo(it) }
         assertEquals(
             "the query declares an argument count its own bindTo does not fill",
@@ -157,7 +161,7 @@ class ConversationQueryTest {
         insert("b1", sortKey = 200, mailbox = "inbox", accountId = "accB", threadId = "T1")
         insert("bSent", sortKey = 210, mailbox = "sentB", accountId = "accB", threadId = "T1")
 
-        val rows = rows(listOf("inbox"), sent = listOf("accA" to "sentA", "accB" to "sentB"), accountId = null)
+        val rows = rows(listOf("inbox"), sent = listOf("accA" to "sentA", "accB" to "sentB"), accountId = null, accounts = listOf("accA", "accB"))
 
         assertEquals(listOf("b1", "a1"), rows.map { it.id })
         assertEquals(listOf(2, 2), rows.map { it.threadCount })
@@ -166,7 +170,7 @@ class ConversationQueryTest {
         // the pairs are read per row, not as one pooled set of folder ids.
         assertEquals(
             listOf(1, 2), // b1's row (drawn first) loses its Sent reply; a1's keeps its own
-            rows(listOf("inbox"), sent = listOf("accA" to "sentA"), accountId = null).map { it.threadCount },
+            rows(listOf("inbox"), sent = listOf("accA" to "sentA"), accountId = null, accounts = listOf("accA", "accB")).map { it.threadCount },
         )
     }
 
@@ -190,6 +194,24 @@ class ConversationQueryTest {
         assertNotEquals(
             unread.map { it.id },
             rows(listOf("inbox"), sent = listOf("accA" to "sentbox"), accountId = "accA").map { it.id },
+        )
+    }
+
+    @Test fun `the shipped assembly leaves out a row whose account is not in the scope`() {
+        // Codeberg #121, through the real assembly rather than a retyped bind: the unified list
+        // is given the accounts it knows, and a row of an account it does not know — one the user
+        // removed, whose server-assigned folder id outlived it — is not in the list.
+        insert("live", sortKey = 100, mailbox = "inbox", accountId = "accA", threadId = null)
+        insert("ghost", sortKey = 200, mailbox = "inbox", accountId = "gone", threadId = null, seen = 0)
+
+        val listed = rows(listOf("inbox"), sent = emptyList(), accountId = null, accounts = listOf("accA"))
+        assertEquals(listOf("live"), listed.map { it.id })
+
+        // The witness: the same row IS listed once its account is one of the scoped ones, so the
+        // exclusion is the account scope and not the fixture, the sort or the snooze filter.
+        assertEquals(
+            listOf("ghost", "live"),
+            rows(listOf("inbox"), sent = emptyList(), accountId = null, accounts = listOf("accA", "gone")).map { it.id },
         )
     }
 

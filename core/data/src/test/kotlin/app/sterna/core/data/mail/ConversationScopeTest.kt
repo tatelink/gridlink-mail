@@ -72,11 +72,16 @@ class ConversationScopeTest {
      */
     private fun chip(viewed: List<String>, resolution: List<Pair<String, String>>, accountId: String?): Pair<String, Int> {
         val sent = ConversationScope.sentFolders(resolution, accountId)
-        val sql = conversationSql(viewed.size, SortOrder.DATE_DESC, unreadOnly = false, hasAccountId = accountId != null, sentMailboxCount = sent.size)
+        // The viewed folders as (account, folder) scope pairs — the shape the list binds since
+        // Codeberg #121. A null [accountId] (unified) is the fixture's own accounts.
+        val scopes = (accountId?.let { listOf(it) } ?: resolution.map { it.first }.distinct())
+            .flatMap { acc -> viewed.map { acc to it } }
+        val sql = conversationSql(scopes.size, SortOrder.DATE_DESC, unreadOnly = false, sentMailboxCount = sent.size)
+        val pairs = scopes.flatMap { listOf(it.first, it.second) }
         val args = buildList<String> {
-            addAll(viewed); accountId?.let { add(it) }
-            addAll(viewed); sent.forEach { add(it.first); add(it.second) }; accountId?.let { add(it) }
-            addAll(viewed); accountId?.let { add(it) }
+            addAll(pairs)
+            addAll(pairs); sent.forEach { add(it.first); add(it.second) }
+            addAll(pairs)
         }
         return db.prepareStatement(sql).use { ps ->
             args.forEachIndexed { i, a -> ps.setString(i + 1, a) }

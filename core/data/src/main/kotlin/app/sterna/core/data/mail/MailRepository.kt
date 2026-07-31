@@ -362,40 +362,58 @@ private const val SET_SEEN_BATCH = 500
  * [SortOrder.FLAGGED_FIRST], that the reader chooses.
  */
 private fun pagingQuery(
-    mailboxIds: List<String>,
+    // The folders this list covers, as (account id, mailbox id) PAIRS — one for a single-folder
+    // view, one per account for the unified inbox. See [folderScopeSql] for why never bare ids.
+    scopes: List<Pair<String, String>>,
     sort: SortOrder,
     unreadOnly: Boolean,
-    // Single-account folder views pass the account id so the query can't pick up
-    // another account's rows when two accounts share a server-assigned mailbox id
-    // (Stalwart numbers mailboxes per-account, so different accounts' inboxes collide).
-    // Unified views leave it null to span all accounts.
-    accountId: String? = null,
 ): SimpleSQLiteQuery = SimpleSQLiteQuery(
-    pagingSql(mailboxIds.size, sort, unreadOnly, accountId != null),
-    (mailboxIds + listOfNotNull(accountId)).toTypedArray(),
+    pagingSql(scopes.size, sort, unreadOnly),
+    scopes.flatMap { listOf(it.first, it.second) }.toTypedArray(),
 )
+
+/**
+ * The folder scope of a list query, for rows of [table] (a table name or an alias in scope): a
+ * disjunction of (account id, mailbox id) PAIRS, `(accountId = ? AND mailboxId = ?) OR …`.
+ * Bind order per scope: the ACCOUNT id, then the mailbox id.
+ *
+ * Pairs, never bare mailbox ids, and this is the whole of Codeberg #121. A mailbox id is assigned
+ * by the server and unique only within its account, so a bare `mailboxId IN (…)` selects on the id
+ * STRING alone. Two things then leak into the unified list:
+ *
+ *  - a sibling account's folder carrying the same id (servers number folders per account —
+ *    Stalwart hands every account an Inbox "a", a Trash "b"…), listed as if it were inbox mail;
+ *  - the rows of an account that no longer exists. Their mailbox id comes from the server and
+ *    survives a remove-and-re-add, while the local account id is a fresh UUID, so the old rows
+ *    stay inside a bare scope forever — with no account to label them (InboxScreen renders no chip
+ *    for an unknown account id), no account to sync them, and no account to act on them. That is
+ *    the reported symptom: a bold, unlabelled twin above the real row.
+ *
+ * The rest of the code already reads this way — AccountStore.allInboxScopes, the unread badge,
+ * the bulk-action scopes, the Sent pairs of the chip. The list was the last bare-id reader.
+ *
+ * A zero-scope query selects nothing (`0`) rather than emitting invalid SQL; callers page nothing
+ * in that case anyway.
+ */
+internal fun folderScopeSql(scopeCount: Int, table: String): String =
+    if (scopeCount == 0) "0" else List(scopeCount) { "($table.accountId = ? AND $table.mailboxId = ?)" }.joinToString(" OR ")
 
 /**
  * The flat (uncollapsed) list SQL — pure, so it is unit-tested against real SQLite like
  * [conversationSql].
  *
- * Bind order: the mailbox ids, then the account id when [hasAccountId].
+ * Bind order: [scopeCount] (account id, mailbox id) pairs, account id first — see [folderScopeSql].
  *
- * [hasAccountId] is what separates the two callers, and the difference is deliberate: a
- * single-folder view pins its account, so a same-server sibling whose server-assigned mailbox id
- * collides can never leak in; the unified inbox binds the ids BARE, because its whole job is to
- * span accounts. That bare binding selects on the id STRING alone, so it also picks up any other
- * account's folder carrying the same id — see ConversationSqlTest's flat-mode cases for what that
- * does and does not cost.
+ * Both callers bind the same way, and that is deliberate: a single-folder view passes its one
+ * (account, folder) pair, the unified inbox passes one pair per account. Spanning accounts is a
+ * matter of HOW MANY pairs are bound, never of dropping the account from the filter.
  */
 internal fun pagingSql(
-    mailboxCount: Int,
+    scopeCount: Int,
     sort: SortOrder,
     unreadOnly: Boolean,
-    hasAccountId: Boolean,
 ): String {
-    val placeholders = List(mailboxCount) { "?" }.joinToString(",")
-    val accountFilter = if (hasAccountId) " AND accountId = ?" else ""
+    val scope = folderScopeSql(scopeCount, "emails")
     val seenFilter = if (unreadOnly) " AND seen = 0" else ""
     val orderBy = when (sort) {
         SortOrder.DATE_DESC -> "sortKey DESC"
@@ -407,7 +425,7 @@ internal fun pagingSql(
     }
     // Hide messages snoozed into the future (re-appear once their time passes).
     val notSnoozed = " AND ${notSnoozedSql("emails")}"
-    return "SELECT * FROM emails WHERE mailboxId IN ($placeholders)$accountFilter$seenFilter$notSnoozed ORDER BY $orderBy"
+    return "SELECT * FROM emails WHERE ($scope)$seenFilter$notSnoozed ORDER BY $orderBy"
 }
 
 /**
@@ -424,9 +442,13 @@ internal fun pagingSql(
  * and a query bound one argument off answers a different question in silence.
  */
 internal fun conversationQuery(
-    mailboxIds: List<String>,
+    // The folders this list covers, as (account id, mailbox id) PAIRS — see [folderScopeSql].
+    scopes: List<Pair<String, String>>,
     sort: SortOrder,
     unreadOnly: Boolean,
+    // The single account a folder view is pinned to, or null for the unified list. It no longer
+    // filters the rows — [scopes] carries an account per folder now — and is kept for the ONE
+    // thing left that needs to know: which Sent folders belong to the view's account.
     accountId: String?,
     // Each account's Sent folder as an (accountId, mailboxId) PAIR: binding bare Sent ids
     // across accounts would let a colliding mailbox id (an account's folder whose id equals a
@@ -438,20 +460,20 @@ internal fun conversationQuery(
     // emptyList() where a reader can see them say it.
     sentMailboxes: List<Pair<String, String>>,
 ): SimpleSQLiteQuery {
-    // Bind order matches the clauses left-to-right in the SQL: the in-view sub-query binds
-    // the mailbox ids [+ account id]; the chip count sub-query binds the mailbox ids, then
-    // (accountId, sentId) per Sent pair [+ account id]; the outer WHERE binds like the
-    // in-view sub-query; the account-wide total sub-query binds nothing (it is scoped by
-    // joining on the representative's accountId).
+    // Bind order matches the clauses left-to-right in the SQL, and EVERY clause now binds the
+    // same shape — (accountId, mailboxId) per scope, account first: the in-view sub-query binds
+    // the scopes; the chip count sub-query binds the scopes, then (accountId, sentId) per Sent
+    // pair; the outer WHERE binds like the in-view sub-query; the account-wide total sub-query
+    // binds nothing (it is scoped by joining on the representative's accountId).
     // The chip's Sent scope comes from [ConversationScope] — the SAME function the unfolded list
     // gets its folders from, on the same resolution — so the number on the row and the messages
     // under it cannot describe two different conversations.
     val sent = ConversationScope.sentFolders(sentMailboxes, accountId)
-    val perClause = mailboxIds + listOfNotNull(accountId)
-    val chipClause = mailboxIds + sent.flatMap { listOf(it.first, it.second) } + listOfNotNull(accountId)
+    val perClause = scopes.flatMap { listOf(it.first, it.second) }
+    val chipClause = perClause + sent.flatMap { listOf(it.first, it.second) }
     val args = perClause + chipClause + perClause
     return SimpleSQLiteQuery(
-        conversationSql(mailboxIds.size, sort, unreadOnly, accountId != null, sent.size),
+        conversationSql(scopes.size, sort, unreadOnly, sent.size),
         args.toTypedArray(),
     )
 }
@@ -466,11 +488,14 @@ internal fun conversationQuery(
  * altogether (data loss, not a cosmetic count). Grouping on the pair keeps one row per account, in
  * line with EmailDao.observeThreadUnreadCounts, whose badge already counted per account.
  *
+ * Every folder is scoped by the PAIR (accountId, mailboxId) too, for the same family of reasons
+ * and one more: an account that no longer exists (Codeberg #121). See [folderScopeSql].
+ *
  * Bind order:
- * the in-view sub-query `g` takes the mailbox ids [+ account id]; the chip count sub-query
- * `c` takes the mailbox ids, then an (accountId, mailboxId) pair per [sentMailboxCount]
- * Sent-role folder — pinned to its OWN account, so a sibling account's colliding mailbox id
- * can't widen this account's chip — [+ account id]; the outer WHERE binds like `g`; the
+ * the in-view sub-query `g` takes [scopeCount] (accountId, mailboxId) pairs, account first; the
+ * chip count sub-query `c` takes the same pairs, then an (accountId, mailboxId) pair per
+ * [sentMailboxCount] Sent-role folder — pinned to its OWN account, so a sibling account's
+ * colliding mailbox id can't widen this account's chip; the outer WHERE binds like `g`; the
  * account-wide total sub-query `t` takes none. The
  * representative row and unread state come from `g` (strictly folder-scoped — a thread with
  * only Sent members must not surface a row); `threadCount` (the chip) is `c`'s count of the
@@ -480,11 +505,10 @@ internal fun conversationQuery(
  * representative's accountId so colliding server-assigned mailbox/thread ids across accounts
  * can't inflate a count in the unified view.
  */
-internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boolean, hasAccountId: Boolean = false, sentMailboxCount: Int = 0): String {
-    val placeholders = List(mailboxCount) { "?" }.joinToString(",")
+internal fun conversationSql(scopeCount: Int, sort: SortOrder, unreadOnly: Boolean, sentMailboxCount: Int = 0): String {
+    val scope = folderScopeSql(scopeCount, "emails")
+    val scopeOuter = folderScopeSql(scopeCount, "e")
     val sentAlternatives = " OR (accountId = ? AND mailboxId = ?)".repeat(sentMailboxCount)
-    val accountInner = if (hasAccountId) " AND accountId = ?" else ""
-    val accountOuter = if (hasAccountId) " AND e.accountId = ?" else ""
     val notSnoozed = notSnoozedSql("emails")
     val notSnoozedOuter = notSnoozedSql("e")
     val having = if (unreadOnly) " HAVING MIN(seen) = 0" else ""
@@ -511,13 +535,13 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
         JOIN (
             SELECT accountId AS gacc, COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread
             FROM emails
-            WHERE mailboxId IN ($placeholders)$accountInner AND $notSnoozed
+            WHERE ($scope) AND $notSnoozed
             GROUP BY gacc, tkey$having
         ) g ON COALESCE(e.threadId, e.id) = g.tkey AND e.accountId = g.gacc AND e.sortKey = g.maxKey
         JOIN (
             SELECT accountId AS cacc, COALESCE(threadId, id) AS ckey, COUNT(*) AS threadCount
             FROM emails
-            WHERE (mailboxId IN ($placeholders)$sentAlternatives)$accountInner AND $notSnoozed
+            WHERE (($scope)$sentAlternatives) AND $notSnoozed
             GROUP BY cacc, ckey
         ) c ON c.ckey = g.tkey AND c.cacc = g.gacc
         JOIN (
@@ -526,7 +550,7 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
             WHERE $notSnoozed
             GROUP BY tacc, tkey2
         ) t ON t.tkey2 = g.tkey AND t.tacc = g.gacc
-        WHERE e.mailboxId IN ($placeholders)$accountOuter AND $notSnoozedOuter
+        WHERE ($scopeOuter) AND $notSnoozedOuter
         GROUP BY g.gacc, g.tkey
         ORDER BY $orderBy
     """.trimIndent()
@@ -1178,13 +1202,18 @@ class MailRepository(
         }
 
     /**
-     * Paged list of cached emails for [mailboxIds] (one folder, or several for the
-     * unified inbox), sorted server-side-style in SQL by the chosen [sort] and nothing
-     * else; [unreadOnly] filters to unseen. Only a few pages are held in
+     * Paged list of cached emails for [scopes] — the unified inbox's (account id, inbox id)
+     * pairs, one per configured account — sorted server-side-style in SQL by the chosen [sort]
+     * and nothing else; [unreadOnly] filters to unseen. Only a few pages are held in
      * memory at once, so very large folders no longer load (or freeze) all at once.
+     *
+     * PAIRS, not bare folder ids (Codeberg #121): a folder id alone matches rows of accounts that
+     * are not in this list at all — a sibling account whose server numbered a folder the same, or
+     * an account the user has removed, whose cached rows would otherwise be listed forever with
+     * no account to label, sync or act on them. See [folderScopeSql].
      */
     fun pagedMailbox(
-        mailboxIds: List<String>,
+        scopes: List<Pair<String, String>>,
         sort: SortOrder,
         unreadOnly: Boolean,
         conversationView: Boolean,
@@ -1194,16 +1223,16 @@ class MailRepository(
         // Sent scope is a chip that counts fewer messages than the row unfolds into.
         sentMailboxes: List<Pair<String, String>>,
     ): Flow<PagingData<InboxRow>> {
-        if (mailboxIds.isEmpty()) return flowOf(PagingData.empty())
+        if (scopes.isEmpty()) return flowOf(PagingData.empty())
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(mailboxIds, sort, unreadOnly, accountId = null, sentMailboxes = sentMailboxes)) },
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(scopes, sort, unreadOnly, accountId = null, sentMailboxes = sentMailboxes)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
                 config = pagingConfig(),
-                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(mailboxIds, sort, unreadOnly)) },
+                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(scopes, sort, unreadOnly)) },
             ).flow.map { data -> data.map { InboxRow(it.toEmail(), threadCount = 1, unread = !it.seen) } }
         }
     }
@@ -1225,17 +1254,20 @@ class MailRepository(
         // NO DEFAULT, same reason: this one must be said, not assumed.
         sentMailboxes: List<Pair<String, String>>,
     ): Flow<PagingData<InboxRow>> {
+        // One scope: this account's folder. Same shape as the unified list's — the two views
+        // differ in how many (account, folder) pairs they page, nothing else.
+        val scopes = listOf(credentials.id to mailboxId)
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
                 remoteMediator = folderMediator(credentials, mailboxId, conversationView = true),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(listOf(mailboxId), sort, unreadOnly, credentials.id, sentMailboxes)) },
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(scopes, sort, unreadOnly, credentials.id, sentMailboxes)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
                 config = pagingConfig(),
                 remoteMediator = folderMediator(credentials, mailboxId, conversationView = false),
-                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(listOf(mailboxId), sort, unreadOnly, credentials.id)) },
+                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(scopes, sort, unreadOnly)) },
             ).flow.map { data -> data.map { InboxRow(it.toEmail(), threadCount = 1, unread = !it.seen) } }
         }
     }
