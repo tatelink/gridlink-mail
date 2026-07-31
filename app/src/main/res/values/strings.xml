@@ -169,17 +169,17 @@
     <string name="inbox_sort_subject">Subject</string>
     <string name="inbox_sort_sender">Sender</string>
     <string name="inbox_sort_unread_first">Unread first</string>
-    <string name="inbox_sort_flagged_first">Favourites first</string>
-    <string name="inbox_unflag">Unflag</string>
-    <string name="a11y_favourite">Add to favourites</string>
-    <string name="a11y_unfavourite">Remove from favourites</string>
+    <string name="inbox_sort_flagged_first">Starred first</string>
+    <string name="inbox_unflag">Unstar</string>
+    <string name="a11y_favourite">Add star</string>
+    <string name="a11y_unfavourite">Remove star</string>
     <string name="a11y_has_attachment">Has attachment</string>
     <string name="draft_label">Draft</string>
     <string name="a11y_conversation_pill">Conversation, %1$d messages</string>
     <string name="a11y_conversation_expanded">Expanded</string>
     <string name="a11y_conversation_collapsed">Collapsed</string>
-    <string name="a11y_flagged">Flagged</string>
-    <string name="inbox_flag">Flag</string>
+    <string name="a11y_flagged">Starred</string>
+    <string name="inbox_flag">Star</string>
 
     <!-- Standard (special-use) folder names — shown for server folders that carry a
          role; user-created folders keep their own name. -->
@@ -190,7 +190,7 @@
     <string name="folder_junk">Spam</string>
     <string name="folder_trash">Trash</string>
     <string name="folder_all">All mail</string>
-    <string name="folder_flagged">Flagged</string>
+    <string name="folder_flagged">Starred</string>
     <string name="folder_important">Important</string>
 
     <!-- Message -->
@@ -212,8 +212,8 @@
     <string name="message_reply">Reply</string>
     <string name="message_reply_all">Reply all</string>
     <string name="message_forward">Forward</string>
-    <string name="message_flag">Flag</string>
-    <string name="message_unflag">Unflag</string>
+    <string name="message_flag">Star</string>
+    <string name="message_unflag">Unstar</string>
     <string name="message_archive">Archive</string>
     <string name="message_report_spam">Report spam</string>
     <string name="message_not_spam">Not spam</string>
@@ -374,7 +374,7 @@
     <string name="settings_swipe_toggle_read">Mark read/unread</string>
     <string name="settings_swipe_delete">Delete</string>
     <string name="settings_swipe_archive">Archive</string>
-    <string name="settings_swipe_flag">Flag/unflag</string>
+    <string name="settings_swipe_flag">Star/unstar</string>
     <string name="settings_notifications_screen_title">Notifications</string>
     <string name="settings_new_mail_section">New mail</string>
     <string name="settings_notif_content_section">Notification content</string>
@@ -433,7 +433,7 @@
     <string name="settings_filter_move_to">Move to folder</string>
     <string name="settings_filter_move_none">(don\'t move)</string>
     <string name="settings_filter_mark_read">Mark as read</string>
-    <string name="settings_filter_flag">Flag</string>
+    <string name="settings_filter_flag">Star</string>
     <string name="settings_filter_delete">Delete rule</string>
     <string name="settings_filter_summary_move">Move to %1$s</string>
     <string name="settings_filter_field_from">Sender</string>
@@ -707,7 +707,7 @@
     <string name="search_recipient">Recipient</string>
     <string name="search_subject">Subject</string>
     <string name="search_has_attachment">Has attachment</string>
-    <string name="search_flagged">Flagged only</string>
+    <string name="search_flagged">Starred only</string>
     <string name="search_after">After</string>
     <string name="search_before">Before</string>
     <string name="search_date_any">Any</string>

@@ -106,8 +106,8 @@
     <string name="inbox_sort_sender">Afzender</string>
     <string name="inbox_sort_unread_first">Ongelezen eerst</string>
     <string name="inbox_sort_flagged_first">Met ster eerst</string>
-    <string name="inbox_unflag">Markering verwijderen</string>
-    <string name="inbox_flag">Markeren</string>
+    <string name="inbox_unflag">Ster verwijderen</string>
+    <string name="inbox_flag">Ster toevoegen</string>
     <string name="folder_inbox">Postvak IN</string>
     <string name="folder_archive">Archief</string>
     <string name="folder_drafts">Concepten</string>
@@ -137,8 +137,8 @@
     <string name="message_reply">Beantwoorden</string>
     <string name="message_reply_all">Allen beantwoorden</string>
     <string name="message_forward">Doorsturen</string>
-    <string name="message_flag">Markeren</string>
-    <string name="message_unflag">Markering verwijderen</string>
+    <string name="message_flag">Ster toevoegen</string>
+    <string name="message_unflag">Ster verwijderen</string>
     <string name="message_archive">Archiveren</string>
     <string name="message_report_spam">Spam melden</string>
     <string name="message_not_spam">Geen spam</string>
@@ -275,7 +275,7 @@
     <string name="settings_swipe_toggle_read">Gelezen/ongelezen markeren</string>
     <string name="settings_swipe_delete">Verwijderen</string>
     <string name="settings_swipe_archive">Archiveren</string>
-    <string name="settings_swipe_flag">Markeren/markering verwijderen</string>
+    <string name="settings_swipe_flag">Ster toevoegen/verwijderen</string>
     <string name="settings_notifications_screen_title">Meldingen</string>
     <string name="settings_new_mail_section">Nieuwe e-mail</string>
     <string name="settings_notif_content_section">Notificatie-inhoud</string>
@@ -334,7 +334,7 @@
     <string name="settings_filter_move_to">Verplaats naar map</string>
     <string name="settings_filter_move_none">(niet verplaatsen)</string>
     <string name="settings_filter_mark_read">Markeer als gelezen</string>
-    <string name="settings_filter_flag">Markeren met vlag</string>
+    <string name="settings_filter_flag">Ster toevoegen</string>
     <string name="settings_filter_delete">Regel verwijderen</string>
     <string name="settings_filter_summary_move">Verplaats naar %1$s</string>
     <string name="settings_filter_field_from">Afzender</string>
@@ -721,14 +721,14 @@
     <string name="inbox_new_subfolder_in">Nieuwe submap in %1$s</string>
     <string name="inbox_folder_expand">Map uitvouwen</string>
     <string name="inbox_folder_collapse">Map samenvouwen</string>
-    <string name="a11y_favourite">Aan favorieten toevoegen</string>
-    <string name="a11y_unfavourite">Uit favorieten verwijderen</string>
+    <string name="a11y_favourite">Ster toevoegen</string>
+    <string name="a11y_unfavourite">Ster verwijderen</string>
     <string name="a11y_has_attachment">Heeft een bijlage</string>
     <string name="draft_label">Concept</string>
     <string name="a11y_conversation_pill">Gesprek, %1$d berichten</string>
     <string name="a11y_conversation_expanded">Uitgevouwen</string>
     <string name="a11y_conversation_collapsed">Samengevouwen</string>
-    <string name="a11y_flagged">Gemarkeerd</string>
+    <string name="a11y_flagged">Met ster</string>
     <string name="settings_theme_sterna_caption">Sterna-palet: Arctic (licht) · Pelagic (donker).</string>
     <string name="settings_dynamic_color_title">Material You-kleuren</string>
     <string name="settings_dynamic_color_subtitle">Gebruik kleuren van je achtergrond in plaats van het palet van Sterna (Android 12+).</string>

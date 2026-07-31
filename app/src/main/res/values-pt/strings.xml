@@ -106,8 +106,8 @@
     <string name="inbox_sort_sender">Remetente</string>
     <string name="inbox_sort_unread_first">Não lidas primeiro</string>
     <string name="inbox_sort_flagged_first">Com estrela primeiro</string>
-    <string name="inbox_unflag">Remover sinalização</string>
-    <string name="inbox_flag">Sinalizar</string>
+    <string name="inbox_unflag">Remover estrela</string>
+    <string name="inbox_flag">Adicionar estrela</string>
     <string name="folder_inbox">Caixa de entrada</string>
     <string name="folder_archive">Arquivo</string>
     <string name="folder_drafts">Rascunhos</string>
@@ -137,8 +137,8 @@
     <string name="message_reply">Responder</string>
     <string name="message_reply_all">Responder a todos</string>
     <string name="message_forward">Encaminhar</string>
-    <string name="message_flag">Sinalizar</string>
-    <string name="message_unflag">Remover sinalização</string>
+    <string name="message_flag">Adicionar estrela</string>
+    <string name="message_unflag">Remover estrela</string>
     <string name="message_archive">Arquivar</string>
     <string name="message_report_spam">Denunciar spam</string>
     <string name="message_not_spam">Não é spam</string>
@@ -275,7 +275,7 @@
     <string name="settings_swipe_toggle_read">Marcar como lida/não lida</string>
     <string name="settings_swipe_delete">Excluir</string>
     <string name="settings_swipe_archive">Arquivar</string>
-    <string name="settings_swipe_flag">Sinalizar/remover sinalização</string>
+    <string name="settings_swipe_flag">Adicionar/remover estrela</string>
     <string name="settings_notifications_screen_title">Notificações</string>
     <string name="settings_new_mail_section">Novos e-mails</string>
     <string name="settings_notif_content_section">Conteúdo das notificações</string>
@@ -334,7 +334,7 @@
     <string name="settings_filter_move_to">Mover para a pasta</string>
     <string name="settings_filter_move_none">(não mover)</string>
     <string name="settings_filter_mark_read">Marcar como lido</string>
-    <string name="settings_filter_flag">Sinalizar</string>
+    <string name="settings_filter_flag">Adicionar estrela</string>
     <string name="settings_filter_delete">Eliminar regra</string>
     <string name="settings_filter_summary_move">Mover para %1$s</string>
     <string name="settings_filter_field_from">Remetente</string>
@@ -722,14 +722,14 @@
     <string name="inbox_new_subfolder_in">Nova subpasta em %1$s</string>
     <string name="inbox_folder_expand">Expandir pasta</string>
     <string name="inbox_folder_collapse">Recolher pasta</string>
-    <string name="a11y_favourite">Adicionar aos favoritos</string>
-    <string name="a11y_unfavourite">Remover dos favoritos</string>
+    <string name="a11y_favourite">Adicionar estrela</string>
+    <string name="a11y_unfavourite">Remover estrela</string>
     <string name="a11y_has_attachment">Tem um anexo</string>
     <string name="draft_label">Rascunho</string>
     <string name="a11y_conversation_pill">Conversa, %1$d mensagens</string>
     <string name="a11y_conversation_expanded">Expandida</string>
     <string name="a11y_conversation_collapsed">Recolhida</string>
-    <string name="a11y_flagged">Marcado</string>
+    <string name="a11y_flagged">Com estrela</string>
     <string name="settings_theme_sterna_caption">Paleta Sterna: Arctic (claro) · Pelagic (escuro).</string>
     <string name="settings_dynamic_color_title">Cores Material You</string>
     <string name="settings_dynamic_color_subtitle">Usar as cores do seu papel de parede em vez da paleta da Sterna (Android 12+).</string>
