@@ -253,6 +253,37 @@ internal fun imapSearchComplete(
     limit = limit,
 )
 
+/**
+ * [searchAnswerIsTotal] as a whole-account JMAP query asks it.
+ *
+ * JMAP never walks: one `Email/query` covers the account, and the folders it must LEAVE OUT
+ * (Trash/Junk) travel with the query as `inMailboxOtherThan` ids read from the folder cache. So the
+ * cache decides the scope here too, in the mirror image of the IMAP walk: with nothing cached the
+ * search does not shrink to one folder, it spreads to the whole account, Trash and Junk included.
+ * Either way the number on screen counts something other than what the screen says it shows — a
+ * deleted message the app promised to keep out of results — so it may not be stated as a total.
+ *
+ * ⚠ [cachedFolders] is the RAW list from [MailboxDao.searchOrder], never the exclusion list derived
+ * from it: an account with neither Trash nor Junk excludes nothing while its cache is complete, and
+ * reading the emptiness off the derived list would deny that account a total forever. See the
+ * warning on [searchAnswerIsTotal].
+ *
+ * [searchAnswerIsTotal]'s scan question has one answer on this path: the server replies in a single
+ * round trip, and a query that could not run throws out of [JmapClient.searchEmails] instead of
+ * returning a short list — there is no half-done JMAP search to report. Hence the constant, written
+ * here once with its reason rather than guessed at the call site.
+ */
+internal fun jmapSearchComplete(
+    cachedFolders: List<MailboxIdRole>,
+    found: Int,
+    limit: Int,
+): Boolean = searchAnswerIsTotal(
+    scopeCoversAccount = cachedFolders.isNotEmpty(),
+    scanComplete = true,
+    found = found,
+    limit = limit,
+)
+
 internal fun requireSingleLineAddresses(addresses: List<String>) {
     require(addresses.none { addr -> addr.any { it == '\r' || it == '\n' } }) {
         "An address contains a line break."
@@ -3540,7 +3571,12 @@ class MailRepository(
         // Exclude Trash/Junk from the server search too, so JMAP matches the IMAP walk and the local
         // index — a message you deleted must not reappear in results whatever the server (Stalwart
         // returned it before). Same role source as the IMAP path's searchableFolderIds.
-        val excluded = excludedSearchFolderIds(mailboxDao.searchOrder(credentials.id))
+        // The raw folder list is kept, not just the ids derived from it: it is what says whether the
+        // cache had anything to say at all. An account whose folders were never synced excludes
+        // NOTHING, so the query below spreads over the whole account — Trash and Junk included —
+        // and that is exactly the answer that must not come back wearing a total (see below).
+        val cachedFolders = mailboxDao.searchOrder(credentials.id)
+        val excluded = excludedSearchFolderIds(cachedFolders)
         val hits = client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth, excluded)
         // A hit can live in several mailboxes: resolve its folder like [fetchThreadMembers] —
         // the cached row's folder while the server still lists it, else the role-ranked pick —
@@ -3553,8 +3589,10 @@ class MailRepository(
                 ?: rankedMailboxPick(credentials.id, serverBoxes)
             e.copy(mailboxId = mailbox ?: e.mailboxId)
         }
-        // A full page means the server stopped at the cap, not that the account holds exactly that many.
-        return MailSearchResult(resolved, complete = hits.size < limit)
+        // A full page means the server stopped at the cap, not that the account holds exactly that
+        // many — and a search whose scope was decided by an empty folder cache did not look where
+        // it says it looked; [jmapSearchComplete] holds both refusals.
+        return MailSearchResult(resolved, complete = jmapSearchComplete(cachedFolders, hits.size, limit))
     }
 
     /**
