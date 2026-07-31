@@ -193,8 +193,16 @@ fun SearchScreen(
                         Text(
                             // "At least N" whenever the search stopped short of the whole answer: a
                             // truncated scan counted as a total would be a number the user can't check.
-                            if (results.complete) pluralStringResource(R.plurals.search_result_count, results.emails.size, results.emails.size)
-                            else pluralStringResource(R.plurals.search_result_count_capped, results.emails.size, results.emails.size),
+                            // Same call as the inbox's search bar so the two surfaces can't word the
+                            // same situation differently. loading = false is not a shortcut: this
+                            // screen runs ONE pass, and [SearchState.Results] replaces
+                            // [SearchState.Searching], so it never shows rows with a leg in flight.
+                            when (searchCount(results.complete, loading = false)) {
+                                SearchCount.EXACT ->
+                                    pluralStringResource(R.plurals.search_result_count, results.emails.size, results.emails.size)
+                                SearchCount.AT_LEAST ->
+                                    pluralStringResource(R.plurals.search_result_count_capped, results.emails.size, results.emails.size)
+                            },
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
