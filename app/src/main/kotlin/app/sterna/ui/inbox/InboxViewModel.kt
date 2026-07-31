@@ -31,6 +31,7 @@ import app.sterna.core.jmap.model.Mailbox
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.send.SendOutbox
 import app.sterna.ui.NotificationFolderSwitch
+import app.sterna.ui.search.searchComplete
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -1855,11 +1856,21 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // 1) Local FTS first: instant on every keystroke, offline, accent-folded, prefix-matched
             //    ("eco*" finds écologie/écologique/…), over the header index of the whole mailbox.
             indexJob?.join()
-            val local = runCatching { repo.searchIndex(query) }.getOrNull().orEmpty()
+            // A failed local index gets the same treatment as a failed server leg below: it is a
+            // leg of the answer that didn't run. A locked or damaged FTS table (the ground of #71)
+            // otherwise dropped every hit only this index finds — accent-folded, prefix-matched —
+            // in silence, under a count still calling itself a total.
+            var localComplete = true
+            val local = runCatching { repo.searchIndex(query) }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                localComplete = false
+                emptyList()
+            }
             if (searchState.value.query != query) return@launch
             searchState.value = searchState.value.copy(
                 results = local.filterNot { it.emailKey() in searchRemoved },
                 loading = true,
+                complete = localComplete,
             )
             // 2) Server full-text after a short typing pause: the server's own index sees everything
             //    (message bodies, the whole archive) in ~a second — no client-side re-indexing needed.
@@ -1879,7 +1890,9 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 searchState.value = searchState.value.copy(
                     results = mergeHits(searchState.value.results.orEmpty(), server.emails),
                     loading = false,
-                    complete = server.complete,
+                    // BOTH legs must have run to the end for this to be a total; a good server
+                    // answer doesn't undo a local index that fell over.
+                    complete = searchComplete(local = localComplete, server = server.complete),
                 )
             }
         }

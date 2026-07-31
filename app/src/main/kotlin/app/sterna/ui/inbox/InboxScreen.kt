@@ -192,6 +192,10 @@ import app.sterna.ui.components.accountColorOf
 import app.sterna.ui.components.verticalScrollbar
 import app.sterna.ui.isOutgoingFolder
 import app.sterna.ui.rememberMotionEnabled
+import app.sterna.ui.search.SearchCount
+import app.sterna.ui.search.SearchDisplay
+import app.sterna.ui.search.searchCount
+import app.sterna.ui.search.searchDisplay
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import kotlin.math.abs
@@ -1479,32 +1483,81 @@ fun InboxScreen(
                 val searchActive = ui.searching && ui.searchQuery.isNotBlank()
                 val refreshLoading = pagedEmails.loadState.refresh is LoadState.Loading
                 when {
-                    searchActive -> when {
-                        ui.searchResults.isNotEmpty() ->
+                    searchActive -> when (searchDisplay(ui.searchResults.size, ui.searchLoading, ui.searchComplete)) {
+                        SearchDisplay.RESULTS ->
                             Column(Modifier.fillMaxSize()) {
-                                Text(
-                                    // "At least N" when the search stopped short — its cap, or an
-                                    // account that failed and was left out. A partial answer
-                                    // counted as a total is a number the user can't check.
-                                    text = if (ui.searchComplete) {
-                                        pluralStringResource(R.plurals.search_result_count, ui.searchResults.size, ui.searchResults.size)
-                                    } else {
-                                        pluralStringResource(R.plurals.search_result_count_capped, ui.searchResults.size, ui.searchResults.size)
-                                    },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier
+                                Row(
+                                    Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 16.dp, vertical = 6.dp),
-                                )
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        // "At least N" when the search stopped short (its cap, or an
+                                        // account that failed and was left out) AND while the server
+                                        // leg is still in flight: on a cold index the local pass can
+                                        // be a small slice of the answer, and calling it a total made
+                                        // it read as final (#102). Same call as the search screen.
+                                        text = when (searchCount(ui.searchComplete, ui.searchLoading)) {
+                                            SearchCount.EXACT ->
+                                                pluralStringResource(R.plurals.search_result_count, ui.searchResults.size, ui.searchResults.size)
+                                            SearchCount.AT_LEAST ->
+                                                pluralStringResource(R.plurals.search_result_count_capped, ui.searchResults.size, ui.searchResults.size)
+                                        },
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        // weight, so a long count in a large font scale wraps
+                                        // instead of eating the whole row and squeezing the slot
+                                        // beside it to 0 dp — which would hide the progress hint
+                                        // from exactly the people who enlarge their text.
+                                        modifier = Modifier.weight(1f, fill = false),
+                                    )
+                                    // "At least N" alone can't say whether the search is still
+                                    // running or stopped short, so a small spinner sits beside it
+                                    // while a leg is in flight. Its slot is reserved whether or not
+                                    // it shows, so appearing/vanishing never nudges the list.
+                                    // A spinner says nothing to a screen reader, and that very
+                                    // distinction is why it is here — so the slot carries it in
+                                    // words too, including in the stopped-short case that has no
+                                    // spinner to show.
+                                    val progressHint = when {
+                                        ui.searchLoading -> stringResource(R.string.search_still_running)
+                                        !ui.searchComplete -> stringResource(R.string.search_incomplete)
+                                        else -> null
+                                    }
+                                    Box(
+                                        Modifier.size(12.dp).semantics {
+                                            progressHint?.let { contentDescription = it }
+                                        },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (ui.searchLoading) {
+                                            CircularProgressIndicator(
+                                                Modifier.size(12.dp),
+                                                strokeWidth = 1.5.dp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                }
                                 LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
                                     itemsIndexed(ui.searchResults, key = { _, it -> "${it.accountId}|${it.id}" }) { index, email ->
                                         emailRow(InboxRow(email, threadCount = 1, unread = !email.isSeen), Modifier.animateItem(), false, index, true)
                                     }
                                 }
                             }
-                        ui.searchLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                        else -> EmptyState(
+                        SearchDisplay.SPINNER -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                        // Found nothing, but didn't get to the end (a leg failed, or its cap):
+                        // that has NOT proven there is nothing. Saying "no results, try other
+                        // words" would send the user rewording a query that never fully ran.
+                        // Same wording as the search screen, from the same decision.
+                        SearchDisplay.INCOMPLETE_EMPTY -> EmptyState(
+                            art = EmptyArt.SEARCH,
+                            title = stringResource(R.string.search_incomplete),
+                            modifier = Modifier.align(Alignment.Center),
+                        )
+                        SearchDisplay.EMPTY -> EmptyState(
                             art = EmptyArt.SEARCH,
                             title = stringResource(R.string.inbox_no_results),
                             body = stringResource(R.string.empty_search_body),
