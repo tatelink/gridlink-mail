@@ -2,8 +2,10 @@ package app.sterna.util
 
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -50,9 +52,10 @@ class MailDatesTest {
     // --- List rows: today / this year / another year -----------------------------------------
     //
     // Three steps: today shows the time, an earlier day of the current year "d MMM", any other
-    // year a short numeric date in the language's own order. The month NAME follows the device
-    // language, so the "d MMM" step is pinned by shape; the numeric step takes an explicit locale
-    // and is pinned literally, which is the only way to prove the order really follows the tongue.
+    // year a short numeric date in the language's own order with a two-digit year. The month NAME
+    // follows the device language, so the "d MMM" step is pinned by shape; the numeric step takes
+    // an explicit locale and is pinned literally — the only way to prove the order really follows
+    // the tongue while the width stays the same in all nine.
 
     @Test fun aMessageFromTodayIsPlacedByItsTime() {
         assertEquals(
@@ -75,21 +78,40 @@ class MailDatesTest {
         val us = MailDates.formatListDate("1989-12-19T08:12:33Z", paris, reference, Locale.US)
         val fr = MailDates.formatListDate("1989-12-19T08:12:33Z", paris, reference, Locale.FRENCH)
         assertEquals("12/19/89", us)
-        assertTrue("French leads with the day: $fr", fr.startsWith("19/12/"))
-        // The year's WIDTH is the language's business, not ours: CLDR gives French four digits
-        // ("19/12/1989") and American English two. Pinning it here would be forcing a French
-        // habit onto languages that don't share it, so only its value is checked.
-        assertTrue("year of the message: $fr", fr.endsWith("89"))
+        assertEquals("19/12/89", fr)
+    }
+
+    @Test fun theYearIsTwoDigitsEvenWhereTheLanguageWritesItInFull() {
+        // French, Polish, Portuguese and Russian have a four-digit year in their short date
+        // ("19/12/1989"), which nearly doubles the stamp and takes the width straight back out of
+        // the sender's name. Only the year field is narrowed: the order and the separator are
+        // still the language's own, which is what the two different shapes below show.
+        val reference = LocalDate.of(2026, 11, 2)
+        val fr = MailDates.formatListDate("1989-12-19T08:12:33Z", paris, reference, Locale.FRENCH)
+        val ru = MailDates.formatListDate(
+            "1989-12-19T08:12:33Z", paris, reference, Locale.forLanguageTag("ru"),
+        )
+        assertEquals("19/12/89", fr)
+        assertEquals("19.12.89", ru)
+        assertFalse("no four-digit year: $fr", fr.contains("1989"))
+        assertFalse("no four-digit year: $ru", ru.contains("1989"))
     }
 
     @Test fun anotherYearCarriesNoMonthNameSoTheStampStaysNarrow() {
         // The whole point of the numeric step: it shares its line with the sender's name, which
-        // must not be the field that yields. Digits and separators only, and short.
-        val label = MailDates.formatListDate(
-            "1989-12-19T08:12:33Z", paris, LocalDate.of(2026, 11, 2), Locale.GERMAN,
+        // must not be the field that yields. Digits and separators only, eight characters, and the
+        // same width in a language that spells its year in full and in one that does not.
+        val reference = LocalDate.of(2026, 11, 2)
+        val de = MailDates.formatListDate("1989-12-19T08:12:33Z", paris, reference, Locale.GERMAN)
+        val pt = MailDates.formatListDate(
+            "1989-12-19T08:12:33Z", paris, reference, Locale.forLanguageTag("pt"),
         )
-        assertEquals("19.12.89", label)
-        assertFalse("no month name: $label", label.any { it.isLetter() })
+        assertEquals("19.12.89", de)
+        assertEquals("19/12/89", pt)
+        for (label in listOf(de, pt)) {
+            assertFalse("no month name: $label", label.any { it.isLetter() })
+            assertEquals("eight characters: $label", 8, label.length)
+        }
     }
 
     @Test fun twoDecember19thsAYearApartCannotReadAlike() {
@@ -139,6 +161,32 @@ class MailDatesTest {
         assertEquals("", MailDates.formatListDate("", paris, reference))
         assertEquals("", MailDates.formatListDate("not a date", paris, reference))
         assertEquals("", MailDates.formatListDate("2026-13-45T99:99:99Z", paris, reference))
+    }
+
+    @Test fun theCallTheListRowActuallyMakesTakesEveryDefault() {
+        // The one production call is formatListDate(email.receivedAt): no zone, no reference day,
+        // no language. Every other test here passes them, so the default expressions themselves
+        // are never run and a regression inside one of them would leave this suite green.
+        //
+        // The island sits at UTC+14, so for two hours a day its calendar is one day ahead. The
+        // instant below is 01:00 today there and yesterday in UTC: were the default day taken in
+        // UTC rather than in the device's zone, the row would show a date instead of a clock.
+        val island = ZoneId.of("Pacific/Kiritimati")
+        val restore = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone(island))
+            val earlyToday = ZonedDateTime.now(island).toLocalDate().atStartOfDay(island).plusHours(1)
+            assertEquals("01:00", MailDates.formatListDate(earlyToday.toInstant().toString()))
+
+            val longAgo = earlyToday.minusYears(3)
+            val label = MailDates.formatListDate(longAgo.toInstant().toString())
+            assertFalse("an old row is a date, not a clock: $label", label.contains(":"))
+            assertFalse("numeric, whatever the device language: $label", label.any { it.isLetter() })
+            val twoDigitYear = "%02d".format(longAgo.year % 100)
+            assertTrue("year $twoDigitYear in $label", label.contains(twoDigitYear))
+        } finally {
+            TimeZone.setDefault(restore)
+        }
     }
 
     @Test fun anOffsetTimestampIsAcceptedOnAListRowToo() {
