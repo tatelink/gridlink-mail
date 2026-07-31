@@ -58,7 +58,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -68,6 +72,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -105,9 +110,120 @@ fun SearchScreen(
         viewModel.search()
     }
 
+    // The advanced filters slide over the results like the main navigation drawer: a slim handle
+    // under the search box drives a top overlay. Dragging it down reveals the panel ON TOP of the
+    // list (the results never reflow); dragging up hides it. form.expanded stays the single source
+    // of truth — the summary, keyboard folding and the Tune toggle all read it — so a drag only
+    // sets it and the snap animation follows.
+    //
+    // All of this lives ABOVE the Scaffold rather than inside its content, because the title bar is
+    // one of the places the panel can be dragged from and Scaffold's topBar is a separate lambda
+    // that cannot see the content's locals.
+    val scope = rememberCoroutineScope()
+    val motionEnabled = rememberMotionEnabled()
+    val handleDesc = stringResource(R.string.search_advanced_toggle)
+    var panelHeightPx by remember { mutableIntStateOf(0) }
+    val offset = remember { Animatable(0f) }
+    var firstSync by remember { mutableStateOf(true) }
+    // The handle's height: reserved at the top of the results so a closed handle sits clear
+    // of the first row, and reused as the handle's own size so it reads as a solid edge.
+    val handleHeight = 18.dp
+
+    // Follow form.expanded (Tune button, summary tap, search-fold, process restore). The
+    // first pass snaps, so entering the screen already-open doesn't play an intro slide.
+    LaunchedEffect(form.expanded, panelHeightPx) {
+        if (panelHeightPx == 0) return@LaunchedEffect
+        val target = if (form.expanded) panelHeightPx.toFloat() else 0f
+        when {
+            firstSync -> { offset.snapTo(target); firstSync = false }
+            offset.value == target -> Unit
+            motionEnabled -> offset.animateTo(target)
+            else -> offset.snapTo(target)
+        }
+    }
+
+    // The drag's end-state: animate the snap here (so it plays even when the panel was
+    // already on that side, e.g. a half-drag released back), then record it in the ViewModel.
+    fun settle(open: Boolean) {
+        scope.launch {
+            val target = if (open) panelHeightPx.toFloat() else 0f
+            if (motionEnabled) offset.animateTo(target) else offset.snapTo(target)
+        }
+        viewModel.setExpanded(open)
+    }
+
+    // Move the panel by [delta] px, clamped to its travel, and report how much was actually used —
+    // a nested scroll has to hand back exactly what it took, no more.
+    fun nudge(delta: Float): Float {
+        if (panelHeightPx == 0) return 0f
+        val target = (offset.value + delta).coerceIn(0f, panelHeightPx.toFloat())
+        val used = target - offset.value
+        if (used == 0f) return 0f
+        scope.launch { offset.snapTo(target) }
+        return used
+    }
+
+    // One drag behaviour, applied at every grab point: the handle, the title bar and the free-text
+    // field. Same state, and above all the same release decision — see [searchPanelSettlesOpen].
+    val dragState = rememberDraggableState { delta -> nudge(delta) }
+    val panelDrag = Modifier.draggable(
+        orientation = Orientation.Vertical,
+        state = dragState,
+        onDragStopped = { velocity ->
+            settle(searchPanelSettlesOpen(offset.value, panelHeightPx.toFloat(), velocity))
+        },
+    )
+
+    // Folding by dragging up from inside the panel is NOT a `draggable`: the panel scrolls (see the
+    // Column below), and a drag modifier over it would swallow that scroll and put the Search
+    // button out of reach in exactly the cramped cases the scroll exists for. Nested scroll instead
+    // — the panel's own scroll is served first, and the fold only gets what the scroll could not
+    // consume, the way a bottom sheet behaves. On an ordinary phone in portrait at the default font
+    // nothing scrolls at all, so the leftover is the whole gesture and the fold is immediate.
+    //
+    // Unkeyed remember: everything it reads is either a State (panelHeightPx, offset, form) or
+    // fixed for the composition's life (scope, and motionEnabled behind settle, itself remembered).
+    val panelNestedScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                // Coming back DOWN after a partial fold: pull the panel out again BEFORE its
+                // content scrolls, or a reversed gesture would leave it stuck half-way while the
+                // rows slid back under it.
+                if (source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
+                if (offset.value >= panelHeightPx) return Offset.Zero
+                return Offset(0f, nudge(available.y))
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                // Going UP: this only ever runs on what the panel's scroll could not use, i.e.
+                // once the Search button is already on screen and the finger keeps rising.
+                if (source != NestedScrollSource.UserInput || available.y >= 0f) return Offset.Zero
+                return Offset(0f, nudge(available.y))
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                // Release. Settle only if this gesture actually moved the panel: when it merely
+                // scrolled the panel's content, the fling belongs to that content and taking it
+                // would stop the list dead.
+                val committed = if (form.expanded) panelHeightPx.toFloat() else 0f
+                if (panelHeightPx == 0 || offset.value == committed) return Velocity.Zero
+                settle(searchPanelSettlesOpen(offset.value, panelHeightPx.toFloat(), available.y))
+                return available
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
+                // Dragging down from the title bar opens the panel: aiming at an 18 dp handle was
+                // not a usable target. The icon buttons keep their taps — a tap is decided before
+                // the drag slop is crossed — and this only ever moves the panel, never the bar.
+                modifier = panelDrag,
                 title = { Text(stringResource(R.string.search_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -132,53 +248,19 @@ fun SearchScreen(
     ) { padding ->
         // imePadding: the screen gives the keyboard the room it takes instead of being drawn under it.
         Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
-            OutlinedTextField(
-                value = query.text,
-                onValueChange = { viewModel.updateQuery(query.copy(text = it)) },
-                label = { Text(stringResource(R.string.search_field_label)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { runSearch() }),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-            // The advanced filters slide over the results like the main navigation drawer: a slim
-            // handle under the search box drives a top overlay. Dragging it down reveals the panel
-            // ON TOP of the list (the results never reflow); dragging up hides it. form.expanded
-            // stays the single source of truth — the summary, keyboard folding and the Tune toggle
-            // all read it — so the drag only sets it and the snap animation follows.
-            val scope = rememberCoroutineScope()
-            val motionEnabled = rememberMotionEnabled()
-            val handleDesc = stringResource(R.string.search_advanced_toggle)
-            var panelHeightPx by remember { mutableIntStateOf(0) }
-            val offset = remember { Animatable(0f) }
-            var firstSync by remember { mutableStateOf(true) }
-            // The handle's height: reserved at the top of the results so a closed handle sits clear
-            // of the first row, and reused as the handle's own size so it reads as a solid edge.
-            val handleHeight = 18.dp
-
-            // Follow form.expanded (Tune button, summary tap, search-fold, process restore). The
-            // first pass snaps, so entering the screen already-open doesn't play an intro slide.
-            LaunchedEffect(form.expanded, panelHeightPx) {
-                if (panelHeightPx == 0) return@LaunchedEffect
-                val target = if (form.expanded) panelHeightPx.toFloat() else 0f
-                when {
-                    firstSync -> { offset.snapTo(target); firstSync = false }
-                    offset.value == target -> Unit
-                    motionEnabled -> offset.animateTo(target)
-                    else -> offset.snapTo(target)
-                }
+            // Wrapped rather than modified directly so the strip AROUND the field drags too: the
+            // whole band between the title bar and the handle is one grab area.
+            Box(Modifier.fillMaxWidth().then(panelDrag)) {
+                OutlinedTextField(
+                    value = query.text,
+                    onValueChange = { viewModel.updateQuery(query.copy(text = it)) },
+                    label = { Text(stringResource(R.string.search_field_label)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { runSearch() }),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                )
             }
-
-            // The drag's end-state: animate the snap here (so it plays even when the panel was
-            // already on that side, e.g. a half-drag released back), then record it in the ViewModel.
-            fun settle(open: Boolean) {
-                scope.launch {
-                    val target = if (open) panelHeightPx.toFloat() else 0f
-                    if (motionEnabled) offset.animateTo(target) else offset.snapTo(target)
-                }
-                viewModel.setExpanded(open)
-            }
-
             // clipToBounds hides the panel where it rests above the handle; weight(1f) is the
             // results' space AND the overlay's stage, so opening the panel never resizes the list.
             Box(Modifier.fillMaxWidth().weight(1f).clipToBounds()) {
@@ -312,9 +394,14 @@ fun SearchScreen(
                     // clipped away by the parent Box, with no gesture that could bring them back.
                     // Adding a row to this panel is what makes that reachable on ordinary phones,
                     // so the row and the scroll ship together.
+                    //
+                    // nestedScroll sits OUTSIDE verticalScroll on purpose: that order is what makes
+                    // the scroll the first served and the fold the second, so dragging up here
+                    // reaches the Search button before it ever starts closing the panel.
                     Column(
                         Modifier
                             .fillMaxWidth()
+                            .nestedScroll(panelNestedScroll)
                             .verticalScroll(rememberScrollState()),
                     ) {
                         OutlinedTextField(
@@ -407,24 +494,10 @@ fun SearchScreen(
                         .graphicsLayer { translationY = offset.value }
                         .height(handleHeight)
                         .background(MaterialTheme.colorScheme.surface)
-                        .draggable(
-                            orientation = Orientation.Vertical,
-                            state = rememberDraggableState { delta ->
-                                scope.launch {
-                                    offset.snapTo((offset.value + delta).coerceIn(0f, panelHeightPx.toFloat()))
-                                }
-                            },
-                            onDragStopped = { velocity ->
-                                // A flick decides first, otherwise the halfway line; a stray
-                                // micro-drag still lands on whichever side it is nearest.
-                                val open = when {
-                                    velocity > 800f -> true
-                                    velocity < -800f -> false
-                                    else -> offset.value > panelHeightPx / 2f
-                                }
-                                settle(open)
-                            },
-                        )
+                        .then(panelDrag)
+                        // The tap stays, and so does the contentDescription below: a gesture is no
+                        // handle for TalkBack, which has only this tap and the Tune button to open
+                        // the filters with.
                         .clickable { viewModel.togglePanel() }
                         .semantics { contentDescription = handleDesc },
                     contentAlignment = Alignment.Center,
