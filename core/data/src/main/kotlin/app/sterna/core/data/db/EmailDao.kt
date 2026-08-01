@@ -7,6 +7,8 @@ import androidx.room.RawQuery
 import androidx.room.Transaction
 import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
+import app.sterna.core.data.getOrElseUnlessCancelled
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -59,6 +61,17 @@ interface EmailDao {
     @Upsert
     suspend fun upsertAll(emails: List<EmailEntity>)
 
+    /**
+     * Prune the cached page of a mailbox down to [keepIds] — window eviction, NOT removal: the
+     * messages dropped here are still sitting in that folder on the server, they merely fell out
+     * of the recent window the list caches.
+     *
+     * Which is why this must NOT touch the search index, unlike [deleteById]/[deleteByIds]: the
+     * index deliberately outlives the display cache (that is what makes offline search cover more
+     * than the last page), and un-indexing on eviction would hollow it out on every scroll.
+     *
+     * [evictFromCacheKeepingIndex] is the same rule applied to a list of ids rather than to a page.
+     */
     @Query("DELETE FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId AND id NOT IN (:keepIds)")
     suspend fun deleteNotIn(accountId: String, mailboxId: String, keepIds: List<String>)
 
@@ -74,17 +87,166 @@ interface EmailDao {
     )
     suspend fun deleteNotInSparing(accountId: String, mailboxId: String, keepIds: List<String>, spareIds: List<String>)
 
+    /**
+     * Evict [ids] from the display cache and LEAVE THEIR INDEX ROWS ALONE — [deleteNotIn]'s by-id
+     * sibling, for the retention window (`MailRepository.pruneRetention`) and for an action that
+     * moved nothing (`MailRepository.evictAlreadyThere`: archiving what is already archived).
+     *
+     * Same rule, stated by id rather than by page: these messages are still sitting in their folder
+     * on the server, they merely fell outside the age/count this account keeps offline — or the
+     * action asked for the folder they are already in. Sending
+     * them through [deleteByIds] instead un-indexed them, and offline search stopped covering
+     * anything older than the sync window — on EVERY refresh, and irreversibly on IMAP, where
+     * nothing re-indexes a message the cache no longer holds (the crawl `syncSearchIndex` is JMAP
+     * only, and `EmailFtsDao.seedFromEmails` reads the cache).
+     *
+     * It exists as its own named function, rather than the retention prune calling a raw half of
+     * [deleteByIds], so the cheap correct choice is available BY NAME at the call site instead of
+     * being one letter away from the wrong one.
+     */
+    suspend fun evictFromCacheKeepingIndex(accountId: String, ids: List<String>) {
+        if (ids.isEmpty()) return
+        deleteRowsByIds(accountId, ids)
+    }
+
     @Query("UPDATE emails SET seen = :seen WHERE accountId = :accountId AND id = :id")
     suspend fun setSeen(accountId: String, id: String, seen: Boolean)
 
     @Query("UPDATE emails SET flagged = :flagged WHERE accountId = :accountId AND id = :id")
     suspend fun setFlagged(accountId: String, id: String, flagged: Boolean)
 
+    /**
+     * Take one message OUT OF THIS PLACE: drop its cached row and its search-index row, together in
+     * one transaction, with the recovery for a failed index write sitting OUTSIDE that transaction.
+     *
+     * Every path that removes mail from a folder funnels through this function or [deleteByIds] —
+     * swipe, menu, delete, move, archive, mark-as-spam, permanent purge, undo, reconciliation of a
+     * move the server made, some twenty call sites in `MailRepository`. Un-indexing HERE instead of
+     * at each of them is the point: the index cannot be left holding a message the cache no longer
+     * has, and a move path written next year is covered without anyone remembering to.
+     *
+     * Contrast [deleteNotIn] / [deleteNotInSparing] / [evictFromCacheKeepingIndex], which must NOT
+     * un-index and deliberately do not: they evict rows whose messages are still exactly where they
+     * were, merely fallen out of the cached page or of the sync window. Wiring those to the index
+     * would empty it as the user scrolls. The line is the whole correctness of this: here = "this
+     * message left this place"; there = "this page is no longer cached".
+     *
+     * The un-indexing is unconditional, destination unknown — none is available at most call sites,
+     * and a permanent destroy has none at all. So a move to a *searchable* folder (archive) also
+     * drops the message from the offline half of search until the next index crawl
+     * (`syncSearchIndex`) or cache re-seed (`seedIndexFromCache`). That is the cheap error: the
+     * server half of the same union still finds it. The expensive error is the other direction — a
+     * deleted message coming back in the results with its subject and preview, which is exactly
+     * what un-indexing nowhere produced.
+     *
+     * Two properties are wanted at once, and they pull against each other: the two rows go together
+     * or not at all, AND a sick index — issue #71's ground: an FTS table too damaged or too locked
+     * to write — never stops a message from being deleted. These paths are network-first, the server
+     * has ALREADY moved the message, so a delete reported as failed puts back in the list a message
+     * that is no longer there.
+     *
+     * So: the pair runs in one transaction ([deleteRowAndIndexById]) with NOTHING caught inside it,
+     * and the recovery sits OUTSIDE — if the transaction cannot land whole, the cache delete is
+     * replayed on its own and the un-index is attempted once more, best-effort.
+     *
+     * The earlier shape swallowed the index failure INSIDE the transaction, and that is wrong for
+     * the very failure the transaction was restored for. SQLite aborts a `SQLITE_BUSY` statement and
+     * CONTINUES its transaction (the push service writing while the screen deletes); the swallowed
+     * error let the block return normally, the transaction committed, and the cache row went with
+     * its index row left standing — the orphan that hands a deleted message back in search FOREVER,
+     * since no re-seed touches it (`EmailFtsDao.seedFromEmails` only rewrites rows whose message is
+     * still cached) and only "clear cache" removes it. [EmailFtsDao.search]'s folder filter hides
+     * such a row only when its label happens to be an excluded folder, which in the reported case is
+     * precisely what it is not: the label is the Inbox. `runCatching` swallows
+     * [CancellationException] too, so a screen closed mid-delete produced the same orphan; here a
+     * cancellation propagates and nothing is committed.
+     *
+     * What remains: an index that stays unwritable keeps its row while the cached message goes. That
+     * one is unavoidable — the delete is not optional. And the second attempt claims no more than it
+     * is: it is IMMEDIATE, with no delay of any kind, so against the failure it is named for — the
+     * push service holding the lock — it is one more throw of the same dice, worth its single
+     * statement and no more. `DeletedMailLeavesTheIndexSqlTest` pins what a lock that does NOT clear
+     * leaves behind, as a case rather than as a paragraph.
+     *
+     * The retry is guarded, but not with a bare `runCatching`: that swallows a
+     * [CancellationException] exactly as it swallows a lock, and here the cache delete has already
+     * committed — so a screen closed mid-delete would have the coroutine carry on inside a cancelled
+     * scope with the failure of the index write hidden. `getOrElseUnlessCancelled` (the module's
+     * named idiom for this, `app.sterna.core.data.Cancellation`) lets the cancellation through and
+     * keeps the rest best-effort.
+     *
+     * `MailRepository.pruneServerGone` guards an FTS delete with a `runCatching` too, but not in
+     * this shape: there it is a belt-and-braces repeat of what this function has already done, with
+     * no transaction of its own to replay.
+     */
+    suspend fun deleteById(accountId: String, id: String) {
+        try {
+            deleteRowAndIndexById(accountId, id)
+        } catch (e: CancellationException) {
+            throw e // the caller went away: commit neither half, let the next attempt do both
+        } catch (e: Exception) {
+            android.util.Log.w("MailSync", "deleting $id with its index row failed", e)
+            deleteRowById(accountId, id)
+            runCatching { unindexById(accountId, id) }.getOrElseUnlessCancelled {
+                android.util.Log.w("MailSync", "un-index of $id failed; its cached row is gone anyway", it)
+            }
+        }
+    }
+
+    /** [deleteById]'s two halves as one all-or-nothing statement pair — see its comment for why
+     *  nothing is caught in here. */
+    @Transaction
+    suspend fun deleteRowAndIndexById(accountId: String, id: String) {
+        deleteRowById(accountId, id)
+        unindexById(accountId, id)
+    }
+
+    /**
+     * [deleteById] for several ids of one account — same cache-then-index pairing, same transaction
+     * with nothing caught inside it, same replay outside when it cannot land whole.
+     *
+     * Prefer this to a loop of [deleteById] on the bulk paths: `email_fts` is an FTS4 table whose
+     * `emailId` is `notindexed`, so every un-index SCANS the whole index — a 200-message selection
+     * cost 200 full scans instead of one.
+     */
+    suspend fun deleteByIds(accountId: String, ids: List<String>) {
+        if (ids.isEmpty()) return
+        try {
+            deleteRowsAndIndexByIds(accountId, ids)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("MailSync", "deleting ${ids.size} ids with their index rows failed", e)
+            deleteRowsByIds(accountId, ids)
+            runCatching { unindexByIds(accountId, ids) }.getOrElseUnlessCancelled {
+                android.util.Log.w("MailSync", "un-index of ${ids.size} ids failed; cached rows gone anyway", it)
+            }
+        }
+    }
+
+    /** [deleteByIds]' two halves as one all-or-nothing statement pair — see [deleteById]. */
+    @Transaction
+    suspend fun deleteRowsAndIndexByIds(accountId: String, ids: List<String>) {
+        deleteRowsByIds(accountId, ids)
+        unindexByIds(accountId, ids)
+    }
+
+    // The two halves of [deleteRowAndIndexById] / [deleteRowsAndIndexByIds] — and, for the cache
+    // half on its own, [evictFromCacheKeepingIndex]. Call those, not these. Both halves
+    // are scoped by accountId for the same reason the rest of this DAO is (issue #31): an email id
+    // is unique only within its account, so an unscoped delete would take out a same-server sibling
+    // account's cached row — or its index entry.
     @Query("DELETE FROM emails WHERE accountId = :accountId AND id = :id")
-    suspend fun deleteById(accountId: String, id: String)
+    suspend fun deleteRowById(accountId: String, id: String)
 
     @Query("DELETE FROM emails WHERE accountId = :accountId AND id IN (:ids)")
-    suspend fun deleteByIds(accountId: String, ids: List<String>)
+    suspend fun deleteRowsByIds(accountId: String, ids: List<String>)
+
+    @Query("DELETE FROM email_fts WHERE accountId = :accountId AND emailId = :id")
+    suspend fun unindexById(accountId: String, id: String)
+
+    @Query("DELETE FROM email_fts WHERE accountId = :accountId AND emailId IN (:ids)")
+    suspend fun unindexByIds(accountId: String, ids: List<String>)
 
     /** Cached message count for one account's mailbox (end-of-pagination check). */
     @Query("SELECT COUNT(*) FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId")
@@ -142,12 +304,20 @@ interface EmailDao {
      * Drafts) members. [threadKey] is COALESCE(threadId, id) (a thread-less message is its
      * own thread). The account scope matters in the unified inbox, where two accounts can
      * share a server-assigned thread id.
+     *
+     * OBSERVED, like the collapsed row's chip (`conversationPagingSource` is a `@RawQuery` over
+     * the same table, so it recomputes on every write to `emails`). A one-shot read made the
+     * unfold a photograph taken once while the chip stayed live: a message arriving in a thread
+     * already open — a notification, a refresh, a reply of one's own — moved the chip and left
+     * the messages beneath it as they were, and nothing put them back in step until the folder
+     * was left. Two live reads of the same write cannot drift apart; one live and one frozen
+     * always do.
      */
     @Query(
         "SELECT * FROM emails WHERE accountId = :accountId AND mailboxId IN (:mailboxIds) " +
             "AND COALESCE(threadId, id) = :threadKey ORDER BY sortKey DESC",
     )
-    suspend fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): List<EmailEntity>
+    fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): Flow<List<EmailEntity>>
 
     /**
      * Per-folder count of unread THREADS (the conversation-mode drawer badge): one row per

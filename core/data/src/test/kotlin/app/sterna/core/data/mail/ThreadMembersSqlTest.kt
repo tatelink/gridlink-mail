@@ -10,26 +10,16 @@ import java.sql.DriverManager
 /**
  * Verifies, against in-memory SQLite, the selection semantics of
  * [app.sterna.core.data.db.EmailDao.cachedThreadEmails] — the query that lists a thread's
- * cached members when a conversation row is unfolded inline. Mirrors that query's WHERE /
+ * cached members when a conversation row is unfolded inline. Checks that query's WHERE /
  * ORDER BY (account scope, thread grouping by COALESCE(threadId, id), newest-first) so the
  * data-layer contract is checked without an Android device.
+ *
+ * The statement executed here is read out of the shipped DAO by [DaoQuerySource], not retyped, so
+ * changing the DAO's SQL changes this test's SQL with it — a retyped copy would keep passing
+ * against a query the app no longer runs.
  */
 class ThreadMembersSqlTest {
     private lateinit var db: Connection
-
-    // Single mailbox in the IN-list, matching how the DAO expands `mailboxId IN (:mailboxIds)`.
-    // Mirrors the folder-scoped query used by whole-thread swipe (cachedThreadEmails).
-    private val sql =
-        "SELECT id FROM emails WHERE accountId = ? AND mailboxId IN (?) " +
-            "AND COALESCE(threadId, id) = ? ORDER BY sortKey DESC"
-
-    // Mirrors the same query as bound when populating an unfolded conversation: the viewed
-    // folder PLUS the account's Sent mailbox in the IN-list — Sent replies are interleaved,
-    // while members living in Trash/Spam/Drafts stay out (they belong to their own folder's
-    // conversation).
-    private val viewPlusSentSql =
-        "SELECT id FROM emails WHERE accountId = ? AND mailboxId IN (?, ?) " +
-            "AND COALESCE(threadId, id) = ? ORDER BY sortKey DESC"
 
     @Before fun setUp() {
         Class.forName("org.sqlite.JDBC")
@@ -63,17 +53,44 @@ class ThreadMembersSqlTest {
         }
     }
 
-    private fun members(accountId: String, mailbox: String, threadKey: String): List<String> =
-        db.prepareStatement(sql).use { ps ->
-            ps.setString(1, accountId); ps.setString(2, mailbox); ps.setString(3, threadKey)
+    /**
+     * The shipped `cachedThreadEmails`, run over [mailboxes] — Room expands `mailboxId IN
+     * (:mailboxIds)` into one `?` per element, and [DaoQuerySource.bindOrder] hands back the order
+     * the placeholders must be filled in, which is the statement's order and not the signature's.
+     */
+    private fun cachedThreadEmails(accountId: String, mailboxes: List<String>, threadKey: String): List<String> {
+        val (sql, order) = DaoQuerySource.bindOrder(
+            DaoQuerySource.emailDaoQuery("cachedThreadEmails"),
+            mapOf("mailboxIds" to mailboxes.size),
+        )
+        var mailbox = 0
+        return db.prepareStatement(sql).use { ps ->
+            order.forEachIndexed { i, name ->
+                ps.setString(
+                    i + 1,
+                    when (name) {
+                        "accountId" -> accountId
+                        "mailboxIds" -> mailboxes[mailbox++]
+                        "threadKey" -> threadKey
+                        else -> error("Unexpected parameter ':$name' in EmailDao.cachedThreadEmails")
+                    },
+                )
+            }
             ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
         }
+    }
 
+    /** A single mailbox in the IN-list: the folder-scoped binding used by whole-thread swipe. */
+    private fun members(accountId: String, mailbox: String, threadKey: String): List<String> =
+        cachedThreadEmails(accountId, listOf(mailbox), threadKey)
+
+    /**
+     * The binding that populates an unfolded conversation: the viewed folder PLUS the account's
+     * Sent mailbox in the IN-list — Sent replies are interleaved, while members living in
+     * Trash/Spam/Drafts stay out (they belong to their own folder's conversation).
+     */
     private fun membersViewPlusSent(accountId: String, mailbox: String, sent: String, threadKey: String): List<String> =
-        db.prepareStatement(viewPlusSentSql).use { ps ->
-            ps.setString(1, accountId); ps.setString(2, mailbox); ps.setString(3, sent); ps.setString(4, threadKey)
-            ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
-        }
+        cachedThreadEmails(accountId, listOf(mailbox, sent), threadKey)
 
     @Test fun returnsAllThreadMembersNewestFirstIncludingRepresentative() {
         insert("m1", threadId = "T1", sortKey = 100)

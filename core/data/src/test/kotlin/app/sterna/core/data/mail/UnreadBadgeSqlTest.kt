@@ -13,27 +13,29 @@ import java.sql.DriverManager
  * ([app.sterna.core.data.db.EmailDao.observeThreadUnreadCounts] /
  * [app.sterna.core.data.db.EmailDao.observeMessageUnreadCounts]): per (accountId, mailboxId),
  * the number of unread threads (conversation mode) or unread messages (flat mode), with the
- * list's not-snoozed filter. Mirrors the DAO queries' SQL, and cross-checks the thread
- * aggregate against [conversationSql]'s bold rows — the badge must equal what the list shows.
+ * list's not-snoozed filter, and cross-checks the thread aggregate against [conversationSql]'s
+ * bold rows — the badge must equal what the list shows.
+ *
+ * The two aggregates are read out of the shipped DAO by [DaoQuerySource], not retyped, so changing
+ * the DAO's SQL changes this test's SQL with it — a retyped copy would keep passing against a
+ * query the drawer no longer runs.
  */
 class UnreadBadgeSqlTest {
     private lateinit var db: Connection
 
-    private val threadBadgeSql =
-        "SELECT accountId, mailboxId, COUNT(*) AS count FROM (" +
-            "SELECT accountId, mailboxId, COALESCE(threadId, id) AS tk FROM emails " +
-            "WHERE NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
-            "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
-            "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
-            "GROUP BY accountId, mailboxId, tk HAVING MIN(seen) = 0" +
-            ") GROUP BY accountId, mailboxId"
+    private val threadBadgeSql = badgeSql("observeThreadUnreadCounts")
 
-    private val messageBadgeSql =
-        "SELECT accountId, mailboxId, COUNT(*) AS count FROM emails " +
-            "WHERE seen = 0 AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
-            "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
-            "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
-            "GROUP BY accountId, mailboxId"
+    private val messageBadgeSql = badgeSql("observeMessageUnreadCounts")
+
+    /**
+     * The shipped statement of a badge aggregate. Both take no argument today; should one gain a
+     * parameter, this fails loudly rather than handing SQLite an unbound `?`.
+     */
+    private fun badgeSql(functionName: String): String {
+        val (sql, order) = DaoQuerySource.bindOrder(DaoQuerySource.emailDaoQuery(functionName))
+        check(order.isEmpty()) { "EmailDao.$functionName now takes $order — this test must bind them" }
+        return sql
+    }
 
     @Before fun setUp() {
         Class.forName("org.sqlite.JDBC")
@@ -94,11 +96,12 @@ class UnreadBadgeSqlTest {
 
     /** The list's bold rows: conversationSql rows with threadUnread = 0 for one (account, folder). */
     private fun boldConversationRows(accountId: String, mailbox: String): Int {
-        val sql = conversationSql(mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false, hasAccountId = true)
+        val sql = conversationSql(scopeCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false)
         return db.prepareStatement(sql).use { ps ->
-            ps.setString(1, mailbox); ps.setString(2, accountId)
-            ps.setString(3, mailbox); ps.setString(4, accountId)
-            ps.setString(5, mailbox); ps.setString(6, accountId)
+            // One (account, folder) scope, bound account first, three times over.
+            ps.setString(1, accountId); ps.setString(2, mailbox)
+            ps.setString(3, accountId); ps.setString(4, mailbox)
+            ps.setString(5, accountId); ps.setString(6, mailbox)
             ps.executeQuery().use { rs ->
                 var bold = 0
                 while (rs.next()) if (rs.getInt("threadUnread") == 0) bold++
@@ -134,24 +137,36 @@ class UnreadBadgeSqlTest {
     }
 
     @Test fun threadBadgeIsFolderScoped() {
-        // T1: read member in the Inbox, unread member filed in Trash — only Trash gets a badge
-        // (the Inbox row is not bold: its in-folder part is read).
+        // T1: read member in the Inbox, unread member filed in Trash — only Trash badges it (the
+        // Inbox row is not bold: its in-folder part is read). T2 is unread on BOTH sides, and it is
+        // what makes the folder scope legible in the numbers: the two folders must disagree.
+        //
+        // Without it the case survived dropping `mailboxId` from the aggregate's inner GROUP BY —
+        // the saga's regression, one badge for the whole thread instead of one per folder. SQLite
+        // hands a bare mailboxId back from an arbitrary row of the group, and it happened to pick
+        // the one the assertion named. No arrangement of one row per group can produce {1, 2}.
         insert("in1", threadId = "T1", seen = 1, sortKey = 200, mailbox = "inbox")
         insert("tr1", threadId = "T1", seen = 0, sortKey = 100, mailbox = "trash")
+        insert("in2", threadId = "T2", seen = 0, sortKey = 300, mailbox = "inbox")
+        insert("tr2", threadId = "T2", seen = 0, sortKey = 50, mailbox = "trash")
 
-        assertEquals(mapOf(("acc" to "trash") to 1), counts(threadBadgeSql))
-        assertEquals(0, boldConversationRows("acc", "inbox"))
-        assertEquals(1, boldConversationRows("acc", "trash"))
+        assertEquals(mapOf(("acc" to "inbox") to 1, ("acc" to "trash") to 2), counts(threadBadgeSql))
+        assertEquals(1, boldConversationRows("acc", "inbox"))
+        assertEquals(2, boldConversationRows("acc", "trash"))
     }
 
     @Test fun snoozedUnreadIsExcludedFromBothBadges() {
+        // The two are in DIFFERENT folders, so the aggregates say WHICH one survives and not merely
+        // how many: with both in the Inbox the counts are symmetric, and reversing the comparison
+        // (`until > now` → `<`) — hiding every message whose snooze has EXPIRED and badging the ones
+        // still asleep — read exactly the same, 1 and 1.
         insert("z1", threadId = null, seen = 0, sortKey = 100) // snoozed into the future → hidden
-        insert("z2", threadId = null, seen = 0, sortKey = 200) // snooze expired → visible again
+        insert("z2", threadId = null, seen = 0, sortKey = 200, mailbox = "archive") // expired → visible
         snooze("z1", untilMillis = Long.MAX_VALUE)
         snooze("z2", untilMillis = 1)
 
-        assertEquals(mapOf(("acc" to "inbox") to 1), counts(threadBadgeSql))
-        assertEquals(mapOf(("acc" to "inbox") to 1), counts(messageBadgeSql))
+        assertEquals(mapOf(("acc" to "archive") to 1), counts(threadBadgeSql))
+        assertEquals(mapOf(("acc" to "archive") to 1), counts(messageBadgeSql))
     }
 
     @Test fun badgesAreAccountScoped() {

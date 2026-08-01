@@ -59,6 +59,11 @@ interface EmailBodyDao {
     @Query("DELETE FROM email_bodies WHERE accountId = :accountId")
     suspend fun deleteForAccount(accountId: String)
 
+    /** Every account id with a cached body here, for the orphan sweep
+     *  ([app.sterna.core.data.storage.StorageRepository.purgeOrphanedAccounts]). */
+    @Query("SELECT DISTINCT accountId FROM email_bodies")
+    suspend fun accountIds(): List<String>
+
     @Query("DELETE FROM email_bodies")
     suspend fun deleteAll()
 }

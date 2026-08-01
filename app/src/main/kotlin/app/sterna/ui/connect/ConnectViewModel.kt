@@ -20,6 +20,7 @@ import app.sterna.core.jmap.DeviceTokenResult
 import app.sterna.core.jmap.Jmap
 import app.sterna.core.jmap.JmapException
 import app.sterna.core.jmap.OAuthMetadata
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,6 +51,73 @@ internal fun isFastmailTarget(email: String, server: String): Boolean {
     val domain = email.trim().substringAfterLast('@', "").lowercase()
     return domain == "fastmail.com" || domain == "fastmail.fm" ||
         server.contains("api.fastmail.com", ignoreCase = true)
+}
+
+/** The account an add resolved to: its id, and whether this add is what created it. */
+internal data class AddedAccount(val id: String, val created: Boolean)
+
+/**
+ * What an add ended on: the account's id, and the priming failure it survived, if any.
+ *
+ * [primeFailure] is never a reason to undo the add — see [addAccountThenPrime]. It is carried out
+ * so the screen can log it (and so a test can read it) instead of it vanishing silently.
+ */
+internal data class PrimedAccount(val id: String, val primeFailure: Throwable? = null)
+
+/**
+ * Add an account in the one order that cannot write mail under an empty account id (#121).
+ *
+ * Every add path used to build credentials with no id yet (`AccountCredentials.id` defaults to
+ * `""`), hand them to the repository to "validate and prime the cache", and only then create the
+ * account. The priming write is account-scoped, so a full page of inbox rows landed under
+ * `accountId = ""` on every single account added — rows no account owns, that nothing ever
+ * refreshes and no label can name.
+ *
+ * So the steps are separated and ordered here, once, for all three paths:
+ *  1. [validate] proves the credentials **while writing nothing** (a session fetch / an IMAP
+ *     login), which is what keeps the rule the flow was written around — a mistyped password
+ *     must never leave an account behind;
+ *  2. [persist] creates the account (or finds the one being re-authenticated) so an id exists;
+ *  3. [prime] fills the cache with credentials **this function stamps** with that id — callers
+ *     never build them, so no path can pass a blank one, and a fourth path added later inherits
+ *     the guarantee by construction.
+ *
+ * ⛔ A FAILED PRIMING KEEPS THE ACCOUNT. Step 1 is what protects the user from a half-add: nothing
+ * is persisted until the credentials are proven, so a mistyped password still leaves nothing
+ * behind. Once they ARE proven, taking the account back out on a network hiccup costs more than it
+ * saves:
+ *  - it throws away credentials the server just accepted, over a transient failure;
+ *  - `refresh()` persists the folder list before it rethrows, so removing the account afterwards
+ *    leaves mailbox rows under an id no account owns — the very class of orphan #121 closes;
+ *  - `AccountStore.remove()` moves the current account to the first remaining one whenever the
+ *    removed id is the current one, and an add always makes the new account current. Undoing a
+ *    fourth add therefore silently moved the user off the account she was reading;
+ *  - the OAuth add path (`MailRepository.addOAuthAccount`) has always kept the account in this
+ *    exact situation, and process death produces the same "account added, inbox not loaded yet"
+ *    state anyway — which the first refresh repairs on its own, showing nothing.
+ *
+ * So the account stays and its cache fills on the next refresh; the caller gets the failure back in
+ * [PrimedAccount.primeFailure] to log. Cancellation is not a failure: it unwinds untouched, so
+ * leaving the screen mid-priming cannot be reported as an error.
+ */
+internal suspend fun addAccountThenPrime(
+    probe: AccountCredentials,
+    validate: suspend (AccountCredentials) -> Unit,
+    persist: suspend () -> AddedAccount,
+    prime: suspend (AccountCredentials) -> Unit,
+): PrimedAccount {
+    validate(probe)
+    val account = persist()
+    // The belt inside the flow: an id-less account cannot be primed, it can only be a bug.
+    check(account.id.isNotBlank()) { "Refusing to prime the cache under a blank account id." }
+    return try {
+        prime(probe.copy(id = account.id))
+        PrimedAccount(account.id)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (t: Throwable) {
+        PrimedAccount(account.id, primeFailure = t)
+    }
 }
 
 class ConnectViewModel(application: Application) : AndroidViewModel(application) {
@@ -154,20 +222,35 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                 it.protocol == MailProtocol.JMAP && it.authType == AuthType.API_TOKEN &&
                     it.server.equals(resolved, ignoreCase = true) && it.username.equals(address, ignoreCase = true)
             }
-            val credentials = AccountCredentials(resolved, address, token, id = existing?.id.orEmpty(), authType = AuthType.API_TOKEN)
-            val meta = container.mailRepository.refresh(credentials)
-            val accountId = if (existing != null) {
-                container.accountStore.updatePassword(existing.id, token)
-                container.accountStore.setCurrent(existing.id)
-                existing.id
-            } else {
-                container.accountStore.add(resolved, address, token, accountName.trim(), authType = AuthType.API_TOKEN)
-            }
-            container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
+            // Blank id on purpose, even when re-adding: the real id comes back from the persist
+            // step below and [addAccountThenPrime] stamps it onto the credentials it primes with,
+            // so a brand-new token account can no longer cache its inbox under no account (#121).
+            val probe = AccountCredentials(resolved, address, token, authType = AuthType.API_TOKEN)
+            val added = addAccountThenPrime(
+                probe = probe,
+                validate = { container.mailRepository.testConnection(it).getOrThrow() },
+                persist = {
+                    if (existing != null) {
+                        container.accountStore.updatePassword(existing.id, token)
+                        container.accountStore.setCurrent(existing.id)
+                        AddedAccount(existing.id, created = false)
+                    } else {
+                        AddedAccount(
+                            container.accountStore.add(resolved, address, token, accountName.trim(), authType = AuthType.API_TOKEN),
+                            created = true,
+                        )
+                    }
+                },
+                prime = { primeInbox(it) },
+            )
+            warnIfNotPrimed(added)
             // Surface linked sub-accounts before navigating, like the password path (#31):
             // a token login's sub-accounts resolve Bearer auth via the login.
-            container.mailRepository.reconcileLinkedAccountsAfterAdd(accountId)
+            container.mailRepository.reconcileLinkedAccountsAfterAdd(added.id)
             _state.value = ConnectState.Connected
+        } catch (cancelled: CancellationException) {
+            // Leaving the screen cancels this coroutine: not something to show an error for.
+            throw cancelled
         } catch (t: Throwable) {
             // A 401/403 with a token means the token itself was rejected — say so.
             val code = (t as? JmapException)?.httpCode
@@ -544,19 +627,61 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     private fun string(resId: Int) = getApplication<Application>().getString(resId)
     private fun string(resId: Int, vararg args: Any) = getApplication<Application>().getString(resId, *args)
 
+    /**
+     * Load an existing account's inbox into the cache and record its meta. The single entry
+     * point every add path primes through — and the only place this screen calls `refresh()`,
+     * so the credentials it writes under always carry the id [addAccountThenPrime] stamped.
+     */
+    /**
+     * An add whose first inbox load failed still added the account, and the screen goes on to
+     * [ConnectState.Connected] like any other add: the account is there, its cache fills on the
+     * first refresh — the same state a process death mid-add leaves, which the app already repairs
+     * without saying anything. Nothing to show the user, but the cause is worth a log line.
+     */
+    private fun warnIfNotPrimed(added: PrimedAccount) {
+        added.primeFailure?.let {
+            android.util.Log.w(
+                "SternaConnect",
+                "account ${added.id} was added; loading its inbox failed and will be retried on the next refresh",
+                it,
+            )
+        }
+    }
+
+    private suspend fun primeInbox(credentials: AccountCredentials) {
+        val meta = container.mailRepository.refresh(credentials)
+        container.accountStore.saveInboxMetaFor(
+            credentials.id, meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount,
+        )
+    }
+
     /** Validate against [server], persist on success. Runs in the caller's coroutine. */
     private suspend fun finishJmapConnect(server: String, username: String, password: String, accountName: String) {
         try {
-            // Validate the credentials and prime the cache by loading the inbox.
-            val credentials = AccountCredentials(server, username.trim(), password)
-            val meta = container.mailRepository.refresh(credentials)
-            // Only persist once we know they work. A blank name falls back to the address.
-            val id = container.accountStore.add(server, username, password, accountName.trim())
-            container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
+            // Blank id on purpose: this copy only ever proves the credentials. The cache is
+            // primed from the id-stamped copy [addAccountThenPrime] builds (#121).
+            val probe = AccountCredentials(server, username.trim(), password)
+            val added = addAccountThenPrime(
+                probe = probe,
+                // Writes nothing — only persist once we know they work.
+                validate = { container.mailRepository.testConnection(it).getOrThrow() },
+                // A blank name falls back to the address.
+                persist = {
+                    AddedAccount(
+                        container.accountStore.add(server, username, password, accountName.trim()),
+                        created = true,
+                    )
+                },
+                prime = { primeInbox(it) },
+            )
+            warnIfNotPrimed(added)
             // Surface linked sub-accounts before navigating, so the accounts list the flow
             // lands on is already complete (#31).
-            container.mailRepository.reconcileLinkedAccountsAfterAdd(id)
+            container.mailRepository.reconcileLinkedAccountsAfterAdd(added.id)
             _state.value = ConnectState.Connected
+        } catch (cancelled: CancellationException) {
+            // Leaving the screen cancels this coroutine: not something to show an error for.
+            throw cancelled
         } catch (t: Throwable) {
             // Fastmail's endpoint refuses password auth outright (API tokens only, #54):
             // a 401 from it gets the same steer as the inline hint, not just a bare error.
@@ -583,7 +708,8 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         _state.value = ConnectState.Connecting
         viewModelScope.launch {
             try {
-                val credentials = AccountCredentials(
+                // Blank id on purpose: proving credentials only. See [addAccountThenPrime] (#121).
+                val probe = AccountCredentials(
                     server = "",
                     username = username.trim(),
                     password = password,
@@ -591,23 +717,35 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                     imap = MailEndpoint(imapHost.trim(), imapPort, imapSecurity),
                     smtp = MailEndpoint(smtpHost.trim(), smtpPort, smtpSecurity),
                 )
-                // Validate by connecting + loading the inbox before persisting.
-                val meta = container.mailRepository.refresh(credentials)
-                container.accountStore.add(
-                    server = "",
-                    username = username,
-                    password = password,
-                    accountName = accountName.trim(),
-                    protocol = MailProtocol.IMAP,
-                    imapHost = imapHost,
-                    imapPort = imapPort,
-                    imapSecurity = imapSecurity,
-                    smtpHost = smtpHost,
-                    smtpPort = smtpPort,
-                    smtpSecurity = smtpSecurity,
+                val added = addAccountThenPrime(
+                    probe = probe,
+                    // Connects + authenticates + lists folders, without caching any of it.
+                    validate = { container.mailRepository.testConnection(it).getOrThrow() },
+                    persist = {
+                        AddedAccount(
+                            container.accountStore.add(
+                                server = "",
+                                username = username,
+                                password = password,
+                                accountName = accountName.trim(),
+                                protocol = MailProtocol.IMAP,
+                                imapHost = imapHost,
+                                imapPort = imapPort,
+                                imapSecurity = imapSecurity,
+                                smtpHost = smtpHost,
+                                smtpPort = smtpPort,
+                                smtpSecurity = smtpSecurity,
+                            ),
+                            created = true,
+                        )
+                    },
+                    prime = { primeInbox(it) },
                 )
-                container.accountStore.saveInboxMeta(meta.mailboxId, meta.mailboxName, meta.accountName, meta.unreadCount)
+                warnIfNotPrimed(added)
                 _state.value = ConnectState.Connected
+            } catch (cancelled: CancellationException) {
+                // Leaving the screen cancels this coroutine: not something to show an error for.
+                throw cancelled
             } catch (t: Throwable) {
                 // A rejected IMAP login surfaces as "LOGIN … failed" / "AUTHENTICATE …"
                 // (the command verb is redacted, so no password leaks). On those, point

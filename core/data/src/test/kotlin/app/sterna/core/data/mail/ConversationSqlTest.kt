@@ -16,6 +16,10 @@ import java.sql.DriverManager
 class ConversationSqlTest {
     private lateinit var db: Connection
 
+    /** Two same-server accounts whose inbox carries the same server-assigned id — the unified
+     *  list's scope for them: one (account, folder) pair EACH, never the shared id alone. */
+    private val BOTH_ACCOUNTS = listOf("accA" to "inbox", "accB" to "inbox")
+
     @Before fun setUp() {
         Class.forName("org.sqlite.JDBC")
         db = DriverManager.getConnection("jdbc:sqlite::memory:")
@@ -59,12 +63,22 @@ class ConversationSqlTest {
         }
     }
 
-    /** Run the grouping SQL for a single "inbox" mailbox; returns rows as maps. */
-    private fun run(sort: SortOrder = SortOrder.DATE_DESC, unreadOnly: Boolean = false): List<Map<String, Any?>> {
-        val sql = conversationSql(mailboxCount = 1, sort = sort, unreadOnly = unreadOnly)
+    /**
+     * Run the grouping SQL over [scopes] — (account id, mailbox id) pairs, as the app binds them
+     * ([conversationQuery]); the default is the single-account "acc"/"inbox" fixture. Returns rows
+     * as maps.
+     */
+    private fun run(
+        sort: SortOrder = SortOrder.DATE_DESC,
+        unreadOnly: Boolean = false,
+        scopes: List<Pair<String, String>> = listOf("acc" to "inbox"),
+    ): List<Map<String, Any?>> {
+        val sql = conversationSql(scopeCount = scopes.size, sort = sort, unreadOnly = unreadOnly)
         return db.prepareStatement(sql).use { ps ->
-            // in-view sub-query, in-view count sub-query, outer WHERE — each binds "inbox".
-            ps.setString(1, "inbox"); ps.setString(2, "inbox"); ps.setString(3, "inbox")
+            // in-view sub-query, in-view count sub-query, outer WHERE — each binds every scope,
+            // account id first.
+            val args = (1..3).flatMap { scopes.flatMap { (acc, mb) -> listOf(acc, mb) } }
+            args.forEachIndexed { i, a -> ps.setString(i + 1, a) }
             ps.executeQuery().use { rs ->
                 buildList {
                     while (rs.next()) {
@@ -125,27 +139,12 @@ class ConversationSqlTest {
         insert("a1", threadId = null, seen = 1, flagged = 0, sortKey = 100, accountId = "accA")
         insert("b1", threadId = null, seen = 1, flagged = 0, sortKey = 200, accountId = "accB")
 
-        val sql = conversationSql(mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false, hasAccountId = true)
-        val rows = db.prepareStatement(sql).use { ps ->
-            // in-view (mailbox, accountId), in-view count (mailbox, accountId), outer (mailbox, accountId).
-            ps.setString(1, "inbox"); ps.setString(2, "accA")
-            ps.setString(3, "inbox"); ps.setString(4, "accA")
-            ps.setString(5, "inbox"); ps.setString(6, "accA")
-            ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
-        }
-        assertEquals(listOf("a1"), rows) // only account A's mail; b1 is excluded
+        assertEquals(listOf("a1"), runScoped("accA")) // only account A's mail; b1 is excluded
     }
 
     /** Single-account bound run for [accountId]'s "inbox"; returns the row ids. */
-    private fun runScoped(accountId: String): List<String> {
-        val sql = conversationSql(mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false, hasAccountId = true)
-        return db.prepareStatement(sql).use { ps ->
-            ps.setString(1, "inbox"); ps.setString(2, accountId)
-            ps.setString(3, "inbox"); ps.setString(4, accountId)
-            ps.setString(5, "inbox"); ps.setString(6, accountId)
-            ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
-        }
-    }
+    private fun runScoped(accountId: String): List<String> =
+        run(scopes = listOf(accountId to "inbox")).map { it["id"] as String }
 
     @Test fun sameEmailIdAcrossAccountsStaysScoped() {
         // Two sub-accounts of one login (issue #31) whose server minted the SAME email id
@@ -174,13 +173,12 @@ class ConversationSqlTest {
      *  account-pinned ("acc", "sent") pair. */
     private fun runWithSent(): List<Map<String, Any?>> {
         val sql = conversationSql(
-            mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false,
-            hasAccountId = true, sentMailboxCount = 1,
+            scopeCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false, sentMailboxCount = 1,
         )
         return db.prepareStatement(sql).use { ps ->
-            ps.setString(1, "inbox"); ps.setString(2, "acc") // in-view sub-query g
-            ps.setString(3, "inbox"); ps.setString(4, "acc"); ps.setString(5, "sent"); ps.setString(6, "acc") // chip c
-            ps.setString(7, "inbox"); ps.setString(8, "acc") // outer WHERE
+            ps.setString(1, "acc"); ps.setString(2, "inbox") // in-view sub-query g
+            ps.setString(3, "acc"); ps.setString(4, "inbox"); ps.setString(5, "acc"); ps.setString(6, "sent") // chip c
+            ps.setString(7, "acc"); ps.setString(8, "inbox") // outer WHERE
             ps.executeQuery().use { rs ->
                 buildList {
                     while (rs.next()) {
@@ -255,7 +253,7 @@ class ConversationSqlTest {
         insert("a1", threadId = "T1", seen = 0, flagged = 0, sortKey = 200, accountId = "accA")
         insert("b1", threadId = "T1", seen = 1, flagged = 0, sortKey = 100, accountId = "accB")
 
-        val rows = run()
+        val rows = run(scopes = BOTH_ACCOUNTS)
         assertEquals(2, rows.size)
         assertEquals("a1", rows[0]["id"])
         assertEquals(1, rows[0]["threadCount"]) // accB's b1 must not inflate the chip
@@ -275,7 +273,7 @@ class ConversationSqlTest {
         insert("b1", threadId = "T1", seen = 1, flagged = 0, sortKey = 200, accountId = "accB")
         insert("b2", threadId = "T1", seen = 1, flagged = 0, sortKey = 300, accountId = "accB")
 
-        val rows = run()
+        val rows = run(scopes = BOTH_ACCOUNTS)
         assertEquals(2, rows.size)
         // One representative per (account, thread), each with its own count and unread state.
         assertEquals("a2", rows[0]["id"])
@@ -292,7 +290,7 @@ class ConversationSqlTest {
         insert("a1", threadId = "T1", seen = 1, flagged = 0, sortKey = 400, accountId = "accA")
         insert("b1", threadId = "T1", seen = 0, flagged = 0, sortKey = 100, accountId = "accB")
 
-        val rows = run(unreadOnly = true)
+        val rows = run(unreadOnly = true, scopes = BOTH_ACCOUNTS)
         assertEquals(listOf("b1"), rows.map { it["id"] })
     }
 
@@ -302,7 +300,7 @@ class ConversationSqlTest {
         insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 200, accountId = "accA")
         insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 100, accountId = "accB")
 
-        assertEquals(2, run().size)
+        assertEquals(2, run(scopes = BOTH_ACCOUNTS).size)
     }
 
     @Test fun sentPairDoesNotLeakACollidingMailboxIdAcrossAccounts() {
@@ -316,13 +314,14 @@ class ConversationSqlTest {
         insert("bx", threadId = "T2", seen = 1, flagged = 0, sortKey = 250, mailbox = "X", accountId = "accB")
 
         val sql = conversationSql(
-            mailboxCount = 1, sort = SortOrder.DATE_DESC, unreadOnly = false,
-            hasAccountId = false, sentMailboxCount = 1,
+            scopeCount = 2, sort = SortOrder.DATE_DESC, unreadOnly = false, sentMailboxCount = 1,
         )
         val rows = db.prepareStatement(sql).use { ps ->
-            ps.setString(1, "inbox") // in-view sub-query g
-            ps.setString(2, "inbox"); ps.setString(3, "accB"); ps.setString(4, "X") // chip c: view + accB's Sent pair
-            ps.setString(5, "inbox") // outer WHERE
+            ps.setString(1, "accA"); ps.setString(2, "inbox"); ps.setString(3, "accB"); ps.setString(4, "inbox") // g
+            // chip c: both accounts' inboxes + accB's Sent pair
+            ps.setString(5, "accA"); ps.setString(6, "inbox"); ps.setString(7, "accB"); ps.setString(8, "inbox")
+            ps.setString(9, "accB"); ps.setString(10, "X")
+            ps.setString(11, "accA"); ps.setString(12, "inbox"); ps.setString(13, "accB"); ps.setString(14, "inbox") // outer
             ps.executeQuery().use { rs ->
                 buildList { while (rs.next()) add(rs.getString("id") to rs.getInt("threadCount")) }
             }
@@ -402,45 +401,40 @@ class ConversationSqlTest {
 
         // The star pins inside the filtered set; it does not smuggle a read message back in.
         assertEquals(listOf("fu", "pu"), ids(run(SortOrder.FLAGGED_FIRST, unreadOnly = true)))
-        assertEquals(listOf("fu", "pu"), runFlat("inbox", sort = SortOrder.FLAGGED_FIRST, unreadOnly = true))
+        assertEquals(listOf("fu", "pu"), runFlat("acc" to "inbox", sort = SortOrder.FLAGGED_FIRST, unreadOnly = true))
     }
 
     // -- flat (uncollapsed) mode, colliding mailbox ids -----------------------------------
     //
     // Conversation mode is exercised above; the same views also run FLAT, through a different
-    // query ([pagingSql]), and the unified inbox binds its mailbox ids there with NO account
-    // filter. Stalwart numbers mailboxes per account from "a", so on one server EVERY account's
-    // Inbox is "a", its Trash "b", its Junk "c" — the ids collide wholesale, which is what makes
-    // this worth pinning rather than assuming (Codeberg #107 probe).
+    // query ([pagingSql]), which carried the same defect and is fixed the same way. Stalwart
+    // numbers mailboxes per account from "a", so on one server EVERY account's Inbox is "a", its
+    // Trash "b", its Junk "c" — the ids collide wholesale, which is what makes this worth pinning
+    // rather than assuming (Codeberg #107 probe, #121 fix).
 
-    /** Flat list over [mailboxes]; [accountId] non-null pins it to one account (folder view),
-     *  null leaves it unpinned (the unified inbox). Bind order: mailboxes, then account. */
+    /** Flat list over [scopes] — (account id, mailbox id) pairs, one for a folder view, one per
+     *  account for the unified inbox. Bind order per scope: account id, then mailbox id. */
     private fun runFlat(
-        vararg mailboxes: String,
-        accountId: String? = null,
+        vararg scopes: Pair<String, String>,
         sort: SortOrder = SortOrder.DATE_DESC,
         unreadOnly: Boolean = false,
     ): List<String> {
-        val sql = pagingSql(
-            mailboxCount = mailboxes.size,
-            sort = sort,
-            unreadOnly = unreadOnly,
-            hasAccountId = accountId != null,
-        )
+        val sql = pagingSql(scopeCount = scopes.size, sort = sort, unreadOnly = unreadOnly)
         return db.prepareStatement(sql).use { ps ->
-            mailboxes.forEachIndexed { i, m -> ps.setString(i + 1, m) }
-            accountId?.let { ps.setString(mailboxes.size + 1, it) }
+            scopes.flatMap { listOf(it.first, it.second) }
+                .forEachIndexed { i, a -> ps.setString(i + 1, a) }
             ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
         }
     }
 
     @Test fun flatUnifiedSpansAccountsThatShareTheirInboxId() {
-        // The intended case, and the reason the unified bind is unpinned: ten Stalwart accounts
-        // all call their Inbox "a", so ONE bound id must surface all ten accounts' inboxes.
+        // The intended case: ten Stalwart accounts all call their Inbox "a", and all ten must
+        // surface. They do because ten PAIRS are bound, one per account — not because the account
+        // is left out of the filter.
         insert("a1", threadId = null, seen = 0, flagged = 0, sortKey = 100, mailbox = "a", accountId = "accA")
         insert("b1", threadId = null, seen = 0, flagged = 0, sortKey = 200, mailbox = "a", accountId = "accB")
 
-        assertEquals(listOf("b1", "a1"), runFlat("a"))
+        assertEquals(listOf("b1", "a1"), runFlat("accA" to "a", "accB" to "a"))
     }
 
     @Test fun flatFolderViewStaysPinnedToItsOwnAccount() {
@@ -449,24 +443,20 @@ class ConversationSqlTest {
         insert("a1", threadId = null, seen = 0, flagged = 0, sortKey = 100, mailbox = "a", accountId = "accA")
         insert("b1", threadId = null, seen = 0, flagged = 0, sortKey = 200, mailbox = "a", accountId = "accB")
 
-        assertEquals(listOf("a1"), runFlat("a", accountId = "accA"))
-        assertEquals(listOf("b1"), runFlat("a", accountId = "accB"))
+        assertEquals(listOf("a1"), runFlat("accA" to "a"))
+        assertEquals(listOf("b1"), runFlat("accB" to "a"))
     }
 
-    @Test fun flatUnifiedSelectsOnTheMailboxIdStringAloneAcrossRoles() {
-        // The structural cost of the unpinned bind, stated plainly: the unified inbox matches the
-        // id STRING, not "this account's Inbox". A row filed under ANOTHER account's folder that
-        // carries the bound id is listed as if it were inbox mail.
-        //
-        // This is a characterisation test — it asserts what the shipped query does today, and it
-        // passes on the pre-probe tree. What it also shows is the bound on the defect: it needs a
-        // CROSS-ROLE collision, and Stalwart cannot produce one, because it creates the Inbox
-        // first in every account, so "a" is the Inbox everywhere and a Trash is never "a". The
-        // leak is real in the query and unreachable on this reporter's server.
+    @Test fun flatUnifiedDoesNotSelectOnTheMailboxIdStringAloneAcrossRoles() {
+        // Was a characterisation test of the defect, and is now its assertion the other way round.
+        // The unified list used to match the id STRING, not "this account's Inbox": a row filed
+        // under ANOTHER account's folder that happened to carry the bound id was listed as if it
+        // were inbox mail. Binding the pair ends it — accB's Trash is not in the scope, so its
+        // row is not in the list, whatever accB numbered that folder.
         insert("inbox1", threadId = null, seen = 0, flagged = 0, sortKey = 100, mailbox = "a", accountId = "accA")
         insert("trash1", threadId = null, seen = 0, flagged = 0, sortKey = 200, mailbox = "a", accountId = "accB")
 
-        assertEquals(listOf("trash1", "inbox1"), runFlat("a"))
+        assertEquals(listOf("inbox1"), runFlat("accA" to "a"))
     }
 
     @Test fun flatUnifiedKeepsBothRowsWhenTheEmailIdsCollideToo() {
@@ -475,8 +465,8 @@ class ConversationSqlTest {
         insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 100, mailbox = "a", accountId = "accA")
         insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 200, mailbox = "a", accountId = "accB")
 
-        assertEquals(listOf("e1", "e1"), runFlat("a"))
-        assertEquals(listOf("e1"), runFlat("a", accountId = "accA"))
+        assertEquals(listOf("e1", "e1"), runFlat("accA" to "a", "accB" to "a"))
+        assertEquals(listOf("e1"), runFlat("accA" to "a"))
     }
 
     @Test fun flatSnoozeStaysScopedToItsAccountAcrossACollidingId() {
@@ -486,9 +476,57 @@ class ConversationSqlTest {
         insert("e1", threadId = null, seen = 0, flagged = 0, sortKey = 200, mailbox = "a", accountId = "accB")
         snooze("e1", untilMillis = Long.MAX_VALUE, accountId = "accA")
 
-        assertEquals(listOf("e1"), runFlat("a"))                     // only accB's survives…
-        assertEquals(listOf("e1"), runFlat("a", accountId = "accB")) // …and it is accB's
-        assertEquals(emptyList<String>(), runFlat("a", accountId = "accA"))
+        assertEquals(listOf("e1"), runFlat("accA" to "a", "accB" to "a")) // only accB's survives…
+        assertEquals(listOf("e1"), runFlat("accB" to "a"))                // …and it is accB's
+        assertEquals(emptyList<String>(), runFlat("accA" to "a"))
+    }
+
+    // -- the reported defect: a row whose account is gone (Codeberg #121) ------------------
+    //
+    // Fastmail (JMAP) + Mail.ru (IMAP), "All inboxes": some messages appeared TWICE — once with
+    // their account chip, in the right state, and once without a chip, bold and starred. The
+    // unlabelled twin is a row of an account that is no longer configured: its mailbox id came
+    // from the server and survived the account being removed and added back, while the account id
+    // is a locally minted UUID and did not. Scoped on the folder id alone, the old rows stayed in
+    // the list; the chip is resolved per account (InboxScreen), so they drew none.
+    //
+    // Each case below has its WITNESS: the same row under a KNOWN account, which must still be
+    // listed. Without it a query that returned nothing at all would pass just as well.
+
+    /** One message per account in the same server-numbered inbox — accA is configured, "gone" is
+     *  the account the user removed. */
+    private fun anOrphanBesideItsTwin() {
+        insert("live", threadId = null, seen = 1, flagged = 0, sortKey = 100, mailbox = "a", accountId = "accA")
+        insert("ghost", threadId = null, seen = 0, flagged = 1, sortKey = 200, mailbox = "a", accountId = "gone")
+    }
+
+    @Test fun conversationUnifiedDropsRowsOfAnAccountThatNoLongerExists() {
+        anOrphanBesideItsTwin()
+
+        assertEquals(listOf("live"), run(scopes = listOf("accA" to "a")).map { it["id"] })
+    }
+
+    @Test fun conversationUnifiedStillListsTheSameRowUnderAKnownAccount() {
+        // The witness for the case above: "gone" listed once it IS a configured account.
+        anOrphanBesideItsTwin()
+
+        assertEquals(
+            listOf("ghost", "live"),
+            run(scopes = listOf("accA" to "a", "gone" to "a")).map { it["id"] },
+        )
+    }
+
+    @Test fun flatUnifiedDropsRowsOfAnAccountThatNoLongerExists() {
+        // Both modes, or the ghosts come back by switching the list to flat.
+        anOrphanBesideItsTwin()
+
+        assertEquals(listOf("live"), runFlat("accA" to "a"))
+    }
+
+    @Test fun flatUnifiedStillListsTheSameRowUnderAKnownAccount() {
+        anOrphanBesideItsTwin()
+
+        assertEquals(listOf("ghost", "live"), runFlat("accA" to "a", "gone" to "a"))
     }
 
     // -- flat mode: sort orders and the favourite pin (issue #111) -------------------------
@@ -502,16 +540,16 @@ class ConversationSqlTest {
     @Test fun flatOrdersDoNotPinFavourites() {
         insertSortFixture()
 
-        assertEquals(listOf("s2", "p", "s"), runFlat("inbox", sort = SortOrder.DATE_DESC))
-        assertEquals(listOf("s", "p", "s2"), runFlat("inbox", sort = SortOrder.DATE_ASC))
-        assertEquals(listOf("p", "s2", "s"), runFlat("inbox", sort = SortOrder.SUBJECT))
-        assertEquals(listOf("p", "s2", "s"), runFlat("inbox", sort = SortOrder.SENDER))
-        assertEquals(listOf("p", "s2", "s"), runFlat("inbox", sort = SortOrder.UNREAD_FIRST))
+        assertEquals(listOf("s2", "p", "s"), runFlat("acc" to "inbox", sort = SortOrder.DATE_DESC))
+        assertEquals(listOf("s", "p", "s2"), runFlat("acc" to "inbox", sort = SortOrder.DATE_ASC))
+        assertEquals(listOf("p", "s2", "s"), runFlat("acc" to "inbox", sort = SortOrder.SUBJECT))
+        assertEquals(listOf("p", "s2", "s"), runFlat("acc" to "inbox", sort = SortOrder.SENDER))
+        assertEquals(listOf("p", "s2", "s"), runFlat("acc" to "inbox", sort = SortOrder.UNREAD_FIRST))
     }
 
     @Test fun flatFavouritesFirstPinsWhenChosen() {
         insertSortFixture()
 
-        assertEquals(listOf("s2", "s", "p"), runFlat("inbox", sort = SortOrder.FLAGGED_FIRST))
+        assertEquals(listOf("s2", "s", "p"), runFlat("acc" to "inbox", sort = SortOrder.FLAGGED_FIRST))
     }
 }

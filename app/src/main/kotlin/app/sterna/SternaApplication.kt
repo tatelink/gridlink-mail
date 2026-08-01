@@ -81,6 +81,17 @@ class AppContainer(context: Context) {
         mailRepository.onMailboxRenumbered = { accountId, mailboxId ->
             app.sterna.push.NewMailNotifier.clear(appContext, accountId, mailboxId)
         }
+        // Catch-up sweep of cached mail belonging to accounts that no longer exist (Codeberg
+        // #121) — rows a removed account left behind, which nothing syncs, nothing prunes and no
+        // action can reach. The account list is handed over as a READER, not as a list: the sweep
+        // calls it after it has taken its inventory, so an account created while the database was
+        // opening (a shared mailbox discovered by the first refresh, #31) is already in it and
+        // cannot be mistaken for an orphan. An empty list sweeps nothing (OrphanedAccountCache):
+        // purging before the accounts are known would wipe a healthy install's whole cache.
+        appScope.launch {
+            runCatching { storageRepository.purgeOrphanedAccounts { accountStore.accounts().map { it.id } } }
+                .onFailure { android.util.Log.w("Sterna", "orphaned-cache sweep failed; retried next start", it) }
+        }
         // Re-arm any send left mid-flight (WorkManager persists jobs, but re-checking is a safety net).
         appScope.launch {
             // First rescue any row stranded in EDITING by a process death mid-edit (#70): its

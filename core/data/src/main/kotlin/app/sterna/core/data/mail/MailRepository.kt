@@ -199,28 +199,154 @@ internal fun excludedSearchFolderIds(folders: List<MailboxIdRole>): List<String>
 
 internal val NOT_SEARCHED_ROLES = setOf("trash", "junk", "spam")
 
+/** What an action that MOVED NOTHING does with the search-index row — see [noOpEvictionFor]. */
+internal enum class NoOpEviction {
+    /** Drop the cached row, LEAVE the index row: the message is still in a folder a search looks at,
+     *  so the row is still true and nothing would bring it back if it were taken. */
+    SPARE_INDEX_ROW,
+
+    /** Take both rows: the folder is one no search looks at, where a spared row covers nothing and
+     *  no re-seed can ever clear it. */
+    TAKE_INDEX_ROW,
+}
+
 /**
- * Whether an IMAP search answer may be presented as a TOTAL rather than as "what was found".
+ * Which eviction an action that MOVED NOTHING must use, given the folder the message stayed in
+ * ([mailboxId], with its [role]): the index row may stay only where a search looks.
  *
- * Three independent ways it may not be, all of which the screen treats identically ("at least N",
- * and never the flat "No results" of an empty answer):
- *  - [knownFolders] is empty, so the walk ran on the inbox alone as a fallback (or on nothing at
- *    all). "The whole account" was really a cached fraction of it, and a search that gathers —
- *    "flagged only" above all — would then hide every star filed in a folder never synced. This
- *    is the same objection that kept this feature out of the navigation drawer: a view that
- *    announces "your flagged mail" and shows part of it lies.
- *  - [walkComplete] is false: a folder refused to be searched, or an attachment scan hit its cap.
- *  - the walk filled the caller's cap ([found] = [limit]), so the server may have had more.
+ * The index row of a message that never left a SEARCHABLE folder is still true, and taking it would
+ * cost offline coverage nothing brings back — the whole point of `MailRepository.evictAlreadyThere`.
+ * In Trash/Junk/Spam there is nothing to preserve: the index does not cover them at either end (the
+ * crawl and the re-seed skip them, the query filters them out), so the surviving row is an orphan
+ * whose message is no longer cached — and `EmailFtsDao.seedFromEmails` only rewrites rows whose
+ * message IS cached, so no re-seed ever clears it. It stays hidden only while the folder cache still
+ * knows that folder's role; a folder renamed or dropped server-side, or a cache reset, and the
+ * message comes back in the results for good.
  *
- * Named and pure so all three are pinned by a test; inline at the call site, dropping one was
- * invisible.
+ * A function rather than an `if` inside `evictAlreadyThere`, and a named decision rather than a
+ * boolean, so the rule can be CALLED — by the caller and by its test alike. A test that has to
+ * restate "and this is what that boolean means" is testing its own copy of the rule, and the copy
+ * stays green when the shipped condition is inverted.
+ *
+ * Decided through [excludedSearchFolderIds], not against a second copy of [NOT_SEARCHED_ROLES]: same
+ * function the index crawl and the search filter use, down to the trim/lowercase, so this rule
+ * cannot drift from what a search actually covers. A folder the cache knows no role for spares the
+ * row, which is the harmless direction (a true index row in a folder that IS searched).
+ */
+internal fun noOpEvictionFor(mailboxId: String, role: String?): NoOpEviction =
+    if (excludedSearchFolderIds(listOf(MailboxIdRole(mailboxId, role))).isEmpty()) {
+        NoOpEviction.SPARE_INDEX_ROW
+    } else {
+        NoOpEviction.TAKE_INDEX_ROW
+    }
+
+/**
+ * Which of [ids] the cache says were ALREADY in [mailboxId] — the part of a bulk move that moved
+ * nothing, told from the part that moved (`MailRepository.jmapMoveAll`).
+ *
+ * The server cannot be asked: an `Email/set` that files a message into the folder it is in succeeds
+ * like any other, so the two are indistinguishable in the response. [rows] are the cached rows read
+ * before the move, within the acting account (issue #31: an id is unique only inside its account).
+ * An id with no cached row is NOT counted as a no-op — where it sat is unknown, and the conservative
+ * answer is the one that takes the index row.
+ */
+internal fun idsAlreadyIn(rows: List<EmailEntity>, ids: Set<String>, mailboxId: String): List<String> =
+    rows.filter { it.id in ids && it.mailboxId == mailboxId }.map { it.id }
+
+/**
+ * Whether a search answer may be presented as a TOTAL ("3 results") rather than as a floor
+ * ("at least 3" — and never the flat "No results" that an empty answer would otherwise state as a
+ * fact). Protocol-independent: IMAP walks folders, JMAP queries the account in one shot, and both
+ * answer the same three questions.
+ *
+ * All three must hold, and the screen treats the three failures identically:
+ *  - [scopeCoversAccount]: the search looked at the ACCOUNT, not at a fraction of it. A search that
+ *    gathers — "flagged only" above all — would otherwise hide every star filed in a folder that was
+ *    never synced. This is the same objection that kept that view out of the navigation drawer: a
+ *    screen announcing "your flagged mail" while showing part of it lies.
+ *  - [scanComplete]: the search ran to its end. A folder can refuse to be searched, an attachment
+ *    scan can stop on its own cap.
+ *  - [found] < [limit]: the answer did not fill the caller's cap, so the server had no more to give.
+ *
+ * ⚠ [scopeCoversAccount] is a fact about the account's FOLDER LIST, never about a list DERIVED from
+ * it. "The cache told us nothing" and "the cache told us there is nothing to leave out" are two
+ * different states, and an empty derived list cannot tell them apart: an account with no Trash and
+ * no Junk folder has an empty exclusion list while its folder cache is perfectly populated, and
+ * reading emptiness off that list would deny it a total forever. Each protocol therefore derives the
+ * fact its own way and passes the ANSWER here — see [imapSearchComplete] for how the IMAP walk
+ * derives it, which is not the same question as the one a whole-account query has to ask.
+ *
+ * Named and pure so each reason is pinned by a test on its own; inline at a call site, dropping one
+ * was invisible.
+ */
+internal fun searchAnswerIsTotal(
+    scopeCoversAccount: Boolean,
+    scanComplete: Boolean,
+    found: Int,
+    limit: Int,
+): Boolean = scopeCoversAccount && scanComplete && found < limit
+
+/**
+ * [searchAnswerIsTotal] as the IMAP walk asks it.
+ *
+ * IMAP derives "did we cover the account?" from [knownFolders], the searchable ids the walk was
+ * BUILT from: when that list is empty the walk falls back to the inbox alone (or to nothing at all),
+ * so whatever came back describes one folder rather than the account. That is the derived list on
+ * purpose here — an account whose only cached folders are Trash and Junk has nothing left to walk
+ * and lands on the same fallback, which the raw folder list would not show.
  */
 internal fun imapSearchComplete(
     knownFolders: List<String>,
     walkComplete: Boolean,
     found: Int,
     limit: Int,
-): Boolean = knownFolders.isNotEmpty() && walkComplete && found < limit
+): Boolean = searchAnswerIsTotal(
+    scopeCoversAccount = knownFolders.isNotEmpty(),
+    scanComplete = walkComplete,
+    found = found,
+    limit = limit,
+)
+
+/**
+ * [searchAnswerIsTotal] as a whole-account JMAP query asks it.
+ *
+ * JMAP never walks: one `Email/query` covers the account, and the folders it must LEAVE OUT
+ * (Trash/Junk) travel with the query as `inMailboxOtherThan` ids read from the folder cache. So the
+ * cache decides the scope here too, in the mirror image of the IMAP walk: with nothing cached the
+ * search does not shrink to one folder, it spreads to the whole account, Trash and Junk included.
+ * Either way the number on screen counts something other than what the screen says it shows — a
+ * deleted message the app promised to keep out of results — so it may not be stated as a total.
+ *
+ * ⚠ [cachedFolders] is the RAW list from [MailboxDao.searchOrder], never the exclusion list derived
+ * from it: an account with neither Trash nor Junk excludes nothing while its cache is complete, and
+ * reading the emptiness off the derived list would deny that account a total forever. See the
+ * warning on [searchAnswerIsTotal].
+ *
+ * [searchAnswerIsTotal]'s scan question is answered by the gap between the two counts a search comes
+ * back with. There is no local pass to interrupt here — every criterion is evaluated server-side,
+ * unlike the IMAP attachment scan that can stop on its own cap — but the answer can still be SHORT:
+ * `Email/query` matches ids and `Email/get` fetches objects, and the get returns fewer when the
+ * server caps it (`maxObjectsInGet`) or when a message is destroyed between the two, which travel in
+ * one request but not in one instant. The crawl already draws that distinction (`CrawlPage`, and
+ * [MailRepository.syncSearchIndex] paginating on its `queryCount` for exactly this reason). So
+ * [fetched] < [matchedIds] means the list in hand is not the set that matched, and a null
+ * [matchedIds] means the server never said how many matched — neither may be dressed as a total, and
+ * the second above all: it is the one that would state "No results" as a fact.
+ *
+ * The cap is judged on [matchedIds] too, not on what came back: a query that matched exactly [limit]
+ * ids stopped at the caller's cap even if the get then handed back one object fewer.
+ */
+internal fun jmapSearchComplete(
+    cachedFolders: List<MailboxIdRole>,
+    matchedIds: Int?,
+    fetched: Int,
+    limit: Int,
+): Boolean = searchAnswerIsTotal(
+    scopeCoversAccount = cachedFolders.isNotEmpty(),
+    scanComplete = matchedIds != null && fetched >= matchedIds,
+    found = matchedIds ?: fetched,
+    limit = limit,
+)
 
 internal fun requireSingleLineAddresses(addresses: List<String>) {
     require(addresses.none { addr -> addr.any { it == '\r' || it == '\n' } }) {
@@ -290,40 +416,58 @@ private const val SET_SEEN_BATCH = 500
  * [SortOrder.FLAGGED_FIRST], that the reader chooses.
  */
 private fun pagingQuery(
-    mailboxIds: List<String>,
+    // The folders this list covers, as (account id, mailbox id) PAIRS — one for a single-folder
+    // view, one per account for the unified inbox. See [folderScopeSql] for why never bare ids.
+    scopes: List<Pair<String, String>>,
     sort: SortOrder,
     unreadOnly: Boolean,
-    // Single-account folder views pass the account id so the query can't pick up
-    // another account's rows when two accounts share a server-assigned mailbox id
-    // (Stalwart numbers mailboxes per-account, so different accounts' inboxes collide).
-    // Unified views leave it null to span all accounts.
-    accountId: String? = null,
 ): SimpleSQLiteQuery = SimpleSQLiteQuery(
-    pagingSql(mailboxIds.size, sort, unreadOnly, accountId != null),
-    (mailboxIds + listOfNotNull(accountId)).toTypedArray(),
+    pagingSql(scopes.size, sort, unreadOnly),
+    scopes.flatMap { listOf(it.first, it.second) }.toTypedArray(),
 )
+
+/**
+ * The folder scope of a list query, for rows of [table] (a table name or an alias in scope): a
+ * disjunction of (account id, mailbox id) PAIRS, `(accountId = ? AND mailboxId = ?) OR …`.
+ * Bind order per scope: the ACCOUNT id, then the mailbox id.
+ *
+ * Pairs, never bare mailbox ids, and this is the whole of Codeberg #121. A mailbox id is assigned
+ * by the server and unique only within its account, so a bare `mailboxId IN (…)` selects on the id
+ * STRING alone. Two things then leak into the unified list:
+ *
+ *  - a sibling account's folder carrying the same id (servers number folders per account —
+ *    Stalwart hands every account an Inbox "a", a Trash "b"…), listed as if it were inbox mail;
+ *  - the rows of an account that no longer exists. Their mailbox id comes from the server and
+ *    survives a remove-and-re-add, while the local account id is a fresh UUID, so the old rows
+ *    stay inside a bare scope forever — with no account to label them (InboxScreen renders no chip
+ *    for an unknown account id), no account to sync them, and no account to act on them. That is
+ *    the reported symptom: a bold, unlabelled twin above the real row.
+ *
+ * The rest of the code already reads this way — AccountStore.allInboxScopes, the unread badge,
+ * the bulk-action scopes, the Sent pairs of the chip. The list was the last bare-id reader.
+ *
+ * A zero-scope query selects nothing (`0`) rather than emitting invalid SQL; callers page nothing
+ * in that case anyway.
+ */
+internal fun folderScopeSql(scopeCount: Int, table: String): String =
+    if (scopeCount == 0) "0" else List(scopeCount) { "($table.accountId = ? AND $table.mailboxId = ?)" }.joinToString(" OR ")
 
 /**
  * The flat (uncollapsed) list SQL — pure, so it is unit-tested against real SQLite like
  * [conversationSql].
  *
- * Bind order: the mailbox ids, then the account id when [hasAccountId].
+ * Bind order: [scopeCount] (account id, mailbox id) pairs, account id first — see [folderScopeSql].
  *
- * [hasAccountId] is what separates the two callers, and the difference is deliberate: a
- * single-folder view pins its account, so a same-server sibling whose server-assigned mailbox id
- * collides can never leak in; the unified inbox binds the ids BARE, because its whole job is to
- * span accounts. That bare binding selects on the id STRING alone, so it also picks up any other
- * account's folder carrying the same id — see ConversationSqlTest's flat-mode cases for what that
- * does and does not cost.
+ * Both callers bind the same way, and that is deliberate: a single-folder view passes its one
+ * (account, folder) pair, the unified inbox passes one pair per account. Spanning accounts is a
+ * matter of HOW MANY pairs are bound, never of dropping the account from the filter.
  */
 internal fun pagingSql(
-    mailboxCount: Int,
+    scopeCount: Int,
     sort: SortOrder,
     unreadOnly: Boolean,
-    hasAccountId: Boolean,
 ): String {
-    val placeholders = List(mailboxCount) { "?" }.joinToString(",")
-    val accountFilter = if (hasAccountId) " AND accountId = ?" else ""
+    val scope = folderScopeSql(scopeCount, "emails")
     val seenFilter = if (unreadOnly) " AND seen = 0" else ""
     val orderBy = when (sort) {
         SortOrder.DATE_DESC -> "sortKey DESC"
@@ -335,7 +479,7 @@ internal fun pagingSql(
     }
     // Hide messages snoozed into the future (re-appear once their time passes).
     val notSnoozed = " AND ${notSnoozedSql("emails")}"
-    return "SELECT * FROM emails WHERE mailboxId IN ($placeholders)$accountFilter$seenFilter$notSnoozed ORDER BY $orderBy"
+    return "SELECT * FROM emails WHERE ($scope)$seenFilter$notSnoozed ORDER BY $orderBy"
 }
 
 /**
@@ -346,28 +490,44 @@ internal fun pagingSql(
  * whether the in-view part is unread. The account-wide cached total rides along only to keep
  * the row expandable when the rest of the thread sits elsewhere.
  * [unreadOnly] keeps threads whose in-view part is unread.
+ *
+ * `internal` rather than private so a test can run the ASSEMBLY — this statement and these binds,
+ * in this order — and not a retyped copy of it: the bind order below is invisible to the compiler
+ * and a query bound one argument off answers a different question in silence.
  */
-private fun conversationQuery(
-    mailboxIds: List<String>,
+internal fun conversationQuery(
+    // The folders this list covers, as (account id, mailbox id) PAIRS — see [folderScopeSql].
+    scopes: List<Pair<String, String>>,
     sort: SortOrder,
     unreadOnly: Boolean,
-    accountId: String? = null,
+    // The single account a folder view is pinned to, or null for the unified list. It no longer
+    // filters the rows — [scopes] carries an account per folder now — and is kept for the ONE
+    // thing left that needs to know: which Sent folders belong to the view's account.
+    accountId: String?,
     // Each account's Sent folder as an (accountId, mailboxId) PAIR: binding bare Sent ids
     // across accounts would let a colliding mailbox id (an account's folder whose id equals a
     // sibling's Sent id) inflate that account's chip in the unified view.
-    sentMailboxes: List<Pair<String, String>> = emptyList(),
+    //
+    // NO DEFAULT, deliberately: omitting it compiled, and produced a chip that counted no Sent
+    // reply while the unfolded list showed one — the very divergence this whole path exists to
+    // prevent, reintroduced by a missing argument. Callers that mean "no Sent scope" say
+    // emptyList() where a reader can see them say it.
+    sentMailboxes: List<Pair<String, String>>,
 ): SimpleSQLiteQuery {
-    // Bind order matches the clauses left-to-right in the SQL: the in-view sub-query binds
-    // the mailbox ids [+ account id]; the chip count sub-query binds the mailbox ids, then
-    // (accountId, sentId) per Sent pair [+ account id]; the outer WHERE binds like the
-    // in-view sub-query; the account-wide total sub-query binds nothing (it is scoped by
-    // joining on the representative's accountId).
-    val sent = sentMailboxes.distinct()
-    val perClause = mailboxIds + listOfNotNull(accountId)
-    val chipClause = mailboxIds + sent.flatMap { listOf(it.first, it.second) } + listOfNotNull(accountId)
+    // Bind order matches the clauses left-to-right in the SQL, and EVERY clause now binds the
+    // same shape — (accountId, mailboxId) per scope, account first: the in-view sub-query binds
+    // the scopes; the chip count sub-query binds the scopes, then (accountId, sentId) per Sent
+    // pair; the outer WHERE binds like the in-view sub-query; the account-wide total sub-query
+    // binds nothing (it is scoped by joining on the representative's accountId).
+    // The chip's Sent scope comes from [ConversationScope] — the SAME function the unfolded list
+    // gets its folders from, on the same resolution — so the number on the row and the messages
+    // under it cannot describe two different conversations.
+    val sent = ConversationScope.sentFolders(sentMailboxes, accountId)
+    val perClause = scopes.flatMap { listOf(it.first, it.second) }
+    val chipClause = perClause + sent.flatMap { listOf(it.first, it.second) }
     val args = perClause + chipClause + perClause
     return SimpleSQLiteQuery(
-        conversationSql(mailboxIds.size, sort, unreadOnly, accountId != null, sent.size),
+        conversationSql(scopes.size, sort, unreadOnly, sent.size),
         args.toTypedArray(),
     )
 }
@@ -382,11 +542,14 @@ private fun conversationQuery(
  * altogether (data loss, not a cosmetic count). Grouping on the pair keeps one row per account, in
  * line with EmailDao.observeThreadUnreadCounts, whose badge already counted per account.
  *
+ * Every folder is scoped by the PAIR (accountId, mailboxId) too, for the same family of reasons
+ * and one more: an account that no longer exists (Codeberg #121). See [folderScopeSql].
+ *
  * Bind order:
- * the in-view sub-query `g` takes the mailbox ids [+ account id]; the chip count sub-query
- * `c` takes the mailbox ids, then an (accountId, mailboxId) pair per [sentMailboxCount]
- * Sent-role folder — pinned to its OWN account, so a sibling account's colliding mailbox id
- * can't widen this account's chip — [+ account id]; the outer WHERE binds like `g`; the
+ * the in-view sub-query `g` takes [scopeCount] (accountId, mailboxId) pairs, account first; the
+ * chip count sub-query `c` takes the same pairs, then an (accountId, mailboxId) pair per
+ * [sentMailboxCount] Sent-role folder — pinned to its OWN account, so a sibling account's
+ * colliding mailbox id can't widen this account's chip; the outer WHERE binds like `g`; the
  * account-wide total sub-query `t` takes none. The
  * representative row and unread state come from `g` (strictly folder-scoped — a thread with
  * only Sent members must not surface a row); `threadCount` (the chip) is `c`'s count of the
@@ -396,11 +559,10 @@ private fun conversationQuery(
  * representative's accountId so colliding server-assigned mailbox/thread ids across accounts
  * can't inflate a count in the unified view.
  */
-internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boolean, hasAccountId: Boolean = false, sentMailboxCount: Int = 0): String {
-    val placeholders = List(mailboxCount) { "?" }.joinToString(",")
+internal fun conversationSql(scopeCount: Int, sort: SortOrder, unreadOnly: Boolean, sentMailboxCount: Int = 0): String {
+    val scope = folderScopeSql(scopeCount, "emails")
+    val scopeOuter = folderScopeSql(scopeCount, "e")
     val sentAlternatives = " OR (accountId = ? AND mailboxId = ?)".repeat(sentMailboxCount)
-    val accountInner = if (hasAccountId) " AND accountId = ?" else ""
-    val accountOuter = if (hasAccountId) " AND e.accountId = ?" else ""
     val notSnoozed = notSnoozedSql("emails")
     val notSnoozedOuter = notSnoozedSql("e")
     val having = if (unreadOnly) " HAVING MIN(seen) = 0" else ""
@@ -427,13 +589,13 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
         JOIN (
             SELECT accountId AS gacc, COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey, MIN(seen) AS threadUnread
             FROM emails
-            WHERE mailboxId IN ($placeholders)$accountInner AND $notSnoozed
+            WHERE ($scope) AND $notSnoozed
             GROUP BY gacc, tkey$having
         ) g ON COALESCE(e.threadId, e.id) = g.tkey AND e.accountId = g.gacc AND e.sortKey = g.maxKey
         JOIN (
             SELECT accountId AS cacc, COALESCE(threadId, id) AS ckey, COUNT(*) AS threadCount
             FROM emails
-            WHERE (mailboxId IN ($placeholders)$sentAlternatives)$accountInner AND $notSnoozed
+            WHERE (($scope)$sentAlternatives) AND $notSnoozed
             GROUP BY cacc, ckey
         ) c ON c.ckey = g.tkey AND c.cacc = g.gacc
         JOIN (
@@ -442,7 +604,7 @@ internal fun conversationSql(mailboxCount: Int, sort: SortOrder, unreadOnly: Boo
             WHERE $notSnoozed
             GROUP BY tacc, tkey2
         ) t ON t.tkey2 = g.tkey AND t.tacc = g.gacc
-        WHERE e.mailboxId IN ($placeholders)$accountOuter AND $notSnoozedOuter
+        WHERE ($scopeOuter) AND $notSnoozedOuter
         GROUP BY g.gacc, g.tkey
         ORDER BY $orderBy
     """.trimIndent()
@@ -780,6 +942,11 @@ class MailRepository(
         // [accountId] used for API calls), so per-account routing and storage work.
         localAccountId: String,
     ): List<String> {
+        // Same belt as [refresh] (#121): this is the other entry point that tags cached rows with
+        // a local account id, and a blank one strands every row it writes.
+        require(localAccountId.isNotBlank()) {
+            "syncMailbox() needs a real account id: caching mail under a blank one strands it (#121)."
+        }
         val key = syncKey(localAccountId, mailboxId)
         val stored = loadSyncState(key)
         if (stored != null) {
@@ -924,9 +1091,15 @@ class MailRepository(
             keepNewest = keepNewest,
         )
         if (gone.isEmpty()) return
+        // The INDEX SURVIVES this, hence `evictFromCacheKeepingIndex` and not `deleteByIds`: every
+        // id here belongs to a message the server still has, sitting where it always was (see
+        // [retentionEvictions]). Un-indexing them capped offline search at the sync window on every
+        // single refresh — and on IMAP for good, since nothing re-indexes a row the cache no longer
+        // holds. This is `EmailDao.deleteNotIn`'s case, by id instead of by page.
+        //
         // Chunked for the same reason the ghost sweep chunks: the ids go into an `IN (...)` and a
         // deep cache can hold more of them than SQLite will bind in one statement.
-        gone.chunked(MAX_CHANGES).forEach { emailDao.deleteByIds(accountId, it) }
+        gone.chunked(MAX_CHANGES).forEach { emailDao.evictFromCacheKeepingIndex(accountId, it) }
         android.util.Log.i(
             "MailSync",
             "retention $accountId/$mailboxId: pruned ${gone.size}, " +
@@ -995,18 +1168,35 @@ class MailRepository(
     /**
      * Drop rows the server authoritatively no longer has (an explicit per-id `notFound`) —
      * cache row, cached body and search-index entry — so they can't linger as zombies that
-     * ignore every action. NO folder-count nudge, unlike the action-path removals: the
+     * ignore every action.
+     *
+     * The index delete here is now a belt-and-braces repeat of what `EmailDao.deleteByIds` already
+     * did on the line above, and it is KEPT for the shape it is written in: `runCatching`. An index
+     * that cannot be written — locked, or damaged, issue #71's ground — must never abort the
+     * removal of the cached row, which is the only thing standing between the user and a message
+     * that keeps coming back. That is the rule `EmailDao.deleteById`/`deleteByIds` were rewritten
+     * to follow, and this call is where it was first written down.
+     *
+     * NO folder-count nudge, unlike the action-path removals: the
      * server's counts never included these ids at the time we learn of them (the destroy
      * happened server-side and the cached mailbox counts have been refreshed from the server
      * since), so a local decrement would double-subtract; the live Room-derived badges
      * correct themselves the moment the rows are deleted.
      */
     private suspend fun pruneServerGone(localAccountId: String, emailIds: List<String>) {
-        val ids = emailDao.emailsByIds(localAccountId, emailIds).map { it.id }
-        if (ids.isEmpty()) return
-        emailDao.deleteByIds(localAccountId, ids)
-        runCatching { emailFtsDao.deleteByIds(localAccountId, ids) }
-        ids.forEach { runCatching { emailBodyDao.deleteById(localAccountId, it) } }
+        // Chunked like the retention prune and the sweep's own requests: every id here goes into an
+        // `IN (...)`, and SQLite refuses a statement with more than 999 bindings. The sweep splits
+        // its NETWORK calls at MAX_CHANGES but pours every answer back into one set, so a deep cache
+        // full of ghosts arrived here as one oversized list — and the read and the cache delete are
+        // OUTSIDE the runCatching below, so the refusal did not degrade anything, it threw out of
+        // syncMailbox and failed the refresh.
+        emailIds.chunked(MAX_CHANGES).forEach { chunk ->
+            val ids = emailDao.emailsByIds(localAccountId, chunk).map { it.id }
+            if (ids.isEmpty()) return@forEach
+            emailDao.deleteByIds(localAccountId, ids)
+            runCatching { emailFtsDao.deleteByIds(localAccountId, ids) }
+            ids.forEach { runCatching { emailBodyDao.deleteById(localAccountId, it) } }
+        }
     }
 
     /**
@@ -1071,31 +1261,37 @@ class MailRepository(
         }
 
     /**
-     * Paged list of cached emails for [mailboxIds] (one folder, or several for the
-     * unified inbox), sorted server-side-style in SQL by the chosen [sort] and nothing
-     * else; [unreadOnly] filters to unseen. Only a few pages are held in
+     * Paged list of cached emails for [scopes] — the unified inbox's (account id, inbox id)
+     * pairs, one per configured account — sorted server-side-style in SQL by the chosen [sort]
+     * and nothing else; [unreadOnly] filters to unseen. Only a few pages are held in
      * memory at once, so very large folders no longer load (or freeze) all at once.
+     *
+     * PAIRS, not bare folder ids (Codeberg #121): a folder id alone matches rows of accounts that
+     * are not in this list at all — a sibling account whose server numbered a folder the same, or
+     * an account the user has removed, whose cached rows would otherwise be listed forever with
+     * no account to label, sync or act on them. See [folderScopeSql].
      */
     fun pagedMailbox(
-        mailboxIds: List<String>,
+        scopes: List<Pair<String, String>>,
         sort: SortOrder,
         unreadOnly: Boolean,
         conversationView: Boolean,
         // Each account's Sent-role folder as an (accountId, mailboxId) pair: the conversation
         // chip also counts the thread's Sent replies, so it always equals what the unfolded
-        // conversation shows — account-pinned, see [conversationQuery].
-        sentMailboxes: List<Pair<String, String>> = emptyList(),
+        // conversation shows — account-pinned, see [conversationQuery]. NO DEFAULT: an omitted
+        // Sent scope is a chip that counts fewer messages than the row unfolds into.
+        sentMailboxes: List<Pair<String, String>>,
     ): Flow<PagingData<InboxRow>> {
-        if (mailboxIds.isEmpty()) return flowOf(PagingData.empty())
+        if (scopes.isEmpty()) return flowOf(PagingData.empty())
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(mailboxIds, sort, unreadOnly, sentMailboxes = sentMailboxes)) },
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(scopes, sort, unreadOnly, accountId = null, sentMailboxes = sentMailboxes)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
                 config = pagingConfig(),
-                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(mailboxIds, sort, unreadOnly)) },
+                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(scopes, sort, unreadOnly)) },
             ).flow.map { data -> data.map { InboxRow(it.toEmail(), threadCount = 1, unread = !it.seen) } }
         }
     }
@@ -1114,19 +1310,23 @@ class MailRepository(
         unreadOnly: Boolean,
         conversationView: Boolean,
         // The account's Sent-role folder as an (accountId, mailboxId) pair — see [pagedMailbox].
-        sentMailboxes: List<Pair<String, String>> = emptyList(),
+        // NO DEFAULT, same reason: this one must be said, not assumed.
+        sentMailboxes: List<Pair<String, String>>,
     ): Flow<PagingData<InboxRow>> {
+        // One scope: this account's folder. Same shape as the unified list's — the two views
+        // differ in how many (account, folder) pairs they page, nothing else.
+        val scopes = listOf(credentials.id to mailboxId)
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
                 remoteMediator = folderMediator(credentials, mailboxId, conversationView = true),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(listOf(mailboxId), sort, unreadOnly, credentials.id, sentMailboxes)) },
+                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(scopes, sort, unreadOnly, credentials.id, sentMailboxes)) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
                 config = pagingConfig(),
                 remoteMediator = folderMediator(credentials, mailboxId, conversationView = false),
-                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(listOf(mailboxId), sort, unreadOnly, credentials.id)) },
+                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(scopes, sort, unreadOnly)) },
             ).flow.map { data -> data.map { InboxRow(it.toEmail(), threadCount = 1, unread = !it.seen) } }
         }
     }
@@ -1390,10 +1590,17 @@ class MailRepository(
      * Local full-text search over [syncSearchIndex]'s index: accent-folded, PREFIX-matched
      * ("eco*"), so it is instant, offline and monotonic as the user types (unlike the server's
      * stemmed full-text). Returns newest-first, capped at [limit]. Blank/empty query → no results.
+     *
+     * Trash/Junk/Spam are filtered by the query itself, from [NOT_SEARCHED_ROLES] — the single role
+     * source the server-side filter also uses, so both halves of the search union (local index and
+     * server answer) hide the same folders instead of the local half putting deleted mail back.
+     * That filter only sees rows LABELLED with an excluded folder; a message that was indexed in
+     * the Inbox and then deleted keeps the Inbox as its label forever, and is kept out by
+     * `EmailDao.deleteById`/`deleteByIds` un-indexing it as it goes. See `EmailFtsDao.search`.
      */
     suspend fun searchIndex(query: String, limit: Int = LOCAL_SEARCH_LIMIT): List<Email> {
         val match = ftsMatch(query) ?: return emptyList()
-        return emailFtsDao.search(match, limit).map { it.toEmail() }
+        return emailFtsDao.search(match, NOT_SEARCHED_ROLES, limit).map { it.toEmail() }
     }
 
     /** Build an FTS4 MATCH expression: each word becomes a prefix term, AND-combined ("eco* log*"). */
@@ -1758,6 +1965,15 @@ class MailRepository(
         // two must come from the same SyncWindow.
         pruneBeforeMillis: Long? = null,
     ): MailboxMeta {
+        // The belt behind ConnectViewModel's braces (#121). Every row this writes is tagged with
+        // credentials.id; with a blank one they land under an account that does not exist, show up
+        // in the unified list with no chip, never re-sync, and are only ever removed by the orphan
+        // sweep. The three add paths used to prime the cache before creating the account, which is
+        // exactly how that happened — they now create first. Throw rather than skip: a silent
+        // no-op would hide a fourth add path making the same mistake.
+        require(credentials.id.isNotBlank()) {
+            "refresh() needs a real account id: caching mail under a blank one strands it (#121)."
+        }
         if (credentials.protocol == MailProtocol.IMAP) return refreshImap(credentials, mailboxId, limit, pruneBeforeMillis)
         val auth = jmapAuth(credentials)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
@@ -2421,8 +2637,11 @@ class MailRepository(
                     recentLocalMoves.mark(credentials.id, ImapMailService.emailId(credentials.id, dest, it))
                 }
             }
+            if (noop) {
+                evictAlreadyThere(credentials.id, dest, listOf(emailId))
+                return null
+            }
             emailDao.deleteById(credentials.id, emailId)
-            if (noop) return null
             adjustCountsForRemoval(listOfNotNull(row), dest)
             return dest
         }
@@ -2484,8 +2703,11 @@ class MailRepository(
                 }
                 false
             } ?: false
+            if (already) {
+                evictAlreadyThere(credentials.id, targetMailboxId, listOf(emailId))
+                return null
+            }
             emailDao.deleteById(credentials.id, emailId)
-            if (already) return null
             adjustCountsForRemoval(listOfNotNull(moved), targetMailboxId)
             return targetMailboxId
         }
@@ -2560,6 +2782,54 @@ class MailRepository(
     }
 
     /**
+     * The bulk paths' cache+index removal: `EmailDao.deleteByIds` over [ids], chunked to what
+     * SQLite will bind in one `IN (...)` — [MAX_CHANGES], the bound the ghost sweep and the
+     * retention prune already use for their own id lists.
+     *
+     * They each used to call the single-id form in a loop. `email_fts` is FTS4 with `emailId`
+     * declared `notindexed`, so one un-index is a full scan of the whole index: a select-all of
+     * 200 messages meant 200 scans where one statement does.
+     */
+    private suspend fun deleteFromCacheAndIndex(accountId: String, ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        ids.chunked(MAX_CHANGES).forEach { emailDao.deleteByIds(accountId, it) }
+    }
+
+    /**
+     * The local cleanup of an action that MOVED NOTHING: archive or move asked for [mailboxId], the
+     * folder the message is already in, so the server was never touched and the message is exactly
+     * where it was. The cached row still goes (the list is showing a folder the user just acted on,
+     * and the row comes back with the next page like any other); whether the search-index row goes
+     * with it depends on the FOLDER, not on the action — [noOpEvictionFor] decides, this only
+     * carries the decision out.
+     *
+     * In a searched folder the row must stay. This is `EmailDao.deleteNotIn`'s case, not
+     * `deleteByIds`': the message is untouched on the server and its index row is still true, and
+     * these are the swipe paths, the most exercised of all. Paging deep into Archive past the sync
+     * window and re-archiving what is already there took both rows away, and nothing brought the
+     * index row back — the IMAP crawl does not exist and the re-seed only rewrites rows whose
+     * message is still cached. Those messages left offline search for good.
+     *
+     * In Trash/Junk/Spam it must go. The same two branches are how the app files a message into Junk
+     * (report-spam onto one already there) and how the folder picker files one into the Trash it is
+     * already in — and there the index covers nothing at either end, so sparing the row preserves no
+     * coverage and merely leaves an orphan the re-seed can never clear. The delete paths ([delete],
+     * [deleteAll]) reach for [deleteFromCacheAndIndex] directly for the same reason.
+     *
+     * The role comes from the folder cache; what an unknown one gets is [noOpEvictionFor]'s to say.
+     *
+     * Chunked like [deleteFromCacheAndIndex]: the ids go into one `IN (...)`.
+     */
+    private suspend fun evictAlreadyThere(accountId: String, mailboxId: String, ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        when (noOpEvictionFor(mailboxId, mailboxDao.roleForId(accountId, mailboxId))) {
+            NoOpEviction.SPARE_INDEX_ROW ->
+                ids.chunked(MAX_CHANGES).forEach { emailDao.evictFromCacheKeepingIndex(accountId, it) }
+            NoOpEviction.TAKE_INDEX_ROW -> deleteFromCacheAndIndex(accountId, ids)
+        }
+    }
+
+    /**
      * Batch-move one IMAP source folder's [ids] to [dest] (dest != source) with a single
      * `UID MOVE <set>`, recording each id's new destination UID (from COPYUID) in
      * [lastImapMove] so Undo can move the whole set back. Ids whose UID can't be parsed, or
@@ -2581,9 +2851,9 @@ class MailRepository(
                         lastImapMove[id] = ImapLoc(dest, it)
                         recentLocalMoves.mark(credentials.id, ImapMailService.emailId(credentials.id, dest, it))
                     }
-                    emailDao.deleteById(credentials.id, id)
-                    succeeded += id
                 }
+                deleteFromCacheAndIndex(credentials.id, uidToId.values)
+                succeeded += uidToId.values
                 adjustCountsForRemoval(rows.filter { it.id in uidToId.values }, dest)
             }
             .onFailure { failed += uidToId.values }
@@ -2602,20 +2872,31 @@ class MailRepository(
         if (uidToId.isEmpty()) return
         val rows = emailDao.emailsByIds(credentials.id, uidToId.values.toList())
         imap.deleteBatch(credentials, source, uidToId.keys.toList(), expectedUidValidity)
-        uidToId.values.forEach { emailDao.deleteById(credentials.id, it); succeeded += it }
+        deleteFromCacheAndIndex(credentials.id, uidToId.values)
+        succeeded += uidToId.values
         adjustCountsForRemoval(rows, destMailboxId = null)
     }
 
     /** JMAP: move every id to exactly [target] in one `Email/set`, then drop the local rows.
      *  Only ids the server confirmed moved are dropped — a per-id `notUpdated` (wrong account,
-     *  destroyed elsewhere, …) keeps its row and lands in [BulkResult.failed]. */
+     *  destroyed elsewhere, …) keeps its row and lands in [BulkResult.failed].
+     *
+     *  The ids that were ALREADY in [target] are among the confirmed ones: an `Email/set` that files
+     *  a message into the folder it is in succeeds, having done nothing. Those are the bulk twin of
+     *  the single-message paths' `mb == target` short-circuit and go to [evictAlreadyThere], which
+     *  weighs the folder — so archiving a selection that is already archived no longer un-indexes
+     *  messages sitting untouched in a searchable folder. [nudgeCounts] already skipped this case;
+     *  the index did not. */
     private suspend fun jmapMoveAll(ctx: Context, emailIds: List<String>, target: String): BulkResult {
         val localAccountId = ctx.credentials.id
         val rows = emailDao.emailsByIds(localAccountId, emailIds)
         return runCatching { client.move(ctx.session, ctx.accountId, emailIds, target, ctx.auth) }
             .map { result ->
                 val moved = emailIds.filter { it in result.done }.toSet()
-                moved.forEach { recentLocalMoves.mark(localAccountId, it); emailDao.deleteById(localAccountId, it) }
+                moved.forEach { recentLocalMoves.mark(localAccountId, it) }
+                val alreadyThere = idsAlreadyIn(rows, moved, target)
+                evictAlreadyThere(localAccountId, target, alreadyThere)
+                deleteFromCacheAndIndex(localAccountId, moved - alreadyThere.toSet())
                 adjustCountsForRemoval(rows.filter { it.id in moved }, target)
                 // notFound rejections are ghosts (destroyed server-side): prune their rows so
                 // they leave the list, but keep them in `failed` — nothing was moved to [target],
@@ -2635,7 +2916,7 @@ class MailRepository(
         val rows = emailDao.emailsByIds(localAccountId, emailIds)
         val result = client.destroy(ctx.session, ctx.accountId, emailIds, ctx.auth)
         val destroyed = emailIds.filter { it in result.done }.toSet()
-        destroyed.forEach { emailDao.deleteById(localAccountId, it) }
+        deleteFromCacheAndIndex(localAccountId, destroyed)
         adjustCountsForRemoval(rows.filter { it.id in destroyed }, destMailboxId = null)
         // A notFound rejection means the id was ALREADY destroyed (e.g. server-side by another
         // client) — the requested end state holds, so prune the row (no count nudge: the server's
@@ -2702,7 +2983,11 @@ class MailRepository(
             emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
                 when {
                     source == null -> failed += ids
-                    source == dest -> ids.forEach { emailDao.deleteById(credentials.id, it); succeeded += it }
+                    // Already in the archive: nothing moved — and whether the index row stays is
+                    // the destination's role to decide, not this branch's ([evictAlreadyThere]).
+                    // An archive/all folder is searched, so here it does stay; the same call in
+                    // [moveAllToMailbox] can land on a Junk or Trash destination, where it goes.
+                    source == dest -> { evictAlreadyThere(credentials.id, dest, ids); succeeded += ids }
                     else -> imapMoveGroup(credentials, source, ids, dest, succeeded, failed)
                 }
             }
@@ -2763,7 +3048,11 @@ class MailRepository(
             emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
                 when {
                     source == null -> failed += ids
-                    source == targetMailboxId -> ids.forEach { emailDao.deleteById(credentials.id, it); succeeded += it }
+                    // Already in the destination: nothing moved — and whether its index row stays
+                    // depends on the destination's role, Junk and Trash included ([evictAlreadyThere]).
+                    source == targetMailboxId -> {
+                        evictAlreadyThere(credentials.id, targetMailboxId, ids); succeeded += ids
+                    }
                     else -> imapMoveGroup(credentials, source, ids, targetMailboxId, succeeded, failed)
                 }
             }
@@ -2791,7 +3080,17 @@ class MailRepository(
                     source == null || trash == null -> failed += ids
                     // Already in Trash: nothing to move — drop the row locally only. Deliberately
                     // in NEITHER set: there is no move to undo and nothing failed.
-                    source == trash -> ids.forEach { emailDao.deleteById(credentials.id, it) }
+                    //
+                    // And un-indexed: the Trash is excluded from search at BOTH ends — the crawl
+                    // and the re-seed skip it, the query filters it out — so there is no coverage
+                    // to preserve here, and a row left standing is an orphan whose message is no
+                    // longer cached, which no re-seed can clear. Not, as this said, because the
+                    // row carries an EARLIER label: an IMAP id encodes its folder, so the index
+                    // row of an in-Trash id says Trash. That is what keeps it invisible — for
+                    // exactly as long as the folder cache still knows that folder's role.
+                    // The no-op branches decide the same question the same way ([evictAlreadyThere]),
+                    // and so does the single-message [delete].
+                    source == trash -> deleteFromCacheAndIndex(credentials.id, ids)
                     else -> imapMoveGroup(credentials, source, ids, trash, succeeded, failed)
                 }
             }
@@ -2866,9 +3165,14 @@ class MailRepository(
 
     /**
      * A role's mailbox id for a SPECIFIC account. For JMAP this comes from that account's own
-     * connection context, not the global mailbox cache (which holds only the last-synced
-     * account) — so moving a message from a non-current account in the unified inbox (Report
-     * spam / Not spam) targets the right folder instead of silently no-op'ing.
+     * connection context rather than from the folder cache — so moving a message from a
+     * non-current account in the unified inbox (Report spam / Not spam) targets the right folder
+     * instead of silently no-op'ing.
+     *
+     * The cache is keyed per account since issue #31 and would no longer answer for the wrong one,
+     * as this said it did; what it can still do is not answer at all — an account whose folders
+     * have never been listed has no rows there, and a Report spam that finds no Junk does nothing.
+     * The connection context is fetched for the acting account, so it always answers.
      */
     private suspend fun roleMailboxId(credentials: AccountCredentials, role: String): String? =
         if (credentials.protocol == MailProtocol.IMAP) imapRoleFolder(credentials, role)
@@ -2876,10 +3180,10 @@ class MailRepository(
 
     /**
      * The folder for the first matching [roles] in a SPECIFIC IMAP account, by listing
-     * that account's folders. Mirrors the JMAP path (its own connection context): the
-     * global mailbox cache holds only the last-synced account, so it's wrong for a
-     * non-current account in the unified inbox (e.g. archiving a Gmail message while a
-     * JMAP account is active would otherwise target the JMAP folder and fail "No folder").
+     * that account's folders. Mirrors the JMAP path (its own connection context) for the reason
+     * given there: the folder cache is per account (issue #31) but only holds what has been
+     * synced, and an account listed in the unified inbox without ever having been opened has
+     * nothing in it — archiving such an account's message would find no Archive and fail.
      */
     private suspend fun imapRoleFolder(credentials: AccountCredentials, vararg roles: String): String? {
         val folders = imap.listMailboxes(credentials)
@@ -2923,17 +3227,6 @@ class MailRepository(
     /** Un-snooze one account's message now (re-appears in its list). */
     suspend fun unsnooze(accountId: String, emailId: String) = snoozedDao.delete(accountId, emailId)
 
-    /** One account's ids currently hidden by an active snooze (until in the future) — the same
-     *  predicate the list/chip SQL uses, for callers that filter in memory (e.g. the unfolded
-     *  conversation). Account-scoped (issue #31): snoozes are keyed per account, so account A
-     *  snoozing id X must not hide account B's same-id message. */
-    suspend fun activeSnoozedIds(accountId: String): Set<String> {
-        val now = System.currentTimeMillis()
-        return snoozedDao.all()
-            .filter { it.accountId == accountId && it.until > now }
-            .mapTo(mutableSetOf()) { it.emailId }
-    }
-
     /** The deadline of the active snooze on [accountId]'s [emailId], or null when it is not
      *  snoozed (a lapsed row counts as not snoozed — same predicate as the list SQL). Snoozes are
      *  keyed per account (issue #31), so the lookup carries the account. */
@@ -2942,6 +3235,32 @@ class MailRepository(
 
     /** Live list of snoozed messages with their cached headers, for the "Snoozed" screen. */
     fun snoozedFlow(): Flow<List<SnoozedListRow>> = snoozedDao.observeAll()
+
+    /**
+     * The ids an active snooze currently hides, account-qualified, AS A LIVE READING — the same
+     * predicate the list and chip SQL apply, for the one reader that cannot express it in SQL.
+     *
+     * The list and the chip join this table, so Room re-runs them when a snooze is written or
+     * lapses. The unfolded conversation's members are read from `emails` alone, so nothing told
+     * them a snooze had ended: the chip came back up at the due date and the message did not come
+     * back under the row. Two readings of one write, on this table as on the other.
+     *
+     * A lapsed row counts as not snoozed (same predicate as the SQL); the row itself is deleted at
+     * the due date by the snooze worker, which is the write this flow re-emits on.
+     *
+     * Account-qualified (issue #31): snoozes are keyed per account, so account A snoozing id X
+     * must not hide account B's same-id message.
+     */
+    fun observeActiveSnoozed(): Flow<Set<EmailKey>> =
+        snoozedDao.observeAll()
+            .map { rows ->
+                val now = System.currentTimeMillis()
+                rows.filter { it.until > now }.mapTo(mutableSetOf()) { EmailKey(it.accountId, it.emailId) }
+            }
+            // The underlying query joins `emails` for the Snoozed screen's headers, so it re-emits
+            // on every write to the message table; the answer this reader wants changes far less
+            // often than that.
+            .distinctUntilChanged()
 
     /** A single cached email of one account by id (e.g. to notify when a snooze fires). */
     suspend fun cachedEmail(accountId: String, emailId: String): Email? =
@@ -3213,7 +3532,7 @@ class MailRepository(
 
     /** Move to Trash and drop from the local list. A delete here NEVER destroys: moving a
      *  message to the folder it already sits in is a safe server no-op, and permanent deletion
-     *  is only reachable through the held-back path ([evict] + [destroyAll]) with its cancelable
+     *  is only reachable through the held-back path ([evictAll] + [destroyAll]) with its cancelable
      *  Undo window (Codeberg #23) — the caller routes would-destroy deletes there via
      *  [deleteWouldDestroy]. Returns the Trash folder the message landed in, so the caller can
      *  offer an Undo that restores the row and reverses the count nudge — or null when there was
@@ -3233,11 +3552,21 @@ class MailRepository(
         if (credentials.protocol == MailProtocol.IMAP) {
             val trash = imapRoleFolder(credentials, "trash") ?: error("This account has no Trash folder.")
             imapTarget(emailId)?.let { (mb, uid) ->
-                if (mb != trash) {
-                    imap.move(credentials, mb, uid, trash)?.let {
-                        lastImapMove[emailId] = ImapLoc(trash, it)
-                        recentLocalMoves.mark(credentials.id, ImapMailService.emailId(credentials.id, trash, it))
-                    }
+                // Already in the Trash: nothing moves — but the cached row AND its index row both
+                // go, exactly as the bulk twin ([deleteAll]) does, and for its reason. The Trash is
+                // excluded from search at both ends (the query's folder filter, the crawl and the
+                // re-seed), so an index row surviving here preserves no coverage whatever: it is
+                // simply an orphan, and the re-seed only rewrites rows whose message is still
+                // cached, so nothing ever clears it. It is hidden only while the folder cache knows
+                // the folder's role — a folder renamed or dropped server-side and the message comes
+                // back in the results for good. (It does NOT carry the label the message had before
+                // it was thrown away: an IMAP id encodes its folder, so an in-Trash id's index row
+                // says Trash.) [evictAlreadyThere] asks the same question of the folder the message
+                // stayed in, and spares the row only where a search actually looks.
+                if (mb == trash) return@let
+                imap.move(credentials, mb, uid, trash)?.let {
+                    lastImapMove[emailId] = ImapLoc(trash, it)
+                    recentLocalMoves.mark(credentials.id, ImapMailService.emailId(credentials.id, trash, it))
                 }
             }
             emailDao.deleteById(credentials.id, emailId)
@@ -3509,21 +3838,32 @@ class MailRepository(
         // Exclude Trash/Junk from the server search too, so JMAP matches the IMAP walk and the local
         // index — a message you deleted must not reappear in results whatever the server (Stalwart
         // returned it before). Same role source as the IMAP path's searchableFolderIds.
-        val excluded = excludedSearchFolderIds(mailboxDao.searchOrder(credentials.id))
+        // The raw folder list is kept, not just the ids derived from it: it is what says whether the
+        // cache had anything to say at all. An account whose folders were never synced excludes
+        // NOTHING, so the query below spreads over the whole account — Trash and Junk included —
+        // and that is exactly the answer that must not come back wearing a total (see below).
+        val cachedFolders = mailboxDao.searchOrder(credentials.id)
+        val excluded = excludedSearchFolderIds(cachedFolders)
         val hits = client.searchEmails(ctx.session, ctx.accountId, query, limit, ctx.auth, excluded)
         // A hit can live in several mailboxes: resolve its folder like [fetchThreadMembers] —
         // the cached row's folder while the server still lists it, else the role-ranked pick —
         // never the server map's arbitrary first key, which could feed a search-row action
         // (delete's destroy-vs-move, undo's restore target) a Trash/Junk folder by accident.
-        val cachedMailbox = emailDao.emailsByIds(credentials.id, hits.map { it.id }).associate { it.id to it.mailboxId }
-        val resolved = hits.map { e ->
+        val cachedMailbox =
+            emailDao.emailsByIds(credentials.id, hits.emails.map { it.id }).associate { it.id to it.mailboxId }
+        val resolved = hits.emails.map { e ->
             val serverBoxes = e.mailboxIds.keys
             val mailbox = cachedMailbox[e.id]?.takeIf { it in serverBoxes }
                 ?: rankedMailboxPick(credentials.id, serverBoxes)
             e.copy(mailboxId = mailbox ?: e.mailboxId)
         }
-        // A full page means the server stopped at the cap, not that the account holds exactly that many.
-        return MailSearchResult(resolved, complete = hits.size < limit)
+        // Three ways this answer can fail to be the account's answer — a full page (the server
+        // stopped at the cap), a get shorter than the query it followed, and a scope that an empty
+        // folder cache chose; [jmapSearchComplete] holds all three.
+        return MailSearchResult(
+            resolved,
+            complete = jmapSearchComplete(cachedFolders, hits.matchedIds, resolved.size, limit),
+        )
     }
 
     /**
@@ -3647,30 +3987,43 @@ class MailRepository(
         }
 
     /**
-     * Cached members of a thread for inline conversation expansion and whole-thread actions:
-     * newest-first, scoped to the representative's [accountId] and [mailboxIds] (the current
-     * view's folders — plus the account's Sent folder when listing an unfolded conversation).
-     * Cache only — no network — so unfolding a conversation row is instant and works offline.
-     * [threadKey] is the representative's threadId (or its id when thread-less).
+     * Cached members of a thread for inline conversation expansion: newest-first, scoped to the
+     * representative's [accountId] and [mailboxIds] (the viewed folder(s) plus the account's Sent
+     * folder). Cache only — no network — so unfolding a conversation row is instant and works
+     * offline. [threadKey] is the representative's threadId (or its id when thread-less).
+     *
+     * LIVE, and that is the point: the chip on the collapsed row is a live query over the same
+     * table (`conversationPagingSource`), so a message written into the thread moves the chip at
+     * once. Read once into a snapshot, the messages under the row could not follow it — the row
+     * then announced one number and listed another until the folder was left. Both sides now read
+     * the same write.
+     */
+    fun observeThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): Flow<List<Email>> =
+        if (mailboxIds.isEmpty()) flowOf(emptyList())
+        else emailDao.cachedThreadEmails(accountId, mailboxIds, threadKey).map { rows -> rows.map { it.toEmail() } }
+
+    /**
+     * One reading of [observeThreadEmails], for callers that act on a thread once (a whole-thread
+     * swipe) rather than draw it.
      */
     suspend fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): List<Email> =
-        if (mailboxIds.isEmpty()) emptyList()
-        else emailDao.cachedThreadEmails(accountId, mailboxIds, threadKey).map { it.toEmail() }
+        observeThreadEmails(accountId, mailboxIds, threadKey).first()
 
     /**
-     * The cached Sent-role mailbox id of each of [accountIds] (accounts without a cached Sent
-     * folder are skipped). Backs the conversation view's "this folder plus Sent replies"
-     * scope: the chip count and the unfolded member list both extend the viewed folder(s)
-     * with these, so a conversation never shows (or counts) Trash/Spam/Drafts members.
-     */
-    suspend fun sentMailboxIds(accountIds: List<String>): List<String> =
-        accountIds.distinct().mapNotNull { mailboxDao.idForRole(it, "sent") }
-
-    /**
-     * Reactive variant of [sentMailboxIds], as account-pinned (accountId, mailboxId) pairs
-     * for the conversation chip's Sent scope: re-resolves when the folder table changes, so
-     * a fresh install's chips pick the Sent folder up on the first folder sync instead of
-     * waiting for the next paging-key change, and never bleed across colliding mailbox ids.
+     * The cached Sent-role folder of each of [accountIds], as account-pinned
+     * (accountId, mailboxId) pairs (accounts without a cached Sent folder are skipped).
+     *
+     * THE conversation view's Sent resolution — the single one. It backs the "this folder plus
+     * Sent replies" scope that the chip count and the unfolded member list both extend the viewed
+     * folder(s) with (see [ConversationScope]), so a conversation never shows, nor counts,
+     * Trash/Spam/Drafts members. There is deliberately no one-shot variant: the unfold reads the
+     * value this flow last handed the list rather than looking the folder up again, because two
+     * lookups are two answers and the reader sees the difference as a chip that lies.
+     *
+     * Reactive because it must be: it re-resolves when the folder table changes, so a fresh
+     * install's chips pick the Sent folder up on the first folder sync instead of staying wrong
+     * until the next paging-key change. Pinned to their account so colliding mailbox ids across
+     * same-server accounts never bleed into a sibling's conversation.
      */
     fun observeSentMailboxes(accountIds: List<String>): Flow<List<Pair<String, String>>> =
         mailboxDao.observeSentMailboxes(accountIds.distinct())
@@ -3678,17 +4031,30 @@ class MailRepository(
             .distinctUntilChanged()
 
     /**
-     * Remove a message from the local cache only (optimistic UI removal), decrementing its source
-     * folder's drawer counts. Used by the held-back destroy paths (in-Trash delete, empty-trash):
-     * the row leaves the list and the count drops NOW, while the actual server destroy is held
-     * behind the Undo window. If the destroy is later undone, [forceRefresh] re-queries the server
-     * and the next getMailboxes resets the counts to truth (the message is still there), so no
-     * explicit count restore is needed for these paths.
+     * Remove one account's [emailIds] from the local cache only (optimistic UI removal),
+     * decrementing each row's OWN source folder's drawer counts. Used by the held-back destroy
+     * paths (in-Trash delete, bulk delete, empty-trash): the rows leave the list and the counts drop
+     * NOW, while the actual server destroy is held behind the Undo window. If the destroy is later
+     * undone, [forceRefresh] re-queries the server and the next getMailboxes resets the counts to
+     * truth (the messages are still there), so no explicit count restore is needed for these paths.
+     *
+     * Takes the whole set rather than one id at a time, and issues batched statements for it:
+     * `email_fts` is FTS4 with `emailId` declared `notindexed`, so each un-index scans the ENTIRE
+     * index — a bulk delete of 200, or an Empty trash, meant that many scans. Chunked to what
+     * SQLite will bind in one `IN (...)`.
+     *
+     * Read, evict and decount CHUNK BY CHUNK, not all the counts at the end: an Empty trash of a
+     * thousand messages is several statements, and one of them refusing used to leave every row it
+     * had already removed uncounted — the drawer keeping a badge for mail no longer there until a
+     * refresh corrected it. Per chunk, whatever left the cache has been subtracted.
      */
-    suspend fun evict(accountId: String, emailId: String) {
-        val row = emailDao.emailsByIds(accountId, listOf(emailId)).firstOrNull()
-        emailDao.deleteById(accountId, emailId)
-        adjustCountsForRemoval(listOfNotNull(row), destMailboxId = null)
+    suspend fun evictAll(accountId: String, emailIds: Collection<String>) {
+        if (emailIds.isEmpty()) return
+        emailIds.chunked(MAX_CHANGES).forEach { chunk ->
+            val rows = emailDao.emailsByIds(accountId, chunk)
+            deleteFromCacheAndIndex(accountId, chunk)
+            adjustCountsForRemoval(rows, destMailboxId = null)
+        }
     }
 
     /**

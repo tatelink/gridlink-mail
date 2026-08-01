@@ -308,10 +308,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setSwipeLeftAction(action) }
     }
 
-    /** Every configured account is IMAP → the Conversations settings are inert (issue A6/A7):
-     *  IMAP has no server-side threads, so the section is shown disabled with a note. */
-    fun isImapOnly(): Boolean = isImapOnly(store.accounts().map { it.protocol })
-
     val conversationView = settings.conversationView.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

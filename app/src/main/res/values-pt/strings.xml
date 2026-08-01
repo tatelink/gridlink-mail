@@ -663,10 +663,9 @@
     <string name="offline_banner">Está offline</string>
     <string name="settings_conversation_section">Conversas</string>
     <string name="settings_conversation_title">Vista de conversa</string>
-    <string name="settings_conversation_subtitle">Agrupar mensagens da mesma conversa numa linha, com uma contagem.</string>
+    <string name="settings_conversation_subtitle">Agrupar mensagens da mesma conversa numa linha, com uma contagem. As conversas vêm do servidor: nas contas JMAP as mensagens são agrupadas, numa conta IMAP cada mensagem fica na sua própria linha.</string>
     <string name="settings_unarchive_on_reply_title">Desarquivar ao chegar uma resposta</string>
     <string name="settings_unarchive_on_reply_subtitle">Quando chega uma nova resposta, trazer de volta à caixa de entrada as mensagens arquivadas da conversa.</string>
-    <string name="settings_conversation_imap_note">Estas definições precisam de uma conta JMAP. O IMAP não tem conversas do lado do servidor, por isso cada mensagem fica isolada.</string>
     <string name="compose_many_recipients_title">Enviar para muitas pessoas?</string>
     <string name="compose_many_recipients_message">Esta mensagem será enviada para %1$d destinatários.</string>
     <string name="compose_many_recipients_send">Enviar a todos</string>

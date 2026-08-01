@@ -103,6 +103,65 @@ class StorageRepository(
         clearAttachments()
     }
 
+    /**
+     * Sweep the cached mail of accounts that no longer exist, given the accounts that DO
+     * ([knownAccountIds] — a reader of `AccountStore.accounts()`' ids). Returns the ids swept.
+     *
+     * ⛔ THE ORDER OF THE TWO READS IS PART OF THE FIX, which is why the account list arrives as a
+     * function and not as a list. Read the accounts first and take the inventory second — as the
+     * callers did when they passed `store.accounts().map { it.id }` — and an account created
+     * between the two is missing from the list and present in the inventory: its brand-new cache is
+     * swept as an orphan. The window is not theoretical. This inventory is usually the process's
+     * first database access, so it pays for opening the file and for any pending migration
+     * (hundreds of milliseconds on an old device), and the first unified refresh runs in parallel:
+     * it can discover a shared mailbox, create its sub-account (Codeberg #31) and write its rows in
+     * exactly that gap. Taking the inventory FIRST closes it: an account created after the snapshot
+     * has no row in it, so it cannot be named an orphan, and one created before it is in the list
+     * read afterwards.
+     *
+     * Codeberg #121: a row whose account is gone is not merely mislabelled, it is unreachable —
+     * no credential syncs it, no action can be routed to it, no prune covers it. It stayed in the
+     * unified list forever, in whatever state it was frozen in (bold, starred), above the real
+     * message. Scoping the list on (account, folder) pairs hides it; this removes it.
+     *
+     * ⛔ An empty account list sweeps NOTHING — see [OrphanedAccountCache.orphans]. The
+     * decision is that function's, not a `NOT IN` statement's, precisely so this call can never
+     * degrade into "delete the whole cache".
+     *
+     * Orphans are looked for in the UNION of the tables this then deletes from — messages, folders,
+     * the search index, cached bodies — not in `emails` alone. An account can very well be left
+     * with folders and no message: `refresh()` persists the folder list before it fetches the mail,
+     * so a sign-up interrupted between the two (and every failure of the mail fetch) leaves exactly
+     * that, which is the likeliest residue there is. Inventorying on `emails` alone would walk past
+     * it and leave it in the database for good.
+     *
+     * They are removed with the same per-account deletes sign-out uses. Deliberately NOT swept:
+     *  - `snoozed` — user intent rather than cache, and per-account snoozes of a gone account are
+     *    inert (the not-snoozed filter correlates on accountId);
+     *  - `purge_snapshot`, `mailbox_uid_validity`, the outbox and the attachment files — none of
+     *    them can produce a row in a list, and the attachment cache is shared, so clearing it here
+     *    would cost every account a re-download on a housekeeping pass. They are not inventoried
+     *    either: an id known only to them would be deleted from four tables it has no row in.
+     */
+    suspend fun purgeOrphanedAccounts(knownAccountIds: () -> Collection<String>): List<String> =
+        withContext(Dispatchers.IO) {
+            // The inventory FIRST: everything written after this snapshot belongs to an account the
+            // list read below is guaranteed to contain. Swapping these two lines back sweeps the
+            // cache of an account created while this runs.
+            val cached = emailDao.countsByAccount().map { it.accountId } +
+                mailboxDao.accountIds() + emailFtsDao.accountIds() + emailBodyDao.accountIds()
+            val known = knownAccountIds()
+            val orphans = OrphanedAccountCache.orphans(known, cached)
+            orphans.forEach { accountId ->
+                // One runCatching PER table: a failure in one must not leave the rest behind.
+                runCatching { emailDao.deleteForAccount(accountId) }
+                runCatching { emailFtsDao.clearAccount(accountId) }
+                runCatching { emailBodyDao.deleteForAccount(accountId) }
+                runCatching { mailboxDao.deleteForAccount(accountId) }
+            }
+            orphans
+        }
+
     /** Write a downloaded attachment to the cache, then enforce the size/age cap. */
     suspend fun cacheAttachment(name: String?, bytes: ByteArray): File = withContext(Dispatchers.IO) {
         val dir = attachmentsDir.apply { mkdirs() }
