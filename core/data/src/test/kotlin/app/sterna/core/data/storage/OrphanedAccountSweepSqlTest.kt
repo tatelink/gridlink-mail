@@ -26,17 +26,31 @@ import java.sql.DriverManager
  *    fails to decode, and treating that as "everything is an orphan" would wipe a healthy install's
  *    entire cache on one bad read. The decision stays in [OrphanedAccountCache] — outside SQL —
  *    precisely so it cannot degrade into `DELETE … WHERE accountId NOT IN (…)`. And every delete it
- *    then runs must be scoped to one account: an unscoped `deleteAll()` in that loop empties the
- *    cache of every account there is, which is the single most expensive mistake this file exists
- *    to catch.
+ *    then runs must be scoped to one account: an unscoped `deleteAll()` **anywhere after the
+ *    decision** empties the cache of every account there is, which is the single most expensive
+ *    mistake this file exists to catch.
  *  - IN WHAT ORDER. The inventory is read first and the account list second. The other way round,
  *    an account created between the two reads is missing from the list, present in the inventory,
  *    and its brand-new cache is swept.
  *
  * ⛔ SO NOTHING HERE IS RETYPED FROM THE REPOSITORY. The statements replayed below, the order they
- * run in, and which tables they touch are all READ OUT of `purgeOrphanedAccounts` (see
- * [SweepShape]). A test that replays its own idea of the sweep proves things about itself; this one
- * goes red when the shipped function changes shape, which is the only reason it is worth running.
+ * run in, which tables they touch and **which way round the decision is called** are all READ OUT
+ * of `purgeOrphanedAccounts` (see [SweepShape]). A test that replays its own idea of the sweep
+ * proves things about itself; this one goes red when the shipped function changes shape, which is
+ * the only reason it is worth running.
+ *
+ * ⚠ TWO THINGS THIS READS AND EARLIER VERSIONS DID NOT, both because a mutation slipped through:
+ *
+ *  - **The region judged as "the deletes" starts at the DECISION, not at the loop.** It used to
+ *    start at `orphans.forEach`, so `if (orphans.isNotEmpty()) emailDao.deleteAll()` on the line
+ *    between the two was read by no rule at all and left every test green — while wiping every
+ *    account's cached mail on every cold start. Every DAO call standing after the decision is now
+ *    judged as a delete: per-account or red.
+ *  - **The decision's arguments, in order.** Only the function name was pinned, and the replay
+ *    retyped `orphans(known, cached)` by hand, so `orphans(cached, known)` (same types, compiles in
+ *    silence, sweep goes inert and #121 comes back) and `orphans(listOf(known.first()), cached)`
+ *    (every account but one loses its cache) were both invisible. The argument list is now read
+ *    from the source and the replay passes them in the order it read.
  */
 class OrphanedAccountSweepSqlTest {
 
@@ -60,6 +74,13 @@ class OrphanedAccountSweepSqlTest {
     /** The account ids the shipped inventory statements report, unioned as the repository unions them. */
     private fun cachedAccountIds(): List<String> = SweepShape.inventory.flatMap { call ->
         val sql = call.sql()
+        assertTrue(
+            "an inventory statement must READ. `${call.text}` runs:\n$sql\nwhich is not a SELECT — a " +
+                "statement standing before the decision is taken for part of the inventory, so a " +
+                "delete written there is judged by none of the rules below. Put it after the " +
+                "decision, where every delete is checked for being per-account.",
+            sql.trimStart().startsWith("SELECT", ignoreCase = true),
+        )
         assertEquals(
             "an inventory statement must ask for the whole table, not for one account: it is what " +
                 "tells the sweep which accounts exist in the cache at all. `${call.text}` binds " +
@@ -78,17 +99,47 @@ class OrphanedAccountSweepSqlTest {
         val sql = call.sql()
         val (statement, order) = DaoQuerySource.bindOrder(sql)
         assertEquals(
-            "⛔ every delete in the sweep must be scoped to ONE account. `${call.text}` runs:\n$sql\n" +
-                "which binds $order — an unscoped delete here empties the cached mail of EVERY " +
-                "account (the sweep runs on every cold start), not just the orphan's. This is the " +
-                "one mistake in #121 that costs the user her mail.",
+            "⛔ every delete the sweep runs after its decision must be scoped to ONE account. " +
+                "`${call.text}` runs:\n$sql\nwhich binds $order — an unscoped delete here empties " +
+                "the cached mail of EVERY account (the sweep runs on every cold start), not just " +
+                "the orphan's. This is the one mistake in #121 that costs the user her mail. It " +
+                "counts wherever it stands after the decision, inside the loop over the orphans or " +
+                "on the way to it.",
             listOf("accountId"), order,
         )
         assertEquals(
-            "`${call.text}` must be passed the orphan id the loop is on, and nothing else",
-            "accountId", call.args.trim(),
+            "`${call.text}` must be passed the orphan the loop is on — the name that loop binds is " +
+                "`${SweepShape.loopVariable}` — and nothing else. A delete handed anything wider " +
+                "than the id being swept reaches accounts that are not orphans.",
+            SweepShape.loopVariable, call.args.trim(),
         )
         db.prepareStatement(statement).use { it.setString(1, accountId); it.executeUpdate() }
+    }
+
+    /**
+     * The decision, with its two arguments in the order the SHIPPED call passes them — the one
+     * thing this replay cannot execute for itself, so it reads it instead. Swapping them in
+     * `StorageRepository` swaps them here, and the sweep goes inert in every test below rather than
+     * staying green on a hand-typed copy of a call the app no longer makes.
+     */
+    private fun decide(known: Collection<String>, cached: Collection<String>): List<String> {
+        val values = mapOf(SweepShape.knownValue to known, SweepShape.cachedValue to cached)
+        val args = SweepShape.decisionArgs
+        assertEquals(
+            "OrphanedAccountCache.orphans takes the known accounts and the cached ones, in that " +
+                "order. The sweep passes ${args.size} argument(s): $args",
+            2, args.size,
+        )
+        assertEquals(
+            "the sweep hands the decision something this replay cannot follow. It knows two values: " +
+                "the account list (`${SweepShape.knownValue}`) and the inventory " +
+                "(`${SweepShape.cachedValue}`). Anything else — `listOf(${SweepShape.knownValue}." +
+                "first())`, a filtered copy, a fresh read — is a narrowing of what counts as a known " +
+                "account, and every account it drops loses its whole cache on the next cold start. " +
+                "Pass the two values as read, or teach this replay the new shape on purpose.",
+            emptyList<String>(), args.filterNot { it in values },
+        )
+        return OrphanedAccountCache.orphans(values.getValue(args[0]), values.getValue(args[1]))
     }
 
     /**
@@ -108,7 +159,7 @@ class OrphanedAccountSweepSqlTest {
             afterFirstRead()
             cached = cachedAccountIds()
         }
-        val orphans = OrphanedAccountCache.orphans(known, cached)
+        val orphans = decide(known, cached)
         orphans.forEach { accountId -> SweepShape.deletes.forEach { runDelete(it, accountId) } }
         return orphans
     }
@@ -197,6 +248,27 @@ class OrphanedAccountSweepSqlTest {
         )
     }
 
+    /**
+     * The whole point of reading the known accounts as a LIST rather than a filter: every account
+     * the store lists keeps its cache, not just the first one. A decision handed a narrowed list
+     * (`listOf(known.first())`, a `take(1)`, a filtered copy) still sweeps "orphans" — they are
+     * simply every other account the user has, and they lose their mail on the next cold start.
+     */
+    @Test fun `nothing is swept while every cached account is a known one`() {
+        val known = listOf("a", "b", "c")
+        known.forEach { insertEmail(it); insertMailbox(it); insertIndexRow(it); insertBody(it) }
+
+        assertEquals(
+            "an account the store lists is never an orphan, however many of them there are",
+            emptyList<String>(), sweep(known),
+        )
+        known.forEach { account ->
+            listOf("emails", "mailboxes", "email_fts", "email_bodies").forEach { table ->
+                assertEquals("$table lost $account's rows", 1, rowCount(table, account))
+            }
+        }
+    }
+
     // ---- ⛔ the guard --------------------------------------------------------------------------
 
     @Test fun `an empty list of known accounts sweeps nothing`() {
@@ -216,14 +288,15 @@ class OrphanedAccountSweepSqlTest {
     // ---- ⛔ the deletes, as the repository names them ---------------------------------------------
 
     /**
-     * The replay above runs whatever `purgeOrphanedAccounts` calls, so an unscoped delete would
-     * already show up as a live account losing its rows. This states the rule on its own, so the
-     * failure names it: nothing in that loop may run a statement that is not per-account.
+     * The replay above runs whatever `purgeOrphanedAccounts` calls after its decision, so an
+     * unscoped delete would already show up as a live account losing its rows. This states the rule
+     * on its own, so the failure names it: nothing standing after the decision may run a statement
+     * that is not per-account — not in the loop, and not on the line before it.
      */
     @Test fun `every delete the sweep runs is scoped to one account`() {
         assertTrue(
-            "no delete found in purgeOrphanedAccounts — the loop that removes the orphans' rows is " +
-                "what this whole file guards. Body was:\n${SweepShape.body}",
+            "no delete found after the decision in purgeOrphanedAccounts — the loop that removes " +
+                "the orphans' rows is what this whole file guards. Body was:\n${SweepShape.body}",
             SweepShape.deletes.isNotEmpty(),
         )
         // Running them on an empty database is enough: runDelete refuses anything unscoped.
@@ -238,6 +311,35 @@ class OrphanedAccountSweepSqlTest {
                 "${SweepShape.deletes.map { it.text }}",
             SweepShape.deletes.map { it.dao }.toSortedSet(),
             SweepShape.inventory.map { it.dao }.toSortedSet(),
+        )
+    }
+
+    // ---- ⛔ the decision, as the repository calls it ----------------------------------------------
+
+    /**
+     * ⛔ THE CALL ITSELF, ARGUMENTS INCLUDED. Pinning only the function name left two mutations
+     * green, and both are cache-wide:
+     *
+     *  - `orphans(cached, known)` — same types, compiles in silence. Every cached account is now
+     *    "known", so nothing is ever swept: the sweep is inert and #121 is back, with a full suite
+     *    of green tests over it.
+     *  - `orphans(listOf(known.firstOrNull().orEmpty()), cached)` — one known account survives and
+     *    every other account of the user is swept as an orphan, on every cold start.
+     *
+     * Neither is a delete, which is why the rules about deletes read straight past them. What holds
+     * them is that the two names the sweep read into are the two things it hands over, in that
+     * order — and [decide] then replays the call the way this reads it, so the behaviour tests turn
+     * red on the same mutation rather than agreeing with a copy typed here.
+     */
+    @Test fun `the decision is handed the account list first and the inventory second`() {
+        assertEquals(
+            "⛔ the sweep must hand OrphanedAccountCache.orphans the account list it read " +
+                "(`${SweepShape.knownValue}`) and then the inventory it took " +
+                "(`${SweepShape.cachedValue}`), unaltered and in that order. The two arguments have " +
+                "the same type, so the compiler accepts them either way round: swapped, the sweep " +
+                "stops sweeping anything (#121 returns); narrowed, it sweeps the accounts it " +
+                "narrowed away. Body was:\n${SweepShape.body}",
+            listOf(SweepShape.knownValue, SweepShape.cachedValue), SweepShape.decisionArgs,
         )
     }
 
@@ -289,7 +391,7 @@ class OrphanedAccountSweepSqlTest {
             "mailboxDao.accountIds()",
             "emailFtsDao.accountIds()",
             "emailBodyDao.accountIds()",
-        ).filterNot { it in SweepShape.body }
+        ).filterNot { it in SweepShape.code }
         assertEquals(
             "purgeOrphanedAccounts must inventory every table it deletes from. Dropping one back " +
                 "out leaves a residue that lives only there unreachable forever (#121). Body was:\n" +
@@ -300,12 +402,13 @@ class OrphanedAccountSweepSqlTest {
             "and the decision must stay OrphanedAccountCache's — a `NOT IN (:known)` in SQL would " +
                 "delete the whole cache the day the account list fails to decode. Body was:\n" +
                 SweepShape.body,
-            "OrphanedAccountCache.orphans(" in SweepShape.body,
+            SweepShape.DECISION in SweepShape.code,
         )
         assertTrue(
             "no `NOT IN` may appear in the sweep: the day the account list is empty, that statement " +
-                "deletes everything. Body was:\n${SweepShape.body}",
-            !SweepShape.body.contains("NOT IN", ignoreCase = true),
+                "deletes everything. (Comments are stripped before this looks, so prose may say " +
+                "\"not in\" freely — only code counts.) Code was:\n${SweepShape.code}",
+            !SweepShape.code.contains("NOT IN", ignoreCase = true),
         )
     }
 
@@ -314,6 +417,10 @@ class OrphanedAccountSweepSqlTest {
      * exercised from this module (an Application and an AndroidViewModel), and neither was covered
      * by anything at all, so what is cheap to hold is held: they must hand the sweep a READER of
      * the account store, so the order pinned above is the order they actually get.
+     *
+     * Comments are stripped before the file is read, and EVERY call site is judged rather than the
+     * first mention found: a KDoc naming `purgeOrphanedAccounts` above the function used to be
+     * taken for the call and failed the rule on its own.
      */
     @Test fun `both callers hand the sweep a reader of the account store`() {
         val callers = mapOf(
@@ -321,33 +428,47 @@ class OrphanedAccountSweepSqlTest {
             "app/src/main/kotlin/app/sterna/ui/settings/AccountsViewModel.kt" to "store",
         )
         callers.forEach { (path, storeName) ->
-            val source = locate(path).readText()
-            val at = source.indexOf("purgeOrphanedAccounts")
-            val call = if (at < 0) null else {
-                source.substring(at, minOf(source.length, at + 120)).replace(Regex("""\s+"""), " ")
-            }
+            val source = withoutComments(locate(path).readText())
+            val callSites = Regex("""\bpurgeOrphanedAccounts\s*[({]""").findAll(source)
+                .map { source.substring(it.range.first, minOf(source.length, it.range.first + 120)) }
+                .map { it.replace(Regex("""\s+"""), " ") }
+                .toList()
             assertTrue(
                 "$path no longer calls purgeOrphanedAccounts — it is one of only two places the " +
                     "sweep ever runs from, so deleting the call silently retires the fix (#121). " +
                     "Move this rule rather than dropping it.",
-                call != null,
+                callSites.isNotEmpty(),
             )
-            assertTrue(
+            val wrong = callSites.filterNot {
+                it.startsWith("purgeOrphanedAccounts {") && "$storeName.accounts()" in it
+            }
+            assertEquals(
                 "$path must call purgeOrphanedAccounts { $storeName.accounts()… } — passing an " +
                     "already-read list restores the window where an account created during the " +
-                    "sweep loses its cache. Found:\n$call",
-                call!!.startsWith("purgeOrphanedAccounts {") && "$storeName.accounts()" in call,
+                    "sweep loses its cache.",
+                emptyList<String>(), wrong,
             )
         }
     }
 
     /**
      * The shape of the shipped sweep, parsed once from `StorageRepository.kt`: which DAO calls take
-     * the inventory, which ones delete, and whether the account list is read before or after the
-     * inventory. Braces are counted raw — no Kotlin parser here — which reads too far or stops
-     * early rather than lying, and every failure above prints the body it read.
+     * the inventory, which ones delete, which way round the decision is called, and whether the
+     * account list is read before or after the inventory. Braces are counted raw — no Kotlin parser
+     * here — which reads too far or stops early rather than lying, and every failure above prints
+     * the body it read.
+     *
+     * ⚠ THE SHAPE THIS EXPECTS, and it is a real constraint on the shipped function: the account
+     * list and the inventory each go into a local `val` before the decision is taken, and the
+     * decision's result into a third. Reading a source file as text is the only instrument
+     * available here, and it needs names to follow; inlining any of the three (`orphans(
+     * knownAccountIds(), …)`) fails these rules loudly rather than passing unread. The sweep is
+     * eight lines long, so that is a cheap thing to ask of it — but it IS asked, deliberately, and
+     * a future shape that wants the inlining will have to teach this to follow it.
      */
     private object SweepShape {
+
+        const val DECISION = "OrphanedAccountCache.orphans("
 
         /** One `someDao.someCall(args)` in the sweep: [text] as written, [dao] as its class. */
         data class Call(val text: String, val dao: String, val function: String, val args: String) {
@@ -357,9 +478,25 @@ class OrphanedAccountSweepSqlTest {
             }.getOrElse { error("the sweep calls $text, which has no readable @Query: ${it.message}") }
         }
 
-        /** The text of `purgeOrphanedAccounts`, declaration to closing brace. */
-        val body: String by lazy {
-            val source = locate("core/data/src/main/kotlin/app/sterna/core/data/storage/StorageRepository.kt").readText()
+        /** The text of `purgeOrphanedAccounts`, declaration to closing brace — for failure messages. */
+        val body: String by lazy { functionText(SOURCE) }
+
+        /**
+         * The same, with the comments taken out — what every rule here actually reads.
+         *
+         * Prose is not code, and reading it as code made two rules fail on files that were
+         * perfectly correct: a comment containing the words "not in" tripped the `NOT IN` ban (the
+         * comparison ignores case), and a commented-out DAO call would have been parsed as a
+         * statement the sweep runs.
+         */
+        val code: String by lazy { functionText(withoutComments(SOURCE)) }
+
+        private val SOURCE: String by lazy {
+            locate("core/data/src/main/kotlin/app/sterna/core/data/storage/StorageRepository.kt").readText()
+        }
+
+        /** `purgeOrphanedAccounts`, declaration to closing brace, in [source]. */
+        private fun functionText(source: String): String {
             val start = source.indexOf("suspend fun purgeOrphanedAccounts(")
             check(start >= 0) { "purgeOrphanedAccounts is gone from StorageRepository — rename it here too" }
             val open = source.indexOf('{', start)
@@ -367,22 +504,94 @@ class OrphanedAccountSweepSqlTest {
             for (i in open until source.length) {
                 when (source[i]) {
                     '{' -> depth++
-                    '}' -> if (--depth == 0) return@lazy source.substring(start, i + 1)
+                    '}' -> if (--depth == 0) return source.substring(start, i + 1)
                 }
             }
             error("Unbalanced braces in purgeOrphanedAccounts")
         }
 
-        /** Where the orphans' rows are removed: from the loop over them to the end of the body. */
-        private val deleteLoopAt: Int get() = body.indexOf("orphans.forEach")
+        /**
+         * Where the sweep makes up its mind. Everything before it is the inventory; everything
+         * after it deletes — ⛔ INCLUDING THE GAP between the decision and the loop, which used to
+         * belong to no region at all and where an `emailDao.deleteAll()` sat unread by every rule.
+         */
+        val decisionAt: Int by lazy {
+            code.indexOf(DECISION).also {
+                check(it >= 0) {
+                    "purgeOrphanedAccounts no longer calls $DECISION. That decision is the whole " +
+                        "reason the sweep is not a `DELETE … WHERE accountId NOT IN (…)`: it is " +
+                        "what refuses to treat an unreadable account list as \"everything is an " +
+                        "orphan\". Body was:\n$body"
+                }
+            }
+        }
 
-        /** Where the decision is taken: everything before it is the sweep making up its mind. */
-        private val decisionAt: Int get() = body.indexOf("OrphanedAccountCache.orphans(")
+        val inventory: List<Call> by lazy { calls(code.substring(0, decisionAt)) }
 
-        val inventory: List<Call> by lazy { calls(body.substring(0, decisionAt.coerceAtLeast(0))) }
+        /** Every DAO call standing after the decision — see [decisionAt]. */
+        val deletes: List<Call> by lazy { calls(code.substring(decisionAt)) }
 
-        val deletes: List<Call> by lazy {
-            if (deleteLoopAt < 0) emptyList() else calls(body.substring(deleteLoopAt))
+        /** The name of the parameter the account list is read through. */
+        val listParameter: String by lazy {
+            Regex("""fun\s+purgeOrphanedAccounts\s*\(\s*(\w+)\s*:""").find(code)?.groupValues?.get(1)
+                ?: error("cannot read the parameter of purgeOrphanedAccounts. Body was:\n$body")
+        }
+
+        /** `val <name> = <listParameter>()`: where the account list lands. */
+        val knownValue: String by lazy {
+            bindings.firstOrNull { it.initializer.trim() == "$listParameter()" }?.name
+                ?: error(
+                    "the sweep must read the account list into a local val (`val known = " +
+                        "$listParameter()`) before the decision — this file reads the source as " +
+                        "text and follows that name into the call. Body was:\n$body",
+                )
+        }
+
+        /** `val <name> = emailDao.countsByAccount() + …`: where the inventory lands. */
+        val cachedValue: String by lazy {
+            val first = inventory.firstOrNull()
+                ?: error("no DAO call before the decision — the sweep takes no inventory. Body was:\n$body")
+            bindings.firstOrNull { first.text in it.initializer }?.name
+                ?: error(
+                    "the sweep must read its inventory into a local val before the decision — this " +
+                        "file follows that name into the call. Body was:\n$body",
+                )
+        }
+
+        /** `val <name> = OrphanedAccountCache.orphans(…)`: what the loop iterates. */
+        val orphansValue: String by lazy {
+            Regex("""\bval\s+(\w+)\s*=\s*${Regex.escape(DECISION)}""").find(code)?.groupValues?.get(1)
+                ?: error(
+                    "the decision's result must go into a local val — the rules below follow that " +
+                        "name to the loop that deletes. Body was:\n$body",
+                )
+        }
+
+        /**
+         * The two things the decision is handed, as written. Read with balanced parentheses, so a
+         * `listOf(known.first())` is reported whole instead of being cut at its first `)`.
+         */
+        val decisionArgs: List<String> by lazy {
+            argumentsAt(code, decisionAt + DECISION.length - 1)
+        }
+
+        /**
+         * The name the loop binds each orphan to — `forEach { id ->`, a bare `forEach { … it … }`,
+         * or `for (id in orphans)` alike. Read rather than assumed: renaming the loop variable, or
+         * writing the loop the other way, is not a defect and must not turn this file red.
+         */
+        val loopVariable: String by lazy {
+            val after = code.substring(decisionAt)
+            val name = Regex("""\b$orphansValue\s*\.\s*forEach\s*\{\s*(\w+)\s*->""").find(after)
+                ?: Regex("""\bfor\s*\(\s*(\w+)\s+in\s+$orphansValue\b""").find(after)
+            when {
+                name != null -> name.groupValues[1]
+                Regex("""\b$orphansValue\s*\.\s*forEach\s*\{""").containsMatchIn(after) -> "it"
+                else -> error(
+                    "the deletes must run inside a loop over `$orphansValue`, one account at a " +
+                        "time: that loop is what scopes them to the orphans. Body was:\n$body",
+                )
+            }
         }
 
         /**
@@ -391,9 +600,44 @@ class OrphanedAccountSweepSqlTest {
          * refuses.
          */
         val inventoryIsReadFirst: Boolean by lazy {
-            val listAt = body.indexOf("knownAccountIds()")
-            val lastInventoryAt = inventory.lastOrNull()?.let { body.indexOf(it.text) } ?: -1
+            val listAt = code.indexOf("$listParameter()")
+            val lastInventoryAt = inventory.lastOrNull()?.let { code.indexOf(it.text) } ?: -1
             listAt >= 0 && lastInventoryAt >= 0 && listAt > lastInventoryAt && listAt < decisionAt
+        }
+
+        /** The local `val`s declared before the decision, each with the text it is assigned. */
+        private data class Binding(val name: String, val initializer: String)
+
+        private val bindings: List<Binding> by lazy {
+            val region = code.substring(0, decisionAt)
+            val declarations = Regex("""\bval\s+(\w+)\s*=""").findAll(region).toList()
+            declarations.mapIndexed { i, match ->
+                val end = declarations.getOrNull(i + 1)?.range?.first ?: region.length
+                Binding(match.groupValues[1], region.substring(match.range.last + 1, end))
+            }
+        }
+
+        /** The top-level arguments of the call whose `(` sits at [open]. */
+        private fun argumentsAt(text: String, open: Int): List<String> {
+            val args = mutableListOf<String>()
+            val current = StringBuilder()
+            var depth = 0
+            for (i in open until text.length) {
+                val c = text[i]
+                when {
+                    c == '(' -> { depth++; if (depth > 1) current.append(c) }
+                    c == ')' -> {
+                        if (--depth == 0) {
+                            if (current.isNotBlank()) args += current.toString().trim()
+                            return args
+                        }
+                        current.append(c)
+                    }
+                    c == ',' && depth == 1 -> { args += current.toString().trim(); current.clear() }
+                    else -> current.append(c)
+                }
+            }
+            error("Unbalanced parentheses in the call to $DECISION. Body was:\n$body")
         }
 
         private fun calls(segment: String): List<Call> =
@@ -425,6 +669,45 @@ class OrphanedAccountSweepSqlTest {
                 dir = dir.parentFile
             }
             error("Cannot find $relative from $cwd")
+        }
+
+        /**
+         * [source] with its Kotlin comments removed, string literals left alone.
+         *
+         * A source lint that reads prose as code fails on files that are correct — a comment saying
+         * "not in" is not a `NOT IN`, and a commented-out call is not a call. Strings are stepped
+         * over so a `"http://…"` cannot be mistaken for the start of a comment; character literals
+         * are not, which would only matter for a `'"'` and none of the files read here has one.
+         */
+        fun withoutComments(source: String): String {
+            val out = StringBuilder(source.length)
+            var i = 0
+            while (i < source.length) {
+                when {
+                    source.startsWith("//", i) -> while (i < source.length && source[i] != '\n') i++
+                    source.startsWith("/*", i) -> {
+                        val end = source.indexOf("*/", i + 2)
+                        i = if (end < 0) source.length else end + 2
+                        out.append(' ')
+                    }
+                    source.startsWith("\"\"\"", i) -> {
+                        val end = source.indexOf("\"\"\"", i + 3)
+                        val stop = if (end < 0) source.length else end + 3
+                        out.append(source, i, stop)
+                        i = stop
+                    }
+                    source[i] == '"' -> {
+                        out.append(source[i]); i++
+                        while (i < source.length && source[i] != '"') {
+                            if (source[i] == '\\' && i + 1 < source.length) { out.append(source[i]); i++ }
+                            out.append(source[i]); i++
+                        }
+                        if (i < source.length) { out.append(source[i]); i++ }
+                    }
+                    else -> { out.append(source[i]); i++ }
+                }
+            }
+            return out.toString()
         }
     }
 }

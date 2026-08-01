@@ -134,25 +134,39 @@ class ConnectPrimingWiringTest {
     }
 
     /**
-     * ⚠ WHAT THIS PROMISES, EXACTLY: that no function of THIS FILE creates an account outside the
-     * three add paths and the two documented exceptions. Nothing wider. It reads the file for the
-     * creation calls named in [accountCreation] and asks which function each one sits in.
+     * ⚠ WHAT THIS PROMISES, EXACTLY — and it is narrower than "the account-creating functions of
+     * this file are the ones this lint knows about", which is what it used to be called: every
+     * occurrence of one of the THREE STRINGS in [accountCreation] sits in a function that has been
+     * judged, either as an add path or as a documented exception. That is a vocabulary check, not a
+     * proof. A function that creates an account by any other spelling — a local alias, a helper
+     * called with the store passed in, a call this list does not name — is read straight past and
+     * reported as nothing, exactly as it was before this rule existed.
      *
-     * It does NOT promise that these are all the ways the app can create an account: the OAuth
-     * paths mint theirs inside `MailRepository` (`addOAuthAccount`, and the Outlook flow driven by
-     * `OutlookSignIn`), and a `.k9s` import creates accounts in the account store directly. Those
-     * live in files this lint does not read, and no rule here covers their ordering.
+     * It does NOT promise that these are all the ways the app can create an account. Off this
+     * lint's map, and covered by no rule here:
+     *  - the OAuth paths, which mint theirs inside `MailRepository` (`addOAuthAccount`, and the
+     *    Outlook flow driven by `OutlookSignIn`);
+     *  - `AccountStore.reconcileLinkedAccounts`, which creates a linked sub-account for every
+     *    shared or delegated mailbox a session exposes (#31) and prunes the ones it no longer does.
+     *    It runs on every connect, from several scopes, and it is the path the create-then-prime
+     *    ordering leans on for its justification — nothing here reads it;
+     *  - `AccountStore.importAccounts`, which is both the `.k9s` import and the RESTORE OF A
+     *    SETTINGS BACKUP (`SettingsViewModel`): it adds accounts to the store directly, with fresh
+     *    ids and no password.
      */
-    @Test fun `the account-creating functions of this file are the ones this lint knows about`() {
+    @Test fun `every account-creating call this lint names sits in a function it has judged`() {
         val creators = source().lines().withIndex()
             .filter { (_, line) -> accountCreation.any { it in line } }
             .map { (i, _) -> enclosingFunction(i) }
             .distinct()
         assertEquals(
-            "a function of ConnectViewModel creates an account without being listed here. If it is " +
-                "an add path, put it in `addPaths` and make it go through addAccountThenPrime; if " +
-                "it deliberately creates one another way, list it in `creatorsOutsideTheDecision` " +
-                "with the reason. Leaving it out lets the rules above read right past it.",
+            "a function of ConnectViewModel calls one of the creation functions this lint names " +
+                "(${accountCreation.joinToString()}) without being listed here. If it is an add " +
+                "path, put it in `addPaths` and make it go through addAccountThenPrime; if it " +
+                "deliberately creates one another way, list it in `creatorsOutsideTheDecision` " +
+                "with the reason. Leaving it out lets the rules above read right past it. ⚠ And " +
+                "note what this does NOT say: a creation written any other way is invisible to " +
+                "this rule, so a green run here is not \"nothing else creates an account\".",
             (addPaths + creatorsOutsideTheDecision).sorted(), creators.sorted(),
         )
     }
