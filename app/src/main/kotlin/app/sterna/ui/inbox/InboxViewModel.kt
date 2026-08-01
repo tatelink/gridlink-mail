@@ -307,8 +307,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * halves — and deliberately not rebuilt here from a representative remembered since the unfold:
      * the row re-picks its representative on every write, and a remembered one names a message that
      * may no longer be the one on the row.
+     *
+     * The store itself is [ThreadOrders], out here where it can be exercised: this class is not
+     * instantiable in a JVM test, and both halves of the recording — building the order and keeping
+     * it — have to be, or the keeping is held by nothing at all.
      */
-    private val threadOrder = mutableMapOf<ThreadKey, List<Pair<String, String?>>>()
+    private val threadOrder = ThreadOrders()
 
     /**
      * Record what the unfolded [key] row is showing — [representative] on the row, [members]
@@ -316,14 +320,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * the caller can say which page it is opening.
      */
     fun recordThreadOrder(key: ThreadKey, representative: Email, members: List<Email>): List<Pair<String, String?>> =
-        ConversationExpansion.threadEntries(representative.id, representative.accountId, members)
-            .also { threadOrder[key] = it }
+        threadOrder.record(key, representative, members)
 
     /**
      * The conversation a message was opened from. Empty when the thread is unknown — the reader
      * then falls back to showing the single message it was given.
      */
-    fun threadEntries(key: ThreadKey): List<Pair<String, String?>> = threadOrder[key].orEmpty()
+    fun threadEntries(key: ThreadKey): List<Pair<String, String?>> = threadOrder.entries(key)
 
     /** The conversation an email belongs to: its account plus its threadId (or its own id when
      *  thread-less). Account-qualified — see [ThreadKey]. */
@@ -1200,7 +1203,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _expandedThreads.value = _expandedThreads.value - key
         _threadMembers.value = _threadMembers.value - key
         completedThreads -= key
-        threadOrder -= key
+        threadOrder.drop(key)
     }
 
     /**

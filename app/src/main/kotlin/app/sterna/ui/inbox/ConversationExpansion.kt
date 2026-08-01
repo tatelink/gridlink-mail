@@ -192,11 +192,22 @@ internal object ThreadMemberStream {
  * table, which are the things that actually know.
  *
  * INVARIANT, for the next caller: this is a SET, not a counter. Two [hiding] calls overlapping on
- * the same member would have the inner one lift a mask the outer still needs, and the member would
- * come back under the reader's thumb for the rest of the outer call. Nothing reaches that today —
- * the one gesture that raises the mask twice, bulk delete, PARTITIONS its selection into the
- * held-back destroy and the move, so the two sets are disjoint by construction. A path that masks a
- * member already masked has to make the mask count first.
+ * the same member have the inner one lift a mask the outer still needs, and the member comes back
+ * under the reader's thumb for the rest of the outer call.
+ *
+ * That IS reachable, and saying otherwise would send the next reader looking in the wrong place.
+ * One gesture never overlaps itself — bulk delete PARTITIONS its selection into the held-back
+ * destroy and the move, so those two sets are disjoint by construction — but two gestures do: a
+ * bulk action empties the selection at once and its coroutine then runs a network round trip, and
+ * the rows stay drawn throughout, so a second "select all" and a second action mask the same keys
+ * again, and whichever call ends first lowers the mask for both. Same for a swipe of one member
+ * during a batch that covers it.
+ *
+ * What that costs is bounded, which is why the shape stands: the mask only ever hides a member for
+ * the length of a call that is already taking it away, so the worst case is the member flickering
+ * back for the remainder of the slower call and the cache — which is what actually knows — settling
+ * it on the next write. A path that needs the mask to survive an overlap has to make it count
+ * first (a multiset, raised and lowered per key) rather than assume this one does.
  */
 internal class ThreadMemberMask {
     private val hidden = mutableSetOf<EmailKey>()
@@ -216,6 +227,48 @@ internal class ThreadMemberMask {
 
     /** Forget everything: the rows the mask applied to are no longer on screen at all. */
     fun clear() = hidden.clear()
+}
+
+/**
+ * The swipe context of every conversation a message has been opened from: what the unfolded row was
+ * SHOWING at the instant the reader tapped one of its messages, in the order it showed it.
+ *
+ * Held here rather than in [InboxViewModel] so that both halves — building the order and REMEMBERING
+ * it — are testable without an Android runtime. The two are one gesture and were split in practice:
+ * [ConversationExpansion.threadEntries] builds the list and is pinned by its own tests, while the
+ * recording was a `.also { }` on a private map that nothing exercised at all. Dropping that one
+ * clause left every test green (the tap still gets its order back, so the opening page is still
+ * right) and emptied the store the reading view reads at [entries] — the swipe from message to
+ * message inside a conversation silently falls back to the single message it was handed.
+ *
+ * The order is recorded FROM THE SCREEN, never rebuilt here from a representative remembered since
+ * the unfold: the row re-picks its representative on every write (see [membersBelow]), so a
+ * remembered one names a message that may no longer be the one on the row.
+ */
+internal class ThreadOrders {
+    private val orders = mutableMapOf<ThreadKey, List<Pair<String, String?>>>()
+
+    /**
+     * Record what [key]'s row is drawing — [representative] on the row, [members] beneath it — and
+     * answer with that order, so the caller can say which page it is opening.
+     */
+    fun record(key: ThreadKey, representative: Email, members: List<Email>): List<Pair<String, String?>> =
+        ConversationExpansion.threadEntries(representative.id, representative.accountId, members)
+            .also { orders[key] = it }
+
+    /**
+     * The conversation a message was opened from. Empty when nothing was recorded for [key] — the
+     * reader then falls back to showing the single message it was given, rather than guessing.
+     */
+    fun entries(key: ThreadKey): List<Pair<String, String?>> = orders[key].orEmpty()
+
+    /** Forget [key]'s order: its conversation is leaving the list. */
+    fun drop(key: ThreadKey) {
+        orders -= key
+    }
+
+    /** Forget every order: the list itself changed underneath (folder, account). */
+    fun clear() = orders.clear()
 }
 
 /**

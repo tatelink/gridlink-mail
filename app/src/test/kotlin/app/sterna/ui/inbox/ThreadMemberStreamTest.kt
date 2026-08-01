@@ -6,6 +6,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -484,6 +485,110 @@ class ThreadMemberStreamTest {
         // while mail is arriving elsewhere in the folder.
         val drawn = listOf(Email(id = "m1", accountId = "acc"), Email(id = "m2", accountId = "acc"))
         assertEquals(drawn, ThreadMemberStream.reconcile(drawn, drawn.map { it.copy() }, removed = emptySet()))
+    }
+
+    // -- the two repository queries the whole unfold rests on --------------------------------
+
+    /**
+     * Neither of the next two cases pins the shipped code — they are WITNESSES, and they are here
+     * because the mutation they describe lives in `MailRepository`, one module down, where nothing
+     * exercises it: emptying either query out leaves this file green (it brings its own readings)
+     * and `ConversationScopeWiringTest` green (it reads names, and the names are still there).
+     * Written out so the next reader can see what is at stake before deciding it is only plumbing.
+     */
+    @Test fun `an emptied member query lists nothing under a chip that still counts three`() = runTest {
+        val cache = Cache().apply { anAnsweredThread() }
+        val scope = MutableStateFlow(ListScope(listOf("inbox"), listOf("accA" to "sentbox")))
+        val drawn = draw {
+            ThreadMemberStream.members(
+                expanded = MutableStateFlow(setOf(key)),
+                scope = scope,
+                snoozed = MutableStateFlow(emptySet()),
+                fallbackAccountId = { "accA" },
+                // MailRepository.observeThreadEmails, emptied out: same signature, no answer.
+                read = { _, _, _ -> flowOf(emptyList()) },
+            )
+        }
+        advanceUntilIdle()
+
+        assertEquals(3, cache.chip(scope.value, key))
+        // The row draws its representative — the paging query is a different reading — and under
+        // it, nothing. A chip of 3 over an unfold of 1, with no test in this repository failing.
+        assertEquals(listOf("in2"), cache.screen(scope.value, drawn.value))
+        assertEquals(0, cache.opened)
+    }
+
+    @Test fun `an emptied snooze query leaves a snoozed member listed under a chip that excludes it`() = runTest {
+        val cache = Cache().apply { anAnsweredThread() }
+        val scope = MutableStateFlow(ListScope(listOf("inbox"), listOf("accA" to "sentbox")))
+        // MailRepository.observeActiveSnoozed, emptied out: nothing is ever reported as snoozed.
+        val drawn = draw { stream(cache, MutableStateFlow(setOf(key)), scope, flowOf(emptySet())) }
+        advanceUntilIdle()
+
+        // in1 IS snoozed as far as the rest of the app is concerned — the chip's SQL leaves it out.
+        val chipExcludingSnoozed = cache.chip(scope.value, key) - 1
+        assertEquals(2, chipExcludingSnoozed)
+        assertEquals(3, cache.screen(scope.value, drawn.value).size)
+        assertTrue("the snoozed member is still under the row", "in1" in cache.screen(scope.value, drawn.value))
+    }
+
+    // -- the swipe context recorded at the tap ------------------------------------------------
+
+    /**
+     * [ThreadOrders] is the store the reading view's swipe reads: what the unfolded row was showing
+     * when the reader tapped one of its messages. Building that list is
+     * [ConversationExpansion.threadEntries] and has its own tests; KEEPING it had none, and the two
+     * were one `.also { }` apart inside a ViewModel no JVM test can instantiate. Dropping that
+     * clause left every test in the repository green — the tap still gets its order back, so the
+     * page it opens on is still right — while the store stayed empty and the swipe from message to
+     * message inside a conversation silently fell back to the single message it was handed.
+     */
+    @Test fun `the order recorded at the tap is the order the reading view pages over`() {
+        val orders = ThreadOrders()
+        val recorded = orders.record(key, mail("in2", "inbox", "2026-07-01T10:00:00Z"), listOf(mail("in1", "inbox", "2026-07-01T09:00:00Z")))
+
+        assertEquals(listOf("in2", "in1"), recorded.map { it.first })
+        assertEquals("what was recorded is what is read back", recorded, orders.entries(key))
+    }
+
+    @Test fun `a conversation nothing was opened from hands the reader no context at all`() {
+        // Not an empty guess: the reader falls back to the single message it was given.
+        assertEquals(emptyList<Pair<String, String?>>(), ThreadOrders().entries(key))
+    }
+
+    @Test fun `each account's conversation keeps its own order under the same thread id`() {
+        // #92: two accounts of one server share thread ids, and the reader must never be paged
+        // through the other account's messages.
+        val orders = ThreadOrders()
+        val keyB = ThreadKey("accB", "T1")
+        orders.record(key, mail("a2", "inbox", "2026-07-01T10:00:00Z"), listOf(mail("a1", "inbox", "2026-07-01T09:00:00Z")))
+        orders.record(keyB, mail("b2", "inbox", "2026-07-01T10:00:00Z", account = "accB"), emptyList())
+
+        assertEquals(listOf("a2", "a1"), orders.entries(key).map { it.first })
+        assertEquals(listOf("b2"), orders.entries(keyB).map { it.first })
+    }
+
+    @Test fun `opening a second message replaces the order, it does not accumulate one`() {
+        // The row is live: mail arriving in the open conversation changes what a later tap records.
+        val orders = ThreadOrders()
+        orders.record(key, mail("in2", "inbox", "2026-07-01T10:00:00Z"), listOf(mail("in1", "inbox", "2026-07-01T09:00:00Z")))
+        orders.record(key, mail("in3", "inbox", "2026-07-01T12:00:00Z"), listOf(mail("in2", "inbox", "2026-07-01T10:00:00Z")))
+
+        assertEquals(listOf("in3", "in2"), orders.entries(key).map { it.first })
+    }
+
+    @Test fun `a conversation that leaves the list is forgotten, and the rest is not`() {
+        val orders = ThreadOrders()
+        val keyB = ThreadKey("accA", "T2")
+        orders.record(key, mail("in2", "inbox", "2026-07-01T10:00:00Z"), emptyList())
+        orders.record(keyB, mail("other", "inbox", "2026-07-01T10:00:00Z"), emptyList())
+
+        orders.drop(key)
+        assertEquals(emptyList<Pair<String, String?>>(), orders.entries(key))
+        assertEquals(listOf("other"), orders.entries(keyB).map { it.first })
+
+        orders.clear()
+        assertEquals(emptyList<Pair<String, String?>>(), orders.entries(keyB))
     }
 
     // -- the scope decision the two sides share ---------------------------------------------

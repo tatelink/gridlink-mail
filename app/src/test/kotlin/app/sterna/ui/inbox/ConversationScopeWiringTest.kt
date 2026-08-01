@@ -23,11 +23,28 @@ import java.io.File
  * with `emptyList()`, re-reading the selection at unfold time, giving the chip's pagers
  * `emptyList()` instead of the resolution their own flow produced, resolving the Sent folder a
  * second time, reading the members once instead of observing them, feeding the stream an empty
- * snooze set instead of the observed table, unwrapping one caller of the mask, and dropping the
- * recording of the conversation's order at the tap.
+ * snooze set instead of the observed table, unwrapping one caller of the mask, HANDING ONE OF THOSE
+ * CALLERS AN EMPTY SET, deleting a real call and leaving a trailing comment that names it, dropping
+ * the recording of the conversation's order at the tap, and keeping that order in the ViewModel
+ * where nothing can exercise it.
  *
- * What it does NOT do: it does not check that the value recorded is the value the pager used, only
- * that it is recorded where the pager is built and read where the unfold is scoped.
+ * What it does NOT do, stated plainly because the previous version of this paragraph got it wrong:
+ *
+ *  - It does not check that the value recorded is the value the pager used, only that it is
+ *    recorded where the pager is built and read where the unfold is scoped.
+ *  - It reads names, so it can only ever say that a call is WRITTEN, never that it works. The two
+ *    mutations that matter most here were only ever caught once the behaviour underneath was given
+ *    a real test (`ThreadMemberStreamTest`) or the decision was moved somewhere runnable
+ *    (`ThreadOrders`). When a rule here is the ONLY thing holding a guarantee, that is a gap to
+ *    close, not a result.
+ *  - One rule points at `MailRepository`, a module away, and is pinned by SHAPE alone: emptying
+ *    those queries out was reasoned about, not run, because the mutation cannot be applied from
+ *    here. The real test belongs in core:data, against a database.
+ *  - Its cost used to be described as "a false failure, not a false pass". That was untrue: the
+ *    reader dropped comment lines but kept TRAILING comments, so deleting a real call and leaving
+ *    `// theCall` anywhere in the same body satisfied both the presence rules and the counts.
+ *    Comments are now cut before anything is matched ([codeLines]) — with that direction of error
+ *    (cutting too much) being the loud one, which is the trade this file can actually afford.
  */
 class ConversationScopeWiringTest {
 
@@ -70,9 +87,17 @@ class ConversationScopeWiringTest {
             "scope = $RECORDED" in body,
         )
         assertTrue(
-            "the members must come from the OBSERVED repository query: a one-shot read is the " +
-                "snapshot this replaces. Body was:\n$body",
-            "repo.observeThreadEmails(" in body,
+            "the members must come from the OBSERVED repository query, handed the thread and the " +
+                "folders the stream resolved and nothing of this ViewModel's own making: a one-shot " +
+                "read is the snapshot this replaces, and a lambda that answers from anything but " +
+                "$MEMBER_QUERY(accountId, folders, threadKey) is a second resolution. Body was:\n$body",
+            MEMBER_READ.containsMatchIn(body),
+        )
+        assertTrue(
+            "observeThreadMembers must not fabricate the members it then draws: every flow here " +
+                "comes from the repository or from the ViewModel's own state, never from a literal " +
+                "built on the spot. Body was:\n$body",
+            "flowOf(" !in body && "emptyList(" !in body && "emptySet(" !in body,
         )
         assertTrue(
             "observeThreadMembers must hand the stream the OBSERVED snooze table ($SNOOZE_SOURCE)): " +
@@ -88,6 +113,40 @@ class ConversationScopeWiringTest {
                 "was BUILT with, and the two differ for as long as a new pager is loading. " +
                 "Body was:\n$body",
             RE_READ !in body,
+        )
+    }
+
+    @Test fun `the queries the unfold is read through are readings of tables, not constants`() {
+        // One notch below the rule above, and out of its reach: the ViewModel can be handing the
+        // stream exactly the right calls while those calls answer nothing. Empty either of them out
+        // — a flow of an empty collection — and every rule in this file stays green, and so do the
+        // flow tests, which bring their own reading. What dies is invisible from here: an emptied
+        // $MEMBER_QUERY lists nothing under a chip that counts three, and an emptied $SNOOZE_SOURCE
+        // takes the whole snooze half with it — a snoozed message stays listed under a chip that
+        // excludes it, and a child snoozed from the selection bar comes back under the reader's
+        // thumb the moment the mask goes down.
+        //
+        // A source rule is a poor instrument for that and this one claims no more than it does:
+        // both queries live in core:data, where they can be RUN against a real database, and that
+        // is where they belong (neither has a test today — see the report). What is pinned here is
+        // the shape the mutation takes: a body that mentions none of the arguments it was given, or
+        // that hands back a constant empty flow, is not answering about anything.
+        // Past the `=`, so the SIGNATURE does not answer for the body: the parameters are named
+        // there whatever the function then does with them, and that is the mutation itself.
+        val members = body(MAIL_REPOSITORY, MEMBER_QUERY.substringAfter('.'))
+            .substringAfter(" =", missingDelimiterValue = "")
+        val ignored = listOf("accountId", "mailboxIds", "threadKey").filterNot { it in members }
+        assertEquals(
+            "$MEMBER_QUERY must use every argument it is given: a body that mentions none of them " +
+                "is a constant wearing the signature of a query — which is exactly how the unfold " +
+                "goes empty under a chip that still counts. Unused: $ignored",
+            emptyList<String>(), ignored,
+        )
+        val snoozes = body(MAIL_REPOSITORY, SNOOZE_SOURCE.substringAfter('.').removeSuffix("("))
+        assertTrue(
+            "$SNOOZE_SOURCE) must observe the snooze table. Handing back a constant empty flow " +
+                "leaves every rule here green and silently undoes the snooze half of the unfold.",
+            !CONSTANT_EMPTY_FLOW.containsMatchIn(snoozes),
         )
     }
 
@@ -134,12 +193,13 @@ class ConversationScopeWiringTest {
     // -- the representative: read where it is DRAWN ------------------------------------------
 
     @Test fun `the members listed under a row exclude the representative that row draws`() {
-        val reads = codeLines(INBOX_SCREEN).filter { "threadMembers[" in it }
+        val screen = code(INBOX_SCREEN)
+        val reads = Regex("""threadMembers\[""").findAll(screen).count()
         assertEquals(
             "InboxScreen must read the unfolded members ONCE, into a value the children and their " +
                 "positions both come from: two reads are two answers. Read at:\n" +
-                reads.joinToString("\n"),
-            1, reads.size,
+                codeLines(INBOX_SCREEN).filter { "threadMembers[" in it }.joinToString("\n"),
+            1, reads,
         )
         assertTrue(
             "that read must subtract the representative THE ROW ITSELF DRAWS (email.id) through " +
@@ -147,8 +207,8 @@ class ConversationScopeWiringTest {
                 "newest message of the thread in the viewed folder(s), recomputed on every write — " +
                 "so subtracting a copy of it taken when the row was unfolded draws the new " +
                 "representative twice and drops the old one, under a chip that still counts right. " +
-                "Read was:\n${reads.singleOrNull()}",
-            MEMBERS_BELOW.containsMatchIn(reads.singleOrNull().orEmpty()),
+                "Read was:\n" + codeLines(INBOX_SCREEN).filter { "threadMembers[" in it }.joinToString("\n"),
+            MEMBERS_BELOW.containsMatchIn(screen),
         )
     }
 
@@ -203,42 +263,97 @@ class ConversationScopeWiringTest {
         // while that gesture's child lands back under the reader's thumb for the length of the
         // network call, which is the one thing the mask is for. So: the callers, by name, and how
         // many there are. A new path that removes a member has to come here and say so.
-        val missing = MASKED_PATHS.filterNot { "$SCOPED_HIDE(" in body(INBOX_VIEW_MODEL, it) }
+        val missing = MASKED_PATHS.map { it.first }
+            .filterNot { "$SCOPED_HIDE(" in body(INBOX_VIEW_MODEL, it) }
         assertEquals(
             "these InboxViewModel paths remove a member from the unfolded rows without wrapping " +
                 "the call in $SCOPED_HIDE: the cache row outlives the gesture, and the live reading " +
                 "puts the child straight back under the thumb",
             emptyList<String>(), missing,
         )
-        val calls = codeLines(INBOX_VIEW_MODEL).filter { isCall(it) }
+        val calls = callArguments(code(INBOX_VIEW_MODEL), SCOPED_HIDE)
         assertEquals(
-            "$SCOPED_HIDE has ${MASKED_PATHS.size} call sites (${MASKED_PATHS.joinToString()}) and " +
-                "this counts them, because the rule above cannot tell a wrapper that is called from " +
-                "one that merely exists. A new masked path is welcome — add it to MASKED_PATHS. One " +
-                "that DISAPPEARED is the defect. Calls found:\n" + calls.joinToString("\n"),
+            "$SCOPED_HIDE has ${MASKED_PATHS.size} call sites " +
+                "(${MASKED_PATHS.joinToString { it.first }}) and this counts them, because the rule " +
+                "above cannot tell a wrapper that is called from one that merely exists. A new " +
+                "masked path is welcome — add it to MASKED_PATHS. One that DISAPPEARED is the " +
+                "defect. Masked with:\n" + calls.joinToString("\n"),
             MASKED_PATHS.size, calls.size,
         )
+    }
+
+    @Test fun `each masked path hides the very messages it is taking away`() {
+        // And the rule above cannot see the ARGUMENT. Hand one of those calls an empty set — the
+        // wrapper is still there, still called, still counted — and the mask covers nothing on the
+        // one path it was written for: the child comes straight back under the reader's thumb for
+        // the length of the network call. So each path says which messages it masks, by name.
+        MASKED_PATHS.forEach { (path, expected) ->
+            val body = body(INBOX_VIEW_MODEL, path)
+            val argument = callArguments(body, SCOPED_HIDE).singleOrNull()
+            assertEquals(
+                "$path must raise the mask exactly once. Body was:\n$body",
+                1, callArguments(body, SCOPED_HIDE).size,
+            )
+            assertTrue(
+                "$path masks `$argument`, which is not the set of messages it is taking away " +
+                    "(expected to match ${expected.pattern}). An empty — or narrower — set leaves " +
+                    "the wrapper in place and the mask covering nothing, which every other rule " +
+                    "here reads as correct.",
+                expected.containsMatchIn(argument.orEmpty()),
+            )
+        }
     }
 
     // -- the swipe context a conversation opens with ------------------------------------------
 
     @Test fun `opening a message inside a conversation records the order the row is showing`() {
-        // Nothing else pins this: drop the call and the recorded order stays empty, so the reading
-        // view's swipe — an existing feature — falls back to the single message it was handed and
-        // the conversation it was opened from is no longer pageable. Every test stays green.
-        val calls = codeLines(INBOX_SCREEN).filter { "$RECORD_ORDER(" in it }
+        // The CALL SITE, which is all this rule can see. What the call then does with the order is
+        // [ThreadOrders]'s, and is pinned by running it (ThreadMemberStreamTest): this rule alone
+        // stayed green when the recording itself was dropped from the ViewModel — the tap still got
+        // its order back, so the opening page was still right, while the store the reading view
+        // reads stayed empty and the swipe inside a conversation quietly died.
+        val screen = code(INBOX_SCREEN)
+        val calls = Regex("""${Regex.escape(RECORD_ORDER)}\(""").findAll(screen).count()
         assertEquals(
             "InboxScreen must record the unfolded conversation's order at the tap, exactly once — " +
                 "it is the only place holding both the representative the row draws and the members " +
-                "drawn beneath it. Found:\n" + calls.joinToString("\n"),
-            1, calls.size,
+                "drawn beneath it. Found:\n" +
+                codeLines(INBOX_SCREEN).filter { "$RECORD_ORDER(" in it }.joinToString("\n"),
+            1, calls,
         )
         assertTrue(
             "the recorded order must be the row's OWN representative (email) plus the members it " +
                 "is drawing (members, the single subtracted read) — rebuilding it from anything " +
                 "else is the remembered representative this path exists to remove. Call was:\n" +
-                calls.single(),
-            RECORDED_ORDER.containsMatchIn(calls.single()),
+                codeLines(INBOX_SCREEN).filter { "$RECORD_ORDER(" in it }.joinToString("\n"),
+            RECORDED_ORDER.containsMatchIn(screen),
+        )
+    }
+
+    @Test fun `the recorded order is kept by the store that is tested, and read back from it`() {
+        // The other end of the same wiring: the ViewModel may build the order, but it must not be
+        // the one KEEPING it. Both halves live in [ThreadOrders] — a plain class, instantiable,
+        // exercised — so that dropping the keeping is a red test rather than a silent regression.
+        val record = body(INBOX_VIEW_MODEL, "recordThreadOrder")
+        assertTrue(
+            "recordThreadOrder must delegate to $ORDER_STORE.record(...): building the entries here " +
+                "and remembering them in a private map is exactly the split that went untested — " +
+                "the building was pinned, the remembering was not. Body was:\n$record",
+            "$ORDER_STORE.record(" in record,
+        )
+        val read = body(INBOX_VIEW_MODEL, "threadEntries")
+        assertTrue(
+            "threadEntries must answer from $ORDER_STORE.entries(...) — the same store the tap " +
+                "wrote to, and nothing else. Body was:\n$read",
+            "$ORDER_STORE.entries(" in read,
+        )
+        assertTrue(
+            "the swipe context must be forgotten with the conversation it belongs to " +
+                "($ORDER_STORE.drop / .clear), or a folded row keeps handing the reader an order " +
+                "the list no longer shows. Found:\n" +
+                codeLines(INBOX_VIEW_MODEL).filter { "$ORDER_STORE." in it }.joinToString("\n"),
+            codeLines(INBOX_VIEW_MODEL).any { "$ORDER_STORE.drop(" in it } &&
+                codeLines(INBOX_VIEW_MODEL).any { "$ORDER_STORE.clear()" in it },
         )
     }
 
@@ -291,15 +406,73 @@ class ConversationScopeWiringTest {
     // -- reading the sources ----------------------------------------------------------------
 
     /**
-     * The lines of [file] that are code: a line whose first non-blank character opens a comment is
-     * dropped whole. Trailing comments are LEFT IN — a line can hold a `//` inside a string, and
-     * cutting there would hide code from these rules. The cost is that a comment can carry a
-     * false match, which is a false failure, not a false pass.
+     * The lines of [file] that are code, WITH THEIR COMMENTS TAKEN OFF: a line whose first non-blank
+     * character opens a comment is dropped whole, and a trailing `//` cuts the rest of its line.
+     *
+     * The cut is what makes these rules mean anything. Trailing comments used to be left in, on the
+     * grounds that a `//` can sit inside a string and cutting there would hide code — but every rule
+     * below asks whether a name APPEARS, so a comment that merely mentions the call satisfies both
+     * the presence tests and the counts. Delete a real call, leave `// hidingThreadMembers` anywhere
+     * in the same body, and the file goes green over the defect it exists to catch. That is a false
+     * PASS, and a false pass is the only kind of failure a lint like this cannot survive.
+     *
+     * So the string case is handled instead of avoided ([withoutTrailingComment]): the cut is only
+     * taken at a `//` outside a double-quoted run. What is left is a residual risk of cutting too
+     * much — a raw string spanning lines, whose middle lines carry no visible quote at all — and
+     * that direction is a false failure, loud and fixable, not a rule that quietly stops looking.
      */
-    private fun codeLines(file: File): List<String> = file.readLines().filterNot {
-        val code = it.trimStart()
-        code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")
+    private fun codeLines(file: File): List<String> = file.readLines().mapNotNull { line ->
+        val code = line.trimStart()
+        if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) null
+        else withoutTrailingComment(line).takeIf { it.isNotBlank() }
     }
+
+    /**
+     * [line] up to its first `//` that is not inside a double-quoted string — the whole line when
+     * there is none. `\` escapes the next character, so a `\"` inside a string does not end it.
+     */
+    private fun withoutTrailingComment(line: String): String {
+        var inString = false
+        var i = 0
+        while (i < line.length) {
+            val c = line[i]
+            when {
+                inString && c == '\\' -> i++
+                c == '"' -> inString = !inString
+                !inString && c == '/' && line.getOrNull(i + 1) == '/' -> return line.substring(0, i).trimEnd()
+            }
+            i++
+        }
+        return line.trimEnd()
+    }
+
+    /**
+     * [file]'s code as ONE string. Rules match over this rather than line by line: a call that fits
+     * on one line today is one indent away from being wrapped by the formatter, and a rule that
+     * reddens on a correct reformat is a rule the next reader learns to edit rather than to trust.
+     * `\s` spans newlines, so the same regex reads both shapes.
+     */
+    private fun code(file: File): String = codeLines(file).joinToString("\n")
+
+    /**
+     * The argument texts of every call to [name] in [text], parentheses balanced — so `f(a) { … }`
+     * and a call wrapped over four lines read the same. The declaration of a generic helper
+     * (`fun <T> name(`) is not a call and is skipped.
+     */
+    private fun callArguments(text: String, name: String): List<String> =
+        Regex("""(?<!fun <T> )${Regex.escape(name)}\(""").findAll(text).map { match ->
+            val start = match.range.last + 1
+            var depth = 1
+            var i = start
+            while (i < text.length && depth > 0) {
+                when (text[i]) {
+                    '(' -> depth++
+                    ')' -> depth--
+                }
+                i++
+            }
+            text.substring(start, (i - 1).coerceAtLeast(start)).trim()
+        }.toList()
 
     /**
      * The declaration of `fun`/`val` [name] in [file] and its body, as text: everything up to the
@@ -329,7 +502,13 @@ class ConversationScopeWiringTest {
             if (open && i > start && line.indentWidth() <= indent) break
             out += line
             val code = line.trimEnd()
-            if (code.endsWith("{") || code.endsWith("=")) open = true
+            // A one-line expression body is complete on its declaration: its parentheses are
+            // already balanced, so the next declaration ends it instead of the whole file doing so.
+            if (code.endsWith("{") || code.endsWith("=") ||
+                (i == start && code.count { it == '(' } == code.count { it == ')' })
+            ) {
+                open = true
+            }
         }
         return out.joinToString("\n")
     }
@@ -352,31 +531,62 @@ class ConversationScopeWiringTest {
         private const val SHARED_DECISION = "ConversationScope.folders("
         private const val SHARED_SENT = "ConversationScope.sentFolders("
 
-        /** The row's own representative, subtracted from the members at the place both are drawn. */
-        private val MEMBERS_BELOW =
-            Regex("""membersBelow\(\s*threadMembers\[threadKey]\.orEmpty\(\)\s*,\s*email\.id\s*\)""")
+        /** The row's own representative, subtracted from the members at the place both are drawn.
+         *  Whitespace-tolerant throughout (`\s` spans newlines): the call is one indent away from
+         *  being wrapped by the formatter, and a correct reformat must not redden a rule. */
+        private val MEMBERS_BELOW = Regex(
+            """membersBelow\(\s*threadMembers\[\s*threadKey\s*]\.orEmpty\(\)\s*,\s*email\.id\s*,?\s*\)""",
+        )
+
+        /** The observed cache query the member stream is read through. */
+        private const val MEMBER_QUERY = "repo.observeThreadEmails"
+
+        /** And the shape of the hand-over: the stream's own arguments, straight through. A lambda
+         *  that resolves its own folders — or answers a flow of its own — is the second resolution
+         *  this whole file exists to forbid. */
+        private val MEMBER_READ = Regex(
+            """read\s*=\s*\{\s*accountId\s*,\s*folders\s*,\s*threadKey\s*->\s*""" +
+                """${Regex.escape(MEMBER_QUERY)}\(\s*accountId\s*,\s*folders\s*,\s*threadKey\s*,?\s*\)""",
+        )
 
         /** The observed snooze table the member stream must be fed — the chip's SQL excludes an
          *  active snooze, and the unfold has to see it start AND lapse. */
         private const val SNOOZE_SOURCE = "repo.observeActiveSnoozed("
 
+        /** A flow that answers a constant nothing — the shape an emptied-out query takes. */
+        private val CONSTANT_EMPTY_FLOW = Regex("""flowOf\(\s*empty\w*\(\s*\)\s*\)""")
+
         /** The only form allowed to hide a member from the unfolded rows. */
         private const val SCOPED_HIDE = "hidingThreadMembers"
 
-        /** A CALL to it, never its declaration (`fun <T> hidingThreadMembers(...)`) — the whole
-         *  point of the count is the call sites, and a declaration always answers for itself. */
-        private fun isCall(line: String) = "$SCOPED_HIDE(" in line && "fun " !in line
+        /**
+         * The paths that take a member off the unfolded rows, and must therefore mask it — the
+         * swipe of one message, the held-back destroy, and the two selection-bar batches — each
+         * with the messages it must mask: the ones it is itself taking away, never fewer.
+         *
+         * The argument is half the rule. A call site handed `emptySet()` still exists, is still
+         * counted, and masks nothing at all.
+         */
+        private val MASKED_PATHS: List<Pair<String, Regex>> = listOf(
+            // Every message whose row it evicts.
+            "heldBackDestroy" to Regex("""^emails\b[\s\S]*\bemailKey\(\)"""),
+            // The one message the swipe flew away.
+            "swipeRemove" to Regex("""^setOf\(\s*email\.emailKey\(\)\s*,?\s*\)$"""),
+            // The whole selection the batch is about to act on.
+            "bulk" to Regex("""^keys$"""),
+            "bulkBatched" to Regex("""^targetKeys$"""),
+        )
 
-        /** The paths that take a member off the unfolded rows, and must therefore mask it: the
-         *  swipe of one message, the held-back destroy, and the two selection-bar batches. */
-        private val MASKED_PATHS = listOf("heldBackDestroy", "swipeRemove", "bulk", "bulkBatched")
+        /** The store that keeps the swipe context — out of the ViewModel so it can be run. */
+        private const val ORDER_STORE = "threadOrder"
 
         /** The swipe context of a message opened from inside an unfolded conversation. */
         private const val RECORD_ORDER = "viewModel.recordThreadOrder"
 
         /** Recorded from what the row is DRAWING: its own representative and the members below. */
-        private val RECORDED_ORDER =
-            Regex("""$RECORD_ORDER\(\s*threadKey\s*,\s*email\s*,\s*members\s*\)""")
+        private val RECORDED_ORDER = Regex(
+            """${Regex.escape(RECORD_ORDER)}\(\s*threadKey\s*,\s*email\s*,\s*members\s*,?\s*\)""",
+        )
 
         /** Raising or lifting that mask outside [SCOPED_HIDE] — the shape a caller can forget. */
         private val BY_HAND = Regex("""\b(removedMembers|restoreThreadMembers|dropThreadMembers?)\b""")
