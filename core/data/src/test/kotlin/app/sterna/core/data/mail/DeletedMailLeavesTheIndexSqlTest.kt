@@ -1,5 +1,6 @@
 package app.sterna.core.data.mail
 
+import app.sterna.core.data.db.EmailEntity
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -13,12 +14,14 @@ import java.sql.DriverManager
  * index row away with the cached message.
  *
  * [LocalSearchFolderFilterSqlTest] pins the query-side filter, which drops a hit whose index row is
- * LABELLED Trash/Junk/Spam. That filter cannot close the reported defect on its own: nothing in the
- * app ever rewrites `email_fts.mailboxId`, so a message indexed while it sat in the Inbox still
- * carries the Inbox after being thrown away — the filter looks up the Inbox's role, finds it
- * perfectly searchable, and hands the message back with subject and preview. The two defences are
- * disjoint: the filter covers rows that are still there but mislabelled, this covers messages that
- * are gone. Both tests must stay.
+ * LABELLED Trash/Junk/Spam. That filter cannot close the reported defect on its own: nothing rewrites
+ * `email_fts.mailboxId`, and on JMAP an id survives a move, so a message indexed while it sat in the
+ * Inbox still carries the Inbox after being thrown away — the filter looks up the Inbox's role, finds
+ * it perfectly searchable, and hands the message back with subject and preview. (On IMAP the id
+ * encodes its folder, so the thrown-away message takes a NEW id and the old row goes down the delete
+ * path; a row that does survive there says Trash, and the filter is what hides it.) The two defences
+ * are disjoint: the filter covers rows that are still there but mislabelled, this covers messages
+ * that are gone. Both tests must stay.
  *
  * The statements executed here are read out of the shipped DAO by [DaoQuerySource], never retyped —
  * including WHICH statements the delete path is made of, taken from the composed body itself, so
@@ -246,6 +249,19 @@ class DeletedMailLeavesTheIndexSqlTest {
             ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString("id")) } }
         }
 
+    /** Whose rows are left in [table] — what says an account-scoped statement stayed in its account. */
+    private fun accountsIn(table: String): List<String> =
+        db.prepareStatement("SELECT accountId FROM $table ORDER BY accountId").use { ps ->
+            ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString(1)) } }
+        }
+
+    /** A cached row as `MailRepository` reads it before a bulk move (for [idsAlreadyIn]). */
+    private fun row(id: String, mailboxId: String, accountId: String = "acc") = EmailEntity(
+        id = id, accountId = accountId, mailboxId = mailboxId, threadId = null, subject = null,
+        preview = null, receivedAt = null, fromName = null, fromEmail = null, seen = true,
+        flagged = false, hasAttachment = false, sortKey = 0,
+    )
+
     // ---- the cases ----------------------------------------------------------------------------
 
     @Test fun aRowLabelledTrashIsHiddenByTheQueryAndStaysInTheIndex() {
@@ -353,12 +369,108 @@ class DeletedMailLeavesTheIndexSqlTest {
         // where the destination IS the source; a new one that reaches for deleteById instead has to
         // fail here. The delete paths are deliberately absent, and the case below is what holds them
         // out.
-        val missing = listOf("archive", "moveToMailbox", "archiveAll", "moveAllToMailbox")
+        //
+        // jmapMoveAll is the one that had no such branch at all: `archiveAll`/`moveAllToMailbox`
+        // short-circuit the no-op themselves on IMAP, but on JMAP the whole selection goes to the
+        // server, and an Email/set into the folder a message is already in SUCCEEDS — so its id came
+        // back among the moved ones and was un-indexed though it had not moved. The single-message
+        // JMAP paths return early on the same condition; the bulk one contradicted them.
+        val missing = listOf("archive", "moveToMailbox", "archiveAll", "moveAllToMailbox", "jmapMoveAll")
             .filterNot { "$NO_OP_EVICTION(" in DaoQuerySource.mailFunctionBody("MailRepository", it) }
         assertEquals(
             "these MailRepository paths no longer call $NO_OP_EVICTION(): an action that moves " +
                 "nothing must evict the cached row WITHOUT un-indexing it",
             emptyList<String>(), missing,
+        )
+    }
+
+    @Test fun aBulkJmapMoveTellsTheNoOpPartFromThePartThatMoved() {
+        // What the wiring rule above cannot state: WHICH ids of a confirmed bulk move never moved.
+        // The server's answer does not say — an `Email/set` filing a message into the folder it is
+        // already in succeeds like any other — so the split is made against the rows read before the
+        // move, and only the part that really left goes to the un-indexing eviction.
+        val rows = listOf(row("already", "mb-archive"), row("moved", "mb-inbox"))
+
+        assertEquals(
+            "an id whose cached row already sat in the destination did not move, and un-indexing it " +
+                "drops a message the server never touched out of offline search",
+            listOf("already"), idsAlreadyIn(rows, setOf("already", "moved", "uncached"), "mb-archive"),
+        )
+        // No cached row means we cannot say where it sat: it belongs to the moved part, whose
+        // eviction takes the index row — the conservative direction (the index must not outlive a
+        // message that did leave).
+        assertEquals(emptyList<String>(), idsAlreadyIn(emptyList(), setOf("uncached"), "mb-archive"))
+        // An id the server did not confirm is in neither part: its cached row survives untouched.
+        assertEquals(emptyList<String>(), idsAlreadyIn(rows, emptySet(), "mb-archive"))
+    }
+
+    @Test fun aBulkDeleteInOneAccountLeavesTheSiblingAccountsRowsAlone() {
+        // The bulk halves' account scope, which nothing exercised: the only cross-account case in
+        // the repository ran the SINGLE-id path, so dropping `accountId = :accountId` from
+        // deleteRowsByIds and unindexByIds left every test green. Two sub-accounts of one server
+        // (issue #31) share message ids, so a multi-selection delete, an Empty-trash or a retention
+        // purge in account A would have taken account B's cached rows AND its index rows with it.
+        folder("mb-7", role = "inbox", accountId = "accA")
+        folder("mb-7", role = "inbox", accountId = "accB")
+        listOf("e-9", "e-10").forEach {
+            message(it, "mb-7", accountId = "accA")
+            message(it, "mb-7", accountId = "accB")
+        }
+
+        deletePath("deleteByIds", mapOf("accountId" to "accA", "ids" to listOf("e-9", "e-10")))
+
+        assertEquals("a bulk delete emptied the sibling account's cache", listOf("e-10", "e-9"), cached())
+        assertEquals("a bulk delete emptied the sibling account's index", listOf("e-10", "e-9"), indexed())
+        assertEquals(listOf("accB", "accB"), accountsIn("emails"))
+        assertEquals(listOf("accB", "accB"), accountsIn("email_fts"))
+    }
+
+    @Test fun theDeletePathsLetACancellationThrough() {
+        // The signal, not the rows. `runCatching` swallows a CancellationException like any other
+        // failure, so a screen closed mid-delete came out of the path looking like a clean delete —
+        // with the cache row committed and the index row standing. The transaction's own `catch`
+        // rethrows it, and the SECOND attempt at un-indexing, in the fallback, must not re-swallow
+        // what the first one was rewritten to let through: hence getOrElseUnlessCancelled, the
+        // module's named idiom, rather than a bare runCatching.
+        listOf("deleteById", "deleteByIds").forEach { function ->
+            val body = DaoQuerySource.daoFunctionBody("EmailDao", function)
+            val cancellationArm = body.substringAfter("CancellationException)", "")
+                .substringBefore("catch (")
+            assertEquals(
+                "EmailDao.$function no longer rethrows a CancellationException: a caller that went " +
+                    "away must commit neither half, not be told the delete succeeded",
+                true, "throw " in cancellationArm,
+            )
+            assertEquals(
+                "EmailDao.$function guards something with a bare runCatching: it swallows a " +
+                    "cancellation as readily as a lock, and here the cache row is already committed " +
+                    "— use getOrElseUnlessCancelled so the cancellation still propagates",
+                Regex("runCatching").findAll(body).count(),
+                Regex("getOrElseUnlessCancelled").findAll(body).count(),
+            )
+        }
+    }
+
+    @Test fun anIndexLockThatDoesNotClearLeavesTheOrphanTheDeleteCannotWaitFor() {
+        // The residue, stated as a case instead of as a paragraph. The retry outside the transaction
+        // is IMMEDIATE — no delay, no backoff — so a lock still held microseconds later refuses it
+        // again, and the message ends up deleted from the cache with its index row standing. That is
+        // the accepted cost of the rule that matters more: an index failure must never stop a
+        // message from being deleted. What the retry buys is the case where the lock HAS cleared;
+        // what it cannot buy is this one.
+        folder("mb-inbox", role = "inbox")
+        message("thrown", "mb-inbox")
+        message("kept", "mb-inbox")
+        val busy = Busy(onSql = "DELETE FROM email_fts", times = 2)
+
+        deletePath("deleteById", mapOf("accountId" to "acc", "id" to "thrown"), busy)
+
+        assertEquals("the un-index was not attempted twice: the retry outside the transaction is gone", 2, busy.fired)
+        assertEquals("an unwritable index stopped a message from being deleted", listOf("kept"), cached())
+        assertEquals(
+            "a lock that never cleared left no orphan — if the delete path can now repair this, say " +
+                "so here and in EmailDao's comment, which promises only a single immediate retry",
+            listOf("kept", "thrown"), indexed(),
         )
     }
 
@@ -447,34 +559,84 @@ class DeletedMailLeavesTheIndexSqlTest {
             ?: error("MailRepository.$repositoryFunction no longer evicts anything through EmailDao")
 
     /**
-     * The `EmailDao` function `MailRepository.evictAlreadyThere` — the shared cleanup of an action
-     * that moved nothing — evicts a folder with this [role] with, read out of its own body like
-     * [retentionEviction].
+     * The `EmailDao` function an action that moved nothing in a folder of this [role] evicts with —
+     * obtained by RUNNING the shipped rule ([noOpEvictionFor]) and reading the eviction its answer
+     * dispatches to out of `evictAlreadyThere`'s own `when` ([noOpEvictionDao]).
      *
-     * The wrapper is chosen by the SHIPPED rule ([noOpKeepsIndexRow]), so these cases follow whatever
-     * the app decides rather than restating it; what they insist on is that both branches exist. A
-     * no-op eviction with nowhere to send a Trash/Junk/Spam folder has only one behaviour, and it is
-     * the wrong one for half its call sites.
+     * Nothing here restates the rule or the wiring. The earlier version ran the rule and then chose
+     * the eviction ITSELF, which left the shipped branch unexecuted: inverting its condition kept
+     * every case green while the app un-indexed a message it had not moved. A helper that decides
+     * anything the app decides is a copy of the app, and a copy is always green.
      */
-    private fun noOpEviction(role: String?): String {
-        val keepsIndexRow = noOpKeepsIndexRow("mb-any", role)
+    private fun noOpEviction(role: String?): String = noOpEvictionDao(noOpEvictionFor("mb-any", role))
+
+    /**
+     * The `EmailDao` function the `when` arm for [decision] in `MailRepository.evictAlreadyThere`
+     * ends up issuing: the arm's own `emailDao.` call, or the removal wrapper it delegates to
+     * ([REMOVAL_WRAPPERS], resolved by [daoRemovalIn]).
+     *
+     * The arm runs from its `NoOpEviction.X ->` to the next constant or the end of the body, so it
+     * may be written on as many lines as it likes.
+     */
+    private fun noOpEvictionDao(decision: NoOpEviction): String {
         val body = DaoQuerySource.mailFunctionBody("MailRepository", NO_OP_EVICTION)
-        check(keepsIndexRow || "$INDEXING_REMOVAL(" in body) {
-            "MailRepository.$NO_OP_EVICTION has no branch that un-indexes: an action that moves " +
-                "nothing in a folder search never looks at (role '$role') leaves an index row for a " +
-                "message the index covers at neither end — an orphan no re-seed can clear, since " +
-                "the re-seed only rewrites rows whose message is still cached"
+        val marker = "${NoOpEviction::class.simpleName}.${decision.name}"
+        val start = body.indexOf("$marker ->")
+        check(start >= 0) {
+            "MailRepository.$NO_OP_EVICTION has no branch for $marker: the shipped rule can answer " +
+                "it, so something has to carry it out"
         }
-        return daoRemovalIn(if (keepsIndexRow) NO_OP_EVICTION else INDEXING_REMOVAL)
+        val rest = body.substring(start + marker.length)
+        val arm = rest.indexOf("${NoOpEviction::class.simpleName}.").let { if (it < 0) rest else rest.take(it) }
+        Regex("""emailDao\.(\w+)\(""").find(arm)?.let { return it.groupValues[1] }
+        val wrapper = REMOVAL_WRAPPERS.filterNot { it == NO_OP_EVICTION }.firstOrNull { "$it(" in arm }
+        return daoRemovalIn(
+            wrapper ?: error("the $marker branch of MailRepository.$NO_OP_EVICTION evicts nothing through EmailDao"),
+        )
+    }
+
+    @Test fun theRuleSparesTheIndexRowOnlyWhereASearchLooks() {
+        // The decision itself, executed. It is the one thing the cases below must not restate, and
+        // the one thing that says WHICH folders are which.
+        assertEquals(NoOpEviction.SPARE_INDEX_ROW, noOpEvictionFor("mb-1", "archive"))
+        assertEquals(NoOpEviction.SPARE_INDEX_ROW, noOpEvictionFor("mb-1", "inbox"))
+        // A folder the cache knows no role for: spared, the harmless direction (an index row in a
+        // folder that IS searched is true; one in the Trash is an orphan nothing can clear).
+        assertEquals(NoOpEviction.SPARE_INDEX_ROW, noOpEvictionFor("mb-1", null))
+        NOT_SEARCHED_ROLES.forEach {
+            assertEquals(
+                "role '$it' is not searched, so a no-op there must take the index row with the cached one",
+                NoOpEviction.TAKE_INDEX_ROW, noOpEvictionFor("mb-1", it),
+            )
+        }
+        // Same trim/lowercase as the search filter, through the one role source.
+        assertEquals(NoOpEviction.TAKE_INDEX_ROW, noOpEvictionFor("mb-1", " Trash "))
+    }
+
+    @Test fun eachAnswerOfTheRuleIsCarriedOutByTheEvictionThatMatchesIt() {
+        // The other half: the arms of the shipped `when`. Swap them and the rule stays right while
+        // the app does the opposite of what it decided.
+        assertEquals(
+            "the ${NoOpEviction.SPARE_INDEX_ROW} branch of MailRepository.$NO_OP_EVICTION un-indexes: " +
+                "a message that never left a searched folder would leave offline search for good, " +
+                "nothing re-indexing a row the cache no longer holds",
+            false, unindexes(noOpEvictionDao(NoOpEviction.SPARE_INDEX_ROW)),
+        )
+        assertEquals(
+            "the ${NoOpEviction.TAKE_INDEX_ROW} branch of MailRepository.$NO_OP_EVICTION spares the " +
+                "index row: in a folder search never looks at that row is an orphan whose message is " +
+                "no longer cached, and no re-seed can clear it",
+            true, unindexes(noOpEvictionDao(NoOpEviction.TAKE_INDEX_ROW)),
+        )
     }
 
     @Test fun theNoOpEvictionAsksWhetherTheFolderIsSearchedAtAll() {
         val body = DaoQuerySource.mailFunctionBody("MailRepository", NO_OP_EVICTION)
         assertEquals(
-            "MailRepository.$NO_OP_EVICTION must decide through the shipped rule (noOpKeepsIndexRow): " +
+            "MailRepository.$NO_OP_EVICTION must decide through the shipped rule (noOpEvictionFor): " +
                 "whether the index row may stay is not 'did anything move?' but 'is this folder " +
                 "searched at all?'",
-            true, "noOpKeepsIndexRow(" in body,
+            true, "noOpEvictionFor(" in body,
         )
         assertEquals(
             "MailRepository.$NO_OP_EVICTION restates the roles a search skips instead of asking the " +

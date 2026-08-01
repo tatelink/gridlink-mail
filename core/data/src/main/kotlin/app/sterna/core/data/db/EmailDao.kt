@@ -7,6 +7,7 @@ import androidx.room.RawQuery
 import androidx.room.Transaction
 import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
+import app.sterna.core.data.getOrElseUnlessCancelled
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
@@ -161,9 +162,22 @@ interface EmailDao {
      * cancellation propagates and nothing is committed.
      *
      * What remains: an index that stays unwritable keeps its row while the cached message goes. That
-     * one is unavoidable — the delete is not optional — and it is why the retry outside exists, a
-     * lock having usually cleared by then. `MailRepository.pruneServerGone` guards the very same FTS
-     * delete in the same shape.
+     * one is unavoidable — the delete is not optional. And the second attempt claims no more than it
+     * is: it is IMMEDIATE, with no delay of any kind, so against the failure it is named for — the
+     * push service holding the lock — it is one more throw of the same dice, worth its single
+     * statement and no more. `DeletedMailLeavesTheIndexSqlTest` pins what a lock that does NOT clear
+     * leaves behind, as a case rather than as a paragraph.
+     *
+     * The retry is guarded, but not with a bare `runCatching`: that swallows a
+     * [CancellationException] exactly as it swallows a lock, and here the cache delete has already
+     * committed — so a screen closed mid-delete would have the coroutine carry on inside a cancelled
+     * scope with the failure of the index write hidden. `getOrElseUnlessCancelled` (the module's
+     * named idiom for this, `app.sterna.core.data.Cancellation`) lets the cancellation through and
+     * keeps the rest best-effort.
+     *
+     * `MailRepository.pruneServerGone` guards an FTS delete with a `runCatching` too, but not in
+     * this shape: there it is a belt-and-braces repeat of what this function has already done, with
+     * no transaction of its own to replay.
      */
     suspend fun deleteById(accountId: String, id: String) {
         try {
@@ -173,8 +187,9 @@ interface EmailDao {
         } catch (e: Exception) {
             android.util.Log.w("MailSync", "deleting $id with its index row failed", e)
             deleteRowById(accountId, id)
-            runCatching { unindexById(accountId, id) }
-                .onFailure { android.util.Log.w("MailSync", "un-index of $id failed; its cached row is gone anyway", it) }
+            runCatching { unindexById(accountId, id) }.getOrElseUnlessCancelled {
+                android.util.Log.w("MailSync", "un-index of $id failed; its cached row is gone anyway", it)
+            }
         }
     }
 
@@ -203,8 +218,9 @@ interface EmailDao {
         } catch (e: Exception) {
             android.util.Log.w("MailSync", "deleting ${ids.size} ids with their index rows failed", e)
             deleteRowsByIds(accountId, ids)
-            runCatching { unindexByIds(accountId, ids) }
-                .onFailure { android.util.Log.w("MailSync", "un-index of ${ids.size} ids failed; cached rows gone anyway", it) }
+            runCatching { unindexByIds(accountId, ids) }.getOrElseUnlessCancelled {
+                android.util.Log.w("MailSync", "un-index of ${ids.size} ids failed; cached rows gone anyway", it)
+            }
         }
     }
 

@@ -101,10 +101,16 @@ interface EmailFtsDao {
      * came from `MIGRATION_14_15`, which repopulated the index straight `FROM emails` with no
      * exclusion at all.
      *
-     * It cannot catch the ordinary "I deleted this and search gave it back" case, because NOTHING
-     * rewrites `email_fts.mailboxId`: a message indexed while it sat in the Inbox still carries the
-     * Inbox here after it is thrown away, so the role this looks up is the Inbox's and the hit is
-     * returned. That case is closed at the other end — `EmailDao.deleteById`/`deleteByIds` delete
+     * It cannot be relied on for the ordinary "I deleted this and search gave it back" case, and on
+     * JMAP it is blind to it outright: nothing rewrites `email_fts.mailboxId`, and a JMAP id keeps
+     * its value across a move, so a message indexed while it sat in the Inbox still carries the
+     * Inbox here after it is thrown away — the role this looks up is the Inbox's and the hit comes
+     * back. On IMAP the id itself encodes the folder (`ImapMailService.emailId`), so a move writes a
+     * NEW id and the old row goes with the old id down the delete path; an index row that does
+     * survive for a message in the Trash carries the Trash, and THIS filter is what hides it — for
+     * exactly as long as the folder cache still knows that folder's role.
+     *
+     * Either way the case is closed at the other end — `EmailDao.deleteById`/`deleteByIds` delete
      * the index row along with the cached message, and every path that takes mail out of a folder
      * funnels through those two.
      *

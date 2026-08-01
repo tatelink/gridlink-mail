@@ -199,9 +199,20 @@ internal fun excludedSearchFolderIds(folders: List<MailboxIdRole>): List<String>
 
 internal val NOT_SEARCHED_ROLES = setOf("trash", "junk", "spam")
 
+/** What an action that MOVED NOTHING does with the search-index row — see [noOpEvictionFor]. */
+internal enum class NoOpEviction {
+    /** Drop the cached row, LEAVE the index row: the message is still in a folder a search looks at,
+     *  so the row is still true and nothing would bring it back if it were taken. */
+    SPARE_INDEX_ROW,
+
+    /** Take both rows: the folder is one no search looks at, where a spared row covers nothing and
+     *  no re-seed can ever clear it. */
+    TAKE_INDEX_ROW,
+}
+
 /**
- * Whether an action that MOVED NOTHING may leave the message's search-index row standing: only when
- * the folder it stayed in ([mailboxId], with its [role]) is one a search looks at.
+ * Which eviction an action that MOVED NOTHING must use, given the folder the message stayed in
+ * ([mailboxId], with its [role]): the index row may stay only where a search looks.
  *
  * The index row of a message that never left a SEARCHABLE folder is still true, and taking it would
  * cost offline coverage nothing brings back — the whole point of `MailRepository.evictAlreadyThere`.
@@ -212,12 +223,35 @@ internal val NOT_SEARCHED_ROLES = setOf("trash", "junk", "spam")
  * knows that folder's role; a folder renamed or dropped server-side, or a cache reset, and the
  * message comes back in the results for good.
  *
+ * A function rather than an `if` inside `evictAlreadyThere`, and a named decision rather than a
+ * boolean, so the rule can be CALLED — by the caller and by its test alike. A test that has to
+ * restate "and this is what that boolean means" is testing its own copy of the rule, and the copy
+ * stays green when the shipped condition is inverted.
+ *
  * Decided through [excludedSearchFolderIds], not against a second copy of [NOT_SEARCHED_ROLES]: same
  * function the index crawl and the search filter use, down to the trim/lowercase, so this rule
- * cannot drift from what a search actually covers.
+ * cannot drift from what a search actually covers. A folder the cache knows no role for spares the
+ * row, which is the harmless direction (a true index row in a folder that IS searched).
  */
-internal fun noOpKeepsIndexRow(mailboxId: String, role: String?): Boolean =
-    excludedSearchFolderIds(listOf(MailboxIdRole(mailboxId, role))).isEmpty()
+internal fun noOpEvictionFor(mailboxId: String, role: String?): NoOpEviction =
+    if (excludedSearchFolderIds(listOf(MailboxIdRole(mailboxId, role))).isEmpty()) {
+        NoOpEviction.SPARE_INDEX_ROW
+    } else {
+        NoOpEviction.TAKE_INDEX_ROW
+    }
+
+/**
+ * Which of [ids] the cache says were ALREADY in [mailboxId] — the part of a bulk move that moved
+ * nothing, told from the part that moved (`MailRepository.jmapMoveAll`).
+ *
+ * The server cannot be asked: an `Email/set` that files a message into the folder it is in succeeds
+ * like any other, so the two are indistinguishable in the response. [rows] are the cached rows read
+ * before the move, within the acting account (issue #31: an id is unique only inside its account).
+ * An id with no cached row is NOT counted as a no-op — where it sat is unknown, and the conservative
+ * answer is the one that takes the index row.
+ */
+internal fun idsAlreadyIn(rows: List<EmailEntity>, ids: Set<String>, mailboxId: String): List<String> =
+    rows.filter { it.id in ids && it.mailboxId == mailboxId }.map { it.id }
 
 /**
  * Whether a search answer may be presented as a TOTAL ("3 results") rather than as a floor
@@ -2766,7 +2800,8 @@ class MailRepository(
      * folder the message is already in, so the server was never touched and the message is exactly
      * where it was. The cached row still goes (the list is showing a folder the user just acted on,
      * and the row comes back with the next page like any other); whether the search-index row goes
-     * with it depends on the FOLDER, not on the action — [noOpKeepsIndexRow].
+     * with it depends on the FOLDER, not on the action — [noOpEvictionFor] decides, this only
+     * carries the decision out.
      *
      * In a searched folder the row must stay. This is `EmailDao.deleteNotIn`'s case, not
      * `deleteByIds`': the message is untouched on the server and its index row is still true, and
@@ -2781,18 +2816,17 @@ class MailRepository(
      * coverage and merely leaves an orphan the re-seed can never clear. The delete paths ([delete],
      * [deleteAll]) reach for [deleteFromCacheAndIndex] directly for the same reason.
      *
-     * The role comes from the folder cache; a folder it does not know keeps the sparing behaviour,
-     * which is the harmless direction (a stale index row in a folder that IS searched is true).
+     * The role comes from the folder cache; what an unknown one gets is [noOpEvictionFor]'s to say.
      *
      * Chunked like [deleteFromCacheAndIndex]: the ids go into one `IN (...)`.
      */
     private suspend fun evictAlreadyThere(accountId: String, mailboxId: String, ids: Collection<String>) {
         if (ids.isEmpty()) return
-        if (!noOpKeepsIndexRow(mailboxId, mailboxDao.roleForId(accountId, mailboxId))) {
-            deleteFromCacheAndIndex(accountId, ids)
-            return
+        when (noOpEvictionFor(mailboxId, mailboxDao.roleForId(accountId, mailboxId))) {
+            NoOpEviction.SPARE_INDEX_ROW ->
+                ids.chunked(MAX_CHANGES).forEach { emailDao.evictFromCacheKeepingIndex(accountId, it) }
+            NoOpEviction.TAKE_INDEX_ROW -> deleteFromCacheAndIndex(accountId, ids)
         }
-        ids.chunked(MAX_CHANGES).forEach { emailDao.evictFromCacheKeepingIndex(accountId, it) }
     }
 
     /**
@@ -2845,7 +2879,14 @@ class MailRepository(
 
     /** JMAP: move every id to exactly [target] in one `Email/set`, then drop the local rows.
      *  Only ids the server confirmed moved are dropped — a per-id `notUpdated` (wrong account,
-     *  destroyed elsewhere, …) keeps its row and lands in [BulkResult.failed]. */
+     *  destroyed elsewhere, …) keeps its row and lands in [BulkResult.failed].
+     *
+     *  The ids that were ALREADY in [target] are among the confirmed ones: an `Email/set` that files
+     *  a message into the folder it is in succeeds, having done nothing. Those are the bulk twin of
+     *  the single-message paths' `mb == target` short-circuit and go to [evictAlreadyThere], which
+     *  weighs the folder — so archiving a selection that is already archived no longer un-indexes
+     *  messages sitting untouched in a searchable folder. [nudgeCounts] already skipped this case;
+     *  the index did not. */
     private suspend fun jmapMoveAll(ctx: Context, emailIds: List<String>, target: String): BulkResult {
         val localAccountId = ctx.credentials.id
         val rows = emailDao.emailsByIds(localAccountId, emailIds)
@@ -2853,7 +2894,9 @@ class MailRepository(
             .map { result ->
                 val moved = emailIds.filter { it in result.done }.toSet()
                 moved.forEach { recentLocalMoves.mark(localAccountId, it) }
-                deleteFromCacheAndIndex(localAccountId, moved)
+                val alreadyThere = idsAlreadyIn(rows, moved, target)
+                evictAlreadyThere(localAccountId, target, alreadyThere)
+                deleteFromCacheAndIndex(localAccountId, moved - alreadyThere.toSet())
                 adjustCountsForRemoval(rows.filter { it.id in moved }, target)
                 // notFound rejections are ghosts (destroyed server-side): prune their rows so
                 // they leave the list, but keep them in `failed` — nothing was moved to [target],
@@ -2940,8 +2983,10 @@ class MailRepository(
             emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
                 when {
                     source == null -> failed += ids
-                    // Already in the archive: nothing moved, so the index row stays (see
-                    // [evictAlreadyThere]).
+                    // Already in the archive: nothing moved — and whether the index row stays is
+                    // the destination's role to decide, not this branch's ([evictAlreadyThere]).
+                    // An archive/all folder is searched, so here it does stay; the same call in
+                    // [moveAllToMailbox] can land on a Junk or Trash destination, where it goes.
                     source == dest -> { evictAlreadyThere(credentials.id, dest, ids); succeeded += ids }
                     else -> imapMoveGroup(credentials, source, ids, dest, succeeded, failed)
                 }
@@ -3120,9 +3165,14 @@ class MailRepository(
 
     /**
      * A role's mailbox id for a SPECIFIC account. For JMAP this comes from that account's own
-     * connection context, not the global mailbox cache (which holds only the last-synced
-     * account) — so moving a message from a non-current account in the unified inbox (Report
-     * spam / Not spam) targets the right folder instead of silently no-op'ing.
+     * connection context rather than from the folder cache — so moving a message from a
+     * non-current account in the unified inbox (Report spam / Not spam) targets the right folder
+     * instead of silently no-op'ing.
+     *
+     * The cache is keyed per account since issue #31 and would no longer answer for the wrong one,
+     * as this said it did; what it can still do is not answer at all — an account whose folders
+     * have never been listed has no rows there, and a Report spam that finds no Junk does nothing.
+     * The connection context is fetched for the acting account, so it always answers.
      */
     private suspend fun roleMailboxId(credentials: AccountCredentials, role: String): String? =
         if (credentials.protocol == MailProtocol.IMAP) imapRoleFolder(credentials, role)
@@ -3130,10 +3180,10 @@ class MailRepository(
 
     /**
      * The folder for the first matching [roles] in a SPECIFIC IMAP account, by listing
-     * that account's folders. Mirrors the JMAP path (its own connection context): the
-     * global mailbox cache holds only the last-synced account, so it's wrong for a
-     * non-current account in the unified inbox (e.g. archiving a Gmail message while a
-     * JMAP account is active would otherwise target the JMAP folder and fail "No folder").
+     * that account's folders. Mirrors the JMAP path (its own connection context) for the reason
+     * given there: the folder cache is per account (issue #31) but only holds what has been
+     * synced, and an account listed in the unified inbox without ever having been opened has
+     * nothing in it — archiving such an account's message would find no Archive and fail.
      */
     private suspend fun imapRoleFolder(credentials: AccountCredentials, vararg roles: String): String? {
         val folders = imap.listMailboxes(credentials)
