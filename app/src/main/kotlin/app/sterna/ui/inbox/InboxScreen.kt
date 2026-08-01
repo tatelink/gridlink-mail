@@ -267,6 +267,8 @@ fun InboxScreen(
     val outboxPending by viewModel.outboxPending.collectAsStateWithLifecycle()
     val restoredDraft by viewModel.restoredDraft.collectAsStateWithLifecycle()
     val outboxCount by viewModel.outboxCount.collectAsStateWithLifecycle()
+    // Two counts on purpose (#70): this one has no grace and feeds the menu entry only.
+    val outboxQueuedCount by viewModel.outboxQueuedCount.collectAsStateWithLifecycle()
     val outboxHasFailures by viewModel.outboxHasFailures.collectAsStateWithLifecycle()
     val highlightId by viewModel.highlightId.collectAsStateWithLifecycle()
     // Promote the just-opened row's highlight as this screen starts coming back (ON_START,
@@ -1278,15 +1280,25 @@ fun InboxScreen(
                                     DropdownMenuItem(
                                         text = { Text(stringResource(R.string.inbox_outbox)) },
                                         leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
+                                        // The count uses outboxQueuedCount, NOT the dot's
+                                        // outboxCount: it appears the instant a message is queued,
+                                        // while the dot keeps its 30 s grace (#70). The dot sits on
+                                        // the toolbar button and is in view whether or not you went
+                                        // looking; this number only exists once this menu is open,
+                                        // and at that point the user is looking on purpose, so
+                                        // there is nothing to hold back. During the grace the dot
+                                        // is therefore absent while this reads "1" — that is the
+                                        // change, not a bug: do not wire them to the same flow.
+                                        // The tint stays shared: red as soon as anything failed.
                                         trailingIcon = {
-                                            if (outboxCount > 0) {
+                                            if (outboxQueuedCount > 0) {
                                                 Badge(
                                                     containerColor = if (outboxHasFailures) {
                                                         MaterialTheme.colorScheme.error
                                                     } else {
                                                         MaterialTheme.colorScheme.primary
                                                     },
-                                                ) { Text(outboxCount.toString()) }
+                                                ) { Text(outboxQueuedCount.toString()) }
                                             }
                                         },
                                         onClick = { overflowOpen = false; onOpenOutbox() },

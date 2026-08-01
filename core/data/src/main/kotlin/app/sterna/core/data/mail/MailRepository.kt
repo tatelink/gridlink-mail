@@ -4668,15 +4668,27 @@ class MailRepository(
      * Outbox items for the list, newest send order last. A row open in the composer (#70,
      * [OutboxState.EDITING]) is hidden: the user is holding it on the compose screen, so showing it
      * in the queue at the same time would be two contradictory views of one message.
+     *
+     * The exclusion goes through [OutboxLogic.isWaitingInOutbox] rather than being spelled out
+     * here, because [outboxQueuedCount] has to agree with this list row for row.
      */
     fun outboxFlow(): Flow<List<OutboxEntity>> =
-        outboxDao.observeAll().map { rows -> rows.filter { it.state != OutboxState.EDITING } }
+        outboxDao.observeAll().map { rows -> rows.filter { OutboxLogic.isWaitingInOutbox(it.state) } }
 
     /**
      * Count of failed items plus those still waiting well past their undo window, for the discreet
      * badge. A send that goes through normally never reaches it — see [OutboxLogic.activeCount].
      */
     fun outboxActiveCount(): Flow<Int> = OutboxLogic.badgeCount(outboxDao.observeBadgeItems())
+
+    /**
+     * How many messages are in the Outbox right now, for the count on the overflow menu's Outbox
+     * entry — no grace, unlike [outboxActiveCount] which feeds the always-visible dot (#70).
+     * Always equal to the number of rows [outboxFlow] hands the Outbox screen: same table, same
+     * predicate ([OutboxLogic.isWaitingInOutbox]).
+     */
+    fun outboxQueuedCount(): Flow<Int> =
+        outboxDao.observeBadgeItems().map { OutboxLogic.queuedCount(it) }
 
     suspend fun outboxItem(id: Long): OutboxEntity? = outboxDao.byId(id)
 

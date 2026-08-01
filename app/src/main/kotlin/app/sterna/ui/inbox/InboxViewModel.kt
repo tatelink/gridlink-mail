@@ -159,6 +159,18 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = 0,
     )
 
+    /**
+     * The count shown on the Outbox entry inside the overflow menu: what is in the Outbox right
+     * now, with no delay (#70). Deliberately NOT [outboxCount] — the dot keeps its grace because it
+     * is always in view, this one only exists once the menu has been opened on purpose. So during
+     * the grace the dot is absent while this reads 1; see `OutboxLogic.queuedCount`.
+     */
+    val outboxQueuedCount: StateFlow<Int> = repo.outboxQueuedCount().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = 0,
+    )
+
     /** Whether any outbox item is parked as failed (drives the failure banner). */
     val outboxHasFailures: StateFlow<Boolean> = repo.outboxFlow()
         .map { items -> items.any { it.state == OutboxState.FAILED } }

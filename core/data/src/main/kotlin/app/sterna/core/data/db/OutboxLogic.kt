@@ -104,6 +104,37 @@ object OutboxLogic {
     }
 
     /**
+     * Whether a row is one of those the Outbox screen lists — everything except a row currently
+     * open in the composer. This is the single predicate behind both `MailRepository.outboxFlow`
+     * (what the screen shows) and [queuedCount] (what the menu entry announces), so the two can
+     * never drift apart: the number in the menu is by construction the number of lines the screen
+     * will put in front of the user.
+     */
+    fun isWaitingInOutbox(state: OutboxState): Boolean = state != OutboxState.EDITING
+
+    /**
+     * Messages sitting in the Outbox right now, with NO grace at all — deliberately not the same
+     * count as [activeCount] (#70).
+     *
+     * This one feeds the count on the Outbox entry INSIDE the overflow menu, which does not exist
+     * on screen until the user opens that menu. Opening it is going to look on purpose, so there is
+     * nothing to hold back: a message queued a second ago is already in the Outbox and must be
+     * announced as such. The dot on the toolbar button is the opposite case — permanently in the
+     * field of view, hence [BADGE_GRACE_MILLIS] so a send that goes out fine never draws the eye to
+     * nothing (#82). A count locked inside a closed menu cannot draw an eye, so the grace would buy
+     * nothing there and only deny #70 its answer.
+     *
+     * The visible consequence is intended, do NOT "harmonise" it away: during the grace the dot is
+     * absent while the menu shows "(1)". They are not two readings of one thing — the dot says "this
+     * has been waiting long enough that you should know", the count says "here is what is in the
+     * Outbox".
+     *
+     * EDITING is excluded for the same reason as in [countsAt]: a row open in the composer is being
+     * handled right now, it is not waiting to leave, and the Outbox screen does not list it either.
+     */
+    fun queuedCount(items: List<OutboxBadgeItem>): Int = items.count { isWaitingInOutbox(it.state) }
+
+    /**
      * When the badge must next be recomputed on its own: the earliest counting threshold still
      * ahead. FAILED already counts and EDITING never does, so neither has a wake-up to schedule.
      */
