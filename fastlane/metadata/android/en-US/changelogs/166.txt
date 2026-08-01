@@ -1,0 +1,18 @@
+Search
+
+- A message you deleted no longer comes back through the search bar.
+- Offline search still reaches mail older than the sync window.
+- A damaged search index no longer stops a message from being deleted.
+- On a new account, a search no longer digs through the Trash, and no longer announces a total it cannot stand behind.
+
+Conversations
+
+- An unfolded conversation lists exactly the messages its own chip counts, including when mail arrives while it is open.
+- A snoozed message comes back under its row the moment it is due.
+- The conversation view setting now says plainly, and at all times, that threads come from the server: grouped on a JMAP account, one row per message on an IMAP account. The switch is never greyed out.
+
+Accounts and mail
+
+- The unified inbox no longer shows the same message twice, one copy carrying no account name, in bold, and never changing.
+- A subject or an attachment name that the sender split across several encoded pieces no longer shows a space in the middle of a word.
+- The Outbox entry in the menu shows its count as soon as a message is queued. The dot on the toolbar keeps its delay, so a message that goes out normally still passes unnoticed.
