@@ -639,48 +639,8 @@ class JmapClient internal constructor(
         accountId: String,
         emailId: String,
         auth: JmapAuth,
-    ): Email = withContext(Dispatchers.IO) {
-        val payload = buildJsonObject {
-            putJsonArray("using") {
-                add(Jmap.CORE_CAPABILITY)
-                add(Jmap.MAIL_CAPABILITY)
-            }
-            putJsonArray("methodCalls") {
-                addJsonArray {
-                    add("Email/get")
-                    addJsonObject {
-                        put("accountId", accountId)
-                        putJsonArray("ids") { add(emailId) }
-                        putJsonArray("properties") {
-                            listOf(
-                                "id", "blobId", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
-                                "hasAttachment", "keywords",
-                                "htmlBody", "textBody", "attachments", "bodyValues",
-                            ).forEach { add(it) }
-                        }
-                        put("fetchHTMLBodyValues", true)
-                        put("fetchTextBodyValues", true)
-                    }
-                    add("g0")
-                }
-            }
-        }
-        val request = Request.Builder()
-            .url(session.apiUrl)
-            .header("Authorization", auth.authorizationHeader())
-            .header("Accept", "application/json")
-            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-        httpClient.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw JmapException("Email/get failed: HTTP ${response.code} ${response.message}")
-            }
-            decodeList(body, "Email/get", Email.serializer()).firstOrNull()
-                ?: throw JmapException("Email not found: $emailId")
-        }
-    }
+    ): Email = getEmailsWithBody(session, accountId, listOf(emailId), auth).firstOrNull()
+        ?: throw JmapException("Email not found: $emailId")
 
     /**
      * Fetch just the raw header fields of a message, in original order with duplicates kept
@@ -715,9 +675,22 @@ class JmapClient internal constructor(
     }
 
     /**
-     * Fetch several messages WITH their bodies in one Email/get (for prefetching the top of
-     * the inbox into the local cache). Same properties as [getEmail] but many ids at once;
-     * does NOT mark anything read.
+     * Fetch several messages WITH their bodies in one Email/get — the single request behind BOTH
+     * opening a message ([getEmail]) and prefetching the top of the inbox into the local cache.
+     * One property list for the two, so the reader can never be handed a field the prefetch
+     * dropped (or the reverse). Does NOT mark anything read.
+     *
+     * The two `header:List-Unsubscribe*` properties ride here and NOWHERE else (RFC 8621 §4.1.3
+     * lets any header be asked for by name): a list view fetches dozens of rows per page and must
+     * not pay for a header only the reader uses.
+     *
+     * **The fallback, and why it exists.** A server that does not know a requested property may
+     * reject the whole `Email/get` — which would mean not "no unsubscribe button" but "no message
+     * opens at all", for every message on that account. Stalwart was measured to accept them
+     * (and to answer null for a header a message does not carry), but Cyrus, Fastmail and James
+     * were not. So a method-level `invalidArguments`/`unknownMethod` is answered by replaying the
+     * SAME call once without the two properties, and the server is remembered for the life of the
+     * process. The reader then works exactly as it did before this feature, minus the banner.
      */
     suspend fun getEmailsWithBody(
         session: JmapSession,
@@ -726,7 +699,7 @@ class JmapClient internal constructor(
         auth: JmapAuth,
     ): List<Email> = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext emptyList()
-        val payload = buildJsonObject {
+        fun payload(withUnsubscribeHeaders: Boolean) = buildJsonObject {
             putJsonArray("using") {
                 add(Jmap.CORE_CAPABILITY)
                 add(Jmap.MAIL_CAPABILITY)
@@ -744,6 +717,7 @@ class JmapClient internal constructor(
                                 "hasAttachment", "keywords",
                                 "htmlBody", "textBody", "attachments", "bodyValues",
                             ).forEach { add(it) }
+                            if (withUnsubscribeHeaders) UNSUBSCRIBE_PROPERTIES.forEach { add(it) }
                         }
                         put("fetchHTMLBodyValues", true)
                         put("fetchTextBodyValues", true)
@@ -752,8 +726,14 @@ class JmapClient internal constructor(
                 }
             }
         }
-        val body = postJmap(session, auth, payload)
-        decodeList(body, "Email/get", Email.serializer())
+        val ask = session.apiUrl !in serversRefusingUnsubscribeHeaders
+        try {
+            decodeList(postJmap(session, auth, payload(ask)), "Email/get", Email.serializer())
+        } catch (e: JmapException) {
+            if (!ask || e.errorType !in PROPERTY_REJECTION_ERRORS) throw e
+            serversRefusingUnsubscribeHeaders.add(session.apiUrl)
+            decodeList(postJmap(session, auth, payload(false)), "Email/get", Email.serializer())
+        }
     }
 
     /** Fetch all emails in a thread (lightweight, no body) via Thread/get + Email/get (RFC 8621 §3). */
@@ -2000,9 +1980,35 @@ class JmapClient internal constructor(
         }
     }
 
+    /**
+     * API URLs whose server rejected the `header:List-Unsubscribe*` properties, so the next
+     * `Email/get` does not spend a round trip discovering it again. Per API URL rather than one
+     * global flag: a phone can hold accounts on several servers, and one strict server must not
+     * cost the others their unsubscribe banner. Memory only — a server that gains support gets it
+     * back at the next app start.
+     */
+    private val serversRefusingUnsubscribeHeaders: MutableSet<String> =
+        java.util.concurrent.ConcurrentHashMap.newKeySet()
+
     companion object {
         /** How often the server should ping the EventSource connection, in seconds. */
         private const val PING_SECONDS = 90L
+
+        /**
+         * The two header properties the reader's unsubscribe banner is built from (RFC 8621
+         * §4.1.3 header form). Named here once so the request and its fallback cannot disagree.
+         */
+        internal val UNSUBSCRIBE_PROPERTIES = listOf(
+            "header:List-Unsubscribe:asText",
+            "header:List-Unsubscribe-Post:asText",
+        )
+
+        /**
+         * Method-level errors that mean "I do not accept this argument" (RFC 8620 §3.6.2), i.e.
+         * the ones a rejected property arrives as. Anything else — a real failure — is rethrown:
+         * retrying a broken call without the properties would only hide it.
+         */
+        private val PROPERTY_REJECTION_ERRORS = setOf("invalidArguments", "unknownMethod")
 
         /** RFC 8620 §3.6.1 request-level limit error (e.g. Stalwart's maxConcurrentRequests). */
         private const val JMAP_ERROR_LIMIT = "urn:ietf:params:jmap:error:limit"

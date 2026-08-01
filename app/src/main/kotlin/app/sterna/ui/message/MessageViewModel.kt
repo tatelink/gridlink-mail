@@ -17,7 +17,13 @@ import app.sterna.ui.compose.receivingAddress
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.calendar.ICalendar
 import app.sterna.core.data.calendar.ParsedEvent
+import app.sterna.core.data.mail.UnsubscribeAction
+import app.sterna.core.data.mail.UnsubscribeHeader
+import app.sterna.core.data.mail.UnsubscribeOptions
+import app.sterna.core.data.mail.preferredAction
 import app.sterna.core.data.settings.MessageTextSize
+import app.sterna.core.data.unsubscribe.UnsubscribeFailure
+import app.sterna.core.data.unsubscribe.UnsubscribeResult
 import app.sterna.core.jmap.ContentTooLargeException
 import app.sterna.core.jmap.DownloadLimits
 import app.sterna.core.jmap.model.Email
@@ -97,6 +103,26 @@ sealed interface CryptoUiState {
 
     /** Decrypt/verify failed; null message = no OpenPGP provider installed. */
     data class Failed(val message: String?) : CryptoUiState
+}
+
+/**
+ * Lifecycle of an unsubscribe on the open message, reflected on the banner above the body.
+ * Session-only, like [InviteResponse]: remembering that a list was left would mean a column in
+ * the message table, and that is a later piece of work with its own migration.
+ */
+sealed interface UnsubscribeState {
+    data object Idle : UnsubscribeState
+
+    /** The POST is in flight (the `mailto:` form never lingers here — the outbox takes it). */
+    data object Sending : UnsubscribeState
+
+    /** The sender's server accepted the one-click request. */
+    data object Sent : UnsubscribeState
+
+    /** The unsubscribe mail is in the outbox; delivery and retry are the outbox's business. */
+    data object Queued : UnsubscribeState
+
+    data class Failed(val reason: UnsubscribeFailure) : UnsubscribeState
 }
 
 /**
@@ -305,6 +331,81 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _headers.value = null
     }
 
+    // ---- unsubscribe (RFC 2369 / RFC 8058) ----
+
+    /** What the open message offers as a way out of its mailing list; null = no banner, no menu
+     *  entry, and no error either — a message that offers nothing is simply mail. */
+    private val _unsubscribe = MutableStateFlow<UnsubscribeOptions?>(null)
+    val unsubscribe = _unsubscribe.asStateFlow()
+
+    private val _unsubscribeState = MutableStateFlow<UnsubscribeState>(UnsubscribeState.Idle)
+    val unsubscribeState = _unsubscribeState.asStateFlow()
+
+    /** The gesture awaiting confirmation, or null when no dialog is up. Confirmation is
+     *  systematic and has no setting (decision D7): the dialog is where the app says what is
+     *  about to leave and to whom, which is the whole of WYSIWYG applied to a network call. */
+    private val _unsubscribeConfirm = MutableStateFlow<UnsubscribeAction?>(null)
+    val unsubscribeConfirm = _unsubscribeConfirm.asStateFlow()
+
+    /** Ask before acting; a no-op when the message offers nothing. */
+    fun askUnsubscribe() {
+        _unsubscribeConfirm.value = _unsubscribe.value?.preferredAction()
+    }
+
+    fun dismissUnsubscribeConfirm() {
+        _unsubscribeConfirm.value = null
+    }
+
+    /**
+     * Carry out the confirmed unsubscribe: the one-click POST, or the mail through the outbox.
+     * [UnsubscribeAction.OPEN_PAGE] is not handled here — handing a URL to a browser is the
+     * screen's job, and it deliberately looks nothing like the other two.
+     *
+     * The result is applied only if this ViewModel still holds the SAME message of the SAME
+     * account. The reader is a pager: a swipe while the POST is in flight would otherwise land
+     * "Unsubscribed" on the neighbouring message (ids are per account — issue #31).
+     */
+    fun unsubscribe() {
+        val options = _unsubscribe.value ?: return
+        val action = options.preferredAction() ?: return
+        if (_unsubscribeState.value == UnsubscribeState.Sending) return
+        _unsubscribeConfirm.value = null
+        val ownerId = loadedId ?: return
+        val ownerAccount = accountId
+        val app = getApplication<Application>()
+        _unsubscribeState.value = UnsubscribeState.Sending
+        viewModelScope.launch {
+            val outcome: UnsubscribeState = try {
+                val credentials = credentials() ?: error(app.getString(R.string.status_no_saved_account))
+                when (action) {
+                    UnsubscribeAction.ONE_CLICK -> {
+                        val url = options.oneClickUrl ?: error("no one-click url")
+                        when (val result = repo.unsubscribeOneClick(url)) {
+                            is UnsubscribeResult.Sent -> UnsubscribeState.Sent
+                            is UnsubscribeResult.Failed -> UnsubscribeState.Failed(result.reason)
+                        }
+                    }
+                    UnsubscribeAction.MAIL -> {
+                        val mailto = options.mailto ?: error("no mailto")
+                        repo.sendUnsubscribeMail(
+                            credentials,
+                            mailto,
+                            app.getString(R.string.message_unsubscribe),
+                        )
+                        UnsubscribeState.Queued
+                    }
+                    // Not ours to run; leaving the state untouched keeps the banner as it was.
+                    UnsubscribeAction.OPEN_PAGE -> UnsubscribeState.Idle
+                }
+            } catch (t: Throwable) {
+                UnsubscribeState.Failed(UnsubscribeFailure.REFUSED)
+            }
+            if (loadedId == ownerId && accountId == ownerAccount) {
+                _unsubscribeState.value = outcome
+            }
+        }
+    }
+
     /** One automatic decrypt attempt per opened message (when the page settles). */
     private var autoDecryptTried = false
 
@@ -360,6 +461,11 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _manualShowImages.value = false
         _headers.value = null
         _attachmentStatus.value = null
+        // All three, or the banner of the message you just left shows on the one you swiped to —
+        // still saying "Unsubscribed", about a list this message has nothing to do with.
+        _unsubscribe.value = null
+        _unsubscribeState.value = UnsubscribeState.Idle
+        _unsubscribeConfirm.value = null
         viewModelScope.launch {
             // Account-scoped: a snooze belongs to one account's message (issue #31).
             _snoozedUntil.value = runCatching {
@@ -411,6 +517,9 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 // erases what the cache already found (#81).
                 _deliveredTo.value = receivingAddress(anchor, ownAddresses()) ?: _deliveredTo.value
                 _mailboxId.value = anchor.mailboxId ?: listEmail?.mailboxId
+                // Read off the OPENED message: the two headers only ever ride with the body
+                // fetch, never with the cached list row painted a moment ago.
+                _unsubscribe.value = UnsubscribeHeader.parse(anchor.listUnsubscribe, anchor.listUnsubscribePost)
                 // OpenPGP: reflect the crypto state; a decrypt is attempted once the
                 // page settles in front of the user (see onActiveChanged), not while
                 // the pager pre-composes neighbours.

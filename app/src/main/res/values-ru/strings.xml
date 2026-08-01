@@ -143,6 +143,20 @@
     <string name="message_report_spam">Пожаловаться на спам</string>
     <string name="message_not_spam">Не спам</string>
     <string name="message_snooze">Отложить…</string>
+    <!-- Отписка (RFC 2369 / RFC 8058) -->
+    <string name="message_unsubscribe">Отписаться</string>
+    <string name="message_unsubscribe_banner">Отправитель предлагает способ отписаться</string>
+    <string name="message_unsubscribe_open_page">Открыть страницу</string>
+    <string name="message_unsubscribe_confirm_title">Отписаться?</string>
+    <string name="message_unsubscribe_confirm_post">Sterna отправит запрос на отписку на %1$s. Без браузера, без страницы, ничего не загружается.</string>
+    <string name="message_unsubscribe_confirm_mail">Sterna отправит письмо с отпиской на %1$s.</string>
+    <string name="message_unsubscribe_confirm_open">Этот отправитель не предлагает автоматической отписки. Открытие страницы в браузере может показать ему ваш IP-адрес.</string>
+    <string name="message_unsubscribe_sending">Отписка…</string>
+    <string name="message_unsubscribe_sent">Запрос на отписку отправлен</string>
+    <string name="message_unsubscribe_queued">Письмо с отпиской поставлено в очередь</string>
+    <string name="message_unsubscribe_failed">Не удалось отписаться</string>
+    <string name="message_unsubscribe_failed_redirect">Сервер отправителя запросил перенаправление, что превратило бы запрос в загрузку страницы. Sterna отказалась.</string>
+    <string name="message_unsubscribe_failed_offline">Нет сети. Повторите попытку позже.</string>
     <string name="message_view_headers">Показать заголовки</string>
     <string name="message_headers_title">Заголовки письма</string>
     <string name="message_headers_empty">Нет заголовков для отображения</string>

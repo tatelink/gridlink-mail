@@ -19,6 +19,8 @@ import app.sterna.core.data.account.OAuthCredentials
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.filter.SieveCodec
+import app.sterna.core.data.unsubscribe.UnsubscribeClient
+import app.sterna.core.data.unsubscribe.UnsubscribeResult
 import app.sterna.core.data.db.EmailDao
 import app.sterna.core.data.db.EmailFtsDao
 import app.sterna.core.data.db.EmailBodyDao
@@ -366,6 +368,22 @@ internal suspend fun <T> readCachedOrPurge(
     runCatching { purge() }
     null
 }
+
+/**
+ * The `List-Unsubscribe` / `List-Unsubscribe-Post` pair as read off an IMAP message's raw source,
+ * in that order — the IMAP half of what JMAP asks the server for by property name.
+ *
+ * A named function rather than two lines inside `openEmailImap`, so WHICH headers are read (and
+ * that both are) is a decision a test can execute: the repository itself needs Room and an Android
+ * context, so nothing inside it can be reached from a JVM test.
+ *
+ * [MimeParser.headerOf] unfolds continuation lines already, which matters here more than anywhere:
+ * a `List-Unsubscribe` carrying two URIs is very often folded, and a naive read would hand the
+ * parser half a header. It is a Map, so a message repeating a header keeps the LAST occurrence —
+ * accepted for this lot, and stated here rather than discovered later.
+ */
+internal fun unsubscribeHeadersOf(raw: String): Pair<String?, String?> =
+    MimeParser.headerOf(raw, "List-Unsubscribe") to MimeParser.headerOf(raw, "List-Unsubscribe-Post")
 
 /**
  * Run [stage] — persisting an outbox item's payload/attachments after its row is already inserted —
@@ -2089,9 +2107,21 @@ class MailRepository(
         }
         // The cache holds no threading headers; lift them from the source so a reply
         // built from this email carries In-Reply-To/References.
+        //
+        // The unsubscribe headers ride along for FREE: the whole source is already in hand, so
+        // this costs no extra round trip and no change to any FETCH command — which matters,
+        // because a `BODY.PEEK[HEADER.FIELDS (…)]` would break ImapParser's tokenisation (it
+        // stops on parentheses) and return an empty string with no error at all.
+        //
+        // ⚠ `headerOf` is a Map, so a message carrying `List-Unsubscribe` TWICE keeps the last
+        // one. Accepted for this lot: both are the sender's own, and picking one of two is not
+        // the failure mode worth a second parser.
+        val unsubscribe = unsubscribeHeadersOf(raw)
         return cached.withBody(body).copy(
             messageId = headerIds(MimeParser.headerOf(raw, "Message-ID")),
             references = headerIds(MimeParser.headerOf(raw, "References")),
+            listUnsubscribe = unsubscribe.first,
+            listUnsubscribePost = unsubscribe.second,
         )
     }
 
@@ -5033,6 +5063,44 @@ class MailRepository(
             attachments = listOf(attachment),
             fromName = identity?.name,
             fromEmail = identity?.email,
+        )
+    }
+
+    // ---- unsubscribe (RFC 2369 / RFC 8058) ----
+
+    /** Built once, on first use: nothing else in the app talks to third-party domains. */
+    private val unsubscribeClient by lazy { UnsubscribeClient() }
+
+    /**
+     * Send the RFC 8058 one-click unsubscribe to [url]: one POST, no browser, no page, and no
+     * `Authorization` header — [UnsubscribeClient] exists precisely so this request cannot
+     * inherit the account's credentials on their way to a stranger's server.
+     */
+    suspend fun unsubscribeOneClick(url: String): UnsubscribeResult = unsubscribeClient.oneClick(url)
+
+    /**
+     * Queue the `mailto:` form of an unsubscribe through the ordinary outbox, so it retries and
+     * survives like any other send rather than being a special one-shot request.
+     *
+     * Built on [sendCalendarReply]'s pattern, identity included: a delegated sub-account submits
+     * through its login (issue #31), and a list unsubscribes the address it sees in `From`.
+     * [defaultSubject] is used only when the URI names none — it comes from the caller because
+     * the data layer has no resources to translate with.
+     */
+    suspend fun sendUnsubscribeMail(
+        credentials: AccountCredentials,
+        mailto: MailtoUnsubscribe,
+        defaultSubject: String,
+    ) {
+        val identity = accountStore.identities(credentials.id).firstOrNull()
+        val mail = unsubscribeMail(mailto, identity?.name, identity?.email, defaultSubject)
+        enqueueSend(
+            credentials = credentials,
+            to = mail.to,
+            subject = mail.subject,
+            body = mail.body,
+            fromName = mail.fromName,
+            fromEmail = mail.fromEmail,
         )
     }
 

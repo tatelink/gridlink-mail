@@ -143,6 +143,20 @@
     <string name="message_report_spam">Segnala come spam</string>
     <string name="message_not_spam">Non è spam</string>
     <string name="message_snooze">Posticipa…</string>
+    <!-- Annullamento iscrizione (RFC 2369 / RFC 8058) -->
+    <string name="message_unsubscribe">Annulla iscrizione</string>
+    <string name="message_unsubscribe_banner">Questo mittente offre un modo per annullare l\'iscrizione</string>
+    <string name="message_unsubscribe_open_page">Apri la pagina</string>
+    <string name="message_unsubscribe_confirm_title">Annullare l\'iscrizione?</string>
+    <string name="message_unsubscribe_confirm_post">Sterna invierà una richiesta di cancellazione a %1$s. Nessun browser, nessuna pagina, nulla di caricato.</string>
+    <string name="message_unsubscribe_confirm_mail">Sterna invierà un\'e-mail di cancellazione a %1$s.</string>
+    <string name="message_unsubscribe_confirm_open">Questo mittente non offre una cancellazione automatica. Aprire la pagina in un browser può mostrargli il tuo indirizzo IP.</string>
+    <string name="message_unsubscribe_sending">Annullamento in corso…</string>
+    <string name="message_unsubscribe_sent">Richiesta di cancellazione inviata</string>
+    <string name="message_unsubscribe_queued">E-mail di cancellazione in coda</string>
+    <string name="message_unsubscribe_failed">Annullamento non riuscito</string>
+    <string name="message_unsubscribe_failed_redirect">Il server del mittente ha chiesto di reindirizzare la richiesta, il che la trasformerebbe in un caricamento di pagina. Sterna ha rifiutato.</string>
+    <string name="message_unsubscribe_failed_offline">Nessuna rete. Riprova più tardi.</string>
     <string name="message_view_headers">Mostra intestazioni</string>
     <string name="message_headers_title">Intestazioni del messaggio</string>
     <string name="message_headers_empty">Nessuna intestazione da mostrare</string>
