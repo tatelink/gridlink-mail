@@ -12,6 +12,9 @@ import java.util.Base64
  * attachment filenames did not and showed their raw `=?…?=` or nothing at all (Codeberg #101).
  */
 
+/** One RFC 2047 encoded-word: `=?charset?B|Q?text?=`. */
+private val ENCODED_WORD = Regex("=\\?([^?]+)\\?([BbQq])\\?([^?]*)\\?=")
+
 /**
  * Decode RFC 2047 encoded-words ("=?utf-8?B?..?=" / "=?..?Q?..?=") in a header.
  *
@@ -19,26 +22,66 @@ import java.util.Base64
  * malformed subject must survive as text, not disappear. That fallback is the reason this is
  * not a one-liner around a JVM decoder.
  *
+ * WHITESPACE BETWEEN TWO ADJACENT ENCODED-WORDS IS DROPPED (RFC 2047 §6.2, Codeberg #123). An
+ * encoded-word may not exceed 75 octets, so a sender with a long run of accented text has to cut
+ * it into several words and separate them — with a space, a tab, or a folding CRLF, since a
+ * header line is also bounded. That separator is syntax, not text: the standard says a decoder
+ * must ignore it. Keeping it turned every cut the sender made into a space inside a word, and
+ * "Réunion de rentrée" reached the screen as "Réunion de ren trée".
+ *
+ * Which is why this is a single scan rather than a `replace {}`: a per-word callback sees the
+ * word and never what separates it from the next one. Two conditions have to hold together for a
+ * gap to disappear, and both are checked HERE because only this loop can see them:
+ * - the gap is entirely linear whitespace (anything else — a comma, a dash — is real text);
+ * - it is flanked by an encoded-word on BOTH sides. Whitespace between an encoded-word and plain
+ *   text is a real space and stays.
+ *
+ * A word that fails to decode still counts as a word for that rule, and its neighbours' gaps are
+ * dropped all the same: §6.2 ignores the separator at PARSE time, on the syntax, so what the
+ * screen shows must not depend on whether a payload happened to be well-formed base64. The
+ * broken word itself still survives verbatim.
+ *
+ * Only the SOURCE gap is examined, never the decoded output: a space that a sender encoded
+ * INSIDE a word (`=?utf-8?Q?Hello=20?=`) is content and is untouched.
+ *
  * The input is a byte container ([ImapParser]'s convention), so [decodeHeaderBytes] runs FIRST:
  * an encoded-word is pure ASCII and passes through it untouched, while a header that carries its
  * bytes raw — against the standard, but common — becomes text before anything filters it.
  */
 internal fun decodeWords(text: String?): String? {
     if (text == null) return null
-    val pattern = Regex("=\\?([^?]+)\\?([BbQq])\\?([^?]*)\\?=")
-    return pattern.replace(decodeHeaderBytes(text)) { m ->
-        val cs = charsetOrUtf8(m.groupValues[1].substringBefore('*'))
-        val enc = m.groupValues[2].uppercase()
-        val data = m.groupValues[3]
-        runCatching {
-            val bytes = if (enc == "B") {
-                Base64.getMimeDecoder().decode(data)
-            } else {
-                decodeQ(data)
-            }
-            String(bytes, cs)
-        }.getOrDefault(m.value)
-    }.let { stripBidiAndControls(it) }.trim()
+    val source = decodeHeaderBytes(text)
+    val out = StringBuilder(source.length)
+    var cursor = 0
+    var afterWord = false
+    for (m in ENCODED_WORD.findAll(source)) {
+        val gap = source.substring(cursor, m.range.first)
+        val isSeparator = afterWord && gap.isNotEmpty() && gap.all(::isLinearWhitespace)
+        if (!isSeparator) out.append(gap)
+        out.append(decodeWord(m))
+        cursor = m.range.last + 1
+        afterWord = true
+    }
+    out.append(source, cursor, source.length)
+    return stripBidiAndControls(out.toString()).trim()
+}
+
+/** RFC 5322 linear whitespace: a space, a tab, or the CRLF of a folded header line. */
+private fun isLinearWhitespace(c: Char): Boolean = c == ' ' || c == '\t' || c == '\r' || c == '\n'
+
+/** One matched encoded-word as text — or, if it will not decode, exactly as it was sent. */
+private fun decodeWord(m: MatchResult): String {
+    val cs = charsetOrUtf8(m.groupValues[1].substringBefore('*'))
+    val enc = m.groupValues[2].uppercase()
+    val data = m.groupValues[3]
+    return runCatching {
+        val bytes = if (enc == "B") {
+            Base64.getMimeDecoder().decode(data)
+        } else {
+            decodeQ(data)
+        }
+        String(bytes, cs)
+    }.getOrDefault(m.value)
 }
 
 /**
