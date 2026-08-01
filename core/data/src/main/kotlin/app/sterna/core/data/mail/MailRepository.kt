@@ -4686,6 +4686,12 @@ class MailRepository(
      * entry — no grace, unlike [outboxActiveCount] which feeds the always-visible dot (#70).
      * Always equal to the number of rows [outboxFlow] hands the Outbox screen: same table, same
      * predicate ([OutboxLogic.isWaitingInOutbox]).
+     *
+     * No `distinctUntilChanged()` here, unlike [OutboxLogic.badgeCount] — and nothing is lost by
+     * it: Room re-emits the whole table on every outbox write, so this does map a new list to an
+     * unchanged Int fairly often, but the ViewModel collects it through `stateIn`, and a StateFlow
+     * drops a value equal to the one it holds. The conflation already happens; the operator would
+     * only move it one step earlier.
      */
     fun outboxQueuedCount(): Flow<Int> =
         outboxDao.observeBadgeItems().map { OutboxLogic.queuedCount(it) }
