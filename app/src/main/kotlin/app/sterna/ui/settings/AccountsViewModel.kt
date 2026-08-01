@@ -387,7 +387,7 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
             // #121): the per-id purges above only cover what THIS sign-out removed, and a row
             // whose account went by any other path is exactly the ghost the unified list used to
             // draw unlabelled. Sweeps nothing while the store lists no account at all.
-            storage.purgeOrphanedAccounts(store.accounts().map { it.id })
+            storage.purgeOrphanedAccounts { store.accounts().map { it.id } }
         }
         PushController.apply(app, userInitiated = true)
     }

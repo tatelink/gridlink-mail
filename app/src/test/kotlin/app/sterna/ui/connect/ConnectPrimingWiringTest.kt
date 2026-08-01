@@ -28,8 +28,27 @@ class ConnectPrimingWiringTest {
     /** The three add paths, by the function each one lives in. */
     private val addPaths = listOf("finishJmapConnect", "finishTokenConnect", "connectImap")
 
-    /** The calls that bring an account into existence. */
-    private val accountCreation = listOf("container.accountStore.add(", "container.accountStore.addOAuth(")
+    /**
+     * Every call in THIS FILE that brings an account into existence. It is a vocabulary, not a
+     * proof: a creation call this list does not name is a path the rules below read straight past,
+     * which is why [`every account-creating call this lint knows still exists in the file`] refuses
+     * to let it hold a name that occurs nowhere.
+     */
+    private val accountCreation = listOf(
+        "container.accountStore.add(",
+        "container.accountStore.readdImportedAccount(",
+        "container.mailRepository.addOAuthAccount(",
+    )
+
+    /**
+     * The functions of this file that create an account WITHOUT going through the decision, and why
+     * each is out of the rules above rather than an oversight:
+     *  - `pollForToken` creates through `MailRepository.addOAuthAccount`, which orders validate /
+     *    persist / prime for itself in the data layer. Nothing in this module reads that ordering;
+     *  - `restoreImportAccount` puts back a `StoredAccount` the store already had (a dismissed
+     *    import), so it mints nothing and primes nothing.
+     */
+    private val creatorsOutsideTheDecision = listOf("pollForToken", "restoreImportAccount")
 
     /** Those, plus the writes a re-add makes on the account it found. */
     private val accountStoreWrites = accountCreation +
@@ -115,21 +134,42 @@ class ConnectPrimingWiringTest {
     }
 
     /**
-     * And the list of add paths above must be the whole list. It is hard-coded — a fourth way of
-     * adding an account would simply not be read by any rule here, and would be free to prime the
-     * cache before creating anything. So the file is asked which of its functions create an
-     * account, and the answer has to be exactly these three.
+     * ⚠ WHAT THIS PROMISES, EXACTLY: that no function of THIS FILE creates an account outside the
+     * three add paths and the two documented exceptions. Nothing wider. It reads the file for the
+     * creation calls named in [accountCreation] and asks which function each one sits in.
+     *
+     * It does NOT promise that these are all the ways the app can create an account: the OAuth
+     * paths mint theirs inside `MailRepository` (`addOAuthAccount`, and the Outlook flow driven by
+     * `OutlookSignIn`), and a `.k9s` import creates accounts in the account store directly. Those
+     * live in files this lint does not read, and no rule here covers their ordering.
      */
-    @Test fun `the add paths this lint reads are all the add paths there are`() {
+    @Test fun `the account-creating functions of this file are the ones this lint knows about`() {
         val creators = source().lines().withIndex()
             .filter { (_, line) -> accountCreation.any { it in line } }
             .map { (i, _) -> enclosingFunction(i) }
             .distinct()
         assertEquals(
-            "every function of ConnectViewModel that creates an account must be listed in " +
-                "`addPaths`, or the rules above read right past it. Add the new path to the list " +
-                "(and make it go through addAccountThenPrime) — do not delete this test.",
-            addPaths.sorted(), creators.sorted(),
+            "a function of ConnectViewModel creates an account without being listed here. If it is " +
+                "an add path, put it in `addPaths` and make it go through addAccountThenPrime; if " +
+                "it deliberately creates one another way, list it in `creatorsOutsideTheDecision` " +
+                "with the reason. Leaving it out lets the rules above read right past it.",
+            (addPaths + creatorsOutsideTheDecision).sorted(), creators.sorted(),
+        )
+    }
+
+    /**
+     * And the vocabulary must be alive. `container.accountStore.addOAuth(` sat in that list while
+     * occurring nowhere in the file: the rule above was reading the file for a string that could
+     * not be there, and reported full coverage of the creation paths on the strength of it. A name
+     * that matches nothing does not restrict anything — it only makes the promise look wider.
+     */
+    @Test fun `every account-creating call this lint knows still exists in the file`() {
+        val dead = accountCreation.filterNot { it in source() }
+        assertEquals(
+            "these calls no longer occur in ConnectViewModel, so the exhaustivity rule above is " +
+                "searching for nothing on their behalf. Either the path was renamed (update the " +
+                "string) or it is gone (drop it) — do not leave a name that cannot match.",
+            emptyList<String>(), dead,
         )
     }
 
