@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.sterna.ui.gridlink.GridlinkMessageListScreen
 import app.sterna.ui.gridlink.GridlinkModePill
+import app.sterna.ui.gridlink.GridlinkSample
 import app.sterna.ui.theme.GridlinkMode
 import app.sterna.ui.theme.ProvideGridlinkTokens
 import app.sterna.ui.theme.gridlinkModeForHour
@@ -56,12 +57,25 @@ class GridlinkGalleryActivity : ComponentActivity() {
         // Comma-separated message ids. Selection is normally reached by long-pressing a row, which
         // is not a thing a capture script can do reliably: `input swipe` with a long duration lands
         // at guessed coordinates that shift the moment a row height or a section label changes.
-        val selected = intent?.getStringExtra("selected")
+        //
+        // 🔴 Filtered against the real sample ids, and a miss is a loud crash rather than a quiet
+        // one. A typo used to sail straight through: the header dutifully read "2 selected" while
+        // not one row was ticked, and that went into a deliverable before anyone noticed the
+        // screenshot was lying. A capture harness that can produce a plausible wrong picture is
+        // worse than no harness.
+        val requestedIds = intent?.getStringExtra("selected")
             .orEmpty()
             .split(',')
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .toSet()
+        val knownIds = GridlinkSample.messages.map { it.id }.toSet()
+        val unknownIds = requestedIds - knownIds
+        require(unknownIds.isEmpty()) {
+            "Unknown message id(s) ${unknownIds.joinToString()} in the `selected` extra. " +
+                "Known ids: ${knownIds.joinToString()}"
+        }
+        val selected = requestedIds
         setContent {
             GridlinkGallery(
                 initialOverride = mode,

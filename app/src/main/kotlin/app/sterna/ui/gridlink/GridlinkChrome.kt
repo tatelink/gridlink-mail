@@ -1,5 +1,11 @@
 package app.sterna.ui.gridlink
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +29,11 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,10 +48,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.sterna.ui.theme.GridlinkDimens
 import app.sterna.ui.theme.GridlinkMode
+import app.sterna.ui.theme.GridlinkMotion
 import app.sterna.ui.theme.GridlinkRadii
 import app.sterna.ui.theme.GridlinkSpacing
 import app.sterna.ui.theme.GridlinkTheme
 import app.sterna.ui.theme.GridlinkType
+import kotlinx.coroutines.delay
 
 /**
  * The spacious half of the app.
@@ -137,17 +150,20 @@ fun Modifier.gridlinkGlow(
 /**
  * Screen header.
  *
- * ⚠️ The subline is derived, not quoted. The brief never specifies header contents, but it does
- * state the app's entire job in one sentence: find the handful of messages that need a human and
- * dispatch the rest. Printing that split at the top ("3 need you · 14 reports") answers the
- * question the user opened the app to ask, before they scroll at all. If it ever reads as clutter,
- * this is the line to cut.
+ * 🔴 The subline is a plain unread count and nothing else, and it is absent when [unread] is zero.
+ *
+ * It used to print a derived split, "3 need you · 14 reports", on the theory that the app's job is
+ * to separate the messages that want a human from the ones that do not. That theory may be right
+ * but the line was not: neither number matched anything the user could point at, "need you" is a
+ * judgement the app invented, and the two halves invited a comparison that means nothing. A count
+ * of unread is the one number in an inbox that is unambiguous.
+ *
+ * Zero unread prints nothing at all rather than "0 unread". An empty subline is the reward.
  */
 @Composable
 fun GridlinkHeader(
     title: String,
-    needsYou: Int,
-    reports: Int,
+    unread: Int,
     modifier: Modifier = Modifier,
     selectedCount: Int = 0,
 ) {
@@ -180,34 +196,26 @@ fun GridlinkHeader(
             style = GridlinkType.screenTitle,
             color = colors.textPrimary,
         )
-        Row(
-            modifier = Modifier.padding(top = GridlinkSpacing.s8),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (selecting) {
-                Text(
-                    text = "Tap to add or remove",
-                    style = GridlinkType.metadata,
-                    color = colors.textSecondary,
-                )
-            } else {
-                Text(
-                    text = "$needsYou need you",
-                    style = GridlinkType.metadata,
-                    // Amber: these are the ones still asking something of a human.
-                    color = colors.attention,
-                )
-                Text(
-                    text = "  ·  ",
-                    style = GridlinkType.metadata,
-                    color = colors.textSecondary,
-                )
-                Text(
-                    text = "$reports reports",
-                    style = GridlinkType.metadata,
-                    color = colors.textSecondary,
-                )
-            }
+        // The whole line is conditional, not just its text. A Text with an empty string still costs
+        // its line height and the 8dp above it, which would leave the title floating over a gap
+        // that only appears on an inbox with nothing left to read.
+        if (selecting) {
+            Text(
+                text = "Tap to add or remove",
+                modifier = Modifier.padding(top = GridlinkSpacing.s8),
+                style = GridlinkType.metadata,
+                color = colors.textSecondary,
+            )
+        } else if (unread > 0) {
+            Text(
+                text = "$unread unread",
+                modifier = Modifier.padding(top = GridlinkSpacing.s8),
+                style = GridlinkType.metadata,
+                // Amber, matching the dots down the list. The header count and the row markers are
+                // the same fact stated twice, so they have to be the same colour or the eye reads
+                // them as two different signals.
+                color = colors.attention,
+            )
         }
     }
 }
@@ -421,11 +429,24 @@ fun GridlinkComposeButton(
  */
 val GRIDLINK_PILL_HEIGHT = 64.dp
 
+/** How long an expanded mode pill waits before folding itself away again. */
+private const val MODE_PILL_IDLE_MS = 2_600L
+
 /**
  * The `Auto · Day / Night / OLED` override pill from the dashboard.
  *
  * Lives in settings per §1. It is surfaced in the gallery too, because a three-mode palette that
  * can only be checked by waiting for dusk is a palette nobody checks.
+ *
+ * ## It is collapsed by default and gets out of the way on its own
+ * 🔴 This control sits on top of the screen it is there to inspect, and at full width it was the
+ * loudest object on a screen whose whole point is what is underneath it. So it rests as a single
+ * ghosted chip naming the current mode: 90% transparent, text at half strength, readable if you
+ * look for it and invisible if you are not. Tapping it restores the full selector.
+ *
+ * It then re-collapses on its own — immediately when a mode is picked, and after
+ * [MODE_PILL_IDLE_MS] of being ignored. Expanded is a momentary state, never a resting one, and
+ * that is what makes it safe to leave the thing on top of every screenshot.
  */
 @Composable
 fun GridlinkModePill(
@@ -435,30 +456,90 @@ fun GridlinkModePill(
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
-    Row(
+    var expanded by remember { mutableStateOf(false) }
+
+    // Idle timeout. Keyed on `expanded` so opening restarts the clock and collapsing cancels it;
+    // keyed on `selected`/`isAuto` too so touching a segment buys another full window rather than
+    // folding the pill up under a thumb that is still choosing.
+    LaunchedEffect(expanded, selected, isAuto) {
+        if (expanded) {
+            delay(MODE_PILL_IDLE_MS)
+            expanded = false
+        }
+    }
+
+    val shape = RoundedCornerShape(GridlinkRadii.pill)
+    // Two layers rather than one blended colour: the opaque underlay is what stops the header's
+    // glow showing through an expanded pill, and it has to disappear completely when collapsed,
+    // which a single animated surface colour cannot express.
+    val underlay by animateColorAsState(
+        targetValue = if (expanded) colors.background else Color.Transparent,
+        animationSpec = GridlinkMotion.standard(),
+        label = "modePillUnderlay",
+    )
+    val surface by animateColorAsState(
+        targetValue = if (expanded) colors.surface else colors.surface.copy(alpha = 0.10f),
+        animationSpec = GridlinkMotion.standard(),
+        label = "modePillSurface",
+    )
+    val outline by animateColorAsState(
+        targetValue = if (expanded) colors.surfaceBorder else colors.surfaceBorder.copy(alpha = 0.30f),
+        animationSpec = GridlinkMotion.standard(),
+        label = "modePillBorder",
+    )
+
+    Box(
         modifier = modifier
-            // Opaque underlay for the same reason as the nav pill: this one floats over the header.
-            .background(colors.background, RoundedCornerShape(GridlinkRadii.pill))
-            .background(colors.surface, RoundedCornerShape(GridlinkRadii.pill))
-            .border(
-                width = GridlinkDimens.hairline,
-                color = colors.surfaceBorder,
-                shape = RoundedCornerShape(GridlinkRadii.pill),
-            )
+            .background(underlay, shape)
+            .background(surface, shape)
+            .border(width = GridlinkDimens.hairline, color = outline, shape = shape)
+            .clip(shape)
             .padding(GridlinkSpacing.s4),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        ModeSegment(
-            label = if (isAuto) "Auto · ${selected.shortLabel()}" else "Auto",
-            active = isAuto,
-            onClick = { onSelect(null) },
-        )
-        GridlinkMode.entries.forEach { mode ->
-            ModeSegment(
-                label = mode.shortLabel(),
-                active = !isAuto && mode == selected,
-                onClick = { onSelect(mode) },
-            )
+        AnimatedContent(
+            targetState = expanded,
+            transitionSpec = {
+                (fadeIn(GridlinkMotion.standard()) togetherWith fadeOut(GridlinkMotion.standard()))
+                    // clip = true so the segments are revealed by the widening pill rather than
+                    // spilling out of it while the width is still catching up.
+                    .using(SizeTransform(clip = true) { _, _ -> GridlinkMotion.standard() })
+            },
+            label = "modePill",
+        ) { isExpanded ->
+            if (isExpanded) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ModeSegment(
+                        label = if (isAuto) "Auto · ${selected.shortLabel()}" else "Auto",
+                        active = isAuto,
+                        onClick = {
+                            onSelect(null)
+                            expanded = false
+                        },
+                    )
+                    GridlinkMode.entries.forEach { mode ->
+                        ModeSegment(
+                            label = mode.shortLabel(),
+                            active = !isAuto && mode == selected,
+                            onClick = {
+                                onSelect(mode)
+                                expanded = false
+                            },
+                        )
+                    }
+                }
+            } else {
+                ModeSegment(
+                    // Collapsed it has to say which mode is live, and whether that was chosen or
+                    // inherited from the clock, since those are the only two things it knows.
+                    label = if (isAuto) "Auto · ${selected.shortLabel()}" else selected.shortLabel(),
+                    active = false,
+                    onClick = { expanded = true },
+                    // Half strength. Not the accent and not full-weight text: collapsed, this is a
+                    // status readout that happens to be tappable, and reading as a live control
+                    // would put a second interactive element in a corner that already has none.
+                    labelColor = colors.textSecondary.copy(alpha = 0.50f),
+                )
+            }
         }
     }
 }
@@ -474,6 +555,8 @@ private fun ModeSegment(
     label: String,
     active: Boolean,
     onClick: () -> Unit,
+    /** Overrides the inactive text colour; the collapsed chip uses it to sit at half strength. */
+    labelColor: Color? = null,
 ) {
     val colors = GridlinkTheme.colors
     Box(
@@ -488,7 +571,11 @@ private fun ModeSegment(
         Text(
             text = label,
             style = GridlinkType.toolbarLabel,
-            color = if (active) gridlinkOnAccent(colors.accent) else colors.textSecondary,
+            color = when {
+                active -> gridlinkOnAccent(colors.accent)
+                labelColor != null -> labelColor
+                else -> colors.textSecondary
+            },
         )
     }
 }

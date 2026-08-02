@@ -55,6 +55,22 @@ import app.sterna.ui.theme.gridlinkSenderBarColor
  */
 
 /**
+ * 🔴 Clamp before a gutter reaches a layout modifier. Every consumer of a gutter Dp goes through
+ * this, no exceptions.
+ *
+ * [GridlinkMotion.standard] is a spring at dampingRatio 0.85, which is underdamped by design: it
+ * overshoots its target and settles back. A gutter collapsing from 44dp to 0 therefore passes
+ * through small NEGATIVE values on the way to rest. `Modifier.padding` throws
+ * `IllegalArgumentException: Padding must be non-negative` on those, so the app hard-crashed every
+ * time the last selected row was deselected — and only then, since that is the only moment the
+ * gutter animates back down to zero.
+ *
+ * Fixing it by damping the spring to 1.0 would work and is the wrong trade: it would flatten the
+ * slide's motion everywhere to paper over one arithmetic edge.
+ */
+private fun Dp.asGutter(): Dp = coerceAtLeast(0.dp)
+
+/**
  * One message.
  *
  * Unread is carried by weight, colour and a 6dp amber dot — never by a background fill, per §4.
@@ -104,7 +120,7 @@ fun GridlinkMessageRow(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = gutter),
+                .padding(start = gutter.asGutter()),
         ) {
             // Identity bar, hard against the leading edge of the row's content. This is what
             // replaces the avatar.
@@ -132,12 +148,21 @@ fun GridlinkMessageRow(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        // §4 changes only line 2 between read and unread: "read state: subject
-                        // drops to secondary colour and Regular weight". The sender stays primary
-                        // in both, so the row's identity never dims and only its urgency does.
+                        // ⚠️ Departs from §4, deliberately. The brief changes only line 2 between
+                        // read and unread and keeps the sender primary in both. In practice that
+                        // made the two states nearly indistinguishable: line 1 is the loudest thing
+                        // in the row, and if it never changes, a read row and an unread row read as
+                        // the same object with a small orange dot bolted on.
+                        //
+                        // So the whole row now steps down when it is read, not just its subject.
+                        // Both lines drop to secondary and lose their weight, which turns the list
+                        // into two clearly separated tiers you can sort at a glance without reading
+                        // a word. This is a colour-token step, not an alpha fade of the same colour.
                         text = message.sender,
-                        style = GridlinkType.senderName,
-                        color = colors.textPrimary,
+                        style = GridlinkType.senderName.copy(
+                            fontWeight = if (message.unread) FontWeight.Bold else FontWeight.Normal,
+                        ),
+                        color = if (message.unread) colors.textPrimary else colors.textSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         // Takes all the slack, which pins the timestamp to the trailing edge.
@@ -252,7 +277,7 @@ fun GridlinkRowDivider(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = startInset)
+            .padding(start = startInset.asGutter())
             .height(GridlinkDimens.hairline)
             .background(GridlinkTheme.colors.divider),
     )
@@ -312,7 +337,7 @@ fun GridlinkBundleRow(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = gutter),
+                .padding(start = gutter.asGutter()),
         ) {
             Column(
                 modifier = Modifier

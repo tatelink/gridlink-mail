@@ -96,11 +96,16 @@ fun GridlinkMessageListScreen(
     // 🔴 ONE animation for the whole list. Every row, every section label and every divider reads
     // this same value, so the list slides as a single sheet. Per-row animations off a Boolean would
     // each start on their own frame and the left edge would shear during the spring.
-    val gutter by animateDpAsState(
+    //
+    // 🔴 The raw animated value goes NEGATIVE. The spring is underdamped, so on the way back to
+    // zero it undershoots, and a negative Dp in `Modifier.padding` throws. Consumers clamp it as
+    // well, but it is clamped here too so nothing downstream ever receives one.
+    val animatedGutter by animateDpAsState(
         targetValue = if (selecting) GridlinkDimens.selectionGutter else 0.dp,
         animationSpec = GridlinkMotion.standard(),
         label = "selectionGutter",
     )
+    val gutter = animatedGutter.coerceAtLeast(0.dp)
 
     // Tap opens a message normally and toggles it once a selection exists — the standard mail
     // gesture, and the reason long-press is the only way IN. Removing the last row exits.
@@ -118,7 +123,11 @@ fun GridlinkMessageListScreen(
 
     val bundle = remember { GridlinkSample.reportsBundle }
     val humans = remember { GridlinkSample.humanMessages }
-    val needsYou = remember { humans.count { it.unread } }
+    // Everything unread that is actually in this inbox, robots included. The header count has to
+    // agree with the dots the user can see, and a bundled message is still an unread message.
+    val unreadCount = remember(bundle, humans) {
+        humans.count { it.unread } + bundle.unreadCount
+    }
 
     // A bundle is not a message, so its circle can only mean "everything inside it". Selected when
     // all of its children are, which also means unticking one child unticks the bundle.
@@ -133,8 +142,7 @@ fun GridlinkMessageListScreen(
         ) {
             GridlinkHeader(
                 title = "Inbox",
-                needsYou = needsYou,
-                reports = bundle.unreadCount,
+                unread = unreadCount,
                 selectedCount = selectedIds.size,
             )
 
