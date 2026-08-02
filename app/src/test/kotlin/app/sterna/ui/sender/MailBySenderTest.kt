@@ -68,19 +68,27 @@ class MailBySenderTest {
     // -- when the rule may be offered at all ---------------------------------------------------
 
     @Test fun `the rule is offered on a server that takes it, with a trash to name`() {
-        assertTrue(canBlockSender(FilterRulesState.Loaded(emptyList()), trashPath = "Trash"))
+        assertTrue(
+            "a Sieve-capable account with a nameable Trash is the case the gesture exists for",
+            canBlockSender(FilterRulesState.Loaded(emptyList()), trashPath = "Trash"),
+        )
     }
 
     @Test fun `no server support, no entry`() {
         // IMAP, or a JMAP server without the Sieve capability: exactly where the Filters screen
         // shows its "not supported" note. Nothing local is invented to stand in for it.
-        assertFalse(canBlockSender(FilterRulesState.Unsupported, trashPath = "Trash"))
+        assertFalse(
+            "the server would refuse the rule; offering it promises something that cannot happen",
+            canBlockSender(FilterRulesState.Unsupported, trashPath = "Trash"),
+        )
     }
 
     @Test fun `no trash to name, no entry`() {
-        assertFalse(canBlockSender(FilterRulesState.Loaded(emptyList()), trashPath = null))
-        assertFalse(canBlockSender(FilterRulesState.Unsupported, trashPath = null))
-        assertFalse(canBlockSender(null, trashPath = null))
+        val noTrash = "with no Trash to name there is no target to write into the rule, and " +
+            "nothing is invented to stand in for one"
+        assertFalse(noTrash, canBlockSender(FilterRulesState.Loaded(emptyList()), trashPath = null))
+        assertFalse(noTrash, canBlockSender(FilterRulesState.Unsupported, trashPath = null))
+        assertFalse(noTrash, canBlockSender(null, trashPath = null))
     }
 
     @Test fun `an account running its own Sieve script does not get the entry`() {
@@ -88,6 +96,8 @@ class MailBySenderTest {
         // that in red before its Save button and stays the place to do it knowingly; a list row
         // has nowhere to put the warning, so it does not carry the gesture.
         assertFalse(
+            "one tap would switch off the account's own Sieve script; the entry must be absent, " +
+                "and the Filters screen — which warns in red before saving — stays the way in",
             canBlockSender(
                 FilterRulesState.Loaded(emptyList(), foreignActiveScript = true),
                 trashPath = "Trash",
@@ -99,7 +109,11 @@ class MailBySenderTest {
         // Offline is not "unsupported". Hiding the entry here makes an unreachable server
         // indistinguishable from an IMAP account — no word, no retry, and the difference is
         // never explained. Tapping it reads again and reports the failure honestly.
-        assertTrue(canBlockSender(null, trashPath = "Trash"))
+        assertTrue(
+            "a read that failed is not an unsupported account: hiding the entry makes an " +
+                "unreachable server look like IMAP, with no word and no retry",
+            canBlockSender(null, trashPath = "Trash"),
+        )
     }
 
     // -- what an Undo has to move back ------------------------------------------------------------
