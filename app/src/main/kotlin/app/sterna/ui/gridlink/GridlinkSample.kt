@@ -28,7 +28,7 @@ object GridlinkSample {
             subject = "Daily Sales Summary 0449 BELMONT 07/30",
             timestamp = "7:14 AM",
             unread = false,
-            hasAttachment = true,
+            attachment = GridlinkAttachment("dss_0449_0730.pdf", "61 KB"),
             automated = true,
         ),
         GridlinkMessage(
@@ -164,7 +164,7 @@ object GridlinkSample {
             subject = "Technician arriving between 1 and 4 PM for the dish machine",
             timestamp = "8:37 AM",
             unread = true,
-            hasAttachment = true,
+            attachment = GridlinkAttachment("ecolab_wo_44120.pdf", "62 KB"),
             section = GridlinkSection.TODAY,
         ),
         GridlinkMessage(
@@ -192,7 +192,7 @@ object GridlinkSample {
             subject = "Work order 88231 closed: walk-in freezer condenser 0459 RANDOLPH RD",
             timestamp = "7:20 AM",
             unread = false,
-            hasAttachment = true,
+            attachment = GridlinkAttachment("wo_88231_closure.pdf", "141 KB"),
             section = GridlinkSection.TODAY,
         ),
         // YESTERDAY
@@ -221,7 +221,7 @@ object GridlinkSample {
             subject = "Order confirmation 4471902, two substitutions on your standing order",
             timestamp = "Yesterday",
             unread = false,
-            hasAttachment = true,
+            attachment = GridlinkAttachment("picksheet_4471902.pdf", "97 KB"),
             section = GridlinkSection.YESTERDAY,
         ),
         GridlinkMessage(
@@ -268,7 +268,7 @@ object GridlinkSample {
             subject = "Numbers for the P7 review, let me know if you want it cut differently",
             timestamp = "Mon",
             unread = false,
-            hasAttachment = true,
+            attachment = GridlinkAttachment("p7_review_by_store.xlsx", "412 KB"),
             section = GridlinkSection.EARLIER,
         ),
         GridlinkMessage(
@@ -296,7 +296,7 @@ object GridlinkSample {
             subject = "Health inspection score posted: 0797 MIDTOWN, 97.5",
             timestamp = "Sun",
             unread = false,
-            hasAttachment = true,
+            attachment = GridlinkAttachment("inspection_0797_0726.pdf", "203 KB"),
             section = GridlinkSection.EARLIER,
         ),
         // Automated, to give the bundle enough children to be worth expanding.
@@ -307,7 +307,7 @@ object GridlinkSample {
             subject = "Daily Sales Summary 0120 PINEVILLE 07/30",
             timestamp = "7:14 AM",
             unread = true,
-            hasAttachment = true,
+            attachment = GridlinkAttachment("dss_0120_0730.pdf", "58 KB"),
             automated = true,
         ),
         GridlinkMessage(
@@ -339,8 +339,16 @@ object GridlinkSample {
         ),
     )
 
-    /** The brief's ten plus the filler, as one list. Order is timeline order within a section. */
-    val messages: List<GridlinkMessage> = briefMessages + extraMessages
+    /**
+     * The brief's ten plus the filler, as one list. Order is timeline order within a section.
+     *
+     * The bodies are stitched on here rather than declared inline so the two lists above stay
+     * readable against §10's table. 🔴 [GridlinkSampleBodies.bodyFor] throws on a miss, so a new row
+     * added without a body fails on the next launch instead of opening to a blank panel.
+     */
+    val messages: List<GridlinkMessage> = (briefMessages + extraMessages).map { message ->
+        message.copy(body = GridlinkSampleBodies.bodyFor(message.id))
+    }
 
     /** Everything the user actually has to read, in timeline order. */
     val humanMessages: List<GridlinkMessage> = messages.filterNot { it.automated }
@@ -360,6 +368,18 @@ object GridlinkSample {
         senderSummary = "Altametrics, Power BI, Steritech",
         messages = messages.filter { it.automated },
     )
+
+    /**
+     * Look one up by id, for the gallery's `--es open`.
+     *
+     * 🔴 Throws on a miss rather than returning null. A typo'd id would otherwise launch straight
+     * into the list with no thread and no complaint, which looks exactly like the open transition
+     * being broken. Same rule as every other gallery extra.
+     */
+    fun messageById(id: String): GridlinkMessage = messages.firstOrNull { it.id == id }
+        ?: error(
+            "No sample message '$id'. Known ids: " + messages.joinToString { it.id },
+        )
 }
 
 /** Which timeline heading a human message falls under. Bundled robots sit outside the timeline. */
@@ -380,11 +400,48 @@ data class GridlinkMessage(
     /** Pre-formatted for the mock. The real list formats from a timestamp against "now". */
     val timestamp: String,
     val unread: Boolean = false,
-    val hasAttachment: Boolean = false,
+    /**
+     * 🔴 The attachment itself, not a boolean.
+     *
+     * It started as `hasAttachment: Boolean` and became this the moment the thread view needed a
+     * file name to draw. Two fields would have been less churn and would also have made it possible
+     * to declare a row with a paperclip and no file, which the list would show and the thread would
+     * not, with nothing anywhere to catch it. [hasAttachment] is derived so the two can never
+     * disagree.
+     */
+    val attachment: GridlinkAttachment? = null,
     /** True for machine-generated senders, which collapse into [GridlinkBundle]. */
     val automated: Boolean = false,
     val section: GridlinkSection = GridlinkSection.AUTOMATED,
-)
+    /**
+     * HTML, filled in from [GridlinkSampleBodies] where [GridlinkSample.messages] is assembled.
+     *
+     * Empty by default only so the thirty-one declarations above stay readable against the brief's
+     * §10 table. Nothing should ever construct a [GridlinkMessage] and leave this empty.
+     */
+    val body: String = "",
+) {
+    val hasAttachment: Boolean get() = attachment != null
+
+    /**
+     * ⚠️ Derived, and invented in the same way the domains are.
+     *
+     * The brief gives display names and no addresses. Robots get `no-reply@`, which is what they
+     * almost always are, and people get their display name flattened. It exists because a thread
+     * view that shows only "M. Rivera" hides the one thing you check a header for, which is whether
+     * the sender is who the name claims. Replace it with the real header the moment JMAP is wired.
+     */
+    val address: String
+        get() = if (automated) {
+            "no-reply@$domain"
+        } else {
+            sender.lowercase().replace(NON_ADDRESS_CHARS, ".").trim('.') + "@" + domain
+        }
+
+    private companion object {
+        val NON_ADDRESS_CHARS = Regex("[^a-z0-9]+")
+    }
+}
 
 data class GridlinkBundle(
     val title: String,

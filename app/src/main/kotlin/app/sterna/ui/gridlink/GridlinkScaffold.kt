@@ -1,5 +1,7 @@
 package app.sterna.ui.gridlink
 
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -18,21 +20,29 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
 import app.sterna.ui.theme.GridlinkDimens
+import app.sterna.ui.theme.GridlinkMotion
 import app.sterna.ui.theme.GridlinkRadii
 import app.sterna.ui.theme.GridlinkSpacing
 import app.sterna.ui.theme.GridlinkTheme
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /**
  * The frame every Gridlink screen sits in: backdrop, header, one panel of glass, and the floating
@@ -220,6 +230,23 @@ fun Modifier.gridlinkEdgeFade(fadeTop: Boolean = true): Modifier = this
     }
 
 /**
+ * How far the list slides for a full screen of thread travel.
+ *
+ * Under a third. The list is not going anywhere, it is being covered, and a back layer that keeps
+ * pace with the front one reads as two panels on a conveyor rather than as depth. This is also the
+ * number that decides how much of the list is still visible during a back drag, which is the part
+ * that tells you where you are about to land.
+ */
+private const val THREAD_PARALLAX = 0.28f
+
+/** How dark the list goes once the thread is fully in. Enough to recede, not enough to look off. */
+private const val THREAD_RECEDE_SCRIM = 0.34f
+
+/** The thread's cast shadow: how wide it spills onto the list, and how dark it gets at the edge. */
+private val THREAD_EDGE_SHADOW = 28.dp
+private const val THREAD_EDGE_SHADOW_ALPHA = 0.36f
+
+/**
  * Owns which tab is showing and hands off to the screen that answers for it.
  *
  * Deliberately thin: no navigation library, no back stack, no routes. The four destinations are
@@ -232,8 +259,26 @@ fun Modifier.gridlinkEdgeFade(fadeTop: Boolean = true): Modifier = this
  * state while you write. Swapping it into the `when` would tear all of that down and rebuild it on
  * close, and the user would come back to the top of a list they were halfway down.
  *
- * That is still not a back stack, and the moment the thread view lands (composer opened from a
- * thread, opened from a list, both needing their own return) it will need to be.
+ * ## The thread view landed, and it still is not a back stack
+ * The note that used to sit here said it would have to become one. It did not, and the reason is
+ * worth keeping: **paint order is the stack**. The thread draws over the destination and the
+ * composer draws over the thread, so a composer opened from a thread closes onto the thread, and a
+ * composer opened from the list closes onto the list, with no route table and no pop. Back is
+ * unambiguous too, because Compose's back handlers are last-registered-first, and last-registered
+ * is the innermost thing composed. This holds for exactly as long as the depth stays one screen per
+ * layer. A thread that can open another thread is the thing that breaks it.
+ *
+ * ## The open/close transition
+ * One [Animatable] from 0 to 1 drives everything: the thread's slide, the list's parallax, the
+ * scrim over the list, and the leading-edge shadow. It is one value and not two animations
+ * (an enter and an exit) because the system back gesture has to be able to **scrub** it. A
+ * transition built as "play forwards on open, play backwards on close" cannot follow a finger that
+ * is halfway through a drag and changes its mind, and following the finger is the whole difference
+ * between a screen that feels attached to the gesture and one that feels like it is reacting to it.
+ *
+ * That also settles which way the thread enters. It has to arrive along the same axis the back
+ * gesture pulls it out on, or the two halves fight: a thread that expands out of the tapped row and
+ * then slides off to the right on back is two unrelated animations sharing a screen.
  */
 @Composable
 fun GridlinkRoot(
@@ -251,6 +296,8 @@ fun GridlinkRoot(
     initialCompose: GridlinkComposeRequest? = null,
     demoRecycle: Boolean = false,
     initiallyEmpty: Boolean = false,
+    initialOpenId: String? = null,
+    initialOpenFraction: Float = 1f,
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
     // Not `rememberSaveable`: a request holds contacts and attachments, which is a parcelable
@@ -262,43 +309,148 @@ fun GridlinkRoot(
     // opens. See [GridlinkComposeRequest].
     var composing by remember(initialCompose) { mutableStateOf(initialCompose) }
 
+    // The open thread, and how far in it is. Two pieces of state and not one, because they do not
+    // change together: the message arrives on the tap and leaves one animation LATER, and clearing
+    // it on the same frame as the close would rip the thread out mid-slide.
+    val colors = GridlinkTheme.colors
+    val scope = rememberCoroutineScope()
+    var open by remember(initialOpenId) {
+        mutableStateOf(initialOpenId?.let(GridlinkSample::messageById))
+    }
+    val progress = remember(initialOpenId) {
+        Animatable(if (initialOpenId == null) 0f else initialOpenFraction)
+    }
+
+    fun closeThread() {
+        scope.launch {
+            progress.animateTo(0f, GridlinkMotion.standard())
+            open = null
+        }
+    }
+
+    // 🔴 PredictiveBackHandler, not BackHandler. The difference is the whole point of building the
+    // open as one scrubable value: this delivers the drag as a flow of progress, so the thread
+    // follows the finger and follows it back if the finger changes its mind. Normal completion of
+    // the flow means committed; a CancellationException means the user let go and it should go back.
+    // The coroutine is still live inside that catch, which is what makes animating from it legal.
+    PredictiveBackHandler(enabled = open != null && composing == null) { events ->
+        try {
+            events.collect { event -> progress.snapTo(1f - event.progress) }
+            progress.animateTo(0f, GridlinkMotion.standard())
+            open = null
+        } catch (cancelled: CancellationException) {
+            progress.animateTo(1f, GridlinkMotion.standard())
+        }
+    }
+
     Box(modifier = modifier) {
-        when (destination) {
-            GridlinkDestination.INBOX -> GridlinkMessageListScreen(
-                destination = destination,
-                onSelectDestination = { destination = it },
-                onCompose = { composing = GridlinkComposeRequest.Fresh },
-                initiallyExpanded = initiallyExpanded,
-                initiallySelected = initiallySelected,
-                initialSearchExpanded = initialSearchExpanded,
-                initialSwipeId = initialSwipeId,
-                initialSwipeFraction = initialSwipeFraction,
-                demoRecycle = demoRecycle,
-                initiallyEmpty = initiallyEmpty,
-            )
+        // 🔴 The destination keeps composing under the thread rather than being swapped out. Same
+        // reason the composer is drawn over it: the list must come back with its scroll position,
+        // its selection and its swipe state intact, and it is also visible through the parallax the
+        // whole time the thread is arriving, so there is nothing to swap to.
+        Box(
+            modifier = Modifier.graphicsLayer {
+                // Recedes a fraction of the distance the thread travels. Equal travel would read as
+                // two screens on a conveyor; a slower back layer is what makes one look further away.
+                translationX = -size.width * THREAD_PARALLAX * progress.value
+            },
+        ) {
+            when (destination) {
+                GridlinkDestination.INBOX -> GridlinkMessageListScreen(
+                    destination = destination,
+                    onSelectDestination = { destination = it },
+                    onCompose = { composing = GridlinkComposeRequest.Fresh },
+                    onOpenMessage = { message ->
+                        open = message
+                        scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
+                    },
+                    initiallyExpanded = initiallyExpanded,
+                    initiallySelected = initiallySelected,
+                    initialSearchExpanded = initialSearchExpanded,
+                    initialSwipeId = initialSwipeId,
+                    initialSwipeFraction = initialSwipeFraction,
+                    demoRecycle = demoRecycle,
+                    initiallyEmpty = initiallyEmpty,
+                )
 
-            GridlinkDestination.FOLDERS -> GridlinkFolderScreen(
-                destination = destination,
-                onSelectDestination = { destination = it },
-                onCompose = { composing = GridlinkComposeRequest.Fresh },
-                initialActionFolderId = initialFolderActionId,
-                initialStage = initialFolderStage,
-            )
+                GridlinkDestination.FOLDERS -> GridlinkFolderScreen(
+                    destination = destination,
+                    onSelectDestination = { destination = it },
+                    onCompose = { composing = GridlinkComposeRequest.Fresh },
+                    initialActionFolderId = initialFolderActionId,
+                    initialStage = initialFolderStage,
+                )
 
-            // Calendar and Contacts deliberately do NOT open the composer. Their compose button is
-            // already a "+" that promises a new appointment or a new contact, and having it write an
-            // email instead would be the app lying about what a button does.
-            GridlinkDestination.CALENDAR -> GridlinkCalendarScreen(
-                destination = destination,
-                onSelectDestination = { destination = it },
-                initialView = initialCalendarView,
-            )
+                // Calendar and Contacts deliberately do NOT open the composer. Their compose button
+                // is already a "+" that promises a new appointment or a new contact, and having it
+                // write an email instead would be the app lying about what a button does.
+                GridlinkDestination.CALENDAR -> GridlinkCalendarScreen(
+                    destination = destination,
+                    onSelectDestination = { destination = it },
+                    initialView = initialCalendarView,
+                )
 
-            GridlinkDestination.CONTACTS -> GridlinkContactsScreen(
-                destination = destination,
-                onSelectDestination = { destination = it },
-                initialScrubLetter = initialScrubLetter,
+                GridlinkDestination.CONTACTS -> GridlinkContactsScreen(
+                    destination = destination,
+                    onSelectDestination = { destination = it },
+                    initialScrubLetter = initialScrubLetter,
+                )
+            }
+        }
+
+        // Depth, in one draw pass: the destination darkens as it recedes, and the thread casts a
+        // shadow onto it from its leading edge. Both are read straight off the same value the slide
+        // uses, so a back drag scrubs them exactly as far as it scrubs the screen.
+        //
+        // 🔴 Not `colors.scrim`. That token is tuned for a modal sitting ON the app, and Day's is
+        // 50% of the same blue as the backdrop, which over the backdrop barely darkens anything. A
+        // layer moving AWAY has to lose light, so this is plain black, and the palette's own colour
+        // is the thing showing through it.
+        if (progress.value > 0f) {
+            val edgeShadow = colors.usesShadows
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawBehind {
+                        val fraction = progress.value
+                        drawRect(
+                            color = Color.Black,
+                            alpha = THREAD_RECEDE_SCRIM * fraction,
+                        )
+                        if (!edgeShadow) return@drawBehind
+                        // Tracks the thread's leading edge across the screen rather than sitting at
+                        // a fixed offset, so the shadow arrives with the screen instead of fading up
+                        // underneath it.
+                        val edge = size.width * (1f - fraction)
+                        val width = THREAD_EDGE_SHADOW.toPx()
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = THREAD_EDGE_SHADOW_ALPHA * fraction),
+                                ),
+                                startX = edge - width,
+                                endX = edge,
+                            ),
+                            topLeft = Offset(edge - width, 0f),
+                            size = Size(width, size.height),
+                        )
+                    },
             )
+        }
+
+        open?.let { message ->
+            Box(
+                modifier = Modifier.graphicsLayer {
+                    translationX = size.width * (1f - progress.value)
+                },
+            ) {
+                GridlinkThreadScreen(
+                    message = message,
+                    onBack = ::closeThread,
+                    onReply = { composing = gridlinkReplyTo(message) },
+                )
+            }
         }
 
         composing?.let { request ->

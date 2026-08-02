@@ -11,8 +11,19 @@
           so the screens can be opened directly, without navigating the real app to reach a
           half-built screen.
         -->
+        <!--
+          🔴 Required for the thread view's back gesture to report progress. Without it the system
+          runs the legacy path on API 33+: PredictiveBackHandler still fires, but only once and
+          only at commit, so the thread snaps shut instead of following the finger, and nothing
+          logs a warning to say why.
+
+          Set per-activity rather than on <application>, deliberately. This is a fork, the flag is
+          an app-wide behaviour change, and upstream Sterna's MainActivity has not been audited for
+          it. Scoped here it cannot affect anything but the gallery, and it cannot ship at all.
+        -->
         <activity
             android:name="app.sterna.gridlink.GridlinkGalleryActivity"
+            android:enableOnBackInvokedCallback="true"
             android:exported="true"
             android:label="Gridlink UI"
             android:theme="@style/Theme.Sterna">

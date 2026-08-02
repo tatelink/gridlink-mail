@@ -212,6 +212,13 @@ fun GridlinkMessageListScreen(
     )
     val gutter = animatedGutter.coerceAtLeast(0.dp)
 
+    // 🔴 Declared before onRowTap, which reads it. Local functions in Kotlin are not hoisted, so the
+    // order of these two is a compile constraint and not a style choice.
+    fun edit(ids: Set<String>, transform: (GridlinkMessage) -> GridlinkMessage) {
+        humans = humans.map { if (it.id in ids) transform(it) else it }
+        robots = robots.map { if (it.id in ids) transform(it) else it }
+    }
+
     // Tap opens a message normally and toggles it once a selection exists — the standard mail
     // gesture, and the reason long-press is the only way IN. Unticking the last row exits.
     fun onRowTap(message: GridlinkMessage) {
@@ -222,13 +229,15 @@ fun GridlinkMessageListScreen(
                 selectedIds + message.id
             }
         } else {
+            // Marked read on the tap, not on the way back. The dot clears while the row is still
+            // visible under the opening thread, which is the frame that makes the two feel like one
+            // action; doing it on close means the list changes under a screen you are looking away
+            // from and the row appears to have changed by itself.
+            if (message.unread) {
+                edit(setOf(message.id)) { it.copy(unread = false) }
+            }
             onOpenMessage(message)
         }
-    }
-
-    fun edit(ids: Set<String>, transform: (GridlinkMessage) -> GridlinkMessage) {
-        humans = humans.map { if (it.id in ids) transform(it) else it }
-        robots = robots.map { if (it.id in ids) transform(it) else it }
     }
 
     /**
