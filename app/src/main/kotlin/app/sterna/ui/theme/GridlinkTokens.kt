@@ -1,7 +1,10 @@
 package app.sterna.ui.theme
 
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -676,31 +679,44 @@ object GridlinkMotion {
     /** Swipe release and snap-back — looser and quicker, so it tracks the finger. */
     fun <T> swipeRelease(): SpringSpec<T> = spring(dampingRatio = 0.75f, stiffness = 500f)
 
+    /** Longest a row may take to clear the edge, i.e. the duration for a full row-width of travel. */
+    private const val FLY_OFF_FULL_MS = 190
+
+    /** Floor on that duration, so a row released at 90% still reads as a movement and not a cut. */
+    private const val FLY_OFF_MIN_MS = 90
+
     /**
-     * The committed row leaving the screen sideways.
+     * The committed row leaving the screen sideways, over [remainingFraction] of a row width.
      *
-     * 🔴 Critically damped, because overshoot would bring the row back on from the far side and
-     * that reads as a bug rather than as bounce.
+     * 🔴 A tween, and it used to be a critically-damped spring at stiffness 2000. The spring was
+     * wrong for this in a way that only became visible once the exit was sequenced properly.
      *
-     * 🔴 Stiffness was 900 and it was the larger half of a real complaint ("it hesitates and sticks
-     * before finally taking it"). Measured on device: at 900 the row needed 191ms to clear the
-     * edge, while the gap behind it took until ~250ms to close, so for the difference the screen
-     * held a flat full-bleed green slab with nothing in it. A coloured rectangle sitting still is
-     * read as the app having stalled, and no amount of tuning the gesture itself changes that,
-     * because the gesture had already finished. At 2000 the row is gone in roughly half the time
-     * and the slab never gets a chance to sit.
+     * A spring approaches its target asymptotically, so it does not so much end as become too small
+     * to see. That was survivable while `onAction` fired at the instant of release, because the
+     * collapse ran *concurrently* and hid the tail. Now that the row flies off first and only then
+     * hands over (see `GridlinkSwipeRow.settle`, and the bug that forced it), the tail is exactly
+     * what the eye is waiting on: measured on device, the row's visible travel finished and then a
+     * full-bleed green slab sat perfectly still for ~170ms while the spring crawled its last two
+     * pixels, before the collapse could start. A coloured rectangle sitting still is read as the app
+     * having stalled. Tuning stiffness cannot fix it, only move it; the shape is the problem.
      *
-     * 🔴 The visibility threshold is not cosmetic. A spring approaches its target asymptotically, so
-     * without one this animation ran a further 236ms after the row was 99.7% of the way out —
-     * a quarter of a second of frames spent moving two pixels nobody can see, on a screen that is
-     * simultaneously trying to animate the collapse. One pixel of travel is the point at which this
-     * is over.
+     * A tween ends when it says it will. The handover therefore lands on the frame the row clears
+     * the edge, with no dead time on either side of it, which is the entire point.
      *
-     * Float rather than generic: only the swipe offset uses it, and the threshold cannot be
-     * expressed on a `<T>`.
+     * 🔴 Duration scales with distance left to travel rather than being fixed. A fixed duration
+     * makes the row's speed depend on where the finger let go: a row released just past the
+     * threshold sprints, an identical row released at 90% crawls the last sliver. Scaling keeps the
+     * apparent speed constant, so every archive leaves at the same rate regardless of how far the
+     * user chose to drag it. [FLY_OFF_MIN_MS] stops the short ones becoming an instant cut.
+     *
+     * Float rather than generic: only the swipe offset uses it.
      */
-    fun swipeFlyOff(): SpringSpec<Float> =
-        spring(dampingRatio = 1.0f, stiffness = 2000f, visibilityThreshold = 1f)
+    fun swipeFlyOff(remainingFraction: Float): AnimationSpec<Float> =
+        tween(
+            durationMillis = (remainingFraction * FLY_OFF_FULL_MS).toInt()
+                .coerceIn(FLY_OFF_MIN_MS, FLY_OFF_FULL_MS),
+            easing = FastOutSlowInEasing,
+        )
 
     /** Nav pill morphing into the selection toolbar: slow and heavily damped, so the shape holds. */
     fun <T> toolbarMorph(): SpringSpec<T> = spring(dampingRatio = 0.90f, stiffness = 300f)

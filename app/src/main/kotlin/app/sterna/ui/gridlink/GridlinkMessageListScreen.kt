@@ -42,6 +42,13 @@ const val GRIDLINK_BUNDLE_SWIPE_ID = "bundle"
 private const val GRIDLINK_RECYCLE_DELAY_MS = 1400L
 
 /**
+ * How long the "mark read" rewrite waits after a row is removed, so the recomposition it forces
+ * lands after the collapse rather than on top of it. See the call site in `remove` for the measured
+ * cost of getting this wrong. Comfortably longer than `GridlinkMotion.rowCollapse()` needs.
+ */
+private const val GRIDLINK_MARK_READ_DELAY_MS = 260L
+
+/**
  * Screen 1 and 2 of the brief: the message list, mixed read and unread, with the automated-sender
  * bundle collapsed and expanded.
  *
@@ -209,13 +216,27 @@ fun GridlinkMessageListScreen(
             // the unread badge from inside the archive is the behaviour every mail client gets wrong
             // once.
             //
-            // 🔴 One frame late, deliberately. This rewrites both message lists, which invalidates
-            // every row in the LazyColumn, and doing it on the release frame measurably cost two
-            // frames before the collapse could start — the row hung at 80% swiped, doing nothing,
-            // for 38ms after the finger was already gone. Nothing here is visible (the row is on
-            // its way out and the header count moving 16ms later cannot be perceived), so it has no
-            // business competing with the animation for that frame.
-            withFrameNanos { }
+            // 🔴 Held until the collapse has finished, and this is the third time this one line has
+            // been moved later. It rewrites both message lists, which invalidates every row in the
+            // LazyColumn, and on the emulator that recomposition costs long enough to be seen.
+            // It was on the release frame (the row hung at 80% swiped for 38ms), then one frame
+            // late, which was enough only while the fly-off and the collapse still overlapped and
+            // the cost had somewhere to hide. Once the exit was properly sequenced, one frame late
+            // put it exactly where the collapse is trying to start: measured, the row flew off
+            // correctly and then a full-bleed green slab sat motionless for 134ms before its height
+            // moved at all.
+            //
+            // ⚠️ What the current value is actually worth, measured rather than assumed. Frame-by-
+            // frame off a screen recording of one archive: finger lifts at t+0, the track reaches
+            // full-bleed at t+98, height first moves at t+149, row gone at t+169. So the static
+            // full-bleed window is ~51ms, down from 134ms, and the whole exit is ~170ms. That is
+            // one to two frames on an emulator drawing at ~25fps, which is the noise floor of this
+            // measurement and not a number to defend to three digits. It says the stall is gone.
+            // It does not say the gesture feels right, and nobody should read it as saying that.
+            //
+            // Nothing here is visible, so nothing here is urgent. The row is already gone and the
+            // header count dropping as the gap closes reads better than it dropping first anyway.
+            delay(GRIDLINK_MARK_READ_DELAY_MS)
             edit(ids) { it.copy(unread = false) }
         }
         scheduleRecycle(ids)
