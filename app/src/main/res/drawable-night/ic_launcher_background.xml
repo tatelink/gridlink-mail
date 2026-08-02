@@ -4,14 +4,17 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- The Gridlink tile, dark mode. Flat #06070a, the Forge page background, so the mail
-         icon reads as the same family as Forge and the webmail favicon. No gradient on
-         purpose: the canonical master in ~/homelab/mail/branding/gridlink-icon.svg is flat,
-         and this is the one place the whole icon family has to agree.
+    <!-- The Gridlink tile, dark mode: `<rect fill="#05070C">` from `export/gridlink-dark.svg`.
 
-         The launcher mask supplies the corner radius, so this is a plain full-bleed square.
-         See drawable/ic_launcher_background.xml for the light-mode twin. -->
+         ⚠️ #05070C, not the #06070A this file used to hold. The old value came from the Forge page
+         background on the reasoning that the icon family should agree on one near-black. Tate's
+         icon pack settles it the other way: the pack is what Windows, iOS, the favicons and the PWA
+         tiles all render, so the pack's own value is the one the family agrees on. The two differ by
+         about one unit per channel and are indistinguishable on screen; the point is only that
+         there is now a single source to re-port from instead of two plausible ones.
+
+         Full bleed with no corner rounding: the launcher's mask does that. -->
     <path
-        android:fillColor="#FF06070A"
+        android:fillColor="#FF05070C"
         android:pathData="M0,0h108v108h-108z" />
 </vector>

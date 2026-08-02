@@ -1,86 +1,116 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- The Gridlink 2x2 mark, light mode. drawable-night/ic_launcher_foreground.xml is the
-         canonical variant, ported from the vector master on Talos; this one is derived from
-         it and the geometry is identical (cells 19.25, gap 5.5, radius 4.8125, origins 32 and
-         56.75). If the geometry moves, move all three: this, the night twin, and the
-         monochrome layer.
+    <!-- The Gridlink mark, light mode. Ported from `export/gridlink-light.svg` in Tate's icon
+         pack. Both variants are AUTHORED there, so neither of these files is derived from the
+         other; see the night twin for the geometry, the 512 -> 108 transform and the mask
+         clearance, all of which are shared exactly.
 
-         🔴 NOT the dark mark on a pale tile. That was the first attempt and it inverts the
-         mark: #21405d was chosen to be the quietest thing on near-black, and on near-white it
-         becomes the loudest, so the two cells that are supposed to recede end up carrying the
-         icon. Every colour here is re-derived by the same rule against the new background
-         instead of being reused.
+         🔴 This is not the dark mark on a pale tile, and it is not an inversion of it either. An
+         earlier version of this file guessed at a light variant by re-deriving every colour, and
+         guessed wrong in an instructive way: it assumed the two inert blocks had to go pale to stay
+         quiet against a pale tile. The real design does the opposite and keeps them at the same
+         near-black #12233C they wear on the dark tile, so on white they are the DARKEST thing on
+         the icon. It works because quiet here does not mean low contrast, it means unlit. The
+         inert blocks are holes; the lit node is the only thing emitting, and it stays a saturated
+         blue rather than going white because white on a near-white tile emits nothing.
 
-         The rule, from the master: the two diagonal cells are lit and the other two are the
-         brand blue at 40% over the tile. "Lit" on black means brighter than the tile, so on
-         white it has to mean darker, and the pair inverts:
-           dark  top-left #4a90d9 -> bottom-right #7cb2e6  (steps away from black, lighter)
-           light top-left #4a90d9 -> bottom-right #35689c  (steps away from white, darker)
-         Top-left stays the brand blue exactly in both, so the two variants are recognisably
-         the same mark rather than two colourways.
+         What actually differs between the two variants is only this:
+           tile      #05070C            -> #E9EFF7
+           hot node  #FFFFFF -> #BFE4FA -> #6FB1F9 -> #2E6BD8   (white-hot becomes blue-hot)
+           bloom     pale blue at 85%   -> brand blue at 55%
+           grid      #4C9AF5 at 6%      -> #1B5FCB at 6%
+           hairlines the two inert blocks lose theirs, the hot node gains one
+         The top-left mass is byte-identical in both. -->
 
-         🔴 Pre-blended, never alpha, same trap as the master. Dim cells are
-         rgba(74,144,217,0.4) over the tile resolved by hand: over #06070a that is #21405d,
-         over this tile's #f2f6fa midpoint it is #afcdec.
-
-         No bloom layers. The dark variant approximates the master's two feGaussianBlur glows
-         with radial gradients; a glow on near-white is invisible at best and grey haze at
-         worst, so light simply does without. -->
-
-    <!-- dim cell, top-right -->
+    <!-- The grid, in the darker blue the light master uses for it. -->
     <path
-        android:fillColor="#FFAFCDEC"
-        android:pathData="M61.5625,32
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:strokeColor="#1B5FCB"
+        android:strokeWidth="0.25"
+        android:strokeAlpha="0.06"
+        android:pathData="M38,30V78 M46,30V78 M54,30V78 M62,30V78 M70,30V78
+            M30,38H78 M30,46H78 M30,54H78 M30,62H78 M30,70H78" />
 
-    <!-- dim cell, bottom-left -->
-    <path
-        android:fillColor="#FFAFCDEC"
-        android:pathData="M36.8125,56.75
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+    <!-- Bloom under the hot node. Weaker than the dark variant's and in the brand blue rather than
+         a pale tint, because a pale glow on a pale tile is just haze. -->
+    <path android:pathData="M55.5,55.5h29v29h-29z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="70"
+                android:centerY="70"
+                android:gradientRadius="14.5">
+                <item android:offset="0" android:color="#8C4C9AF5" />
+                <item android:offset="0.55" android:color="#6B4C9AF5" />
+                <item android:offset="0.8" android:color="#2E4C9AF5" />
+                <item android:offset="1" android:color="#004C9AF5" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- lit cell, top-left -->
+    <!-- Top-left block: identical to the dark variant, gradient and hairline included. -->
     <path
-        android:fillColor="#FF4A90D9"
-        android:pathData="M36.8125,32
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:strokeColor="#7FB6F2"
+        android:strokeWidth="0.3125"
+        android:strokeAlpha="0.35"
+        android:pathData="M37,30
+            h15 a7,7 0 0 1 7,7
+            v15 a7,7 0 0 1 -7,7
+            h-15 a7,7 0 0 1 -7,-7
+            v-15 a7,7 0 0 1 7,-7 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="44.5" android:startY="30"
+                android:endX="44.5" android:endY="59">
+                <item android:offset="0" android:color="#FF3D77C2" />
+                <item android:offset="1" android:color="#FF24548F" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- lit cell, bottom-right -->
+    <!-- Top-right block: inert, and no hairline. On the dark tile the blocks need an edge to
+         separate them from the background; against #E9EFF7 they have all the edge they need. -->
     <path
-        android:fillColor="#FF35689C"
-        android:pathData="M61.5625,56.75
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:fillColor="#FF12233C"
+        android:pathData="M67,30
+            h6 a5,5 0 0 1 5,5
+            v19 a5,5 0 0 1 -5,5
+            h-6 a5,5 0 0 1 -5,-5
+            v-19 a5,5 0 0 1 5,-5 z" />
+
+    <!-- Bottom-left block: inert. -->
+    <path
+        android:fillColor="#FF12233C"
+        android:pathData="M35,62
+            h19 a5,5 0 0 1 5,5
+            v6 a5,5 0 0 1 -5,5
+            h-19 a5,5 0 0 1 -5,-5
+            v-6 a5,5 0 0 1 5,-5 z" />
+
+    <!-- The hot node. Blue-hot rather than white-hot, and the only element that gains a hairline in
+         this variant: it needs the containment, being the one bright shape on a bright field. -->
+    <path
+        android:strokeColor="#1B5FCB"
+        android:strokeWidth="0.3125"
+        android:strokeAlpha="0.35"
+        android:pathData="M67,62
+            h6 a5,5 0 0 1 5,5
+            v6 a5,5 0 0 1 -5,5
+            h-6 a5,5 0 0 1 -5,-5
+            v-6 a5,5 0 0 1 5,-5 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="70" android:startY="62"
+                android:endX="70" android:endY="78">
+                <item android:offset="0" android:color="#FF6FB1F9" />
+                <item android:offset="1" android:color="#FF2E6BD8" />
+            </gradient>
+        </aapt:attr>
+    </path>
 </vector>

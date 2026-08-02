@@ -5,110 +5,129 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- The Gridlink 2x2 mark, dark mode. Ported verbatim from the vector master at
-         ~/homelab/mail/branding/gridlink-icon.svg on Talos, the same file Forge and the
-         webmail favicon come from, so this variant is the canonical one and the light twin
-         in drawable/ is the derived one.
+    <!-- The Gridlink mark, dark mode. Ported from `export/gridlink-dark.svg` in the icon pack
+         Tate shipped (its README calls the variant "11a - Hot node"), which is the authored
+         source for the Windows .ico, iOS, the favicons and the PWA tiles as well. That pack is the
+         master: if the mark changes, it changes there and gets re-ported here, never edited here.
 
-         Geometry is the Forge `.logo` rule (cells 14 / gap 4 / radius 3.5, so a 32-unit mark
-         box) scaled by 1.375 to a 44-unit box centred on the 108 canvas: cells 19.25, gap
-         5.5, radius 4.8125, origins at 32 and 56.75. Both variants share it exactly; if one
-         moves, move the other and the monochrome layer with it.
+         ## The mark
+         Four rounded rects on a faint grid, deliberately NOT four equal cells. A big quiet block
+         top-left, two narrow inert blocks down the other two sides, and one small bright node
+         bottom-right with light pouring off it. The size difference is the whole idea: the eye is
+         meant to land on the smallest thing on the icon because it is the only lit one. Four equal
+         cells (which an earlier version of this file had) throws that away and leaves a window pane.
 
-         ⚠️ 44 is NOT the master's 43% of the canvas. The master is sized for a PWA tile,
-         where the whole square is visible. An adaptive icon throws away the outer 18 on
-         every side, so 43% of 108 would render as ~64% of what the user actually sees, i.e.
-         far bigger than Forge. 44 of the visible 72 is 61%, which is what matches Forge on
-         screen rather than on paper.
+         ## The 512 -> 108 transform: android = svg/8 + 22
+         The master is a 512 tile with the mark inset to 64..448. An adaptive icon's 108 viewport
+         only ever shows the middle 72, so the master tile maps onto that 72, and the divide-by-8
+         falls out of it: every coordinate in the master is a multiple of 8, so nothing lands on an
+         awkward fraction. The mark ends up spanning 30..78, a 48-unit box, 67% of what is seen.
 
-         🔴 Colours are pre-blended, never alpha. The two dim cells are rgba(74,144,217,0.4)
-         over #06070a resolved by hand to #21405d. A 0.4-alpha fill renders as washed-out
-         pastel instead of the muted navy it should be.
+         🔴 Do not scale it up to "fill" more of the 108. The margin is not waste, it is the mask's
+         clearance. At 48 the mark's furthest corner sits 31 units from centre, inside the 33-unit
+         circle Android guarantees no mask will clip. Take the mark to the master's own 75% and that
+         corner reaches 34.9, which survives a squircle and gets shaved by a circle.
 
-         The master's two feGaussianBlur glows have no VectorDrawable equivalent, so they are
-         approximated with radial gradients that fade to transparent. They live in this
-         layer, not the background, because launchers parallax the two layers independently
-         and a glow that slides off its cell looks broken. -->
+         🔴 The master's rx=112 tile rounding is dropped on purpose. The launcher's mask does the
+         rounding here, and a pre-rounded tile inside a mask reads as a sticker of an icon.
 
-    <!-- ambient bloom under the top-left lit cell -->
-    <path android:pathData="M17.625,17.625h48v48h-48z">
+         ## What could not be ported exactly
+         `feGaussianBlur` has no VectorDrawable equivalent, so the bloom under the hot node is a
+         radial gradient. Its reach is matched rather than guessed: the master's blur carries to
+         about svg 500, which is 84.5 here, so the radius is 14.5 from the node's centre at (70,70).
+
+         The bloom sits in the FOREGROUND with the node, not in the background layer. Launchers
+         parallax the two layers against each other, and a glow that slides off the thing casting it
+         is worse than no glow at all. -->
+
+    <!-- The grid. 6% alpha and a quarter-unit stroke, so it is texture rather than a feature and at
+         launcher sizes it is felt more than seen. Kept anyway: it is the "grid" in Gridlink, and it
+         does show at the larger sizes the system uses in Settings and app info. -->
+    <path
+        android:strokeColor="#4C9AF5"
+        android:strokeWidth="0.25"
+        android:strokeAlpha="0.06"
+        android:pathData="M38,30V78 M46,30V78 M54,30V78 M62,30V78 M70,30V78
+            M30,38H78 M30,46H78 M30,54H78 M30,62H78 M30,70H78" />
+
+    <!-- Bloom under the hot node. Drawn before the rects so the node sits in it, not under it. -->
+    <path android:pathData="M55.5,55.5h29v29h-29z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="radial"
-                android:centerX="41.625"
-                android:centerY="41.625"
-                android:gradientRadius="24">
-                <item android:offset="0" android:color="#4A4A90D9" />
-                <item android:offset="0.4" android:color="#1C4A90D9" />
-                <item android:offset="1" android:color="#004A90D9" />
+                android:centerX="70"
+                android:centerY="70"
+                android:gradientRadius="14.5">
+                <item android:offset="0" android:color="#D9AEE0FF" />
+                <item android:offset="0.55" android:color="#B3AEE0FF" />
+                <item android:offset="0.8" android:color="#4DAEE0FF" />
+                <item android:offset="1" android:color="#00AEE0FF" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- ambient bloom under the bottom-right lit cell -->
-    <path android:pathData="M42.375,42.375h48v48h-48z">
+    <!-- Top-left block: the mass. Mid-blue, gradient top to bottom. -->
+    <path
+        android:strokeColor="#7FB6F2"
+        android:strokeWidth="0.3125"
+        android:strokeAlpha="0.35"
+        android:pathData="M37,30
+            h15 a7,7 0 0 1 7,7
+            v15 a7,7 0 0 1 -7,7
+            h-15 a7,7 0 0 1 -7,-7
+            v-15 a7,7 0 0 1 7,-7 z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:type="radial"
-                android:centerX="66.375"
-                android:centerY="66.375"
-                android:gradientRadius="24">
-                <item android:offset="0" android:color="#4A7CB2E6" />
-                <item android:offset="0.4" android:color="#1C7CB2E6" />
-                <item android:offset="1" android:color="#007CB2E6" />
+                android:type="linear"
+                android:startX="44.5" android:startY="30"
+                android:endX="44.5" android:endY="59">
+                <item android:offset="0" android:color="#FF3D77C2" />
+                <item android:offset="1" android:color="#FF24548F" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- dim cell, top-right -->
+    <!-- Top-right block: inert. The same near-black navy in both themes, which is why the light
+         variant does not simply invert: see the note in ../drawable/ic_launcher_foreground.xml. -->
     <path
-        android:fillColor="#FF21405D"
-        android:pathData="M61.5625,32
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:fillColor="#FF12233C"
+        android:strokeColor="#4C9AF5"
+        android:strokeWidth="0.3125"
+        android:strokeAlpha="0.25"
+        android:pathData="M67,30
+            h6 a5,5 0 0 1 5,5
+            v19 a5,5 0 0 1 -5,5
+            h-6 a5,5 0 0 1 -5,-5
+            v-19 a5,5 0 0 1 5,-5 z" />
 
-    <!-- dim cell, bottom-left -->
+    <!-- Bottom-left block: inert. -->
     <path
-        android:fillColor="#FF21405D"
-        android:pathData="M36.8125,56.75
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:fillColor="#FF12233C"
+        android:strokeColor="#4C9AF5"
+        android:strokeWidth="0.3125"
+        android:strokeAlpha="0.25"
+        android:pathData="M35,62
+            h19 a5,5 0 0 1 5,5
+            v6 a5,5 0 0 1 -5,5
+            h-19 a5,5 0 0 1 -5,-5
+            v-6 a5,5 0 0 1 5,-5 z" />
 
-    <!-- lit cell, top-left -->
+    <!-- The hot node. White into pale blue: on a near-black tile the lit thing goes all the way to
+         white, which is what makes it read as emitting rather than as a brighter blue. -->
     <path
-        android:fillColor="#FF4A90D9"
-        android:pathData="M36.8125,32
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
-
-    <!-- lit cell, bottom-right -->
-    <path
-        android:fillColor="#FF7CB2E6"
-        android:pathData="M61.5625,56.75
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:pathData="M67,62
+            h6 a5,5 0 0 1 5,5
+            v6 a5,5 0 0 1 -5,5
+            h-6 a5,5 0 0 1 -5,-5
+            v-6 a5,5 0 0 1 5,-5 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="70" android:startY="62"
+                android:endX="70" android:endY="78">
+                <item android:offset="0" android:color="#FFFFFFFF" />
+                <item android:offset="1" android:color="#FFBFE4FA" />
+            </gradient>
+        </aapt:attr>
+    </path>
 </vector>

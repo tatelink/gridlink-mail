@@ -1,31 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- The Gridlink tile, light mode. drawable-night/ holds the canonical dark one.
+    <!-- The Gridlink tile, light mode: `<rect fill="#E9EFF7">` from `export/gridlink-light.svg`.
 
-         🔴 There is no light master. ~/homelab/mail/branding/ has only the dark tile, because
-         Tate stopped the light-variant round on 2026-07-31 to design it himself
-         ("pump brakes, i'll do this in claude design") and nothing came back. This is derived,
-         not authored, and it should be replaced wholesale the day his artwork lands rather
-         than reconciled with it.
+         Flat, and an earlier version of this file was not. That one predates Tate's light
+         artwork and carried a shallow cool gradient on the theory that near-white on a light
+         launcher drawer has no edge of its own and would read as a floating mark rather than a
+         tile. The real design answers that differently and better: it keeps the tile flat and puts
+         two near-black blocks in the mark, which give the icon all the edge it needs from the
+         inside. Flat wins, and it matches every other surface Gridlink ships on.
 
-         Not flat, unlike the dark tile. Near-white on a light launcher drawer has no edge of
-         its own, so the tile would read as a floating mark with no container while the dark
-         variant reads as a disc. A shallow cool gradient gives it a body without introducing
-         a colour: both stops are the brand blue desaturated almost to white. -->
-    <path android:pathData="M0,0h108v108h-108z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="0" android:startY="0"
-                android:endX="108" android:endY="108"
-                android:type="linear">
-                <item android:offset="0" android:color="#FFFCFDFE" />
-                <item android:offset="1" android:color="#FFE6EDF6" />
-            </gradient>
-        </aapt:attr>
-    </path>
+         Full bleed with no corner rounding: the launcher's mask does that. -->
+    <path
+        android:fillColor="#FFE9EFF7"
+        android:pathData="M0,0h108v108h-108z" />
 </vector>
