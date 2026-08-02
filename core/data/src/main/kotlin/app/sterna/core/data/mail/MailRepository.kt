@@ -92,6 +92,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -648,6 +649,22 @@ data class InboxRow(
  * [accountId] is null only for an email that never came from the cache (single-account fallback).
  */
 data class EmailKey(val accountId: String?, val emailId: String)
+
+/**
+ * One line of the per-sender screen: what this phone holds from [email].
+ *
+ * [email] is the grouping key (case-insensitively) and the value a filter rule would be written
+ * on; [name] is only what the most recent message called them, and never decides anything.
+ * [total] and [unread] count MESSAGES in the cached, non-outgoing folders of one account — not
+ * what the server still holds.
+ */
+data class SenderVolume(
+    val email: String,
+    val name: String?,
+    val total: Int,
+    val unread: Int,
+    val latest: Long,
+)
 
 /** The [EmailKey] of an email as the cache/UI sees it. */
 fun Email.emailKey(): EmailKey = EmailKey(accountId, id)
@@ -1487,6 +1504,27 @@ class MailRepository(
             if (accountId != null) emailDao.emailsByIds(accountId, ids) else emailDao.emailsByIds(ids)
         }.map { it.toEmail() }
     }
+
+    /**
+     * What this phone holds from each sender, for one account ([EmailDao.senderVolumes]).
+     *
+     * A one-shot read on [Dispatchers.IO], like [app.sterna.core.data.storage.StorageRepository
+     * .usage] and for the same reason: it is a full scan of `emails`, and a reactive version
+     * would replay it on every sync write.
+     */
+    suspend fun senderVolumes(accountId: String): List<SenderVolume> = withContext(Dispatchers.IO) {
+        emailDao.senderVolumes(accountId).map {
+            SenderVolume(email = it.email, name = it.name, total = it.total, unread = it.unread, latest = it.latest)
+        }
+    }
+
+    /**
+     * The ids [senderVolumes] counted for [email] in [accountId] — the exact set a per-sender
+     * delete may act on, produced by the same scope clause as the count itself
+     * ([app.sterna.core.data.db.SENDER_VOLUME_SCOPE_SQL]).
+     */
+    suspend fun senderMessageIds(accountId: String, email: String): List<String> =
+        withContext(Dispatchers.IO) { emailDao.senderMessageIds(accountId, email) }
 
     /**
      * Every unread message id in [mailboxId], resolved SERVER-side (uncollapsed Email/query
