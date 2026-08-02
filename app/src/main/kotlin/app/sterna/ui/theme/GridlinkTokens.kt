@@ -489,6 +489,37 @@ object GridlinkDimens {
 
     /** Outline drawn on a valid drop target during a reparent drag. */
     val dropTargetOutline = 2.dp
+
+    /**
+     * A folder-tree row.
+     *
+     * Shorter than [messageRowHeight] because it carries one line where a message carries two, and
+     * a one-line row padded out to 64dp reads as a list that has been stretched. Still a 52dp touch
+     * target, comfortably above the 48dp floor, which matters more here than on a message row
+     * because §6d's long-press has to be distinguishable from a tap that opens the folder.
+     */
+    val folderRowHeight = 52.dp
+
+    /** The vertical rule marking one level of folder nesting. Same weight as a row separator. */
+    val treeRule = 1.dp
+
+    /**
+     * One day cell in the month grid.
+     *
+     * Six rows of this plus the weekday header is the worst case a month can be, and that has to
+     * fit the panel on a folded Fold without scrolling — a month view you have to scroll is a
+     * three-week view with extra steps.
+     */
+    val calendarDayCell = 44.dp
+
+    /** The dot under a day number in the month grid, one per event up to three. */
+    val calendarEventDot = 5.dp
+
+    /** Height of one hour in the day and week time grids. */
+    val calendarHourHeight = 56.dp
+
+    /** Width of the hour labels running down the leading edge of a time grid. */
+    val calendarGutterWidth = 44.dp
 }
 
 /**

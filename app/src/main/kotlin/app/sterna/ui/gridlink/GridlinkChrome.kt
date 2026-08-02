@@ -27,11 +27,15 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Create
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.MarkEmailRead
 import androidx.compose.material.icons.outlined.PeopleOutline
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
@@ -196,6 +200,11 @@ val LocalGridlinkDebugReveal = staticCompositionLocalOf<(() -> Unit)?> { null }
  * title rather than centred on the whole header, so its right edge and the title's left edge both
  * land on the same [GridlinkSpacing.chrome] pad line the list panel and the nav pill use. Brandon
  * reads a layout by whether its edges line up, and this is the line they all line up on.
+ *
+ * [subline] overrides the unread count for screens that are not a mailbox: the calendar puts its
+ * date range there, the folder tree its mailbox total. It is drawn in secondary text rather than in
+ * [GridlinkColors.attention][app.sterna.ui.theme.GridlinkColors.attention], because that colour
+ * means "unread" everywhere else in the app and a date wearing it would be making a claim.
  */
 @Composable
 fun GridlinkHeader(
@@ -203,6 +212,7 @@ fun GridlinkHeader(
     unread: Int,
     modifier: Modifier = Modifier,
     selectedCount: Int = 0,
+    subline: String? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
@@ -254,6 +264,13 @@ fun GridlinkHeader(
             if (selecting) {
                 Text(
                     text = "Tap to add or remove",
+                    modifier = Modifier.padding(top = GridlinkSpacing.s8),
+                    style = GridlinkType.metadata,
+                    color = colors.textSecondary,
+                )
+            } else if (subline != null) {
+                Text(
+                    text = subline,
                     modifier = Modifier.padding(top = GridlinkSpacing.s8),
                     style = GridlinkType.metadata,
                     color = colors.textSecondary,
@@ -478,30 +495,59 @@ enum class GridlinkDestination(
 }
 
 /**
- * The floating navigation pill.
+ * What the selection toolbar can do to the ticked rows.
+ *
+ * ⚠️ Not the brief's four. §6b specifies Reply, Archive, Delete, Spam, with Reply dimmed to 38%
+ * above one selection. Brandon replaced that list directly: "just have it show Archive / Move /
+ * Delete / Mark Read". His set has no single-selection member, so the dimmed-Reply state the brief
+ * asks for has nothing to apply to and is not built. Bring it back with Reply, not before.
+ *
+ * [destructive] is on exactly one of these. §1 spends red on delete and on nothing else in the
+ * entire app, which is what lets a single red glyph carry the warning without extra size or weight.
+ */
+enum class GridlinkSelectionAction(
+    val label: String,
+    val icon: ImageVector,
+    val destructive: Boolean = false,
+) {
+    ARCHIVE("Archive", Icons.Outlined.Archive),
+    MOVE("Move", Icons.Outlined.DriveFileMove),
+    DELETE("Delete", Icons.Outlined.Delete, destructive = true),
+    MARK_READ("Mark read", Icons.Outlined.MarkEmailRead),
+}
+
+/**
+ * The floating navigation pill, and the selection toolbar it becomes.
  *
  * ⚠️ Compose used to be a destination here, because §9 bans a floating action button. Brandon
  * overrode that directly and asked for compose detached and floating, so it now lives in
  * [GridlinkComposeButton] beside this pill.
  *
- * §6b still says the selection toolbar must be this pill *transformed in place* — same height, same
- * radius, same inset — so items stay icon-over-11sp-label to match what the toolbar will hold, and
- * the container's dimensions are the ones the morph has to preserve. Four destinations against the
- * toolbar's four actions, which is now a convenient coincidence rather than something to rely on.
+ * ## Why both states are one composable
+ * §6b: "Make it a transformation, not an arrival: the floating navigation pill morphs in place into
+ * the action bar, same height, same corner radius, same horizontal inset. Contents cross-fade while
+ * the container's shape holds." Two composables swapped by an `if` cannot satisfy that — the first
+ * leaves and the second arrives, and no amount of matching dimensions hides the fact that the
+ * container blinked. So the container is drawn once, here, and only its *contents* animate. The
+ * shape does not hold because both states were carefully given the same numbers; it holds because
+ * there is only ever one of it.
  *
- * 🔴 Four is the ceiling. At this width a fifth item puts "Contacts" under an ellipsis, and an
- * abbreviated nav label is worse than no label. A fifth destination means an overflow, not a
- * smaller font.
+ * 🔴 Four is the ceiling on both sides. At this width a fifth item puts "Contacts" under an
+ * ellipsis, and an abbreviated nav label is worse than no label. A fifth destination means an
+ * overflow, not a smaller font.
  */
 @Composable
 fun GridlinkNavPill(
     selected: GridlinkDestination,
     onSelect: (GridlinkDestination) -> Unit,
     modifier: Modifier = Modifier,
+    /** True while rows are ticked: the contents cross-fade to [GridlinkSelectionAction]s. */
+    selecting: Boolean = false,
+    onSelectionAction: (GridlinkSelectionAction) -> Unit = {},
 ) {
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkRadii.pill)
-    Row(
+    Box(
         // 🔴 No fillMaxWidth. The pill now shares its row with the compose button, so the caller
         // sizes it with a weight and this must not fight that.
         modifier = modifier
@@ -531,34 +577,80 @@ fun GridlinkNavPill(
             // 8, not 4. At 4 the active capsule sits almost on the container's own border and the
             // two rounded edges read as one thick smear instead of a capsule inside a pill.
             .padding(GridlinkSpacing.s8),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        GridlinkDestination.entries.forEach { destination ->
-            GridlinkNavItem(
-                destination = destination,
-                active = destination == selected,
-                onClick = { onSelect(destination) },
-                modifier = Modifier.weight(1f),
-            )
+        AnimatedContent(
+            targetState = selecting,
+            // 🔴 Cross-fade only, and no SizeTransform. The container above is already sized, so
+            // letting the content animate its own size would make the pill's insides breathe
+            // inside a shell that is not moving. The brief's "contents cross-fade while the
+            // container's shape holds" is exactly this and nothing more.
+            transitionSpec = {
+                fadeIn(GridlinkMotion.toolbarMorph()) togetherWith
+                    fadeOut(GridlinkMotion.toolbarMorph())
+            },
+            label = "navToToolbar",
+        ) { isSelecting ->
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isSelecting) {
+                    GridlinkSelectionAction.entries.forEach { action ->
+                        GridlinkPillItem(
+                            label = action.label,
+                            icon = action.icon,
+                            tint = if (action.destructive) {
+                                colors.destructive
+                            } else {
+                                colors.textPrimary
+                            },
+                            onClick = { onSelectionAction(action) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                } else {
+                    GridlinkDestination.entries.forEach { destination ->
+                        val active = destination == selected
+                        GridlinkPillItem(
+                            label = destination.label,
+                            icon = destination.icon,
+                            tint = if (active) {
+                                gridlinkOnAccent(colors.accent)
+                            } else {
+                                colors.textSecondary
+                            },
+                            filled = active,
+                            onClick = { onSelect(destination) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 /**
- * One nav destination.
+ * One item in the bottom pill: a nav destination, or a selection action.
  *
- * The active state is a filled gradient capsule with a white glyph, and the inactive state is bare.
- * That is Brandon's standing on/off vocabulary: **on is a bright gradient with a white icon, off is
- * the plain tile.** 🔴 Never dim the inactive one with alpha — he reads opacity-dimming as broken
- * rather than as off, and has said so more than once.
+ * Both states share this so the cross-fade lands glyph-on-glyph and label-on-label. Four things at
+ * the same four positions, in the same 20dp-icon-over-11sp-label stack, is what makes the morph
+ * read as a container changing its mind rather than as two different bars.
+ *
+ * [filled] is the active nav capsule: a bright gradient with a white glyph. That is Brandon's
+ * standing on/off vocabulary. 🔴 Never dim the unfilled one with alpha — he reads opacity-dimming
+ * as broken rather than as off, and has said so more than once. Selection actions are never filled,
+ * because none of the four is a state you are currently in.
  */
 @Composable
-private fun GridlinkNavItem(
-    destination: GridlinkDestination,
-    active: Boolean,
+private fun GridlinkPillItem(
+    label: String,
+    icon: ImageVector,
+    tint: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    filled: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkRadii.pill)
@@ -571,22 +663,22 @@ private fun GridlinkNavItem(
             // 🔴 No vertical padding here. The container's 8dp already insets the capsule, and
             // adding 8 more each side left 48dp of the pill's 64 for a 20dp icon plus an 11sp
             // label, which silently clipped every label in half.
-            .then(if (active) fill else Modifier),
+            .then(if (filled) fill else Modifier),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        val tint = if (active) gridlinkOnAccent(colors.accent) else colors.textSecondary
         Icon(
-            imageVector = destination.icon,
-            contentDescription = destination.label,
+            imageVector = icon,
+            contentDescription = label,
             tint = tint,
             modifier = Modifier.size(20.dp),
         )
         Text(
-            text = destination.label,
+            text = label,
             style = GridlinkType.toolbarLabel,
             color = tint,
             textAlign = TextAlign.Center,
+            maxLines = 1,
             modifier = Modifier.padding(top = 2.dp),
         )
     }
