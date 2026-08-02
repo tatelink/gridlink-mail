@@ -168,20 +168,31 @@ fun GridlinkMessageRow(
                         // Takes all the slack, which pins the timestamp to the trailing edge.
                         modifier = Modifier.weight(1f),
                     )
-                    if (message.unread) {
-                        // §4: the dot sits in the timestamp's leading space, so it costs no width.
-                        Box(
-                            modifier = Modifier
-                                .size(GridlinkDimens.unreadDot)
-                                .background(colors.attention, CircleShape),
-                        )
-                        Spacer(Modifier.width(GridlinkSpacing.s8))
-                    }
                     Text(
                         text = message.timestamp,
                         style = GridlinkType.timestamp,
                         color = if (message.unread) colors.attention else colors.textSecondary,
                     )
+                    if (message.unread) {
+                        // ⚠️ Departs from §4, on request. The brief parks the dot in the leading
+                        // space *before* the timestamp; it now sits after it, hard against the
+                        // trailing edge, with the timestamp butted up against it.
+                        //
+                        // The trade this makes: a read row has no dot, so its timestamp slides
+                        // ~14dp further right than an unread row's, and the timestamps no longer
+                        // form one straight column. That is not raggedness by accident. The offset
+                        // tracks unread state exactly, so the whole trailing block shifts as a unit
+                        // and becomes another read/unread tell rather than noise. If it ever starts
+                        // looking like a mistake instead of a pattern, the fix is to reserve the
+                        // dot's width on read rows too, which realigns the column and costs the
+                        // shift.
+                        Spacer(Modifier.width(GridlinkSpacing.s8))
+                        Box(
+                            modifier = Modifier
+                                .size(GridlinkDimens.unreadDot)
+                                .background(colors.attention, CircleShape),
+                        )
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
