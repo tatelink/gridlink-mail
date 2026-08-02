@@ -3,7 +3,7 @@ package app.sterna.ui.gridlink
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +52,7 @@ import app.sterna.ui.theme.GridlinkMotion
 import app.sterna.ui.theme.GridlinkSpacing
 import app.sterna.ui.theme.GridlinkSwipe
 import app.sterna.ui.theme.GridlinkTheme
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -114,9 +116,11 @@ private val ICON_FADE_IN = 56.dp
  * the class of cost that made the fling feel bad. The two booleans that DO need composition (armed,
  * escalated) go through `derivedStateOf`, so they recompose on the flip and not on the frame.
  *
- * @param onAction fired once, at release, when a threshold was held. Archive and delete then leave
- *   the row flung off-screen for the caller to collapse; mark-unread springs back, because the row
- *   is staying and only its state changed.
+ * @param onAction fired once, at the instant of release, *before* the row animates anywhere. It
+ *   must return promptly: it is on the frame that starts the fly-off, so real work belongs behind
+ *   it rather than inside it. Archive and delete then fly the row off-screen while the caller
+ *   collapses the gap; mark-unread springs back, because the row is staying and only its state
+ *   changed.
  * @param initialFraction screen-capture hook. §6a's deliverable is the mid-gesture frames, and
  *   `adb input swipe` cannot hold a drag still at 40% of an unknown row width.
  */
@@ -131,7 +135,33 @@ fun GridlinkSwipeRow(
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
     var widthPx by remember { mutableIntStateOf(0) }
-    val offset = remember { Animatable(0f) }
+
+    /**
+     * Where the row currently sits, in pixels, as one plain mutable float.
+     *
+     * 🔴 This was an `Animatable` driven by `scope.launch { offset.snapTo(offset.value + delta) }`
+     * from the drag callback, and that is the single worst thing that was wrong with this gesture.
+     * Two bugs came out of it, and between them they account for every symptom:
+     *
+     * 1. **Dropped deltas.** `offset.value` was read *inside* the launched coroutine, which runs
+     *    later than the callback that scheduled it. Two deltas arriving in the same frame both read
+     *    the same base value, so the second overwrote the first instead of adding to it. The row
+     *    therefore travelled less than the finger and did it in lurches — the "jerky" part.
+     * 2. **The release animation got cancelled.** `Animatable` serialises through a `MutatorMutex`,
+     *    so a `snapTo` coroutine still queued when the finger lifted would cancel the `animateTo`
+     *    that `settle` had just started. `onAction` was called *after* that `animateTo`, so when it
+     *    lost the race the action never fired at all and the row simply parked mid-swipe — the
+     *    "hesitates and sticks before finally taking it" part. It was not slow. It had genuinely
+     *    dropped the command, and what looked like it eventually working was the next gesture.
+     *
+     * A plain float assigned synchronously in the drag callback cannot do either. There is no
+     * queue to reorder and no mutex to lose. The release animation writes into the same float, so
+     * there is still exactly one source of truth.
+     */
+    var offset by remember { mutableFloatStateOf(0f) }
+
+    /** The in-flight release, held so a new touch can interrupt it instead of fighting it. */
+    var releaseJob by remember { mutableStateOf<Job?>(null) }
 
     // Seeded once, as soon as a width exists. Keyed on width rather than run in a side effect so a
     // capture launched before layout still lands; guarded by `seeded` so a later width change (a
@@ -139,7 +169,7 @@ fun GridlinkSwipeRow(
     var seeded by remember { mutableStateOf(false) }
     LaunchedEffect(widthPx) {
         if (!seeded && widthPx > 0 && initialFraction != 0f) {
-            offset.snapTo(initialFraction * widthPx)
+            offset = initialFraction * widthPx
             seeded = true
         }
     }
@@ -148,13 +178,13 @@ fun GridlinkSwipeRow(
     // as plain reads they would recompose the row 120 times a second. As derived state they
     // recompose only when the boolean itself flips, which is the moment that actually matters.
     val armedRight by remember {
-        derivedStateOf { widthPx > 0 && offset.value / widthPx >= GridlinkSwipe.archiveThreshold }
+        derivedStateOf { widthPx > 0 && offset / widthPx >= GridlinkSwipe.archiveThreshold }
     }
     val armedLeft by remember {
-        derivedStateOf { widthPx > 0 && offset.value / widthPx <= -GridlinkSwipe.markUnreadThreshold }
+        derivedStateOf { widthPx > 0 && offset / widthPx <= -GridlinkSwipe.markUnreadThreshold }
     }
     val escalated by remember {
-        derivedStateOf { widthPx > 0 && offset.value / widthPx <= -GridlinkSwipe.deleteThreshold }
+        derivedStateOf { widthPx > 0 && offset / widthPx <= -GridlinkSwipe.deleteThreshold }
     }
 
     // "Crossing 60% swaps the icon and track colour from amber to red in a single spring, paired
@@ -191,41 +221,76 @@ fun GridlinkSwipeRow(
         label = "leftIconScale",
     )
 
-    fun settle() {
-        scope.launch {
-            val width = widthPx.toFloat()
-            val fraction = if (width <= 0f) 0f else offset.value / width
-            when {
-                fraction >= GridlinkSwipe.archiveThreshold -> {
-                    // Off the leading edge, then the caller collapses the gap it left.
-                    offset.animateTo(width, GridlinkMotion.swipeRelease())
-                    onAction(GridlinkSwipeAction.ARCHIVE)
-                }
+    val flingVelocityPx = with(LocalDensity.current) { GridlinkSwipe.flingVelocityDp.dp.toPx() }
 
-                fraction <= -GridlinkSwipe.deleteThreshold -> {
-                    offset.animateTo(-width, GridlinkMotion.swipeRelease())
-                    onAction(GridlinkSwipeAction.DELETE)
-                }
+    /**
+     * Decides what the gesture meant, tells the caller immediately, and then plays the motion.
+     *
+     * 🔴 The order is the point. `onAction` fires *before* the animation, not after it, so the row
+     * leaving the screen and the list closing the gap overlap instead of queueing. Brandon's note
+     * was "the animation should be fluid, and then the processing can happen in the background",
+     * and this is the line that does it: nothing the caller does can now delay a single frame of
+     * the fly-off, because the fly-off has already started. When the real JMAP call replaces the
+     * in-memory edit, that call lands here too and the animation still will not wait for it.
+     *
+     * ⚠️ The consequence to keep in mind: the action is committed at the moment of release, so an
+     * action that fails server-side has to be undone visibly rather than prevented. That is the
+     * right trade for a mail client (§6a's undo snackbar is the mechanism, still to be built) but
+     * it does mean this function must never fire an action it is not willing to stand behind.
+     */
+    fun settle(velocity: Float) {
+        val width = widthPx.toFloat()
+        if (width <= 0f) return
+        val fraction = offset / width
+        val flicked = abs(velocity) >= flingVelocityPx
 
-                fraction <= -GridlinkSwipe.markUnreadThreshold -> {
-                    // 🔴 Springs back rather than flying off. The row is not going anywhere; only
-                    // its unread flag changed, and throwing it off-screen would say otherwise.
-                    onAction(GridlinkSwipeAction.MARK_UNREAD)
-                    offset.animateTo(0f, GridlinkMotion.swipeRelease())
-                }
+        val action = when {
+            // Distance, or a genuine flick that got clear of a twitch. Either commits.
+            fraction >= GridlinkSwipe.archiveThreshold ||
+                (flicked && velocity > 0f && fraction >= GridlinkSwipe.flingMinFraction) ->
+                GridlinkSwipeAction.ARCHIVE
 
-                else -> offset.animateTo(0f, GridlinkMotion.swipeRelease())
+            // 🔴 Distance only, deliberately. Speed must never be able to promote a gesture into a
+            // deletion; see [GridlinkSwipe.flingVelocityDp].
+            fraction <= -GridlinkSwipe.deleteThreshold -> GridlinkSwipeAction.DELETE
+
+            fraction <= -GridlinkSwipe.markUnreadThreshold ||
+                (flicked && velocity < 0f && fraction <= -GridlinkSwipe.flingMinFraction) ->
+                GridlinkSwipeAction.MARK_UNREAD
+
+            else -> null
+        }
+
+        if (action != null) onAction(action)
+
+        releaseJob = scope.launch {
+            val target = when (action) {
+                GridlinkSwipeAction.ARCHIVE -> width
+                GridlinkSwipeAction.DELETE -> -width
+                // 🔴 Mark-unread springs back rather than flying off. The row is not going
+                // anywhere; only its unread flag changed, and throwing it off-screen would say
+                // otherwise. Same for an unmet threshold.
+                GridlinkSwipeAction.MARK_UNREAD, null -> 0f
             }
+            val spec = if (target == 0f) {
+                GridlinkMotion.swipeRelease<Float>()
+            } else {
+                GridlinkMotion.swipeFlyOff()
+            }
+            // The release carries the finger's own velocity into the spring, so a hard flick keeps
+            // its speed instead of decelerating to a stop and then starting again from rest. That
+            // restart is a large part of what read as hesitation even on the gestures that worked.
+            animate(offset, target, velocity, spec) { value, _ -> offset = value }
         }
     }
 
     val dragState = rememberDraggableState { delta ->
-        scope.launch {
-            val width = widthPx.toFloat()
-            // Hard clamp at one row width. Past that the track is already full-bleed and the extra
-            // travel buys nothing but a row hanging in empty space.
-            offset.snapTo((offset.value + delta).coerceIn(-width, width))
-        }
+        val width = widthPx.toFloat()
+        // Hard clamp at one row width. Past that the track is already full-bleed and the extra
+        // travel buys nothing but a row hanging in empty space.
+        //
+        // 🔴 Synchronous. See [offset] for why launching a coroutine here was losing deltas.
+        offset = (offset + delta).coerceIn(-width, width)
     }
 
     Box(
@@ -238,10 +303,15 @@ fun GridlinkSwipeRow(
                 state = dragState,
                 orientation = Orientation.Horizontal,
                 enabled = enabled,
-                onDragStopped = { settle() },
+                // 🔴 A new touch cancels the release outright rather than racing it. Without this
+                // the spring keeps writing to `offset` underneath the finger, so grabbing a row
+                // that is still springing back drags it and the animation at the same time and the
+                // row stutters between the two.
+                onDragStarted = { releaseJob?.cancel() },
+                onDragStopped = { velocity -> settle(velocity) },
             )
             .drawBehind {
-                val dx = offset.value
+                val dx = offset
                 if (dx == 0f) return@drawBehind
                 val revealed = abs(dx)
                 drawRect(
@@ -263,7 +333,7 @@ fun GridlinkSwipeRow(
                 .padding(start = GridlinkSpacing.rowHorizontal)
                 .size(SWIPE_ICON)
                 .graphicsLayer {
-                    alpha = (offset.value / fadeInPx).coerceIn(0f, 1f)
+                    alpha = (offset / fadeInPx).coerceIn(0f, 1f)
                     scaleX = rightScale
                     scaleY = rightScale
                 },
@@ -276,7 +346,7 @@ fun GridlinkSwipeRow(
                 .align(Alignment.CenterEnd)
                 .padding(end = GridlinkSpacing.rowHorizontal)
                 .graphicsLayer {
-                    alpha = (-offset.value / fadeInPx).coerceIn(0f, 1f)
+                    alpha = (-offset / fadeInPx).coerceIn(0f, 1f)
                     scaleX = leftScale
                     scaleY = leftScale
                 },
@@ -305,7 +375,7 @@ fun GridlinkSwipeRow(
             }
         }
 
-        Box(modifier = Modifier.graphicsLayer { translationX = offset.value }) {
+        Box(modifier = Modifier.graphicsLayer { translationX = offset }) {
             content()
         }
     }
