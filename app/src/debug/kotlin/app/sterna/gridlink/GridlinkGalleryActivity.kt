@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.sterna.ui.gridlink.GRIDLINK_BUNDLE_SWIPE_ID
 import app.sterna.ui.gridlink.GridlinkCalendarView
+import app.sterna.ui.gridlink.GridlinkChromeState
 import app.sterna.ui.gridlink.GridlinkComposeDraft
 import app.sterna.ui.gridlink.GridlinkComposeField
 import app.sterna.ui.gridlink.GridlinkComposeRequest
@@ -31,6 +32,8 @@ import app.sterna.ui.gridlink.GridlinkModePill
 import app.sterna.ui.gridlink.GridlinkRoot
 import app.sterna.ui.gridlink.GridlinkSample
 import app.sterna.ui.gridlink.GridlinkSampleTree
+import app.sterna.ui.gridlink.GridlinkSyncState
+import app.sterna.ui.gridlink.LocalGridlinkChrome
 import app.sterna.ui.gridlink.LocalGridlinkDebugReveal
 import app.sterna.ui.theme.GridlinkMode
 import app.sterna.ui.theme.ProvideGridlinkTokens
@@ -247,6 +250,21 @@ class GridlinkGalleryActivity : ComponentActivity() {
         val composeRequest = draft?.let {
             GridlinkComposeRequest(draft = it, focus = composeFocus, scheduling = scheduling)
         }
+        // The chrome row's two variables. Sync has no user-reachable route to Syncing or Offline in
+        // the prototype (nothing is talking to a server yet), so the only way to look at those two
+        // states is to ask for them here.
+        //   am start -n .../GridlinkGalleryActivity --es sync offline --ez menu true
+        val syncName = intent?.getStringExtra("sync")?.uppercase()
+        val sync = if (syncName == null) {
+            GridlinkSyncState.SYNCED
+        } else {
+            requireNotNull(GridlinkSyncState.entries.firstOrNull { it.name == syncName }) {
+                "Unknown sync state '$syncName'. Known: " +
+                    GridlinkSyncState.entries.joinToString { it.name.lowercase() }
+            }
+        }
+        val menuOpen = intent?.getBooleanExtra("menu", false) ?: false
+        val chrome = GridlinkChromeState(sync = sync, menuOpenAtStart = menuOpen)
         // Sends every archived, moved or deleted row back to the top a moment later. On by default
         // *here and only here*: the sample inbox is otherwise a consumable, and a gesture you can
         // only watch five times is a gesture nobody reviews properly. Never reaches release.
@@ -265,6 +283,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialFolderStage = folderStage,
                 initialScrubLetter = scrubLetter,
                 initialCompose = composeRequest,
+                chrome = chrome,
                 demoRecycle = recycle,
             )
         }
@@ -285,6 +304,7 @@ private fun GridlinkGallery(
     initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
     initialScrubLetter: Char? = null,
     initialCompose: GridlinkComposeRequest? = null,
+    chrome: GridlinkChromeState = GridlinkChromeState(),
     demoRecycle: Boolean = false,
 ) {
     // null = follow the automatic time-of-day ladder; non-null = the manual override pill won.
@@ -306,6 +326,7 @@ private fun GridlinkGallery(
         Box(Modifier.fillMaxSize()) {
             CompositionLocalProvider(
                 LocalGridlinkDebugReveal provides { pillVisible = !pillVisible },
+                LocalGridlinkChrome provides chrome,
             ) {
                 GridlinkRoot(
                     initialDestination = initialDestination,
@@ -332,7 +353,11 @@ private fun GridlinkGallery(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .windowInsetsPadding(WindowInsets.systemBars)
-                        .padding(end = 12.dp, top = 8.dp),
+                        // Clears the chrome row: 20dp of top pad plus a 44dp menu circle puts the
+                        // bottom of that row at 64dp, and the sync chip is at its trailing end.
+                        // Landing the pill on top of the thing it is there to inspect the colour of
+                        // is the one place it must not go.
+                        .padding(end = 12.dp, top = 72.dp),
                 )
             }
         }

@@ -55,6 +55,16 @@ import app.sterna.ui.theme.GridlinkTheme
  * [belowHeader] is for chrome that belongs to one screen rather than to the app — currently the
  * calendar's view switcher. It sits outside the panel because it acts on the panel's contents, and
  * inside a scrolling panel it would scroll away from the thing it controls.
+ *
+ * ## Why the menu row is here and not in the header
+ * [GridlinkChromeRow] is drawn above [header] on every screen, by the scaffold rather than by the
+ * screens, because it belongs to the app and not to any one of them: same hamburger, same sync
+ * state, all four tabs. Four screens each passing the same two arguments would work right up until
+ * one of them forgot, and what that costs is the app's only route to Settings.
+ *
+ * 🔴 The sheet's open state is owned here too, so nothing above the scaffold has to thread it. That
+ * is fine while every menu item is a stub; the moment Settings is a real screen, whoever owns the
+ * navigation owns this instead.
  */
 @Composable
 fun GridlinkScaffold(
@@ -69,12 +79,20 @@ fun GridlinkScaffold(
     panel: @Composable BoxScope.() -> Unit,
 ) {
     val colors = GridlinkTheme.colors
+    // 🔴 Read from a CompositionLocal rather than taken as parameters. Both of these are app-level
+    // facts that four screens would otherwise have to accept and forward without ever looking at
+    // them, and the first one to be added to a new screen and forgotten would silently ship a
+    // hard-coded "Synced". See [LocalGridlinkChrome].
+    val chrome = LocalGridlinkChrome.current
+    val sync = chrome.sync
+    var menuOpen by rememberSaveable(chrome.menuOpenAtStart) { mutableStateOf(chrome.menuOpenAtStart) }
     GridlinkBackground(modifier = modifier) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars),
         ) {
+            GridlinkChromeRow(onOpenMenu = { menuOpen = true }, sync = sync)
             header()
             if (belowHeader != null) {
                 Box(
@@ -129,6 +147,21 @@ fun GridlinkScaffold(
                 )
                 GridlinkComposeButton(onClick = onCompose, destination = destination)
             }
+        }
+
+        // Outside the Column on purpose. It is a real dialog window, so it emits no layout here and
+        // sitting it between two siblings would only suggest it did.
+        if (menuOpen) {
+            GridlinkMenuSheet(
+                account = GRIDLINK_SAMPLE_ACCOUNT,
+                sync = sync,
+                counts = GRIDLINK_SAMPLE_MENU_COUNTS,
+                // Every destination behind this is a stub, so the honest behaviour is to close and
+                // do nothing rather than to navigate somewhere that would be an empty screen with a
+                // title on it. Wire these as each one lands.
+                onSelect = { menuOpen = false },
+                onDismiss = { menuOpen = false },
+            )
         }
     }
 }

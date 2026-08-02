@@ -230,10 +230,16 @@ fun GridlinkHeader(
             // §3's "chrome is spacious" is the only thing holding the top of this screen open, so
             // the header is where it has to be spent. 40 over 20 against a 32sp ExtraBold title
             // reads as breathing room; the previous 28 over 16 just read as a tight app bar.
+            //
+            // ⚠️ The top is 16 rather than that 40 now that [GridlinkChromeRow] sits above it,
+            // carrying its own 20 off the status bar. Two lots of breathing room stacked to 104dp of
+            // empty glass before the title, which is not spacious, it is a layout that lost its
+            // first row. The 20 at the bottom is untouched: that gap is between the subline and the
+            // panel, and nothing new was inserted there.
             .padding(
                 start = GridlinkSpacing.chrome,
                 end = GridlinkSpacing.chrome,
-                top = GridlinkSpacing.s40,
+                top = GridlinkSpacing.s16,
                 bottom = GridlinkSpacing.s20,
             ),
         verticalAlignment = Alignment.Top,
