@@ -1,0 +1,422 @@
+package app.sterna.ui.theme
+
+import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+/**
+ * Gridlink design tokens — the single source of truth for the fork's UI.
+ *
+ * Everything here comes from `docs/GRIDLINK-UI-BRIEF.md`, which specifies the token set as the
+ * FIRST deliverable precisely so no screen ever hard-codes a value. If a colour, size, weight or
+ * spring lives in a composable instead of this file, that is a bug.
+ *
+ * ## Why this exists next to [ArcticColorScheme] rather than replacing it
+ * Upstream Sterna's own DESIGN.md specifies Material You dynamic colour, hierarchy from space
+ * rather than hue, and motion capped at 250ms with no springs. The brief deliberately inverts all
+ * three: a fixed three-mode palette inherited from the Home Assistant dashboard, meaning encoded
+ * IN hue, and springs specified as stiffness/damping with no durations anywhere. Keeping the
+ * Gridlink tokens in their own file leaves upstream's theme intact, so merges from
+ * codeberg.org/emon/sterna-mail conflict on as little as possible.
+ *
+ * ## The rule that governs the three modes
+ * 🔴 The modes differ ONLY in colour. Same layout, same spacing, same type scale, same geometry in
+ * all three — a mode switch should read as the lights changing in a room, not a different app.
+ * That is why [GridlinkSpacing], [GridlinkDimens], [GridlinkRadii], [GridlinkType] and
+ * [GridlinkMotion] are mode-independent objects, and only [GridlinkColors] varies.
+ */
+
+// ---------------------------------------------------------------------------------------------
+// Modes
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The three-mode ladder. Not a light/dark pair: [OLED] is a third rung with its own hue family
+ * (amber on true black) that exists to keep pixels physically off late at night.
+ */
+enum class GridlinkMode {
+    DAY,
+    NIGHT,
+    OLED,
+}
+
+/**
+ * Default automatic ladder, by local hour.
+ *
+ * ⚠️ These cutoffs are a placeholder: the brief says the ladder runs "Day, then Night at dusk,
+ * then OLED late at night", and real dusk moves through the year. Wire this to actual sunset when
+ * the settings screen lands; until then the boundaries are fixed and documented here rather than
+ * scattered through the UI. The manual override pill (`Auto · Day` / `Night` / `OLED`) always wins
+ * over this function.
+ */
+fun gridlinkModeForHour(hour: Int): GridlinkMode = when (hour) {
+    in 6..19 -> GridlinkMode.DAY
+    in 20..22 -> GridlinkMode.NIGHT
+    else -> GridlinkMode.OLED
+}
+
+// ---------------------------------------------------------------------------------------------
+// Colour
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * One palette. Roles are named for MEANING, not appearance, because the brief fixes a semantic
+ * grammar carried over from the dashboard and every screen must obey it:
+ *
+ * - [positive] — settled, safe, done. Archive.
+ * - [attention] — needs a human. Unread.
+ * - [accent] — interactive, tappable.
+ * - [destructive] — 🔴 DELETE AND NOTHING ELSE. Never errors, never badges, never unread counts.
+ *   It is the only hue outside the inherited system, so it reads as an alarm on its own without
+ *   needing size or weight to carry the warning. Spending it anywhere else destroys that.
+ */
+@Immutable
+data class GridlinkColors(
+    /** Flat background fill. In [GridlinkMode.DAY] this is only a fallback; see [gradient]. */
+    val background: Color,
+    /**
+     * Background gradient, drawn top-left to bottom-right. Non-null in Day only — Night is a flat
+     * near-black and OLED is true black by definition.
+     */
+    val gradient: List<Color>?,
+    /**
+     * Faint radial glow placed behind THE PRIMARY ELEMENT ONLY, never as a page-wide wash.
+     * Night only; null elsewhere.
+     *
+     * ⚠️ Derived, not quoted: the brief specifies "faint blue-violet radial glow" without a hex,
+     * so this value is a judgement call and is the one colour here that should be checked on a
+     * real panel before it is treated as final.
+     */
+    val glow: Color?,
+    /** Translucent panel fill (header, nav pill, sheets). Alpha is baked in. */
+    val surface: Color,
+    /** Hairline border that defines a surface. In OLED this is the ONLY thing defining it. */
+    val surfaceBorder: Color,
+    /** Raised panel fill, for sheets and dragged rows. */
+    val surfaceRaised: Color,
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val accent: Color,
+    /** Warm secondary accent. Day has none in the brief, so it falls back to [attention]. */
+    val accentWarm: Color,
+    val positive: Color,
+    val attention: Color,
+    val destructive: Color,
+    /** 1px row separator in the dense list. The list is separated by hairlines, never by gaps. */
+    val divider: Color,
+    /** True where a drop shadow is legitimate. 🔴 False in OLED: no glows, no shadows, ever. */
+    val usesShadows: Boolean,
+)
+
+/** Day: the dashboard's cyan-to-blue gradient with translucent white glass over it. */
+val GridlinkDayColors = GridlinkColors(
+    background = Color(0xFF2F6FE0),
+    gradient = listOf(Color(0xFF4DD5F0), Color(0xFF2F6FE0)),
+    glow = null,
+    surface = Color.White.copy(alpha = 0.55f),
+    surfaceBorder = Color.White.copy(alpha = 0.70f),
+    surfaceRaised = Color.White.copy(alpha = 0.72f),
+    textPrimary = Color(0xFF0A0F1A),
+    textSecondary = Color(0xFF3A4A5F),
+    accent = Color(0xFF1B7FE8),
+    accentWarm = Color(0xFFD97706),
+    positive = Color(0xFF16A34A),
+    attention = Color(0xFFD97706),
+    destructive = Color(0xFFDC2626),
+    divider = Color(0xFF0A0F1A).copy(alpha = 0.12f),
+    usesShadows = true,
+)
+
+/** Night: near-black blue with a single soft glow behind the primary element. */
+val GridlinkNightColors = GridlinkColors(
+    background = Color(0xFF050A14),
+    gradient = null,
+    glow = Color(0xFF4C5BD4).copy(alpha = 0.18f),
+    surface = Color(0xFF0D1524).copy(alpha = 0.85f),
+    surfaceBorder = Color(0xFF5A78B4).copy(alpha = 0.18f),
+    surfaceRaised = Color(0xFF141E31),
+    textPrimary = Color(0xFFFFFFFF),
+    textSecondary = Color(0xFF8CA0BC),
+    accent = Color(0xFF3B82F6),
+    accentWarm = Color(0xFFF6B87C),
+    positive = Color(0xFF34D399),
+    attention = Color(0xFFFBBF24),
+    destructive = Color(0xFFDC2626),
+    divider = Color.White.copy(alpha = 0.12f),
+    usesShadows = true,
+)
+
+/**
+ * OLED: earns its name. Surfaces are literally `#000000` so the pixels stay off, and definition
+ * comes from hairline borders and text colour — 🔴 never from a lighter fill. Interactive shifts
+ * from blue to orange here, which is the one place the hue grammar changes family.
+ */
+val GridlinkOledColors = GridlinkColors(
+    background = Color(0xFF000000),
+    gradient = null,
+    glow = null,
+    surface = Color(0xFF000000),
+    surfaceBorder = Color(0xFFF97316).copy(alpha = 0.22f),
+    surfaceRaised = Color(0xFF0A0604),
+    textPrimary = Color(0xFFE9A87F),
+    textSecondary = Color(0xFF9C8574),
+    accent = Color(0xFFF97316),
+    accentWarm = Color(0xFFFB923C),
+    positive = Color(0xFF34D399),
+    attention = Color(0xFFFB923C),
+    destructive = Color(0xFFB91C1C),
+    // Derived: the brief gives a 12% hairline for the list but no hue for it in OLED. Tinting it
+    // with the accent keeps the mode's "definition by hairline" logic consistent.
+    divider = Color(0xFFF97316).copy(alpha = 0.12f),
+    usesShadows = false,
+)
+
+fun gridlinkColorsFor(mode: GridlinkMode): GridlinkColors = when (mode) {
+    GridlinkMode.DAY -> GridlinkDayColors
+    GridlinkMode.NIGHT -> GridlinkNightColors
+    GridlinkMode.OLED -> GridlinkOledColors
+}
+
+// ---------------------------------------------------------------------------------------------
+// Spacing, geometry, radii — identical in all three modes
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The whole spacing scale. Nothing outside this ladder is allowed.
+ *
+ * The named aliases below encode the brief's central tension: **chrome is spacious, the list is
+ * dense**. Header/nav/sheets use [chrome]; message rows use [rowHorizontal] / [rowVertical] and
+ * are separated by a hairline rather than by gaps or cards.
+ */
+object GridlinkSpacing {
+    val s4 = 4.dp
+    val s8 = 8.dp
+    val s12 = 12.dp
+    val s16 = 16.dp
+    val s20 = 20.dp
+    val s28 = 28.dp
+    val s40 = 40.dp
+
+    /** Generous padding for spacious chrome: header, nav pill, sheets, dialogs, empty states. */
+    val chrome = s20
+    val rowHorizontal = s16
+    val rowVertical = s12
+
+    /** Bundled automated senders indent by this, with a continuous rule at the indent. */
+    val bundleIndent = s12
+
+    /** Folder tree indents by this PER LEVEL, with a continuous rule at each indent. */
+    val folderIndentPerLevel = s16
+}
+
+object GridlinkRadii {
+    /** Cards, sheets, dialogs. */
+    val card = 28.dp
+
+    /** Pills (nav bar, mode toggle, selection toolbar) are fully rounded; this is a large value
+     *  used with a rounded-corner shape rather than a "percent" so the morph between the nav pill
+     *  and the selection toolbar can hold the corner radius constant. */
+    val pill = 999.dp
+}
+
+object GridlinkDimens {
+    /** 🔴 Dense by design: 64dp targets ~13 visible rows on a folded Fold screen. */
+    val messageRowHeight = 64.dp
+
+    /** Leading vertical bar carrying sender identity, coloured by sender domain. Replaces avatars. */
+    val senderBarWidth = 3.dp
+
+    /** Unread marker, sitting where the timestamp's leading space would be. */
+    val unreadDot = 6.dp
+
+    /** Row separator thickness. Opacity lives in [GridlinkColors.divider]. */
+    val hairline = 1.dp
+
+    /** Unfolded two-pane layout: list pane is fixed, thread fills the remainder. */
+    val listPaneWidth = 380.dp
+
+    /** Elevation of a folder row while it is being dragged to a new parent. */
+    val dragElevation = 4.dp
+
+    /** Outline drawn on a valid drop target during a reparent drag. */
+    val dropTargetOutline = 2.dp
+}
+
+/**
+ * Swipe-action thresholds, as a fraction of row width.
+ *
+ * Left swipe escalates: amber "mark unread" up to [deleteThreshold], then the track colour and
+ * icon swap to red "delete" in a single spring paired with a haptic tick, so the escalation is
+ * felt as well as seen. The icon scales across [iconScaleMin]..[iconScaleMax] as the threshold is
+ * crossed. Releasing before a threshold springs the row back.
+ */
+object GridlinkSwipe {
+    const val archiveThreshold = 0.25f
+    const val markUnreadThreshold = 0.25f
+    const val deleteThreshold = 0.60f
+    const val iconScaleMin = 0.8f
+    const val iconScaleMax = 1.0f
+}
+
+/** How long the mail sits locally before it actually leaves, with a draining ring on the undo. */
+const val GRIDLINK_UNDO_SEND_SECONDS = 10
+
+// ---------------------------------------------------------------------------------------------
+// Type
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The brief calls for **Outfit** (or Poppins): a geometric sans with a high x-height and heavy
+ * display weights, matching the dashboard.
+ *
+ * ⚠️ Placeholder until the font ships in `res/font`. Swapping this one value moves the whole app,
+ * which is the point of declaring it here.
+ */
+val GridlinkFontFamily: FontFamily = FontFamily.Default
+
+/**
+ * Type scale.
+ *
+ * 🔴 Tabular numerals on timestamps and counts are non-negotiable — proportional digits make a
+ * scrolling list of times visibly jitter. That is what `fontFeatureSettings = "tnum"` buys, and it
+ * must not be dropped when these styles are copied.
+ *
+ * Tracking is expressed by the brief as a percentage; it is resolved here against the style's own
+ * size (32sp at -1% = -0.32sp, 13sp at +6% = +0.78sp).
+ */
+object GridlinkType {
+    val screenTitle = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 32.sp,
+        fontWeight = FontWeight.ExtraBold,
+        letterSpacing = (-0.32).sp,
+    )
+
+    /** Uppercase at the call site — the caps are content, not a font feature. */
+    val sectionLabel = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.78.sp,
+    )
+
+    val senderName = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
+
+    val subject = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Normal,
+    )
+
+    /** Snippet and secondary metadata. Note the brief OMITS snippets from list rows. */
+    val metadata = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Normal,
+    )
+
+    val timestamp = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+        fontFeatureSettings = "tnum",
+    )
+
+    val badge = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        fontFeatureSettings = "tnum",
+    )
+
+    /** Icon-over-label in the selection toolbar. */
+    val toolbarLabel = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Medium,
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// Motion
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Springs only.
+ *
+ * 🔴 The brief specifies motion as stiffness and damping, NOT milliseconds, and upstream's
+ * "everything ≤ 250ms, FastOutSlowIn" rule does not apply to Gridlink screens. Target is 120Hz:
+ * nothing may block a frame.
+ *
+ * [rowCollapse] is critically damped (1.0) on purpose — a destructive action must not bounce.
+ *
+ * Reduced motion: when the system setting is on, drop to opacity-only transitions rather than
+ * retuning these values.
+ */
+object GridlinkMotion {
+    fun <T> standard(): SpringSpec<T> = spring(dampingRatio = 0.85f, stiffness = 380f)
+
+    /** Swipe release and snap-back — looser and quicker, so it tracks the finger. */
+    fun <T> swipeRelease(): SpringSpec<T> = spring(dampingRatio = 0.75f, stiffness = 500f)
+
+    /** Nav pill morphing into the selection toolbar: slow and heavily damped, so the shape holds. */
+    fun <T> toolbarMorph(): SpringSpec<T> = spring(dampingRatio = 0.90f, stiffness = 300f)
+
+    /** Row height collapsing to zero after an action completes. No overshoot. */
+    fun <T> rowCollapse(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 400f)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Plumbing
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Current palette, read as `GridlinkTheme.colors` from any composable.
+ *
+ * Defaults to Night because the brief designates Night as the primary mode — every screen is
+ * designed there first, and Day/OLED are palette applications of it.
+ */
+val LocalGridlinkColors = staticCompositionLocalOf { GridlinkNightColors }
+
+val LocalGridlinkMode = staticCompositionLocalOf { GridlinkMode.NIGHT }
+
+/** Accessor object, so call sites read `GridlinkTheme.colors.attention` rather than the locals. */
+object GridlinkTheme {
+    val colors: GridlinkColors
+        @Composable get() = LocalGridlinkColors.current
+
+    val mode: GridlinkMode
+        @Composable get() = LocalGridlinkMode.current
+}
+
+/**
+ * Provides the Gridlink tokens to a subtree.
+ *
+ * Deliberately does NOT touch [MaterialTheme][androidx.compose.material3.MaterialTheme]: upstream
+ * screens keep rendering with [ArcticColorScheme] / [PelagicColorScheme] while the Gridlink
+ * screens are built one at a time. Wiring the two together is the next step, not this file's job.
+ */
+@Composable
+fun ProvideGridlinkTokens(
+    mode: GridlinkMode,
+    content: @Composable () -> Unit,
+) {
+    CompositionLocalProvider(
+        LocalGridlinkMode provides mode,
+        LocalGridlinkColors provides gridlinkColorsFor(mode),
+        content = content,
+    )
+}
