@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -621,57 +620,5 @@ private fun GridlinkDeleteFolderDialog(
     }
 }
 
-/**
- * The honest placeholder for a tab that has no screen yet.
- *
- * Not a spinner and not a fake list. Contacts is next in Brandon's order (the phonebook with the
- * A–Z scrubber down the right edge) and until it exists the tab says so, because a tab that opens
- * onto plausible-looking sample content is the same class of lie as a screenshot of the wrong
- * screen: you cannot tell by looking that nothing is behind it.
- */
-@Composable
-fun GridlinkPlaceholderScreen(
-    destination: GridlinkDestination,
-    onSelectDestination: (GridlinkDestination) -> Unit,
-    modifier: Modifier = Modifier,
-    onCompose: () -> Unit = {},
-) {
-    val colors = GridlinkTheme.colors
-    GridlinkScaffold(
-        modifier = modifier,
-        destination = destination,
-        onSelectDestination = onSelectDestination,
-        onCompose = onCompose,
-        header = {
-            GridlinkHeader(
-                title = destination.label,
-                unread = 0,
-                subline = "Not built yet",
-            )
-        },
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(GridlinkSpacing.chrome),
-            contentAlignment = Alignment.Center,
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s12),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = destination.icon,
-                    contentDescription = null,
-                    tint = colors.textSecondary.copy(alpha = 0.5f),
-                    modifier = Modifier.size(20.dp),
-                )
-                Text(
-                    text = "${destination.label} is not built yet",
-                    style = GridlinkType.metadata,
-                    color = colors.textSecondary,
-                )
-            }
-        }
-    }
-}
+// The "not built yet" placeholder screen used to live here. Contacts was the last tab holding it,
+// and all four now have real screens, so it is gone rather than kept warm for a hypothetical fifth.

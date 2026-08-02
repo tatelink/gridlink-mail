@@ -191,6 +191,7 @@ fun GridlinkRoot(
     initialCalendarView: GridlinkCalendarView = GridlinkCalendarView.MONTH,
     initialFolderActionId: String? = null,
     initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
+    initialScrubLetter: Char? = null,
     demoRecycle: Boolean = false,
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
@@ -222,10 +223,11 @@ fun GridlinkRoot(
             initialView = initialCalendarView,
         )
 
-        GridlinkDestination.CONTACTS -> GridlinkPlaceholderScreen(
+        GridlinkDestination.CONTACTS -> GridlinkContactsScreen(
             modifier = modifier,
             destination = destination,
             onSelectDestination = { destination = it },
+            initialScrubLetter = initialScrubLetter,
         )
     }
 }
