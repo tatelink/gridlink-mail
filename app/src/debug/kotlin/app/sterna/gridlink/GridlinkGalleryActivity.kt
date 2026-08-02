@@ -23,9 +23,11 @@ import androidx.compose.ui.unit.dp
 import app.sterna.ui.gridlink.GRIDLINK_BUNDLE_SWIPE_ID
 import app.sterna.ui.gridlink.GridlinkCalendarView
 import app.sterna.ui.gridlink.GridlinkDestination
+import app.sterna.ui.gridlink.GridlinkFolderStage
 import app.sterna.ui.gridlink.GridlinkModePill
 import app.sterna.ui.gridlink.GridlinkRoot
 import app.sterna.ui.gridlink.GridlinkSample
+import app.sterna.ui.gridlink.GridlinkSampleTree
 import app.sterna.ui.gridlink.LocalGridlinkDebugReveal
 import app.sterna.ui.theme.GridlinkMode
 import app.sterna.ui.theme.ProvideGridlinkTokens
@@ -139,6 +141,52 @@ class GridlinkGalleryActivity : ComponentActivity() {
         require(viewName == null || tab == GridlinkDestination.CALENDAR) {
             "view='$viewName' only means anything on the calendar tab. Add --es tab calendar."
         }
+        // §6d's long-press flow: the action sheet, the rename dialog, the delete confirmation. A
+        // long-press cannot be driven from adb at all — `input swipe` with a long duration lands at
+        // guessed coordinates and, on a tree, the row under those coordinates changes the moment a
+        // branch is opened or a folder is renamed.
+        //   am start -n .../GridlinkGalleryActivity --es tab folders --es folder receipts
+        //   am start -n .../GridlinkGalleryActivity --es tab folders --es folder ops --es stage delete
+        val folderId = intent?.getStringExtra("folder")?.trim()?.takeIf { it.isNotEmpty() }
+        val stageName = intent?.getStringExtra("stage")?.uppercase()
+        val folderStage = if (stageName == null) {
+            GridlinkFolderStage.SHEET
+        } else {
+            requireNotNull(GridlinkFolderStage.entries.firstOrNull { it.name == stageName }) {
+                "Unknown folder stage '$stageName'. Known: " +
+                    GridlinkFolderStage.entries.joinToString { it.name.lowercase() }
+            }
+        }
+        if (folderId != null) {
+            val folder = GridlinkSampleTree.allFolders.firstOrNull { it.id == folderId }
+            requireNotNull(folder) {
+                "Unknown folder id '$folderId'. Known: " +
+                    GridlinkSampleTree.allFolders.joinToString { it.id }
+            }
+            require(tab == GridlinkDestination.FOLDERS) {
+                "folder='$folderId' only means anything on the folder tree. Add --es tab folders."
+            }
+            // 🔴 The three guards below all exist to stop the harness producing a frame that looks
+            // right and is not. A required mailbox renders NO sheet, so the capture would be of an
+            // ordinary folder tree filed as a long-press frame; the two per-stage guards would each
+            // produce a dialog the app itself will never open.
+            require(folder.hasActions) {
+                "'$folderId' is a required mailbox, so a long-press on it does nothing and no " +
+                    "sheet opens. Pick a user folder: " +
+                    GridlinkSampleTree.allFolders.filter { it.hasActions }.joinToString { it.id }
+            }
+            require(folderStage != GridlinkFolderStage.RENAME || folder.mayRename) {
+                "'$folderId' may not be renamed, so the rename dialog is unreachable."
+            }
+            require(folderStage != GridlinkFolderStage.DELETE || folder.mayBeDeletedNow) {
+                "'$folderId' cannot be deleted while it still has ${folder.children.size} folder(s) " +
+                    "in it, so the delete confirmation is unreachable. Use --es stage sheet to " +
+                    "capture the refusal instead."
+            }
+        }
+        require(stageName == null || folderId != null) {
+            "stage='$stageName' without --es folder would render nothing."
+        }
         // Sends every archived, moved or deleted row back to the top a moment later. On by default
         // *here and only here*: the sample inbox is otherwise a consumable, and a gesture you can
         // only watch five times is a gesture nobody reviews properly. Never reaches release.
@@ -153,6 +201,8 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialSwipeId = swipeId,
                 initialSwipeFraction = swipeAt,
                 initialCalendarView = calendarView,
+                initialFolderActionId = folderId,
+                initialFolderStage = folderStage,
                 demoRecycle = recycle,
             )
         }
@@ -169,6 +219,8 @@ private fun GridlinkGallery(
     initialSwipeId: String? = null,
     initialSwipeFraction: Float = 0f,
     initialCalendarView: GridlinkCalendarView = GridlinkCalendarView.MONTH,
+    initialFolderActionId: String? = null,
+    initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
     demoRecycle: Boolean = false,
 ) {
     // null = follow the automatic time-of-day ladder; non-null = the manual override pill won.
@@ -199,6 +251,8 @@ private fun GridlinkGallery(
                     initialSwipeId = initialSwipeId,
                     initialSwipeFraction = initialSwipeFraction,
                     initialCalendarView = initialCalendarView,
+                    initialFolderActionId = initialFolderActionId,
+                    initialFolderStage = initialFolderStage,
                     demoRecycle = demoRecycle,
                 )
             }
