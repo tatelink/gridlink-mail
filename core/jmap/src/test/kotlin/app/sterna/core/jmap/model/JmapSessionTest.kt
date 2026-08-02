@@ -3,6 +3,7 @@ package app.sterna.core.jmap.model
 import app.sterna.core.jmap.Jmap
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -64,5 +65,45 @@ class JmapSessionTest {
         )
 
         assertEquals(listOf("a", "b"), session.mailAccountIds())
+    }
+
+    // ---- setBatchSize: how many ids one Email/set may carry ----
+
+    private fun sessionAdvertising(core: String?) = JmapSession(
+        apiUrl = "https://mail.example.com/jmap/api/",
+        capabilities = buildMap {
+            put(Jmap.MAIL_CAPABILITY, buildJsonObject { })
+            if (core != null) put(Jmap.CORE_CAPABILITY, Json.parseToJsonElement(core).jsonObject)
+        },
+    )
+
+    @Test fun setBatchSize_usesTheAdvertisedMaxObjectsInSet() {
+        // Stalwart's measured value (02/08).
+        assertEquals(500, sessionAdvertising("""{"maxObjectsInSet":500}""").setBatchSize())
+    }
+
+    @Test fun setBatchSize_respectsAServerSmallerThanOurFallback() {
+        // A server's limit is a limit, not a suggestion: 3 means batches of 3, not of 100.
+        assertEquals(3, sessionAdvertising("""{"maxObjectsInSet":3}""").setBatchSize())
+        assertEquals(1, sessionAdvertising("""{"maxObjectsInSet":1}""").setBatchSize())
+    }
+
+    @Test fun setBatchSize_capsAnAbsurdlyLargeAdvertisedValue() {
+        assertEquals(500, sessionAdvertising("""{"maxObjectsInSet":10000}""").setBatchSize())
+        // Past Int.MAX_VALUE: must be capped, never wrapped back onto the fallback.
+        assertEquals(500, sessionAdvertising("""{"maxObjectsInSet":9999999999}""").setBatchSize())
+    }
+
+    @Test fun setBatchSize_fallsBackWhenNothingUsableIsAdvertised() {
+        assertEquals(100, sessionAdvertising("""{}""").setBatchSize())
+        assertEquals(100, sessionAdvertising("""{"maxObjectsInSet":0}""").setBatchSize())
+        assertEquals(100, sessionAdvertising("""{"maxObjectsInSet":-7}""").setBatchSize())
+        assertEquals(100, sessionAdvertising("""{"maxObjectsInSet":"lots"}""").setBatchSize())
+        assertEquals(100, sessionAdvertising("""{"maxObjectsInSet":null}""").setBatchSize())
+    }
+
+    @Test fun setBatchSize_fallsBackWhenTheCoreCapabilityIsAbsent() {
+        assertEquals(100, sessionAdvertising(null).setBatchSize())
+        assertEquals(100, JmapSession(apiUrl = "https://mail.example.com/jmap/api/").setBatchSize())
     }
 }

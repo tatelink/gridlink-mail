@@ -7,7 +7,12 @@ import app.sterna.core.jmap.model.Quota
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.core.jmap.model.VacationResponse
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -19,6 +24,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.Base64
+
+/** The ids one `Email/set` request body carries, in order — its `update` keys or its `destroy`. */
+private fun setIdsOf(body: String): List<String> {
+    val args = Json.parseToJsonElement(body).jsonObject["methodCalls"]!!
+        .jsonArray[0].jsonArray[1].jsonObject
+    args["update"]?.jsonObject?.let { return it.keys.toList() }
+    args["destroy"]?.jsonArray?.let { arr -> return arr.map { it.jsonPrimitive.content } }
+    return emptyList()
+}
 
 class JmapClientTest {
     private lateinit var server: MockWebServer
@@ -552,6 +566,163 @@ class JmapClientTest {
         } catch (e: JmapException) {
             assertEquals("notFound", e.errorType)
         }
+    }
+
+    // ---- Email/set batching: no request may carry more ids than the server accepts ----
+    //
+    // A single `Email/set` carrying a whole select-all is rejected in ONE block past the server's
+    // maxObjectsInSet (Stalwart: 500), and nothing in the app used to read that number.
+
+    /**
+     * Answers every `Email/set` by echoing the ids it carried (as `updated` or `destroyed`), with
+     * a per-request `newState`, so a test can tell WHICH request confirmed WHAT. [failAt] makes
+     * the n-th request an HTTP 500 — a transport failure, not a per-id rejection.
+     */
+    private class EchoSetDispatcher(private val failAt: Int? = null) : Dispatcher() {
+        val bodies = mutableListOf<String>()
+
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val body = request.body.readUtf8()
+            bodies += body
+            if (failAt == bodies.size) return MockResponse().setResponseCode(500)
+            val ids = setIdsOf(body)
+            val payload = if (body.contains("\"destroy\"")) {
+                "\"destroyed\":[${ids.joinToString(",") { "\"$it\"" }}]"
+            } else {
+                "\"updated\":{${ids.joinToString(",") { "\"$it\":null" }}}"
+            }
+            return MockResponse().setBody(
+                """{"methodResponses":[["Email/set",
+                   {"accountId":"acc1","newState":"s${bodies.size}",$payload},"s0"]]}""",
+            )
+        }
+    }
+
+    private fun sessionAdvertising(maxObjectsInSet: Int?): JmapSession = JmapSession(
+        apiUrl = server.url("/jmap/api/").toString(),
+        capabilities = buildMap {
+            put(Jmap.MAIL_CAPABILITY, buildJsonObject { })
+            if (maxObjectsInSet != null) {
+                put(Jmap.CORE_CAPABILITY, buildJsonObject { put("maxObjectsInSet", maxObjectsInSet) })
+            }
+        },
+    )
+
+    @Test fun move_splitsIntoRequestsOfAtMostTheAdvertisedLimit() = runBlocking {
+        val dispatcher = EchoSetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val result = client.move(sessionAdvertising(5), "acc1", ids, "mbArchive", BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        val perRequest = dispatcher.bodies.map { setIdsOf(it) }
+        assertEquals(listOf(5, 5, 2), perRequest.map { it.size })
+        // Every id sent exactly once, in order, across the three requests.
+        assertEquals(ids, perRequest.flatten())
+        // Aggregated: the union of what the three requests confirmed, not the last one's.
+        assertEquals(ids.toSet(), result.done)
+        assertTrue(result.failed.isEmpty())
+        // The newest state we hold: the LAST batch's. An older one would merely re-read wider.
+        assertEquals("s3", result.newState)
+        // Each request is a well-formed move of its own ids.
+        assertTrue(dispatcher.bodies.all { it.contains("\"mailboxIds\":{\"mbArchive\":true}") })
+    }
+
+    @Test fun destroy_splitsIntoRequestsOfAtMostTheAdvertisedLimit() = runBlocking {
+        val dispatcher = EchoSetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val result = client.destroy(sessionAdvertising(5), "acc1", ids, BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        val perRequest = dispatcher.bodies.map { setIdsOf(it) }
+        assertEquals(listOf(5, 5, 2), perRequest.map { it.size })
+        assertEquals(ids, perRequest.flatten())
+        assertEquals(ids.toSet(), result.done)
+        assertEquals("s3", result.newState)
+        assertTrue(dispatcher.bodies.all { it.contains("\"destroy\":[") })
+    }
+
+    @Test fun setSeenAll_splitsIntoRequestsOfAtMostTheAdvertisedLimit() = runBlocking {
+        val dispatcher = EchoSetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val result = client.setSeenAll(sessionAdvertising(5), "acc1", ids, true, BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(5, 5, 2), dispatcher.bodies.map { setIdsOf(it).size })
+        assertEquals(ids.toSet(), result.done)
+    }
+
+    @Test fun move_withoutAnAdvertisedLimitFallsBackToAHundredPerRequest() = runBlocking {
+        val dispatcher = EchoSetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..250).map { "e$it" }
+
+        val result = client.move(sessionAdvertising(null), "acc1", ids, "mbArchive", BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(100, 100, 50), dispatcher.bodies.map { setIdsOf(it).size })
+        assertEquals(ids.toSet(), result.done)
+    }
+
+    @Test fun move_stopsAtTheFirstTransportFailureAndFailsEveryUntriedId() = runBlocking {
+        val dispatcher = EchoSetDispatcher(failAt = 2)
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val result = client.move(sessionAdvertising(5), "acc1", ids, "mbArchive", BasicAuth("u", "p"))
+
+        // Stopped: batch 3 was never sent. On a dead connection every further batch would only
+        // grind through postWithRetry's backoff.
+        assertEquals(2, server.requestCount)
+        assertEquals(ids.take(5).toSet(), result.done)
+        // The failing batch AND the batch never attempted — not silently dropped.
+        assertEquals(ids.drop(5).toSet(), result.failed.keys)
+        // ⛔ Never "notFound": the repository prunes the local row of a notFound id, so marking an
+        // unreachable batch that way would delete live messages from the cache.
+        assertTrue(result.failed.values.none { it == "notFound" })
+        assertEquals(setOf(Jmap.SET_ERROR_TRANSPORT), result.failed.values.toSet())
+    }
+
+    @Test fun destroy_throwsWhenABatchFailsMidway() {
+        val dispatcher = EchoSetDispatcher(failAt = 2)
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+        try {
+            runBlocking { client.destroy(sessionAdvertising(5), "acc1", ids, BasicAuth("u", "p")) }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertEquals(500, e.httpCode)
+        }
+        // The destroy worker retries a confirmed destroy; it must never read a partial result as
+        // "done". And we still stop rather than hammer the dead connection.
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun setBatched_emptyListSkipsTheNetworkEntirely() = runBlocking {
+        val session = sessionAdvertising(5)
+        val auth = BasicAuth("u", "p")
+        assertTrue(client.move(session, "acc1", emptyList(), "mb", auth).done.isEmpty())
+        assertTrue(client.destroy(session, "acc1", emptyList(), auth).done.isEmpty())
+        assertTrue(client.setSeenAll(session, "acc1", emptyList(), true, auth).done.isEmpty())
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test fun move_underTheLimitIsStillOneRequestCarryingEveryId() = runBlocking {
+        val dispatcher = EchoSetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = listOf("e1", "e2", "e3", "e4")
+
+        val result = client.move(sessionAdvertising(5), "acc1", ids, "mbArchive", BasicAuth("u", "p"))
+
+        assertEquals(1, server.requestCount)
+        assertEquals(ids, setIdsOf(dispatcher.bodies.single()))
+        assertEquals(ids.toSet(), result.done)
+        assertEquals("s1", result.newState)
     }
 
     private companion object {
