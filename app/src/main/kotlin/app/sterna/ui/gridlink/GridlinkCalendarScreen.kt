@@ -428,7 +428,13 @@ private fun GridlinkMonthView(
                 flingBehavior = rememberGridlinkFlingBehavior(),
                 modifier = Modifier
                     .weight(1f)
-                    .gridlinkEdgeFade(),
+                    // 🔴 Bottom only. Every other scroller in the app fades both edges and pays for
+                    // it with `top = listFade` of content padding, so its first row can scroll clear
+                    // of the gradient. This one starts flush under "Thursday 30 July" with no room
+                    // to spend, so a top fade had nowhere to go and simply rendered the day's first
+                    // event permanently half transparent — the one event you most want to read, and
+                    // dimmed in a way that reads as "cancelled" rather than as an edge.
+                    .gridlinkEdgeFade(fadeTop = false),
                 contentPadding = PaddingValues(bottom = GridlinkDimens.listFade),
             ) {
                 items(selectedEvents.size, key = { selectedEvents[it].id }) { index ->

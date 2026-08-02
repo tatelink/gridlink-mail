@@ -143,19 +143,26 @@ fun GridlinkScaffold(
  * 🔴 Offscreen compositing is required, not a tuning knob. `DstIn` has to punch alpha out of the
  * content's own layer; without it the blend applies straight to the window and takes the panel and
  * the aurora down with it.
+ *
+ * 🔴 A caller that fades its top edge MUST also carry `contentPadding(top = listFade)`, so the first
+ * row can scroll clear of the gradient and be read in full. Skip that and the top row is permanently
+ * half transparent at the resting position — not "dissolving into an edge" but simply dimmer than
+ * every row below it, which reads as the row being disabled. Where a scroller starts flush under a
+ * header rather than at the panel's own corner there is no edge to dissolve into and no room to
+ * spend on padding, so pass [fadeTop] = false instead of paying for a fade nothing needs.
  */
-fun Modifier.gridlinkEdgeFade(): Modifier = this
+fun Modifier.gridlinkEdgeFade(fadeTop: Boolean = true): Modifier = this
     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
     .drawWithContent {
         drawContent()
         val fade = GridlinkDimens.listFade.toPx()
         val height = size.height
-        if (height <= fade * 2f) return@drawWithContent
+        if (height <= fade * (if (fadeTop) 2f else 1f)) return@drawWithContent
         val stop = fade / height
         drawRect(
             brush = Brush.verticalGradient(
                 colorStops = arrayOf(
-                    0f to Color.Transparent,
+                    0f to if (fadeTop) Color.Transparent else Color.Black,
                     stop to Color.Black,
                     1f - stop to Color.Black,
                     1f to Color.Transparent,
