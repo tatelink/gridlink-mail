@@ -21,9 +21,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.sterna.ui.gridlink.GRIDLINK_BUNDLE_SWIPE_ID
+import app.sterna.ui.gridlink.GridlinkCalendarView
 import app.sterna.ui.gridlink.GridlinkDestination
-import app.sterna.ui.gridlink.GridlinkMessageListScreen
 import app.sterna.ui.gridlink.GridlinkModePill
+import app.sterna.ui.gridlink.GridlinkRoot
 import app.sterna.ui.gridlink.GridlinkSample
 import app.sterna.ui.gridlink.LocalGridlinkDebugReveal
 import app.sterna.ui.theme.GridlinkMode
@@ -122,6 +123,26 @@ class GridlinkGalleryActivity : ComponentActivity() {
         require(swipeId == null || swipeAt != 0f) {
             "swipe='$swipeId' without a non-zero swipeAt would render an untouched row."
         }
+        // Which calendar view opens. Same rule as `tab`: an unknown name crashes rather than
+        // quietly falling back to Month, because a Month frame filed as the Week frame is exactly
+        // the plausible-wrong-picture this harness exists to prevent.
+        //   am start -n .../GridlinkGalleryActivity --es tab calendar --es view three_day
+        val viewName = intent?.getStringExtra("view")?.uppercase()?.replace('-', '_')
+        val calendarView = if (viewName == null) {
+            GridlinkCalendarView.MONTH
+        } else {
+            requireNotNull(GridlinkCalendarView.entries.firstOrNull { it.name == viewName }) {
+                "Unknown calendar view '$viewName'. Known: " +
+                    GridlinkCalendarView.entries.joinToString { it.name.lowercase() }
+            }
+        }
+        require(viewName == null || tab == GridlinkDestination.CALENDAR) {
+            "view='$viewName' only means anything on the calendar tab. Add --es tab calendar."
+        }
+        // Sends every archived, moved or deleted row back to the top a moment later. On by default
+        // *here and only here*: the sample inbox is otherwise a consumable, and a gesture you can
+        // only watch five times is a gesture nobody reviews properly. Never reaches release.
+        val recycle = intent?.getBooleanExtra("recycle", true) ?: true
         setContent {
             GridlinkGallery(
                 initialOverride = mode,
@@ -131,6 +152,8 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialDestination = tab,
                 initialSwipeId = swipeId,
                 initialSwipeFraction = swipeAt,
+                initialCalendarView = calendarView,
+                demoRecycle = recycle,
             )
         }
     }
@@ -145,6 +168,8 @@ private fun GridlinkGallery(
     initialDestination: GridlinkDestination = GridlinkDestination.INBOX,
     initialSwipeId: String? = null,
     initialSwipeFraction: Float = 0f,
+    initialCalendarView: GridlinkCalendarView = GridlinkCalendarView.MONTH,
+    demoRecycle: Boolean = false,
 ) {
     // null = follow the automatic time-of-day ladder; non-null = the manual override pill won.
     //
@@ -166,13 +191,15 @@ private fun GridlinkGallery(
             CompositionLocalProvider(
                 LocalGridlinkDebugReveal provides { pillVisible = !pillVisible },
             ) {
-                GridlinkMessageListScreen(
+                GridlinkRoot(
+                    initialDestination = initialDestination,
                     initiallyExpanded = initiallyExpanded,
                     initiallySelected = initiallySelected,
                     initialSearchExpanded = initialSearchExpanded,
-                    initialDestination = initialDestination,
                     initialSwipeId = initialSwipeId,
                     initialSwipeFraction = initialSwipeFraction,
+                    initialCalendarView = initialCalendarView,
+                    demoRecycle = demoRecycle,
                 )
             }
             if (pillVisible) {
