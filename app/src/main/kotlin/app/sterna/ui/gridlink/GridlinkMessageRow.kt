@@ -1,8 +1,11 @@
 package app.sterna.ui.gridlink
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -26,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,27 +56,49 @@ import app.sterna.ui.theme.gridlinkSenderBarColor
  *
  * Unread is carried by weight, colour and a 6dp amber dot — never by a background fill, per §4.
  * A filled row would fight the hairline separation and turn the list back into cards.
+ *
+ * [selected] is the single exception, and it is only coherent because of that ban: since no other
+ * state fills a row, a fill can only mean selected. The same treatment marks the open thread in the
+ * unfolded two-pane list (§7), so the two states never need separate visuals.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GridlinkMessageRow(
     message: GridlinkMessage,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
+    // Animated so entering and leaving a selection is a wash of colour across the rows rather than
+    // a hard flicker, which at 64dp and this density reads as the list glitching.
+    val fill by animateColorAsState(
+        targetValue = if (selected) colors.selection else Color.Transparent,
+        animationSpec = GridlinkMotion.standard(),
+        label = "rowSelection",
+    )
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(GridlinkDimens.messageRowHeight)
-            .clickable(onClick = onClick),
+            .background(fill)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         // Identity bar, hard against the leading edge. This is what replaces the avatar.
+        //
+        // It goes accent while selected rather than keeping its sender colour: at 3dp this bar is
+        // the loudest structural mark on the row, and leaving it in place under an accent fill puts
+        // two competing hues on the same edge. Identity yields to state for as long as the state
+        // lasts.
         Box(
             modifier = Modifier
                 .width(GridlinkDimens.senderBarWidth)
                 .fillMaxHeight()
-                .background(gridlinkSenderBarColor(mode, message.domain)),
+                .background(
+                    if (selected) colors.accent else gridlinkSenderBarColor(mode, message.domain),
+                ),
         )
         Column(
             modifier = Modifier
@@ -97,7 +124,25 @@ fun GridlinkMessageRow(
                     // Takes all the slack, which is what pins the timestamp to the trailing edge.
                     modifier = Modifier.weight(1f),
                 )
-                if (message.unread) {
+                // Both markers live in the timestamp's leading space, so neither costs width, and
+                // the tick supersedes the dot: a row you have picked up is no longer telling you
+                // about its unread state.
+                if (selected) {
+                    Box(
+                        modifier = Modifier
+                            .size(GridlinkDimens.selectionTick)
+                            .background(colors.accent, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = "Selected",
+                            tint = gridlinkOnAccent(colors.accent),
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(GridlinkSpacing.s8))
+                } else if (message.unread) {
                     // §4: the dot sits in the timestamp's leading space, so it costs no width.
                     Box(
                         modifier = Modifier
@@ -279,6 +324,8 @@ fun GridlinkBundledChildRow(
     message: GridlinkMessage,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     Row(modifier = modifier.fillMaxWidth()) {
@@ -307,6 +354,8 @@ fun GridlinkBundledChildRow(
             message = message,
             onClick = onClick,
             modifier = Modifier.weight(1f),
+            selected = selected,
+            onLongClick = onLongClick,
         )
     }
 }

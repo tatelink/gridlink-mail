@@ -7,8 +7,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -61,12 +63,34 @@ import app.sterna.ui.theme.GridlinkTheme
 fun GridlinkMessageListScreen(
     modifier: Modifier = Modifier,
     initiallyExpanded: Boolean = false,
+    /** Screen-capture hook: lets the gallery open straight into a selection without a long-press. */
+    initiallySelected: Set<String> = emptySet(),
     onOpenMessage: (GridlinkMessage) -> Unit = {},
+    onCompose: () -> Unit = {},
 ) {
     val colors = GridlinkTheme.colors
     var bundleExpanded by rememberSaveable(initiallyExpanded) { mutableStateOf(initiallyExpanded) }
     var destination by rememberSaveable { mutableStateOf(GridlinkDestination.INBOX) }
     val listState = rememberLazyListState()
+
+    // ⚠️ remember, not rememberSaveable: a Set has no built-in Saver, so surviving a rotation needs
+    // a listSaver. Worth adding when this screen owns real state; the mock does not.
+    var selectedIds by remember(initiallySelected) { mutableStateOf(initiallySelected) }
+    val selecting = selectedIds.isNotEmpty()
+
+    // Tap opens a message normally and toggles it once a selection exists — the standard mail
+    // gesture, and the reason long-press is the only way IN. Removing the last row exits.
+    fun onRowTap(message: GridlinkMessage) {
+        if (selecting) {
+            selectedIds = if (message.id in selectedIds) {
+                selectedIds - message.id
+            } else {
+                selectedIds + message.id
+            }
+        } else {
+            onOpenMessage(message)
+        }
+    }
 
     val bundle = remember { GridlinkSample.reportsBundle }
     val humans = remember { GridlinkSample.humanMessages }
@@ -83,6 +107,7 @@ fun GridlinkMessageListScreen(
                     title = "Inbox",
                     needsYou = needsYou,
                     reports = bundle.unreadCount,
+                    selectedCount = selectedIds.size,
                 )
 
                 // The list panel: a floating sheet of glass, not a system list.
@@ -141,7 +166,9 @@ fun GridlinkMessageListScreen(
                                         bundle.messages.forEach { child ->
                                             GridlinkBundledChildRow(
                                                 message = child,
-                                                onClick = { onOpenMessage(child) },
+                                                onClick = { onRowTap(child) },
+                                                selected = child.id in selectedIds,
+                                                onLongClick = { selectedIds = selectedIds + child.id },
                                             )
                                             GridlinkRowDivider(
                                                 startInset = GridlinkSpacing.bundleIndent +
@@ -170,7 +197,11 @@ fun GridlinkMessageListScreen(
                                     Column {
                                         GridlinkMessageRow(
                                             message = message,
-                                            onClick = { onOpenMessage(message) },
+                                            onClick = { onRowTap(message) },
+                                            selected = message.id in selectedIds,
+                                            onLongClick = {
+                                                selectedIds = selectedIds + message.id
+                                            },
                                         )
                                         GridlinkRowDivider()
                                     }
@@ -180,9 +211,10 @@ fun GridlinkMessageListScreen(
                 }
             }
 
-            GridlinkNavPill(
-                selected = destination,
-                onSelect = { destination = it },
+            // One line of floating controls, not two. The compose button is detached from the nav
+            // pill but shares its baseline and its height, so the bottom of the screen stays a
+            // single band and the list keeps the vertical space a stacked FAB would have taken.
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -191,7 +223,16 @@ fun GridlinkMessageListScreen(
                         end = GridlinkSpacing.chrome,
                         bottom = GridlinkSpacing.chrome,
                     ),
-            )
+                horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                GridlinkNavPill(
+                    selected = destination,
+                    onSelect = { destination = it },
+                    modifier = Modifier.weight(1f),
+                )
+                GridlinkComposeButton(onClick = onCompose)
+            }
         }
     }
 }
