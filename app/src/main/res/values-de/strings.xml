@@ -666,7 +666,7 @@
         <item quantity="one">%1$d Nachricht auf diesem Telefon gespeichert</item>
         <item quantity="other">%1$d Nachrichten auf diesem Telefon gespeichert</item>
     </plurals>
-    <string name="sender_volume_scope">%1$s. Gesendet, Entwürfe, Papierkorb und Spam werden nicht gezählt.</string>
+    <string name="sender_volume_scope">%1$s. Gesendet, Entwürfe, Papierkorb und Spam werden nicht gezählt, zurückgestellte Nachrichten ebenso wenig.</string>
     <plurals name="sender_volume_unread">
         <item quantity="one">%1$d ungelesene Nachricht</item>
         <item quantity="other">%1$d ungelesene Nachrichten</item>
@@ -676,7 +676,7 @@
         <item quantity="one">%1$d Nachricht von %2$s löschen?</item>
         <item quantity="other">%1$d Nachrichten von %2$s löschen?</item>
     </plurals>
-    <string name="sender_volume_delete_body">Sie wandern in den Papierkorb. Das betrifft jeden Ordner dieses Kontos, der auf diesem Telefon gespeichert ist, außer Gesendet, Entwürfe, Papierkorb und Spam; ältere E-Mails dieses Absenders können auf dem Server bleiben.</string>
+    <string name="sender_volume_delete_body">Sie wandern in den Papierkorb. Das betrifft jeden Ordner dieses Kontos, der auf diesem Telefon gespeichert ist, außer Gesendet, Entwürfe, Papierkorb und Spam; zurückgestellte Nachrichten werden ebenfalls nicht gezählt. Ältere E-Mails dieses Absenders können auf dem Server bleiben.</string>
     <string name="sender_volume_block">Künftige E-Mails in den Papierkorb, als gelesen markiert</string>
     <string name="sender_volume_block_done">Für diesen Absender gibt es bereits eine Filterregel</string>
     <string name="sender_volume_block_added">Filterregel hinzugefügt</string>

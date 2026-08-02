@@ -669,7 +669,7 @@
         <item quantity="many">%1$d de messages stockés sur ce téléphone</item>
         <item quantity="other">%1$d messages stockés sur ce téléphone</item>
     </plurals>
-    <string name="sender_volume_scope">%1$s. Les dossiers Envoyés, Brouillons, Corbeille et Spam ne sont pas comptés.</string>
+    <string name="sender_volume_scope">%1$s. Les dossiers Envoyés, Brouillons, Corbeille et Spam ne sont pas comptés, ni les messages reportés.</string>
     <plurals name="sender_volume_unread">
         <item quantity="one">%1$d message non lu</item>
         <item quantity="many">%1$d de messages non lus</item>
@@ -681,7 +681,7 @@
         <item quantity="many">Supprimer %1$d de messages de %2$s ?</item>
         <item quantity="other">Supprimer %1$d messages de %2$s ?</item>
     </plurals>
-    <string name="sender_volume_delete_body">Ils partent à la corbeille. Cela concerne tous les dossiers de ce compte stockés sur ce téléphone, sauf Envoyés, Brouillons, Corbeille et Spam ; du courrier plus ancien de cet expéditeur peut rester sur le serveur.</string>
+    <string name="sender_volume_delete_body">Ils partent à la corbeille. Cela concerne tous les dossiers de ce compte stockés sur ce téléphone, sauf Envoyés, Brouillons, Corbeille et Spam ; les messages reportés ne sont pas comptés non plus. Du courrier plus ancien de cet expéditeur peut rester sur le serveur.</string>
     <string name="sender_volume_block">Envoyer le courrier à venir à la corbeille, marqué lu</string>
     <string name="sender_volume_block_done">Une règle de filtrage existe déjà pour cet expéditeur</string>
     <string name="sender_volume_block_added">Règle de filtrage ajoutée</string>

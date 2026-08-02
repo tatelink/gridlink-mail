@@ -669,7 +669,7 @@
         <item quantity="many">%1$d di messaggi salvati su questo telefono</item>
         <item quantity="other">%1$d messaggi salvati su questo telefono</item>
     </plurals>
-    <string name="sender_volume_scope">%1$s. Inviati, Bozze, Cestino e Spam non sono conteggiati.</string>
+    <string name="sender_volume_scope">%1$s. Inviati, Bozze, Cestino e Spam non sono conteggiati, né i messaggi posticipati.</string>
     <plurals name="sender_volume_unread">
         <item quantity="one">%1$d messaggio non letto</item>
         <item quantity="many">%1$d di messaggi non letti</item>
@@ -681,7 +681,7 @@
         <item quantity="many">Eliminare %1$d di messaggi di %2$s?</item>
         <item quantity="other">Eliminare %1$d messaggi di %2$s?</item>
     </plurals>
-    <string name="sender_volume_delete_body">Finiscono nel cestino. Riguarda ogni cartella di questo account salvata su questo telefono, tranne Inviati, Bozze, Cestino e Spam; la posta più vecchia di questo mittente può restare sul server.</string>
+    <string name="sender_volume_delete_body">Finiscono nel cestino. Riguarda ogni cartella di questo account salvata su questo telefono, tranne Inviati, Bozze, Cestino e Spam; nemmeno i messaggi posticipati sono conteggiati. La posta più vecchia di questo mittente può restare sul server.</string>
     <string name="sender_volume_block">Manda la posta futura nel cestino, segnata come letta</string>
     <string name="sender_volume_block_done">Esiste già una regola di filtro per questo mittente</string>
     <string name="sender_volume_block_added">Regola di filtro aggiunta</string>

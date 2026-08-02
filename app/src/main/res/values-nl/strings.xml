@@ -666,7 +666,7 @@
         <item quantity="one">%1$d bericht op deze telefoon opgeslagen</item>
         <item quantity="other">%1$d berichten op deze telefoon opgeslagen</item>
     </plurals>
-    <string name="sender_volume_scope">%1$s. Verzonden, Concepten, Prullenbak en Spam tellen niet mee.</string>
+    <string name="sender_volume_scope">%1$s. Verzonden, Concepten, Prullenbak en Spam tellen niet mee, gesnoozede berichten evenmin.</string>
     <plurals name="sender_volume_unread">
         <item quantity="one">%1$d ongelezen bericht</item>
         <item quantity="other">%1$d ongelezen berichten</item>
@@ -676,7 +676,7 @@
         <item quantity="one">%1$d bericht van %2$s verwijderen?</item>
         <item quantity="other">%1$d berichten van %2$s verwijderen?</item>
     </plurals>
-    <string name="sender_volume_delete_body">Ze gaan naar de prullenbak. Dit betreft elke map van dit account die op deze telefoon is opgeslagen, behalve Verzonden, Concepten, Prullenbak en Spam; oudere post van deze afzender kan op de server blijven staan.</string>
+    <string name="sender_volume_delete_body">Ze gaan naar de prullenbak. Dit betreft elke map van dit account die op deze telefoon is opgeslagen, behalve Verzonden, Concepten, Prullenbak en Spam; gesnoozede berichten tellen ook niet mee. Oudere post van deze afzender kan op de server blijven staan.</string>
     <string name="sender_volume_block">Toekomstige post naar de prullenbak, als gelezen gemarkeerd</string>
     <string name="sender_volume_block_done">Er bestaat al een filterregel voor deze afzender</string>
     <string name="sender_volume_block_added">Filterregel toegevoegd</string>

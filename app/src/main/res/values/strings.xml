@@ -153,7 +153,7 @@
         <item quantity="one">%1$d message stored on this phone</item>
         <item quantity="other">%1$d messages stored on this phone</item>
     </plurals>
-    <string name="sender_volume_scope">%1$s. Sent, Drafts, Trash and Spam are not counted.</string>
+    <string name="sender_volume_scope">%1$s. Sent, Drafts, Trash and Spam are not counted, and neither are snoozed messages.</string>
     <plurals name="sender_volume_unread">
         <item quantity="one">%1$d unread message</item>
         <item quantity="other">%1$d unread messages</item>
@@ -163,7 +163,7 @@
         <item quantity="one">Delete %1$d message from %2$s?</item>
         <item quantity="other">Delete %1$d messages from %2$s?</item>
     </plurals>
-    <string name="sender_volume_delete_body">They go to the Trash. This covers every folder of this account stored on this phone, except Sent, Drafts, Trash and Spam; older mail from this sender may remain on the server.</string>
+    <string name="sender_volume_delete_body">They go to the Trash. This covers every folder of this account stored on this phone, except Sent, Drafts, Trash and Spam; messages you snoozed are not counted either. Older mail from this sender may remain on the server.</string>
     <string name="sender_volume_block">Send future mail to Trash, marked read</string>
     <string name="sender_volume_block_done">A filter rule already exists for this sender</string>
     <string name="sender_volume_block_added">Filter rule added</string>
