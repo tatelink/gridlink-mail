@@ -80,12 +80,20 @@ fun GridlinkMessageListScreen(
     initiallyExpanded: Boolean = false,
     /** Screen-capture hook: lets the gallery open straight into a selection without a long-press. */
     initiallySelected: Set<String> = emptySet(),
+    /** Screen-capture hook: opens with the search pill already unfolded. */
+    initialSearchExpanded: Boolean = false,
+    /** Screen-capture hook: opens on a tab other than the inbox. */
+    initialDestination: GridlinkDestination = GridlinkDestination.INBOX,
     onOpenMessage: (GridlinkMessage) -> Unit = {},
     onCompose: () -> Unit = {},
 ) {
     val colors = GridlinkTheme.colors
     var bundleExpanded by rememberSaveable(initiallyExpanded) { mutableStateOf(initiallyExpanded) }
-    var destination by rememberSaveable { mutableStateOf(GridlinkDestination.INBOX) }
+    var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
+    // ⚠️ The mock does not filter on this yet. It is held so the pill is a real input rather than a
+    // picture of one; wiring it to the list waits on JMAP's own search, since filtering the visible
+    // page client-side would quietly search a subset and look like it searched everything.
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
 
     // ⚠️ remember, not rememberSaveable: a Set has no built-in Saver, so surviving a rotation needs
@@ -144,6 +152,18 @@ fun GridlinkMessageListScreen(
                 title = "Inbox",
                 unread = unreadCount,
                 selectedCount = selectedIds.size,
+                // 🔴 Hidden while selecting. A search field and a selection are two different
+                // modes of the same list, and offering both at once invites you to start one and
+                // silently lose the other.
+                trailing = if (selecting) null else {
+                    {
+                        GridlinkSearchPill(
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it },
+                            initiallyExpanded = initialSearchExpanded,
+                        )
+                    }
+                },
             )
 
             // The list panel: a floating sheet of glass, not a system list.
@@ -325,7 +345,7 @@ fun GridlinkMessageListScreen(
                     onSelect = { destination = it },
                     modifier = Modifier.weight(1f),
                 )
-                GridlinkComposeButton(onClick = onCompose)
+                GridlinkComposeButton(onClick = onCompose, destination = destination)
             }
         }
     }
