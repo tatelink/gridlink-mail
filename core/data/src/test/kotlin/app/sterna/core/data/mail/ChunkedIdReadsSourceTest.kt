@@ -67,11 +67,14 @@ class ChunkedIdReadsSourceTest {
 
         // Two shapes are safe, and nothing else is:
         //  - `listOf(<one id>)`     — a single message, one binding;
-        //  - `chunk`                — the parameter of a splitter, byIdsChunked or an explicit
-        //                             `.chunked(MAX_CHANGES)` loop.
-        // Anything else is a caller-supplied list of unbounded size.
+        //  - `chunk` / `slice`      — the parameter of a splitter, byIdsChunked or an explicit
+        //                             `.chunked(MAX_CHANGES)` loop. (`slice` is the inner name
+        //                             where a byIdsChunked sits INSIDE a `.chunked` loop, so the
+        //                             two parameters cannot share one name.)
+        // Anything else is a caller-supplied list of unbounded size. The names alone would prove
+        // nothing — the two tests below are what say each of those functions really splits.
         val unbounded = calls.map { lastArg(it) }
-            .filterNot { it == "chunk" || it.startsWith("listOf(") }
+            .filterNot { it == "chunk" || it == "slice" || it.startsWith("listOf(") }
 
         assertEquals(
             "these emailsByIds calls bind a list of unbounded size into one IN (...): route them " +
@@ -94,6 +97,10 @@ class ChunkedIdReadsSourceTest {
             "imapDestroyGroup",
             "search",
             "fetchThreadMembers",
+            // Its network loop is bounded by JMAP_BATCH_CEILING, which lives in core:jmap and is
+            // documented as a NETWORK limit. Raising it must not push this SELECT past SQLite's
+            // 999 bindings, so the read carries its own split as well.
+            "setReadAll",
         )
         val missing = routed.filterNot {
             "byIdsChunked(" in DaoQuerySource.mailFunctionBody("MailRepository", it)

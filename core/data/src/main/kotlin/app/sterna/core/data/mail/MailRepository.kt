@@ -2550,7 +2550,12 @@ class MailRepository(
         // never has to re-split what we hand it — the bookkeeping below stays per request.
         emailIds.chunked(ctx.session.setBatchSize()).forEach { chunk ->
             // Captured before the write so only real transitions nudge the counters (#46).
-            val rows = emailDao.emailsByIds(credentials.id, chunk).associateBy { it.id }
+            // Chunked AGAIN, and on purpose: the loop above is bounded by a NETWORK limit that
+            // lives in another module (JMAP_BATCH_CEILING), and raising that ceiling one day must
+            // not quietly push this SELECT past SQLite's 999 bindings on Android 8/9. Two nested
+            // splits, two different reasons.
+            val rows = byIdsChunked(chunk) { slice -> emailDao.emailsByIds(credentials.id, slice) }
+                .associateBy { it.id }
             val result = client.setSeenAll(ctx.session, ctx.accountId, chunk, seen, ctx.auth)
             // Per-id notFound rejections are ghosts (destroyed server-side) — prune them
             // instead of leaving zombie rows that can never change state (see setRead).
