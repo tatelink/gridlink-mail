@@ -847,8 +847,13 @@ class JmapClient internal constructor(
      * Set or clear the \$seen keyword on many emails — over [postWithRetry], like the bulk [move] —
      * so "Mark all read" doesn't cost one round trip per message. Split into requests of at most
      * [JmapSession.setBatchSize] ids ([setInBatches]); returns the aggregated per-id outcome (no-op
-     * for an empty list). Does NOT surface a transport failure: the untried ids come back in
-     * [EmailSetResult.failed].
+     * for an empty list).
+     *
+     * ⛔ THROWS on a transport failure, like [destroy] and unlike [move]: "Mark all read" dismisses
+     * the notifications of the mail it marked only when this call came back without throwing. Turn
+     * a dead connection into a quiet partial result and it would clear the notifications of mail
+     * that is still unread. The batches already confirmed keep their local effect — the caller
+     * commits per batch.
      */
     suspend fun setSeenAll(
         session: JmapSession,
@@ -856,7 +861,7 @@ class JmapClient internal constructor(
         emailIds: List<String>,
         seen: Boolean,
         auth: JmapAuth,
-    ): EmailSetResult = setInBatches(session, emailIds, rethrowTransportFailure = false) { batch ->
+    ): EmailSetResult = setInBatches(session, emailIds, rethrowTransportFailure = true) { batch ->
         emailSet(session, auth) {
             put("accountId", accountId)
             putJsonObject("update") {

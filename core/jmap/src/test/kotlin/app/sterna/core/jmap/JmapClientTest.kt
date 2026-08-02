@@ -703,6 +703,22 @@ class JmapClientTest {
         assertEquals(2, server.requestCount)
     }
 
+    @Test fun setSeenAll_throwsWhenABatchFailsMidway() {
+        // Like destroy, and for a caller-contract reason: "Mark all read" keeps the notifications
+        // it would otherwise dismiss ONLY if setReadAll threw (audit B5). Swallowing a transport
+        // failure here would dismiss the notifications of mail nothing ever marked read.
+        val dispatcher = EchoSetDispatcher(failAt = 2)
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+        try {
+            runBlocking { client.setSeenAll(sessionAdvertising(5), "acc1", ids, true, BasicAuth("u", "p")) }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertEquals(500, e.httpCode)
+        }
+        assertEquals(2, server.requestCount)
+    }
+
     @Test fun setBatched_emptyListSkipsTheNetworkEntirely() = runBlocking {
         val session = sessionAdvertising(5)
         val auth = BasicAuth("u", "p")
