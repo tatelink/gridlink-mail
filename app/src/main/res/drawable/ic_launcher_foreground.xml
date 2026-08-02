@@ -1,20 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- A tern in flight (Sterna): wide swept wings, pointed tips, forked tail.
-         Dark teal-navy silhouette on a light-grey background, kept within the
-         adaptive-icon safe zone, legible at 48dp. -->
+    <!-- The Gridlink 2x2 mark, light mode. drawable-night/ic_launcher_foreground.xml is the
+         canonical variant, ported from the vector master on Talos; this one is derived from
+         it and the geometry is identical (cells 19.25, gap 5.5, radius 4.8125, origins 32 and
+         56.75). If the geometry moves, move all three: this, the night twin, and the
+         monochrome layer.
+
+         🔴 NOT the dark mark on a pale tile. That was the first attempt and it inverts the
+         mark: #21405d was chosen to be the quietest thing on near-black, and on near-white it
+         becomes the loudest, so the two cells that are supposed to recede end up carrying the
+         icon. Every colour here is re-derived by the same rule against the new background
+         instead of being reused.
+
+         The rule, from the master: the two diagonal cells are lit and the other two are the
+         brand blue at 40% over the tile. "Lit" on black means brighter than the tile, so on
+         white it has to mean darker, and the pair inverts:
+           dark  top-left #4a90d9 -> bottom-right #7cb2e6  (steps away from black, lighter)
+           light top-left #4a90d9 -> bottom-right #35689c  (steps away from white, darker)
+         Top-left stays the brand blue exactly in both, so the two variants are recognisably
+         the same mark rather than two colourways.
+
+         🔴 Pre-blended, never alpha, same trap as the master. Dim cells are
+         rgba(74,144,217,0.4) over the tile resolved by hand: over #06070a that is #21405d,
+         over this tile's #f2f6fa midpoint it is #afcdec.
+
+         No bloom layers. The dark variant approximates the master's two feGaussianBlur glows
+         with radial gradients; a glow on near-white is invisible at best and grey haze at
+         worst, so light simply does without. -->
+
+    <!-- dim cell, top-right -->
     <path
-        android:fillColor="#FF17414C"
-        android:pathData="M20,54
-            C32,43 42,45 54,49
-            C66,45 76,43 88,54
-            C76,52 65,54 59,58
-            L58,73
-            L54,63
-            L50,73
-            L49,58
-            C43,54 32,52 20,54 Z" />
+        android:fillColor="#FFAFCDEC"
+        android:pathData="M61.5625,32
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+
+    <!-- dim cell, bottom-left -->
+    <path
+        android:fillColor="#FFAFCDEC"
+        android:pathData="M36.8125,56.75
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+
+    <!-- lit cell, top-left -->
+    <path
+        android:fillColor="#FF4A90D9"
+        android:pathData="M36.8125,32
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+
+    <!-- lit cell, bottom-right -->
+    <path
+        android:fillColor="#FF35689C"
+        android:pathData="M61.5625,56.75
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
 </vector>

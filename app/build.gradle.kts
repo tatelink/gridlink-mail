@@ -43,10 +43,13 @@ android {
         }
     }
 
-    // Distinct launcher icon for the test app: one drawable overriding the adaptive icon's
-    // background layer (the tern silhouette and monochrome layer are untouched). Registered on
-    // the build-type source sets only under -PtestApp — build-type resources win over main —
-    // so the production build never sees src/testApp/res at all.
+    // Distinct launcher icon for the test app: a greyscale copy of the Gridlink mark overriding
+    // the adaptive icon's foreground layer in both drawable/ and drawable-night/ (the tile and
+    // the monochrome layer are untouched, so the test build still tracks the system theme).
+    // Registered on the build-type source sets only under -PtestApp — build-type resources win
+    // over main — so the production build never sees src/testApp/res at all.
+    // 🔴 Any override added here needs BOTH qualifiers. This is a plain res srcDir, so a
+    // drawable/-only override leaves the test build wearing the production icon in dark mode.
     if (testApp) {
         sourceSets.getByName("debug").res.srcDir("src/testApp/res")
         sourceSets.getByName("release").res.srcDir("src/testApp/res")

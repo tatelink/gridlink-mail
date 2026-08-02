@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Test-app mark, dark mode. Compiled ONLY under -PtestApp. See the light twin in
+         ../drawable/ for why the marker is greyscale rather than a coloured tile.
+
+         🔴 This file is why the marker moved off the background. testApp supplies only a
+         `res` srcDir, so an override that existed in drawable/ but not drawable-night/ would
+         have left the test build wearing the production icon in dark mode: marked when you
+         are not looking for it, unmarked when you are. Both variants or neither.
+
+         Greys are luminance stand-ins for the real mark's colours against #06070a, keeping
+         the lit pair stepping AWAY from the tile (lighter here, darker on the light tile)
+         and the dim pair at the same 40%-over-tile weight. -->
+
+    <!-- dim cell, top-right -->
+    <path
+        android:fillColor="#FF3B3D40"
+        android:pathData="M61.5625,32
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+
+    <!-- dim cell, bottom-left -->
+    <path
+        android:fillColor="#FF3B3D40"
+        android:pathData="M36.8125,56.75
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+
+    <!-- lit cell, top-left -->
+    <path
+        android:fillColor="#FF8C9298"
+        android:pathData="M36.8125,32
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+
+    <!-- lit cell, bottom-right -->
+    <path
+        android:fillColor="#FFC2C8CE"
+        android:pathData="M61.5625,56.75
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+</vector>

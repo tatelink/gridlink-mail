@@ -5,14 +5,26 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- The Gridlink tile, light mode. drawable-night/ holds the canonical dark one.
+
+         🔴 There is no light master. ~/homelab/mail/branding/ has only the dark tile, because
+         Brandon stopped the light-variant round on 2026-07-31 to design it himself
+         ("pump brakes, i'll do this in claude design") and nothing came back. This is derived,
+         not authored, and it should be replaced wholesale the day his artwork lands rather
+         than reconciled with it.
+
+         Not flat, unlike the dark tile. Near-white on a light launcher drawer has no edge of
+         its own, so the tile would read as a floating mark with no container while the dark
+         variant reads as a disc. A shallow cool gradient gives it a body without introducing
+         a colour: both stops are the brand blue desaturated almost to white. -->
     <path android:pathData="M0,0h108v108h-108z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:startX="0" android:startY="0"
                 android:endX="108" android:endY="108"
                 android:type="linear">
-                <item android:offset="0" android:color="#FFF4F6F8" />
-                <item android:offset="1" android:color="#FFE3E7EB" />
+                <item android:offset="0" android:color="#FFFCFDFE" />
+                <item android:offset="1" android:color="#FFE6EDF6" />
             </gradient>
         </aapt:attr>
     </path>

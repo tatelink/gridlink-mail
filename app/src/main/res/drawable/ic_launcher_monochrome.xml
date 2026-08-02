@@ -1,19 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Themed-icon (Android 13+) silhouette: the same tern, solid so the
-         system can tint it. -->
+    <!-- Themed-icon (Android 13+) silhouette. The system tints this one flat colour,
+         so the lit/dim distinction that carries the mark in colour is gone and all
+         four cells are drawn solid. The 2x2 grid still reads as the Gridlink mark.
+         Same geometry as ic_launcher_foreground; keep the two in step. -->
     <path
         android:fillColor="#000000"
-        android:pathData="M20,54
-            C32,43 42,45 54,49
-            C66,45 76,43 88,54
-            C76,52 65,54 59,58
-            L58,73
-            L54,63
-            L50,73
-            L49,58
-            C43,54 32,52 20,54 Z" />
+        android:pathData="M36.8125,32
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z
+            M61.5625,32
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z
+            M36.8125,56.75
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z
+            M61.5625,56.75
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
 </vector>
