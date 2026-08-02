@@ -13,6 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -101,40 +103,61 @@ fun MailBySenderScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        if (state.noAccount) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text(
-                    stringResource(R.string.settings_vacation_no_account),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            return@Scaffold
-        }
-        if (!state.loading && state.rows.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text(
-                    stringResource(R.string.sender_volume_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-            }
-            return@Scaffold
-        }
-        LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-            // Not drawn while loading: `total` is 0 until the query lands, and "0 messages stored
-            // on this phone" is the one sentence a counting screen must never show before it has
-            // counted.
-            if (!state.loading) {
+        // Which body is drawn is decided by screenBody(), a plain function a JVM test runs. All
+        // this does is give each of its four answers a widget.
+        when (screenBody(state)) {
+            SenderScreenBody.NO_ACCOUNT ->
+                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    Text(
+                        stringResource(R.string.settings_vacation_no_account),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+            SenderScreenBody.LOADING ->
+                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+
+            SenderScreenBody.FAILED ->
+                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    Column(
+                        modifier = Modifier.padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            stringResource(R.string.settings_vacation_load_error, state.loadError.orEmpty()),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        // Filled Button, like every other error-recovery "Retry" in the app.
+                        Button(onClick = { viewModel.load() }, modifier = Modifier.padding(top = 16.dp)) {
+                            Text(stringResource(R.string.settings_vacation_retry))
+                        }
+                    }
+                }
+
+            SenderScreenBody.EMPTY ->
+                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    Text(
+                        stringResource(R.string.sender_volume_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+
+            SenderScreenBody.ROWS -> LazyColumn(Modifier.fillMaxSize().padding(padding)) {
                 item {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Text(
                             stringResource(R.string.settings_vacation_account, state.accountLabel),
                             style = MaterialTheme.typography.titleSmall,
                         )
-                        // One sentence: how much, that it is what this phone holds, and which
-                        // folders are left out of it.
+                        // One sentence: how much, that it is what this phone holds, and what is
+                        // left out of it.
                         Text(
                             stringResource(
                                 R.string.sender_volume_scope,
@@ -146,23 +169,24 @@ fun MailBySenderScreen(
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
-            }
-            // Keyed on the address AS STORED, with no transformation. Two lines are two SQL
-            // groups, so their LOWER(fromEmail) differ, so their fromEmail differ — the key is
-            // already unique. Lowercasing it here reintroduces the collision the grouping does
-            // not have: SQLite's lower() is ASCII-only and Kotlin's lowercase() is not, so two
-            // spellings differing by a non-ASCII capital are two rows and would become one key,
-            // which makes LazyColumn throw and takes the screen with it.
-            items(state.rows, key = { it.email }) { row ->
-                SenderRow(
-                    row = row,
-                    canDelete = state.canDelete && !state.working,
-                    canBlock = state.canBlock && !state.working,
-                    blocked = viewModel.isBlocked(row.email),
-                    onDelete = { viewModel.askDelete(row) },
-                    onBlock = { viewModel.blockSender(row) },
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                // Keyed on the address AS STORED, with no transformation. Two lines are two SQL
+                // groups, so their LOWER(fromEmail) differ, so their fromEmail differ — the key
+                // is already unique. Lowercasing it here reintroduces the collision the grouping
+                // does not have: SQLite's lower() is ASCII-only and Kotlin's lowercase() is not,
+                // so two spellings differing by a non-ASCII capital are two rows and would become
+                // one key, which makes LazyColumn throw and takes the screen with it.
+                items(state.rows, key = { it.email }) { row ->
+                    SenderRow(
+                        row = row,
+                        canDelete = state.canDelete,
+                        canBlock = state.canBlock,
+                        blocked = viewModel.isBlocked(row.email),
+                        working = state.working,
+                        onDelete = { viewModel.askDelete(row) },
+                        onBlock = { viewModel.blockSender(row) },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
             }
         }
     }
@@ -209,6 +233,7 @@ private fun SenderRow(
     canDelete: Boolean,
     canBlock: Boolean,
     blocked: Boolean,
+    working: Boolean,
     onDelete: () -> Unit,
     onBlock: () -> Unit,
 ) {
@@ -253,30 +278,21 @@ private fun SenderRow(
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.width(280.dp),
             ) {
-                if (canDelete) {
+                // Which entries exist, and which of them can be tapped, is senderMenuEntries()'s
+                // decision — a plain function a JVM test runs. An entry is ABSENT only when this
+                // account cannot perform the gesture at all; "not right now" is a greyed entry,
+                // never a missing one.
+                senderMenuEntries(canDelete, canBlock, blocked, working).forEach { entry ->
                     DropdownMenuItem(
-                        text = { Text(stringResource(R.string.sender_volume_delete)) },
-                        onClick = { menuOpen = false; onDelete() },
-                    )
-                }
-                // Hidden wherever the Filters screen shows its "not supported" note, and
-                // wherever the Trash cannot be named — nothing is invented to stand in for a
-                // server-side rule the server will not take.
-                if (canBlock) {
-                    DropdownMenuItem(
-                        enabled = !blocked,
-                        text = {
-                            Text(
-                                stringResource(
-                                    if (blocked) {
-                                        R.string.sender_volume_block_done
-                                    } else {
-                                        R.string.sender_volume_block
-                                    },
-                                ),
-                            )
+                        enabled = entry.enabled,
+                        text = { Text(stringResource(entry.labelRes)) },
+                        onClick = {
+                            menuOpen = false
+                            when (entry.action) {
+                                SenderAction.DELETE -> onDelete()
+                                SenderAction.BLOCK -> onBlock()
+                            }
                         },
-                        onClick = { menuOpen = false; onBlock() },
                     )
                 }
             }

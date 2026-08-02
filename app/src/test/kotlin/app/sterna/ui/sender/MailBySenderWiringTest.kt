@@ -13,12 +13,18 @@ import java.io.File
  *
  * It covers the couplings no JVM test in this repo can reach, because they live in a
  * `@Composable` and an `AndroidViewModel`: where the inbox's overflow entry sits and when it is
- * hidden; that each row action is drawn only when the ViewModel said it could be, and not while a
- * batch is in flight; that the confirmation counts the list it will delete AND that the delete
- * acts on that same list; that the list key is
- * the address as stored; that the header waits for its number; that the script is only ever saved
- * as [app.sterna.core.data.filter.addBlockRule]'s `save` callback, with a `load` that goes to the
+ * hidden; that the row menu is built by [senderMenuEntries] over that row's own state, arguments
+ * included; that each answer of [screenBody] is drawn as the widget it promises; that the
+ * confirmation counts the list it will delete AND that the delete acts on that same list; that
+ * the list key is the address as stored; that a failed count neither strands the screen on a
+ * spinner nor is drawn as a count of zero; that the in-flight flag comes down on every way out;
+ * that no read reports a cancellation as a failure; that the script is only ever saved as
+ * [app.sterna.core.data.filter.addBlockRule]'s `save` callback, with a `load` that goes to the
  * server at the moment of writing; and that nothing in this package can name a permanent destroy.
+ *
+ * WHICH entries a menu holds, and which of them are tappable, is NOT read here: it is
+ * [senderMenuEntries], and [MailBySenderTest] runs it. What is read here is the call — because
+ * two mutations of its arguments have already survived every rule in this file.
  *
  * Four of these rules exist because a mutation went through the file as it stood. The rule on the
  * `load` callback counted the lines that mention `loadFilterRules(`, so replacing that callback
@@ -70,23 +76,39 @@ class MailBySenderWiringTest {
         )
     }
 
-    @Test fun `each row action is drawn only when the ViewModel said it could be`() {
-        val lines = codeLines(SCREEN)
-        val block = lines.indexOfFirst { BLOCK_LABEL in it }
-        assertTrue("$BLOCK_LABEL is no longer in the screen", block >= 0)
+    @Test fun `the row menu is drawn from the pure decision, over that row's own state`() {
+        // WHICH entries exist and which are tappable is senderMenuEntries', and MailBySenderTest
+        // RUNS it. What no JVM test can reach is the call: the arguments it is given. Two of them
+        // have already been mutated to a constant with every other rule staying green —
+        // `blocked = false` (the "already handled" entry never greys again, and the string it
+        // would have shown is still in the file, so every copy rule passes) and the `working`
+        // flag folded into the availability (the entries vanish instead of greying).
+        val screen = code(SCREEN)
         assertTrue(
-            "the rule entry must sit behind 'if (canBlock)' — the availability the ViewModel " +
-                "computed with canBlockSender(). Drawn unguarded it appears on an IMAP account, " +
-                "where saving a rule cannot work at all, and on an account whose Trash the rule " +
-                "could not name.",
-            lines.enclosedBy(block, "if (canBlock)"),
+            "the menu must be built by senderMenuEntries(canDelete, canBlock, blocked, working) " +
+                "— the decision a test executes — and each item's `enabled` must come from it",
+            "senderMenuEntries(canDelete, canBlock, blocked, working)" in screen &&
+                "enabled = entry.enabled" in screen,
         )
-        val delete = lines.indexOfFirst { DELETE_LABEL in it }
-        assertTrue("$DELETE_LABEL is no longer in the screen", delete >= 0)
+        val row = callArguments(screen, "SenderRow").single { "row = row" in it }
+        listOf(
+            "canDelete = state.canDelete,",
+            "canBlock = state.canBlock,",
+            "working = state.working,",
+            "blocked = viewModel.isBlocked(row.email),",
+        ).forEach { expected ->
+            assertTrue(
+                "SenderRow must be given '$expected'. `blocked` decides whether the row says a " +
+                    "rule already exists; a constant there is invisible to every other rule in " +
+                    "this file. Call was:\n$row",
+                expected in row,
+            )
+        }
         assertTrue(
-            "the delete entry must sit behind 'if (canDelete)': with no Trash, deleteAll fails " +
-                "the whole batch — the gesture is unavailable, not silently ineffective.",
-            lines.enclosedBy(delete, "if (canDelete)"),
+            "`working` must NOT be folded into canDelete/canBlock: those two say 'this account " +
+                "cannot do it' and HIDE the entry, `working` says 'not right now' and GREYS it. " +
+                "Folded together, every tap on ⋮ during a batch opens an empty menu. Call was:\n$row",
+            "state.working" !in row.substringBefore("working = state.working,"),
         )
     }
 
@@ -134,21 +156,6 @@ class MailBySenderWiringTest {
             "a permanent destroy must never be reachable from the per-sender screen: $offenders",
             offenders.isEmpty(),
         )
-    }
-
-    @Test fun `the row menu closes while a batch is on its way`() {
-        // Without this the second confirmed delete returns at the ViewModel's `working` guard and
-        // does nothing at all — no toast, no bar, no change. A greyed-out entry says "not now"
-        // without a single new string.
-        val screen = code(SCREEN)
-        listOf("canDelete = state.canDelete && !state.working", "canBlock = state.canBlock && !state.working")
-            .forEach { expected ->
-                assertTrue(
-                    "the row menu must be closed to a second gesture while one is in flight: " +
-                        "expected '$expected' in MailBySenderScreen. Screen was missing it.",
-                    expected in screen,
-                )
-            }
     }
 
     @Test fun `the confirmation counts the list it will delete`() {
@@ -223,9 +230,16 @@ class MailBySenderWiringTest {
             "senderMessageIds" !in body,
         )
         assertTrue(
-            "confirmDelete must raise `working` before it leaves, or a second confirmed delete " +
-                "starts on top of the first. Body was:\n$body",
-            "working = true" in body,
+            "confirmDelete must move to the state deleteStarted() defines — batch in flight AND " +
+                "dialog gone — as '_state.value = deleteStarted(_state.value)'. Both halves are " +
+                "executed by MailBySenderTest; written out here as a copy(), one of them can be " +
+                "dropped inside a line that carries the other and nothing sees it. Body was:\n$body",
+            "_state.value = deleteStarted(_state.value)" in body,
+        )
+        assertTrue(
+            "…and it must be raised SYNCHRONOUSLY, before the launch: two taps in one frame both " +
+                "reach the guard otherwise. Body was:\n$body",
+            body.indexOf("deleteStarted(") < body.indexOf("viewModelScope.launch"),
         )
     }
 
@@ -245,16 +259,102 @@ class MailBySenderWiringTest {
         )
     }
 
-    @Test fun `the header waits for the count`() {
-        val lines = codeLines(SCREEN)
-        val at = lines.indexOfFirst { SCOPE_LABEL in it }
-        assertTrue("$SCOPE_LABEL is no longer in the screen", at >= 0)
+    @Test fun `each body the decision names draws the widget it promises`() {
+        // screenBody() is executed by MailBySenderTest; what it cannot see is what each of its
+        // answers is DRAWN as. The one that matters is LOADING: the previous version of this
+        // screen answered "count not in yet" by drawing nothing at all — no account name, no
+        // sentence, no spinner — which on the big cache this screen exists for is a white page
+        // under a title for the whole scan.
         assertTrue(
-            "the header sentence must sit behind 'if (!state.loading)': `total` is 0 until the " +
-                "query lands, and a screen whose job is counting must not show a wrong number " +
-                "first. It reads '0 messages stored on this phone' for as long as the load takes.",
-            lines.enclosedBy(at, "if (!state.loading)"),
+            "the screen must render `when (screenBody(state))` rather than re-deciding",
+            "when (screenBody(state))" in code(SCREEN),
         )
+        assertTrue(
+            "the LOADING body must be a CircularProgressIndicator — the same thing the Filters " +
+                "screen shows while it reads. Branch was:\n${bodyBranch("LOADING")}",
+            "CircularProgressIndicator(" in bodyBranch("LOADING"),
+        )
+        assertTrue(
+            "the FAILED body must name the failure (settings_vacation_load_error) and offer the " +
+                "read again (settings_vacation_retry): a count that could not be made must not " +
+                "be drawn as a count of zero. Branch was:\n${bodyBranch("FAILED")}",
+            "R.string.settings_vacation_load_error" in bodyBranch("FAILED") &&
+                "R.string.settings_vacation_retry" in bodyBranch("FAILED"),
+        )
+        assertTrue(
+            "the EMPTY body is the empty note", "R.string.sender_volume_empty" in bodyBranch("EMPTY"),
+        )
+        assertTrue(
+            "the NO_ACCOUNT body is the no-account note",
+            "R.string.settings_vacation_no_account" in bodyBranch("NO_ACCOUNT"),
+        )
+        val rows = bodyBranch("ROWS")
+        assertTrue(
+            "the header sentence and its number belong to the ROWS body ALONE: `total` is 0 " +
+                "until the query lands, and '0 messages stored on this phone' is the one " +
+                "sentence a counting screen must never show before it has counted. Branch was:\n$rows",
+            SCOPE_LABEL in rows && "items(state.rows" in rows,
+        )
+        assertEquals(
+            "…and it must appear nowhere else on the screen",
+            1, Regex(Regex.escape(SCOPE_LABEL)).findAll(code(SCREEN)).count(),
+        )
+    }
+
+    @Test fun `the count read cannot strand the screen on a spinner`() {
+        // `loading` starts true and is only ever lowered by the code that follows the read. An
+        // unprotected read that throws kills the coroutine there: the spinner stays up for the
+        // life of the ViewModel, with no message and no retry — worse than the blank page it
+        // replaced, because it looks like work in progress.
+        val body = functionBody(VIEW_MODEL, "load")
+        assertTrue(
+            "load() must survive a failing count, as 'runCatching { repo.senderVolumes(" +
+                "credentials.id) }.getOrElseUnlessCancelled { null }'. Body was:\n$body",
+            "runCatching { repo.senderVolumes(credentials.id) }" in body &&
+                "getOrElseUnlessCancelled" in body,
+        )
+        assertTrue(
+            "…and must route the failure into the state the screen can read — 'loadError =' " +
+                "with `loading` down — rather than leaving the spinner up. Body was:\n$body",
+            "loadError = " in body && "loading = false" in body,
+        )
+    }
+
+    @Test fun `no read in this ViewModel turns a cancellation into a failure`() {
+        // getOrNull()/getOrDefault() swallow CancellationException like any other throwable, so a
+        // screen left mid-read runs its failure branch on behalf of a caller that is gone. The
+        // module has getOrElseUnlessCancelled for exactly this (Codeberg #99).
+        val offenders = codeLines(VIEW_MODEL).filter {
+            "runCatching" in it && ("getOrNull()" in it || "getOrDefault(" in it)
+        } + codeLines(VIEW_MODEL).filter { ".getOrNull()" in it || ".getOrDefault(" in it }
+        assertEquals(
+            "a read in the ViewModel's lifecycle must use getOrElseUnlessCancelled, not " +
+                "getOrNull()/getOrDefault(): those two report a cancelled read as a failed one. " +
+                "Found:\n" + offenders.joinToString("\n"),
+            emptyList<String>(),
+            offenders.distinct(),
+        )
+    }
+
+    @Test fun `nothing lowers the in-flight flag except a finally`() {
+        // With the flag raised and an exception on the way out — cachedEmailsByIds throwing, a
+        // repository that dies mid-batch — the coroutine dies before the line that lowers it, and
+        // both entries of every row stay greyed for the life of the ViewModel, with no word. The
+        // flag must come down on EVERY way out, which in Kotlin is one construct.
+        listOf("confirmDelete", "blockSender").forEach { name ->
+            val body = functionBody(VIEW_MODEL, name)
+            assertTrue(
+                "$name must lower `working` in a finally, as 'finally { _state.value = " +
+                    "_state.value.copy(working = false) }'. Body was:\n$body",
+                Regex("""finally\s*\{\s*_state\.value = _state\.value\.copy\(working = false\)\s*}""")
+                    .containsMatchIn(body),
+            )
+            assertEquals(
+                "…and nowhere else: a second assignment is a path someone will later remove the " +
+                    "finally for. Body was:\n$body",
+                1, Regex("""working = false""").findAll(body).count(),
+            )
+        }
     }
 
     // -- reading the sources ---------------------------------------------------------------------
@@ -267,6 +367,20 @@ class MailBySenderWiringTest {
             1, entries.size,
         )
         return entries.single()
+    }
+
+    /**
+     * The text of one `when (screenBody(state))` branch of the screen, from its label to the next
+     * label (or to the end, for the last one). Fails loudly if the branch is gone.
+     */
+    private fun bodyBranch(name: String): String {
+        val text = code(SCREEN)
+        val marker = "SenderScreenBody.$name ->"
+        val at = text.indexOf(marker)
+        check(at >= 0) { "the screen draws no '$marker' branch — was the body renamed?" }
+        val rest = text.substring(at + marker.length)
+        val next = Regex("""SenderScreenBody\.\w+ ->""").find(rest)
+        return if (next == null) rest else rest.substring(0, next.range.first)
     }
 
     /** Whether the block opened by a line containing [opener] encloses line [index]. Walks
@@ -352,8 +466,6 @@ class MailBySenderWiringTest {
 
     companion object {
         private const val BY_SENDER_LABEL = "R.string.inbox_by_sender"
-        private const val BLOCK_LABEL = "R.string.sender_volume_block_done"
-        private const val DELETE_LABEL = "R.string.sender_volume_delete)"
         private const val SCOPE_LABEL = "R.string.sender_volume_scope"
 
         /** The write path's read, in full: it must go to the server where it is written. */

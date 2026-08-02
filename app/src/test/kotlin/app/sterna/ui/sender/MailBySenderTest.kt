@@ -172,6 +172,124 @@ class MailBySenderTest {
         assertEquals(emptyList<Any>(), targets)
     }
 
+    // -- which body the screen draws ----------------------------------------------------------------
+
+    @Test fun `while it counts, the screen says it is counting`() {
+        // The screen exists for a big cache, so the count is the slow part. Drawing the rows body
+        // over no rows leaves a blank page under a title for the whole scan — no name, no
+        // sentence, no spinner — and drawing the empty body claims the phone holds nothing from
+        // anyone, which is a count nobody has made yet.
+        assertEquals(SenderScreenBody.LOADING, screenBody(MailBySenderUiState(loading = true)))
+    }
+
+    @Test fun `a count that could not be read is not the same as a count of nothing`() {
+        // The read can throw — a corrupt database, a cancelled disk read. Falling through to the
+        // empty body would print "no mail stored on this phone", which is a COUNT, and no count
+        // was made. The error body says what happened and offers the read again.
+        assertEquals(
+            SenderScreenBody.FAILED,
+            screenBody(MailBySenderUiState(loading = false, loadError = "disk I/O error")),
+        )
+    }
+
+    @Test fun `a count that landed on nothing says so`() {
+        assertEquals(
+            SenderScreenBody.EMPTY,
+            screenBody(MailBySenderUiState(loading = false, rows = emptyList())),
+        )
+    }
+
+    @Test fun `rows are drawn once they are counted`() {
+        assertEquals(
+            SenderScreenBody.ROWS,
+            screenBody(MailBySenderUiState(loading = false, rows = listOf(volume("a@x", 2)))),
+        )
+    }
+
+    @Test fun `no account beats every other body`() {
+        // Including while loading: there is nothing to count and nothing to wait for.
+        assertEquals(
+            SenderScreenBody.NO_ACCOUNT,
+            screenBody(MailBySenderUiState(loading = true, noAccount = true)),
+        )
+    }
+
+    // -- what a row's menu holds --------------------------------------------------------------------
+
+    @Test fun `a batch in flight greys the entries out, it does not remove them`() {
+        // The defect the greying replaces: with both entries taken away, every tap on the row's
+        // ⋮ during a batch opens an EMPTY 280 dp menu, with no word anywhere on the screen about
+        // why. A greyed entry says "not now" and keeps the gesture where the finger left it.
+        val entries = senderMenuEntries(canDelete = true, canBlock = true, blocked = false, working = true)
+        assertEquals(
+            "both entries must still be there while a batch is on its way",
+            listOf(SenderAction.DELETE, SenderAction.BLOCK),
+            entries.map { it.action },
+        )
+        assertEquals(
+            "…and neither may be tappable: the second gesture returns at the ViewModel's guard " +
+                "and would do nothing at all, silently",
+            listOf(false, false),
+            entries.map { it.enabled },
+        )
+    }
+
+    @Test fun `what the account cannot do at all is absent, not greyed`() {
+        // The other half of the distinction, and the reason both cases cannot share a rendering:
+        // canDelete/canBlock false mean "this account will never be able to do this" (no Trash,
+        // IMAP, no Sieve, another script running). There is nothing to wait for, so there is
+        // nothing to grey out — and an entry that greys out forever reads as a bug.
+        assertEquals(
+            emptyList<SenderAction>(),
+            senderMenuEntries(canDelete = false, canBlock = false, blocked = false, working = false)
+                .map { it.action },
+        )
+        assertEquals(
+            listOf(SenderAction.BLOCK),
+            senderMenuEntries(canDelete = false, canBlock = true, blocked = false, working = false)
+                .map { it.action },
+        )
+        assertEquals(
+            listOf(SenderAction.DELETE),
+            senderMenuEntries(canDelete = true, canBlock = false, blocked = false, working = false)
+                .map { it.action },
+        )
+    }
+
+    @Test fun `an account that can do both, with nothing in flight, gets two tappable entries`() {
+        val entries = senderMenuEntries(canDelete = true, canBlock = true, blocked = false, working = false)
+        assertEquals(
+            listOf(app.sterna.R.string.sender_volume_delete, app.sterna.R.string.sender_volume_block),
+            entries.map { it.labelRes },
+        )
+        assertEquals(listOf(true, true), entries.map { it.enabled })
+    }
+
+    @Test fun `a sender the script already handles keeps its entry, greyed, and says why`() {
+        val entries = senderMenuEntries(canDelete = true, canBlock = true, blocked = true, working = false)
+        val block = entries.single { it.action == SenderAction.BLOCK }
+        assertEquals(app.sterna.R.string.sender_volume_block_done, block.labelRes)
+        assertFalse("adding a second identical rule would file the mail twice", block.enabled)
+        assertTrue(
+            "the delete is untouched by the rule already existing",
+            entries.single { it.action == SenderAction.DELETE }.enabled,
+        )
+    }
+
+    // -- the state a confirmed delete starts from -----------------------------------------------------
+
+    @Test fun `confirming the delete takes the dialog away as it starts the batch`() {
+        // Both halves in one assertion because the missing half is invisible in review: a confirm
+        // that raises `working` but leaves `pending` set keeps the dialog up over a batch already
+        // on its way, and its button then returns at the `working` guard — a second tap that does
+        // nothing and says nothing, which is the defect this screen was audited for.
+        val started = deleteStarted(
+            MailBySenderUiState(pending = PendingDelete(volume("a@x", 3), listOf("m1", "m2"))),
+        )
+        assertNull("the dialog must be gone the moment the batch leaves", started.pending)
+        assertTrue("and the batch must be marked in flight", started.working)
+    }
+
     // -- the number the confirmation announces -----------------------------------------------------
 
     @Test fun `the dialog counts the list it will delete, not the row it came from`() {

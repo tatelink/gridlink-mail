@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.sterna.R
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.getOrElseUnlessCancelled
 import app.sterna.core.data.filter.BlockOutcome
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.filter.addBlockRule
@@ -70,12 +71,86 @@ internal fun canDeleteFrom(mailboxes: List<Mailbox>): Boolean = mailboxes.any { 
  *    unreachable server look like an unsupported one, with no word and no retry; tapping it runs
  *    [app.sterna.core.data.filter.addBlockRule], which reads again and reports the failure. One
  *    state fewer, not one more.
+ *
+ * The last two look like opposite principles and are not, so the rule is written down here for
+ * whoever comes to "harmonise" them: **an action that is merely unavailable is left in place, an
+ * action that would do something destructive is taken away.** Offline, the gesture is unavailable
+ * — it fails honestly and can be repeated a minute later with nothing lost. With another Sieve
+ * script active, the gesture WORKS, and what it does is switch that script off. There is nowhere
+ * in a list row to say that, so the row does not carry it; the Filters screen, which warns in red
+ * above its Save button, stays the way to do it knowingly.
  */
 internal fun canBlockSender(state: FilterRulesState?, trashPath: String?): Boolean = when {
     trashPath == null -> false
     state is FilterRulesState.Unsupported -> false
     state is FilterRulesState.Loaded -> !state.foreignActiveScript
     else -> true
+}
+
+/** Which of the screen's bodies is drawn — see [screenBody]. */
+internal enum class SenderScreenBody { NO_ACCOUNT, LOADING, FAILED, EMPTY, ROWS }
+
+/**
+ * What the screen shows for [state], as a value a JVM test can read — the composable then only
+ * maps each answer to a widget.
+ *
+ * The order is the content. [SenderScreenBody.LOADING] comes before everything a count could
+ * say, because before the count lands nothing about the count is true: drawing the rows body
+ * over no rows is a white page under a title for the whole scan of a big cache, and drawing the
+ * empty body claims this phone holds nothing from anyone. [SenderScreenBody.FAILED] comes before
+ * [SenderScreenBody.EMPTY] for the same reason — "no mail stored on this phone" is a count, and a
+ * read that threw made none.
+ */
+internal fun screenBody(state: MailBySenderUiState): SenderScreenBody = when {
+    state.noAccount -> SenderScreenBody.NO_ACCOUNT
+    state.loading -> SenderScreenBody.LOADING
+    state.loadError != null -> SenderScreenBody.FAILED
+    state.rows.isEmpty() -> SenderScreenBody.EMPTY
+    else -> SenderScreenBody.ROWS
+}
+
+/** One entry of a row's overflow menu: which gesture, which words, and whether it can be tapped. */
+internal data class SenderMenuEntry(val action: SenderAction, val labelRes: Int, val enabled: Boolean)
+
+/** The two gestures a row offers. */
+internal enum class SenderAction { DELETE, BLOCK }
+
+/**
+ * What one row's overflow menu holds, given what the account can do ([canDelete], [canBlock]),
+ * whether the script already handles this sender ([blocked]) and whether a batch is on its way
+ * ([working]).
+ *
+ * **Absent and greyed are two different answers, and they are not interchangeable.**
+ *
+ *  - [canDelete] / [canBlock] false mean *this account cannot do this at all* — no Trash to move
+ *    to, IMAP, no Sieve capability, another Sieve script running, a Trash nothing can name. There
+ *    is nothing to wait for, so the entry is ABSENT: an entry greyed out forever reads as a bug,
+ *    and one that reports a failure on every tap is worse.
+ *  - [working] means *not right now*. The entry STAYS and is greyed: it says "not now" without a
+ *    single new string, and the gesture is still where the finger left it. Removing it instead is
+ *    what made every tap on ⋮ during a batch open an empty 280 dp menu with no word anywhere —
+ *    and this screen exists for batches big enough to take a while.
+ *  - [blocked] is the third case: the gesture is possible and pointless, so the entry is there,
+ *    greyed, and its words say why.
+ */
+internal fun senderMenuEntries(
+    canDelete: Boolean,
+    canBlock: Boolean,
+    blocked: Boolean,
+    working: Boolean,
+): List<SenderMenuEntry> = buildList {
+    if (canDelete) {
+        add(SenderMenuEntry(SenderAction.DELETE, R.string.sender_volume_delete, enabled = !working))
+    }
+    if (canBlock) {
+        add(
+            SenderMenuEntry(
+                SenderAction.BLOCK,
+                if (blocked) R.string.sender_volume_block_done else R.string.sender_volume_block,
+                enabled = !blocked && !working,
+            ),
+        )
+    }
 }
 
 /**
@@ -119,11 +194,31 @@ data class MailBySenderUiState(
     val canBlock: Boolean = false,
     /** The rules the account's script carries, as last read — for the duplicate check. */
     val rules: List<FilterRule> = emptyList(),
+    /**
+     * Why the counting query could not be read, when it could not.
+     *
+     * A read that throws must not leave [loading] set: that is a spinner with no end and no word,
+     * on a screen whose whole job is to produce a number. It must not fall through to the empty
+     * body either — "no mail stored on this phone" is a count, and no count was made.
+     */
+    val loadError: String? = null,
     /** A batch is on its way to the server; the row menus are closed to a second one. */
     val working: Boolean = false,
     /** The delete awaiting confirmation, with the ids it will act on. */
     val pending: PendingDelete? = null,
 )
+
+/**
+ * The state a confirmed delete leaves behind: the batch is on its way, and the dialog is GONE.
+ *
+ * Both halves matter and one of them is invisible in review. A confirm that raises `working`
+ * without clearing `pending` leaves the dialog on screen over a batch already in flight; its
+ * button then returns at the `working` guard, so the second tap does nothing and says nothing —
+ * word for word the defect this screen was audited for. Written as one function so that half
+ * cannot be dropped without a test noticing.
+ */
+internal fun deleteStarted(state: MailBySenderUiState): MailBySenderUiState =
+    state.copy(working = true, pending = null)
 
 /** An offer to move a just-deleted batch back where it came from. */
 data class SenderUndo(
@@ -170,23 +265,38 @@ class MailBySenderViewModel(application: Application) : AndroidViewModel(applica
             _state.value = MailBySenderUiState(loading = false, noAccount = true)
             return
         }
+        _state.value = MailBySenderUiState(loading = true, accountLabel = store.accountLabel())
         viewModelScope.launch {
-            val rows = repo.senderVolumes(credentials.id)
+            // The read is protected: unprotected, a throw kills this coroutine between `loading`
+            // going up and the line that takes it down, and the spinner then stays for the life
+            // of the ViewModel with no message and no way to retry. getOrElseUnlessCancelled and
+            // not getOrNull: a cancelled read is not a failed one, and must not draw an error on
+            // behalf of a screen that is already gone.
+            val counted = runCatching { repo.senderVolumes(credentials.id) }
+                .getOrElseUnlessCancelled { failure ->
+                    _state.value = MailBySenderUiState(
+                        loading = false,
+                        accountLabel = store.accountLabel(),
+                        loadError = failure.message ?: failure.toString(),
+                    )
+                    return@launch
+                }
             val mailboxes = runCatching { repo.observeMailboxes(credentials.id).first() }
-                .getOrDefault(emptyList())
+                .getOrElseUnlessCancelled { emptyList() }
             val trashPath = trashFilePath(mailboxes)
             _state.value = MailBySenderUiState(
                 loading = false,
                 accountLabel = store.accountLabel(),
-                rows = rows,
-                total = cachedTotal(rows),
+                rows = counted,
+                total = cachedTotal(counted),
                 // Same cached folder list the counting query reads, so the two agree about what
                 // this account has. See canDeleteFrom.
                 canDelete = canDeleteFrom(mailboxes),
                 canBlock = false,
                 rules = emptyList(),
             )
-            val loaded = runCatching { repo.loadFilterRules(credentials) }.getOrNull()
+            val loaded = runCatching { repo.loadFilterRules(credentials) }
+                .getOrElseUnlessCancelled { null }
             _state.value = _state.value.copy(
                 canBlock = canBlockSender(loaded, trashPath),
                 rules = (loaded as? FilterRulesState.Loaded)?.rules.orEmpty(),
@@ -224,22 +334,30 @@ class MailBySenderViewModel(application: Application) : AndroidViewModel(applica
         val pending = _state.value.pending ?: return
         val credentials = store.load() ?: return
         if (_state.value.working) return
-        _state.value = _state.value.copy(working = true, pending = null)
+        _state.value = deleteStarted(_state.value)
         viewModelScope.launch {
-            val ids = pending.ids
-            // Captured BEFORE the delete: the rows are gone from the cache afterwards, and the
-            // undo needs each message's source folder to move it back to.
-            val sources = repo.cachedEmailsByIds(ids.map { EmailKey(credentials.id, it) })
-                .associate { it.id to it.mailboxId }
-            val result = runCatching { repo.deleteAll(credentials, ids) }
-                .getOrElse { MailRepository.BulkResult(emptySet(), ids.toSet()) }
-            val targets = restoreTargets(result.succeeded, sources, result.dest)
-            _state.value = _state.value.copy(working = false)
-            if (result.failed.isNotEmpty()) {
-                _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+            try {
+                val ids = pending.ids
+                // Captured BEFORE the delete: the rows are gone from the cache afterwards, and
+                // the undo needs each message's source folder to move it back to.
+                val sources = repo.cachedEmailsByIds(ids.map { EmailKey(credentials.id, it) })
+                    .associate { it.id to it.mailboxId }
+                val result = runCatching { repo.deleteAll(credentials, ids) }
+                    .getOrElse { MailRepository.BulkResult(emptySet(), ids.toSet()) }
+                val targets = restoreTargets(result.succeeded, sources, result.dest)
+                if (result.failed.isNotEmpty()) {
+                    _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+                }
+                _undo.value = if (targets.isEmpty()) null else SenderUndo(credentials, targets)
+                load()
+            } finally {
+                // On EVERY way out, including the one nobody wrote down. `cachedEmailsByIds` is
+                // unprotected on purpose — a database read that throws here is a bug worth
+                // seeing, not a state to recover into — but the flag it raised must not outlive
+                // it: left up, both entries of every row stay greyed for the life of the
+                // ViewModel, with no word and no way back except leaving the screen.
+                _state.value = _state.value.copy(working = false)
             }
-            _undo.value = if (targets.isEmpty()) null else SenderUndo(credentials, targets)
-            load()
         }
     }
 
@@ -278,29 +396,33 @@ class MailBySenderViewModel(application: Application) : AndroidViewModel(applica
         if (_state.value.working) return
         _state.value = _state.value.copy(working = true)
         viewModelScope.launch {
-            val mailboxes = runCatching { repo.observeMailboxes(credentials.id).first() }
-                .getOrDefault(emptyList())
-            val trashPath = trashFilePath(mailboxes)
-            if (trashPath == null) {
-                _state.value = _state.value.copy(working = false, canBlock = false)
-                _message.value = getApplication<Application>().getString(R.string.status_action_failed)
-                return@launch
+            try {
+                val mailboxes = runCatching { repo.observeMailboxes(credentials.id).first() }
+                    .getOrElseUnlessCancelled { emptyList() }
+                val trashPath = trashFilePath(mailboxes)
+                if (trashPath == null) {
+                    _state.value = _state.value.copy(canBlock = false)
+                    _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+                    return@launch
+                }
+                val outcome = addBlockRule(
+                    address = sender.email,
+                    trashFolder = trashPath,
+                    load = { repo.loadFilterRules(credentials) },
+                    save = { rules -> repo.saveFilterRules(credentials, rules) },
+                )
+                _message.value = getApplication<Application>().getString(
+                    when (outcome) {
+                        BlockOutcome.ADDED -> R.string.sender_volume_block_added
+                        BlockOutcome.ALREADY_PRESENT -> R.string.sender_volume_block_done
+                        BlockOutcome.FAILED -> R.string.status_action_failed
+                    },
+                )
+                load()
+            } finally {
+                // Every way out, the early return included — see confirmDelete.
+                _state.value = _state.value.copy(working = false)
             }
-            val outcome = addBlockRule(
-                address = sender.email,
-                trashFolder = trashPath,
-                load = { repo.loadFilterRules(credentials) },
-                save = { rules -> repo.saveFilterRules(credentials, rules) },
-            )
-            _state.value = _state.value.copy(working = false)
-            _message.value = getApplication<Application>().getString(
-                when (outcome) {
-                    BlockOutcome.ADDED -> R.string.sender_volume_block_added
-                    BlockOutcome.ALREADY_PRESENT -> R.string.sender_volume_block_done
-                    BlockOutcome.FAILED -> R.string.status_action_failed
-                },
-            )
-            load()
         }
     }
 }
