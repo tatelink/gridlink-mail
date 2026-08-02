@@ -152,6 +152,19 @@ data class GridlinkColors(
     val accentWarm: Color,
     val positive: Color,
     val attention: Color,
+    /**
+     * Stage one of a two-stage destructive gesture: §6a's amber mark-unread track, before the swipe
+     * crosses 60% and turns red.
+     *
+     * 🔴 Not [attention], although the brief calls both of them amber. Day's attention went blue
+     * when it became the unread signal, and reusing it here painted the mark-unread track royal
+     * blue on a blue gradient beside a blue compose button — a caution state that read as another
+     * piece of chrome. The two are different jobs that happened to share a colour in two palettes
+     * out of three: attention says "there is something here", caution says "keep going and this
+     * gets worse". Amber in all three, because the escalation to red is the whole point and it only
+     * works from a warm start.
+     */
+    val caution: Color,
     val destructive: Color,
     /**
      * The halo behind an action surface: the compose button, and the nav pill at a lower alpha.
@@ -213,6 +226,9 @@ val GridlinkDayColors = GridlinkColors(
     // the two are separated by value and not only by hue. If a dot ever looks like a button, this
     // is the number that went wrong.
     attention = Color(0xFF0B3FD1),
+    // Amber-600, not the lighter ambers the dark palettes use: this one has to hold a white icon
+    // and sit on a pale blue panel without glowing.
+    caution = Color(0xFFD97706),
     destructive = Color(0xFFDC2626),
     // A near-white bloom, because the light has to be brighter than what it sits on and Day's
     // background is already mid-blue. This is the "slight glow" behind the compose button.
@@ -250,6 +266,7 @@ val GridlinkNightColors = GridlinkColors(
     accentWarm = Color(0xFFF6B87C),
     positive = Color(0xFF34D399),
     attention = Color(0xFFFBBF24),
+    caution = Color(0xFFFBBF24),
     destructive = Color(0xFFDC2626),
     // The accent itself. On near-black a blue surface glowing blue is exactly the intent.
     actionGlow = Color(0xFF3B82F6),
@@ -280,6 +297,7 @@ val GridlinkOledColors = GridlinkColors(
     accentWarm = Color(0xFFFB923C),
     positive = Color(0xFF34D399),
     attention = Color(0xFFFB923C),
+    caution = Color(0xFFFB923C),
     destructive = Color(0xFFB91C1C),
     actionGlow = null,
     // 🔴 The faintest of the three. See the field's KDoc: this is the one place OLED lights pixels

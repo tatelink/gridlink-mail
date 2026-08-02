@@ -45,6 +45,12 @@ import app.sterna.ui.theme.GridlinkSpacing
 import app.sterna.ui.theme.GridlinkTheme
 
 /**
+ * Stands in for a message id in the swipe-capture hook, because the bundle row is not a message and
+ * has no id of its own. Deliberately not a value any sample message could take.
+ */
+const val GRIDLINK_BUNDLE_SWIPE_ID = "bundle"
+
+/**
  * Screen 1 and 2 of the brief: the message list, mixed read and unread, with the automated-sender
  * bundle collapsed and expanded.
  *
@@ -84,6 +90,14 @@ fun GridlinkMessageListScreen(
     initialSearchExpanded: Boolean = false,
     /** Screen-capture hook: opens on a tab other than the inbox. */
     initialDestination: GridlinkDestination = GridlinkDestination.INBOX,
+    /**
+     * Screen-capture hook: which row opens mid-swipe. A message id, or [GRIDLINK_BUNDLE_SWIPE_ID]
+     * for the bundle row itself. §6a's deliverable is three frames taken *during* the gesture, and
+     * `adb input swipe` cannot hold a drag still at a given fraction of a row it cannot measure.
+     */
+    initialSwipeId: String? = null,
+    /** Signed fraction of row width: positive swipes right to archive, negative swipes left. */
+    initialSwipeFraction: Float = 0f,
     onOpenMessage: (GridlinkMessage) -> Unit = {},
     onCompose: () -> Unit = {},
 ) {
@@ -100,6 +114,17 @@ fun GridlinkMessageListScreen(
     // a listSaver. Worth adding when this screen owns real state; the mock does not.
     var selectedIds by remember(initiallySelected) { mutableStateOf(initiallySelected) }
     val selecting = selectedIds.isNotEmpty()
+
+    // §6a leaves state behind. A swipe that plays an animation and changes nothing is a demo, not a
+    // gesture, so the two outcomes it can have are held here: rows that left the inbox, and rows
+    // pushed back to unread. Held at the screen rather than in the row because the header count and
+    // the bundle badge both have to agree with what the swipe just did.
+    //
+    // ⚠️ Archive and delete land in the same set. They differ in where the message goes, which is a
+    // server concern this mock has no server for; §6c's undo snackbar is where the difference will
+    // first become visible to the user.
+    var removedIds by remember { mutableStateOf(emptySet<String>()) }
+    var forcedUnread by remember { mutableStateOf(emptySet<String>()) }
 
     // 🔴 ONE animation for the whole list. Every row, every section label and every divider reads
     // this same value, so the list slides as a single sheet. Per-row animations off a Boolean would
@@ -131,16 +156,44 @@ fun GridlinkMessageListScreen(
 
     val bundle = remember { GridlinkSample.reportsBundle }
     val humans = remember { GridlinkSample.humanMessages }
-    // Everything unread that is actually in this inbox, robots included. The header count has to
-    // agree with the dots the user can see, and a bundled message is still an unread message.
-    val unreadCount = remember(bundle, humans) {
-        humans.count { it.unread } + bundle.unreadCount
-    }
 
     // A bundle is not a message, so its circle can only mean "everything inside it". Selected when
     // all of its children are, which also means unticking one child unticks the bundle.
     val bundleIds = remember(bundle) { bundle.messages.map { it.id }.toSet() }
     val bundleSelected = selecting && selectedIds.containsAll(bundleIds)
+
+    fun isUnread(message: GridlinkMessage) = message.unread || message.id in forcedUnread
+    fun isPresent(message: GridlinkMessage) = message.id !in removedIds
+
+    fun applySwipe(ids: Set<String>, action: GridlinkSwipeAction) {
+        when (action) {
+            GridlinkSwipeAction.MARK_UNREAD -> forcedUnread = forcedUnread + ids
+            GridlinkSwipeAction.ARCHIVE, GridlinkSwipeAction.DELETE -> {
+                removedIds = removedIds + ids
+                // A row cannot stay ticked after leaving the inbox, and letting it would strand the
+                // selection toolbar open over an empty selection.
+                selectedIds = selectedIds - ids
+            }
+        }
+    }
+
+    // The bundle declares more unread than it carries children: §5's mock reads "14 new" against a
+    // shorter sample list. That surplus is content the mock does not have rows for, so it is held
+    // as a constant and everything else is tallied for real, which keeps the badge responsive to
+    // swipes instead of frozen at a number from the brief.
+    val bundleGone = bundle.messages.all { !isPresent(it) }
+    val phantomUnread = remember(bundle) {
+        (bundle.unreadCount - bundle.messages.count { it.unread }).coerceAtLeast(0)
+    }
+    val bundleUnread = if (bundleGone) {
+        0
+    } else {
+        bundle.messages.count { isPresent(it) && isUnread(it) } + phantomUnread
+    }
+
+    // Everything unread that is actually in this inbox, robots included. The header count has to
+    // agree with the dots the user can see, and a bundled message is still an unread message.
+    val unreadCount = humans.count { isPresent(it) && isUnread(it) } + bundleUnread
 
     GridlinkBackground(modifier = modifier) {
         Column(
@@ -231,28 +284,47 @@ fun GridlinkMessageListScreen(
                     }
                     item(key = "bundle") {
                         Column {
-                            GridlinkBundleRow(
-                                bundle = bundle,
-                                expanded = bundleExpanded,
-                                // While selecting, a tap on the bundle picks it up rather than
-                                // opening it. Expanding mid-selection would shove six rows under
-                                // the thumb that just tapped.
-                                onToggle = {
-                                    if (selecting) {
-                                        selectedIds = if (bundleSelected) {
-                                            selectedIds - bundleIds
-                                        } else {
-                                            selectedIds + bundleIds
-                                        }
-                                    } else {
-                                        bundleExpanded = !bundleExpanded
-                                    }
+                            // §5: "The bundle row itself supports the same swipe actions, applying
+                            // to every message inside it, which is the fastest way to clear a
+                            // morning's reports." One gesture, the whole morning's reports gone.
+                            GridlinkSwipeableRow(
+                                visible = !bundleGone,
+                                enabled = !selecting,
+                                initialFraction = if (initialSwipeId == GRIDLINK_BUNDLE_SWIPE_ID) {
+                                    initialSwipeFraction
+                                } else {
+                                    0f
                                 },
-                                gutter = gutter,
-                                selected = bundleSelected,
-                                onLongClick = { selectedIds = selectedIds + bundleIds },
-                            )
-                            GridlinkRowDivider(startInset = GridlinkSpacing.rowHorizontal + gutter)
+                                onAction = { applySwipe(bundleIds, it) },
+                                divider = {
+                                    GridlinkRowDivider(
+                                        startInset = GridlinkSpacing.rowHorizontal + gutter,
+                                    )
+                                },
+                            ) {
+                                GridlinkBundleRow(
+                                    // Recomputed, so the badge answers to the swipes.
+                                    bundle = bundle.copy(unreadCount = bundleUnread),
+                                    expanded = bundleExpanded,
+                                    // While selecting, a tap on the bundle picks it up rather than
+                                    // opening it. Expanding mid-selection would shove six rows
+                                    // under the thumb that just tapped.
+                                    onToggle = {
+                                        if (selecting) {
+                                            selectedIds = if (bundleSelected) {
+                                                selectedIds - bundleIds
+                                            } else {
+                                                selectedIds + bundleIds
+                                            }
+                                        } else {
+                                            bundleExpanded = !bundleExpanded
+                                        }
+                                    },
+                                    gutter = gutter,
+                                    selected = bundleSelected,
+                                    onLongClick = { selectedIds = selectedIds + bundleIds },
+                                )
+                            }
                         }
                     }
                     item(key = "bundle-children") {
@@ -272,17 +344,32 @@ fun GridlinkMessageListScreen(
                             ) {
                                 Column {
                                     bundle.messages.forEach { child ->
-                                        GridlinkBundledChildRow(
-                                            message = child,
-                                            onClick = { onRowTap(child) },
-                                            selected = child.id in selectedIds,
-                                            gutter = gutter,
-                                            onLongClick = { selectedIds = selectedIds + child.id },
-                                        )
-                                        GridlinkRowDivider(
-                                            startInset = GridlinkSpacing.bundleIndent +
-                                                GridlinkSpacing.rowHorizontal + gutter,
-                                        )
+                                        GridlinkSwipeableRow(
+                                            visible = isPresent(child),
+                                            enabled = !selecting,
+                                            initialFraction = if (child.id == initialSwipeId) {
+                                                initialSwipeFraction
+                                            } else {
+                                                0f
+                                            },
+                                            onAction = { applySwipe(setOf(child.id), it) },
+                                            divider = {
+                                                GridlinkRowDivider(
+                                                    startInset = GridlinkSpacing.bundleIndent +
+                                                        GridlinkSpacing.rowHorizontal + gutter,
+                                                )
+                                            },
+                                        ) {
+                                            GridlinkBundledChildRow(
+                                                message = child.copy(unread = isUnread(child)),
+                                                onClick = { onRowTap(child) },
+                                                selected = child.id in selectedIds,
+                                                gutter = gutter,
+                                                onLongClick = {
+                                                    selectedIds = selectedIds + child.id
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -304,18 +391,35 @@ fun GridlinkMessageListScreen(
                             ) { index ->
                                 val message = inSection[index]
                                 Column {
-                                    GridlinkMessageRow(
-                                        message = message,
-                                        onClick = { onRowTap(message) },
-                                        selected = message.id in selectedIds,
-                                        gutter = gutter,
-                                        onLongClick = {
-                                            selectedIds = selectedIds + message.id
+                                    GridlinkSwipeableRow(
+                                        visible = isPresent(message),
+                                        // 🔴 Swipe is off while selecting. Two horizontal meanings
+                                        // on one row is one too many: with rows ticked, a drag
+                                        // should be the user missing the list's scroll, not a
+                                        // silent delete of a row they were about to act on in bulk.
+                                        enabled = !selecting,
+                                        initialFraction = if (message.id == initialSwipeId) {
+                                            initialSwipeFraction
+                                        } else {
+                                            0f
                                         },
-                                    )
-                                    GridlinkRowDivider(
-                                        startInset = GridlinkSpacing.rowHorizontal + gutter,
-                                    )
+                                        onAction = { applySwipe(setOf(message.id), it) },
+                                        divider = {
+                                            GridlinkRowDivider(
+                                                startInset = GridlinkSpacing.rowHorizontal + gutter,
+                                            )
+                                        },
+                                    ) {
+                                        GridlinkMessageRow(
+                                            message = message.copy(unread = isUnread(message)),
+                                            onClick = { onRowTap(message) },
+                                            selected = message.id in selectedIds,
+                                            gutter = gutter,
+                                            onLongClick = {
+                                                selectedIds = selectedIds + message.id
+                                            },
+                                        )
+                                    }
                                 }
                             }
                         }
