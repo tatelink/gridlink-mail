@@ -64,6 +64,19 @@ class SenderBlockTest {
         assertEquals("nothing is added twice", rules, withBlockRule(rules, "news@example.com", "Trash"))
     }
 
+    @Test fun `a FROM IS rule counts as present whatever it does with the mail`() {
+        // Deliberately broad, and it must stay broad: two FROM/IS rules on one address compile to
+        // two sequential `if`s, so BOTH act on the same message. We refuse to stack a rule on top
+        // of an existing one whatever its target — including one that is currently disabled,
+        // which the user can switch back on in the filter editor at any moment.
+        val elsewhere = FilterRule(name = "boss", field = RuleField.FROM, match = RuleMatch.IS, value = "boss@example.com", moveTo = "Work")
+        val disabled = FilterRule(name = "old", enabled = false, field = RuleField.FROM, match = RuleMatch.IS, value = "old@example.com", moveTo = "Trash")
+        assertTrue(alreadyBlocked(listOf(elsewhere), "boss@example.com"))
+        assertTrue(alreadyBlocked(listOf(disabled), "old@example.com"))
+        // …which is exactly why the label may not say where the mail goes. SenderVolumeCopyTest
+        // holds that end of it, per locale.
+    }
+
     @Test fun `a CONTAINS rule or another field is not this rule`() {
         // "@family.example" as a CONTAINS would catch news@family.example, but it is not the
         // rule this gesture writes, and treating it as one would silently refuse to act.
@@ -120,6 +133,23 @@ class SenderBlockTest {
         )
         assertEquals(BlockOutcome.ALREADY_PRESENT, outcome)
         assertNull(saved)
+    }
+
+    @Test fun `an account running its own Sieve script is left alone`() = runBlocking {
+        // Saving does not just write Sterna's script, it ACTIVATES it — which switches off
+        // whatever script the account was running. The filter editor warns about that in red
+        // before its Save button; a one-finger gesture in a list cannot, so it must not be able
+        // to do it. The guard belongs here and not only in the screen: a path whose only
+        // protection is the way in is not protected.
+        var saved: List<FilterRule>? = null
+        val outcome = addBlockRule(
+            address = "news@example.com",
+            trashFolder = "Trash",
+            load = { FilterRulesState.Loaded(existing, foreignActiveScript = true) },
+            save = { saved = it },
+        )
+        assertEquals(BlockOutcome.FAILED, outcome)
+        assertNull("her own Sieve script must still be the active one", saved)
     }
 
     @Test fun `a save the server refuses is reported as a failure`() = runBlocking {

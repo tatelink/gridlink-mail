@@ -80,6 +80,13 @@ enum class BlockOutcome {
  * answers anything but [FilterRulesState.Loaded] (an IMAP account, a JMAP server with no Sieve
  * capability), therefore ends the gesture at [BlockOutcome.FAILED] with no write at all — never
  * a "start from an empty list and hope".
+ *
+ * And it refuses outright when [FilterRulesState.Loaded.foreignActiveScript] is set. Saving does
+ * not merely write Sterna's script, it ACTIVATES it — which switches off whatever other Sieve
+ * script the account had running. The filter editor warns about that in red before its Save
+ * button; a one-finger gesture in a list has nowhere to put such a warning, so it must not be
+ * able to do it. The guard lives HERE and not only in the screen: an unreachable path is not a
+ * safe one, it is a path whose only guard is the way in.
  */
 suspend fun addBlockRule(
     address: String,
@@ -89,6 +96,7 @@ suspend fun addBlockRule(
 ): BlockOutcome {
     val state = runCatching { load() }.getOrNull()
     if (state !is FilterRulesState.Loaded) return BlockOutcome.FAILED
+    if (state.foreignActiveScript) return BlockOutcome.FAILED
     if (alreadyBlocked(state.rules, address)) return BlockOutcome.ALREADY_PRESENT
     return runCatching { save(withBlockRule(state.rules, address, trashFolder)) }
         .fold(onSuccess = { BlockOutcome.ADDED }, onFailure = { BlockOutcome.FAILED })
