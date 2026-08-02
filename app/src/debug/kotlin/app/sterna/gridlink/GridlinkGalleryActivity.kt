@@ -4,41 +4,20 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import app.sterna.ui.gridlink.GRIDLINK_BUNDLE_SWIPE_ID
+import app.sterna.ui.gridlink.GridlinkApp
 import app.sterna.ui.gridlink.GridlinkCalendarView
-import app.sterna.ui.gridlink.GridlinkChromeState
 import app.sterna.ui.gridlink.GridlinkComposeDraft
 import app.sterna.ui.gridlink.GridlinkComposeField
 import app.sterna.ui.gridlink.GridlinkComposeRequest
 import app.sterna.ui.gridlink.GridlinkDestination
 import app.sterna.ui.gridlink.GridlinkFolderStage
-import app.sterna.ui.gridlink.GridlinkModePill
 import app.sterna.ui.gridlink.GridlinkRoot
 import app.sterna.ui.gridlink.GridlinkSample
 import app.sterna.ui.gridlink.GridlinkSampleTree
 import app.sterna.ui.gridlink.GridlinkSyncState
-import app.sterna.ui.gridlink.LocalGridlinkChrome
-import app.sterna.ui.gridlink.LocalGridlinkDebugReveal
 import app.sterna.ui.theme.GridlinkMode
-import app.sterna.ui.theme.ProvideGridlinkTokens
-import app.sterna.ui.theme.gridlinkModeForHour
-import java.time.LocalTime
 
 /**
  * Debug-only host for the Gridlink screens.
@@ -48,8 +27,8 @@ import java.time.LocalTime
  * one into the live app as it is drawn would mean fighting upstream's navigation graph on every
  * iteration, and would make a half-finished screen the thing that opens when Brandon taps the icon.
  * This activity renders them straight, against the brief's own sample content, so a palette can be
- * checked without waiting for dusk. It opens in Day; long-press the screen title for the mode pill,
- * or pass `--es mode night`.
+ * checked without waiting for dusk. It opens in Day; pass `--es mode night`, or open the hamburger
+ * menu and use the Appearance track, which is now part of the app rather than a debug affordance.
  *
  * 🔴 It lives in `src/debug` on purpose: release builds never compile it, so there is no risk of a
  * second launcher icon or a developer surface shipping. The screens themselves live in `src/main`,
@@ -264,7 +243,6 @@ class GridlinkGalleryActivity : ComponentActivity() {
             }
         }
         val menuOpen = intent?.getBooleanExtra("menu", false) ?: false
-        val chrome = GridlinkChromeState(sync = sync, menuOpenAtStart = menuOpen)
         // Sends every archived, moved or deleted row back to the top a moment later. On by default
         // *here and only here*: the sample inbox is otherwise a consumable, and a gesture you can
         // only watch five times is a gesture nobody reviews properly. Never reaches release.
@@ -283,7 +261,8 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialFolderStage = folderStage,
                 initialScrubLetter = scrubLetter,
                 initialCompose = composeRequest,
-                chrome = chrome,
+                initialSync = sync,
+                menuOpenAtStart = menuOpen,
                 demoRecycle = recycle,
             )
         }
@@ -304,62 +283,37 @@ private fun GridlinkGallery(
     initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
     initialScrubLetter: Char? = null,
     initialCompose: GridlinkComposeRequest? = null,
-    chrome: GridlinkChromeState = GridlinkChromeState(),
+    initialSync: GridlinkSyncState = GridlinkSyncState.SYNCED,
+    menuOpenAtStart: Boolean = false,
     demoRecycle: Boolean = false,
 ) {
-    // null = follow the automatic time-of-day ladder; non-null = the manual override pill won.
+    // 🔴 The gallery no longer owns the palette, it seeds it. Day / Night / OLED is a real app
+    // setting now, living in GridlinkApp and reachable from the menu panel's Appearance track, so a
+    // private copy here would be a second source of truth that only the harness could write.
     //
-    // 🔴 Defaults to DAY, not to the ladder. The gallery is a place to look at a design, and what it
-    // opens on should be a decision rather than a function of what time it happens to be — a
-    // screenshot taken at 9pm coming back in Night is the kind of surprise that wastes a round trip.
-    // The ladder is still one tap away behind the pill's Auto segment.
-    // Explicitly nullable: the seed is non-null, but Auto sets it back to null and type inference
-    // would otherwise pin this to a non-null GridlinkMode and reject that.
-    var override by rememberSaveable { mutableStateOf<GridlinkMode?>(initialOverride ?: GridlinkMode.DAY) }
-    val autoMode = remember { gridlinkModeForHour(LocalTime.now().hour) }
-    val mode = override ?: autoMode
-    // The mode pill is summoned, not resident: see LocalGridlinkDebugReveal. Not rememberSaveable,
-    // so a rotation puts it away again.
-    var pillVisible by remember { mutableStateOf(false) }
-
-    ProvideGridlinkTokens(mode = mode) {
-        Box(Modifier.fillMaxSize()) {
-            CompositionLocalProvider(
-                LocalGridlinkDebugReveal provides { pillVisible = !pillVisible },
-                LocalGridlinkChrome provides chrome,
-            ) {
-                GridlinkRoot(
-                    initialDestination = initialDestination,
-                    initiallyExpanded = initiallyExpanded,
-                    initiallySelected = initiallySelected,
-                    initialSearchExpanded = initialSearchExpanded,
-                    initialSwipeId = initialSwipeId,
-                    initialSwipeFraction = initialSwipeFraction,
-                    initialCalendarView = initialCalendarView,
-                    initialFolderActionId = initialFolderActionId,
-                    initialFolderStage = initialFolderStage,
-                    initialScrubLetter = initialScrubLetter,
-                    initialCompose = initialCompose,
-                    demoRecycle = demoRecycle,
-                )
-            }
-            if (pillVisible) {
-                GridlinkModePill(
-                    selected = mode,
-                    isAuto = override == null,
-                    onSelect = { override = it },
-                    startExpanded = true,
-                    onDismiss = { pillVisible = false },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .windowInsetsPadding(WindowInsets.systemBars)
-                        // Clears the chrome row: 20dp of top pad plus a 44dp menu circle puts the
-                        // bottom of that row at 64dp, and the sync chip is at its trailing end.
-                        // Landing the pill on top of the thing it is there to inspect the colour of
-                        // is the one place it must not go.
-                        .padding(end = 12.dp, top = 72.dp),
-                )
-            }
-        }
+    // 🔴 Seeds DAY, not the ladder. The gallery is a place to look at a design, and what it opens on
+    // should be a decision rather than a function of what time it happens to be: a screenshot taken
+    // at 9pm coming back in Night is the kind of surprise that wastes a round trip. Passing
+    // `--es mode auto` is not a thing; open the menu and tap Auto, which is now one tap away in the
+    // shipping UI rather than behind a debug-only long-press.
+    GridlinkApp(
+        initialSync = initialSync,
+        initialModeOverride = initialOverride ?: GridlinkMode.DAY,
+        menuOpenAtStart = menuOpenAtStart,
+    ) {
+        GridlinkRoot(
+            initialDestination = initialDestination,
+            initiallyExpanded = initiallyExpanded,
+            initiallySelected = initiallySelected,
+            initialSearchExpanded = initialSearchExpanded,
+            initialSwipeId = initialSwipeId,
+            initialSwipeFraction = initialSwipeFraction,
+            initialCalendarView = initialCalendarView,
+            initialFolderActionId = initialFolderActionId,
+            initialFolderStage = initialFolderStage,
+            initialScrubLetter = initialScrubLetter,
+            initialCompose = initialCompose,
+            demoRecycle = demoRecycle,
+        )
     }
 }

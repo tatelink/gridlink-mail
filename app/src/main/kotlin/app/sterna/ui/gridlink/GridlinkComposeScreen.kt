@@ -277,7 +277,6 @@ fun GridlinkComposeScreen(
 
     if (scheduling) {
         GridlinkScheduleSheet(
-            sendSize = if (keyboardUp) GridlinkDimens.headerControl else GridlinkDimens.composeButton,
             onPick = {
                 scheduling = false
                 onClose()
@@ -992,87 +991,54 @@ private val GRIDLINK_SEND_LATER = listOf(
 /**
  * §1e.
  *
- * 🔴 The send control is redrawn INSIDE the modal, above the card, rather than the composer's own
- * being left to show through. A dialog window covers the whole screen, so the real button is behind
- * the scrim and dimmed with everything else; redrawing it here is what keeps it lit, and lit is the
- * entire point. Without it the sheet is a menu that appeared from nowhere instead of a menu that
- * belongs to the button you are still holding.
+ * 🔴 Centred, and no longer physically attached to the send button. Brandon: "the other popups should
+ * appear in the center, not rise from the bottom". This one paid the most for that rule, so the cost
+ * is written down rather than quietly absorbed: the sheet used to sit directly above the composer's
+ * send control with a redrawn copy of that control lit on the scrim, so it read as a menu belonging
+ * to the button you were still holding. A copy of the send button floating in the middle of the
+ * screen, far from the real one, would be a second send button rather than the same one, so the
+ * redraw is gone and the "SEND LATER" label carries the attribution instead. The grab handle went
+ * with it; it said "swipe me back down", which is now a lie.
  *
- * ⚠️ The card is [GridlinkBottomSheet]'s floating shape, rounded on all four corners and inset by
- * `chrome`, not the design's 28dp-top-only sheet flush to the screen edge. The app already has one
- * bottom sheet and this is the second; two sheet silhouettes in an app this small is drift, and the
- * floating one is the shape Brandon has already seen and signed off on the folder screen. Worth
- * raising, cheap to change: it is one shape argument.
+ * Worth revisiting if the disconnect bothers him in the hand. The alternative is an anchored popup
+ * that keeps the tie without keeping the bottom edge, which is a different primitive than either of
+ * the two this app has.
  */
 @Composable
 private fun GridlinkScheduleSheet(
-    sendSize: androidx.compose.ui.unit.Dp,
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = GridlinkTheme.colors
-    GridlinkModal(onDismiss = onDismiss, alignment = Alignment.BottomCenter) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.End,
-        ) {
-            GridlinkSendButton(
-                size = sendSize,
-                onClick = onDismiss,
-                onLongClick = onDismiss,
-                pressed = true,
-            )
-            Spacer(Modifier.height(GridlinkSpacing.s16))
-            GridlinkModalCard(modifier = Modifier.fillMaxWidth()) {
-                GridlinkSheetGrabHandle()
-                Text(
-                    text = "SEND LATER",
-                    style = GridlinkType.sectionLabel,
-                    color = colors.textSecondary,
-                    modifier = Modifier.padding(
-                        start = GridlinkSpacing.chrome,
-                        end = GridlinkSpacing.chrome,
-                        bottom = GridlinkSpacing.s8,
-                    ),
-                )
-                GRIDLINK_SEND_LATER.forEach { (day, time) ->
-                    GridlinkSchedulePreset(
-                        label = day,
-                        trailing = time,
-                        onClick = { onPick("$day $time") },
-                    )
-                }
-                GridlinkSchedulePreset(
-                    label = "Pick a time",
-                    trailing = null,
-                    // 🔴 The only accent row, because it is the only one that opens something else.
-                    // The three above it are complete answers, and accenting them would make the
-                    // sheet read as four ways into a picker rather than three shortcuts past it.
-                    accent = true,
-                    onClick = { onPick("custom") },
-                )
-                GridlinkSheetFooterSpace()
-            }
-        }
-    }
-}
-
-/** The grab handle. Says "this came up from the bottom and can go back down" without a label. */
-@Composable
-private fun GridlinkSheetGrabHandle() {
-    val colors = GridlinkTheme.colors
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = GridlinkSpacing.s12, bottom = GridlinkSpacing.s16),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .width(36.dp)
-                .height(4.dp)
-                .background(colors.divider, RoundedCornerShape(GridlinkRadii.pill)),
+    GridlinkCenterSheet(onDismiss = onDismiss) {
+        Text(
+            text = "SEND LATER",
+            style = GridlinkType.sectionLabel,
+            color = colors.textSecondary,
+            modifier = Modifier.padding(
+                start = GridlinkSpacing.chrome,
+                end = GridlinkSpacing.chrome,
+                top = GridlinkSpacing.chrome,
+                bottom = GridlinkSpacing.s8,
+            ),
         )
+        GRIDLINK_SEND_LATER.forEach { (day, time) ->
+            GridlinkSchedulePreset(
+                label = day,
+                trailing = time,
+                onClick = { onPick("$day $time") },
+            )
+        }
+        GridlinkSchedulePreset(
+            label = "Pick a time",
+            trailing = null,
+            // 🔴 The only accent row, because it is the only one that opens something else. The three
+            // above it are complete answers, and accenting them would make the sheet read as four
+            // ways into a picker rather than three shortcuts past it.
+            accent = true,
+            onClick = { onPick("custom") },
+        )
+        GridlinkSheetFooterSpace()
     }
 }
 
