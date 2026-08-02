@@ -106,4 +106,40 @@ class JmapSessionTest {
         assertEquals(100, sessionAdvertising(null).setBatchSize())
         assertEquals(100, JmapSession(apiUrl = "https://mail.example.com/jmap/api/").setBatchSize())
     }
+
+    // ---- getBatchSize: how many ids one Email/get may ask for ----
+
+    @Test fun getBatchSize_usesTheAdvertisedMaxObjectsInGet() {
+        assertEquals(500, sessionAdvertising("""{"maxObjectsInGet":500}""").getBatchSize())
+        assertEquals(3, sessionAdvertising("""{"maxObjectsInGet":3}""").getBatchSize())
+    }
+
+    @Test fun getBatchSize_capsAndFallsBackLikeItsTwin() {
+        assertEquals(500, sessionAdvertising("""{"maxObjectsInGet":10000}""").getBatchSize())
+        assertEquals(500, sessionAdvertising("""{"maxObjectsInGet":9999999999}""").getBatchSize())
+        assertEquals(100, sessionAdvertising("""{}""").getBatchSize())
+        assertEquals(100, sessionAdvertising("""{"maxObjectsInGet":0}""").getBatchSize())
+        assertEquals(100, sessionAdvertising("""{"maxObjectsInGet":-7}""").getBatchSize())
+        assertEquals(100, sessionAdvertising("""{"maxObjectsInGet":"lots"}""").getBatchSize())
+        assertEquals(100, sessionAdvertising(null).getBatchSize())
+    }
+
+    @Test fun theTwoLimitsAreReadIndependently() {
+        // RFC 8620 §2 advertises them separately and a server may well differ: a get carries whole
+        // messages, a set carries ids. Reading one property for both would silently size a call
+        // with the other's limit.
+        val session = sessionAdvertising("""{"maxObjectsInGet":5,"maxObjectsInSet":300}""")
+        assertEquals(5, session.getBatchSize())
+        assertEquals(300, session.setBatchSize())
+    }
+
+    @Test fun oneLimitAdvertisedAloneDoesNotSizeTheOther() {
+        val getOnly = sessionAdvertising("""{"maxObjectsInGet":7}""")
+        assertEquals(7, getOnly.getBatchSize())
+        assertEquals(100, getOnly.setBatchSize())
+
+        val setOnly = sessionAdvertising("""{"maxObjectsInSet":7}""")
+        assertEquals(7, setOnly.setBatchSize())
+        assertEquals(100, setOnly.getBatchSize())
+    }
 }

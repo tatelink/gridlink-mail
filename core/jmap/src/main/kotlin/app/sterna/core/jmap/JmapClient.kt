@@ -401,38 +401,39 @@ class JmapClient internal constructor(
         )
     }
 
-    /** Email/get a specific set of ids with list (no-body) properties. */
+    /** Email/get a specific set of ids with list (no-body) properties, split across as many
+     *  requests as [JmapSession.getBatchSize] requires ([getInBatches]) and concatenated. */
     suspend fun getEmailsByIds(
         session: JmapSession,
         accountId: String,
         ids: List<String>,
         auth: JmapAuth,
     ): List<Email> = withContext(Dispatchers.IO) {
-        if (ids.isEmpty()) return@withContext emptyList()
-        val payload = buildJsonObject {
-            putJsonArray("using") {
-                add(Jmap.CORE_CAPABILITY)
-                add(Jmap.MAIL_CAPABILITY)
-            }
-            putJsonArray("methodCalls") {
-                addJsonArray {
-                    add("Email/get")
-                    addJsonObject {
-                        put("accountId", accountId)
-                        putJsonArray("ids") { ids.forEach { add(it) } }
-                        putJsonArray("properties") {
-                            listOf(
-                                "id", "threadId", "subject", "preview",
-                                "receivedAt", "from", "to", "hasAttachment", "keywords",
-                            ).forEach { add(it) }
+        getInBatches(session, ids) { batch ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.MAIL_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Email/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { batch.forEach { add(it) } }
+                            putJsonArray("properties") {
+                                listOf(
+                                    "id", "threadId", "subject", "preview",
+                                    "receivedAt", "from", "to", "hasAttachment", "keywords",
+                                ).forEach { add(it) }
+                            }
                         }
+                        add("g0")
                     }
-                    add("g0")
                 }
             }
+            decodeList(postJmap(session, auth, payload), "Email/get", Email.serializer())
         }
-        val body = postJmap(session, auth, payload)
-        decodeList(body, "Email/get", Email.serializer())
     }
 
     /**
@@ -442,6 +443,11 @@ class JmapClient internal constructor(
      * sync ghost sweep and returns ONLY ids listed in the response's `notFound` array: a
      * failed or malformed response throws rather than guessing, so a transient error can
      * never be mistaken for "these messages are gone".
+     *
+     * ⛔ That contract is why the batching here ([getInBatches]) must NOT gather a partial union:
+     * the caller DELETES the rows this returns. A batch that never answered would otherwise hand
+     * back "those messages are gone" about live mail — so a failing batch throws, exactly as an
+     * unsplit call did.
      */
     suspend fun missingEmailIds(
         session: JmapSession,
@@ -449,28 +455,27 @@ class JmapClient internal constructor(
         ids: List<String>,
         auth: JmapAuth,
     ): Set<String> = withContext(Dispatchers.IO) {
-        if (ids.isEmpty()) return@withContext emptySet()
-        val payload = buildJsonObject {
-            putJsonArray("using") {
-                add(Jmap.CORE_CAPABILITY)
-                add(Jmap.MAIL_CAPABILITY)
-            }
-            putJsonArray("methodCalls") {
-                addJsonArray {
-                    add("Email/get")
-                    addJsonObject {
-                        put("accountId", accountId)
-                        putJsonArray("ids") { ids.forEach { add(it) } }
-                        putJsonArray("properties") { add("id") }
+        getInBatches(session, ids) { batch ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.MAIL_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Email/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { batch.forEach { add(it) } }
+                            putJsonArray("properties") { add("id") }
+                        }
+                        add("g0")
                     }
-                    add("g0")
                 }
             }
-        }
-        val body = postJmap(session, auth, payload)
-        val args = methodResponseArgs(body, "Email/get")
-        args["notFound"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }?.toSet()
-            ?: emptySet()
+            val args = methodResponseArgs(postJmap(session, auth, payload), "Email/get")
+            args["notFound"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+        }.toSet()
     }
 
     /**
@@ -716,9 +721,10 @@ class JmapClient internal constructor(
     }
 
     /**
-     * Fetch several messages WITH their bodies in one Email/get (for prefetching the top of
-     * the inbox into the local cache). Same properties as [getEmail] but many ids at once;
-     * does NOT mark anything read.
+     * Fetch several messages WITH their bodies (for prefetching the top of the inbox into the
+     * local cache), split across as many Email/get requests as [JmapSession.getBatchSize] requires
+     * ([getInBatches]). Same properties as [getEmail] but many ids at once; does NOT mark anything
+     * read.
      */
     suspend fun getEmailsWithBody(
         session: JmapSession,
@@ -726,35 +732,35 @@ class JmapClient internal constructor(
         ids: List<String>,
         auth: JmapAuth,
     ): List<Email> = withContext(Dispatchers.IO) {
-        if (ids.isEmpty()) return@withContext emptyList()
-        val payload = buildJsonObject {
-            putJsonArray("using") {
-                add(Jmap.CORE_CAPABILITY)
-                add(Jmap.MAIL_CAPABILITY)
-            }
-            putJsonArray("methodCalls") {
-                addJsonArray {
-                    add("Email/get")
-                    addJsonObject {
-                        put("accountId", accountId)
-                        putJsonArray("ids") { ids.forEach { add(it) } }
-                        putJsonArray("properties") {
-                            listOf(
-                                "id", "blobId", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
-                                "hasAttachment", "keywords",
-                                "htmlBody", "textBody", "attachments", "bodyValues",
-                            ).forEach { add(it) }
+        getInBatches(session, ids) { batch ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.MAIL_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Email/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { batch.forEach { add(it) } }
+                            putJsonArray("properties") {
+                                listOf(
+                                    "id", "blobId", "threadId", "subject", "preview", "receivedAt",
+                                    "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
+                                    "hasAttachment", "keywords",
+                                    "htmlBody", "textBody", "attachments", "bodyValues",
+                                ).forEach { add(it) }
+                            }
+                            put("fetchHTMLBodyValues", true)
+                            put("fetchTextBodyValues", true)
                         }
-                        put("fetchHTMLBodyValues", true)
-                        put("fetchTextBodyValues", true)
+                        add("g0")
                     }
-                    add("g0")
                 }
             }
+            decodeList(postJmap(session, auth, payload), "Email/get", Email.serializer())
         }
-        val body = postJmap(session, auth, payload)
-        decodeList(body, "Email/get", Email.serializer())
     }
 
     /** Fetch all emails in a thread (lightweight, no body) via Thread/get + Email/get (RFC 8621 §3). */
@@ -1916,6 +1922,27 @@ class JmapClient internal constructor(
             }
         }
         return methodResponseArgs(postWithRetry(session.apiUrl, auth.authorizationHeader(), payload), "Email/set")
+    }
+
+    /**
+     * Run [ids] through [oneBatch] in requests of at most [JmapSession.getBatchSize] ids, and
+     * CONCATENATE the answers in order. The read-side twin of [setInBatches] — same reason it
+     * lives here (this layer holds the session, hence the server's `maxObjectsInGet`), and RFC 8620
+     * §5.1 has the server reject the WHOLE call past that limit.
+     *
+     * ⛔ One deliberate difference: there is NO partial credit here, and no `catch`. A failing batch
+     * propagates, so the caller sees the failure it saw when the call was unsplit. Half an answer
+     * would be worse than none — the callers overwrite the cache with what comes back
+     * ([MailRepository.restoreAll]) or DELETE the rows it names ([missingEmailIds]). Partial credit
+     * is a write-side idea; it does not transfer to a read.
+     */
+    private suspend fun <T> getInBatches(
+        session: JmapSession,
+        ids: List<String>,
+        oneBatch: suspend (List<String>) -> List<T>,
+    ): List<T> {
+        if (ids.isEmpty()) return emptyList()
+        return ids.chunked(session.getBatchSize()).flatMap { oneBatch(it) }
     }
 
     /**

@@ -26,6 +26,11 @@ import org.junit.Test
 import java.util.Base64
 
 /** The ids one `Email/set` request body carries, in order — its `update` keys or its `destroy`. */
+/** The ids one `Email/get` request body asks for, in order. */
+private fun getIdsOf(body: String): List<String> =
+    Json.parseToJsonElement(body).jsonObject["methodCalls"]!!
+        .jsonArray[0].jsonArray[1].jsonObject["ids"]!!.jsonArray.map { it.jsonPrimitive.content }
+
 private fun setIdsOf(body: String): List<String> {
     val args = Json.parseToJsonElement(body).jsonObject["methodCalls"]!!
         .jsonArray[0].jsonArray[1].jsonObject
@@ -568,6 +573,104 @@ class JmapClientTest {
         }
     }
 
+    // ---- Email/get batching ----
+    //
+    // The Undo of a big bulk move re-fetches every id it moved back. maxObjectsInGet is 500 on the
+    // test server and RFC 8620 §5.1 rejects the WHOLE call past it — and the Undo swallows that
+    // failure, so the mail comes back on the server and vanishes from the list silently.
+
+    @Test fun getEmailsByIds_splitsIntoRequestsOfAtMostTheAdvertisedGetLimit() = runBlocking {
+        val dispatcher = EchoGetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val emails = client.getEmailsByIds(sessionAdvertisingGet(5), "acc1", ids, BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(5, 5, 2), dispatcher.bodies.map { getIdsOf(it).size })
+        assertEquals(ids, dispatcher.bodies.flatMap { getIdsOf(it) })
+        // Concatenated, in order, nothing lost.
+        assertEquals(ids, emails.map { it.id })
+        // Still the list (no-body) property set, in every request.
+        assertTrue(dispatcher.bodies.all { it.contains("\"preview\"") && !it.contains("\"bodyValues\"") })
+    }
+
+    @Test fun getEmailsByIds_throwsRatherThanReturningWhatItManagedToFetch() {
+        // A read has no partial credit: the Undo overwrites the cache with what comes back, so
+        // half an answer is worse than none — it would look like a successful restore of half.
+        val dispatcher = EchoGetDispatcher(failAt = 2)
+        server.dispatcher = dispatcher
+        try {
+            runBlocking {
+                client.getEmailsByIds(sessionAdvertisingGet(5), "acc1", (1..12).map { "e$it" }, BasicAuth("u", "p"))
+            }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertEquals(500, e.httpCode)
+        }
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun getEmailsWithBody_splitsIntoRequestsOfAtMostTheAdvertisedGetLimit() = runBlocking {
+        val dispatcher = EchoGetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val emails = client.getEmailsWithBody(sessionAdvertisingGet(5), "acc1", ids, BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(5, 5, 2), dispatcher.bodies.map { getIdsOf(it).size })
+        assertEquals(ids, emails.map { it.id })
+        // Every request still asks for the bodies, not just the first.
+        assertTrue(dispatcher.bodies.all { it.contains("\"fetchHTMLBodyValues\":true") })
+    }
+
+    @Test fun missingEmailIds_unionsTheNotFoundOfEveryBatch() = runBlocking {
+        val dispatcher = EchoGetDispatcher(missing = setOf("e2", "e7", "e12"))
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val missing = client.missingEmailIds(sessionAdvertisingGet(5), "acc1", ids, BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        assertEquals(setOf("e2", "e7", "e12"), missing)
+        // Still the ids-only existence check in every request, never a header re-download.
+        assertTrue(dispatcher.bodies.all { it.contains("\"properties\":[\"id\"]") })
+    }
+
+    @Test fun missingEmailIds_throwsRatherThanReturningAPartialUnion() {
+        // ⛔ THE dangerous one: the caller DELETES the rows this returns. A batch that never
+        // answered must never come back as "those messages are gone".
+        val dispatcher = EchoGetDispatcher(failAt = 2, missing = setOf("e2"))
+        server.dispatcher = dispatcher
+        try {
+            runBlocking {
+                client.missingEmailIds(sessionAdvertisingGet(5), "acc1", (1..12).map { "e$it" }, BasicAuth("u", "p"))
+            }
+            throw AssertionError("expected JmapException — a partial union prunes live mail")
+        } catch (e: JmapException) {
+            assertEquals(500, e.httpCode)
+        }
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun get_emptyListAndUnderTheLimitAreUnchanged() = runBlocking {
+        val dispatcher = EchoGetDispatcher()
+        server.dispatcher = dispatcher
+        val session = sessionAdvertisingGet(5)
+        val auth = BasicAuth("u", "p")
+
+        assertTrue(client.getEmailsByIds(session, "acc1", emptyList(), auth).isEmpty())
+        assertTrue(client.getEmailsWithBody(session, "acc1", emptyList(), auth).isEmpty())
+        assertTrue(client.missingEmailIds(session, "acc1", emptyList(), auth).isEmpty())
+        assertEquals(0, server.requestCount)
+
+        val ids = listOf("e1", "e2", "e3")
+        assertEquals(ids, client.getEmailsByIds(session, "acc1", ids, auth).map { it.id })
+        assertEquals(1, server.requestCount)
+        assertEquals(ids, getIdsOf(dispatcher.bodies.single()))
+    }
+
     // ---- Email/set batching: no request may carry more ids than the server accepts ----
     //
     // A single `Email/set` carrying a whole select-all is rejected in ONE block past the server's
@@ -578,33 +681,64 @@ class JmapClientTest {
      * a per-request `newState`, so a test can tell WHICH request confirmed WHAT. [failAt] makes
      * the n-th request an HTTP 500 — a transport failure, not a per-id rejection.
      */
-    private class EchoSetDispatcher(private val failAt: Int? = null) : Dispatcher() {
+    private class EchoSetDispatcher(
+        private val failAt: Int? = null,
+        /** Ids the server refuses, mapped to their SetError type, whichever batch they land in. */
+        private val rejections: Map<String, String> = emptyMap(),
+    ) : Dispatcher() {
         val bodies = mutableListOf<String>()
 
         override fun dispatch(request: RecordedRequest): MockResponse {
             val body = request.body.readUtf8()
             bodies += body
             if (failAt == bodies.size) return MockResponse().setResponseCode(500)
-            val ids = setIdsOf(body)
-            val payload = if (body.contains("\"destroy\"")) {
+            val destroying = body.contains("\"destroy\"")
+            val (refused, ids) = setIdsOf(body).partition { it in rejections }
+            val ok = if (destroying) {
                 "\"destroyed\":[${ids.joinToString(",") { "\"$it\"" }}]"
             } else {
                 "\"updated\":{${ids.joinToString(",") { "\"$it\":null" }}}"
             }
+            val key = if (destroying) "notDestroyed" else "notUpdated"
+            val bad = refused.joinToString(",") { "\"$it\":{\"type\":\"${rejections[it]}\"}" }
             return MockResponse().setBody(
                 """{"methodResponses":[["Email/set",
-                   {"accountId":"acc1","newState":"s${bodies.size}",$payload},"s0"]]}""",
+                   {"accountId":"acc1","newState":"s${bodies.size}",$ok,"$key":{$bad}},"s0"]]}""",
             )
         }
     }
 
-    private fun sessionAdvertising(maxObjectsInSet: Int?): JmapSession = JmapSession(
+    /** Answers every `Email/get` with one row per requested id, minus the [missing] ones. */
+    private class EchoGetDispatcher(
+        private val failAt: Int? = null,
+        private val missing: Set<String> = emptySet(),
+    ) : Dispatcher() {
+        val bodies = mutableListOf<String>()
+
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val body = request.body.readUtf8()
+            bodies += body
+            if (failAt == bodies.size) return MockResponse().setResponseCode(500)
+            val (gone, found) = getIdsOf(body).partition { it in missing }
+            return MockResponse().setBody(
+                """{"methodResponses":[["Email/get",{"accountId":"acc1","state":"g${bodies.size}",
+                   "list":[${found.joinToString(",") { "{\"id\":\"$it\"}" }}],
+                   "notFound":[${gone.joinToString(",") { "\"$it\"" }}]},"g0"]]}""",
+            )
+        }
+    }
+
+    private fun sessionAdvertising(maxObjectsInSet: Int?): JmapSession =
+        sessionAdvertising("maxObjectsInSet", maxObjectsInSet)
+
+    private fun sessionAdvertisingGet(maxObjectsInGet: Int?): JmapSession =
+        sessionAdvertising("maxObjectsInGet", maxObjectsInGet)
+
+    private fun sessionAdvertising(property: String, limit: Int?): JmapSession = JmapSession(
         apiUrl = server.url("/jmap/api/").toString(),
         capabilities = buildMap {
             put(Jmap.MAIL_CAPABILITY, buildJsonObject { })
-            if (maxObjectsInSet != null) {
-                put(Jmap.CORE_CAPABILITY, buildJsonObject { put("maxObjectsInSet", maxObjectsInSet) })
-            }
+            if (limit != null) put(Jmap.CORE_CAPABILITY, buildJsonObject { put(property, limit) })
         },
     )
 
@@ -726,6 +860,35 @@ class JmapClientTest {
         assertTrue(client.destroy(session, "acc1", emptyList(), auth).done.isEmpty())
         assertTrue(client.setSeenAll(session, "acc1", emptyList(), true, auth).done.isEmpty())
         assertEquals(0, server.requestCount)
+    }
+
+    @Test fun move_reportsThePerIdRejectionsOfEveryBatch() = runBlocking {
+        // The aggregation of per-id SetErrors, which nothing exercised: the repository keys the
+        // ghost prune off `notFound` and reports the rest as failures. Batch 2 of 3 rejects two of
+        // its five ids, for two DIFFERENT reasons.
+        val dispatcher = EchoSetDispatcher(rejections = mapOf("e6" to "notFound", "e8" to "forbidden"))
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val result = client.move(sessionAdvertising(5), "acc1", ids, "mbArchive", BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        // The other two batches keep their whole credit, and so do batch 2's three good ids.
+        assertEquals(ids.toSet() - setOf("e6", "e8"), result.done)
+        // ⛔ The TYPE survives aggregation: `notFound` is what makes the repository prune a ghost
+        // row, and anything else must NOT be read that way.
+        assertEquals(mapOf("e6" to "notFound", "e8" to "forbidden"), result.failed)
+    }
+
+    @Test fun destroy_reportsThePerIdRejectionsOfEveryBatch() = runBlocking {
+        val dispatcher = EchoSetDispatcher(rejections = mapOf("e7" to "notFound"))
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val result = client.destroy(sessionAdvertising(5), "acc1", ids, BasicAuth("u", "p"))
+
+        assertEquals(ids.toSet() - setOf("e7"), result.done)
+        assertEquals(mapOf("e7" to "notFound"), result.failed)
     }
 
     @Test fun move_underTheLimitIsStillOneRequestCarryingEveryId() = runBlocking {

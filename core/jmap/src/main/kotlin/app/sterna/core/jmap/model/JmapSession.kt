@@ -8,19 +8,18 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
 
 /**
- * Ids per `Email/set` for a server that advertises nothing usable. Deliberately smaller than any
- * `maxObjectsInSet` we have measured (Stalwart: 500): sending too few ids per request is merely
- * slow, sending too many is the server rejecting the WHOLE request — a select-all that fails in
- * one block.
+ * Ids per request for a server that advertises no usable per-call object limit. Deliberately
+ * smaller than any `maxObjectsInSet` / `maxObjectsInGet` we have measured (Stalwart: 500 for both):
+ * sending too few ids per request is merely slow, sending too many is the server rejecting the
+ * WHOLE request (RFC 8620 §5.1) — a select-all, or its Undo, that fails in one block.
  */
-const val SET_BATCH_FALLBACK = 100
+const val JMAP_BATCH_FALLBACK = 100
 
 /**
- * Hard cap on the ids we put in one `Email/set`, whatever the server advertises. A server
- * announcing a huge (or absurd) `maxObjectsInSet` still gets requests we can build, hold in
- * memory and retry in a sane time.
+ * Hard cap on the ids we put in one request, whatever the server advertises. A server announcing a
+ * huge (or absurd) limit still gets requests we can build, hold in memory and retry in a sane time.
  */
-const val SET_BATCH_CEILING = 500
+const val JMAP_BATCH_CEILING = 500
 
 /**
  * The JMAP Session resource (RFC 8620 §2): capabilities and the URLs/accounts
@@ -66,17 +65,33 @@ data class JmapSession(
 
     /**
      * Ids one `Email/set` may carry: the server's `maxObjectsInSet` (RFC 8620 §2, CORE
-     * capability), capped at [SET_BATCH_CEILING]. A server advertising nothing usable (capability
-     * absent, property absent, zero, negative, unparsable) gets [SET_BATCH_FALLBACK].
+     * capability), guarded and capped by [advertisedLimit].
+     */
+    fun setBatchSize(): Int = advertisedLimit("maxObjectsInSet")
+
+    /**
+     * Ids one `Email/get` may ask for: the server's `maxObjectsInGet` (RFC 8620 §2, CORE
+     * capability), read exactly like [setBatchSize] but from its OWN property — a server advertises
+     * the two separately and may well differ, a get carrying whole messages where a set carries
+     * ids. Sizing one call with the other's limit is the bug this twin exists to make impossible.
      *
-     * A value SMALLER than the fallback is respected as-is: that is the server's limit, not a
-     * suggestion, and exceeding it fails the whole request. Read as a `Long` on purpose — a server
+     * The Undo of a bulk move re-fetches every id it moved back ([MailRepository.restoreAll]), and
+     * past this limit the server rejects the WHOLE call: the mail is back on the server and gone
+     * from the list, with nothing to say so.
+     */
+    fun getBatchSize(): Int = advertisedLimit("maxObjectsInGet")
+
+    /**
+     * A per-call object limit of the CORE capability, guarded: absent, non-numeric, zero or
+     * negative falls back to [JMAP_BATCH_FALLBACK], anything above [JMAP_BATCH_CEILING] is capped.
+     * A value SMALLER than the fallback is respected as-is — that is the server's limit, not a
+     * suggestion, and exceeding it fails the whole request. Read as a `Long` on purpose: a server
      * advertising a value past `Int.MAX_VALUE` must be capped, not wrapped back onto the fallback.
      */
-    fun setBatchSize(): Int {
-        val announced = (capabilities[Jmap.CORE_CAPABILITY]?.get("maxObjectsInSet") as? JsonPrimitive)
+    private fun advertisedLimit(property: String): Int {
+        val announced = (capabilities[Jmap.CORE_CAPABILITY]?.get(property) as? JsonPrimitive)
             ?.longOrNull?.takeIf { it > 0 }
-        return (announced ?: SET_BATCH_FALLBACK.toLong()).coerceAtMost(SET_BATCH_CEILING.toLong()).toInt()
+        return (announced ?: JMAP_BATCH_FALLBACK.toLong()).coerceAtMost(JMAP_BATCH_CEILING.toLong()).toInt()
     }
 }
 
