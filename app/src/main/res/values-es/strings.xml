@@ -660,6 +660,31 @@
     <string name="outbox_delete_body">No se ha enviado y no está guardado en ningún otro sitio. Se perderán el mensaje y sus archivos adjuntos.</string>
     <string name="outbox_delete_permanently">Eliminar definitivamente</string>
     <string name="outbox_banner_failed">Algunos mensajes no se enviaron. Toca para revisar.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">Por remitente</string>
+    <string name="sender_volume_title">Correo por remitente</string>
+    <string name="sender_volume_empty">No hay correo almacenado en este teléfono.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d mensaje almacenado en este teléfono</item>
+        <item quantity="many">%1$d de mensajes almacenados en este teléfono</item>
+        <item quantity="other">%1$d mensajes almacenados en este teléfono</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Enviados, Borradores, Papelera y Spam no se cuentan.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d mensaje sin leer</item>
+        <item quantity="many">%1$d de mensajes sin leer</item>
+        <item quantity="other">%1$d mensajes sin leer</item>
+    </plurals>
+    <string name="sender_volume_delete">Eliminar estos mensajes</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">¿Eliminar %1$d mensaje de %2$s?</item>
+        <item quantity="many">¿Eliminar %1$d de mensajes de %2$s?</item>
+        <item quantity="other">¿Eliminar %1$d mensajes de %2$s?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">Van a la papelera. Esto afecta a los mensajes almacenados en este teléfono; el correo más antiguo de este remitente puede seguir en el servidor.</string>
+    <string name="sender_volume_block">Enviar el correo futuro a la papelera, marcado como leído</string>
+    <string name="sender_volume_block_done">El correo futuro ya va a la papelera</string>
+    <string name="sender_volume_block_added">Regla de filtrado añadida</string>
     <string name="offline_banner">Estás sin conexión</string>
     <string name="settings_conversation_section">Conversaciones</string>
     <string name="settings_conversation_title">Vista de conversación</string>

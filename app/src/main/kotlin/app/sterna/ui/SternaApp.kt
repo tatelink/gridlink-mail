@@ -56,6 +56,7 @@ import app.sterna.ui.message.MessageScreen
 import app.sterna.ui.message.NavFadeGuard
 import app.sterna.ui.outbox.OutboxScreen
 import app.sterna.ui.scheduled.ScheduledSendsScreen
+import app.sterna.ui.sender.MailBySenderScreen
 import app.sterna.ui.snoozed.SnoozedScreen
 import app.sterna.ui.search.SearchScreen
 import app.sterna.ui.onboarding.WelcomeScreen
@@ -347,6 +348,7 @@ private fun MainNavHost(
                 onOpenScheduled = { entry.navigateOnce { nav.navigate("scheduled") } },
                 onOpenSnoozed = { entry.navigateOnce { nav.navigate("snoozed") } },
                 onOpenOutbox = { entry.navigateOnce { nav.navigate("outbox") } },
+                onOpenMailBySender = { entry.navigateOnce { nav.navigate("bysender") } },
                 accounts = accounts,
                 currentAccountId = currentAccountId,
                 onSwitchAccount = onSwitchAccount,
@@ -553,6 +555,9 @@ private fun MainNavHost(
                 onBack = { entry.navigateOnce { nav.popBackStack() } },
                 onEditDraft = { entry.navigateOnce { nav.navigate("compose?restore=true") } },
             )
+        }
+        composable("bysender") { entry ->
+            MailBySenderScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
     }
 }

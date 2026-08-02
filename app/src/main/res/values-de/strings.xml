@@ -658,6 +658,28 @@
     <string name="outbox_delete_body">Sie wurde nicht gesendet und ist nirgendwo sonst gespeichert. Die Nachricht und ihre Anhänge gehen verloren.</string>
     <string name="outbox_delete_permanently">Endgültig löschen</string>
     <string name="outbox_banner_failed">Einige Nachrichten wurden nicht gesendet. Zum Prüfen tippen.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">Nach Absender</string>
+    <string name="sender_volume_title">E-Mail nach Absender</string>
+    <string name="sender_volume_empty">Keine E-Mails auf diesem Telefon gespeichert.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d Nachricht auf diesem Telefon gespeichert</item>
+        <item quantity="other">%1$d Nachrichten auf diesem Telefon gespeichert</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Gesendet, Entwürfe, Papierkorb und Spam werden nicht gezählt.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d ungelesene Nachricht</item>
+        <item quantity="other">%1$d ungelesene Nachrichten</item>
+    </plurals>
+    <string name="sender_volume_delete">Diese Nachrichten löschen</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">%1$d Nachricht von %2$s löschen?</item>
+        <item quantity="other">%1$d Nachrichten von %2$s löschen?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">Sie wandern in den Papierkorb. Das betrifft die auf diesem Telefon gespeicherten Nachrichten; ältere E-Mails dieses Absenders können auf dem Server bleiben.</string>
+    <string name="sender_volume_block">Künftige E-Mails in den Papierkorb, als gelesen markiert</string>
+    <string name="sender_volume_block_done">Künftige E-Mails gehen bereits in den Papierkorb</string>
+    <string name="sender_volume_block_added">Filterregel hinzugefügt</string>
     <string name="offline_banner">Du bist offline</string>
     <string name="settings_conversation_section">Konversationen</string>
     <string name="settings_conversation_title">Konversationsansicht</string>

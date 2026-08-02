@@ -660,6 +660,31 @@
     <string name="outbox_delete_body">Non è stato inviato e non è salvato da nessun\'altra parte. Il messaggio e i suoi allegati andranno persi.</string>
     <string name="outbox_delete_permanently">Elimina definitivamente</string>
     <string name="outbox_banner_failed">Alcuni messaggi non sono partiti. Tocca per controllare.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">Per mittente</string>
+    <string name="sender_volume_title">Posta per mittente</string>
+    <string name="sender_volume_empty">Nessun messaggio salvato su questo telefono.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d messaggio salvato su questo telefono</item>
+        <item quantity="many">%1$d di messaggi salvati su questo telefono</item>
+        <item quantity="other">%1$d messaggi salvati su questo telefono</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Inviati, Bozze, Cestino e Spam non sono conteggiati.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d messaggio non letto</item>
+        <item quantity="many">%1$d di messaggi non letti</item>
+        <item quantity="other">%1$d messaggi non letti</item>
+    </plurals>
+    <string name="sender_volume_delete">Elimina questi messaggi</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">Eliminare %1$d messaggio di %2$s?</item>
+        <item quantity="many">Eliminare %1$d di messaggi di %2$s?</item>
+        <item quantity="other">Eliminare %1$d messaggi di %2$s?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">Finiscono nel cestino. Riguarda i messaggi salvati su questo telefono; la posta più vecchia di questo mittente può restare sul server.</string>
+    <string name="sender_volume_block">Manda la posta futura nel cestino, segnata come letta</string>
+    <string name="sender_volume_block_done">La posta futura va già nel cestino</string>
+    <string name="sender_volume_block_added">Regola di filtro aggiunta</string>
     <string name="offline_banner">Sei offline</string>
     <string name="settings_conversation_section">Conversazioni</string>
     <string name="settings_conversation_title">Vista conversazione</string>

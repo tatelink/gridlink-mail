@@ -660,6 +660,31 @@
     <string name="outbox_delete_body">Il n\'a pas été envoyé et n\'est enregistré nulle part ailleurs. Le message et ses pièces jointes seront perdus.</string>
     <string name="outbox_delete_permanently">Supprimer définitivement</string>
     <string name="outbox_banner_failed">Certains messages ne sont pas partis. Touchez pour vérifier.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">Par expéditeur</string>
+    <string name="sender_volume_title">Courrier par expéditeur</string>
+    <string name="sender_volume_empty">Aucun message stocké sur ce téléphone.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d message stocké sur ce téléphone</item>
+        <item quantity="many">%1$d de messages stockés sur ce téléphone</item>
+        <item quantity="other">%1$d messages stockés sur ce téléphone</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Les dossiers Envoyés, Brouillons, Corbeille et Spam ne sont pas comptés.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d message non lu</item>
+        <item quantity="many">%1$d de messages non lus</item>
+        <item quantity="other">%1$d messages non lus</item>
+    </plurals>
+    <string name="sender_volume_delete">Supprimer ces messages</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">Supprimer %1$d message de %2$s ?</item>
+        <item quantity="many">Supprimer %1$d de messages de %2$s ?</item>
+        <item quantity="other">Supprimer %1$d messages de %2$s ?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">Ils partent à la corbeille. Cela concerne les messages stockés sur ce téléphone ; du courrier plus ancien de cet expéditeur peut rester sur le serveur.</string>
+    <string name="sender_volume_block">Envoyer le courrier à venir à la corbeille, marqué lu</string>
+    <string name="sender_volume_block_done">Le courrier à venir va déjà à la corbeille</string>
+    <string name="sender_volume_block_added">Règle de filtrage ajoutée</string>
     <string name="offline_banner">Vous êtes hors ligne</string>
     <string name="settings_conversation_section">Conversations</string>
     <string name="settings_conversation_title">Affichage par conversation</string>

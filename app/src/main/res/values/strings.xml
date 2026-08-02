@@ -145,6 +145,28 @@
     <string name="outbox_delete_body">It hasn\'t been sent and isn\'t saved anywhere else. The message and its attachments will be lost.</string>
     <string name="outbox_delete_permanently">Delete permanently</string>
     <string name="outbox_banner_failed">Some messages didn\'t send. Tap to review.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">By sender</string>
+    <string name="sender_volume_title">Mail by sender</string>
+    <string name="sender_volume_empty">No mail stored on this phone.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d message stored on this phone</item>
+        <item quantity="other">%1$d messages stored on this phone</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Sent, Drafts, Trash and Spam are not counted.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d unread message</item>
+        <item quantity="other">%1$d unread messages</item>
+    </plurals>
+    <string name="sender_volume_delete">Delete these messages</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">Delete %1$d message from %2$s?</item>
+        <item quantity="other">Delete %1$d messages from %2$s?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">They go to the Trash. This covers the messages stored on this phone; older mail from this sender may remain on the server.</string>
+    <string name="sender_volume_block">Send future mail to Trash, marked read</string>
+    <string name="sender_volume_block_done">Future mail already goes to Trash</string>
+    <string name="sender_volume_block_added">Filter rule added</string>
     <string name="offline_banner">You\'re offline</string>
     <string name="inbox_compose">Compose</string>
     <string name="inbox_no_results">No results</string>

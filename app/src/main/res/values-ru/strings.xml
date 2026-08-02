@@ -664,6 +664,34 @@
     <string name="outbox_delete_body">Оно не было отправлено и нигде больше не сохранено. Сообщение и вложения будут потеряны.</string>
     <string name="outbox_delete_permanently">Удалить навсегда</string>
     <string name="outbox_banner_failed">Некоторые сообщения не отправлены. Нажмите, чтобы проверить.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">По отправителю</string>
+    <string name="sender_volume_title">Почта по отправителям</string>
+    <string name="sender_volume_empty">На этом телефоне нет сохранённой почты.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d письмо сохранено на этом телефоне</item>
+        <item quantity="few">%1$d письма сохранено на этом телефоне</item>
+        <item quantity="many">%1$d писем сохранено на этом телефоне</item>
+        <item quantity="other">%1$d писем сохранено на этом телефоне</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Отправленные, Черновики, Корзина и Спам не учитываются.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d непрочитанное письмо</item>
+        <item quantity="few">%1$d непрочитанных письма</item>
+        <item quantity="many">%1$d непрочитанных писем</item>
+        <item quantity="other">%1$d непрочитанных писем</item>
+    </plurals>
+    <string name="sender_volume_delete">Удалить эти письма</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">Удалить %1$d письмо от %2$s?</item>
+        <item quantity="few">Удалить %1$d письма от %2$s?</item>
+        <item quantity="many">Удалить %1$d писем от %2$s?</item>
+        <item quantity="other">Удалить %1$d писем от %2$s?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">Они отправятся в корзину. Это касается писем, сохранённых на этом телефоне; более старая почта от этого отправителя может остаться на сервере.</string>
+    <string name="sender_volume_block">Отправлять будущие письма в корзину, помечая прочитанными</string>
+    <string name="sender_volume_block_done">Будущие письма уже уходят в корзину</string>
+    <string name="sender_volume_block_added">Правило фильтра добавлено</string>
     <string name="offline_banner">Вы не в сети</string>
     <string name="settings_conversation_section">Беседы</string>
     <string name="settings_conversation_title">Просмотр беседы</string>
