@@ -81,6 +81,21 @@ fun gridlinkModeForHour(hour: Int): GridlinkMode = when (hour) {
  *   It is the only hue outside the inherited system, so it reads as an alarm on its own without
  *   needing size or weight to carry the warning. Spending it anywhere else destroys that.
  */
+/**
+ * One radial blob in the aurora backdrop.
+ *
+ * Positions are fractions of the screen (0,0 top-left to 1,1 bottom-right) and may sit outside it,
+ * which is how a blob shows only its edge. [radius] is a multiple of screen WIDTH, not the diagonal,
+ * so a blob keeps its apparent size when the Fold opens and the aspect ratio changes hard.
+ */
+@Immutable
+data class GridlinkAuroraBlob(
+    val color: Color,
+    val centerX: Float,
+    val centerY: Float,
+    val radius: Float,
+)
+
 @Immutable
 data class GridlinkColors(
     /** Flat background fill. In [GridlinkMode.DAY] this is only a fallback; see [gradient]. */
@@ -99,8 +114,29 @@ data class GridlinkColors(
      * real panel before it is treated as final.
      */
     val glow: Color?,
+    /**
+     * Stacked radial blobs painted over [background], the app's strongest identity marker.
+     *
+     * 🔴 This is the one place violet and magenta are allowed. Purple is a hard no as a UI ACCENT
+     * across every Gridlink surface, and at the same time the aurora BACKDROP is a thing Tate
+     * specifically wants; both are true, and the line between them is that nothing here may ever
+     * touch an icon, a fill, a border or an active state.
+     *
+     * Empty in OLED, where the entire premise is that pixels stay off.
+     */
+    val aurora: List<GridlinkAuroraBlob>,
     /** Translucent panel fill (header, nav pill, sheets). Alpha is baked in. */
     val surface: Color,
+    /**
+     * Fill of the panel the dense list scrolls on.
+     *
+     * Separate from [surface] because it has the opposite job. [surface] belongs to small floating
+     * chrome that has to stay readable against anything under it, so it is nearly opaque. This one
+     * covers most of the screen, and at that size the same alpha erases the [aurora] completely —
+     * which throws away the app's identity to protect text that was already legible. It is
+     * deliberately thinner so the backdrop bleeds through at the panel's edges.
+     */
+    val listSurface: Color,
     /** Hairline border that defines a surface. In OLED this is the ONLY thing defining it. */
     val surfaceBorder: Color,
     /** Raised panel fill, for sheets and dragged rows. */
@@ -124,7 +160,12 @@ val GridlinkDayColors = GridlinkColors(
     background = Color(0xFF2F6FE0),
     gradient = listOf(Color(0xFF4DD5F0), Color(0xFF2F6FE0)),
     glow = null,
+    // Day's identity is the gradient itself. Blobs on top of it would only muddy two blues.
+    aurora = emptyList(),
     surface = Color.White.copy(alpha = 0.55f),
+    // Day's is the one that may NOT be thinned. Body text here is near-black on a mid-blue
+    // gradient, and 55% white is already the minimum that carries it.
+    listSurface = Color.White.copy(alpha = 0.55f),
     surfaceBorder = Color.White.copy(alpha = 0.70f),
     surfaceRaised = Color.White.copy(alpha = 0.72f),
     textPrimary = Color(0xFF0A0F1A),
@@ -143,7 +184,19 @@ val GridlinkNightColors = GridlinkColors(
     background = Color(0xFF050A14),
     gradient = null,
     glow = Color(0xFF4C5BD4).copy(alpha = 0.18f),
+    // Concentrated at the top and bottom edges on purpose. It satisfies the aurora look and the
+    // brief's rule that colour lives in the header and behind the nav bar, and it leaves the middle
+    // of the screen, where the actual reading happens, calm and nearly black.
+    aurora = listOf(
+        GridlinkAuroraBlob(Color(0xFF3B82F6).copy(alpha = 0.34f), 0.08f, 0.00f, 1.15f),
+        GridlinkAuroraBlob(Color(0xFF7C3AED).copy(alpha = 0.26f), 0.98f, 0.04f, 0.85f),
+        GridlinkAuroraBlob(Color(0xFFDB2777).copy(alpha = 0.16f), 0.55f, -0.06f, 0.65f),
+        GridlinkAuroraBlob(Color(0xFF2563EB).copy(alpha = 0.22f), 0.50f, 1.04f, 0.95f),
+    ),
     surface = Color(0xFF0D1524).copy(alpha = 0.85f),
+    // 66%, not 85%. White text on #0D1524 has enormous headroom, so the extra 19% was buying no
+    // legibility and costing the whole aurora.
+    listSurface = Color(0xFF0D1524).copy(alpha = 0.66f),
     surfaceBorder = Color(0xFF5A78B4).copy(alpha = 0.18f),
     surfaceRaised = Color(0xFF141E31),
     textPrimary = Color(0xFFFFFFFF),
@@ -166,7 +219,11 @@ val GridlinkOledColors = GridlinkColors(
     background = Color(0xFF000000),
     gradient = null,
     glow = null,
+    // 🔴 Never. An aurora is lit pixels, which is the exact thing this mode exists to avoid.
+    aurora = emptyList(),
     surface = Color(0xFF000000),
+    // 🔴 Opaque true black, and there is nothing behind it to let through anyway.
+    listSurface = Color(0xFF000000),
     surfaceBorder = Color(0xFFF97316).copy(alpha = 0.22f),
     surfaceRaised = Color(0xFF0A0604),
     textPrimary = Color(0xFFE9A87F),
