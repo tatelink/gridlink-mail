@@ -465,7 +465,7 @@ private fun GridlinkFolderActionSheet(
     onDismiss: () -> Unit,
 ) {
     val colors = GridlinkTheme.colors
-    GridlinkBottomSheet(onDismiss = onDismiss) {
+    GridlinkCenterSheet(onDismiss = onDismiss) {
         GridlinkSheetHeading(
             title = folder.name,
             icon = folder.role.icon(),

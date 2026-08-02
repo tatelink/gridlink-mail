@@ -149,12 +149,25 @@ fun GridlinkScaffold(
             }
         }
 
-        // Outside the Column on purpose. It is a real dialog window, so it emits no layout here and
-        // sitting it between two siblings would only suggest it did.
+        // 🔴 Outside the Column and last, and both halves matter. Outside, because it covers the
+        // whole display including the system bars and the Column has already inset itself away from
+        // them. Last, because this is a plain Box child with no elevation: paint order is declaration
+        // order, and moved one line up it would render underneath the nav pill.
+        //
+        // It is drawn here rather than in a dialog window on purpose. See GridlinkSlideOutPanel for
+        // the three separate ways a dialog got a full-height drawer wrong.
         if (menuOpen) {
-            GridlinkMenuSheet(
+            GridlinkMenuPanel(
                 account = GRIDLINK_SAMPLE_ACCOUNT,
                 sync = sync,
+                lastSyncedAt = chrome.lastSyncedAt,
+                mode = chrome.mode,
+                followingClock = chrome.followingClock,
+                // 🔴 Does NOT close the panel. Every other row in here is a destination and closing
+                // is the right answer for those; the palette is a thing you judge by looking at it,
+                // and the panel staying up is what lets you tap through all four and watch the app
+                // behind it repaint.
+                onSelectMode = chrome::selectMode,
                 counts = GRIDLINK_SAMPLE_MENU_COUNTS,
                 // Every destination behind this is a stub, so the honest behaviour is to close and
                 // do nothing rather than to navigate somewhere that would be an empty screen with a

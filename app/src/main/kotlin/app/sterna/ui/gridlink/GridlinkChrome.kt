@@ -9,7 +9,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,7 +46,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,19 +59,16 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.sterna.ui.theme.GridlinkDimens
-import app.sterna.ui.theme.GridlinkMode
 import app.sterna.ui.theme.GridlinkMotion
 import app.sterna.ui.theme.GridlinkRadii
 import app.sterna.ui.theme.GridlinkSpacing
 import app.sterna.ui.theme.GridlinkTheme
 import app.sterna.ui.theme.GridlinkType
-import kotlinx.coroutines.delay
 
 /**
  * The spacious half of the app.
@@ -168,22 +163,6 @@ fun Modifier.gridlinkGlow(
 }
 
 /**
- * Debug escape hatch, provided by the gallery harness and by nothing else.
- *
- * 🔴 The default is null and production never overrides it, so in a real build the header has no
- * long-press behaviour at all — the gesture is not registered, not just ignored. That is the whole
- * reason this is a CompositionLocal rather than a parameter: a `onTitleLongPress` argument on
- * [GridlinkHeader] would be a debug affordance sitting in the production signature, and the next
- * person to read it would reasonably wire something to it.
- *
- * What it currently reveals is the Day / Night / OLED override pill, which used to sit permanently
- * in the top-right corner and looked exactly like what it was: a developer control parked on top of
- * the design it exists to inspect. It belongs in settings. Until settings exists, long-press the
- * screen title.
- */
-val LocalGridlinkDebugReveal = staticCompositionLocalOf<(() -> Unit)?> { null }
-
-/**
  * Screen header.
  *
  * 🔴 The subline is a plain unread count and nothing else, and it is absent when [unread] is zero.
@@ -217,7 +196,6 @@ fun GridlinkHeader(
 ) {
     val colors = GridlinkTheme.colors
     val selecting = selectedCount > 0
-    val debugReveal = LocalGridlinkDebugReveal.current
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -250,17 +228,6 @@ fun GridlinkHeader(
                 // selection ACTIONS in the toolbar; this is only the readout, and it belongs where
                 // the eye already is.
                 text = if (selecting) "$selectedCount selected" else title,
-                // No ripple and no onClick: `combinedClickable` would give the title a pressed
-                // state and a tap target it has no business having in a shipping build, and this
-                // gesture only exists when a harness asks for it. detectTapGestures with only
-                // onLongPress set leaves ordinary taps to fall through untouched.
-                modifier = if (debugReveal == null) {
-                    Modifier
-                } else {
-                    Modifier.pointerInput(Unit) {
-                        detectTapGestures(onLongPress = { debugReveal() })
-                    }
-                },
                 style = GridlinkType.screenTitle,
                 color = colors.textPrimary,
             )
@@ -782,172 +749,11 @@ fun GridlinkComposeButton(
  */
 val GRIDLINK_PILL_HEIGHT = 64.dp
 
-/** How long an expanded mode pill waits before folding itself away again. */
-private const val MODE_PILL_IDLE_MS = 2_600L
-
-/**
- * The `Auto · Day / Night / OLED` override pill from the dashboard.
- *
- * Lives in settings per §1. It is surfaced in the gallery too, because a three-mode palette that
- * can only be checked by waiting for dusk is a palette nobody checks.
- *
- * ## It is collapsed by default and gets out of the way on its own
- * 🔴 This control sits on top of the screen it is there to inspect, and at full width it was the
- * loudest object on a screen whose whole point is what is underneath it. So it rests as a single
- * ghosted chip naming the current mode: 90% transparent, text at half strength, readable if you
- * look for it and invisible if you are not. Tapping it restores the full selector.
- *
- * It then re-collapses on its own — immediately when a mode is picked, and after
- * [MODE_PILL_IDLE_MS] of being ignored. Expanded is a momentary state, never a resting one, and
- * that is what makes it safe to leave the thing on top of every screenshot.
- *
- * ## The summoned variant
- * Ghosted was still not quiet enough. A control that is 90% transparent is still a control, and it
- * was the only thing on the mail list that had no business being there. So the gallery no longer
- * shows it at rest at all: it is summoned by a long-press and dismissed by [onDismiss].
- *
- * Pass [startExpanded] with [onDismiss] for that. A summoned pill opens already open (you asked for
- * it, so it should not need a second tap) and leaves entirely rather than folding to the ghost chip,
- * which would otherwise sit there afterwards as exactly the litter the long-press was meant to
- * avoid. Leave both at their defaults and you get the original collapse-in-place behaviour, which is
- * what settings will want when it exists.
- */
-@Composable
-fun GridlinkModePill(
-    selected: GridlinkMode,
-    isAuto: Boolean,
-    onSelect: (GridlinkMode?) -> Unit,
-    modifier: Modifier = Modifier,
-    startExpanded: Boolean = false,
-    onDismiss: (() -> Unit)? = null,
-) {
-    val colors = GridlinkTheme.colors
-    var expanded by remember { mutableStateOf(startExpanded) }
-
-    // Idle timeout. Keyed on `expanded` so opening restarts the clock and collapsing cancels it;
-    // keyed on `selected`/`isAuto` too so touching a segment buys another full window rather than
-    // folding the pill up under a thumb that is still choosing.
-    LaunchedEffect(expanded, selected, isAuto) {
-        if (expanded) {
-            delay(MODE_PILL_IDLE_MS)
-            expanded = false
-            onDismiss?.invoke()
-        }
-    }
-
-    val shape = RoundedCornerShape(GridlinkRadii.pill)
-    // Two layers rather than one blended colour: the opaque underlay is what stops the header's
-    // glow showing through an expanded pill, and it has to disappear completely when collapsed,
-    // which a single animated surface colour cannot express.
-    val underlay by animateColorAsState(
-        targetValue = if (expanded) colors.background else Color.Transparent,
-        animationSpec = GridlinkMotion.standard(),
-        label = "modePillUnderlay",
-    )
-    val surface by animateColorAsState(
-        targetValue = if (expanded) colors.surface else colors.surface.copy(alpha = 0.10f),
-        animationSpec = GridlinkMotion.standard(),
-        label = "modePillSurface",
-    )
-    val outline by animateColorAsState(
-        targetValue = if (expanded) colors.surfaceBorder else colors.surfaceBorder.copy(alpha = 0.30f),
-        animationSpec = GridlinkMotion.standard(),
-        label = "modePillBorder",
-    )
-
-    Box(
-        modifier = modifier
-            .background(underlay, shape)
-            .background(surface, shape)
-            .border(width = GridlinkDimens.hairline, color = outline, shape = shape)
-            .clip(shape)
-            .padding(GridlinkSpacing.s4),
-    ) {
-        AnimatedContent(
-            targetState = expanded,
-            transitionSpec = {
-                (fadeIn(GridlinkMotion.standard()) togetherWith fadeOut(GridlinkMotion.standard()))
-                    // clip = true so the segments are revealed by the widening pill rather than
-                    // spilling out of it while the width is still catching up.
-                    .using(SizeTransform(clip = true) { _, _ -> GridlinkMotion.standard() })
-            },
-            label = "modePill",
-        ) { isExpanded ->
-            if (isExpanded) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    ModeSegment(
-                        label = if (isAuto) "Auto · ${selected.shortLabel()}" else "Auto",
-                        active = isAuto,
-                        onClick = {
-                            onSelect(null)
-                            expanded = false
-                            onDismiss?.invoke()
-                        },
-                    )
-                    GridlinkMode.entries.forEach { mode ->
-                        ModeSegment(
-                            label = mode.shortLabel(),
-                            active = !isAuto && mode == selected,
-                            onClick = {
-                                onSelect(mode)
-                                expanded = false
-                                onDismiss?.invoke()
-                            },
-                        )
-                    }
-                }
-            } else {
-                ModeSegment(
-                    // Collapsed it has to say which mode is live, and whether that was chosen or
-                    // inherited from the clock, since those are the only two things it knows.
-                    label = if (isAuto) "Auto · ${selected.shortLabel()}" else selected.shortLabel(),
-                    active = false,
-                    onClick = { expanded = true },
-                    // Half strength. Not the accent and not full-weight text: collapsed, this is a
-                    // status readout that happens to be tappable, and reading as a live control
-                    // would put a second interactive element in a corner that already has none.
-                    labelColor = colors.textSecondary.copy(alpha = 0.50f),
-                )
-            }
-        }
-    }
-}
-
-private fun GridlinkMode.shortLabel(): String = when (this) {
-    GridlinkMode.DAY -> "Day"
-    GridlinkMode.NIGHT -> "Night"
-    GridlinkMode.OLED -> "OLED"
-}
-
-@Composable
-private fun ModeSegment(
-    label: String,
-    active: Boolean,
-    onClick: () -> Unit,
-    /** Overrides the inactive text colour; the collapsed chip uses it to sit at half strength. */
-    labelColor: Color? = null,
-) {
-    val colors = GridlinkTheme.colors
-    Box(
-        modifier = Modifier
-            .background(
-                color = if (active) colors.accent else Color.Transparent,
-                shape = RoundedCornerShape(GridlinkRadii.pill),
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = GridlinkSpacing.s12, vertical = GridlinkSpacing.s8),
-    ) {
-        Text(
-            text = label,
-            style = GridlinkType.toolbarLabel,
-            color = when {
-                active -> colors.onAccent
-                labelColor != null -> labelColor
-                else -> colors.textSecondary
-            },
-        )
-    }
-}
+// The Auto / Day / Night / OLED override pill used to live here, summoned by a long-press on the
+// screen title and dismissed on an idle timeout. It is gone: the control Tate asked for is a
+// segmented track inside the menu sheet (see GridlinkModeRow in GridlinkMenu.kt), and keeping a
+// second one floating over every screenshot would have left two ways to set the same thing, one of
+// them reachable only in a debug build.
 
 // GRIDLINK_PILL_CLEARANCE used to live here: the bottom padding a list needed so its last row could
 // scroll clear of a pill it passed behind. Nothing passes behind the pill any more, so there is
