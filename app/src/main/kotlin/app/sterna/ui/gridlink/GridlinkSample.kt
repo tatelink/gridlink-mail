@@ -11,6 +11,11 @@ package app.sterna.ui.gridlink
  * ⚠️ The one thing the brief does NOT give is addresses, and the identity bar is keyed on sender
  * domain, so the domains below are inferred from the sender names. They affect only which colour a
  * sender's bar gets. Swap them for the real ones once the app is talking to the live mailbox.
+ *
+ * ⚠️ One deliberate departure from §10: the brief's employer-branded HR sender was renamed to a
+ * neutral "HR Benefits" at Brandon's request, because seeing that brand in mockups was colliding
+ * with unrelated work in other sessions. Subject lines are untouched, so the layout is still being
+ * tested against the same real-world string lengths.
  */
 object GridlinkSample {
 
@@ -53,9 +58,9 @@ object GridlinkSample {
             section = GridlinkSection.TODAY,
         ),
         GridlinkMessage(
-            id = "bojangles-enrollment",
-            sender = "Bojangles HR",
-            domain = "bojangles.com",
+            id = "hr-enrollment",
+            sender = "HR Benefits",
+            domain = "hrbenefits.com",
             subject = "Open Enrollment closes Friday, action needed for all salaried TMs",
             timestamp = "Yesterday",
             unread = false,
@@ -73,7 +78,7 @@ object GridlinkSample {
         GridlinkMessage(
             id = "rivera-callout",
             sender = "M. Rivera",
-            domain = "bojangles.com",
+            domain = "hrbenefits.com",
             subject = "Callout Saturday AM, need coverage 120 Pineville",
             timestamp = "Yesterday",
             unread = true,

@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,8 +27,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import app.sterna.ui.theme.GridlinkMode
+import androidx.compose.ui.draw.clip
+import app.sterna.ui.theme.GridlinkDimens
 import app.sterna.ui.theme.GridlinkMotion
 import app.sterna.ui.theme.GridlinkRadii
 import app.sterna.ui.theme.GridlinkSpacing
@@ -62,6 +63,7 @@ fun GridlinkMessageListScreen(
     initiallyExpanded: Boolean = false,
     onOpenMessage: (GridlinkMessage) -> Unit = {},
 ) {
+    val colors = GridlinkTheme.colors
     var bundleExpanded by rememberSaveable(initiallyExpanded) { mutableStateOf(initiallyExpanded) }
     var destination by rememberSaveable { mutableStateOf(GridlinkDestination.INBOX) }
     val listState = rememberLazyListState()
@@ -83,20 +85,22 @@ fun GridlinkMessageListScreen(
                     reports = bundle.unreadCount,
                 )
 
+                // The list panel: a floating sheet of glass, not a system list.
+                //
+                // 🔴 Inset by the same [GridlinkSpacing.chrome] the header text and the nav pill
+                // use, so all three share one pad line down both edges. Brandon reads layouts by
+                // whether edges line up, and a full-bleed list against inset chrome is the exact
+                // thing that made this look like a stock mail app. The inset is also what lets the
+                // aurora show down the sides, which is the only reason to have painted it.
+                val panelShape = RoundedCornerShape(GridlinkRadii.card)
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .background(
-                            color = gridlinkListSurface(),
-                            // The only rounded corners in the dense half of the app, and they are
-                            // on the container rather than on any row: it marks where spacious
-                            // chrome stops and the list begins. Rows stay square and hairlined.
-                            shape = RoundedCornerShape(
-                                topStart = GridlinkRadii.card,
-                                topEnd = GridlinkRadii.card,
-                            ),
-                        ),
+                        .padding(horizontal = GridlinkSpacing.chrome)
+                        .clip(panelShape)
+                        .background(colors.listSurface, panelShape)
+                        .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
                 ) {
                     LazyColumn(
                         state = listState,
@@ -189,22 +193,5 @@ fun GridlinkMessageListScreen(
                     ),
             )
         }
-    }
-}
-
-/**
- * The flat fill the list scrolls on.
- *
- * Day is the one mode where this does real work: the translucent white surface composites over the
- * gradient exactly once, statically, which is what makes near-black body text legible without the
- * live blur §9 forbids. Night and OLED are already flat, so this returns their background and the
- * seam is invisible.
- */
-@Composable
-private fun gridlinkListSurface(): Color {
-    val colors = GridlinkTheme.colors
-    return when (GridlinkTheme.mode) {
-        GridlinkMode.DAY -> colors.surface
-        GridlinkMode.NIGHT, GridlinkMode.OLED -> colors.background
     }
 }
