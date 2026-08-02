@@ -2041,6 +2041,8 @@ private fun UnsubscribeStrip(
                     when (state.reason) {
                         UnsubscribeFailure.REDIRECT -> R.string.message_unsubscribe_failed_redirect
                         UnsubscribeFailure.OFFLINE -> R.string.message_unsubscribe_failed_offline
+                        UnsubscribeFailure.UNREACHABLE ->
+                            R.string.message_unsubscribe_failed_unreachable
                         UnsubscribeFailure.REFUSED -> R.string.message_unsubscribe_failed
                     },
                 )

@@ -157,6 +157,7 @@
     <string name="message_unsubscribe_failed">No se pudo dar de baja</string>
     <string name="message_unsubscribe_failed_redirect">El servidor del remitente pidió redirigir la solicitud, lo que la convertiría en una carga de página. Sterna se negó.</string>
     <string name="message_unsubscribe_failed_offline">Sin red. Inténtalo más tarde.</string>
+    <string name="message_unsubscribe_failed_unreachable">No se ha podido contactar con el servidor de baja del remitente.</string>
     <string name="message_view_headers">Ver encabezados</string>
     <string name="message_headers_title">Encabezados del mensaje</string>
     <string name="message_headers_empty">No hay encabezados que mostrar</string>

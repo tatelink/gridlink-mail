@@ -157,6 +157,7 @@
     <string name="message_unsubscribe_failed">Не удалось отписаться</string>
     <string name="message_unsubscribe_failed_redirect">Сервер отправителя запросил перенаправление, что превратило бы запрос в загрузку страницы. Sterna отказалась.</string>
     <string name="message_unsubscribe_failed_offline">Нет сети. Повторите попытку позже.</string>
+    <string name="message_unsubscribe_failed_unreachable">Не удалось связаться с сервером отписки отправителя.</string>
     <string name="message_view_headers">Показать заголовки</string>
     <string name="message_headers_title">Заголовки письма</string>
     <string name="message_headers_empty">Нет заголовков для отображения</string>

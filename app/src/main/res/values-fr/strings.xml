@@ -157,6 +157,7 @@
     <string name="message_unsubscribe_failed">Échec du désabonnement</string>
     <string name="message_unsubscribe_failed_redirect">Le serveur de l\'expéditeur a demandé une redirection, ce qui transformerait la requête en chargement de page. Sterna a refusé.</string>
     <string name="message_unsubscribe_failed_offline">Pas de réseau. Réessayez plus tard.</string>
+    <string name="message_unsubscribe_failed_unreachable">Le serveur de désabonnement de l\'expéditeur est injoignable.</string>
     <string name="message_view_headers">Afficher les en-têtes</string>
     <string name="message_headers_title">En-têtes du message</string>
     <string name="message_headers_empty">Aucun en-tête à afficher</string>

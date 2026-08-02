@@ -232,6 +232,7 @@
     <string name="message_unsubscribe_failed">Unsubscribe failed</string>
     <string name="message_unsubscribe_failed_redirect">The sender\'s server asked to redirect the request, which would turn it into a page load. Sterna refused.</string>
     <string name="message_unsubscribe_failed_offline">No network. Try again later.</string>
+    <string name="message_unsubscribe_failed_unreachable">The sender\'s unsubscribe server could not be reached.</string>
     <!-- Reader overflow: view the message's raw headers (issue #60) -->
     <string name="message_view_headers">View headers</string>
     <string name="message_headers_title">Message headers</string>

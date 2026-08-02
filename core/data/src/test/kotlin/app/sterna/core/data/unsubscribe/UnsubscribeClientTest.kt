@@ -23,6 +23,21 @@ class UnsubscribeClientTest {
     private lateinit var server: MockWebServer
     private val client = UnsubscribeClient()
 
+    /**
+     * Connectivity as the app layer reports it, and a count of when the client asked for it.
+     *
+     * A mutable field read through a lambda, deliberately: in production the lambda answers
+     * `hasUsableNetwork` at the moment the POST fails, so the tests below flip this **between two
+     * calls on the same client** — a client that captured the answer once could not tell them
+     * apart. [connectivityReads] is what pins that the question is asked on failure and only then.
+     */
+    private var online = true
+    private var connectivityReads = 0
+    private val isOnline: () -> Boolean = {
+        connectivityReads++
+        online
+    }
+
     @Before fun setUp() {
         server = MockWebServer()
         server.start()
@@ -35,13 +50,13 @@ class UnsubscribeClientTest {
     @Test fun `a 2xx answer is a successful unsubscribe`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(200))
 
-        assertEquals(UnsubscribeResult.Sent, client.post(server.url("/u/abc").toString()))
+        assertEquals(UnsubscribeResult.Sent, client.post(server.url("/u/abc").toString(), isOnline))
     }
 
     @Test fun `the request is a form post carrying RFC 8058's body and nothing else`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(204))
 
-        client.post(server.url("/u/abc").toString())
+        client.post(server.url("/u/abc").toString(), isOnline)
 
         val request = server.takeRequest()
         assertEquals("POST", request.method)
@@ -67,7 +82,7 @@ class UnsubscribeClientTest {
     @Test fun `the whole url is sent, query string included`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(200))
 
-        client.post(server.url("/u/abc?token=xyz&list=42").toString())
+        client.post(server.url("/u/abc?token=xyz&list=42").toString(), isOnline)
 
         val request = server.takeRequest()
         assertEquals("/u/abc?token=xyz&list=42", request.path)
@@ -83,7 +98,7 @@ class UnsubscribeClientTest {
     @Test fun `no Authorization header is ever sent`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(200))
 
-        client.post(server.url("/u/abc").toString())
+        client.post(server.url("/u/abc").toString(), isOnline)
 
         val request = server.takeRequest()
         assertNull(request.getHeader("Authorization"))
@@ -100,7 +115,7 @@ class UnsubscribeClientTest {
         server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/somewhere-else"))
         server.enqueue(MockResponse().setResponseCode(200))
 
-        val result = client.post(server.url("/u/abc").toString())
+        val result = client.post(server.url("/u/abc").toString(), isOnline)
 
         assertEquals(UnsubscribeResult.Failed(UnsubscribeFailure.REDIRECT), result)
         assertEquals("the redirect must not be followed", 1, server.requestCount)
@@ -112,7 +127,7 @@ class UnsubscribeClientTest {
             assertEquals(
                 "HTTP $code",
                 UnsubscribeResult.Failed(UnsubscribeFailure.REDIRECT),
-                client.post(server.url("/u/$code").toString()),
+                client.post(server.url("/u/$code").toString(), isOnline),
             )
         }
         assertEquals("one request per code, no follow-ups", 5, server.requestCount)
@@ -122,7 +137,7 @@ class UnsubscribeClientTest {
         server.enqueue(MockResponse().setResponseCode(404))
         assertEquals(
             UnsubscribeResult.Failed(UnsubscribeFailure.REFUSED),
-            client.post(server.url("/u/abc").toString()),
+            client.post(server.url("/u/abc").toString(), isOnline),
         )
     }
 
@@ -133,7 +148,7 @@ class UnsubscribeClientTest {
         val url = server.url("/u/abc").toString()
         assertTrue("the mock server must be plain http here", url.startsWith("http://"))
 
-        val result = client.oneClick(url)
+        val result = client.oneClick(url, isOnline)
 
         assertEquals(UnsubscribeResult.Failed(UnsubscribeFailure.REFUSED), result)
         assertEquals("nothing may be sent over cleartext", 0, server.requestCount)
@@ -160,8 +175,9 @@ class UnsubscribeClientTest {
      * that answered REFUSED without trying would pass every other test in this file.
      */
     @Test fun `an https url that cannot be reached is reported as no network`() = runBlocking {
+        online = false // the case where "no network" is the true sentence; see the table below
         // Port 1 is privileged and unbound: the connection is refused immediately.
-        val result = client.oneClick("https://127.0.0.1:1/u/abc")
+        val result = client.oneClick("https://127.0.0.1:1/u/abc", isOnline)
 
         assertEquals(UnsubscribeResult.Failed(UnsubscribeFailure.OFFLINE), result)
     }
@@ -179,32 +195,146 @@ class UnsubscribeClientTest {
         assertEquals(UnsubscribeResult.Failed(UnsubscribeFailure.REFUSED), oneClickOutcome(199))
     }
 
-    /** The transport dying is "no network"; anything else keeps the neutral refusal. */
+    /**
+     * The transport dying on a device that is really offline is "no network" — word for word the
+     * behaviour that shipped; anything else keeps the neutral refusal.
+     */
     @Test fun `transport failures are told apart from server refusals`() {
         assertEquals(
             UnsubscribeResult.Failed(UnsubscribeFailure.OFFLINE),
-            oneClickFailure(java.net.UnknownHostException("list.example.com")),
+            oneClickFailure(java.net.UnknownHostException("list.example.com"), online = false),
         )
         assertEquals(
             UnsubscribeResult.Failed(UnsubscribeFailure.OFFLINE),
-            oneClickFailure(java.net.SocketTimeoutException("timeout")),
+            oneClickFailure(java.net.SocketTimeoutException("timeout"), online = false),
         )
         assertEquals(
             UnsubscribeResult.Failed(UnsubscribeFailure.OFFLINE),
-            oneClickFailure(java.net.ConnectException("refused")),
+            oneClickFailure(java.net.ConnectException("refused"), online = false),
         )
         // Wrapped, as OkHttp hands them over.
         assertEquals(
             UnsubscribeResult.Failed(UnsubscribeFailure.OFFLINE),
-            oneClickFailure(java.io.IOException("wrapped", java.net.SocketException("down"))),
+            oneClickFailure(java.io.IOException("wrapped", java.net.SocketException("down")), online = false),
         )
         assertEquals(
             UnsubscribeResult.Failed(UnsubscribeFailure.REFUSED),
-            oneClickFailure(javax.net.ssl.SSLException("bad certificate")),
+            oneClickFailure(javax.net.ssl.SSLException("bad certificate"), online = false),
         )
         assertEquals(
             UnsubscribeResult.Failed(UnsubscribeFailure.REFUSED),
-            oneClickFailure(IllegalStateException("boom")),
+            oneClickFailure(IllegalStateException("boom"), online = false),
         )
+    }
+
+    // ---- who is blamed when the transport dies: the reader's link, or the sender's host ----
+
+    /**
+     * THE DECISION TABLE, executed rather than described (F2, found on the bench on 02/08: a POST
+     * to a domain that does not resolve said "No network. Try again later." on a Pixel 7 that had
+     * just synced its inbox).
+     *
+     * | transport exception | device online? | verdict     |
+     * |---------------------|----------------|-------------|
+     * | DNS / socket / IO   | no             | OFFLINE     |
+     * | DNS / socket / IO   | yes            | UNREACHABLE |
+     * | anything else       | either         | REFUSED     |
+     *
+     * The reasoning that turns "no such host" into "you are offline" is sound for the MAIL server —
+     * the reader chose it, and it answers whenever the phone works. It is wrong for a host named by
+     * the sender of an email: a dead unsubscribe endpoint (expired domain, discontinued list) fails
+     * exactly the same way, and there the honest sentence names their server, not the reader's
+     * connection.
+     *
+     * Both columns matter and both are asserted here: an implementation that always says OFFLINE
+     * (the shipped bug) fails the second column, one that always says UNREACHABLE fails the first.
+     */
+    @Test fun `a dead transport blames the sender's host, unless the device really is offline`() {
+        val transport = listOf(
+            java.net.UnknownHostException("lists.example.com"),
+            java.net.SocketException("Network is unreachable"),
+            java.net.ConnectException("Connection refused"), // a SocketException
+            java.net.SocketTimeoutException("timeout"), // an InterruptedIOException
+            java.io.IOException("wrapped", java.net.UnknownHostException("lists.example.com")),
+        )
+        transport.forEach { t ->
+            assertEquals(
+                "offline device, ${t.javaClass.simpleName}: the link is the honest culprit",
+                UnsubscribeResult.Failed(UnsubscribeFailure.OFFLINE),
+                oneClickFailure(t, online = false),
+            )
+            assertEquals(
+                "online device, ${t.javaClass.simpleName}: the sender's host is the culprit, and " +
+                    "telling this reader \"no network\" sends them to toggle a working Wi-Fi",
+                UnsubscribeResult.Failed(UnsubscribeFailure.UNREACHABLE),
+                oneClickFailure(t, online = true),
+            )
+        }
+
+        // Third row: what did not die on the transport is nobody's connectivity, either way.
+        listOf(
+            javax.net.ssl.SSLException("bad certificate"),
+            IllegalStateException("boom"),
+        ).forEach { t ->
+            listOf(true, false).forEach { state ->
+                assertEquals(
+                    "${t.javaClass.simpleName} with online=$state",
+                    UnsubscribeResult.Failed(UnsubscribeFailure.REFUSED),
+                    oneClickFailure(t, online = state),
+                )
+            }
+        }
+    }
+
+    /**
+     * The wiring, as far as a JVM test can follow it: connectivity is asked **at the moment of the
+     * failure**, on every attempt, and is not a value the client captured when it was built.
+     *
+     * Two calls on the SAME client, one field flipped between them: a client holding a boolean
+     * (or a lambda it called once and remembered) answers the same thing twice and fails here.
+     * The count is the other half — one question per failed attempt, no more.
+     *
+     * ⚠ What this canNOT reach: that `MessageViewModel` hands over `hasUsableNetwork(app)` rather
+     * than a constant. That call needs an `Application` and a `ConnectivityManager`, and the app
+     * module has neither Robolectric nor instrumentation — see the report; it is a bench check.
+     */
+    @Test fun `connectivity is answered at each failure, never captured once`() = runBlocking {
+        // Port 1 is privileged and unbound: the connection dies on the transport immediately.
+        val dead = "https://127.0.0.1:1/u/abc"
+
+        online = true
+        val whileOnline = client.oneClick(dead, isOnline)
+        online = false
+        val whileOffline = client.oneClick(dead, isOnline)
+
+        assertEquals(
+            "the device was online on this attempt",
+            UnsubscribeResult.Failed(UnsubscribeFailure.UNREACHABLE),
+            whileOnline,
+        )
+        assertEquals(
+            "the device had gone offline by this attempt, on the same client",
+            UnsubscribeResult.Failed(UnsubscribeFailure.OFFLINE),
+            whileOffline,
+        )
+        assertEquals("one connectivity question per failed attempt", 2, connectivityReads)
+    }
+
+    /**
+     * And it is asked ONLY on failure: a response that came back is proof the link works, so
+     * reading `ConnectivityManager` there would be a pointless system call on the happy path — and
+     * a connectivity answer that could never change any verdict.
+     */
+    @Test fun `connectivity is not consulted when the server answers`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200))
+        server.enqueue(MockResponse().setResponseCode(404))
+
+        assertEquals(UnsubscribeResult.Sent, client.post(server.url("/u/ok").toString(), isOnline))
+        assertEquals(
+            UnsubscribeResult.Failed(UnsubscribeFailure.REFUSED),
+            client.post(server.url("/u/no").toString(), isOnline),
+        )
+
+        assertEquals("nothing that answered says anything about the link", 0, connectivityReads)
     }
 }

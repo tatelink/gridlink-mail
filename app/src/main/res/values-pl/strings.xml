@@ -157,6 +157,7 @@
     <string name="message_unsubscribe_failed">Nie udało się wypisać</string>
     <string name="message_unsubscribe_failed_redirect">Serwer nadawcy poprosił o przekierowanie żądania, co zamieniłoby je we wczytanie strony. Sterna odmówiła.</string>
     <string name="message_unsubscribe_failed_offline">Brak sieci. Spróbuj ponownie później.</string>
+    <string name="message_unsubscribe_failed_unreachable">Nie można połączyć się z serwerem wypisywania nadawcy.</string>
     <string name="message_view_headers">Pokaż nagłówki</string>
     <string name="message_headers_title">Nagłówki wiadomości</string>
     <string name="message_headers_empty">Brak nagłówków do wyświetlenia</string>

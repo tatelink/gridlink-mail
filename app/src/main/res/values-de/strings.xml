@@ -157,6 +157,7 @@
     <string name="message_unsubscribe_failed">Abbestellen fehlgeschlagen</string>
     <string name="message_unsubscribe_failed_redirect">Der Server des Absenders wollte die Anfrage umleiten, was sie in einen Seitenaufruf verwandeln würde. Sterna hat abgelehnt.</string>
     <string name="message_unsubscribe_failed_offline">Kein Netzwerk. Bitte später erneut versuchen.</string>
+    <string name="message_unsubscribe_failed_unreachable">Der Abmeldeserver des Absenders ist nicht erreichbar.</string>
     <string name="message_view_headers">Kopfzeilen anzeigen</string>
     <string name="message_headers_title">Nachrichten-Kopfzeilen</string>
     <string name="message_headers_empty">Keine Kopfzeilen vorhanden</string>

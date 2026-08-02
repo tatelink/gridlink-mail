@@ -20,8 +20,16 @@ enum class UnsubscribeFailure {
      */
     REDIRECT,
 
-    /** The request never left the device (no route, no DNS, timed out). */
+    /** The request never left the device (no route, no DNS, timed out) — and the device agrees. */
     OFFLINE,
+
+    /**
+     * The transport died while the device is online: the host named by the sender is the one that
+     * is unreachable, not the reader's connection. Dead unsubscribe endpoints (abandoned
+     * newsletter, expired domain, discontinued service) make this the likeliest failure of the
+     * whole feature, and telling that reader "no network" sends them to toggle a working Wi-Fi.
+     */
+    UNREACHABLE,
 
     /** The server said no, or the URL was one we refuse to POST to. */
     REFUSED,
@@ -73,19 +81,34 @@ internal fun oneClickOutcome(code: Int): UnsubscribeResult = when {
 }
 
 /**
- * What a thrown failure means for the reader: the transport dying is "no network", anything else
- * keeps the neutral refusal. Matched on the exception TYPE, never on its text — that sentence is
- * written by the platform resolver and changes with the Android version and the system language.
+ * What a thrown failure means for the reader. Matched on the exception TYPE, never on its text —
+ * that sentence is written by the platform resolver and changes with the Android version and the
+ * system language.
  *
- * A deliberate local twin of `app.sterna.net.isNetworkFailure` (which is `internal` to the app
- * module and unreachable from here); same three types, same reasoning.
+ * The type alone does not name the culprit, though, and that is the whole of this function:
+ *
+ *  - not a transport failure at all → the neutral refusal;
+ *  - the transport died and [online] is false → the device really is off the network;
+ *  - the transport died while [online] is true → **the sender's host** is unreachable. The
+ *    reasoning that makes a DNS failure mean "you are offline" belongs to the mail server, which
+ *    the reader chose and which works when the phone works. This POST goes to a third-party domain
+ *    named by whoever sent the email: when it does not resolve, the honest reading is that *their*
+ *    endpoint is dead, and blaming the reader's connection sends them to reboot a working router.
+ *
+ * [online] is the state at the moment of the failure, handed in by the app layer (the caller reads
+ * `hasUsableNetwork`); this module deliberately does not talk to Android to find out.
+ *
+ * A deliberate local twin of `app.sterna.net.isOfflineFailure`, which splits the same two causes
+ * the same way for the mail server (it is `internal` to the app module and unreachable from here).
  */
-internal fun oneClickFailure(t: Throwable): UnsubscribeResult {
+internal fun oneClickFailure(t: Throwable, online: Boolean): UnsubscribeResult {
     var error: Throwable? = t
     var hops = 0
     while (error != null && hops++ < 8) {
         if (error is UnknownHostException || error is SocketException || error is InterruptedIOException) {
-            return UnsubscribeResult.Failed(UnsubscribeFailure.OFFLINE)
+            return UnsubscribeResult.Failed(
+                if (online) UnsubscribeFailure.UNREACHABLE else UnsubscribeFailure.OFFLINE,
+            )
         }
         error = error.cause
     }
@@ -116,12 +139,20 @@ internal fun defaultUnsubscribeHttpClient(): OkHttpClient = OkHttpClient.Builder
 class UnsubscribeClient(
     private val httpClient: OkHttpClient = defaultUnsubscribeHttpClient(),
 ) {
-    /** Unsubscribe from [url], or say why not. Refuses anything that is not https (D4). */
-    suspend fun oneClick(url: String): UnsubscribeResult =
+    /**
+     * Unsubscribe from [url], or say why not. Refuses anything that is not https (D4).
+     *
+     * [isOnline] answers "can this device reach the internet right now"; it is a lambda, and not a
+     * boolean, because it must be answered **at the moment the request fails** and not when this
+     * client was built — a client outlives any number of connectivity changes. It is supplied by
+     * the app layer, which owns the one `ConnectivityManager` read the app makes; nothing in
+     * `core:data` looks at Android to find out. Not consulted at all unless something is thrown.
+     */
+    suspend fun oneClick(url: String, isOnline: () -> Boolean): UnsubscribeResult =
         if (!isPostableUnsubscribeUrl(url)) {
             UnsubscribeResult.Failed(UnsubscribeFailure.REFUSED)
         } else {
-            post(url)
+            post(url, isOnline)
         }
 
     /**
@@ -129,13 +160,14 @@ class UnsubscribeClient(
      * all the refusal to follow a redirect) is exercised against a local test server, which
      * speaks plain http. Callers go through [oneClick].
      */
-    internal suspend fun post(url: String): UnsubscribeResult = withContext(Dispatchers.IO) {
-        try {
-            httpClient.newCall(oneClickRequest(url)).execute().use { response ->
-                oneClickOutcome(response.code)
+    internal suspend fun post(url: String, isOnline: () -> Boolean): UnsubscribeResult =
+        withContext(Dispatchers.IO) {
+            try {
+                httpClient.newCall(oneClickRequest(url)).execute().use { response ->
+                    oneClickOutcome(response.code)
+                }
+            } catch (t: Throwable) {
+                oneClickFailure(t, isOnline())
             }
-        } catch (t: Throwable) {
-            oneClickFailure(t)
         }
-    }
 }

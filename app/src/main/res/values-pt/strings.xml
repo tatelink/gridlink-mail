@@ -157,6 +157,7 @@
     <string name="message_unsubscribe_failed">Falha ao cancelar a subscrição</string>
     <string name="message_unsubscribe_failed_redirect">O servidor do remetente pediu para redirecionar o pedido, o que o transformaria num carregamento de página. O Sterna recusou.</string>
     <string name="message_unsubscribe_failed_offline">Sem rede. Tente novamente mais tarde.</string>
+    <string name="message_unsubscribe_failed_unreachable">Não foi possível contactar o servidor de cancelamento do remetente.</string>
     <string name="message_view_headers">Ver cabeçalhos</string>
     <string name="message_headers_title">Cabeçalhos da mensagem</string>
     <string name="message_headers_empty">Nenhum cabeçalho para mostrar</string>

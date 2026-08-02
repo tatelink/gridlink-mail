@@ -157,6 +157,7 @@
     <string name="message_unsubscribe_failed">Annullamento non riuscito</string>
     <string name="message_unsubscribe_failed_redirect">Il server del mittente ha chiesto di reindirizzare la richiesta, il che la trasformerebbe in un caricamento di pagina. Sterna ha rifiutato.</string>
     <string name="message_unsubscribe_failed_offline">Nessuna rete. Riprova più tardi.</string>
+    <string name="message_unsubscribe_failed_unreachable">Non è stato possibile raggiungere il server di annullamento del mittente.</string>
     <string name="message_view_headers">Mostra intestazioni</string>
     <string name="message_headers_title">Intestazioni del messaggio</string>
     <string name="message_headers_empty">Nessuna intestazione da mostrare</string>

@@ -31,6 +31,7 @@ import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailHeader
 import app.sterna.core.jmap.model.Mailbox
+import app.sterna.net.hasUsableNetwork
 import app.sterna.ui.inbox.moveTargets
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -429,7 +430,13 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 when (pending.action) {
                     UnsubscribeAction.ONE_CLICK -> {
                         val url = pending.options.oneClickUrl ?: error("no one-click url")
-                        when (val result = repo.unsubscribeOneClick(url)) {
+                        // The connectivity read is handed over as a lambda, so it is answered when
+                        // the POST fails and not now: this is the app's one connectivity check
+                        // ([hasUsableNetwork], the same one that picks "Sending…" over "queued" at
+                        // send time, #70), and `core:data` must not reach for Android to get it.
+                        // Without it a dead unsubscribe endpoint — an expired domain, a shut-down
+                        // list — is reported as "No network" to a phone that is plainly online.
+                        when (val result = repo.unsubscribeOneClick(url) { hasUsableNetwork(app) }) {
                             is UnsubscribeResult.Sent -> UnsubscribeState.Sent
                             is UnsubscribeResult.Failed -> UnsubscribeState.Failed(result.reason)
                         }

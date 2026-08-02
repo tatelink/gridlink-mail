@@ -5087,8 +5087,15 @@ class MailRepository(
      * Send the RFC 8058 one-click unsubscribe to [url]: one POST, no browser, no page, and no
      * `Authorization` header — [UnsubscribeClient] exists precisely so this request cannot
      * inherit the account's credentials on their way to a stranger's server.
+     *
+     * [isOnline] is passed through, not answered here: this module has no business reading
+     * `ConnectivityManager`. It decides, when the POST dies on the transport, whether the reader
+     * is off the network or the sender's host is dead — see `oneClickFailure`. It has no default
+     * on purpose: a caller that has no connectivity to report would silently reintroduce the
+     * "No network" lie every failed unsubscribe used to tell.
      */
-    suspend fun unsubscribeOneClick(url: String): UnsubscribeResult = unsubscribeClient.oneClick(url)
+    suspend fun unsubscribeOneClick(url: String, isOnline: () -> Boolean): UnsubscribeResult =
+        unsubscribeClient.oneClick(url, isOnline)
 
     /**
      * Queue the `mailto:` form of an unsubscribe through the ordinary outbox, so it retries and

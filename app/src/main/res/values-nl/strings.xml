@@ -157,6 +157,7 @@
     <string name="message_unsubscribe_failed">Uitschrijven mislukt</string>
     <string name="message_unsubscribe_failed_redirect">De server van de afzender vroeg om een omleiding, wat het verzoek in een paginabezoek zou veranderen. Sterna heeft dat geweigerd.</string>
     <string name="message_unsubscribe_failed_offline">Geen netwerk. Probeer het later opnieuw.</string>
+    <string name="message_unsubscribe_failed_unreachable">De afmeldserver van de afzender is niet bereikbaar.</string>
     <string name="message_view_headers">Headers weergeven</string>
     <string name="message_headers_title">Berichtheaders</string>
     <string name="message_headers_empty">Geen headers om weer te geven</string>
