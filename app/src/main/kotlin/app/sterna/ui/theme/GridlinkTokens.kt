@@ -8,10 +8,12 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.sterna.R
 
 /**
  * Gridlink design tokens — the single source of truth for the fork's UI.
@@ -180,6 +182,78 @@ val GridlinkOledColors = GridlinkColors(
     usesShadows = false,
 )
 
+/**
+ * Sender-identity bars: the 3dp leading edge that replaces avatars.
+ *
+ * ⚠️ Derived. The brief says "coloured by sender domain" and gives no values, and the constraint is
+ * tighter than it first looks: green, amber and red are all spoken for by the semantic grammar
+ * (archive / unread / delete), so an identity bar may not borrow any of them or it starts making a
+ * claim about the message. That leaves the cool family in Day and Night, and in OLED it leaves only
+ * lightness, since the whole mode is one hue by design.
+ *
+ * 🔴 No violet or purple anywhere in these ramps. That is a standing preference across the
+ * dashboard, and it happens to be the obvious hue a generic palette would reach for here.
+ *
+ * Six entries is deliberate: this inbox is dominated by a handful of repeat senders, so the ramp
+ * only has to keep those few apart, and a longer ramp would put near-identical blues side by side.
+ */
+object GridlinkSenderBars {
+    val day = listOf(
+        Color(0xFF0EA5E9),
+        Color(0xFF1B7FE8),
+        Color(0xFF1D4ED8),
+        Color(0xFF0891B2),
+        Color(0xFF475569),
+        Color(0xFF94A3B8),
+    )
+
+    val night = listOf(
+        Color(0xFF38BDF8),
+        Color(0xFF3B82F6),
+        Color(0xFF1D4ED8),
+        Color(0xFF7DD3FC),
+        Color(0xFF64748B),
+        Color(0xFF0E7490),
+    )
+
+    /**
+     * OLED: same six slots, separated by lightness within the amber family rather than by hue.
+     *
+     * 🔴 Every entry is deliberately duller and darker than the accent `#F97316` and the attention
+     * amber `#FB923C`. A first pass used saturated oranges here and the result was a column of
+     * bars that all read as alerts, drowning out the one unread dot that was supposed to be the
+     * loudest thing on screen. Identity is allowed hue, not volume.
+     */
+    val oled = listOf(
+        Color(0xFFC98B5E),
+        Color(0xFFB45309),
+        Color(0xFF9A5B2C),
+        Color(0xFF7C2D12),
+        Color(0xFF92400E),
+        Color(0xFF5C3317),
+    )
+
+    fun forMode(mode: GridlinkMode): List<Color> = when (mode) {
+        GridlinkMode.DAY -> day
+        GridlinkMode.NIGHT -> night
+        GridlinkMode.OLED -> oled
+    }
+}
+
+/**
+ * Maps a sender domain to a stable identity bar colour.
+ *
+ * Keyed on the DOMAIN, not the address, so every alert from `altametrics.com` shares one bar no
+ * matter which no-reply mailbox emitted it — that shared bar is the whole point, since it is what
+ * makes a run of the same robot readable as one block while scrolling.
+ */
+fun gridlinkSenderBarColor(mode: GridlinkMode, domain: String): Color {
+    val ramp = GridlinkSenderBars.forMode(mode)
+    var hash = 0
+    for (ch in domain.lowercase()) hash = (hash * 31 + ch.code) and 0x7FFFFFFF
+    return ramp[hash % ramp.size]
+}
+
 fun gridlinkColorsFor(mode: GridlinkMode): GridlinkColors = when (mode) {
     GridlinkMode.DAY -> GridlinkDayColors
     GridlinkMode.NIGHT -> GridlinkNightColors
@@ -275,13 +349,20 @@ const val GRIDLINK_UNDO_SEND_SECONDS = 10
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The brief calls for **Outfit** (or Poppins): a geometric sans with a high x-height and heavy
- * display weights, matching the dashboard.
+ * **Outfit** — the geometric sans the brief calls for, with the high x-height and heavy display
+ * weights that match the dashboard. SIL Open Font License 1.1; see `docs/licenses/OFL-Outfit.txt`.
  *
- * ⚠️ Placeholder until the font ships in `res/font`. Swapping this one value moves the whole app,
- * which is the point of declaring it here.
+ * 🔴 Bundled as static TTFs in `res/font`, NOT pulled from Google's downloadable-fonts provider:
+ * that provider is a Play Services component and this app ships with no Google dependencies at all.
+ * Five weights only, because every weight is ~75 KB of APK and the scale below uses exactly these.
  */
-val GridlinkFontFamily: FontFamily = FontFamily.Default
+val GridlinkFontFamily: FontFamily = FontFamily(
+    Font(R.font.outfit_regular, FontWeight.Normal),
+    Font(R.font.outfit_medium, FontWeight.Medium),
+    Font(R.font.outfit_semibold, FontWeight.SemiBold),
+    Font(R.font.outfit_bold, FontWeight.Bold),
+    Font(R.font.outfit_extrabold, FontWeight.ExtraBold),
+)
 
 /**
  * Type scale.
@@ -309,16 +390,23 @@ object GridlinkType {
         letterSpacing = 0.78.sp,
     )
 
+    // 🔴 The explicit 18sp line height on the two row styles is what makes 64dp rows possible.
+    // Compose's default leading (~1.4x) would put two 15sp lines at ~42dp, which with the row's
+    // 12dp top and bottom padding overflows a 64dp row and quietly stretches the whole list.
+    // 18 + 18 + 12 + 12 = 60dp, leaving 4dp of slack.
+
     val senderName = TextStyle(
         fontFamily = GridlinkFontFamily,
         fontSize = 15.sp,
         fontWeight = FontWeight.SemiBold,
+        lineHeight = 18.sp,
     )
 
     val subject = TextStyle(
         fontFamily = GridlinkFontFamily,
         fontSize = 15.sp,
         fontWeight = FontWeight.Normal,
+        lineHeight = 18.sp,
     )
 
     /** Snippet and secondary metadata. Note the brief OMITS snippets from list rows. */
@@ -326,6 +414,7 @@ object GridlinkType {
         fontFamily = GridlinkFontFamily,
         fontSize = 13.sp,
         fontWeight = FontWeight.Normal,
+        lineHeight = 18.sp,
     )
 
     val timestamp = TextStyle(
@@ -333,6 +422,7 @@ object GridlinkType {
         fontSize = 12.sp,
         fontWeight = FontWeight.Medium,
         fontFeatureSettings = "tnum",
+        lineHeight = 18.sp,
     )
 
     val badge = TextStyle(
