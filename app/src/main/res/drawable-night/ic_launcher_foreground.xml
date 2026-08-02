@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- The Gridlink 2x2 mark, dark mode. Ported verbatim from the vector master at
+         ~/homelab/mail/branding/gridlink-icon.svg on Talos, the same file Forge and the
+         webmail favicon come from, so this variant is the canonical one and the light twin
+         in drawable/ is the derived one.
+
+         Geometry is the Forge `.logo` rule (cells 14 / gap 4 / radius 3.5, so a 32-unit mark
+         box) scaled by 1.375 to a 44-unit box centred on the 108 canvas: cells 19.25, gap
+         5.5, radius 4.8125, origins at 32 and 56.75. Both variants share it exactly; if one
+         moves, move the other and the monochrome layer with it.
+
+         ⚠️ 44 is NOT the master's 43% of the canvas. The master is sized for a PWA tile,
+         where the whole square is visible. An adaptive icon throws away the outer 18 on
+         every side, so 43% of 108 would render as ~64% of what the user actually sees, i.e.
+         far bigger than Forge. 44 of the visible 72 is 61%, which is what matches Forge on
+         screen rather than on paper.
+
+         🔴 Colours are pre-blended, never alpha. The two dim cells are rgba(74,144,217,0.4)
+         over #06070a resolved by hand to #21405d. A 0.4-alpha fill renders as washed-out
+         pastel instead of the muted navy it should be.
+
+         The master's two feGaussianBlur glows have no VectorDrawable equivalent, so they are
+         approximated with radial gradients that fade to transparent. They live in this
+         layer, not the background, because launchers parallax the two layers independently
+         and a glow that slides off its cell looks broken. -->
+
+    <!-- ambient bloom under the top-left lit cell -->
+    <path android:pathData="M17.625,17.625h48v48h-48z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="41.625"
+                android:centerY="41.625"
+                android:gradientRadius="24">
+                <item android:offset="0" android:color="#4A4A90D9" />
+                <item android:offset="0.4" android:color="#1C4A90D9" />
+                <item android:offset="1" android:color="#004A90D9" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- ambient bloom under the bottom-right lit cell -->
+    <path android:pathData="M42.375,42.375h48v48h-48z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="66.375"
+                android:centerY="66.375"
+                android:gradientRadius="24">
+                <item android:offset="0" android:color="#4A7CB2E6" />
+                <item android:offset="0.4" android:color="#1C7CB2E6" />
+                <item android:offset="1" android:color="#007CB2E6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- dim cell, top-right -->
+    <path
+        android:fillColor="#FF21405D"
+        android:pathData="M61.5625,32
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+
+    <!-- dim cell, bottom-left -->
+    <path
+        android:fillColor="#FF21405D"
+        android:pathData="M36.8125,56.75
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+
+    <!-- lit cell, top-left -->
+    <path
+        android:fillColor="#FF4A90D9"
+        android:pathData="M36.8125,32
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+
+    <!-- lit cell, bottom-right -->
+    <path
+        android:fillColor="#FF7CB2E6"
+        android:pathData="M61.5625,56.75
+            h9.625
+            a4.8125,4.8125 0 0 1 4.8125,4.8125
+            v9.625
+            a4.8125,4.8125 0 0 1 -4.8125,4.8125
+            h-9.625
+            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
+            v-9.625
+            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+</vector>
