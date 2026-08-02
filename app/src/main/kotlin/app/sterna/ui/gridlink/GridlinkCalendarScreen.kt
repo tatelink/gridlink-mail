@@ -317,11 +317,11 @@ private fun GridlinkViewSwitcher(
                 Text(
                     text = entry.label,
                     style = GridlinkType.toolbarLabel,
-                    // gridlinkOnAccent, not colors.accent: the active segment is *filled* with the
-                    // accent, so an accent label on it is dark blue on dark blue and the one segment
-                    // that matters is the one you cannot read. Same rule the nav pill already
-                    // follows for its selected item.
-                    color = if (active) gridlinkOnAccent(colors.accent) else colors.textSecondary,
+                    // onAccent, not colors.accent: the active segment is *filled* with the accent,
+                    // so an accent label on it is dark blue on dark blue and the one segment that
+                    // matters is the one you cannot read. Same rule the nav pill already follows
+                    // for its selected item.
+                    color = if (active) colors.onAccent else colors.textSecondary,
                     maxLines = 1,
                 )
             }
@@ -495,7 +495,7 @@ private fun GridlinkDayCell(
                     fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
                 ),
                 color = when {
-                    isSelected -> gridlinkOnAccent(colors.accent)
+                    isSelected -> colors.onAccent
                     // Adjacent months are a colour step, not an alpha fade, for the same reason
                     // read messages are: a faded number looks like a rendering fault.
                     !inMonth -> colors.textSecondary.copy(alpha = 0.45f)
@@ -603,7 +603,7 @@ private fun GridlinkTimeGrid(
                                 fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
                             ),
                             color = if (isToday) {
-                                gridlinkOnAccent(colors.accent)
+                                colors.onAccent
                             } else {
                                 colors.textPrimary
                             },

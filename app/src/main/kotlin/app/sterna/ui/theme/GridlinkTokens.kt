@@ -148,6 +148,19 @@ data class GridlinkColors(
     val textSecondary: Color,
     val accent: Color,
     /**
+     * What goes ON TOP of an [accent] fill: the send glyph, the compose glyph, the tick inside a
+     * selected row's disc, the label of a filled nav item.
+     *
+     * 🔴 A palette value, not a computation. The luminance heuristic in `gridlinkOnAccent` picks
+     * white for OLED's `#F97316`, which lands at about 2.8:1 and fails. Every filled accent control
+     * reads this instead of deciding for itself, so the one mode that needs a dark glyph gets one
+     * and no call site has to know which mode it is in.
+     *
+     * ⚠️ This is for [accent] fills only. `gridlinkOnAccent` is still the right call for a fill
+     * whose colour is not the accent, which today means the swipe tracks.
+     */
+    val onAccent: Color,
+    /**
      * Warm secondary accent. Currently unreferenced: the brief names it but never spends it, and
      * Day's used to be an alias of [attention] before that went blue. Kept because §1 lists it, and
      * a token the palette defines but nothing uses is cheaper than one a screen needs and lacks.
@@ -195,6 +208,14 @@ data class GridlinkColors(
     val selection: Color,
     /** 1px row separator in the dense list. The list is separated by hairlines, never by gaps. */
     val divider: Color,
+    /**
+     * What everything behind a modal, sheet or dialog is covered with.
+     *
+     * 🔴 Not one flat black in all three modes. Translucent black over Day's blue gradient and over
+     * Night's near-black are two different problems, and over OLED's true black it does almost
+     * nothing at all, so that mode needs a heavier one to separate the sheet from the page at all.
+     */
+    val scrim: Color,
     /** True where a drop shadow is legitimate. 🔴 False in OLED: no glows, no shadows, ever. */
     val usesShadows: Boolean,
 )
@@ -215,6 +236,8 @@ val GridlinkDayColors = GridlinkColors(
     textPrimary = Color(0xFF0A0F1A),
     textSecondary = Color(0xFF3A4A5F),
     accent = Color(0xFF1B7FE8),
+    // White on this azure is about 4.0:1, which carries a glyph comfortably.
+    onAccent = Color(0xFFFFFFFF),
     accentWarm = Color(0xFFD97706),
     positive = Color(0xFF16A34A),
     // ⚠️ Blue, not the brief's amber, and Day is the only mode that departs.
@@ -240,6 +263,10 @@ val GridlinkDayColors = GridlinkColors(
     // registers at all.
     selection = Color(0xFF1B7FE8).copy(alpha = 0.22f),
     divider = Color(0xFF0A0F1A).copy(alpha = 0.12f),
+    // The background blue at half strength rather than black: Day's page is a saturated gradient,
+    // and dimming it toward grey reads as the screen having gone wrong rather than gone behind
+    // something.
+    scrim = Color(0xFF2F6FE0).copy(alpha = 0.50f),
     usesShadows = true,
 )
 
@@ -266,6 +293,7 @@ val GridlinkNightColors = GridlinkColors(
     textPrimary = Color(0xFFFFFFFF),
     textSecondary = Color(0xFF8CA0BC),
     accent = Color(0xFF3B82F6),
+    onAccent = Color(0xFFFFFFFF),
     accentWarm = Color(0xFFF6B87C),
     positive = Color(0xFF34D399),
     attention = Color(0xFFFBBF24),
@@ -275,6 +303,9 @@ val GridlinkNightColors = GridlinkColors(
     actionGlow = Color(0xFF3B82F6),
     selection = Color(0xFF3B82F6).copy(alpha = 0.18f),
     divider = Color.White.copy(alpha = 0.12f),
+    // Black over near-black is nearly a no-op, so this leans on the background hue and a heavier
+    // alpha to push the page down and away from the sheet.
+    scrim = Color(0xFF050A14).copy(alpha = 0.62f),
     usesShadows = true,
 )
 
@@ -297,6 +328,10 @@ val GridlinkOledColors = GridlinkColors(
     textPrimary = Color(0xFFE9A87F),
     textSecondary = Color(0xFF9C8574),
     accent = Color(0xFFF97316),
+    // 🔴 The reason this token exists. White on #F97316 is about 2.8:1 and fails outright; this
+    // near-black is about 6.3:1. It is warmed rather than pure #000 so a glyph sitting on the accent
+    // does not look like a hole punched through it.
+    onAccent = Color(0xFF1A0C02),
     accentWarm = Color(0xFFFB923C),
     positive = Color(0xFF34D399),
     attention = Color(0xFFFB923C),
@@ -309,6 +344,10 @@ val GridlinkOledColors = GridlinkColors(
     // Derived: the brief gives a 12% hairline for the list but no hue for it in OLED. Tinting it
     // with the accent keeps the mode's "definition by hairline" logic consistent.
     divider = Color(0xFFF97316).copy(alpha = 0.12f),
+    // 🔴 The heaviest of the three, and pure black. There is no hue to lean on here and nothing to
+    // dim, so separation has to come from covering the page's own hairlines and text almost
+    // completely.
+    scrim = Color(0xFF000000).copy(alpha = 0.72f),
     usesShadows = false,
 )
 
@@ -494,14 +533,45 @@ object GridlinkDimens {
     val dropTargetOutline = 2.dp
 
     /**
-     * A folder-tree row.
+     * A one-line row: a folder in the tree, a recipient suggestion, a preset in the schedule sheet.
      *
      * Shorter than [messageRowHeight] because it carries one line where a message carries two, and
      * a one-line row padded out to 64dp reads as a list that has been stretched. Still a 52dp touch
      * target, comfortably above the 48dp floor, which matters more here than on a message row
      * because §6d's long-press has to be distinguishable from a tap that opens the folder.
      */
-    val folderRowHeight = 52.dp
+    val compactRow = 52.dp
+
+    /** @see compactRow. Named separately because the folder tree was the first thing to want it. */
+    val folderRowHeight = compactRow
+
+    /**
+     * A control that lives in a header rather than on the nav-pill baseline: the search pill, and
+     * the composer's send circle while the keyboard is up.
+     *
+     * 🔴 Smaller than [composeButton] on purpose, and the composer relies on the difference. With
+     * the keyboard down, send grows to the full 64dp and lands exactly where compose was, so the
+     * gesture that opened the composer is the gesture that sends from it.
+     */
+    val headerControl = 44.dp
+
+    /**
+     * A ring drawn around a control to show it is the one being acted on: the press ring that holds
+     * on send while the schedule sheet is open.
+     *
+     * Heavier than [selectionRing], which marks a slot that could be chosen. This marks the thing
+     * that already was, over a scrim, so it has to survive being the only lit edge on screen.
+     */
+    val ringStroke = 3.dp
+
+    /**
+     * The tap target that removes one thing from a composed message: an attachment, a recipient.
+     *
+     * Under the 48dp floor deliberately. These sit inside a row that is itself a control, and a
+     * full-size target here would swallow taps meant for the row. The row is the safe action and
+     * the small glyph is the destructive one, so the sizes say which is which.
+     */
+    val inlineDismiss = 28.dp
 
     /** The vertical rule marking one level of folder nesting. Same weight as a row separator. */
     val treeRule = 1.dp
@@ -654,6 +724,48 @@ object GridlinkType {
         fontFamily = GridlinkFontFamily,
         fontSize = 11.sp,
         fontWeight = FontWeight.Medium,
+    )
+
+    /**
+     * Running prose that is meant to be read rather than scanned: the message body in the composer,
+     * and later the thread view.
+     *
+     * Same 15sp as a list row and a much taller line, which is the entire difference. The row styles
+     * are crushed to 18sp so two of them fit a 64dp row; that is right for one line you glance at
+     * and wrong for a paragraph you actually read.
+     */
+    val body = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Normal,
+        lineHeight = 22.sp,
+    )
+
+    /**
+     * A resolved recipient, sitting in the composer's TO field.
+     *
+     * 🔴 Medium, not the [senderName] SemiBold it sits closest to. A chip already carries a fill and
+     * a shape; adding weight on top of that makes a row of two recipients louder than the subject
+     * line underneath it.
+     */
+    val chip = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Medium,
+        lineHeight = 20.sp,
+    )
+
+    /**
+     * A thread's subject where it is the heading of a screen rather than a line in a list.
+     *
+     * Fills the gap between [subject] at 15sp and [screenTitle] at 32sp. A subject promoted straight
+     * to 32sp wraps to three lines and eats the top third of the panel.
+     */
+    val threadTitle = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 18.sp,
+        fontWeight = FontWeight.SemiBold,
+        lineHeight = 24.sp,
     )
 }
 

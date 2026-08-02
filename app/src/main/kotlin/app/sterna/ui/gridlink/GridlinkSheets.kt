@@ -1,5 +1,7 @@
 package app.sterna.ui.gridlink
 
+import android.view.Gravity
+import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,15 +26,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import app.sterna.ui.theme.GridlinkDimens
 import app.sterna.ui.theme.GridlinkRadii
 import app.sterna.ui.theme.GridlinkSpacing
@@ -57,24 +62,27 @@ import app.sterna.ui.theme.GridlinkType
  * thing that reads as fine in a screenshot and terrible in the hand.
  */
 
-/** Dim behind a modal. Heavy enough that the list stops competing, light enough to keep context. */
-private const val SCRIM_ALPHA = 0.55f
-
 /** Widest a centred dialog gets. A folded Fold is ~443dp, so this only binds when unfolded. */
 private val DIALOG_MAX_WIDTH = 400.dp
 
+/**
+ * The window, the scrim and the dismiss behaviour, with nothing opinionated inside it.
+ *
+ * Public because the schedule-send sheet needs to put something on the scrim that is NOT the card:
+ * the send control it was long-pressed from stays lit above the sheet, so the sheet visibly belongs
+ * to that button. [GridlinkBottomSheet] is the right entry point for everything else.
+ */
 @Composable
-private fun GridlinkModal(
+fun GridlinkModal(
     onDismiss: () -> Unit,
     alignment: Alignment,
     content: @Composable () -> Unit,
 ) {
-    // 🔴 Read the bars HERE, outside the Dialog, and hand them in. Compose honours
-    // `decorFitsSystemWindows = false` by putting the dialog window into FLAG_LAYOUT_NO_LIMITS, and a
-    // no-limits window is by definition told it has nothing to avoid: `WindowInsets.systemBars`
-    // inside the dialog measures a flat zero (verified on device, top=0 bottom=0). A sheet that
-    // trusted it would sit its last action under the gesture bar. This line still runs in the host
-    // activity's composition, where the same insets are real.
+    // 🔴 Read the bars HERE, outside the Dialog, and hand them in. The window below is put into
+    // FLAG_LAYOUT_NO_LIMITS, and a no-limits window is by definition told it has nothing to avoid:
+    // `WindowInsets.systemBars` inside the dialog measures a flat zero (verified on device, top=0
+    // bottom=0). A sheet that trusted it would sit its last action under the gesture bar. This line
+    // still runs in the host activity's composition, where the same insets are real.
     val bars = WindowInsets.systemBars.asPaddingValues()
     Dialog(
         onDismissRequest = onDismiss,
@@ -86,13 +94,56 @@ private fun GridlinkModal(
             // by the system bars, the dim stops short at the top, and the modal reads as a panel
             // that failed to cover the screen rather than as a layer over it. The content pays for
             // this by applying the insets itself, below.
+            //
+            // ⚠️ Necessary but NOT sufficient. See the window surgery immediately below: on Compose
+            // 1.7 this flag alone does not get the window onto the display, it only stops the
+            // *content* being inset inside whatever frame the window ends up with.
             decorFitsSystemWindows = false,
         ),
     ) {
+        // 🔴 Put the dialog window on the DISPLAY, not in the app's content area. Measured on the
+        // emulator with `dumpsys window windows`, the dialog window came back as
+        //   parent=[0,152][1080,2305]  frame=[0,152][1080,2305]  Requested w=1080 h=2364
+        // while the display is [0,0][1080,2364]. The window asked for the full display height and
+        // was refused, because `decorFitsSystemWindows = false` does NOT set
+        // FLAG_LAYOUT_NO_LIMITS in this Compose version: the window's parent frame stays the app
+        // area, so it is both positioned 152px down and capped 59px short. The Compose content is
+        // still measured at the full 2364, so the whole bottom inset hung off the end of the screen
+        // and the last row of every sheet landed under the gesture bar.
+        //
+        // 🔴 That is a [GridlinkModal] fault, not a schedule-sheet fault: the folder action sheet
+        // had it from the day it was written (Delete row measured at [49,2267][1031,2364]). A short
+        // sheet just hides it better, which is why it went unnoticed until a four-row sheet.
+        //
+        // Every line is load-bearing, and the two flags are NOT the same flag. NO_LIMITS alone only
+        // lets the window overhang its parent: it grew the frame to [0,152][1080,2516], still
+        // starting 152px down and now hanging 152px off the bottom. LAYOUT_IN_SCREEN is what
+        // re-parents it from the app area to the display so TOP means the top of the screen. (The
+        // system wallpaper window in the same dump carries exactly this pair for the same reason.)
+        // MATCH_PARENT then claims all of it, and TOP|START stops it being centred. Drop any one
+        // and the sheet drifts again.
+        val view = LocalView.current
+        SideEffect {
+            val window = (view.parent as? DialogWindowProvider)?.window ?: return@SideEffect
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            )
+            window.setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+            )
+            window.setGravity(Gravity.TOP or Gravity.START)
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = SCRIM_ALPHA))
+                // ⚠️ Per-mode, not one flat black. Day's used to be 55% black over a blue gradient,
+                // which desaturated the whole page toward grey and read as the screen having gone
+                // wrong. It is now the background blue at 50%, so the page dims without changing
+                // family. OLED goes the other way and gets a heavier one, because black over black
+                // separates nothing.
+                .background(GridlinkTheme.colors.scrim)
                 // Tap outside to dismiss. No indication: a ripple the size of the screen is not a
                 // press state, it is a flash.
                 .clickable(
@@ -123,7 +174,7 @@ private fun GridlinkModal(
  * opaque raised fill, so there the base is covered and costs nothing.
  */
 @Composable
-private fun GridlinkModalCard(
+fun GridlinkModalCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {

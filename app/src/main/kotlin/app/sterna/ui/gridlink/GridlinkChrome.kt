@@ -616,7 +616,7 @@ fun GridlinkNavPill(
                             label = destination.label,
                             icon = destination.icon,
                             tint = if (active) {
-                                gridlinkOnAccent(colors.accent)
+                                colors.onAccent
                             } else {
                                 colors.textSecondary
                             },
@@ -685,13 +685,22 @@ private fun GridlinkPillItem(
 }
 
 /**
- * Foreground colour for anything sitting on an accent fill.
+ * Foreground colour for anything sitting on a fill whose colour is NOT the accent, which today
+ * means the swipe tracks: green archive, amber mark-unread, red delete.
  *
- * Read off the accent's own luminance rather than off the mode, because Day's flat background is
- * the gradient's end stop and not a neutral, so using it here produced cyan text on blue.
+ * Read off the fill's own luminance rather than off the mode, because Day's flat background is the
+ * gradient's end stop and not a neutral, so using it here produced cyan text on blue.
+ *
+ * 🔴 For an accent fill, read [GridlinkColors.onAccent] instead. This heuristic returns white for
+ * OLED's `#F97316` (luminance ≈ 0.32, under the threshold) and that fails contrast outright, which
+ * is exactly why the palette now carries the answer.
+ *
+ * ⚠️ The threshold is left alone rather than replaced with a real contrast comparison. A contrast
+ * chooser would flip the archive glyph from white to near-black on `#16A34A`, and the swipe screen
+ * is signed off as it stands. If the tracks are ever retuned, revisit this then and not before.
  */
-fun gridlinkOnAccent(accent: Color): Color =
-    if (accent.luminance() > 0.5f) Color.Black else Color.White
+fun gridlinkOnAccent(fill: Color): Color =
+    if (fill.luminance() > 0.5f) Color.Black else Color.White
 
 /**
  * The "on" fill shared by the compose button and the selected nav destination.
@@ -752,7 +761,7 @@ fun GridlinkComposeButton(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = gridlinkOnAccent(colors.accent),
+                tint = colors.onAccent,
                 modifier = Modifier.size(26.dp),
             )
         }
@@ -926,7 +935,7 @@ private fun ModeSegment(
             text = label,
             style = GridlinkType.toolbarLabel,
             color = when {
-                active -> gridlinkOnAccent(colors.accent)
+                active -> colors.onAccent
                 labelColor != null -> labelColor
                 else -> colors.textSecondary
             },

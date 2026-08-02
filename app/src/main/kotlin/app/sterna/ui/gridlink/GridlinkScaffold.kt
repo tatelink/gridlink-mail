@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -176,8 +177,17 @@ fun Modifier.gridlinkEdgeFade(fadeTop: Boolean = true): Modifier = this
  * Owns which tab is showing and hands off to the screen that answers for it.
  *
  * Deliberately thin: no navigation library, no back stack, no routes. The four destinations are
- * peers with no depth between them, so a back stack would only exist to be popped. The thread view
- * and the composer are the first things that will need one, and that is when to add it.
+ * peers with no depth between them, so a back stack would only exist to be popped.
+ *
+ * The composer is the first thing here with any depth to it, and it is handled as one nullable piece
+ * of state rather than as a fifth destination. It is not a peer of the four: you open it FROM one of
+ * them and you come back to the one you left. 🔴 It is also drawn OVER the destination rather than
+ * instead of it, so the list underneath keeps its scroll position, its selection and its swipe
+ * state while you write. Swapping it into the `when` would tear all of that down and rebuild it on
+ * close, and the user would come back to the top of a list they were halfway down.
+ *
+ * That is still not a back stack, and the moment the thread view lands (composer opened from a
+ * thread, opened from a list, both needing their own return) it will need to be.
  */
 @Composable
 fun GridlinkRoot(
@@ -192,42 +202,61 @@ fun GridlinkRoot(
     initialFolderActionId: String? = null,
     initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
     initialScrubLetter: Char? = null,
+    initialCompose: GridlinkComposeDraft? = null,
+    initialComposeFocus: GridlinkComposeField = GridlinkComposeField.TO,
+    initiallyScheduling: Boolean = false,
     demoRecycle: Boolean = false,
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
-    when (destination) {
-        GridlinkDestination.INBOX -> GridlinkMessageListScreen(
-            modifier = modifier,
-            destination = destination,
-            onSelectDestination = { destination = it },
-            initiallyExpanded = initiallyExpanded,
-            initiallySelected = initiallySelected,
-            initialSearchExpanded = initialSearchExpanded,
-            initialSwipeId = initialSwipeId,
-            initialSwipeFraction = initialSwipeFraction,
-            demoRecycle = demoRecycle,
-        )
+    // Not `rememberSaveable`: a draft holds contacts and attachments, which is a parcelable saver's
+    // worth of work for state that a real build will own outside the UI anyway.
+    var composing by remember(initialCompose) { mutableStateOf(initialCompose) }
 
-        GridlinkDestination.FOLDERS -> GridlinkFolderScreen(
-            modifier = modifier,
-            destination = destination,
-            onSelectDestination = { destination = it },
-            initialActionFolderId = initialFolderActionId,
-            initialStage = initialFolderStage,
-        )
+    Box(modifier = modifier) {
+        when (destination) {
+            GridlinkDestination.INBOX -> GridlinkMessageListScreen(
+                destination = destination,
+                onSelectDestination = { destination = it },
+                onCompose = { composing = GridlinkComposeDraft.Fresh },
+                initiallyExpanded = initiallyExpanded,
+                initiallySelected = initiallySelected,
+                initialSearchExpanded = initialSearchExpanded,
+                initialSwipeId = initialSwipeId,
+                initialSwipeFraction = initialSwipeFraction,
+                demoRecycle = demoRecycle,
+            )
 
-        GridlinkDestination.CALENDAR -> GridlinkCalendarScreen(
-            modifier = modifier,
-            destination = destination,
-            onSelectDestination = { destination = it },
-            initialView = initialCalendarView,
-        )
+            GridlinkDestination.FOLDERS -> GridlinkFolderScreen(
+                destination = destination,
+                onSelectDestination = { destination = it },
+                onCompose = { composing = GridlinkComposeDraft.Fresh },
+                initialActionFolderId = initialFolderActionId,
+                initialStage = initialFolderStage,
+            )
 
-        GridlinkDestination.CONTACTS -> GridlinkContactsScreen(
-            modifier = modifier,
-            destination = destination,
-            onSelectDestination = { destination = it },
-            initialScrubLetter = initialScrubLetter,
-        )
+            // Calendar and Contacts deliberately do NOT open the composer. Their compose button is
+            // already a "+" that promises a new appointment or a new contact, and having it write an
+            // email instead would be the app lying about what a button does.
+            GridlinkDestination.CALENDAR -> GridlinkCalendarScreen(
+                destination = destination,
+                onSelectDestination = { destination = it },
+                initialView = initialCalendarView,
+            )
+
+            GridlinkDestination.CONTACTS -> GridlinkContactsScreen(
+                destination = destination,
+                onSelectDestination = { destination = it },
+                initialScrubLetter = initialScrubLetter,
+            )
+        }
+
+        composing?.let { draft ->
+            GridlinkComposeScreen(
+                onClose = { composing = null },
+                draft = draft,
+                initialFocus = initialComposeFocus,
+                initiallyScheduling = initiallyScheduling,
+            )
+        }
     }
 }
