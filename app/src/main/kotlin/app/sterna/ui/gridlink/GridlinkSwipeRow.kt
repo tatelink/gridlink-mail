@@ -3,6 +3,7 @@ package app.sterna.ui.gridlink
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
@@ -272,8 +273,8 @@ fun GridlinkSwipeRow(
                 // otherwise. Same for an unmet threshold.
                 GridlinkSwipeAction.MARK_UNREAD, null -> 0f
             }
-            val spec = if (target == 0f) {
-                GridlinkMotion.swipeRelease<Float>()
+            val spec: AnimationSpec<Float> = if (target == 0f) {
+                GridlinkMotion.swipeRelease()
             } else {
                 GridlinkMotion.swipeFlyOff()
             }
@@ -404,7 +405,7 @@ fun ColumnScope.GridlinkSwipeableRow(
 ) {
     AnimatedVisibility(
         visible = visible,
-        enter = expandVertically(GridlinkMotion.rowCollapse()) + fadeIn(),
+        enter = expandVertically(GridlinkMotion.rowArrive()) + fadeIn(),
         exit = shrinkVertically(GridlinkMotion.rowCollapse()) + fadeOut(),
         modifier = modifier,
     ) {

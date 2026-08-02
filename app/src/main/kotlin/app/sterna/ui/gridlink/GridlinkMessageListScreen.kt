@@ -197,13 +197,27 @@ fun GridlinkMessageListScreen(
     /** Archive, move and delete all do the same visible thing: the row is read, then it is gone. */
     fun remove(ids: Set<String>) {
         if (ids.isEmpty()) return
-        // Marked read on the way out. Filing something unread and having it still count against the
-        // unread badge from inside the archive is the behaviour every mail client gets wrong once.
-        edit(ids) { it.copy(unread = false) }
+        // 🔴 This runs on the frame the finger lifts, so what it does NOT do matters as much as what
+        // it does. [removedIds] is the only state the leaving row's collapse reads, so it is set
+        // here alone and everything else is pushed off this frame.
         removedIds = removedIds + ids
         // A row cannot stay ticked after leaving the inbox, and letting it would strand the action
-        // bar open over a selection with nothing in it.
+        // bar open over a selection with nothing in it. Cheap: a set of ids, no rows rebuilt.
         selectedIds = selectedIds - ids
+        scope.launch {
+            // Marked read on the way out. Filing something unread and having it still count against
+            // the unread badge from inside the archive is the behaviour every mail client gets wrong
+            // once.
+            //
+            // 🔴 One frame late, deliberately. This rewrites both message lists, which invalidates
+            // every row in the LazyColumn, and doing it on the release frame measurably cost two
+            // frames before the collapse could start — the row hung at 80% swiped, doing nothing,
+            // for 38ms after the finger was already gone. Nothing here is visible (the row is on
+            // its way out and the header count moving 16ms later cannot be perceived), so it has no
+            // business competing with the animation for that frame.
+            withFrameNanos { }
+            edit(ids) { it.copy(unread = false) }
+        }
         scheduleRecycle(ids)
     }
 
@@ -361,7 +375,7 @@ fun GridlinkMessageListScreen(
                             animationSpec = GridlinkMotion.standard(),
                         ) + fadeIn(),
                         exit = shrinkVertically(
-                            animationSpec = GridlinkMotion.rowCollapse(),
+                            animationSpec = GridlinkMotion.groupCollapse(),
                         ) + fadeOut(),
                     ) {
                         Column {
