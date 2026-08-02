@@ -1,5 +1,8 @@
 package app.sterna.ui.gridlink
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import app.sterna.ui.theme.GridlinkColors
 import app.sterna.ui.theme.GridlinkDimens
 import app.sterna.ui.theme.GridlinkMode
+import app.sterna.ui.theme.GridlinkMotion
 import app.sterna.ui.theme.GridlinkRadii
 import app.sterna.ui.theme.GridlinkSpacing
 import app.sterna.ui.theme.GridlinkTheme
@@ -110,6 +114,22 @@ private val SYNC_CHIP_HEIGHT = 28.dp
  * one, a 28dp chip with no press state is a readout and reads as one. Making the sync chip tappable
  * would be inventing a behaviour the design does not specify, and the state it would have to open is
  * already the first line of the menu sheet.
+ *
+ * ## 🔴 Nothing is shown when everything is fine
+ * Brandon, on the inbox: *"get rid of 'synced' its redundant"*. It was. A chip that says "Synced"
+ * is on screen every second of every normal day to report that nothing is wrong, which is the
+ * default assumption anyway, and it spends the app's one permanent status slot saying it. Worse, a
+ * readout that is always present stops being read, so the two states you actually need to notice
+ * (a sync running, and a mailbox that is not moving) arrive in a slot the eye has already learned
+ * to skip.
+ *
+ * So [GridlinkSyncState.SYNCED] renders nothing at all and the chip becomes an exception report.
+ * The absence of the chip is the healthy state, and its appearance means something.
+ *
+ * ⚠️ This does not remove the sync readout from the app, and it must not: "is it empty or is it
+ * broken" is a real question and it still has two answers, both of them worded by
+ * [gridlinkSyncSentence]. The drawer carries "Synced 4 min ago" where you go looking for it, and
+ * [GridlinkEmptyState] carries it where you would otherwise have to guess.
  */
 @Composable
 fun GridlinkChromeRow(
@@ -129,7 +149,16 @@ fun GridlinkChromeRow(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         GridlinkMenuButton(onClick = onOpenMenu)
-        GridlinkSyncChip(sync = sync)
+        // Fades rather than popping, because the common transition is SYNCED to SYNCING to SYNCED
+        // and an element that appears instantly in the corner of the eye reads as a glitch. The row
+        // height is set by the 44dp circle, so the chip arriving and leaving never moves anything.
+        AnimatedVisibility(
+            visible = sync != GridlinkSyncState.SYNCED,
+            enter = fadeIn(GridlinkMotion.standard()),
+            exit = fadeOut(GridlinkMotion.standard()),
+        ) {
+            GridlinkSyncChip(sync = sync)
+        }
     }
 }
 

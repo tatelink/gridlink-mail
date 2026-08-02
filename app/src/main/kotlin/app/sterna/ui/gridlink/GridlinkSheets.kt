@@ -45,7 +45,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
@@ -119,6 +122,110 @@ private const val MODAL_ANIM_MS = 200
 
 /** Where a centred modal starts from. Small: this is a settle, not a zoom. */
 private const val MODAL_ENTER_SCALE = 0.96f
+
+/**
+ * How solid the frosted fill is. The remainder is what bleeds through from behind.
+ *
+ * 🔴 Measured on the device, not chosen. 0.88 was the first attempt and it was plainly wrong: every
+ * sender name and subject line in the list behind the drawer was still readable, which is the exact
+ * "ghost" failure the opaque two-fill stack had been written to kill. The reason is worth keeping,
+ * because it is the thing that makes fake frost hard. Real frost destroys high spatial frequencies
+ * and keeps low ones, so you get colour and vague masses and no text. A flat alpha keeps ALL
+ * frequencies at the same fraction, so 12% of a crisp black glyph on a pale card is still a crisp
+ * black glyph, just faint. There is no alpha that blurs; there is only an alpha low enough to read
+ * through. 0.94 puts the letters below the point where the eye resolves them while the panel still
+ * takes a visible tint from whatever is behind it, and still shifts as that content scrolls.
+ *
+ * Sampled off the device across a bleed-through subject line in Day: 0.88 left a 14/255 luminance
+ * spread, 0.94 leaves 8/255. If this is ever retuned, measure it the same way rather than judging a
+ * downscaled screenshot, which exaggerates the bleed badly enough to have sent the first pass wrong.
+ */
+private const val FROST_OPACITY = 0.94f
+
+/**
+ * The lit edge. Top-leading bright, mid neutral, bottom-trailing slightly dark.
+ *
+ * Weak on purpose. This is the difference between a flat translucent rectangle and something that
+ * reads as a physical pane, and it only works while you cannot point at it. 14% white over an
+ * already-pale Day card is about two steps of value.
+ */
+private val FROST_SHEEN = listOf(
+    0.00f to Color.White.copy(alpha = 0.14f),
+    0.40f to Color.White.copy(alpha = 0.02f),
+    1.00f to Color.Black.copy(alpha = 0.05f),
+)
+
+/**
+ * The frosted surface shared by every modal, sheet, dialog and the drawer.
+ *
+ * 🔴 Brandon: "make the hamburger menu, and all menus that popup or slide out frosted almost like
+ * translucent but not". Both halves of that are load-bearing. Translucent enough that the screen
+ * behind tints it and moves it; not so translucent that you can read what is back there.
+ *
+ * ## 🔴 There is no blur here, and there cannot be
+ * [Modifier.blur][androidx.compose.ui.draw.blur] blurs a composable's OWN content, not the backdrop.
+ * A backdrop-blur API does not exist in this Compose version, §9 of the brief bans live blur behind
+ * scrolling content anyway, and the backdrop is a gradient with three soft blobs on it, so blurring
+ * it would produce a nearly identical image at real cost. The frost is therefore composed, not
+ * sampled: one solid veil, one sheen, one hairline.
+ *
+ * ## 🔴 Why the veil is composited first and then made transparent
+ * The old stack painted two opaque fills, `background` then `surfaceRaised`, because Day's raised
+ * glass is 72% white and 28% of the whole screen showing through a modal read as a ghost. Simply
+ * dropping the alpha of that stack would give three different results in three palettes: Day's fill
+ * would land at 0.88 × 0.72 = 63% white and dissolve, while Night's and OLED's opaque fills would
+ * land at a well-behaved 88%. So [over] flattens the palette's designed glass into the single opaque
+ * colour it actually resolves to, and only then is one known alpha applied to it. Every mode gets
+ * the same 12% of backdrop, which is the only way one number can be tuned by eye.
+ *
+ * ## The sheen is skipped on OLED
+ * OLED ships `usesShadows = false`, and that flag means what it says everywhere else in the app: no
+ * lit or shaded fields on a mode whose whole premise is that unlit pixels are off. A 14% white wash
+ * across the top third of a drawer is exactly the large soft field that mode exists to avoid.
+ */
+@Composable
+private fun Modifier.gridlinkFrostedGlass(shape: Shape): Modifier {
+    val colors = GridlinkTheme.colors
+    val veil = remember(colors.surfaceRaised, colors.background) {
+        colors.surfaceRaised.over(colors.background).copy(alpha = FROST_OPACITY)
+    }
+    return this
+        .clip(shape)
+        .background(veil, shape)
+        .then(
+            if (colors.usesShadows) {
+                // Diagonal, not vertical. A vertical wash on a full-height drawer is a gradient you
+                // can name; across the corner it reads as a light source somewhere off the screen.
+                Modifier.background(
+                    brush = Brush.linearGradient(
+                        colorStops = FROST_SHEEN.toTypedArray(),
+                        start = Offset.Zero,
+                        end = Offset.Infinite,
+                    ),
+                    shape = shape,
+                )
+            } else {
+                Modifier
+            },
+        )
+        .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
+}
+
+/**
+ * Flatten a translucent colour onto an opaque one, source-over.
+ *
+ * ⚠️ Assumes [base] is opaque, which every palette's `background` is. If one ever ships translucent,
+ * this returns a colour that is too light and nothing will fail; check there before trusting it.
+ */
+private fun Color.over(base: Color): Color {
+    if (alpha >= 1f) return this
+    val a = alpha
+    return Color(
+        red = red * a + base.red * (1f - a),
+        green = green * a + base.green * (1f - a),
+        blue = blue * a + base.blue * (1f - a),
+    )
+}
 
 /**
  * The window, the scrim and the dismiss behaviour, with nothing opinionated inside it.
@@ -292,27 +399,18 @@ fun GridlinkModal(
  * 🔴 Swallows clicks. Without the no-op clickable, every tap on the sheet falls through to the
  * scrim's dismiss handler and the sheet closes when you reach for the thing inside it.
  *
- * 🔴 Two fills, not one. Day's [surfaceRaised][app.sterna.ui.theme.GridlinkColors.surfaceRaised] is
- * 72% white, which is right for glass lying directly on the gradient and wrong here: a modal is over
- * the WHOLE screen, so 28% of the nav pill and the compose button show straight through the card and
- * the sheet reads as a ghost. Painting [background][app.sterna.ui.theme.GridlinkColors.background]
- * underneath makes the card opaque at exactly the colour the same glass shows over a flat backdrop,
- * so it stays a Gridlink surface instead of becoming a slab of grey. Night and OLED already ship an
- * opaque raised fill, so there the base is covered and costs nothing.
+ * The surface is [gridlinkFrostedGlass], which is where the reasoning about Day's 72%-white raised
+ * glass over a whole screen now lives. Read it before changing the fill.
  */
 @Composable
 fun GridlinkModalCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkRadii.card)
     Column(
         modifier = modifier
-            .clip(shape)
-            .background(colors.background, shape)
-            .background(colors.surfaceRaised, shape)
-            .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
+            .gridlinkFrostedGlass(shape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -465,12 +563,9 @@ fun GridlinkSlideOutPanel(
                 // graphicsLayer and not an offset: this moves every frame, and re-laying out a
                 // scrolling column to do it would be the one place in the app that stutters.
                 .graphicsLayer { translationX = -size.width * (1f - progress) }
-                .clip(shape)
-                // Same two fills as GridlinkModalCard, for the same reason: Day's raised glass is
-                // 72% white and the whole screen is behind it here.
-                .background(colors.background, shape)
-                .background(colors.surfaceRaised, shape)
-                .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
+                // Same surface as GridlinkModalCard, and the drawer is the one that shows it off:
+                // it is the only frosted panel with live content sliding past behind it.
+                .gridlinkFrostedGlass(shape)
                 // 🔴 Swallow taps, or every press inside the panel falls through to the scrim's
                 // dismiss and the drawer closes as you reach for a row in it.
                 .clickable(
