@@ -121,10 +121,9 @@ private val PULL_INDICATOR_DOT = 8.dp
  *
  * The condition is the interesting half. On an empty list the gesture is off, because a list with no
  * rows has nothing to move and the indicator would appear out of a blank panel attached to nothing.
- * ⚠️ That leaves a real gap: an empty inbox is exactly when you most want to force a check. The
- * answer is a refresh control in the empty state (§1g), which does not exist yet, so until it does an
- * empty inbox can only be refreshed from the drawer. Noting it rather than quietly reintroducing the
- * gesture Brandon just scoped.
+ * That leaves the case where you most want to force a check with no way to, which is what
+ * [GridlinkEmptyInbox] is for: the refresh moves into the empty state and becomes a tap on the mark.
+ * The two are one feature and neither is correct without the other.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -156,6 +155,14 @@ fun GridlinkMessageListScreen(
      * 🔴 Delete must never behave like this in the real client.
      */
     demoRecycle: Boolean = false,
+    /**
+     * Screen-capture hook: opens with no mail at all, so [GridlinkEmptyInbox] is what draws.
+     *
+     * The alternative is emptying the sample list by hand, which is roughly forty swipes and only
+     * works with `demoRecycle` off. That is not a test, it is a chore with a chance of a typo in the
+     * middle of it.
+     */
+    initiallyEmpty: Boolean = false,
     onOpenMessage: (GridlinkMessage) -> Unit = {},
     onCompose: () -> Unit = {},
 ) {
@@ -179,8 +186,12 @@ fun GridlinkMessageListScreen(
     // change order. The recycle loop has to move a message to the front, and an override set cannot
     // express position. Read and unread now live in the list itself, where they belong, and the one
     // surviving override is the one that is genuinely transient.
-    var humans by remember { mutableStateOf(GridlinkSample.humanMessages) }
-    var robots by remember { mutableStateOf(GridlinkSample.reportsBundle.messages) }
+    var humans by remember {
+        mutableStateOf(if (initiallyEmpty) emptyList() else GridlinkSample.humanMessages)
+    }
+    var robots by remember {
+        mutableStateOf(if (initiallyEmpty) emptyList() else GridlinkSample.reportsBundle.messages)
+    }
 
     // The single remaining override: ids that are mid-disappearance. Not "deleted" — the message is
     // still in the list above, it is simply being animated out. Keeping it in the list is what lets
@@ -418,6 +429,27 @@ fun GridlinkMessageListScreen(
                     },
                 ),
         ) {
+            // 🔴 Replaces the list rather than sitting inside it as a last item. An empty LazyColumn
+            // here is not empty: the section labels are their own items and do not know whether
+            // anything follows them, so the list rendered AUTOMATED / TODAY / YESTERDAY / EARLIER
+            // stacked up with no rows under any of them. Headings for sections that do not exist.
+            //
+            // The early return also takes the pull indicator below out of the composition, which is
+            // correct: `enabled = hasMail` had already turned the gesture off, so the only thing that
+            // could still draw it is a `refreshing` flag that nothing can now set.
+            if (!hasMail) {
+                GridlinkEmptyInbox(
+                    sync = chrome.sync,
+                    lastSyncedAt = chrome.lastSyncedAt,
+                    // ⚠️ Reads chrome.sync rather than the local `refreshing` above, and the
+                    // difference is deliberate. `refreshing` answers "did a pull start this", which
+                    // is the right question for an indicator attached to a gesture. This is a status
+                    // readout, so a sync started from the drawer SHOULD light it up.
+                    onRefresh = { scope.launch { chrome.syncAllAccounts() } },
+                )
+                return@Box
+            }
+
             LazyColumn(
                 state = listState,
                 // Capped top speed and a longer, heavier coast. See [GridlinkFling].
