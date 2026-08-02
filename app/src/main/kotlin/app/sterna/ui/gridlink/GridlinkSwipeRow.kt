@@ -3,7 +3,6 @@ package app.sterna.ui.gridlink
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
@@ -11,9 +10,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -34,6 +33,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,15 +45,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
+import app.sterna.ui.inbox.SwipeLock
+import app.sterna.ui.inbox.swipeDirectionLock
 import app.sterna.ui.theme.GridlinkMotion
 import app.sterna.ui.theme.GridlinkSpacing
 import app.sterna.ui.theme.GridlinkSwipe
 import app.sterna.ui.theme.GridlinkTheme
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -101,6 +107,29 @@ private val SWIPE_ICON = 22.dp
 private val ICON_FADE_IN = 56.dp
 
 /**
+ * How far through the fly-off the caller is told, as a fraction of a row width.
+ *
+ * 🔴 Not 1.0, and the shortfall is deliberate. Handing over on the last frame of the flight looks
+ * correct on paper and measured badly: the row flew off cleanly and then a full-bleed slab sat
+ * motionless for ~130ms before its height moved. That gap is the cost of *starting* the collapse.
+ * The caller's state write lands a frame later, the wrapper's `AnimatedVisibility` picks up the new
+ * target on the recomposition after that, and its transition's first frame comes after that again,
+ * which on this emulator (drawing at ~30fps, so every one of those steps is 28ms rather than 16)
+ * adds up to something a person reads as the app having stalled.
+ *
+ * So the handover is moved earlier by roughly that much, and the collapse spins up *while* the row
+ * is still finishing its exit. By the time the collapse has any visible height to it, the row is
+ * gone and the tween has closed the track to full-bleed behind it. The two motions dovetail instead
+ * of queueing, and nothing is ever seen mid-crush.
+ *
+ * ⚠️ The value is bounded on both sides and 0.94 is not arbitrary. Lower, and the collapse becomes
+ * visible while a real amount of row is still on screen, which is the crushing bug this whole
+ * rewrite removed. Higher, and the gap comes back. 6% of a row width is inside the row's own
+ * horizontal padding, so what is still on screen at the moment of handover is blank.
+ */
+private const val FLY_OFF_HANDOVER = 0.94f
+
+/**
  * Wraps a row in the swipe track.
  *
  * ## Why the track is clipped to the revealed strip
@@ -117,11 +146,10 @@ private val ICON_FADE_IN = 56.dp
  * the class of cost that made the fling feel bad. The two booleans that DO need composition (armed,
  * escalated) go through `derivedStateOf`, so they recompose on the flip and not on the frame.
  *
- * @param onAction fired once, at the instant of release, *before* the row animates anywhere. It
- *   must return promptly: it is on the frame that starts the fly-off, so real work belongs behind
- *   it rather than inside it. Archive and delete then fly the row off-screen while the caller
- *   collapses the gap; mark-unread springs back, because the row is staying and only its state
- *   changed.
+ * @param onAction fired once per completed gesture. For archive and delete it fires when the row
+ *   has finished flying off, NOT at the instant of release; for mark-unread it fires immediately,
+ *   because that row is staying and only its state changed. See [GridlinkSwipeRow]'s `settle` for
+ *   why the ordering is the way round it is.
  * @param initialFraction screen-capture hook. §6a's deliverable is the mid-gesture frames, and
  *   `adb input swipe` cannot hold a drag still at 40% of an unknown row width.
  */
@@ -163,6 +191,23 @@ fun GridlinkSwipeRow(
 
     /** The in-flight release, held so a new touch can interrupt it instead of fighting it. */
     var releaseJob by remember { mutableStateOf<Job?>(null) }
+
+    /**
+     * True once a fly-off has started, and never reset: the row is leaving.
+     *
+     * A spring-back is interruptible, because the row is staying and grabbing it again is a
+     * reasonable thing to do. A fly-off is not. Interrupting one would cancel the coroutine that
+     * fires [onAction] at the end of it, so a second touch landing during the ~200ms flight would
+     * silently swallow the archive, which is the failure this whole rewrite exists to remove.
+     */
+    var committing by remember { mutableStateOf(false) }
+
+    // 🔴 The gesture handler below outlives the composition that created it (its `pointerInput` is
+    // keyed on `enabled` alone), so it must not capture `onAction` directly. Upstream hit exactly
+    // this and left a note on it in `SwipeableEmailRow`: a stale capture keeps dispatching the
+    // previous state's action, and the second swipe on a row visibly does nothing. State delegates
+    // read through to the live value and are safe; a plain lambda parameter is not.
+    val currentOnAction by rememberUpdatedState(onAction)
 
     // Seeded once, as soon as a width exists. Keyed on width rather than run in a side effect so a
     // capture launched before layout still lands; guarded by `seeded` so a later width change (a
@@ -225,19 +270,33 @@ fun GridlinkSwipeRow(
     val flingVelocityPx = with(LocalDensity.current) { GridlinkSwipe.flingVelocityDp.dp.toPx() }
 
     /**
-     * Decides what the gesture meant, tells the caller immediately, and then plays the motion.
+     * Decides what the gesture meant, plays the motion, and then tells the caller.
      *
-     * 🔴 The order is the point. `onAction` fires *before* the animation, not after it, so the row
-     * leaving the screen and the list closing the gap overlap instead of queueing. Tate's note
-     * was "the animation should be fluid, and then the processing can happen in the background",
-     * and this is the line that does it: nothing the caller does can now delay a single frame of
-     * the fly-off, because the fly-off has already started. When the real JMAP call replaces the
-     * in-memory edit, that call lands here too and the animation still will not wait for it.
+     * 🔴 The order is the whole fix, and it is the reverse of what this function used to do.
      *
-     * ⚠️ The consequence to keep in mind: the action is committed at the moment of release, so an
-     * action that fails server-side has to be undone visibly rather than prevented. That is the
-     * right trade for a mail client (§6a's undo snackbar is the mechanism, still to be built) but
-     * it does mean this function must never fire an action it is not willing to stand behind.
+     * It used to call `onAction` synchronously on the release frame, on the theory that the row
+     * flying off and the list closing the gap should overlap rather than queue. They cannot
+     * overlap: they are the same row. The caller's handler sets `removedIds`, which flips
+     * `visible` on the [GridlinkSwipeableRow] wrapper *this row lives inside*, so on the very next
+     * frame `AnimatedVisibility` began shrinking the row's height to zero while the fly-off was
+     * still animating its X. The row crushed vertically at 60% travel instead of leaving, and when
+     * the collapse finished it disposed the content and cancelled the fly-off's own coroutine
+     * mid-flight. That is the "hung" animation, and no amount of tuning the springs could fix it,
+     * because the two animations were destroying each other rather than running slowly.
+     *
+     * So: fly off first, then hand over. The collapse now starts from a row that has already left
+     * the screen, which is what it was written for. Upstream Sterna's `SwipeableEmailRow` reaches
+     * the same conclusion in `commitSwipe`, and its comment for it ("the removal lands as the bird
+     * clears the screen") says it better.
+     *
+     * Mark-unread is the exception and fires immediately: that row is not going anywhere, so there
+     * is nothing to wait for and the dot should appear as the row springs back under the finger.
+     *
+     * ⚠️ The action is still committed at release in the sense that matters: the decision is taken
+     * here and nothing downstream can veto it. An action that fails server-side has to be undone
+     * visibly rather than prevented. That is the right trade for a mail client (§6a's undo
+     * snackbar is the mechanism, still to be built) but it does mean this function must never fire
+     * an action it is not willing to stand behind.
      */
     fun settle(velocity: Float) {
         val width = widthPx.toFloat()
@@ -262,55 +321,143 @@ fun GridlinkSwipeRow(
             else -> null
         }
 
-        if (action != null) onAction(action)
+        val target = when (action) {
+            GridlinkSwipeAction.ARCHIVE -> width
+            GridlinkSwipeAction.DELETE -> -width
+            // 🔴 Mark-unread springs back rather than flying off. The row is not going anywhere;
+            // only its unread flag changed, and throwing it off-screen would say otherwise. Same
+            // for an unmet threshold.
+            GridlinkSwipeAction.MARK_UNREAD, null -> 0f
+        }
+        val dismissing = target != 0f
+        if (dismissing) committing = true
+        if (action == GridlinkSwipeAction.MARK_UNREAD) currentOnAction(action)
 
         releaseJob = scope.launch {
-            val target = when (action) {
-                GridlinkSwipeAction.ARCHIVE -> width
-                GridlinkSwipeAction.DELETE -> -width
-                // 🔴 Mark-unread springs back rather than flying off. The row is not going
-                // anywhere; only its unread flag changed, and throwing it off-screen would say
-                // otherwise. Same for an unmet threshold.
-                GridlinkSwipeAction.MARK_UNREAD, null -> 0f
-            }
-            val spec: AnimationSpec<Float> = if (target == 0f) {
-                GridlinkMotion.swipeRelease()
+            if (dismissing && action != null) {
+                val handoverAt = width * FLY_OFF_HANDOVER
+                var handed = false
+                animate(
+                    initialValue = offset,
+                    targetValue = target,
+                    initialVelocity = velocity,
+                    animationSpec = GridlinkMotion.swipeFlyOff(abs(target - offset) / width),
+                ) { value, _ ->
+                    offset = value
+                    // See [FLY_OFF_HANDOVER]: the list starts closing the gap just before the row
+                    // has finished leaving, so the collapse's start-up cost is paid during the
+                    // flight rather than after it. Fires at most once, and immediately if the
+                    // finger already dragged the row past the mark.
+                    if (!handed && abs(value) >= handoverAt) {
+                        handed = true
+                        currentOnAction(action)
+                    }
+                }
+                // Belt and braces: a very short flight can finish without the callback ever
+                // observing a value past the mark, and an action that silently never fires is the
+                // exact failure this rewrite exists to remove.
+                if (!handed) currentOnAction(action)
             } else {
-                GridlinkMotion.swipeFlyOff()
+                // The snap-back carries the finger's own velocity into the spring, so a hard flick
+                // keeps its speed instead of decelerating to a stop and then starting again from
+                // rest. That restart is a large part of what read as hesitation.
+                animate(offset, target, velocity, GridlinkMotion.swipeRelease()) { value, _ ->
+                    offset = value
+                }
             }
-            // The release carries the finger's own velocity into the spring, so a hard flick keeps
-            // its speed instead of decelerating to a stop and then starting again from rest. That
-            // restart is a large part of what read as hesitation even on the gestures that worked.
-            animate(offset, target, velocity, spec) { value, _ -> offset = value }
         }
-    }
-
-    val dragState = rememberDraggableState { delta ->
-        val width = widthPx.toFloat()
-        // Hard clamp at one row width. Past that the track is already full-bleed and the extra
-        // travel buys nothing but a row hanging in empty space.
-        //
-        // 🔴 Synchronous. See [offset] for why launching a coroutine here was losing deltas.
-        offset = (offset + delta).coerceIn(-width, width)
     }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .onSizeChanged { widthPx = it.width }
+            // Tells the OS not to read a drag that starts on this row as a back gesture. Android's
+            // gesture navigation owns a ~20dp strip down both screen edges (the width is a user
+            // setting, up to ~40dp), and a swipe is a sweep, so the natural place to start one is
+            // the very edge of the row, inside that strip. Recorded the system taking a delete
+            // outright and throwing the app to the launcher mid-gesture.
+            //
+            // ⚠️ Partial by construction: the OS honours at most 200dp of exclusion per edge,
+            // measured up from the bottom of the window, so this protects roughly the lowest three
+            // rows and nothing above them. A platform cap, not a tuning knob.
+            //
+            // 🔴 This is deliberately the opposite call to upstream's. `DrawerGesture` declares no
+            // exclusion and leaves the strip inert, because Sterna's navigation drawer wants that
+            // edge and "we do not fight the system for it". Gridlink has no edge-drawer (§7 puts
+            // folder management on a full screen, and the hamburger is a button), so nothing here
+            // competes with row swipes for the edge and there is no reason to concede it.
+            .systemGestureExclusion()
             // Without this the translated row paints over its neighbours in the list.
             .clipToBounds()
-            .draggable(
-                state = dragState,
-                orientation = Orientation.Horizontal,
-                enabled = enabled,
-                // 🔴 A new touch cancels the release outright rather than racing it. Without this
-                // the spring keeps writing to `offset` underneath the finger, so grabbing a row
-                // that is still springing back drags it and the animation at the same time and the
-                // row stutters between the two.
-                onDragStarted = { releaseJob?.cancel() },
-                onDragStopped = { velocity -> settle(velocity) },
-            )
+            // 🔴 Hand-rolled rather than `Modifier.draggable(Horizontal)`, which is what this used
+            // to be. `draggable` arms the instant horizontal touch-slop is crossed, with no view on
+            // whether the drag is *mostly* horizontal, so it races the LazyColumn's vertical scroll
+            // on every diagonal and either steals a scroll or loses a swipe depending on which slop
+            // fell first. Upstream solved this once already, and `swipeDirectionLock` is the result:
+            // vertical is tested first so an ambiguous diagonal always resolves to scroll, and a
+            // swipe only arms when |dx| is at least twice |dy|. It is unit-tested in
+            // `SwipeDirectionLockTest`, so this file gets that coverage for free.
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                val slop = viewConfiguration.touchSlop
+                coroutineScope {
+                    while (true) {
+                        val down = awaitPointerEventScope { awaitFirstDown(requireUnconsumed = false) }
+                        // The row is already leaving. There is nothing here to grab.
+                        if (committing) continue
+                        val pointerId = down.id
+                        // `draggable` tracked velocity for us; raw pointer handling does not, and
+                        // the fling promotion in `settle` needs it.
+                        val tracker = VelocityTracker()
+                        tracker.addPosition(down.uptimeMillis, down.position)
+
+                        val horizontal = awaitPointerEventScope {
+                            var dx = 0f
+                            var dy = 0f
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == pointerId }
+                                if (change == null || !change.pressed) return@awaitPointerEventScope false
+                                dx += change.positionChange().x
+                                dy += change.positionChange().y
+                                tracker.addPosition(change.uptimeMillis, change.position)
+                                when (swipeDirectionLock(dx, dy, slop)) {
+                                    SwipeLock.VERTICAL -> return@awaitPointerEventScope false
+                                    SwipeLock.HORIZONTAL -> {
+                                        change.consume()
+                                        return@awaitPointerEventScope true
+                                    }
+                                    SwipeLock.PENDING -> Unit // still ambiguous, keep watching
+                                }
+                            }
+                            @Suppress("UNREACHABLE_CODE") false
+                        }
+                        if (!horizontal) continue
+
+                        // 🔴 A new touch cancels a spring-back outright rather than racing it.
+                        // Without this the spring keeps writing to `offset` underneath the finger,
+                        // so grabbing a row mid-recoil drags it and animates it at once and the row
+                        // stutters between the two. A fly-off is never cancelled; see [committing].
+                        releaseJob?.cancel()
+                        awaitPointerEventScope {
+                            horizontalDrag(pointerId) { change ->
+                                tracker.addPosition(change.uptimeMillis, change.position)
+                                // Hard clamp at one row width. Past that the track is already
+                                // full-bleed and the extra travel buys nothing but a row hanging in
+                                // empty space.
+                                //
+                                // 🔴 Synchronous. See [offset] for why launching a coroutine to
+                                // apply the delta was losing deltas.
+                                val width = widthPx.toFloat()
+                                offset = (offset + change.positionChange().x).coerceIn(-width, width)
+                                change.consume()
+                            }
+                        }
+                        settle(tracker.calculateVelocity().x)
+                    }
+                }
+            }
             .drawBehind {
                 val dx = offset
                 if (dx == 0f) return@drawBehind
