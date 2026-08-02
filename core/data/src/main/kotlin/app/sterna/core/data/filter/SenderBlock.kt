@@ -96,8 +96,12 @@ suspend fun addBlockRule(
 ): BlockOutcome {
     val state = runCatching { load() }.getOrNull()
     if (state !is FilterRulesState.Loaded) return BlockOutcome.FAILED
-    if (state.foreignActiveScript) return BlockOutcome.FAILED
+    // The duplicate check answers BEFORE the foreign-script refusal, and the order is the
+    // message. Neither branch writes anything, so they differ only in what the screen then says:
+    // "couldn't complete the action" reports that something went wrong, and on an address the
+    // script already handles nothing did — the rule she is being told about is already there.
     if (alreadyBlocked(state.rules, address)) return BlockOutcome.ALREADY_PRESENT
+    if (state.foreignActiveScript) return BlockOutcome.FAILED
     return runCatching { save(withBlockRule(state.rules, address, trashFolder)) }
         .fold(onSuccess = { BlockOutcome.ADDED }, onFailure = { BlockOutcome.FAILED })
 }

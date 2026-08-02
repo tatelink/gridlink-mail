@@ -152,6 +152,26 @@ class SenderBlockTest {
         assertNull("her own Sieve script must still be the active one", saved)
     }
 
+    @Test fun `an address already handled reads as already handled, script or no script`() = runBlocking {
+        // Nothing would have been written either way, so the two refusals are not the same
+        // refusal: "couldn't complete the action" says something went wrong, and nothing did.
+        // The duplicate check answers first because it is the answer that is true.
+        var saved: List<FilterRule>? = null
+        val outcome = addBlockRule(
+            address = "NEWS@example.com",
+            trashFolder = "Trash",
+            load = {
+                FilterRulesState.Loaded(
+                    existing + blockRule("news@example.com", "Trash"),
+                    foreignActiveScript = true,
+                )
+            },
+            save = { saved = it },
+        )
+        assertEquals(BlockOutcome.ALREADY_PRESENT, outcome)
+        assertNull("her own Sieve script must still be the active one", saved)
+    }
+
     @Test fun `a save the server refuses is reported as a failure`() = runBlocking {
         val outcome = addBlockRule(
             address = "news@example.com",
