@@ -536,6 +536,23 @@ object GridlinkSwipe {
     const val deleteThreshold = 0.60f
     const val iconScaleMin = 0.8f
     const val iconScaleMax = 1.0f
+
+    /**
+     * A flick faster than this commits without reaching the distance threshold, provided it got past
+     * [flingMinFraction].
+     *
+     * 🔴 Distance alone is the wrong test and is what makes a swipe feel like it ignored you. A
+     * quick confident flick is the most common way people archive mail, and it is short by nature:
+     * the finger is already leaving the glass at 15% of the row. Judged on distance that reads as
+     * the app refusing the gesture, and the fix people reach for is to swipe again harder.
+     *
+     * ⚠️ Deliberately NOT applied to delete. Escalating to destructive stays purely a distance
+     * decision, so no amount of speed can turn a hurried flick into a deleted message.
+     */
+    const val flingVelocityDp = 380f
+
+    /** Below this the gesture is a twitch, and no velocity should promote it into an action. */
+    const val flingMinFraction = 0.12f
 }
 
 /** How long the mail sits locally before it actually leaves, with a draining ring on the undo. */
@@ -658,6 +675,20 @@ object GridlinkMotion {
 
     /** Swipe release and snap-back — looser and quicker, so it tracks the finger. */
     fun <T> swipeRelease(): SpringSpec<T> = spring(dampingRatio = 0.75f, stiffness = 500f)
+
+    /**
+     * The committed row leaving the screen sideways.
+     *
+     * 🔴 Stiffer than [swipeRelease] and critically damped, and both halves matter. A spring's slow
+     * tail is invisible here because the row is already past the screen edge before it starts, so
+     * the only part anyone judges is how fast the row clears — which is stiffness. And it must not
+     * overshoot: the row would come back on screen from the far side, which reads as a bug.
+     *
+     * 🔴 It must also clear the edge well before [rowCollapse] finishes closing the gap. If the
+     * collapse wins the race, the row is still visibly mid-flight when its own height hits zero and
+     * it vanishes in place instead of leaving.
+     */
+    fun <T> swipeFlyOff(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 900f)
 
     /** Nav pill morphing into the selection toolbar: slow and heavily damped, so the shape holds. */
     fun <T> toolbarMorph(): SpringSpec<T> = spring(dampingRatio = 0.90f, stiffness = 300f)
