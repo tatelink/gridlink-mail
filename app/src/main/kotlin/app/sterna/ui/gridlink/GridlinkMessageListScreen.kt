@@ -6,11 +6,24 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.pullToRefresh
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -20,11 +33,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import app.sterna.ui.theme.GridlinkDimens
 import app.sterna.ui.theme.GridlinkMotion
+import app.sterna.ui.theme.GridlinkRadii
 import app.sterna.ui.theme.GridlinkSpacing
+import app.sterna.ui.theme.GridlinkTheme
+import app.sterna.ui.theme.GridlinkType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -49,6 +68,26 @@ private const val GRIDLINK_RECYCLE_DELAY_MS = 1400L
 private const val GRIDLINK_MARK_READ_DELAY_MS = 260L
 
 /**
+ * How far down the panel the pull indicator comes to rest.
+ *
+ * 🔴 Tuned so the chip parks INSIDE the list's [listFade][app.sterna.ui.theme.GridlinkDimens.listFade]
+ * band, ending 4dp above where the first section label starts. Landed lower (76dp, which is where
+ * this began) the chip sits exactly on the AUTOMATED label's line and reads as part of the section
+ * header rather than as something floating over the list. The fade band is already reserved space,
+ * so this is the one strip of the panel where an overlay owes nothing.
+ *
+ * It is a landing position, not the gesture's threshold: the threshold belongs to
+ * `PullToRefreshState` and is the platform's.
+ */
+private val PULL_INDICATOR_TRAVEL = 36.dp
+
+/** Same height as the chrome row's sync chip, because it is the same kind of object: a readout. */
+private val PULL_INDICATOR_HEIGHT = 28.dp
+
+/** The dot in front of the pull label, matching the sync chip's. Punctuation, not a badge. */
+private val PULL_INDICATOR_DOT = 8.dp
+
+/**
  * Screen 1 and 2 of the brief: the message list, mixed read and unread, with the automated-sender
  * bundle collapsed and expanded.
  *
@@ -68,10 +107,26 @@ private const val GRIDLINK_MARK_READ_DELAY_MS = 260L
  * brief's target of 13 on a folded screen.
  *
  * ## What is deliberately absent
- * No pull-to-refresh (JMAP pushes; the gesture would be theatre), no snippet, no avatars, no card.
- * All are §9 anti-requirements. §9 also bans a FAB; Tate overrode that directly and compose is
- * now a floating button beside the nav pill.
+ * No snippet, no avatars, no card. All are §9 anti-requirements. §9 also bans a FAB; Tate
+ * overrode that directly and compose is now a floating button beside the nav pill.
+ *
+ * ## Pull to refresh, and the condition on it
+ * 🔴 §9 banned this too, on the reasoning that JMAP pushes so the gesture would be theatre. Tate
+ * overruled it: "The mail list should also refresh all accounts when pulled down (only IF mail is
+ * present, however otherwise theres nothing to pull down)". Both halves are implemented.
+ *
+ * It refreshes ALL accounts, not this folder. That is the instruction and it is also the honest
+ * reading of the gesture: you pull because you suspect you are not being told about something, and
+ * scoping that to one mailbox answers a question nobody asked.
+ *
+ * The condition is the interesting half. On an empty list the gesture is off, because a list with no
+ * rows has nothing to move and the indicator would appear out of a blank panel attached to nothing.
+ * ⚠️ That leaves a real gap: an empty inbox is exactly when you most want to force a check. The
+ * answer is a refresh control in the empty state (§1g), which does not exist yet, so until it does an
+ * empty inbox can only be refreshed from the drawer. Noting it rather than quietly reintroducing the
+ * gesture Tate just scoped.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GridlinkMessageListScreen(
     destination: GridlinkDestination,
@@ -297,6 +352,19 @@ fun GridlinkMessageListScreen(
     // agree with the dots the user can see, and a bundled message is still an unread message.
     val unreadCount = humans.count { isPresent(it) && it.unread } + bundleUnread
 
+    // 🔴 Tate's condition on the gesture, stated as the thing it actually tests: is there a row
+    // on screen for the finger to drag. Counting `humans` alone would disable the pull on a list
+    // that still shows a collapsed bundle, which is a visible list.
+    val hasMail = humans.any(::isPresent) || !bundleGone
+
+    val chrome = LocalGridlinkChrome.current
+    val pullState = rememberPullToRefreshState()
+    // ⚠️ Local, not derived from `chrome.sync`. A sync started from somewhere else should light the
+    // chip in the chrome row and NOT drop an indicator into a list nobody pulled; and the offline
+    // case never reaches SYNCING at all, so a derived flag would leave the indicator stuck open
+    // waiting for a state that is not coming.
+    var refreshing by remember { mutableStateOf(false) }
+
     GridlinkScaffold(
         modifier = modifier,
         destination = destination,
@@ -324,164 +392,270 @@ fun GridlinkMessageListScreen(
             )
         },
     ) {
-        LazyColumn(
-            state = listState,
-            // Capped top speed and a longer, heavier coast. See [GridlinkFling].
-            flingBehavior = rememberGridlinkFlingBehavior(),
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .gridlinkEdgeFade(),
-            // Enough that the first and last rows can clear their fade and be read in full.
-            contentPadding = PaddingValues(
-                top = GridlinkDimens.listFade,
-                bottom = GridlinkDimens.listFade,
-            ),
+                // 🔴 On the parent, not the LazyColumn. This is a nested-scroll connection: it has
+                // to see the child's overscroll before deciding the gesture is a pull.
+                //
+                // The raw modifier rather than `PullToRefreshBox`, for exactly one reason: the box
+                // has no `enabled`, and turning the gesture off on an empty list is half the
+                // requirement. Drawing the indicator by hand is the price, and it was going to be
+                // hand-drawn anyway to match the sync chip.
+                .pullToRefresh(
+                    isRefreshing = refreshing,
+                    state = pullState,
+                    enabled = hasMail,
+                    onRefresh = {
+                        scope.launch {
+                            refreshing = true
+                            // Every account, not this folder. See the class doc: you pull because
+                            // you suspect you are not being told about something, and scoping that
+                            // to one mailbox answers a question nobody asked.
+                            chrome.syncAllAccounts()
+                            refreshing = false
+                        }
+                    },
+                ),
         ) {
-            item(key = "label-automated") {
-                GridlinkSectionLabel(GridlinkSection.AUTOMATED.label, gutter = gutter)
-            }
-            item(key = "bundle") {
-                Column {
-                    // §5: "The bundle row itself supports the same swipe actions, applying to every
-                    // message inside it, which is the fastest way to clear a morning's reports."
-                    GridlinkSwipeableRow(
-                        visible = !bundleGone,
-                        enabled = !selecting,
-                        initialFraction = if (initialSwipeId == GRIDLINK_BUNDLE_SWIPE_ID) {
-                            initialSwipeFraction
-                        } else {
-                            0f
-                        },
-                        onAction = { applySwipe(bundleIds, it) },
-                        divider = {
-                            GridlinkRowDivider(
-                                startInset = GridlinkSpacing.rowHorizontal + gutter,
-                            )
-                        },
-                    ) {
-                        GridlinkBundleRow(
-                            // Recomputed, so the badge answers to the swipes.
-                            bundle = bundleTemplate.copy(unreadCount = bundleUnread),
-                            expanded = bundleExpanded,
-                            // While selecting, a tap on the bundle picks it up rather than opening
-                            // it. Expanding mid-selection would shove six rows under the thumb that
-                            // just tapped.
-                            onToggle = {
-                                if (selecting) {
-                                    selectedIds = if (bundleSelected) {
-                                        selectedIds - bundleIds
-                                    } else {
-                                        selectedIds + bundleIds
-                                    }
-                                } else {
-                                    bundleExpanded = !bundleExpanded
-                                }
+            LazyColumn(
+                state = listState,
+                // Capped top speed and a longer, heavier coast. See [GridlinkFling].
+                modifier = Modifier
+                    .fillMaxSize()
+                    .gridlinkEdgeFade(),
+                flingBehavior = rememberGridlinkFlingBehavior(),
+                // Enough that the first and last rows can clear their fade and be read in full.
+                contentPadding = PaddingValues(
+                    top = GridlinkDimens.listFade,
+                    bottom = GridlinkDimens.listFade,
+                ),
+            ) {
+                item(key = "label-automated") {
+                    GridlinkSectionLabel(GridlinkSection.AUTOMATED.label, gutter = gutter)
+                }
+                item(key = "bundle") {
+                    Column {
+                        // §5: "The bundle row itself supports the same swipe actions, applying to every
+                        // message inside it, which is the fastest way to clear a morning's reports."
+                        GridlinkSwipeableRow(
+                            visible = !bundleGone,
+                            enabled = !selecting,
+                            initialFraction = if (initialSwipeId == GRIDLINK_BUNDLE_SWIPE_ID) {
+                                initialSwipeFraction
+                            } else {
+                                0f
                             },
-                            gutter = gutter,
-                            selected = bundleSelected,
-                            onLongClick = { selectedIds = selectedIds + bundleIds },
-                        )
+                            onAction = { applySwipe(bundleIds, it) },
+                            divider = {
+                                GridlinkRowDivider(
+                                    startInset = GridlinkSpacing.rowHorizontal + gutter,
+                                )
+                            },
+                        ) {
+                            GridlinkBundleRow(
+                                // Recomputed, so the badge answers to the swipes.
+                                bundle = bundleTemplate.copy(unreadCount = bundleUnread),
+                                expanded = bundleExpanded,
+                                // While selecting, a tap on the bundle picks it up rather than opening
+                                // it. Expanding mid-selection would shove six rows under the thumb that
+                                // just tapped.
+                                onToggle = {
+                                    if (selecting) {
+                                        selectedIds = if (bundleSelected) {
+                                            selectedIds - bundleIds
+                                        } else {
+                                            selectedIds + bundleIds
+                                        }
+                                    } else {
+                                        bundleExpanded = !bundleExpanded
+                                    }
+                                },
+                                gutter = gutter,
+                                selected = bundleSelected,
+                                onLongClick = { selectedIds = selectedIds + bundleIds },
+                            )
+                        }
                     }
                 }
-            }
-            item(key = "bundle-children") {
-                // The outer Column is not decoration: expandVertically resolves to the ColumnScope
-                // overload, and a LazyColumn item is not one.
-                Column {
-                    // One AnimatedVisibility around the whole group, so expanding reads as the
-                    // bundle opening rather than as six rows arriving in turn.
-                    AnimatedVisibility(
-                        visible = bundleExpanded,
-                        enter = expandVertically(
-                            animationSpec = GridlinkMotion.standard(),
-                        ) + fadeIn(),
-                        exit = shrinkVertically(
-                            animationSpec = GridlinkMotion.groupCollapse(),
-                        ) + fadeOut(),
-                    ) {
-                        Column {
-                            robots.forEach { child ->
-                                key(child.id) {
-                                    GridlinkSwipeableRow(
-                                        visible = isPresent(child),
-                                        enabled = !selecting,
-                                        initialFraction = if (child.id == initialSwipeId) {
-                                            initialSwipeFraction
-                                        } else {
-                                            0f
-                                        },
-                                        onAction = { applySwipe(setOf(child.id), it) },
-                                        divider = {
-                                            GridlinkRowDivider(
-                                                startInset = GridlinkSpacing.bundleIndent +
-                                                    GridlinkSpacing.rowHorizontal + gutter,
-                                            )
-                                        },
-                                    ) {
-                                        GridlinkBundledChildRow(
-                                            message = child,
-                                            onClick = { onRowTap(child) },
-                                            selected = child.id in selectedIds,
-                                            gutter = gutter,
-                                            onLongClick = {
-                                                selectedIds = selectedIds + child.id
+                item(key = "bundle-children") {
+                    // The outer Column is not decoration: expandVertically resolves to the ColumnScope
+                    // overload, and a LazyColumn item is not one.
+                    Column {
+                        // One AnimatedVisibility around the whole group, so expanding reads as the
+                        // bundle opening rather than as six rows arriving in turn.
+                        AnimatedVisibility(
+                            visible = bundleExpanded,
+                            enter = expandVertically(
+                                animationSpec = GridlinkMotion.standard(),
+                            ) + fadeIn(),
+                            exit = shrinkVertically(
+                                animationSpec = GridlinkMotion.groupCollapse(),
+                            ) + fadeOut(),
+                        ) {
+                            Column {
+                                robots.forEach { child ->
+                                    key(child.id) {
+                                        GridlinkSwipeableRow(
+                                            visible = isPresent(child),
+                                            enabled = !selecting,
+                                            initialFraction = if (child.id == initialSwipeId) {
+                                                initialSwipeFraction
+                                            } else {
+                                                0f
                                             },
-                                        )
+                                            onAction = { applySwipe(setOf(child.id), it) },
+                                            divider = {
+                                                GridlinkRowDivider(
+                                                    startInset = GridlinkSpacing.bundleIndent +
+                                                        GridlinkSpacing.rowHorizontal + gutter,
+                                                )
+                                            },
+                                        ) {
+                                            GridlinkBundledChildRow(
+                                                message = child,
+                                                onClick = { onRowTap(child) },
+                                                selected = child.id in selectedIds,
+                                                gutter = gutter,
+                                                onLongClick = {
+                                                    selectedIds = selectedIds + child.id
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
+
+                // The timeline: people only.
+                GridlinkSection.entries
+                    .filter { it != GridlinkSection.AUTOMATED }
+                    .forEach { section ->
+                        val inSection = humans.filter { it.section == section }
+                        if (inSection.isEmpty()) return@forEach
+                        item(key = "label-${section.name}") {
+                            GridlinkSectionLabel(section.label, gutter = gutter)
+                        }
+                        items(
+                            count = inSection.size,
+                            key = { index -> inSection[index].id },
+                        ) { index ->
+                            val message = inSection[index]
+                            Column {
+                                GridlinkSwipeableRow(
+                                    visible = isPresent(message),
+                                    // 🔴 Swipe is off while selecting. Two horizontal meanings on one
+                                    // row is one too many: with rows ticked, a drag should be the user
+                                    // missing the list's scroll, not a silent delete of a row they were
+                                    // about to act on in bulk.
+                                    enabled = !selecting,
+                                    initialFraction = if (message.id == initialSwipeId) {
+                                        initialSwipeFraction
+                                    } else {
+                                        0f
+                                    },
+                                    onAction = { applySwipe(setOf(message.id), it) },
+                                    divider = {
+                                        GridlinkRowDivider(
+                                            startInset = GridlinkSpacing.rowHorizontal + gutter,
+                                        )
+                                    },
+                                ) {
+                                    GridlinkMessageRow(
+                                        message = message,
+                                        onClick = { onRowTap(message) },
+                                        selected = message.id in selectedIds,
+                                        gutter = gutter,
+                                        onLongClick = {
+                                            selectedIds = selectedIds + message.id
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
             }
 
-            // The timeline: people only.
-            GridlinkSection.entries
-                .filter { it != GridlinkSection.AUTOMATED }
-                .forEach { section ->
-                    val inSection = humans.filter { it.section == section }
-                    if (inSection.isEmpty()) return@forEach
-                    item(key = "label-${section.name}") {
-                        GridlinkSectionLabel(section.label, gutter = gutter)
-                    }
-                    items(
-                        count = inSection.size,
-                        key = { index -> inSection[index].id },
-                    ) { index ->
-                        val message = inSection[index]
-                        Column {
-                            GridlinkSwipeableRow(
-                                visible = isPresent(message),
-                                // 🔴 Swipe is off while selecting. Two horizontal meanings on one
-                                // row is one too many: with rows ticked, a drag should be the user
-                                // missing the list's scroll, not a silent delete of a row they were
-                                // about to act on in bulk.
-                                enabled = !selecting,
-                                initialFraction = if (message.id == initialSwipeId) {
-                                    initialSwipeFraction
-                                } else {
-                                    0f
-                                },
-                                onAction = { applySwipe(setOf(message.id), it) },
-                                divider = {
-                                    GridlinkRowDivider(
-                                        startInset = GridlinkSpacing.rowHorizontal + gutter,
-                                    )
-                                },
-                            ) {
-                                GridlinkMessageRow(
-                                    message = message,
-                                    onClick = { onRowTap(message) },
-                                    selected = message.id in selectedIds,
-                                    gutter = gutter,
-                                    onLongClick = {
-                                        selectedIds = selectedIds + message.id
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
+            // After the list, so it draws over the rows rather than under them, and clipped by the
+            // panel's own rounded corners because it is inside them.
+            GridlinkPullIndicator(
+                refreshing = refreshing,
+                fraction = pullState.distanceFraction,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
         }
+    }
+}
+
+/**
+ * The chip that comes down out of the top of the list while you pull.
+ *
+ * Deliberately the same object as the chrome row's [GridlinkSyncChip]: a low pill, a dot, one line
+ * of metadata type. A spinner would have been a second vocabulary for the one thing this app already
+ * has a way of saying, and the dot going [accent][app.sterna.ui.theme.GridlinkColors.accent] is the
+ * same signal the chip in the header is showing at the same moment.
+ *
+ * 🔴 It does not spin, throb or otherwise animate on its own while the sync runs. Nothing in this
+ * app does; motion here is a response to a finger. The state reads as live because the chrome row's
+ * chip has flipped to Syncing behind it, which is a real fact rather than a loop.
+ *
+ * Positioned with [graphicsLayer] and not padding: this tracks a drag frame by frame, and moving it
+ * by re-laying-out the panel would fight the list scrolling underneath.
+ */
+@Composable
+private fun GridlinkPullIndicator(
+    refreshing: Boolean,
+    fraction: Float,
+    modifier: Modifier = Modifier,
+) {
+    // The pull's own progress, except while the sync runs, when the chip is parked at its landing
+    // position regardless of where the finger let go.
+    val settled = if (refreshing) 1f else fraction.coerceIn(0f, 1f)
+    if (settled <= 0f) return
+    val colors = GridlinkTheme.colors
+    val shape = RoundedCornerShape(GridlinkRadii.pill)
+    val travel = with(LocalDensity.current) { PULL_INDICATOR_TRAVEL.toPx() }
+    Row(
+        modifier = modifier
+            .graphicsLayer {
+                // Starts fully above the top edge and descends into view, so it arrives from off
+                // the list rather than fading in on top of it.
+                translationY = travel * settled - size.height
+                alpha = settled
+            }
+            .height(PULL_INDICATOR_HEIGHT)
+            // Two fills, as everywhere else glass sits over content: Day's raised surface is 72%
+            // white and the rows would otherwise read straight through the chip.
+            .background(colors.background, shape)
+            .background(colors.surfaceRaised, shape)
+            .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
+            .padding(horizontal = GridlinkSpacing.s12),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(PULL_INDICATOR_DOT)
+                // Lit only once the gesture has actually started something. Before that it is the
+                // same inert grey the offline chip uses, so colour still only ever means "working".
+                .background(
+                    if (refreshing) colors.accent else colors.textSecondary,
+                    CircleShape,
+                ),
+        )
+        Text(
+            // Says what will happen, then what is happening. "Release to refresh" is the only part
+            // of this that has to be right: it is the difference between a pull that committed and
+            // one that is about to snap back, and there is no other cue for that.
+            text = when {
+                refreshing -> "Syncing all accounts"
+                fraction >= 1f -> "Release to refresh"
+                else -> "Pull to refresh"
+            },
+            modifier = Modifier.padding(start = GridlinkSpacing.s8),
+            style = GridlinkType.metadata,
+            color = colors.textSecondary,
+        )
     }
 }
