@@ -681,9 +681,9 @@
         <item quantity="many">¿Eliminar %1$d de mensajes de %2$s?</item>
         <item quantity="other">¿Eliminar %1$d mensajes de %2$s?</item>
     </plurals>
-    <string name="sender_volume_delete_body">Van a la papelera. Esto afecta a los mensajes almacenados en este teléfono; el correo más antiguo de este remitente puede seguir en el servidor.</string>
+    <string name="sender_volume_delete_body">Van a la papelera. Esto abarca todas las carpetas de esta cuenta almacenadas en este teléfono, excepto Enviados, Borradores, Papelera y Spam; el correo más antiguo de este remitente puede seguir en el servidor.</string>
     <string name="sender_volume_block">Enviar el correo futuro a la papelera, marcado como leído</string>
-    <string name="sender_volume_block_done">El correo futuro ya va a la papelera</string>
+    <string name="sender_volume_block_done">Ya existe una regla de filtrado para este remitente</string>
     <string name="sender_volume_block_added">Regla de filtrado añadida</string>
     <string name="offline_banner">Estás sin conexión</string>
     <string name="settings_conversation_section">Conversaciones</string>

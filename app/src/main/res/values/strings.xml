@@ -163,9 +163,9 @@
         <item quantity="one">Delete %1$d message from %2$s?</item>
         <item quantity="other">Delete %1$d messages from %2$s?</item>
     </plurals>
-    <string name="sender_volume_delete_body">They go to the Trash. This covers the messages stored on this phone; older mail from this sender may remain on the server.</string>
+    <string name="sender_volume_delete_body">They go to the Trash. This covers every folder of this account stored on this phone, except Sent, Drafts, Trash and Spam; older mail from this sender may remain on the server.</string>
     <string name="sender_volume_block">Send future mail to Trash, marked read</string>
-    <string name="sender_volume_block_done">Future mail already goes to Trash</string>
+    <string name="sender_volume_block_done">A filter rule already exists for this sender</string>
     <string name="sender_volume_block_added">Filter rule added</string>
     <string name="offline_banner">You\'re offline</string>
     <string name="inbox_compose">Compose</string>

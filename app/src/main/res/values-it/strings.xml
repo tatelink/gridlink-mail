@@ -681,9 +681,9 @@
         <item quantity="many">Eliminare %1$d di messaggi di %2$s?</item>
         <item quantity="other">Eliminare %1$d messaggi di %2$s?</item>
     </plurals>
-    <string name="sender_volume_delete_body">Finiscono nel cestino. Riguarda i messaggi salvati su questo telefono; la posta più vecchia di questo mittente può restare sul server.</string>
+    <string name="sender_volume_delete_body">Finiscono nel cestino. Riguarda ogni cartella di questo account salvata su questo telefono, tranne Inviati, Bozze, Cestino e Spam; la posta più vecchia di questo mittente può restare sul server.</string>
     <string name="sender_volume_block">Manda la posta futura nel cestino, segnata come letta</string>
-    <string name="sender_volume_block_done">La posta futura va già nel cestino</string>
+    <string name="sender_volume_block_done">Esiste già una regola di filtro per questo mittente</string>
     <string name="sender_volume_block_added">Regola di filtro aggiunta</string>
     <string name="offline_banner">Sei offline</string>
     <string name="settings_conversation_section">Conversazioni</string>

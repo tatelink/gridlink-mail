@@ -686,9 +686,9 @@
         <item quantity="many">Usunąć %1$d wiadomości od %2$s?</item>
         <item quantity="other">Usunąć %1$d wiadomości od %2$s?</item>
     </plurals>
-    <string name="sender_volume_delete_body">Trafią do kosza. Dotyczy to wiadomości zapisanych na tym telefonie; starsza poczta od tego nadawcy może pozostać na serwerze.</string>
+    <string name="sender_volume_delete_body">Trafią do kosza. Dotyczy to każdego folderu tego konta zapisanego na tym telefonie, oprócz Wysłane, Wersje robocze, Kosz i Spam; starsza poczta od tego nadawcy może pozostać na serwerze.</string>
     <string name="sender_volume_block">Przyszłą pocztę do kosza, oznaczoną jako przeczytana</string>
-    <string name="sender_volume_block_done">Przyszła poczta już trafia do kosza</string>
+    <string name="sender_volume_block_done">Dla tego nadawcy istnieje już reguła filtrowania</string>
     <string name="sender_volume_block_added">Dodano regułę filtrowania</string>
     <string name="offline_banner">Jesteś offline</string>
     <string name="settings_conversation_section">Konwersacje</string>

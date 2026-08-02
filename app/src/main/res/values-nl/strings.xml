@@ -676,9 +676,9 @@
         <item quantity="one">%1$d bericht van %2$s verwijderen?</item>
         <item quantity="other">%1$d berichten van %2$s verwijderen?</item>
     </plurals>
-    <string name="sender_volume_delete_body">Ze gaan naar de prullenbak. Dit betreft de berichten die op deze telefoon zijn opgeslagen; oudere post van deze afzender kan op de server blijven staan.</string>
+    <string name="sender_volume_delete_body">Ze gaan naar de prullenbak. Dit betreft elke map van dit account die op deze telefoon is opgeslagen, behalve Verzonden, Concepten, Prullenbak en Spam; oudere post van deze afzender kan op de server blijven staan.</string>
     <string name="sender_volume_block">Toekomstige post naar de prullenbak, als gelezen gemarkeerd</string>
-    <string name="sender_volume_block_done">Toekomstige post gaat al naar de prullenbak</string>
+    <string name="sender_volume_block_done">Er bestaat al een filterregel voor deze afzender</string>
     <string name="sender_volume_block_added">Filterregel toegevoegd</string>
     <string name="offline_banner">Je bent offline</string>
 

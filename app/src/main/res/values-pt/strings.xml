@@ -681,9 +681,9 @@
         <item quantity="many">Eliminar %1$d de mensagens de %2$s?</item>
         <item quantity="other">Eliminar %1$d mensagens de %2$s?</item>
     </plurals>
-    <string name="sender_volume_delete_body">Vão para a lixeira. Isto abrange as mensagens guardadas neste telefone; correio mais antigo deste remetente pode permanecer no servidor.</string>
+    <string name="sender_volume_delete_body">Vão para a lixeira. Isto abrange todas as pastas desta conta guardadas neste telefone, exceto Enviados, Rascunhos, Lixeira e Spam; correio mais antigo deste remetente pode permanecer no servidor.</string>
     <string name="sender_volume_block">Enviar o correio futuro para a lixeira, marcado como lido</string>
-    <string name="sender_volume_block_done">O correio futuro já vai para a lixeira</string>
+    <string name="sender_volume_block_done">Já existe uma regra de filtragem para este remetente</string>
     <string name="sender_volume_block_added">Regra de filtragem adicionada</string>
     <string name="offline_banner">Está offline</string>
     <string name="settings_conversation_section">Conversas</string>

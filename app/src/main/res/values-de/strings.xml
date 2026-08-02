@@ -676,9 +676,9 @@
         <item quantity="one">%1$d Nachricht von %2$s löschen?</item>
         <item quantity="other">%1$d Nachrichten von %2$s löschen?</item>
     </plurals>
-    <string name="sender_volume_delete_body">Sie wandern in den Papierkorb. Das betrifft die auf diesem Telefon gespeicherten Nachrichten; ältere E-Mails dieses Absenders können auf dem Server bleiben.</string>
+    <string name="sender_volume_delete_body">Sie wandern in den Papierkorb. Das betrifft jeden Ordner dieses Kontos, der auf diesem Telefon gespeichert ist, außer Gesendet, Entwürfe, Papierkorb und Spam; ältere E-Mails dieses Absenders können auf dem Server bleiben.</string>
     <string name="sender_volume_block">Künftige E-Mails in den Papierkorb, als gelesen markiert</string>
-    <string name="sender_volume_block_done">Künftige E-Mails gehen bereits in den Papierkorb</string>
+    <string name="sender_volume_block_done">Für diesen Absender gibt es bereits eine Filterregel</string>
     <string name="sender_volume_block_added">Filterregel hinzugefügt</string>
     <string name="offline_banner">Du bist offline</string>
     <string name="settings_conversation_section">Konversationen</string>

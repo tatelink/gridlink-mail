@@ -688,9 +688,9 @@
         <item quantity="many">Удалить %1$d писем от %2$s?</item>
         <item quantity="other">Удалить %1$d писем от %2$s?</item>
     </plurals>
-    <string name="sender_volume_delete_body">Они отправятся в корзину. Это касается писем, сохранённых на этом телефоне; более старая почта от этого отправителя может остаться на сервере.</string>
+    <string name="sender_volume_delete_body">Они отправятся в корзину. Это касается всех папок этой учётной записи, сохранённых на этом телефоне, кроме Отправленные, Черновики, Корзина и Спам; более старая почта от этого отправителя может остаться на сервере.</string>
     <string name="sender_volume_block">Отправлять будущие письма в корзину, помечая прочитанными</string>
-    <string name="sender_volume_block_done">Будущие письма уже уходят в корзину</string>
+    <string name="sender_volume_block_done">Для этого отправителя уже есть правило фильтра</string>
     <string name="sender_volume_block_added">Правило фильтра добавлено</string>
     <string name="offline_banner">Вы не в сети</string>
     <string name="settings_conversation_section">Беседы</string>

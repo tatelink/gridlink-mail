@@ -681,9 +681,9 @@
         <item quantity="many">Supprimer %1$d de messages de %2$s ?</item>
         <item quantity="other">Supprimer %1$d messages de %2$s ?</item>
     </plurals>
-    <string name="sender_volume_delete_body">Ils partent à la corbeille. Cela concerne les messages stockés sur ce téléphone ; du courrier plus ancien de cet expéditeur peut rester sur le serveur.</string>
+    <string name="sender_volume_delete_body">Ils partent à la corbeille. Cela concerne tous les dossiers de ce compte stockés sur ce téléphone, sauf Envoyés, Brouillons, Corbeille et Spam ; du courrier plus ancien de cet expéditeur peut rester sur le serveur.</string>
     <string name="sender_volume_block">Envoyer le courrier à venir à la corbeille, marqué lu</string>
-    <string name="sender_volume_block_done">Le courrier à venir va déjà à la corbeille</string>
+    <string name="sender_volume_block_done">Une règle de filtrage existe déjà pour cet expéditeur</string>
     <string name="sender_volume_block_added">Règle de filtrage ajoutée</string>
     <string name="offline_banner">Vous êtes hors ligne</string>
     <string name="settings_conversation_section">Conversations</string>
