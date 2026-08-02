@@ -14,7 +14,8 @@ import java.io.File
  * It covers the couplings no JVM test in this repo can reach, because they live in a
  * `@Composable` and an `AndroidViewModel`: where the inbox's overflow entry sits and when it is
  * hidden; that each row action is drawn only when the ViewModel said it could be, and not while a
- * batch is in flight; that the confirmation counts the list it will delete; that the list key is
+ * batch is in flight; that the confirmation counts the list it will delete AND that the delete
+ * acts on that same list; that the list key is
  * the address as stored; that the header waits for its number; that the script is only ever saved
  * as [app.sterna.core.data.filter.addBlockRule]'s `save` callback, with a `load` that goes to the
  * server at the moment of writing; and that nothing in this package can name a permanent destroy.
@@ -167,6 +168,30 @@ class MailBySenderWiringTest {
         )
     }
 
+    @Test fun `the confirmed delete acts on the list the dialog counted`() {
+        // The other half of "announced and done are the same set", and the half nothing held:
+        // the dialog can be given `pending.ids.size` while confirmDelete re-reads the ids from
+        // the database — same query, later instant, and the two numbers part company again. That
+        // mutation survives every other rule in this file, because the count and the read are
+        // then each individually right.
+        val body = functionBody(VIEW_MODEL, "confirmDelete")
+        assertTrue(
+            "confirmDelete must take its batch from the confirmation, as 'val ids = " +
+                "pending.ids'. Body was:\n$body",
+            "val ids = pending.ids" in body,
+        )
+        assertTrue(
+            "confirmDelete must NOT read the ids again: the list the dialog counted is the list " +
+                "that goes, or the number on screen was about something else. Body was:\n$body",
+            "senderMessageIds" !in body,
+        )
+        assertTrue(
+            "confirmDelete must raise `working` before it leaves, or a second confirmed delete " +
+                "starts on top of the first. Body was:\n$body",
+            "working = true" in body,
+        )
+    }
+
     @Test fun `the list is keyed on the address exactly as stored`() {
         // SQLite's lower() is ASCII-only, Kotlin's lowercase() is not: "Éric@x" and "éric@x" are
         // two rows out of the query and ONE lowercase() key. A LazyColumn given the same key
@@ -219,6 +244,29 @@ class MailBySenderWiringTest {
             indent = candidate.indentWidth()
         }
         return false
+    }
+
+    /**
+     * The body of `fun [name]` in [file], braces included and comments stripped — so a rule can
+     * ask what ONE function does instead of what the file mentions somewhere. Fails loudly if the
+     * function is gone: a rule that quietly matches an empty string is worse than no rule.
+     */
+    private fun functionBody(file: File, name: String): String {
+        val text = code(file)
+        val at = Regex("""\bfun\s+$name\s*\(""").find(text)
+            ?: error("MailBySenderViewModel has no 'fun $name' — did it get renamed?")
+        val open = text.indexOf('{', at.range.last)
+        check(open >= 0) { "'$name' has no block body" }
+        var depth = 0
+        var i = open
+        while (i < text.length) {
+            when (text[i]) {
+                '{' -> depth++
+                '}' -> if (--depth == 0) return text.substring(open, i + 1)
+            }
+            i++
+        }
+        error("Unbalanced braces in $name")
     }
 
     private fun codeLines(file: File): List<String> = file.readLines().mapNotNull { line ->
