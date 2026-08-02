@@ -65,6 +65,29 @@ class MailBySenderTest {
         assertNull(trashFilePath(listOf(trash)))
     }
 
+    // -- when the delete may be offered at all --------------------------------------------------
+
+    @Test fun `no trash among the folders, no delete`() {
+        // deleteWouldDestroy answers true with no Trash, and deleteAll then fails the whole batch
+        // rather than destroying anything. An absent entry is the honest rendering of that; an
+        // entry that reports a failure every time is not.
+        assertFalse(
+            "with no Trash the batch has nowhere to go",
+            canDeleteFrom(listOf(Mailbox(id = "m1", name = "Inbox", role = "inbox"))),
+        )
+        assertFalse("an account with no folders at all", canDeleteFrom(emptyList()))
+    }
+
+    @Test fun `a trash nobody can NAME is still somewhere to move mail to`() {
+        // The distinction between the two gestes' availability: the Sieve rule needs a nameable
+        // path (trashFilePath returns null here, parent missing from the cache), the delete needs
+        // only the folder to exist. Folding the two would take the delete away from an account
+        // that can perfectly well perform it.
+        val orphan = listOf(Mailbox(id = "m9", name = "Trash", role = "trash", parentId = "gone"))
+        assertNull(trashFilePath(orphan))
+        assertTrue("the delete moves by id and does not have to name the folder", canDeleteFrom(orphan))
+    }
+
     // -- when the rule may be offered at all ---------------------------------------------------
 
     @Test fun `the rule is offered on a server that takes it, with a trash to name`() {

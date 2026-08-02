@@ -44,6 +44,18 @@ internal fun trashFilePath(mailboxes: List<Mailbox>): String? =
     mailboxes.firstOrNull { it.role == "trash" }?.let { mailboxFilePath(it, mailboxes) }
 
 /**
+ * Whether "delete these messages" may be offered: the account must have a Trash among its cached
+ * folders for the batch to have anywhere to go.
+ *
+ * Without one, `MailRepository.deleteWouldDestroy` answers true and `deleteAll` fails the whole
+ * batch rather than destroying anything — so the honest rendering is an absent entry, not a
+ * gesture that reports a failure every time. Deliberately NOT [trashFilePath]: that one needs the
+ * Trash to be NAMEABLE for a Sieve rule, and a Trash whose parent folder is missing from the
+ * cache cannot be named while still being a perfectly good destination for a move.
+ */
+internal fun canDeleteFrom(mailboxes: List<Mailbox>): Boolean = mailboxes.any { it.role == "trash" }
+
+/**
  * Whether the "future mail to Trash" entry may appear, from what the account's script read
  * answered ([state], null when the read FAILED) and whether the Trash can be named [trashPath].
  *
@@ -168,10 +180,9 @@ class MailBySenderViewModel(application: Application) : AndroidViewModel(applica
                 accountLabel = store.accountLabel(),
                 rows = rows,
                 total = cachedTotal(rows),
-                // A delete needs a Trash to move to, or MailRepository.deleteAll fails the whole
-                // batch rather than destroying anything. Same cached folder list the counting
-                // query reads, so the two agree about what this account has.
-                canDelete = mailboxes.any { it.role == "trash" },
+                // Same cached folder list the counting query reads, so the two agree about what
+                // this account has. See canDeleteFrom.
+                canDelete = canDeleteFrom(mailboxes),
                 canBlock = false,
                 rules = emptyList(),
             )

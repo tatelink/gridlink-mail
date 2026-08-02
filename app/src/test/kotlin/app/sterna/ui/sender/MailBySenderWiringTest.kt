@@ -20,11 +20,14 @@ import java.io.File
  * as [app.sterna.core.data.filter.addBlockRule]'s `save` callback, with a `load` that goes to the
  * server at the moment of writing; and that nothing in this package can name a permanent destroy.
  *
- * Two of these rules exist because an earlier version of this file did NOT catch the mutation it
- * was written for. The rule on the `load` callback counted the lines that mention
- * `loadFilterRules(`, so replacing that callback with a snapshot taken when the screen opened
- * dropped the count by one — back to the number the rule expected, green. **A rule that counts
- * occurrences is satisfied by any edit that keeps the count.** It pins the line now.
+ * Four of these rules exist because a mutation went through the file as it stood. The rule on the
+ * `load` callback counted the lines that mention `loadFilterRules(`, so replacing that callback
+ * with a snapshot taken when the screen opened dropped the count by one — back to the number the
+ * rule expected, green. **A rule that counts occurrences is satisfied by any edit that keeps the
+ * count.** It pins the line now. The three others were written after watching their mutation
+ * survive: a delete that re-reads its ids, a confirmation opened over `ids.take(1)`, and
+ * `canDelete = true`. Each of those pins an ARGUMENT, because each of the mutations kept the
+ * call.
  *
  * What it does NOT do: it reads names. That the composition is right is `SenderBlockTest`'s job,
  * that the numbers are right is `SenderVolumeSqlTest`'s, that the words are honest is
@@ -165,6 +168,40 @@ class MailBySenderWiringTest {
         assertTrue(
             "no count read off the row may appear in the dialog. Dialog was:\n$dialog",
             "sender.total" !in dialog && "pending.total" !in dialog,
+        )
+    }
+
+    @Test fun `the confirmation is opened over the WHOLE counted list`() {
+        // Found by a mutation that survived every other rule here: `PendingDelete(sender, ids)`
+        // → `PendingDelete(sender, ids.take(1))`. Announced and done stay equal — the dialog
+        // says one and deletes one — so the honesty invariant is untouched, and the gesture
+        // still silently does a fraction of what the row it was opened from says. What has to
+        // be pinned is the ARGUMENT, not the call.
+        val body = functionBody(VIEW_MODEL, "askDelete")
+        assertTrue(
+            "askDelete must read the ids from the shared scope query, as 'val ids = " +
+                "repo.senderMessageIds(credentials.id, sender.email)'. Body was:\n$body",
+            "val ids = repo.senderMessageIds(credentials.id, sender.email)" in body,
+        )
+        assertTrue(
+            "…and must hand that list WHOLE to the confirmation, as 'PendingDelete(sender, " +
+                "ids)': anything narrower is a gesture doing less than the row it came from " +
+                "says, with the dialog agreeing with itself all the way down. Body was:\n$body",
+            "PendingDelete(sender, ids)" in body,
+        )
+    }
+
+    @Test fun `the delete's availability is the pure decision, not a rewrite of it`() {
+        // Also found by a surviving mutation: `canDelete = true`. D12 says the gesture is
+        // UNAVAILABLE on an account with no resolvable Trash, not silently ineffective — with
+        // no Trash, deleteWouldDestroy answers true and deleteAll fails the whole batch. The
+        // rule pins the call WITH its argument, and canDeleteFrom itself is executed by
+        // MailBySenderTest.
+        val body = functionBody(VIEW_MODEL, "load")
+        assertTrue(
+            "load() must set 'canDelete = canDeleteFrom(mailboxes)' — the decision executed by " +
+                "a test, over the account's own cached folder list. Body was:\n$body",
+            "canDelete = canDeleteFrom(mailboxes)" in body,
         )
     }
 
