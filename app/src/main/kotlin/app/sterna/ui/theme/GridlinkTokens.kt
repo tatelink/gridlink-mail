@@ -149,6 +149,19 @@ data class GridlinkColors(
     val positive: Color,
     val attention: Color,
     val destructive: Color,
+    /**
+     * Fill of a SELECTED row.
+     *
+     * ⚠️ The one background fill allowed in the dense list. §4 forbids a fill for unread, and that
+     * ban is what this borrows its force from: because nothing else in the list is ever filled, a
+     * fill can only mean "selected" and needs no second cue to be unambiguous.
+     *
+     * 🔴 In OLED this is a real compromise. That mode's rule is definition by hairline, never by a
+     * lighter fill, and a fill is lit pixels. The alternative was an outline in OLED and a fill
+     * elsewhere, which breaks the harder rule that the modes differ ONLY in colour. Kept as a fill,
+     * kept faint, and it is only on screen while a selection is active.
+     */
+    val selection: Color,
     /** 1px row separator in the dense list. The list is separated by hairlines, never by gaps. */
     val divider: Color,
     /** True where a drop shadow is legitimate. 🔴 False in OLED: no glows, no shadows, ever. */
@@ -175,6 +188,9 @@ val GridlinkDayColors = GridlinkColors(
     positive = Color(0xFF16A34A),
     attention = Color(0xFFD97706),
     destructive = Color(0xFFDC2626),
+    // Heavier than the dark modes: this fill sits on white glass, where a thin accent wash barely
+    // registers at all.
+    selection = Color(0xFF1B7FE8).copy(alpha = 0.22f),
     divider = Color(0xFF0A0F1A).copy(alpha = 0.12f),
     usesShadows = true,
 )
@@ -206,6 +222,7 @@ val GridlinkNightColors = GridlinkColors(
     positive = Color(0xFF34D399),
     attention = Color(0xFFFBBF24),
     destructive = Color(0xFFDC2626),
+    selection = Color(0xFF3B82F6).copy(alpha = 0.18f),
     divider = Color.White.copy(alpha = 0.12f),
     usesShadows = true,
 )
@@ -233,6 +250,9 @@ val GridlinkOledColors = GridlinkColors(
     positive = Color(0xFF34D399),
     attention = Color(0xFFFB923C),
     destructive = Color(0xFFB91C1C),
+    // 🔴 The faintest of the three. See the field's KDoc: this is the one place OLED lights pixels
+    // it would rather leave off, so it gets the minimum that still reads as a fill.
+    selection = Color(0xFFF97316).copy(alpha = 0.14f),
     // Derived: the brief gives a 12% hairline for the list but no hue for it in OLED. Tinting it
     // with the accent keeps the mode's "definition by hairline" logic consistent.
     divider = Color(0xFFF97316).copy(alpha = 0.12f),
@@ -368,6 +388,18 @@ object GridlinkDimens {
 
     /** Unread marker, sitting where the timestamp's leading space would be. */
     val unreadDot = 6.dp
+
+    /** Selection tick, in the same slot the unread dot uses. Larger, because it is a control. */
+    val selectionTick = 18.dp
+
+    /**
+     * The floating compose button.
+     *
+     * ⚠️ §9 lists "no FAB" as an anti-requirement and Tate overrode it directly. Sized to match
+     * [GRIDLINK_PILL_HEIGHT] so the button and the nav pill share one line and one baseline rather
+     * than stacking into two rows of floating chrome.
+     */
+    val composeButton = 64.dp
 
     /** Row separator thickness. Opacity lives in [GridlinkColors.divider]. */
     val hairline = 1.dp

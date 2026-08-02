@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Create
@@ -29,6 +30,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
@@ -147,8 +149,10 @@ fun GridlinkHeader(
     needsYou: Int,
     reports: Int,
     modifier: Modifier = Modifier,
+    selectedCount: Int = 0,
 ) {
     val colors = GridlinkTheme.colors
+    val selecting = selectedCount > 0
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -169,7 +173,10 @@ fun GridlinkHeader(
             ),
     ) {
         Text(
-            text = title,
+            // The count replaces the screen title rather than sitting beside it. §6b puts the
+            // selection ACTIONS in the toolbar; this is only the readout, and it belongs where the
+            // eye already is.
+            text = if (selecting) "$selectedCount selected" else title,
             style = GridlinkType.screenTitle,
             color = colors.textPrimary,
         )
@@ -177,22 +184,30 @@ fun GridlinkHeader(
             modifier = Modifier.padding(top = GridlinkSpacing.s8),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "$needsYou need you",
-                style = GridlinkType.metadata,
-                // Amber: these are the ones still asking something of a human.
-                color = colors.attention,
-            )
-            Text(
-                text = "  ·  ",
-                style = GridlinkType.metadata,
-                color = colors.textSecondary,
-            )
-            Text(
-                text = "$reports reports",
-                style = GridlinkType.metadata,
-                color = colors.textSecondary,
-            )
+            if (selecting) {
+                Text(
+                    text = "Tap to add or remove",
+                    style = GridlinkType.metadata,
+                    color = colors.textSecondary,
+                )
+            } else {
+                Text(
+                    text = "$needsYou need you",
+                    style = GridlinkType.metadata,
+                    // Amber: these are the ones still asking something of a human.
+                    color = colors.attention,
+                )
+                Text(
+                    text = "  ·  ",
+                    style = GridlinkType.metadata,
+                    color = colors.textSecondary,
+                )
+                Text(
+                    text = "$reports reports",
+                    style = GridlinkType.metadata,
+                    color = colors.textSecondary,
+                )
+            }
         }
     }
 }
@@ -222,17 +237,19 @@ enum class GridlinkDestination(val label: String, val icon: ImageVector) {
     INBOX("Inbox", Icons.Outlined.Inbox),
     SEARCH("Search", Icons.Outlined.Search),
     FOLDERS("Folders", Icons.Outlined.FolderOpen),
-    COMPOSE("Compose", Icons.Outlined.Create),
 }
 
 /**
  * The floating navigation pill.
  *
- * Two constraints shaped this. First, §9 bans a floating action button, so **compose lives here**
- * as the trailing destination rather than as a circle over the list. Second, §6b says the selection
- * toolbar must be this pill *transformed in place* — same height, same radius, same inset — so the
- * items are icon-over-11sp-label to match what the toolbar will hold, and the container's
- * dimensions are the ones the morph has to preserve.
+ * ⚠️ Compose used to be a fourth destination here, because §9 bans a floating action button.
+ * Tate overrode that directly and asked for compose detached and floating, so it now lives in
+ * [GridlinkComposeButton] beside this pill. Three destinations left.
+ *
+ * §6b still says the selection toolbar must be this pill *transformed in place* — same height, same
+ * radius, same inset — so items stay icon-over-11sp-label to match what the toolbar will hold, and
+ * the container's dimensions are the ones the morph has to preserve. Note the toolbar holds four
+ * actions against three destinations, so the morph has to survive an item-count change.
  */
 @Composable
 fun GridlinkNavPill(
@@ -243,8 +260,9 @@ fun GridlinkNavPill(
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkRadii.pill)
     Row(
+        // 🔴 No fillMaxWidth. The pill now shares its row with the compose button, so the caller
+        // sizes it with a weight and this must not fight that.
         modifier = modifier
-            .fillMaxWidth()
             .height(GRIDLINK_PILL_HEIGHT)
             // The halo. Tate's dashboards read as premium because action surfaces appear to
             // EMIT light rather than sit on it, and the halo is what does that. Suppressed in OLED
@@ -302,15 +320,7 @@ private fun GridlinkNavItem(
 ) {
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkRadii.pill)
-    val fill = Modifier.background(
-        brush = Brush.linearGradient(
-            // 135 degrees, matching the dashboard's action buttons: the lighter stop leads.
-            colors = listOf(colors.accent, colors.accent.copy(alpha = 0.62f)),
-            start = Offset.Zero,
-            end = Offset.Infinite,
-        ),
-        shape = shape,
-    )
+    val fill = Modifier.background(gridlinkAccentFill(colors.accent), shape)
     Column(
         modifier = modifier
             .fillMaxHeight()
@@ -348,6 +358,57 @@ private fun GridlinkNavItem(
  */
 fun gridlinkOnAccent(accent: Color): Color =
     if (accent.luminance() > 0.5f) Color.Black else Color.White
+
+/**
+ * The "on" fill shared by the compose button and the selected nav destination.
+ *
+ * A 135-degree diagonal from the accent into a darkened accent, which is the dashboard's action
+ * button treatment. 🔴 Both stops are fully opaque. An earlier version faded the second stop with
+ * alpha instead of darkening it, which let whatever sat behind the control show through its own
+ * fill and made a pressed-looking smudge on the darker half.
+ */
+fun gridlinkAccentFill(accent: Color): Brush = Brush.linearGradient(
+    colors = listOf(accent, lerp(accent, Color.Black, 0.32f)),
+    start = Offset.Zero,
+    end = Offset.Infinite,
+)
+
+/**
+ * Compose, detached and floating.
+ *
+ * ⚠️ §9 of the brief bans a floating action button outright; Tate overrode it. It is sized to
+ * [GridlinkDimens.composeButton] so it shares a line and a baseline with the nav pill instead of
+ * stacking above it, and it is the one control in the app that gets the full treatment — gradient
+ * fill, white glyph, real halo — because it is the only thing down there that creates something
+ * rather than navigating to it.
+ */
+@Composable
+fun GridlinkComposeButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    Box(
+        modifier = modifier
+            .size(GridlinkDimens.composeButton)
+            // Stronger than the pill's halo. This is the loudest thing on the screen on purpose.
+            .gridlinkGlow(
+                if (colors.usesShadows) colors.accent.copy(alpha = 0.40f) else null,
+                radiusMultiplier = 0.95f,
+            )
+            .clip(CircleShape)
+            .background(gridlinkAccentFill(colors.accent))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Create,
+            contentDescription = "Compose",
+            tint = gridlinkOnAccent(colors.accent),
+            modifier = Modifier.size(26.dp),
+        )
+    }
+}
 
 /**
  * Height shared by the nav pill and the selection toolbar it morphs into.

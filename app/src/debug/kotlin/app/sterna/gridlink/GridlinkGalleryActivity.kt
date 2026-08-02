@@ -48,11 +48,27 @@ class GridlinkGalleryActivity : ComponentActivity() {
         // coordinates. The brief wants the same screens captured in three palettes and two fold
         // states; driving that by hand is where mistakes get into a deliverable.
         //   am start -n .../GridlinkGalleryActivity --es mode oled --ez expanded true
+        //   am start -n .../GridlinkGalleryActivity --es selected jonah-dogs,ridley-callout
         val mode = intent?.getStringExtra("mode")?.lowercase()?.let { requested ->
             GridlinkMode.entries.firstOrNull { it.name.lowercase() == requested }
         }
         val expanded = intent?.getBooleanExtra("expanded", false) ?: false
-        setContent { GridlinkGallery(initialOverride = mode, initiallyExpanded = expanded) }
+        // Comma-separated message ids. Selection is normally reached by long-pressing a row, which
+        // is not a thing a capture script can do reliably: `input swipe` with a long duration lands
+        // at guessed coordinates that shift the moment a row height or a section label changes.
+        val selected = intent?.getStringExtra("selected")
+            .orEmpty()
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+        setContent {
+            GridlinkGallery(
+                initialOverride = mode,
+                initiallyExpanded = expanded,
+                initiallySelected = selected,
+            )
+        }
     }
 }
 
@@ -60,6 +76,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
 private fun GridlinkGallery(
     initialOverride: GridlinkMode? = null,
     initiallyExpanded: Boolean = false,
+    initiallySelected: Set<String> = emptySet(),
 ) {
     // null = follow the automatic time-of-day ladder; non-null = the manual override pill won.
     var override by rememberSaveable { mutableStateOf(initialOverride) }
@@ -68,7 +85,10 @@ private fun GridlinkGallery(
 
     ProvideGridlinkTokens(mode = mode) {
         Box(Modifier.fillMaxSize()) {
-            GridlinkMessageListScreen(initiallyExpanded = initiallyExpanded)
+            GridlinkMessageListScreen(
+                initiallyExpanded = initiallyExpanded,
+                initiallySelected = initiallySelected,
+            )
             GridlinkModePill(
                 selected = mode,
                 isAuto = override == null,
