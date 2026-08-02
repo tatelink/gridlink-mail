@@ -85,16 +85,15 @@ object GridlinkSampleTree {
         GridlinkFolder(id = "trash", name = "Trash", role = GridlinkFolderRole.TRASH),
     )
 
-    /** Every folder in the tree, flattened. Used for the header count and for id validation. */
-    val allFolders: List<GridlinkFolder> = buildList {
-        fun walk(folders: List<GridlinkFolder>) {
-            folders.forEach {
-                add(it)
-                walk(it.children)
-            }
-        }
-        walk(mailboxes)
-    }
+    /**
+     * Every folder in the SEED tree, flattened. Used for harness id validation.
+     *
+     * 🔴 Not for anything the screen renders. The folder screen edits its own copy of the tree, so
+     * this list stops being the truth the first time something is renamed or deleted. Counting the
+     * header's mailbox total off it would print a number that never changes while the tree under it
+     * visibly shrinks.
+     */
+    val allFolders: List<GridlinkFolder> = mailboxes.flatten()
 
     /**
      * The week either side of [TODAY], drawn from the inbox.
@@ -230,6 +229,14 @@ object GridlinkSampleTree {
  *
  * [role] exists to pick a glyph, not to change behaviour. The six standard roles are the ones the
  * server assigns; everything the user made is [GridlinkFolderRole.USER].
+ *
+ * ## Why the rights are fields rather than a function of [role]
+ * [mayRename] and [mayDelete] are JMAP's own `myRights` properties, sent per mailbox by the server,
+ * and defaulting them off the role is a local guess that happens to be right for a personal account.
+ * It is wrong the moment a shared or delegated mailbox appears: those are plain [GridlinkFolderRole.USER]
+ * folders that the account may read and may not touch. Deriving the rights in the UI would give that
+ * folder a rename dialog that the server then refuses, which is the worst order to find out. Defaults
+ * here so the sample tree stays readable; the real client fills them from the `Mailbox/get` response.
  */
 data class GridlinkFolder(
     val id: String,
@@ -237,9 +244,89 @@ data class GridlinkFolder(
     val role: GridlinkFolderRole = GridlinkFolderRole.USER,
     val unread: Int = 0,
     val children: List<GridlinkFolder> = emptyList(),
-)
+    /** JMAP `myRights.mayRename`. 🔴 False for every role mailbox: the six are load-bearing. */
+    val mayRename: Boolean = role == GridlinkFolderRole.USER,
+    /** JMAP `myRights.mayDelete`. Same rule, and see [GridlinkFolder.mayBeDeletedNow]. */
+    val mayDelete: Boolean = role == GridlinkFolderRole.USER,
+) {
+    /** True when a long-press has anything at all to offer. Drives whether the gesture responds. */
+    val hasActions: Boolean get() = mayRename || mayDelete
+
+    /**
+     * 🔴 The right to delete a mailbox is not the same as being able to delete it *now*.
+     *
+     * `Mailbox/set` refuses to destroy a mailbox that still has children, with `mailboxHasChild`,
+     * and it does not offer an "and everything under it" flag the way it does for messages. So a
+     * folder with folders in it is a folder you empty first, and the UI has to say that up front
+     * rather than let the tap through and surface a server error afterwards.
+     */
+    val mayBeDeletedNow: Boolean get() = mayDelete && children.isEmpty()
+}
 
 enum class GridlinkFolderRole { INBOX, DRAFTS, SENT, ARCHIVE, JUNK, TRASH, USER }
+
+// ---------------------------------------------------------------------------------------------
+// Tree edits
+//
+// Pure functions over an immutable tree, deliberately. Every one of these stands in for a
+// `Mailbox/set` round trip that does not exist yet, and keeping them as plain list transforms means
+// the screen holds one `var tree` and nothing else — when the real call lands, the screen replaces
+// the tree with the server's answer and none of the rendering changes.
+// ---------------------------------------------------------------------------------------------
+
+/** A copy of the tree with [id] replaced by [transform] applied to it. Missing id = unchanged. */
+fun List<GridlinkFolder>.updateFolder(
+    id: String,
+    transform: (GridlinkFolder) -> GridlinkFolder,
+): List<GridlinkFolder> = map { folder ->
+    if (folder.id == id) transform(folder) else folder.copy(children = folder.children.updateFolder(id, transform))
+}
+
+/** A copy of the tree with [id] gone. Its children go with it; see [GridlinkFolder.mayBeDeletedNow]. */
+fun List<GridlinkFolder>.removeFolder(id: String): List<GridlinkFolder> = this
+    .filterNot { it.id == id }
+    .map { it.copy(children = it.children.removeFolder(id)) }
+
+/**
+ * Lowercased names of everything sharing a parent with [id], excluding [id] itself. Null if [id] is
+ * not in the tree.
+ *
+ * Lowercased because JMAP's uniqueness rule for a mailbox name within a parent is case-insensitive,
+ * so "receipts" beside "Receipts" is a rename the server rejects and one the eye cannot tell apart.
+ */
+fun List<GridlinkFolder>.siblingNames(id: String): Set<String>? {
+    if (any { it.id == id }) {
+        return filter { it.id != id }.mapTo(mutableSetOf()) { it.name.lowercase() }
+    }
+    forEach { folder -> folder.children.siblingNames(id)?.let { return it } }
+    return null
+}
+
+/** Ids of every folder above [id], outermost first. Empty for a root, null if [id] is not present. */
+fun List<GridlinkFolder>.ancestorIds(id: String): List<String>? {
+    forEach { folder ->
+        if (folder.id == id) return emptyList()
+        folder.children.ancestorIds(id)?.let { return listOf(folder.id) + it }
+    }
+    return null
+}
+
+/** The folder with [id], wherever it sits. */
+fun List<GridlinkFolder>.findFolder(id: String): GridlinkFolder? {
+    forEach { folder ->
+        if (folder.id == id) return folder
+        folder.children.findFolder(id)?.let { return it }
+    }
+    return null
+}
+
+/** Every folder in [this], flattened depth-first. */
+fun List<GridlinkFolder>.flatten(): List<GridlinkFolder> = buildList {
+    this@flatten.forEach {
+        add(it)
+        addAll(it.children.flatten())
+    }
+}
 
 /**
  * One calendar entry.
