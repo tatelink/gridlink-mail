@@ -389,8 +389,35 @@ object GridlinkDimens {
     /** Unread marker, sitting where the timestamp's leading space would be. */
     val unreadDot = 6.dp
 
-    /** Selection tick, in the same slot the unread dot uses. Larger, because it is a control. */
-    val selectionTick = 18.dp
+    /**
+     * The selection circle that appears at the leading edge of every row once a selection starts.
+     *
+     * A control, not a marker, so it is sized to be hit rather than to be seen: 22dp of visible
+     * circle inside a [selectionGutter]-wide strip that is entirely tappable. The unread dot stays
+     * 6dp because nothing ever taps it.
+     */
+    val selectionCircle = 22.dp
+
+    /**
+     * How far the rows slide right when a selection opens, and therefore the width of the strip the
+     * circles live in.
+     *
+     * 🔴 The rows slide rather than the circles overlaying them. An overlay would sit on top of the
+     * sender bar, which is the one thing on the row that never moves, and 44dp is what it takes to
+     * clear a 22dp circle with a real touch margin either side.
+     */
+    val selectionGutter = 44.dp
+
+    /** Stroke of an unselected circle. Thin enough to read as an empty slot, not as a filled chip. */
+    val selectionRing = 1.5.dp
+
+    /**
+     * How much of the list's bottom edge fades to nothing.
+     *
+     * The list stops above the floating controls rather than scrolling under them, and this fade is
+     * what keeps that boundary from reading as a cut. Deep enough to catch a whole row mid-scroll.
+     */
+    val listFade = 40.dp
 
     /**
      * The floating compose button.
