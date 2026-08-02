@@ -104,7 +104,7 @@ fun MailBySenderScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         // Which body is drawn is decided by screenBody(), a plain function a JVM test runs. All
-        // this does is give each of its four answers a widget.
+        // this does is give each of its answers a widget.
         when (screenBody(state)) {
             SenderScreenBody.NO_ACCOUNT ->
                 Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
