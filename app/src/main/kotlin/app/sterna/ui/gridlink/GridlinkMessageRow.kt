@@ -271,7 +271,7 @@ private fun GridlinkSelectionSlot(
                 Icon(
                     imageVector = Icons.Filled.Check,
                     contentDescription = "Selected",
-                    tint = gridlinkOnAccent(colors.accent),
+                    tint = colors.onAccent,
                     modifier = Modifier.size(14.dp),
                 )
             }

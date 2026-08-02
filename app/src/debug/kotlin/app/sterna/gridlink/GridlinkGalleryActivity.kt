@@ -22,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.sterna.ui.gridlink.GRIDLINK_BUNDLE_SWIPE_ID
 import app.sterna.ui.gridlink.GridlinkCalendarView
+import app.sterna.ui.gridlink.GridlinkComposeDraft
+import app.sterna.ui.gridlink.GridlinkComposeField
 import app.sterna.ui.gridlink.GridlinkDestination
 import app.sterna.ui.gridlink.GridlinkFolderStage
 import app.sterna.ui.gridlink.GridlinkModePill
@@ -202,6 +204,42 @@ class GridlinkGalleryActivity : ComponentActivity() {
         require(scrubLetter == null || tab == GridlinkDestination.CONTACTS) {
             "letter='$letterArg' only means anything on the contacts tab. Add --es tab contacts."
         }
+        // §1c/§1d/§1e. The composer opens over whichever tab is showing, and its three frames differ
+        // by which draft is loaded, whether a field holds the caret, and whether the schedule sheet
+        // is up. None of that is reachable from adb: `input tap` on the compose button lands at
+        // guessed coordinates, and the sheet is behind a long-press, which `input swipe` cannot hold.
+        //   am start -n .../GridlinkGalleryActivity --es compose fresh
+        //   am start -n .../GridlinkGalleryActivity --es compose reply --es focus none
+        //   am start -n .../GridlinkGalleryActivity --es compose reply --ez schedule true
+        val composeName = intent?.getStringExtra("compose")?.lowercase()?.trim()
+        val draft = when (composeName) {
+            null -> null
+            "fresh" -> GridlinkComposeDraft.Fresh
+            "reply" -> GridlinkComposeDraft.Reply
+            else -> throw IllegalArgumentException(
+                "Unknown compose draft '$composeName'. Known: fresh, reply.",
+            )
+        }
+        // Which field holds the caret, which is also what decides whether the keyboard is up and
+        // therefore where send is drawn. `none` is the keyboard-down frame §1d asks for.
+        val focusName = intent?.getStringExtra("focus")?.uppercase()
+        val composeFocus = if (focusName == null) {
+            GridlinkComposeField.TO
+        } else {
+            requireNotNull(GridlinkComposeField.entries.firstOrNull { it.name == focusName }) {
+                "Unknown compose focus '$focusName'. Known: " +
+                    GridlinkComposeField.entries.joinToString { it.name.lowercase() }
+            }
+        }
+        val scheduling = intent?.getBooleanExtra("schedule", false) ?: false
+        // Same rule as every guard above: both of these without a draft would render the plain list
+        // and file it as a composer frame.
+        require(focusName == null || draft != null) {
+            "focus='$focusName' only means anything inside the composer. Add --es compose fresh."
+        }
+        require(!scheduling || draft != null) {
+            "schedule=true only means anything inside the composer. Add --es compose reply."
+        }
         // Sends every archived, moved or deleted row back to the top a moment later. On by default
         // *here and only here*: the sample inbox is otherwise a consumable, and a gesture you can
         // only watch five times is a gesture nobody reviews properly. Never reaches release.
@@ -219,6 +257,9 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialFolderActionId = folderId,
                 initialFolderStage = folderStage,
                 initialScrubLetter = scrubLetter,
+                initialCompose = draft,
+                initialComposeFocus = composeFocus,
+                initiallyScheduling = scheduling,
                 demoRecycle = recycle,
             )
         }
@@ -238,6 +279,9 @@ private fun GridlinkGallery(
     initialFolderActionId: String? = null,
     initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
     initialScrubLetter: Char? = null,
+    initialCompose: GridlinkComposeDraft? = null,
+    initialComposeFocus: GridlinkComposeField = GridlinkComposeField.TO,
+    initiallyScheduling: Boolean = false,
     demoRecycle: Boolean = false,
 ) {
     // null = follow the automatic time-of-day ladder; non-null = the manual override pill won.
@@ -271,6 +315,9 @@ private fun GridlinkGallery(
                     initialFolderActionId = initialFolderActionId,
                     initialFolderStage = initialFolderStage,
                     initialScrubLetter = initialScrubLetter,
+                    initialCompose = initialCompose,
+                    initialComposeFocus = initialComposeFocus,
+                    initiallyScheduling = initiallyScheduling,
                     demoRecycle = demoRecycle,
                 )
             }
