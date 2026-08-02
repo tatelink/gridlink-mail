@@ -679,22 +679,66 @@ object GridlinkMotion {
     /**
      * The committed row leaving the screen sideways.
      *
-     * 🔴 Stiffer than [swipeRelease] and critically damped, and both halves matter. A spring's slow
-     * tail is invisible here because the row is already past the screen edge before it starts, so
-     * the only part anyone judges is how fast the row clears — which is stiffness. And it must not
-     * overshoot: the row would come back on screen from the far side, which reads as a bug.
+     * 🔴 Critically damped, because overshoot would bring the row back on from the far side and
+     * that reads as a bug rather than as bounce.
      *
-     * 🔴 It must also clear the edge well before [rowCollapse] finishes closing the gap. If the
-     * collapse wins the race, the row is still visibly mid-flight when its own height hits zero and
-     * it vanishes in place instead of leaving.
+     * 🔴 Stiffness was 900 and it was the larger half of a real complaint ("it hesitates and sticks
+     * before finally taking it"). Measured on device: at 900 the row needed 191ms to clear the
+     * edge, while the gap behind it took until ~250ms to close, so for the difference the screen
+     * held a flat full-bleed green slab with nothing in it. A coloured rectangle sitting still is
+     * read as the app having stalled, and no amount of tuning the gesture itself changes that,
+     * because the gesture had already finished. At 2000 the row is gone in roughly half the time
+     * and the slab never gets a chance to sit.
+     *
+     * 🔴 The visibility threshold is not cosmetic. A spring approaches its target asymptotically, so
+     * without one this animation ran a further 236ms after the row was 99.7% of the way out —
+     * a quarter of a second of frames spent moving two pixels nobody can see, on a screen that is
+     * simultaneously trying to animate the collapse. One pixel of travel is the point at which this
+     * is over.
+     *
+     * Float rather than generic: only the swipe offset uses it, and the threshold cannot be
+     * expressed on a `<T>`.
      */
-    fun <T> swipeFlyOff(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 900f)
+    fun swipeFlyOff(): SpringSpec<Float> =
+        spring(dampingRatio = 1.0f, stiffness = 2000f, visibilityThreshold = 1f)
 
     /** Nav pill morphing into the selection toolbar: slow and heavily damped, so the shape holds. */
     fun <T> toolbarMorph(): SpringSpec<T> = spring(dampingRatio = 0.90f, stiffness = 300f)
 
-    /** Row height collapsing to zero after an action completes. No overshoot. */
-    fun <T> rowCollapse(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 400f)
+    /**
+     * Row height collapsing to zero after an action completes. No overshoot.
+     *
+     * 🔴 Stiffness was 400, which is Compose's own default for [shrinkVertically] and far too soft
+     * for this. Measured: a 158px row took 456ms to reach zero, and spent the last 200ms of that
+     * crawling the final 13px. The gap closing long after the row has gone is the other half of
+     * what Tate reported as sticking. 1200 puts it at roughly 190ms, which is quick enough to
+     * feel like a consequence of the swipe rather than an afterthought.
+     */
+    fun <T> rowCollapse(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 1200f)
+
+    /**
+     * A row opening into the list: new mail arriving, or the demo recycle putting one back.
+     *
+     * Softer than [rowCollapse] on purpose. A dismissal should be over quickly because the user has
+     * already decided; an arrival is the list telling you something you did not ask for, and at
+     * 1200 it snapped open fast enough to read as a glitch rather than as mail landing. Still
+     * critically damped: a row that overshoots its own height bulges the text inside it.
+     */
+    fun <T> rowArrive(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 500f)
+
+    /**
+     * A whole group folding shut — currently the automated bundle.
+     *
+     * Deliberately its own token rather than borrowing [rowCollapse], even though the numbers
+     * started out the same. Folding a bundle is a disclosure the user asked for and can undo by
+     * tapping again; a swiped row leaving is a consequence they want over with. Tuning one to feel
+     * right must not drag the other along behind it, which is exactly what happened when they
+     * shared a spec.
+     *
+     * Critically damped for the same reason [rowCollapse] is: six rows bouncing as they close reads
+     * as the list being unsure.
+     */
+    fun <T> groupCollapse(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 400f)
 }
 
 // ---------------------------------------------------------------------------------------------
