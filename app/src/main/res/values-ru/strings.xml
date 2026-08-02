@@ -616,6 +616,7 @@
     <string name="status_action_failed">Не удалось выполнить действие.</string>
     <string name="status_restore_failed">Не удалось восстановить некоторые письма.</string>
     <string name="status_moved_to_folder">Перемещено в %1$s</string>
+    <string name="status_action_partly_failed">Некоторые письма не удалось обработать.</string>
     <string name="status_move_other_account">Некоторые письма не были перемещены (другой аккаунт).</string>
 
     <!-- Notifications -->

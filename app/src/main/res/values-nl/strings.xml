@@ -612,6 +612,7 @@
     <string name="status_action_failed">Kon de actie niet voltooien.</string>
     <string name="status_restore_failed">Kon sommige berichten niet herstellen.</string>
     <string name="status_moved_to_folder">Verplaatst naar %1$s</string>
+    <string name="status_action_partly_failed">Sommige berichten konden niet worden verwerkt.</string>
     <string name="status_move_other_account">Sommige berichten zijn niet verplaatst (ander account).</string>
 
     <!-- Notifications -->

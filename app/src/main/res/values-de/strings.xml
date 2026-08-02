@@ -612,6 +612,7 @@
     <string name="status_action_failed">Die Aktion konnte nicht abgeschlossen werden.</string>
     <string name="status_restore_failed">Einige Nachrichten konnten nicht wiederhergestellt werden.</string>
     <string name="status_moved_to_folder">Verschoben nach %1$s</string>
+    <string name="status_action_partly_failed">Einige Nachrichten konnten nicht verarbeitet werden.</string>
     <string name="status_move_other_account">Einige Nachrichten wurden nicht verschoben (anderes Konto).</string>
 
     <!-- Notifications -->

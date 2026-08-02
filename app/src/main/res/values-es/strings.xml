@@ -614,6 +614,7 @@
     <string name="status_action_failed">No se pudo completar la acción.</string>
     <string name="status_restore_failed">No se pudieron restaurar algunos mensajes.</string>
     <string name="status_moved_to_folder">Movido a %1$s</string>
+    <string name="status_action_partly_failed">Algunos mensajes no se pudieron procesar.</string>
     <string name="status_move_other_account">Algunos mensajes no se movieron (otra cuenta).</string>
 
     <!-- Notifications -->

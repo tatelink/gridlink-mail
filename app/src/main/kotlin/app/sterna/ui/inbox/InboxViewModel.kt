@@ -1702,8 +1702,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             if (undoLabel != null && undoEntries.isNotEmpty()) {
                 _undo.value = UndoAction(undoEntries, undoLabel)
             }
-            if (failedKeys.isNotEmpty()) {
-                _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+            // Partial and total are not the same news: a select-all past the server's
+            // maxObjectsInSet used to archive most of the selection and still say "Couldn't
+            // complete the action". The rows actually handed to the batches are `emails`, not the
+            // selection — a selected key with no cached row was never attempted (see [bulkOutcome]).
+            when (bulkOutcome(emails.size, failedKeys.size)) {
+                BulkOutcome.NONE -> Unit
+                BulkOutcome.TOTAL ->
+                    _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+                BulkOutcome.PARTIAL ->
+                    _message.value = getApplication<Application>().getString(R.string.status_action_partly_failed)
             }
         }
     }
