@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.sterna.ui.gridlink.GRIDLINK_BUNDLE_SWIPE_ID
 import app.sterna.ui.gridlink.GridlinkDestination
 import app.sterna.ui.gridlink.GridlinkMessageListScreen
 import app.sterna.ui.gridlink.GridlinkModePill
@@ -93,6 +94,34 @@ class GridlinkGalleryActivity : ComponentActivity() {
                     GridlinkDestination.entries.joinToString { it.name.lowercase() }
             }
         }
+        // §6a's deliverable is three frames taken mid-gesture, and a drag cannot be held still by
+        // `adb input swipe`: it lands at guessed coordinates and releases at a fraction of a row
+        // width nobody measured. These two extras open a named row already at a given fraction.
+        //   am start -n .../GridlinkGalleryActivity --es swipe jonah-dogs --ef swipeAt -0.75
+        // Same rule as the ids above: an unknown target crashes rather than quietly swiping nothing
+        // and producing a screenshot of an ordinary list that looks entirely correct.
+        val swipeId = intent?.getStringExtra("swipe")?.trim()?.takeIf { it.isNotEmpty() }
+        if (swipeId != null) {
+            require(swipeId == GRIDLINK_BUNDLE_SWIPE_ID || swipeId in knownIds) {
+                "Unknown swipe target '$swipeId'. Use '$GRIDLINK_BUNDLE_SWIPE_ID' or one of: " +
+                    knownIds.joinToString()
+            }
+            // 🔴 A valid id is not the same as a visible row. An automated sender lives inside the
+            // collapsed bundle, so seeding its offset renders a swipe nobody can see and hands back
+            // a screenshot of an ordinary inbox — the exact plausible-wrong-picture this harness is
+            // supposed to make impossible. Caught here rather than left to the eye.
+            val automated = GridlinkSample.messages.any { it.id == swipeId && it.automated }
+            require(!automated || expanded) {
+                "'$swipeId' is a bundled automated sender and the bundle is collapsed, so the " +
+                    "swipe would not be visible. Add --ez expanded true, or swipe the bundle row " +
+                    "itself with --es swipe $GRIDLINK_BUNDLE_SWIPE_ID."
+            }
+        }
+        val swipeAt = intent?.getFloatExtra("swipeAt", 0f) ?: 0f
+        require(swipeAt in -1f..1f) { "swipeAt must be a fraction of row width in -1..1, got $swipeAt" }
+        require(swipeId == null || swipeAt != 0f) {
+            "swipe='$swipeId' without a non-zero swipeAt would render an untouched row."
+        }
         setContent {
             GridlinkGallery(
                 initialOverride = mode,
@@ -100,6 +129,8 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initiallySelected = selected,
                 initialSearchExpanded = searchOpen,
                 initialDestination = tab,
+                initialSwipeId = swipeId,
+                initialSwipeFraction = swipeAt,
             )
         }
     }
@@ -112,6 +143,8 @@ private fun GridlinkGallery(
     initiallySelected: Set<String> = emptySet(),
     initialSearchExpanded: Boolean = false,
     initialDestination: GridlinkDestination = GridlinkDestination.INBOX,
+    initialSwipeId: String? = null,
+    initialSwipeFraction: Float = 0f,
 ) {
     // null = follow the automatic time-of-day ladder; non-null = the manual override pill won.
     //
@@ -138,6 +171,8 @@ private fun GridlinkGallery(
                     initiallySelected = initiallySelected,
                     initialSearchExpanded = initialSearchExpanded,
                     initialDestination = initialDestination,
+                    initialSwipeId = initialSwipeId,
+                    initialSwipeFraction = initialSwipeFraction,
                 )
             }
             if (pillVisible) {
