@@ -1,74 +1,108 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Test-app mark, light mode. Compiled ONLY under -PtestApp (see the conditional res
-         srcDir in app/build.gradle.kts); production never reads this directory.
+    <!-- Test-app mark, light mode. Compiled ONLY under -PtestApp (see the conditional res srcDir in
+         app/build.gradle.kts); production never reads this directory.
 
-         ⚠️ This replaces an override of the BACKGROUND, which used to be a loud amber tile.
-         Two things killed that. Brandon objected to the colour on sight ("shouldnt be
-         orange"), and once the real icon gained a light/dark pair the background was no
-         longer free to borrow: a test build overriding only drawable/ would have been marked
-         in light mode and silently unmarked in dark.
+         ⚠️ This replaces an override of the BACKGROUND, which used to be a loud amber tile. Two
+         things killed that. Brandon objected to the colour on sight ("shouldnt be orange"), and once
+         the real icon gained a light/dark pair the background was no longer free to borrow: a test
+         build overriding only drawable/ would have been marked in light mode and silently unmarked
+         in dark (see the night twin).
 
-         So the marker moved to the mark itself and went greyscale. It reads instantly as
-         "not the real one", it spends no colour at all (which matters now that the tile IS
-         the brand), and greyscale works against both tiles, so the test build stays marked
-         in both themes. Greys are luminance matches for the colours they stand in for, and
-         the light/dark inversion of the lit pair is preserved: see
-         drawable/ic_launcher_foreground.xml in main for the rule. -->
+         So the marker is the mark itself, in greyscale. It reads instantly as "not the real one", it
+         spends no colour at all (which matters now that the tile IS the brand), and it works against
+         both tiles, so the test build stays marked in both themes. Greys are Rec.601 luminance
+         matches for the colours they replace.
 
-    <!-- dim cell, top-right -->
+         Only the foreground is overridden, so the tile underneath is whichever real one the theme
+         calls for. That is deliberate: the test app should look like the app, wrong. -->
+
+    <!-- The grid -->
     <path
-        android:fillColor="#FFC9CBCE"
-        android:pathData="M61.5625,32
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:strokeColor="#575757"
+        android:strokeWidth="0.25"
+        android:strokeAlpha="0.06"
+        android:pathData="M38,30V78 M46,30V78 M54,30V78 M62,30V78 M70,30V78
+            M30,38H78 M30,46H78 M30,54H78 M30,62H78 M30,70H78" />
 
-    <!-- dim cell, bottom-left -->
-    <path
-        android:fillColor="#FFC9CBCE"
-        android:pathData="M36.8125,56.75
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+    <!-- Bloom under the hot node -->
+    <path android:pathData="M55.5,55.5h29v29h-29z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="70"
+                android:centerY="70"
+                android:gradientRadius="14.5">
+                <item android:offset="0" android:color="#8C8D8D8D" />
+                <item android:offset="0.55" android:color="#6B8D8D8D" />
+                <item android:offset="0.8" android:color="#2E8D8D8D" />
+                <item android:offset="1" android:color="#008D8D8D" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- lit cell, top-left -->
+    <!-- Top-left block -->
     <path
-        android:fillColor="#FF8C9298"
-        android:pathData="M36.8125,32
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:strokeColor="#ACACAC"
+        android:strokeWidth="0.3125"
+        android:strokeAlpha="0.35"
+        android:pathData="M37,30
+            h15 a7,7 0 0 1 7,7
+            v15 a7,7 0 0 1 -7,7
+            h-15 a7,7 0 0 1 -7,-7
+            v-15 a7,7 0 0 1 7,-7 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="44.5" android:startY="30"
+                android:endX="44.5" android:endY="59">
+                <item android:offset="0" android:color="#FF6E6E6E" />
+                <item android:offset="1" android:color="#FF4C4C4C" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- lit cell, bottom-right -->
+    <!-- Top-right block: inert, no hairline, matching the light variant it stands in for. -->
     <path
-        android:fillColor="#FF5A6066"
-        android:pathData="M61.5625,56.75
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:fillColor="#FF212121"
+        android:pathData="M67,30
+            h6 a5,5 0 0 1 5,5
+            v19 a5,5 0 0 1 -5,5
+            h-6 a5,5 0 0 1 -5,-5
+            v-19 a5,5 0 0 1 5,-5 z" />
+
+    <!-- Bottom-left block -->
+    <path
+        android:fillColor="#FF212121"
+        android:pathData="M35,62
+            h19 a5,5 0 0 1 5,5
+            v6 a5,5 0 0 1 -5,5
+            h-19 a5,5 0 0 1 -5,-5
+            v-6 a5,5 0 0 1 5,-5 z" />
+
+    <!-- The hot node -->
+    <path
+        android:strokeColor="#575757"
+        android:strokeWidth="0.3125"
+        android:strokeAlpha="0.35"
+        android:pathData="M67,62
+            h6 a5,5 0 0 1 5,5
+            v6 a5,5 0 0 1 -5,5
+            h-6 a5,5 0 0 1 -5,-5
+            v-6 a5,5 0 0 1 5,-5 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="70" android:startY="62"
+                android:endX="70" android:endY="78">
+                <item android:offset="0" android:color="#FFA5A5A5" />
+                <item android:offset="1" android:color="#FF656565" />
+            </gradient>
+        </aapt:attr>
+    </path>
 </vector>

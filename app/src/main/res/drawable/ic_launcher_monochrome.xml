@@ -4,46 +4,55 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Themed-icon (Android 13+) silhouette. The system tints this one flat colour,
-         so the lit/dim distinction that carries the mark in colour is gone and all
-         four cells are drawn solid. The 2x2 grid still reads as the Gridlink mark.
-         Same geometry as ic_launcher_foreground; keep the two in step. -->
+    <!-- Themed-icon (Android 13+) silhouette. The system fills this with one colour of its own
+         choosing, so everything the colour variants use to build the mark is unavailable here: the
+         two gradients, the bloom, the hairlines and the whole lit/inert distinction. All four blocks
+         are drawn solid and the silhouette does the work.
+
+         That is a real loss, because the lit node is the point of the mark, and the honest
+         alternative was considered: draw the top-left mass and the hot node solid and leave the two
+         inert blocks as outlines, which keeps the hierarchy inside a single tint. It was rejected on
+         size. An outline thin enough not to read as a fifth solid block is around a 2-unit stroke,
+         which is under 1dp at the size a launcher actually draws this, and themed icons are already
+         rendered at reduced contrast against the wallpaper tint. A hierarchy nobody can resolve is
+         worse than none, so the four-block grid is the silhouette and it is legible at any size.
+
+         🔴 Geometry is shared verbatim with both ic_launcher_foreground variants (mark box 30..78,
+         corner radii 7 and 5). Three files, one shape: move one, move all three. -->
+
+    <!-- Top-left block -->
     <path
         android:fillColor="#000000"
-        android:pathData="M36.8125,32
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z
-            M61.5625,32
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z
-            M36.8125,56.75
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z
-            M61.5625,56.75
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:pathData="M37,30
+            h15 a7,7 0 0 1 7,7
+            v15 a7,7 0 0 1 -7,7
+            h-15 a7,7 0 0 1 -7,-7
+            v-15 a7,7 0 0 1 7,-7 z" />
+
+    <!-- Top-right block -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M67,30
+            h6 a5,5 0 0 1 5,5
+            v19 a5,5 0 0 1 -5,5
+            h-6 a5,5 0 0 1 -5,-5
+            v-19 a5,5 0 0 1 5,-5 z" />
+
+    <!-- Bottom-left block -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M35,62
+            h19 a5,5 0 0 1 5,5
+            v6 a5,5 0 0 1 -5,5
+            h-19 a5,5 0 0 1 -5,-5
+            v-6 a5,5 0 0 1 5,-5 z" />
+
+    <!-- The hot node -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M67,62
+            h6 a5,5 0 0 1 5,5
+            v6 a5,5 0 0 1 -5,5
+            h-6 a5,5 0 0 1 -5,-5
+            v-6 a5,5 0 0 1 5,-5 z" />
 </vector>

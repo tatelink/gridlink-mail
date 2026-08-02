@@ -1,70 +1,105 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Test-app mark, dark mode. Compiled ONLY under -PtestApp. See the light twin in
-         ../drawable/ for why the marker is greyscale rather than a coloured tile.
+    <!-- Test-app mark, dark mode. Compiled ONLY under -PtestApp. See the light twin in ../drawable/
+         for why the marker is a greyscale mark rather than a coloured tile.
 
-         🔴 This file is why the marker moved off the background. testApp supplies only a
-         `res` srcDir, so an override that existed in drawable/ but not drawable-night/ would
-         have left the test build wearing the production icon in dark mode: marked when you
-         are not looking for it, unmarked when you are. Both variants or neither.
+         🔴 This file is why the marker lives on the mark and not on the background. testApp supplies
+         a plain `res` srcDir, so an override present in drawable/ but missing from drawable-night/
+         would leave the test build wearing the PRODUCTION icon in dark mode: marked when you are not
+         looking for it and unmarked when you are. Both qualifiers or neither.
 
-         Greys are luminance stand-ins for the real mark's colours against #06070a, keeping
-         the lit pair stepping AWAY from the tile (lighter here, darker on the light tile)
-         and the dim pair at the same 40%-over-tile weight. -->
+         Greys are Rec.601 luminance matches for the colours they stand in for, so the mark keeps its
+         internal ordering (mass, inert, node) while spending no colour at all. -->
 
-    <!-- dim cell, top-right -->
+    <!-- The grid -->
     <path
-        android:fillColor="#FF3B3D40"
-        android:pathData="M61.5625,32
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:strokeColor="#8D8D8D"
+        android:strokeWidth="0.25"
+        android:strokeAlpha="0.06"
+        android:pathData="M38,30V78 M46,30V78 M54,30V78 M62,30V78 M70,30V78
+            M30,38H78 M30,46H78 M30,54H78 M30,62H78 M30,70H78" />
 
-    <!-- dim cell, bottom-left -->
-    <path
-        android:fillColor="#FF3B3D40"
-        android:pathData="M36.8125,56.75
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+    <!-- Bloom under the hot node -->
+    <path android:pathData="M55.5,55.5h29v29h-29z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="70"
+                android:centerY="70"
+                android:gradientRadius="14.5">
+                <item android:offset="0" android:color="#D9D5D5D5" />
+                <item android:offset="0.55" android:color="#B3D5D5D5" />
+                <item android:offset="0.8" android:color="#4DD5D5D5" />
+                <item android:offset="1" android:color="#00D5D5D5" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- lit cell, top-left -->
+    <!-- Top-left block -->
     <path
-        android:fillColor="#FF8C9298"
-        android:pathData="M36.8125,32
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:strokeColor="#ACACAC"
+        android:strokeWidth="0.3125"
+        android:strokeAlpha="0.35"
+        android:pathData="M37,30
+            h15 a7,7 0 0 1 7,7
+            v15 a7,7 0 0 1 -7,7
+            h-15 a7,7 0 0 1 -7,-7
+            v-15 a7,7 0 0 1 7,-7 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="44.5" android:startY="30"
+                android:endX="44.5" android:endY="59">
+                <item android:offset="0" android:color="#FF6E6E6E" />
+                <item android:offset="1" android:color="#FF4C4C4C" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- lit cell, bottom-right -->
+    <!-- Top-right block -->
     <path
-        android:fillColor="#FFC2C8CE"
-        android:pathData="M61.5625,56.75
-            h9.625
-            a4.8125,4.8125 0 0 1 4.8125,4.8125
-            v9.625
-            a4.8125,4.8125 0 0 1 -4.8125,4.8125
-            h-9.625
-            a4.8125,4.8125 0 0 1 -4.8125,-4.8125
-            v-9.625
-            a4.8125,4.8125 0 0 1 4.8125,-4.8125 z" />
+        android:fillColor="#FF212121"
+        android:strokeColor="#8D8D8D"
+        android:strokeWidth="0.3125"
+        android:strokeAlpha="0.25"
+        android:pathData="M67,30
+            h6 a5,5 0 0 1 5,5
+            v19 a5,5 0 0 1 -5,5
+            h-6 a5,5 0 0 1 -5,-5
+            v-19 a5,5 0 0 1 5,-5 z" />
+
+    <!-- Bottom-left block -->
+    <path
+        android:fillColor="#FF212121"
+        android:strokeColor="#8D8D8D"
+        android:strokeWidth="0.3125"
+        android:strokeAlpha="0.25"
+        android:pathData="M35,62
+            h19 a5,5 0 0 1 5,5
+            v6 a5,5 0 0 1 -5,5
+            h-19 a5,5 0 0 1 -5,-5
+            v-6 a5,5 0 0 1 5,-5 z" />
+
+    <!-- The hot node -->
+    <path
+        android:pathData="M67,62
+            h6 a5,5 0 0 1 5,5
+            v6 a5,5 0 0 1 -5,5
+            h-6 a5,5 0 0 1 -5,-5
+            v-6 a5,5 0 0 1 5,-5 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="70" android:startY="62"
+                android:endX="70" android:endY="78">
+                <item android:offset="0" android:color="#FFFFFFFF" />
+                <item android:offset="1" android:color="#FFDBDBDB" />
+            </gradient>
+        </aapt:attr>
+    </path>
 </vector>
