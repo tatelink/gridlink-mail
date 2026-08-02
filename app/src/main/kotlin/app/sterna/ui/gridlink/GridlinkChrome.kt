@@ -113,12 +113,22 @@ fun Modifier.gridlinkGlow(
     radiusMultiplier: Float = 0.9f,
     center: (androidx.compose.ui.geometry.Size) -> Offset = { Offset(it.width / 2f, it.height / 2f) },
 ): Modifier = if (color == null) this else drawBehind {
-    drawRect(
+    val radius = maxOf(size.width, size.height) * radiusMultiplier
+    val origin = center(size)
+    // 🔴 drawCircle, NEVER drawRect. A rect is the size of the element, so the gradient gets cut
+    // off wherever the element ends rather than where the light runs out. On the header that put a
+    // hard horizontal step across the entire screen at the header's bottom edge, and on the nav
+    // pill it hid the halo completely, because the rect was exactly the pill and the pill's own
+    // fill painted straight over it. A circle spills past the element's bounds — Compose does not
+    // clip a draw modifier unless the node asks it to — so the light fades out on its own.
+    drawCircle(
         brush = Brush.radialGradient(
             colors = listOf(color, Color.Transparent),
-            center = center(size),
-            radius = maxOf(size.width, size.height) * radiusMultiplier,
+            center = origin,
+            radius = radius,
         ),
+        radius = radius,
+        center = origin,
     )
 }
 
@@ -142,7 +152,12 @@ fun GridlinkHeader(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .gridlinkGlow(colors.glow) { Offset(it.width * 0.28f, it.height * 0.5f) }
+            // Tighter than the 0.9 default now that the circle spills past the header instead of
+            // being cropped to it: the same multiplier would wash half the screen and swallow the
+            // aurora, which is already doing the broad work behind this.
+            .gridlinkGlow(colors.glow, radiusMultiplier = 0.55f) {
+                Offset(it.width * 0.28f, it.height * 0.5f)
+            }
             // §3's "chrome is spacious" is the only thing holding the top of this screen open, so
             // the header is where it has to be spent. 40 over 20 against a 32sp ExtraBold title
             // reads as breathing room; the previous 28 over 16 just read as a tight app bar.
@@ -235,8 +250,10 @@ fun GridlinkNavPill(
             // EMIT light rather than sit on it, and the halo is what does that. Suppressed in OLED
             // along with every other shadow.
             .gridlinkGlow(
-                if (colors.usesShadows) colors.accent.copy(alpha = 0.22f) else null,
-                radiusMultiplier = 0.85f,
+                if (colors.usesShadows) colors.accent.copy(alpha = 0.28f) else null,
+                // 0.4 of the pill's width puts the falloff a little under half a pill-height
+                // outside it, which is a halo. The 0.85 this started at is a floodlight.
+                radiusMultiplier = 0.4f,
             )
             // 🔴 Two fills, not one. Every surface in the palette is translucent (Night 85%, Day
             // 55%), which is right for a panel sitting on the background but wrong for one
