@@ -44,13 +44,54 @@ internal fun trashFilePath(mailboxes: List<Mailbox>): String? =
     mailboxes.firstOrNull { it.role == "trash" }?.let { mailboxFilePath(it, mailboxes) }
 
 /**
- * Whether the "future mail to Trash" entry may appear: the account's server must take Sterna's
- * filter rules at all ([supported] — false exactly where the Filters screen shows its
- * "not supported" note, i.e. IMAP and JMAP without the Sieve capability), AND the Trash must be
- * nameable ([trashPath]).
+ * Whether the "future mail to Trash" entry may appear, from what the account's script read
+ * answered ([state], null when the read FAILED) and whether the Trash can be named [trashPath].
+ *
+ * Three different noes, and one of them is deliberately a yes:
+ *  - **no Trash to name** — nothing honest to offer, and nothing invented to compensate;
+ *  - **[FilterRulesState.Unsupported]** — IMAP, or JMAP without the Sieve capability: exactly
+ *    where the Filters screen shows its "not supported" note. The server would refuse;
+ *  - **another Sieve script is active** — saving activates Sterna's and switches that one off.
+ *    The Filters screen says so in red before its Save button and remains the way to do it
+ *    knowingly; a list row cannot carry that warning, so it does not carry the gesture either;
+ *  - **the read FAILED** (offline, a dead connection) — the entry STAYS. Hiding it makes an
+ *    unreachable server look like an unsupported one, with no word and no retry; tapping it runs
+ *    [app.sterna.core.data.filter.addBlockRule], which reads again and reports the failure. One
+ *    state fewer, not one more.
  */
-internal fun canBlockSender(supported: Boolean, trashPath: String?): Boolean =
-    supported && trashPath != null
+internal fun canBlockSender(state: FilterRulesState?, trashPath: String?): Boolean = when {
+    trashPath == null -> false
+    state is FilterRulesState.Unsupported -> false
+    state is FilterRulesState.Loaded -> !state.foreignActiveScript
+    else -> true
+}
+
+/**
+ * The move-backs an Undo has to make: for each id the server confirmed [succeeded], the folder it
+ * came from ([sources], id → folder) and the folder it was put in ([dest]).
+ *
+ * An id whose source is unknown is dropped — there is nowhere to send it back to. So is one whose
+ * source IS the destination: it did not move, and "restoring" it to where it already sits reports
+ * a success while the mail stays in the Trash.
+ */
+internal fun restoreTargets(
+    succeeded: Set<String>,
+    sources: Map<String, String?>,
+    dest: String?,
+): List<MailRepository.RestoreTarget> = sources.entries
+    .filter { (id, source) -> id in succeeded && source != null && source != dest }
+    .map { (id, source) -> MailRepository.RestoreTarget(id, source!!, dest) }
+
+/**
+ * A delete the user is being asked to confirm: the sender, and the ids MATERIALISED when the
+ * dialog opened.
+ *
+ * The dialog announces `ids.size` and the delete acts on `ids` — the same list, read once. The
+ * row's own total was read when the screen loaded and can be older; that number may therefore
+ * differ from this one, and this one is the true one. There is deliberately no `total` field
+ * here: a dialog that cannot reach the stale number cannot print it.
+ */
+data class PendingDelete(val sender: SenderVolume, val ids: List<String>)
 
 /** One row of the screen. */
 data class MailBySenderUiState(
@@ -66,7 +107,10 @@ data class MailBySenderUiState(
     val canBlock: Boolean = false,
     /** The rules the account's script carries, as last read — for the duplicate check. */
     val rules: List<FilterRule> = emptyList(),
+    /** A batch is on its way to the server; the row menus are closed to a second one. */
     val working: Boolean = false,
+    /** The delete awaiting confirmation, with the ids it will act on. */
+    val pending: PendingDelete? = null,
 )
 
 /** An offer to move a just-deleted batch back where it came from. */
@@ -104,8 +148,9 @@ class MailBySenderViewModel(application: Application) : AndroidViewModel(applica
      *
      * The counts are a local query and land immediately; the rules are a network round-trip, so
      * they follow instead of holding the screen up (the Storage screen fetches its server quota
-     * the same way). A failed rule read leaves the block entry hidden, which is the safe
-     * direction: the delete and the numbers do not depend on it.
+     * the same way). Nothing leaves the phone to produce the NUMBERS; the round-trip exists only
+     * to decide what the row menu may offer, and what a failed one means is
+     * [canBlockSender]'s business.
      */
     fun load() {
         val credentials = store.load()
@@ -131,38 +176,53 @@ class MailBySenderViewModel(application: Application) : AndroidViewModel(applica
                 rules = emptyList(),
             )
             val loaded = runCatching { repo.loadFilterRules(credentials) }.getOrNull()
-            val rules = (loaded as? FilterRulesState.Loaded)?.rules
             _state.value = _state.value.copy(
-                canBlock = canBlockSender(rules != null, trashPath),
-                rules = rules.orEmpty(),
+                canBlock = canBlockSender(loaded, trashPath),
+                rules = (loaded as? FilterRulesState.Loaded)?.rules.orEmpty(),
             )
         }
     }
 
     /**
-     * Move every counted message of [sender] to the Trash, and offer to put them back.
+     * Open the confirmation for [sender], reading the ids it will act on NOW.
      *
-     * The ids come from the query that shares its scope clause with the one that produced the
-     * number on the row, so the batch is exactly what was announced. It goes through
-     * `deleteAll`, which moves to Trash and never destroys: nothing here reaches `destroyAll` or
-     * the held-back destroy worker.
+     * The dialog then announces the size of the very list the delete receives. The row's number
+     * was read when the screen loaded; between the two a message may have arrived, and it is the
+     * dialog that is right.
      */
-    fun deleteFrom(sender: SenderVolume) {
+    fun askDelete(sender: SenderVolume) {
         val credentials = store.load() ?: return
         if (_state.value.working) return
-        _state.value = _state.value.copy(working = true)
         viewModelScope.launch {
             val ids = repo.senderMessageIds(credentials.id, sender.email)
+            _state.value = _state.value.copy(pending = PendingDelete(sender, ids))
+        }
+    }
+
+    fun cancelDelete() { _state.value = _state.value.copy(pending = null) }
+
+    /**
+     * Move the confirmed batch to the Trash, and offer to put it back.
+     *
+     * It acts on [PendingDelete.ids] — the list the dialog counted, not a fresh read: announced
+     * and done are the same messages, not merely the same query. It goes through `deleteAll`,
+     * which moves to Trash and never destroys; nothing here reaches `destroyAll` or the held-back
+     * destroy worker, and `MailBySenderWiringTest` holds that name out of this package.
+     */
+    fun confirmDelete() {
+        val pending = _state.value.pending ?: return
+        val credentials = store.load() ?: return
+        if (_state.value.working) return
+        _state.value = _state.value.copy(working = true, pending = null)
+        viewModelScope.launch {
+            val ids = pending.ids
             // Captured BEFORE the delete: the rows are gone from the cache afterwards, and the
             // undo needs each message's source folder to move it back to.
-            val before = repo.cachedEmailsByIds(ids.map { EmailKey(credentials.id, it) })
+            val sources = repo.cachedEmailsByIds(ids.map { EmailKey(credentials.id, it) })
+                .associate { it.id to it.mailboxId }
             val result = runCatching { repo.deleteAll(credentials, ids) }
                 .getOrElse { MailRepository.BulkResult(emptySet(), ids.toSet()) }
-            val targets = before
-                .filter { it.id in result.succeeded }
-                .mapNotNull { email ->
-                    email.mailboxId?.let { MailRepository.RestoreTarget(email.id, it, result.dest) }
-                }
+            val targets = restoreTargets(result.succeeded, sources, result.dest)
             _state.value = _state.value.copy(working = false)
             if (result.failed.isNotEmpty()) {
                 _message.value = getApplication<Application>().getString(R.string.status_action_failed)

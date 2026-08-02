@@ -1,5 +1,6 @@
 package app.sterna.ui.sender
 
+import app.sterna.core.data.mail.FilterRulesState
 import app.sterna.core.data.mail.SenderVolume
 import app.sterna.core.jmap.model.Mailbox
 import org.junit.Assert.assertEquals
@@ -66,13 +67,84 @@ class MailBySenderTest {
 
     // -- when the rule may be offered at all ---------------------------------------------------
 
-    @Test fun `the rule is offered only with both a supporting server and a nameable trash`() {
-        assertTrue(canBlockSender(supported = true, trashPath = "Trash"))
+    @Test fun `the rule is offered on a server that takes it, with a trash to name`() {
+        assertTrue(canBlockSender(FilterRulesState.Loaded(emptyList()), trashPath = "Trash"))
+    }
+
+    @Test fun `no server support, no entry`() {
         // IMAP, or a JMAP server without the Sieve capability: exactly where the Filters screen
         // shows its "not supported" note. Nothing local is invented to stand in for it.
-        assertFalse(canBlockSender(supported = false, trashPath = "Trash"))
-        // Supported, but there is no Trash to name as the rule's target.
-        assertFalse(canBlockSender(supported = true, trashPath = null))
-        assertFalse(canBlockSender(supported = false, trashPath = null))
+        assertFalse(canBlockSender(FilterRulesState.Unsupported, trashPath = "Trash"))
+    }
+
+    @Test fun `no trash to name, no entry`() {
+        assertFalse(canBlockSender(FilterRulesState.Loaded(emptyList()), trashPath = null))
+        assertFalse(canBlockSender(FilterRulesState.Unsupported, trashPath = null))
+        assertFalse(canBlockSender(null, trashPath = null))
+    }
+
+    @Test fun `an account running its own Sieve script does not get the entry`() {
+        // Saving activates Sterna's script and switches hers off. The filter editor warns about
+        // that in red before its Save button and stays the place to do it knowingly; a list row
+        // has nowhere to put the warning, so it does not carry the gesture.
+        assertFalse(
+            canBlockSender(
+                FilterRulesState.Loaded(emptyList(), foreignActiveScript = true),
+                trashPath = "Trash",
+            ),
+        )
+    }
+
+    @Test fun `a read that failed keeps the entry`() {
+        // Offline is not "unsupported". Hiding the entry here makes an unreachable server
+        // indistinguishable from an IMAP account — no word, no retry, and the difference is
+        // never explained. Tapping it reads again and reports the failure honestly.
+        assertTrue(canBlockSender(null, trashPath = "Trash"))
+    }
+
+    // -- what an Undo has to move back ------------------------------------------------------------
+
+    @Test fun `only the ids the server confirmed are moved back`() {
+        val targets = restoreTargets(
+            succeeded = setOf("a", "b"),
+            sources = mapOf("a" to "inbox", "b" to "archive", "c" to "inbox"),
+            dest = "trash",
+        )
+        assertEquals(listOf("a", "b"), targets.map { it.emailId })
+        assertEquals(listOf("inbox", "archive"), targets.map { it.sourceMailboxId })
+        assertEquals(listOf("trash", "trash"), targets.map { it.destMailboxId })
+    }
+
+    @Test fun `a message that was already in the destination is not moved back`() {
+        // Its "restore" would be a move to where it already sits: the server accepts it, the undo
+        // reports success, and the mail stays in the Trash. Nothing to undo, so nothing offered.
+        val targets = restoreTargets(
+            succeeded = setOf("a", "b"),
+            sources = mapOf("a" to "trash", "b" to "inbox"),
+            dest = "trash",
+        )
+        assertEquals(listOf("b"), targets.map { it.emailId })
+    }
+
+    @Test fun `a message whose source folder is unknown is not moved back`() {
+        val targets = restoreTargets(
+            succeeded = setOf("a"),
+            sources = mapOf("a" to null),
+            dest = "trash",
+        )
+        assertEquals(emptyList<Any>(), targets)
+    }
+
+    // -- the number the confirmation announces -----------------------------------------------------
+
+    @Test fun `the dialog counts the list it will delete, not the row it came from`() {
+        // The row's total was read when the screen loaded; the ids are read when the dialog
+        // opens. A message arriving in between makes them differ, and the dialog is the one that
+        // is right — so PendingDelete carries the ids and NOT the row's total, and a dialog that
+        // cannot reach the stale number cannot print it.
+        val row = volume("a@x", total = 3)
+        val pending = PendingDelete(row, listOf("m1", "m2", "m3", "m4"))
+        assertEquals(4, pending.ids.size)
+        assertEquals("a@x", pending.sender.email)
     }
 }

@@ -11,19 +11,24 @@ import java.io.File
  * about what happens on screen, and it would still pass if the code it points at were broken
  * inside.
  *
- * It covers the three couplings that no JVM test in this repo can reach, because they live in a
- * `@Composable` and an `AndroidViewModel`:
- *  - the inbox's overflow entry opens this screen, and sits where #48 says it must;
- *  - the row's rule entry is gated on the availability the ViewModel computed, so it cannot
- *    appear on an account whose server would refuse the rule;
- *  - the script is never saved except as [app.sterna.core.data.filter.addBlockRule]'s `save`
- *    callback — which is what makes the "load first, or write nothing" order, PROVEN by
- *    `SenderBlockTest` against fakes, the order the app actually runs.
+ * It covers the couplings no JVM test in this repo can reach, because they live in a
+ * `@Composable` and an `AndroidViewModel`: where the inbox's overflow entry sits and when it is
+ * hidden; that each row action is drawn only when the ViewModel said it could be, and not while a
+ * batch is in flight; that the confirmation counts the list it will delete; that the list key is
+ * the address as stored; that the header waits for its number; that the script is only ever saved
+ * as [app.sterna.core.data.filter.addBlockRule]'s `save` callback, with a `load` that goes to the
+ * server at the moment of writing; and that nothing in this package can name a permanent destroy.
+ *
+ * Two of these rules exist because an earlier version of this file did NOT catch the mutation it
+ * was written for. The rule on the `load` callback counted the lines that mention
+ * `loadFilterRules(`, so replacing that callback with a snapshot taken when the screen opened
+ * dropped the count by one — back to the number the rule expected, green. **A rule that counts
+ * occurrences is satisfied by any edit that keeps the count.** It pins the line now.
  *
  * What it does NOT do: it reads names. That the composition is right is `SenderBlockTest`'s job,
- * that the numbers are right is `SenderVolumeSqlTest`'s. And the navigation guard on the new
- * route is not checked here at all — `NavHostSourceRulesTest` already holds every action in
- * every NavHost file, this one included.
+ * that the numbers are right is `SenderVolumeSqlTest`'s, that the words are honest is
+ * `SenderVolumeCopyTest`'s. And the navigation guard on the new route is not checked here at all
+ * — `NavHostSourceRulesTest` already holds every action in every NavHost file, this one included.
  */
 class MailBySenderWiringTest {
 
@@ -97,13 +102,96 @@ class MailBySenderWiringTest {
             saves.size,
             saves.count { "save = " in it },
         )
-        val strayLoads = lines.filter { "loadFilterRules(" in it && "load = " !in it }
-        assertEquals(
-            "exactly $LOAD_FOR_AVAILABILITY read of the rules may stand outside addBlockRule " +
-                "(the availability read when the screen opens, which writes nothing). Found:\n" +
-                strayLoads.joinToString("\n"),
-            LOAD_FOR_AVAILABILITY,
-            strayLoads.size,
+    }
+
+    @Test fun `addBlockRule's load callback is the repository call itself`() {
+        // Pinned by SHAPE, not by counting. Counting the lines that mention loadFilterRules let
+        // the worst mutation of this module through: replace the callback with a snapshot taken
+        // when the screen opened, and the count of mentions drops by exactly one — back to the
+        // number the rule wanted. The script would then be rewritten from stale rules, and every
+        // rule added since the screen opened would disappear from the server.
+        val body = code(VIEW_MODEL)
+        assertTrue(
+            "addBlockRule's 'load =' must be exactly '$LOAD_CALLBACK' — a lambda that goes to " +
+                "the server AT THE MOMENT OF WRITING. Anything captured earlier is a stale list, " +
+                "and saveFilterRules writes whatever list it is given over the whole script.",
+            LOAD_CALLBACK in body,
+        )
+    }
+
+    @Test fun `nothing in this screen's package can name the permanent destroy`() {
+        // The repository forbids nothing: destroyAll is one word away from deleteAll at any call
+        // site, and it destroys server-side with no Trash and no undo. From a row menu that is
+        // the worst thing this feature could grow. The only guard was a comment; this is the rule.
+        val offenders = packageSources()
+            .flatMap { file -> codeLines(file).map { file.name to it } }
+            .filter { (_, line) -> "destroyAll" in line || "heldBackDestroy" in line }
+        assertTrue(
+            "a permanent destroy must never be reachable from the per-sender screen: $offenders",
+            offenders.isEmpty(),
+        )
+    }
+
+    @Test fun `the row menu closes while a batch is on its way`() {
+        // Without this the second confirmed delete returns at the ViewModel's `working` guard and
+        // does nothing at all — no toast, no bar, no change. A greyed-out entry says "not now"
+        // without a single new string.
+        val screen = code(SCREEN)
+        listOf("canDelete = state.canDelete && !state.working", "canBlock = state.canBlock && !state.working")
+            .forEach { expected ->
+                assertTrue(
+                    "the row menu must be closed to a second gesture while one is in flight: " +
+                        "expected '$expected' in MailBySenderScreen. Screen was missing it.",
+                    expected in screen,
+                )
+            }
+    }
+
+    @Test fun `the confirmation counts the list it will delete`() {
+        val dialog = callArguments(code(SCREEN), "AlertDialog").single()
+        assertTrue(
+            "the dialog's plural must be given pending.ids.size — the list its confirm button " +
+                "hands to the delete. The row's own total was read when the SCREEN loaded and can " +
+                "be older; announcing that number and deleting this list is the dishonesty this " +
+                "whole feature is written against. Dialog was:\n$dialog",
+            "pending.ids.size" in dialog,
+        )
+        assertTrue(
+            "the confirm button must call viewModel.confirmDelete(), which acts on that same " +
+                "list — not re-read the ids. Dialog was:\n$dialog",
+            "viewModel.confirmDelete()" in dialog,
+        )
+        assertTrue(
+            "no count read off the row may appear in the dialog. Dialog was:\n$dialog",
+            "sender.total" !in dialog && "pending.total" !in dialog,
+        )
+    }
+
+    @Test fun `the list is keyed on the address exactly as stored`() {
+        // SQLite's lower() is ASCII-only, Kotlin's lowercase() is not: "Éric@x" and "éric@x" are
+        // two rows out of the query and ONE lowercase() key. A LazyColumn given the same key
+        // twice throws, and the screen dies with no way back. Two rows already have two distinct
+        // addresses — there is nothing to normalise.
+        val screen = code(SCREEN)
+        assertTrue(
+            "the LazyColumn key must be 'key = { it.email }', with no transformation",
+            "key = { it.email }" in screen,
+        )
+        assertTrue(
+            "no lowercase() may touch the list key: $screen",
+            "it.email.lowercase()" !in screen,
+        )
+    }
+
+    @Test fun `the header waits for the count`() {
+        val lines = codeLines(SCREEN)
+        val at = lines.indexOfFirst { SCOPE_LABEL in it }
+        assertTrue("$SCOPE_LABEL is no longer in the screen", at >= 0)
+        assertTrue(
+            "the header sentence must sit behind 'if (!state.loading)': `total` is 0 until the " +
+                "query lands, and a screen whose job is counting must not show a wrong number " +
+                "first. It reads '0 messages stored on this phone' for as long as the load takes.",
+            lines.enclosedBy(at, "if (!state.loading)"),
         )
     }
 
@@ -181,20 +269,16 @@ class MailBySenderWiringTest {
         private const val BY_SENDER_LABEL = "R.string.inbox_by_sender"
         private const val BLOCK_LABEL = "R.string.sender_volume_block_done"
         private const val DELETE_LABEL = "R.string.sender_volume_delete)"
+        private const val SCOPE_LABEL = "R.string.sender_volume_scope"
 
-        /**
-         * The ONE read that is not part of the write path: `load()` reads the rules when the
-         * screen opens, only to decide whether the entry may be shown and whether an address is
-         * already handled. It writes nothing, so it is not bound by the load-then-save order —
-         * and it is counted here rather than waved through, so a second free-standing read has
-         * to be justified by editing this number.
-         */
-        private const val LOAD_FOR_AVAILABILITY = 1
+        /** The write path's read, in full: it must go to the server where it is written. */
+        private const val LOAD_CALLBACK = "load = { repo.loadFilterRules(credentials) }"
 
         private const val APP_SOURCES = "app/src/main/kotlin"
         private const val INBOX_SCREEN_PATH = "$APP_SOURCES/app/sterna/ui/inbox/InboxScreen.kt"
-        private const val SCREEN_PATH = "$APP_SOURCES/app/sterna/ui/sender/MailBySenderScreen.kt"
-        private const val VIEW_MODEL_PATH = "$APP_SOURCES/app/sterna/ui/sender/MailBySenderViewModel.kt"
+        private const val PACKAGE_PATH = "$APP_SOURCES/app/sterna/ui/sender"
+        private const val SCREEN_PATH = "$PACKAGE_PATH/MailBySenderScreen.kt"
+        private const val VIEW_MODEL_PATH = "$PACKAGE_PATH/MailBySenderViewModel.kt"
 
         private val root: File by lazy {
             generateSequence(File("").absoluteFile) { it.parentFile }
@@ -208,5 +292,12 @@ class MailBySenderWiringTest {
         private val INBOX_SCREEN: File by lazy { File(root, INBOX_SCREEN_PATH) }
         private val SCREEN: File by lazy { File(root, SCREEN_PATH) }
         private val VIEW_MODEL: File by lazy { File(root, VIEW_MODEL_PATH) }
+
+        /** Every source file of this screen's package — the rules that apply to the whole of it
+         *  cover a file added tomorrow, not a list written today. */
+        fun packageSources(): List<File> = (File(root, PACKAGE_PATH).listFiles() ?: emptyArray())
+            .filter { it.isFile && it.extension == "kt" }
+            .sortedBy { it.name }
+            .also { check(it.size >= 2) { "the per-sender package holds ${it.size} sources — did it move?" } }
     }
 }

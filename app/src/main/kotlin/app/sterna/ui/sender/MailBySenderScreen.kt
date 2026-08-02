@@ -68,9 +68,6 @@ fun MailBySenderScreen(
     val undoLabel = stringResource(R.string.inbox_undo)
     val deletedLabel = stringResource(R.string.status_message_deleted)
 
-    // What the confirmation dialog is about, or null when it is closed.
-    var confirming by remember { mutableStateOf<SenderVolume?>(null) }
-
     LaunchedEffect(message) {
         val m = message ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(m)
@@ -126,32 +123,43 @@ fun MailBySenderScreen(
             return@Scaffold
         }
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-            item {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text(
-                        stringResource(R.string.settings_vacation_account, state.accountLabel),
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    // One sentence: how much, that it is what this phone holds, and which
-                    // folders are left out of it.
-                    Text(
-                        stringResource(
-                            R.string.sender_volume_scope,
-                            pluralStringResource(R.plurals.sender_volume_cached, state.total, state.total),
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            // Not drawn while loading: `total` is 0 until the query lands, and "0 messages stored
+            // on this phone" is the one sentence a counting screen must never show before it has
+            // counted.
+            if (!state.loading) {
+                item {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text(
+                            stringResource(R.string.settings_vacation_account, state.accountLabel),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        // One sentence: how much, that it is what this phone holds, and which
+                        // folders are left out of it.
+                        Text(
+                            stringResource(
+                                R.string.sender_volume_scope,
+                                pluralStringResource(R.plurals.sender_volume_cached, state.total, state.total),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
-            items(state.rows, key = { it.email.lowercase() }) { row ->
+            // Keyed on the address AS STORED, with no transformation. Two lines are two SQL
+            // groups, so their LOWER(fromEmail) differ, so their fromEmail differ — the key is
+            // already unique. Lowercasing it here reintroduces the collision the grouping does
+            // not have: SQLite's lower() is ASCII-only and Kotlin's lowercase() is not, so two
+            // spellings differing by a non-ASCII capital are two rows and would become one key,
+            // which makes LazyColumn throw and takes the screen with it.
+            items(state.rows, key = { it.email }) { row ->
                 SenderRow(
                     row = row,
-                    canDelete = state.canDelete,
-                    canBlock = state.canBlock,
+                    canDelete = state.canDelete && !state.working,
+                    canBlock = state.canBlock && !state.working,
                     blocked = viewModel.isBlocked(row.email),
-                    onDelete = { confirming = row },
+                    onDelete = { viewModel.askDelete(row) },
                     onBlock = { viewModel.blockSender(row) },
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -159,28 +167,31 @@ fun MailBySenderScreen(
         }
     }
 
-    val pending = confirming
+    val pending = state.pending
     if (pending != null) {
         AlertDialog(
-            onDismissRequest = { confirming = null },
+            onDismissRequest = { viewModel.cancelDelete() },
             title = {
+                // The count is the size of the list this dialog's confirm button hands to the
+                // delete — read when the dialog opened, not when the screen did. It can differ
+                // from the row's number; when it does, this one is the true one.
                 Text(
                     pluralStringResource(
                         R.plurals.sender_volume_delete_title,
-                        pending.total,
-                        pending.total,
-                        pending.email,
+                        pending.ids.size,
+                        pending.ids.size,
+                        pending.sender.email,
                     ),
                 )
             },
             text = { Text(stringResource(R.string.sender_volume_delete_body)) },
             confirmButton = {
-                TextButton(onClick = { confirming = null; viewModel.deleteFrom(pending) }) {
+                TextButton(onClick = { viewModel.confirmDelete() }) {
                     Text(stringResource(R.string.inbox_delete))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirming = null }) { Text(stringResource(R.string.inbox_cancel)) }
+                TextButton(onClick = { viewModel.cancelDelete() }) { Text(stringResource(R.string.inbox_cancel)) }
             },
         )
     }
