@@ -251,6 +251,26 @@ class GridlinkGalleryActivity : ComponentActivity() {
         // without swiping the sample list away a row at a time.
         //   am start -S -n .../GridlinkGalleryActivity --ez empty true --es sync offline
         val empty = intent?.getBooleanExtra("empty", false) ?: false
+        // §5. The thread view, already open, and optionally held part-way through its arrival. The
+        // fraction is the frame that cannot be captured any other way: the open is a spring and the
+        // back gesture is a drag, and `input tap` followed by a screencap either catches a blur at
+        // an arbitrary point or, more often, the settled screen. A settled frame looks identical
+        // whichever direction it settled from, so a mid-flight frame is the only proof the parallax,
+        // the scrim and the edge shadow are all reading the same value.
+        //   am start -S -n .../GridlinkGalleryActivity --es open jonah-dogs
+        //   am start -S -n .../GridlinkGalleryActivity --es open tally-hillcrest --ef openAt 0.45
+        val openId = intent?.getStringExtra("open")?.trim()?.takeIf { it.isNotEmpty() }
+        // Validated here rather than left to the lookup, so the failure names the extra that is
+        // wrong. GridlinkSample.messageById throws on a miss and lists the ids.
+        openId?.let(GridlinkSample::messageById)
+        val openAt = intent?.getFloatExtra("openAt", 1f) ?: 1f
+        require(openAt in 0f..1f) { "openAt=$openAt must be between 0 and 1." }
+        require(openId != null || openAt == 1f) {
+            "openAt=$openAt without --es open would hold nothing part-way. Add --es open jonah-dogs."
+        }
+        require(openId == null || tab == GridlinkDestination.INBOX) {
+            "open='$openId' is a mail thread, so it only means anything on the inbox tab."
+        }
         setContent {
             GridlinkGallery(
                 initialOverride = mode,
@@ -269,6 +289,8 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 menuOpenAtStart = menuOpen,
                 demoRecycle = recycle,
                 initiallyEmpty = empty,
+                initialOpenId = openId,
+                initialOpenFraction = openAt,
             )
         }
     }
@@ -292,6 +314,8 @@ private fun GridlinkGallery(
     menuOpenAtStart: Boolean = false,
     demoRecycle: Boolean = false,
     initiallyEmpty: Boolean = false,
+    initialOpenId: String? = null,
+    initialOpenFraction: Float = 1f,
 ) {
     // 🔴 The gallery no longer owns the palette, it seeds it. Day / Night / OLED is a real app
     // setting now, living in GridlinkApp and reachable from the menu panel's Appearance track, so a
@@ -321,6 +345,8 @@ private fun GridlinkGallery(
             initialCompose = initialCompose,
             demoRecycle = demoRecycle,
             initiallyEmpty = initiallyEmpty,
+            initialOpenId = initialOpenId,
+            initialOpenFraction = initialOpenFraction,
         )
     }
 }
