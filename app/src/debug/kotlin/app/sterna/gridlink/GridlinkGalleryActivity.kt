@@ -187,6 +187,21 @@ class GridlinkGalleryActivity : ComponentActivity() {
         require(stageName == null || folderId != null) {
             "stage='$stageName' without --es folder would render nothing."
         }
+        // The A-Z rail held at a letter, with the lens up and the list already jumped there. A scrub
+        // is a press-and-drag along a 24dp strip, which `input swipe` can only approximate, and the
+        // rail collapses the instant the finger lifts, so a screenshot taken after the swipe returns
+        // shows the resting state every time.
+        //   am start -n .../GridlinkGalleryActivity --es tab contacts --es letter s
+        val letterArg = intent?.getStringExtra("letter")?.trim()?.takeIf { it.isNotEmpty() }
+        val scrubLetter = letterArg?.let {
+            require(it.length == 1 && it[0].uppercaseChar() in 'A'..'Z') {
+                "letter='$it' must be a single letter A-Z."
+            }
+            it[0].uppercaseChar()
+        }
+        require(scrubLetter == null || tab == GridlinkDestination.CONTACTS) {
+            "letter='$letterArg' only means anything on the contacts tab. Add --es tab contacts."
+        }
         // Sends every archived, moved or deleted row back to the top a moment later. On by default
         // *here and only here*: the sample inbox is otherwise a consumable, and a gesture you can
         // only watch five times is a gesture nobody reviews properly. Never reaches release.
@@ -203,6 +218,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialCalendarView = calendarView,
                 initialFolderActionId = folderId,
                 initialFolderStage = folderStage,
+                initialScrubLetter = scrubLetter,
                 demoRecycle = recycle,
             )
         }
@@ -221,6 +237,7 @@ private fun GridlinkGallery(
     initialCalendarView: GridlinkCalendarView = GridlinkCalendarView.MONTH,
     initialFolderActionId: String? = null,
     initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
+    initialScrubLetter: Char? = null,
     demoRecycle: Boolean = false,
 ) {
     // null = follow the automatic time-of-day ladder; non-null = the manual override pill won.
@@ -253,6 +270,7 @@ private fun GridlinkGallery(
                     initialCalendarView = initialCalendarView,
                     initialFolderActionId = initialFolderActionId,
                     initialFolderStage = initialFolderStage,
+                    initialScrubLetter = initialScrubLetter,
                     demoRecycle = demoRecycle,
                 )
             }
