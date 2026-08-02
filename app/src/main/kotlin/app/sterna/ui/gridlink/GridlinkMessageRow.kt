@@ -4,7 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -29,10 +30,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.sterna.ui.theme.GridlinkDimens
 import app.sterna.ui.theme.GridlinkMotion
@@ -60,6 +63,12 @@ import app.sterna.ui.theme.gridlinkSenderBarColor
  * [selected] is the single exception, and it is only coherent because of that ban: since no other
  * state fills a row, a fill can only mean selected. The same treatment marks the open thread in the
  * unfolded two-pane list (§7), so the two states never need separate visuals.
+ *
+ * ## Why [gutter] is a Dp handed down rather than a Boolean animated here
+ * 🔴 Every row, every section label and every divider slides by the same amount at the same moment.
+ * If each row ran its own `animateDpAsState` off a Boolean they would be separate animations with
+ * separate start times, and at spring settling times the list would visibly shear. The screen owns
+ * ONE animation and passes its current value; nothing in the list may animate this independently.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -68,6 +77,7 @@ fun GridlinkMessageRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    gutter: Dp = 0.dp,
     onLongClick: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
@@ -86,100 +96,148 @@ fun GridlinkMessageRow(
             .background(fill)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
-        // Identity bar, hard against the leading edge. This is what replaces the avatar.
-        //
-        // It goes accent while selected rather than keeping its sender colour: at 3dp this bar is
-        // the loudest structural mark on the row, and leaving it in place under an accent fill puts
-        // two competing hues on the same edge. Identity yields to state for as long as the state
-        // lasts.
+        GridlinkSelectionSlot(
+            selected = selected,
+            gutter = gutter,
+            modifier = Modifier.align(Alignment.CenterStart),
+        )
         Box(
             modifier = Modifier
-                .width(GridlinkDimens.senderBarWidth)
-                .fillMaxHeight()
-                .background(
-                    if (selected) colors.accent else gridlinkSenderBarColor(mode, message.domain),
-                ),
-        )
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    start = GridlinkSpacing.rowHorizontal,
-                    end = GridlinkSpacing.rowHorizontal,
-                    top = GridlinkSpacing.rowVertical,
-                    bottom = GridlinkSpacing.rowVertical,
-                ),
-            verticalArrangement = Arrangement.Center,
+                .fillMaxSize()
+                .padding(start = gutter),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    // §4 changes only line 2 between read and unread: "read state: subject drops
-                    // to secondary colour and Regular weight". The sender stays primary in both,
-                    // so the row's identity never dims and only its urgency does.
-                    text = message.sender,
-                    style = GridlinkType.senderName,
-                    color = colors.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    // Takes all the slack, which is what pins the timestamp to the trailing edge.
-                    modifier = Modifier.weight(1f),
-                )
-                // Both markers live in the timestamp's leading space, so neither costs width, and
-                // the tick supersedes the dot: a row you have picked up is no longer telling you
-                // about its unread state.
-                if (selected) {
-                    Box(
-                        modifier = Modifier
-                            .size(GridlinkDimens.selectionTick)
-                            .background(colors.accent, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
+            // Identity bar, hard against the leading edge of the row's content. This is what
+            // replaces the avatar.
+            //
+            // It keeps its sender colour while selected. An earlier pass swapped it to the accent,
+            // which made sense when the tick was buried on the far side of the row; with a circle
+            // now sitting immediately to its left, an accent bar just smears the accent into one
+            // blob and costs the sender colour for nothing.
+            Box(
+                modifier = Modifier
+                    .width(GridlinkDimens.senderBarWidth)
+                    .fillMaxHeight()
+                    .background(gridlinkSenderBarColor(mode, message.domain)),
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = GridlinkSpacing.rowHorizontal,
+                        end = GridlinkSpacing.rowHorizontal,
+                        top = GridlinkSpacing.rowVertical,
+                        bottom = GridlinkSpacing.rowVertical,
+                    ),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        // §4 changes only line 2 between read and unread: "read state: subject
+                        // drops to secondary colour and Regular weight". The sender stays primary
+                        // in both, so the row's identity never dims and only its urgency does.
+                        text = message.sender,
+                        style = GridlinkType.senderName,
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        // Takes all the slack, which pins the timestamp to the trailing edge.
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (message.unread) {
+                        // §4: the dot sits in the timestamp's leading space, so it costs no width.
+                        Box(
+                            modifier = Modifier
+                                .size(GridlinkDimens.unreadDot)
+                                .background(colors.attention, CircleShape),
+                        )
+                        Spacer(Modifier.width(GridlinkSpacing.s8))
+                    }
+                    Text(
+                        text = message.timestamp,
+                        style = GridlinkType.timestamp,
+                        color = if (message.unread) colors.attention else colors.textSecondary,
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = message.subject,
+                        style = GridlinkType.subject.copy(
+                            // "Full weight" for unread. Read drops to Regular and secondary, which
+                            // is the only difference between the two states on line 2.
+                            fontWeight = if (message.unread) FontWeight.Medium else FontWeight.Normal,
+                        ),
+                        color = if (message.unread) colors.textPrimary else colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (message.hasAttachment) {
                         Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = "Selected",
-                            tint = gridlinkOnAccent(colors.accent),
-                            modifier = Modifier.size(12.dp),
+                            imageVector = Icons.Filled.AttachFile,
+                            contentDescription = "Has attachment",
+                            tint = colors.textSecondary,
+                            modifier = Modifier
+                                .padding(start = GridlinkSpacing.s8)
+                                .size(14.dp),
                         )
                     }
-                    Spacer(Modifier.width(GridlinkSpacing.s8))
-                } else if (message.unread) {
-                    // §4: the dot sits in the timestamp's leading space, so it costs no width.
-                    Box(
-                        modifier = Modifier
-                            .size(GridlinkDimens.unreadDot)
-                            .background(colors.attention, CircleShape),
-                    )
-                    Spacer(Modifier.width(GridlinkSpacing.s8))
                 }
-                Text(
-                    text = message.timestamp,
-                    style = GridlinkType.timestamp,
-                    color = if (message.unread) colors.attention else colors.textSecondary,
-                )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = message.subject,
-                    style = GridlinkType.subject.copy(
-                        // "Full weight" for unread. Read drops to Regular and secondary, which is
-                        // the only difference between the two states on line 2.
-                        fontWeight = if (message.unread) FontWeight.Medium else FontWeight.Normal,
-                    ),
-                    color = if (message.unread) colors.textPrimary else colors.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+        }
+    }
+}
+
+/**
+ * The circle that lives in the strip the slide opens up.
+ *
+ * Empty ring when unselected, filled accent disc with a tick when selected — so once a selection
+ * exists every row advertises that it can join it, which is the whole reason the list slides
+ * instead of just tinting the one row that was long-pressed.
+ *
+ * 🔴 `clipToBounds` is load-bearing. The strip animates from 0 width, and without it the circle
+ * would pop out at full size over the sliding row on the first frame instead of being revealed by
+ * the slide.
+ */
+@Composable
+private fun GridlinkSelectionSlot(
+    selected: Boolean,
+    gutter: Dp,
+    modifier: Modifier = Modifier,
+) {
+    if (gutter <= 0.dp) return
+    val colors = GridlinkTheme.colors
+    val discFill by animateColorAsState(
+        targetValue = if (selected) colors.accent else Color.Transparent,
+        animationSpec = GridlinkMotion.standard(),
+        label = "selectionDisc",
+    )
+    Box(
+        modifier = modifier
+            .width(gutter)
+            .fillMaxHeight()
+            .clipToBounds(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(GridlinkDimens.selectionCircle)
+                .background(discFill, CircleShape)
+                .border(
+                    width = GridlinkDimens.selectionRing,
+                    // The ring disappears under its own fill rather than being drawn over it: a
+                    // ring plus a disc in the same hue reads as a double edge at this size.
+                    color = if (selected) Color.Transparent else colors.textSecondary.copy(alpha = 0.55f),
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "Selected",
+                    tint = gridlinkOnAccent(colors.accent),
+                    modifier = Modifier.size(14.dp),
                 )
-                if (message.hasAttachment) {
-                    Icon(
-                        imageVector = Icons.Filled.AttachFile,
-                        contentDescription = "Has attachment",
-                        tint = colors.textSecondary,
-                        modifier = Modifier
-                            .padding(start = GridlinkSpacing.s8)
-                            .size(14.dp),
-                    )
-                }
             }
         }
     }
@@ -189,7 +247,7 @@ fun GridlinkMessageRow(
 @Composable
 fun GridlinkRowDivider(
     modifier: Modifier = Modifier,
-    startInset: androidx.compose.ui.unit.Dp = GridlinkSpacing.rowHorizontal,
+    startInset: Dp = GridlinkSpacing.rowHorizontal,
 ) {
     Box(
         modifier = modifier
@@ -207,13 +265,23 @@ fun GridlinkRowDivider(
  * bundle, rather than a single flat colour. A bundle has no one domain, and a segmented bar means
  * the collapsed row still says *which* robots are in there at a glance — which is the same job the
  * bar does on a normal row.
+ *
+ * While a selection is open the row slides with the rest of the list and its circle selects the
+ * whole bundle at once. That is the only reading that makes sense: a bundle is not a message, so
+ * "select the bundle" can only mean "select what is in it".
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GridlinkBundleRow(
     bundle: GridlinkBundle,
     expanded: Boolean,
+    /** Row tap. The screen decides whether that means expand or select, so the chevron and the
+     *  circle never disagree about what a tap does. */
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    gutter: Dp = 0.dp,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -222,64 +290,81 @@ fun GridlinkBundleRow(
         animationSpec = GridlinkMotion.standard(),
         label = "bundleChevron",
     )
+    val fill by animateColorAsState(
+        targetValue = if (selected) colors.selection else Color.Transparent,
+        animationSpec = GridlinkMotion.standard(),
+        label = "bundleSelection",
+    )
     val domains = bundle.messages.map { it.domain }.distinct()
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(GridlinkDimens.messageRowHeight)
-            .clickable(onClick = onToggle),
+            .background(fill)
+            .combinedClickable(onClick = onToggle, onLongClick = onLongClick),
     ) {
-        Column(
+        GridlinkSelectionSlot(
+            selected = selected,
+            gutter = gutter,
+            modifier = Modifier.align(Alignment.CenterStart),
+        )
+        Box(
             modifier = Modifier
-                .width(GridlinkDimens.senderBarWidth)
-                .fillMaxHeight(),
+                .fillMaxSize()
+                .padding(start = gutter),
         ) {
-            domains.forEach { domain ->
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .background(gridlinkSenderBarColor(mode, domain)),
-                )
+            Column(
+                modifier = Modifier
+                    .width(GridlinkDimens.senderBarWidth)
+                    .fillMaxHeight(),
+            ) {
+                domains.forEach { domain ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .background(gridlinkSenderBarColor(mode, domain)),
+                    )
+                }
             }
-        }
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    start = GridlinkSpacing.rowHorizontal,
-                    end = GridlinkSpacing.rowHorizontal,
-                    top = GridlinkSpacing.rowVertical,
-                    bottom = GridlinkSpacing.rowVertical,
-                ),
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = GridlinkSpacing.rowHorizontal,
+                        end = GridlinkSpacing.rowHorizontal,
+                        top = GridlinkSpacing.rowVertical,
+                        bottom = GridlinkSpacing.rowVertical,
+                    ),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = bundle.title,
+                        style = GridlinkType.senderName,
+                        color = colors.textPrimary,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    GridlinkCountBadge(text = "${bundle.unreadCount} new")
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Collapse" else "Expand",
+                        tint = colors.textSecondary,
+                        modifier = Modifier
+                            .padding(start = GridlinkSpacing.s8)
+                            .size(18.dp)
+                            .rotate(chevronRotation),
+                    )
+                }
                 Text(
-                    text = bundle.title,
-                    style = GridlinkType.senderName,
-                    color = colors.textPrimary,
-                )
-                Spacer(Modifier.weight(1f))
-                GridlinkCountBadge(text = "${bundle.unreadCount} new")
-                Icon(
-                    imageVector = Icons.Filled.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = colors.textSecondary,
-                    modifier = Modifier
-                        .padding(start = GridlinkSpacing.s8)
-                        .size(18.dp)
-                        .rotate(chevronRotation),
+                    text = bundle.senderSummary,
+                    style = GridlinkType.metadata,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            Text(
-                text = bundle.senderSummary,
-                style = GridlinkType.metadata,
-                color = colors.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }
@@ -325,6 +410,7 @@ fun GridlinkBundledChildRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    gutter: Dp = 0.dp,
     onLongClick: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
@@ -355,6 +441,7 @@ fun GridlinkBundledChildRow(
             onClick = onClick,
             modifier = Modifier.weight(1f),
             selected = selected,
+            gutter = gutter,
             onLongClick = onLongClick,
         )
     }

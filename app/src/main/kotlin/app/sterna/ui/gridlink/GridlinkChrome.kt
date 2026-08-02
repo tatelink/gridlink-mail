@@ -217,6 +217,9 @@ fun GridlinkHeader(
 fun GridlinkSectionLabel(
     text: String,
     modifier: Modifier = Modifier,
+    /** Slides with the rows when a selection opens, so the label never breaks the text's left edge.
+     *  Owned by the screen; see [GridlinkMessageRow]'s note on why nothing animates this locally. */
+    gutter: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     Text(
         text = text.uppercase(),
@@ -225,7 +228,7 @@ fun GridlinkSectionLabel(
         modifier = modifier
             .fillMaxWidth()
             .padding(
-                start = GridlinkSpacing.rowHorizontal,
+                start = GridlinkSpacing.rowHorizontal + gutter,
                 end = GridlinkSpacing.rowHorizontal,
                 top = GridlinkSpacing.s20,
                 bottom = GridlinkSpacing.s8,
@@ -490,5 +493,6 @@ private fun ModeSegment(
     }
 }
 
-/** Bottom padding the list needs so its last row can scroll clear of the floating pill. */
-val GRIDLINK_PILL_CLEARANCE = GRIDLINK_PILL_HEIGHT + 40.dp
+// GRIDLINK_PILL_CLEARANCE used to live here: the bottom padding a list needed so its last row could
+// scroll clear of a pill it passed behind. Nothing passes behind the pill any more, so there is
+// nothing to clear.
