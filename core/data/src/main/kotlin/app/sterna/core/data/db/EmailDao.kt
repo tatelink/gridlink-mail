@@ -12,6 +12,20 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
 /**
+ * Hides messages snoozed into the future — the list's own predicate
+ * ([app.sterna.core.data.mail.notSnoozedSql] for the `emails` table), spelled out as a constant
+ * because a Room `@Query` needs a compile-time one and that function is parameterised by table.
+ * `SenderVolumeSqlTest` asserts the two are the SAME TEXT, so a change to one reddens rather than
+ * quietly leaving this screen counting rows no list shows.
+ *
+ * Correlated on `accountId` as well as the id: snoozes are keyed per account (#31).
+ */
+const val NOT_SNOOZED_EMAILS_SQL: String =
+    "NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
+        "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
+        "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
+
+/**
  * WHICH cached rows the per-sender screen speaks for — the ONE clause behind both
  * [SENDER_VOLUMES_SQL] (the numbers it prints) and [SENDER_MESSAGE_IDS_SQL] (the ids its delete
  * hands to the repository). Written once and concatenated into both, so "the count shown" and
@@ -33,11 +47,17 @@ import kotlinx.coroutines.flow.Flow
  * A message with no usable `fromEmail` makes no row: there is nothing to group, nothing to
  * delete "from", and no address to write into a rule. Which is why the total in the header is
  * the SUM OF THE ROWS and never a separate `COUNT(*)`.
+ *
+ * A message snoozed into the future is out, [NOT_SNOOZED_EMAILS_SQL]: it is in no list and in no
+ * unread badge, because its owner deliberately put it aside — counting it here would be the one
+ * place it comes back, and (the clause being shared) the delete would carry off mail she cannot
+ * see. It counts again on its own the moment the deadline passes.
  */
 const val SENDER_VOLUME_SCOPE_SQL: String =
     "accountId = :accountId AND fromEmail IS NOT NULL AND fromEmail != '' " +
         "AND mailboxId IN (SELECT id FROM mailboxes WHERE accountId = :accountId " +
-        "AND (role IS NULL OR LOWER(role) NOT IN ('sent','drafts','trash','junk','spam')))"
+        "AND (role IS NULL OR LOWER(role) NOT IN ('sent','drafts','trash','junk','spam'))) " +
+        "AND " + NOT_SNOOZED_EMAILS_SQL
 
 /**
  * Cached mail per sender for one account: how many messages this phone holds from each address,

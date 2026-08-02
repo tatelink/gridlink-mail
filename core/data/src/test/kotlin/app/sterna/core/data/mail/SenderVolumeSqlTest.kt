@@ -1,5 +1,6 @@
 package app.sterna.core.data.mail
 
+import app.sterna.core.data.db.NOT_SNOOZED_EMAILS_SQL
 import app.sterna.core.data.db.SENDER_MESSAGE_IDS_SQL
 import app.sterna.core.data.db.SENDER_VOLUMES_SQL
 import app.sterna.core.data.db.SENDER_VOLUME_SCOPE_SQL
@@ -53,6 +54,14 @@ class SenderVolumeSqlTest {
                 )
                 """.trimIndent(),
             )
+            // The snooze table is part of the bench because the scope clause consults it. It was
+            // absent from the first version of this file, and that absence is structurally why a
+            // missing snooze filter could not be seen here: a predicate over a table the bench
+            // does not have cannot be exercised, and a table nobody names cannot be missed.
+            st.executeUpdate(
+                "CREATE TABLE snoozed(emailId TEXT, accountId TEXT, until INTEGER, " +
+                    "PRIMARY KEY(accountId, emailId))",
+            )
         }
         // Every account in this file has the same folder layout, one folder per role plus two
         // untyped ones — so a test only has to say which folder a message sits in.
@@ -101,6 +110,12 @@ class SenderVolumeSqlTest {
         }
     }
 
+    private fun snooze(id: String, untilMillis: Long, accountId: String = "acc") {
+        db.prepareStatement("INSERT INTO snoozed VALUES(?, ?, ?)").use {
+            it.setString(1, id); it.setString(2, accountId); it.setLong(3, untilMillis); it.executeUpdate()
+        }
+    }
+
     /** Run one shipped DAO statement, binding its named parameters from [args]. */
     private fun <T> query(function: String, args: Map<String, String>, read: (ResultSet) -> T): List<T> {
         val (sql, order) = DaoQuerySource.bindOrder(DaoQuerySource.emailDaoQuery(function))
@@ -139,6 +154,23 @@ class SenderVolumeSqlTest {
         assertEquals(
             setOf("a+news@example.com", "a+facture@example.com"),
             volumes().mapTo(mutableSetOf()) { it.email },
+        )
+    }
+
+    @Test fun `two spellings differing by a non-ASCII capital are TWO lines`() {
+        // Pinned rather than endured: SQLite's lower() is ASCII-only, so "É" is not folded onto
+        // "é" and these are two groups. Kotlin's lowercase() IS Unicode-aware, so anything that
+        // re-lowercases these addresses on the Kotlin side folds them into ONE value — which is
+        // why the list key upstream must be the address AS STORED. A LazyColumn handed the same
+        // key twice throws, and takes the screen down with it.
+        insert("m1", from = "Éric@example.com")
+        insert("m2", from = "éric@example.com")
+        val rows = volumes()
+        assertEquals(2, rows.size)
+        assertEquals(
+            "the two SQL groups collapse to one Kotlin key — never key a list on lowercase()",
+            1,
+            rows.mapTo(mutableSetOf()) { it.email.lowercase() }.size,
         )
     }
 
@@ -209,6 +241,48 @@ class SenderVolumeSqlTest {
         insert("m1", from = "a@example.com", accountId = "acc")
         assertEquals(1, volumes("acc").single().total)
         assertEquals(listOf("m1"), ids("a@example.com", "acc"))
+    }
+
+    // -- what the owner already put aside ---------------------------------------------------------
+
+    @Test fun `a message snoozed into the future is neither counted nor deleted`() {
+        // She put it aside on purpose: it is in no list and in no unread badge. Counting it here
+        // would be the single place it comes back — and since the clause is shared, the delete
+        // would carry off mail she cannot see anywhere.
+        insert("here", from = "a@example.com", seen = 0)
+        insert("later", from = "a@example.com", seen = 0)
+        snooze("later", untilMillis = Long.MAX_VALUE)
+
+        val row = volumes().single()
+        assertEquals(1, row.total)
+        assertEquals(1, row.unread)
+        assertEquals(listOf("here"), ids("a@example.com"))
+    }
+
+    @Test fun `a snooze that has run out counts again`() {
+        insert("back", from = "a@example.com", seen = 0)
+        snooze("back", untilMillis = 1)
+        assertEquals(1, volumes().single().total)
+        assertEquals(listOf("back"), ids("a@example.com"))
+    }
+
+    @Test fun `one account's snooze does not hide a sibling account's message`() {
+        // Sub-accounts of one login can mint the same email id (#31).
+        insert("e1", from = "a@example.com", accountId = "acc")
+        insert("e1", from = "a@example.com", accountId = "other")
+        snooze("e1", untilMillis = Long.MAX_VALUE, accountId = "acc")
+        assertEquals(emptyList<Vol>(), volumes("acc"))
+        assertEquals(1, volumes("other").single().total)
+    }
+
+    @Test fun `the snooze filter is the list's own, not a second rendering of it`() {
+        assertEquals(
+            "the per-sender clause must hide exactly the rows the list hides — one predicate, " +
+                "written once. A second rendering drifts, and the drift is invisible: both " +
+                "queries keep returning rows.",
+            notSnoozedSql("emails"),
+            NOT_SNOOZED_EMAILS_SQL,
+        )
     }
 
     // -- what the numbers say -------------------------------------------------------------------
