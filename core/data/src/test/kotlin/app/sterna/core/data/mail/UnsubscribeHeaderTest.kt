@@ -195,6 +195,58 @@ class UnsubscribeHeaderTest {
         assertEquals("one@l.example.com", options?.mailto?.address)
     }
 
+    // ---- a target that cannot be NAMED is not offered ----
+
+    /**
+     * `<https://>` parses to a scheme and nothing else. It used to be offered like any other URL,
+     * and the confirmation — the one place the app says who is about to be contacted — came out as
+     * "Sterna will send an unsubscribe request to ." A gesture whose destination we cannot state
+     * is not a gesture we may propose: no banner, no menu entry, no dialog.
+     */
+    @Test fun `an https uri with no host is not offered at all`() {
+        listOf("<https://>", "<https:///u/abc>", "<https://?token=xyz>").forEach { header ->
+            assertNull("\"$header\" has no host to name", UnsubscribeHeader.parse(header, oneClick))
+            assertNull("\"$header\" has no host to name", UnsubscribeHeader.parse(header, null))
+        }
+    }
+
+    /** …and dropping it takes nothing else with it: the mail is still a way out. */
+    @Test fun `a hostless https uri is dropped without taking the mailto with it`() {
+        val options = UnsubscribeHeader.parse("<https://>, <mailto:leave@l.example.com>", oneClick)
+
+        assertNull(options?.oneClickUrl)
+        assertNull(options?.pageUrl)
+        assertEquals("leave@l.example.com", options?.mailto?.address)
+        assertEquals(UnsubscribeAction.MAIL, options?.preferredAction())
+    }
+
+    // ---- whitespace: unfold the header, but never rewrite a value ----
+
+    /**
+     * Only FOLDING whitespace goes. A `mailto:` body is free text the sender wrote, spaces
+     * included; stripping every blank turned `?body=please remove me` into `pleaseremoveme` and
+     * sent a list a word it does not recognise — silently, since the mail leaves all the same.
+     */
+    @Test fun `a space inside a mailto parameter survives`() {
+        val options = UnsubscribeHeader.parse(
+            "<mailto:leave@l.example.com?subject=please unsubscribe&body=please remove me>",
+            null,
+        )
+
+        assertEquals("please unsubscribe", options?.mailto?.subject)
+        assertEquals("please remove me", options?.mailto?.body)
+    }
+
+    /** The witness for the rule above: a header folded MID-URI is still put back together. */
+    @Test fun `a uri folded in the middle is joined back up`() {
+        val options = UnsubscribeHeader.parse(
+            "<https://l.example.com/u/\r\n\tabc?token=xyz>",
+            oneClick,
+        )
+
+        assertEquals("https://l.example.com/u/abc?token=xyz", options?.oneClickUrl)
+    }
+
     // ---- nothing usable means nothing at all, never an error ----
 
     @Test fun `an unreadable or absent header yields no options`() {

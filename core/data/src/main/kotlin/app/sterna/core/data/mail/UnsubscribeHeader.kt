@@ -59,6 +59,31 @@ fun UnsubscribeOptions.preferredAction(): UnsubscribeAction? = when {
 }
 
 /**
+ * What the confirmation dialog names as the destination of [action] — the whole content of the
+ * promise "it says what is about to leave and to whom", as ONE executed decision instead of three
+ * expressions buried in a Compose `when`.
+ *
+ * It is deliberately not the same shape for the three gestures, because they do not expose the
+ * same thing:
+ *  - [UnsubscribeAction.ONE_CLICK] names the HOST. One POST leaves, carrying a fixed body and no
+ *    identity; who receives it is the entire disclosure, and a hundred-character URL in a dialog
+ *    is noise that gets dismissed unread.
+ *  - [UnsubscribeAction.OPEN_PAGE] names the WHOLE URL, exactly like this reader's ordinary
+ *    external-link dialog. This is the one path that hands a third party an IP address and lets
+ *    them run a page; the reader is agreeing to open a specific address, and the path and query
+ *    are part of what is being agreed to.
+ *  - [UnsubscribeAction.MAIL] names the address the mail goes to.
+ *
+ * Null means we cannot state the destination — in which case nothing is offered at all, see
+ * [UnsubscribeHeader.parse].
+ */
+fun UnsubscribeOptions.confirmationTarget(action: UnsubscribeAction): String? = when (action) {
+    UnsubscribeAction.ONE_CLICK -> oneClickUrl?.let { UnsubscribeHeader.hostOf(it) }
+    UnsubscribeAction.MAIL -> mailto?.address
+    UnsubscribeAction.OPEN_PAGE -> pageUrl
+}
+
+/**
  * Reads the two unsubscribe headers of a message.
  *
  * Pure string handling — **no `android.net.Uri`** — like [app.sterna.util.LinkCleaner], so the
@@ -74,6 +99,18 @@ object UnsubscribeHeader {
     private val WHITESPACE = Regex("[ \\t\\r\\n]")
 
     /**
+     * The whitespace a FOLDED header left behind: a line break with the spaces and tabs that
+     * surround it (RFC 5322 §2.2.3 folding is CRLF + WSP), plus a bare tab, which no URI and no
+     * `mailto:` parameter has any business containing.
+     *
+     * Deliberately NOT "every blank". A `mailto:` may carry `?body=please remove me`, written by
+     * the sender for a human or for their own robot to match on; removing all whitespace sent
+     * `pleaseremoveme`, which is neither, and the mail left anyway with no sign anything was
+     * wrong. Unfolding may repair; it may not rewrite a value.
+     */
+    private val FOLDING = Regex("[ \\t]*[\\r\\n\\t]+[ \\t]*")
+
+    /**
      * Parse [listUnsubscribe] (RFC 2369) and [listUnsubscribePost] (RFC 8058) into the gestures
      * they offer, or null when there is nothing usable — in which case the reader shows nothing
      * at all. A header we cannot read is never an error on screen: the message is still mail.
@@ -82,10 +119,11 @@ object UnsubscribeHeader {
      *  - the header is a comma-separated list, and the commas that count are the ones OUTSIDE
      *    the angle brackets (a URI may legitimately contain one);
      *  - a URI is normally `<…>`, but bare ones are emitted in the wild and are accepted;
-     *  - folding remnants (`\r\n\t`) and stray spaces are removed from each URI — a URI cannot
-     *    contain whitespace, so removing it can only repair, never corrupt;
+     *  - folding remnants (a line break and the blanks around it) are removed from each URI, and
+     *    ONLY those: a space inside a `mailto:` parameter is a value, not damage (see [FOLDING]);
      *  - `https:` becomes [UnsubscribeOptions.oneClickUrl] when — and only when — the POST header
-     *    says so, otherwise [UnsubscribeOptions.pageUrl];
+     *    says so, otherwise [UnsubscribeOptions.pageUrl]; either way it must have a host, or it is
+     *    dropped like anything else we could not name in the confirmation;
      *  - `http:` is REJECTED outright (decision D4). Not demoted to a page URL: an unsubscribe
      *    over cleartext broadcasts to the whole path that this address is live and reading;
      *  - the FIRST URI of each kind wins, so a sender listing several gets a deterministic one.
@@ -97,7 +135,12 @@ object UnsubscribeHeader {
         var mailto: MailtoUnsubscribe? = null
         for (uri in splitUris(listUnsubscribe)) {
             when {
-                uri.startsWith("https://", ignoreCase = true) ->
+                // An https URI is kept only if it has a HOST. `<https://>` is legal text and
+                // nothing else: there is no server to POST to, no page to open, and — the reason
+                // it is refused here rather than shrugged off later — nothing to name in the
+                // confirmation, which then read "send an unsubscribe request to ." A destination
+                // we cannot state is not offered: no banner, no menu entry, no dialog.
+                uri.startsWith("https://", ignoreCase = true) && hostOf(uri) != null ->
                     if (httpsUrl == null) httpsUrl = uri
                 uri.startsWith("mailto:", ignoreCase = true) ->
                     if (mailto == null) mailto = parseMailto(uri)
@@ -146,7 +189,7 @@ object UnsubscribeHeader {
             } else {
                 trimmed
             }
-            bare.replace(WHITESPACE, "").takeIf { it.isNotEmpty() }
+            bare.replace(FOLDING, "").takeIf { it.isNotEmpty() }
         }
     }
 

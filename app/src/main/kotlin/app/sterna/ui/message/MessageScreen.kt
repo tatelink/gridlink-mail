@@ -4,7 +4,6 @@ import app.sterna.appLocale
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.VerifiedUser
 import app.sterna.core.data.mail.UnsubscribeAction
-import app.sterna.core.data.mail.UnsubscribeHeader
 import app.sterna.core.data.mail.UnsubscribeOptions
 import app.sterna.core.data.mail.preferredAction
 import app.sterna.core.data.pgp.PgpSignatureState
@@ -661,8 +660,10 @@ private fun MessageActions(
     val folders by viewModel.moveTargets.collectAsStateWithLifecycle()
     // The account's whole folder list, only to spell out a target's parent path (#109).
     val accountFolders by viewModel.accountMailboxes.collectAsStateWithLifecycle()
-    // The open message's way out of its mailing list, if it offers one (RFC 2369 / RFC 8058).
+    // The open message's way out of its mailing list, if it offers one (RFC 2369 / RFC 8058),
+    // and how far it has got — the menu entry stands down once the gesture has been made.
     val unsubscribe by viewModel.unsubscribe.collectAsStateWithLifecycle()
+    val unsubscribeState by viewModel.unsubscribeState.collectAsStateWithLifecycle()
     val loaded = state as? MessageState.Loaded ?: return
     val senderEmail = loaded.email.from.firstOrNull()?.email
     val senderAllowed = senderEmail?.lowercase()?.let { it in imageAllowlist } == true
@@ -863,16 +864,19 @@ private fun MessageActions(
                     onClick = { snoozeSubmenu = true },
                 )
             }
-            // Unsubscribe (RFC 2369 / RFC 8058) — shown only when the message actually carries a
-            // usable way out, so the entry is never a dead end. The label says which gesture it
-            // is: "Open page" is a browser and everything a page load implies, and calling that
+            // Unsubscribe (RFC 2369 / RFC 8058) — shown only when the message carries a usable way
+            // out AND that way out has not already been taken, so the entry is never a dead end
+            // and never a second request to a list that already answered. The same decision drives
+            // the banner's button (see [UnsubscribeStrip]): the two used to disagree, and going
+            // round by the menu sent the POST again. The label says which gesture it is: "Open
+            // page" is a browser and everything a page load implies, and calling that
             // "Unsubscribe" like the other two would be the one dishonest word in the feature.
-            unsubscribe?.let { options ->
+            offeredUnsubscribeAction(unsubscribe, unsubscribeState)?.let { action ->
                 DropdownMenuItem(
                     text = {
                         Text(
                             stringResource(
-                                if (options.preferredAction() == UnsubscribeAction.OPEN_PAGE) {
+                                if (action == UnsubscribeAction.OPEN_PAGE) {
                                     R.string.message_unsubscribe_open_page
                                 } else {
                                     R.string.message_unsubscribe
@@ -954,12 +958,13 @@ private fun MessageActions(
     // is the one thing they share.
     val pendingUnsubscribe by viewModel.unsubscribeConfirm.collectAsStateWithLifecycle()
     val leaveOnce = rememberLeaveOnce()
-    pendingUnsubscribe?.let { action ->
-        val target = when (action) {
-            UnsubscribeAction.ONE_CLICK -> unsubscribe?.oneClickUrl?.let { UnsubscribeHeader.hostOf(it) }
-            UnsubscribeAction.MAIL -> unsubscribe?.mailto?.address
-            UnsubscribeAction.OPEN_PAGE -> unsubscribe?.pageUrl
-        }
+    pendingUnsubscribe?.let { pending ->
+        val action = pending.action
+        // Named from the options the confirmation was OPENED for, never re-read from the live
+        // state: what this dialog says and what the button then does are one and the same thing.
+        // Which form of the target each gesture names — host, address, or the whole URL — is
+        // decided once, in :core:data, and executed by a test (UnsubscribeOptions.confirmationTarget).
+        val target = pending.target
         AlertDialog(
             onDismissRequest = { viewModel.dismissUnsubscribeConfirm() },
             title = { Text(stringResource(R.string.message_unsubscribe_confirm_title)) },
@@ -976,8 +981,12 @@ private fun MessageActions(
                                 stringResource(R.string.message_unsubscribe_confirm_post, target.orEmpty())
                             UnsubscribeAction.MAIL ->
                                 stringResource(R.string.message_unsubscribe_confirm_mail, target.orEmpty())
+                            // The full URL, not just the host, exactly like the reader's ordinary
+                            // external-link dialog: this is the one unsubscribe that opens a page
+                            // in a browser, and consenting to "open a page on this host" is not
+                            // the same as consenting to open THIS address.
                             UnsubscribeAction.OPEN_PAGE ->
-                                stringResource(R.string.message_unsubscribe_confirm_open)
+                                stringResource(R.string.message_unsubscribe_confirm_open, target.orEmpty())
                         },
                         modifier = Modifier
                             .weight(1f, fill = false)
@@ -990,7 +999,9 @@ private fun MessageActions(
                     if (action == UnsubscribeAction.OPEN_PAGE) {
                         // A page load is a hand-off to another app, so it takes the same
                         // one-shot guard every other "leave the app" action in the reader does.
-                        val page = unsubscribe?.pageUrl
+                        // The URL is the CAPTURED one — the address named two lines above, not
+                        // whatever the live state holds by the time the button is pressed.
+                        val page = pending.options.pageUrl
                         viewModel.dismissUnsubscribeConfirm()
                         if (page != null) leaveOnce { openExternally(context, Uri.parse(page)) }
                     } else {
@@ -2000,6 +2011,9 @@ private fun UnsubscribeStrip(
     state: UnsubscribeState,
     onUnsubscribe: () -> Unit,
 ) {
+    // The label of the button, when there is one to draw — the same decision the overflow entry
+    // and the action itself take (see [offeredUnsubscribeAction]). `preferredAction` alone would
+    // answer for a gesture already made, and the strip would go on offering it.
     val action = options.preferredAction() ?: return
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -2035,11 +2049,12 @@ private fun UnsubscribeStrip(
             color = if (failed != null) MaterialTheme.colorScheme.error else Color.Unspecified,
             modifier = Modifier.weight(1f),
         )
-        when (state) {
-            UnsubscribeState.Sending -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        when {
+            state == UnsubscribeState.Sending ->
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             // Done is done: no button left to press, and nothing that could be pressed twice.
-            UnsubscribeState.Sent, UnsubscribeState.Queued -> Unit
             // Idle and Failed both offer the action — a failure is a retry, not a dead end.
+            offeredUnsubscribeAction(options, state) == null -> Unit
             else -> OutlinedButton(onClick = onUnsubscribe) {
                 Text(
                     stringResource(

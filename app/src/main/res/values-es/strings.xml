@@ -150,7 +150,7 @@
     <string name="message_unsubscribe_confirm_title">¿Darse de baja?</string>
     <string name="message_unsubscribe_confirm_post">Sterna enviará una solicitud de baja a %1$s. Sin navegador, sin página, sin cargar nada.</string>
     <string name="message_unsubscribe_confirm_mail">Sterna enviará un correo de baja a %1$s.</string>
-    <string name="message_unsubscribe_confirm_open">Este remitente no ofrece una baja automática. Abrir la página en un navegador puede mostrarle tu dirección IP.</string>
+    <string name="message_unsubscribe_confirm_open">Este remitente no ofrece una baja automática. Abrir %1$s en un navegador puede mostrarle tu dirección IP.</string>
     <string name="message_unsubscribe_sending">Dándose de baja…</string>
     <string name="message_unsubscribe_sent">Solicitud de baja enviada</string>
     <string name="message_unsubscribe_queued">Correo de baja en cola</string>

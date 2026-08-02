@@ -633,14 +633,68 @@ class JmapClient internal constructor(
         }
     }
 
-    /** Fetch a single email including recipients and decoded body values. */
+    /**
+     * Fetch a single email including recipients and decoded body values.
+     *
+     * Its own request, deliberately NOT [getEmailsWithBody] with one id. The two look alike and
+     * are not interchangeable: this one is the reader opening a message, so it does not go
+     * through [postWithRetry] (a rate-limited open must fail now, not after four backoffs while
+     * the reader waits at a spinner), and its failure text is shown to the reader as it is. What
+     * the two DO share is the pair that must not drift — [EMAIL_BODY_PROPERTIES] and
+     * [withUnsubscribeHeaderFallback] — so the message you open and the one prefetched into the
+     * cache can never carry different fields.
+     */
     suspend fun getEmail(
         session: JmapSession,
         accountId: String,
         emailId: String,
         auth: JmapAuth,
-    ): Email = getEmailsWithBody(session, accountId, listOf(emailId), auth).firstOrNull()
-        ?: throw JmapException("Email not found: $emailId")
+    ): Email = withContext(Dispatchers.IO) {
+        withUnsubscribeHeaderFallback(session) { withUnsubscribeHeaders ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.MAIL_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Email/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { add(emailId) }
+                            putJsonArray("properties") {
+                                EMAIL_BODY_PROPERTIES.forEach { add(it) }
+                                if (withUnsubscribeHeaders) UNSUBSCRIBE_PROPERTIES.forEach { add(it) }
+                            }
+                            put("fetchHTMLBodyValues", true)
+                            put("fetchTextBodyValues", true)
+                        }
+                        add("g0")
+                    }
+                }
+            }
+            val request = Request.Builder()
+                .url(session.apiUrl)
+                .header("Authorization", auth.authorizationHeader())
+                .header("Accept", "application/json")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    // The message is unchanged word for word — it is shown to the reader. Only
+                    // the structured code is new, and only so the fallback above can tell a
+                    // rejected property (400) from a refusal that must stand (401, 403, 5xx).
+                    throw JmapException(
+                        "Email/get failed: HTTP ${response.code} ${response.message}",
+                        httpCode = response.code,
+                    )
+                }
+                decodeList(body, "Email/get", Email.serializer()).firstOrNull()
+                    ?: throw JmapException("Email not found: $emailId")
+            }
+        }
+    }
 
     /**
      * Fetch just the raw header fields of a message, in original order with duplicates kept
@@ -675,22 +729,10 @@ class JmapClient internal constructor(
     }
 
     /**
-     * Fetch several messages WITH their bodies in one Email/get — the single request behind BOTH
-     * opening a message ([getEmail]) and prefetching the top of the inbox into the local cache.
-     * One property list for the two, so the reader can never be handed a field the prefetch
-     * dropped (or the reverse). Does NOT mark anything read.
-     *
-     * The two `header:List-Unsubscribe*` properties ride here and NOWHERE else (RFC 8621 §4.1.3
-     * lets any header be asked for by name): a list view fetches dozens of rows per page and must
-     * not pay for a header only the reader uses.
-     *
-     * **The fallback, and why it exists.** A server that does not know a requested property may
-     * reject the whole `Email/get` — which would mean not "no unsubscribe button" but "no message
-     * opens at all", for every message on that account. Stalwart was measured to accept them
-     * (and to answer null for a header a message does not carry), but Cyrus, Fastmail and James
-     * were not. So a method-level `invalidArguments`/`unknownMethod` is answered by replaying the
-     * SAME call once without the two properties, and the server is remembered for the life of the
-     * process. The reader then works exactly as it did before this feature, minus the banner.
+     * Fetch several messages WITH their bodies in one Email/get (for prefetching the top of
+     * the inbox into the local cache). Same properties as [getEmail] — literally the same list,
+     * [EMAIL_BODY_PROPERTIES], so a prefetched body cannot come out poorer than an opened one —
+     * but many ids at once; does NOT mark anything read.
      */
     suspend fun getEmailsWithBody(
         session: JmapSession,
@@ -699,40 +741,65 @@ class JmapClient internal constructor(
         auth: JmapAuth,
     ): List<Email> = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext emptyList()
-        fun payload(withUnsubscribeHeaders: Boolean) = buildJsonObject {
-            putJsonArray("using") {
-                add(Jmap.CORE_CAPABILITY)
-                add(Jmap.MAIL_CAPABILITY)
-            }
-            putJsonArray("methodCalls") {
-                addJsonArray {
-                    add("Email/get")
-                    addJsonObject {
-                        put("accountId", accountId)
-                        putJsonArray("ids") { ids.forEach { add(it) } }
-                        putJsonArray("properties") {
-                            listOf(
-                                "id", "blobId", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
-                                "hasAttachment", "keywords",
-                                "htmlBody", "textBody", "attachments", "bodyValues",
-                            ).forEach { add(it) }
-                            if (withUnsubscribeHeaders) UNSUBSCRIBE_PROPERTIES.forEach { add(it) }
+        withUnsubscribeHeaderFallback(session) { withUnsubscribeHeaders ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.MAIL_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Email/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { ids.forEach { add(it) } }
+                            putJsonArray("properties") {
+                                EMAIL_BODY_PROPERTIES.forEach { add(it) }
+                                if (withUnsubscribeHeaders) UNSUBSCRIBE_PROPERTIES.forEach { add(it) }
+                            }
+                            put("fetchHTMLBodyValues", true)
+                            put("fetchTextBodyValues", true)
                         }
-                        put("fetchHTMLBodyValues", true)
-                        put("fetchTextBodyValues", true)
+                        add("g0")
                     }
-                    add("g0")
                 }
             }
+            decodeList(postJmap(session, auth, payload), "Email/get", Email.serializer())
         }
+    }
+
+    /**
+     * Run a body-bearing `Email/get` that asks for the two `header:List-Unsubscribe*` properties,
+     * and — if the server rejects them — run it once more without.
+     *
+     * **Why this exists at all.** A server that does not know a requested property may reject the
+     * WHOLE `Email/get`. That would not mean "no unsubscribe button": it would mean no message
+     * opens at all, on that account, for as long as the app is installed. Stalwart was measured
+     * to accept them (and to answer null for a header a message does not carry); Cyrus, Fastmail
+     * and James were not. A privacy nicety must not be able to break reading mail.
+     *
+     * **Which refusals count** ([isPropertyRejection]): the method-level `invalidArguments` /
+     * `unknownMethod` of RFC 8620 §3.6.2, and a plain **HTTP 400** — a server that validates the
+     * request before dispatching the method answers the second way, and the first version of this
+     * fallback missed exactly that case. ⛔ Nothing else. A 401/403 is a credentials problem, a
+     * 429 is a rate limit, a 5xx is the server being ill: replaying any of them would double the
+     * traffic and hide a real failure behind a second one.
+     *
+     * The verdict is remembered per API URL for the life of the process, so the next message does
+     * not spend a round trip rediscovering it — per URL and not globally, because a phone holds
+     * accounts on several servers and one strict server must not cost the others their banner.
+     */
+    private suspend fun <T> withUnsubscribeHeaderFallback(
+        session: JmapSession,
+        call: suspend (withUnsubscribeHeaders: Boolean) -> T,
+    ): T {
         val ask = session.apiUrl !in serversRefusingUnsubscribeHeaders
-        try {
-            decodeList(postJmap(session, auth, payload(ask)), "Email/get", Email.serializer())
+        return try {
+            call(ask)
         } catch (e: JmapException) {
-            if (!ask || e.errorType !in PROPERTY_REJECTION_ERRORS) throw e
+            if (!ask || !isPropertyRejection(e)) throw e
             serversRefusingUnsubscribeHeaders.add(session.apiUrl)
-            decodeList(postJmap(session, auth, payload(false)), "Email/get", Email.serializer())
+            call(false)
         }
     }
 
@@ -1928,7 +1995,17 @@ class JmapClient internal constructor(
             // and the persisted outbox error, and the body is server-controlled text that can
             // carry mail content. The HTTP code is the diagnostic; it also travels structured
             // in [JmapException.httpCode] so callers can act on it without parsing prose.
-            throw JmapException("JMAP request failed: HTTP $code $message", httpCode = code)
+            //
+            // The limit error travels structured too, and for a precise reason: RFC 8620 §3.6.1
+            // spells "too many requests" as an HTTP 400, the same status a server uses to reject
+            // a property it does not know. Without this tag the unsubscribe-header fallback would
+            // read a busy minute as "this server refuses the property" and drop the banner for
+            // the rest of the process (see [isPropertyRejection]).
+            throw JmapException(
+                "JMAP request failed: HTTP $code $message",
+                httpCode = code,
+                errorType = JMAP_ERROR_LIMIT.takeIf { code == 400 && body.contains(it) },
+            )
         }
     }
 
@@ -1995,6 +2072,19 @@ class JmapClient internal constructor(
         private const val PING_SECONDS = 90L
 
         /**
+         * The properties of a message fetched WITH its body, shared by [getEmail] (opening one)
+         * and [getEmailsWithBody] (prefetching many). One list for the two, so a body served from
+         * the cache can never be poorer than the same body fetched on open — the kind of
+         * difference that shows up as a field that is there on some messages and not others.
+         */
+        internal val EMAIL_BODY_PROPERTIES = listOf(
+            "id", "blobId", "threadId", "subject", "preview", "receivedAt",
+            "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
+            "hasAttachment", "keywords",
+            "htmlBody", "textBody", "attachments", "bodyValues",
+        )
+
+        /**
          * The two header properties the reader's unsubscribe banner is built from (RFC 8621
          * §4.1.3 header form). Named here once so the request and its fallback cannot disagree.
          */
@@ -2005,10 +2095,25 @@ class JmapClient internal constructor(
 
         /**
          * Method-level errors that mean "I do not accept this argument" (RFC 8620 §3.6.2), i.e.
-         * the ones a rejected property arrives as. Anything else — a real failure — is rethrown:
-         * retrying a broken call without the properties would only hide it.
+         * the ones a rejected property arrives as.
          */
         private val PROPERTY_REJECTION_ERRORS = setOf("invalidArguments", "unknownMethod")
+
+        /**
+         * Whether [e] is a server refusing a property we asked for — the only failure the
+         * unsubscribe-header fallback replays (see [withUnsubscribeHeaderFallback]).
+         *
+         * Two shapes, because servers answer in two places: a method-level error inside a
+         * perfectly good HTTP 200, and a flat **HTTP 400** from a request validator that never
+         * reached the method. ⛔ Not 401/403 (credentials), not 429 (rate limit), not 5xx (the
+         * server is ill) — replaying those doubles the traffic and buries the real reason. Nor
+         * RFC 8620's `error:limit`, which is *also* an HTTP 400 and is likewise a rate limit.
+         */
+        private fun isPropertyRejection(e: JmapException): Boolean = when {
+            e.errorType in PROPERTY_REJECTION_ERRORS -> true
+            e.errorType == JMAP_ERROR_LIMIT -> false
+            else -> e.httpCode == 400
+        }
 
         /** RFC 8620 §3.6.1 request-level limit error (e.g. Stalwart's maxConcurrentRequests). */
         private const val JMAP_ERROR_LIMIT = "urn:ietf:params:jmap:error:limit"

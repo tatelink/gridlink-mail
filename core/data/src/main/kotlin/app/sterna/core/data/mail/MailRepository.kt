@@ -2435,6 +2435,18 @@ class MailRepository(
         purge = { emailBodyDao.deleteById(accountId, emailId) },
     )
 
+    /**
+     * Drop every cached message body, for every account. The bodies ONLY — the message list, the
+     * attachments and the search index are untouched.
+     *
+     * Called once after an upgrade (see [BodyCachePurge]): a body serialised by an older build
+     * cannot grow a field the new one reads, and `openMessage` serves the cache before looking at
+     * anything. Cheap by construction — the next open refetches, which is what a cache is for.
+     */
+    suspend fun clearCachedBodies() {
+        emailBodyDao.deleteAll()
+    }
+
     /** Inline images present if the body needs them; downloads + persists them on first open. */
     private suspend fun ensureInlineImages(
         credentials: AccountCredentials,
@@ -5084,16 +5096,15 @@ class MailRepository(
      *
      * Built on [sendCalendarReply]'s pattern, identity included: a delegated sub-account submits
      * through its login (issue #31), and a list unsubscribes the address it sees in `From`.
-     * [defaultSubject] is used only when the URI names none — it comes from the caller because
-     * the data layer has no resources to translate with.
+     * The subject, when the URI names none, is [UNSUBSCRIBE_SUBJECT] — deliberately not a
+     * translated label, since it is read by the list's software and not by a person.
      */
     suspend fun sendUnsubscribeMail(
         credentials: AccountCredentials,
         mailto: MailtoUnsubscribe,
-        defaultSubject: String,
     ) {
         val identity = accountStore.identities(credentials.id).firstOrNull()
-        val mail = unsubscribeMail(mailto, identity?.name, identity?.email, defaultSubject)
+        val mail = unsubscribeMail(mailto, identity?.name, identity?.email)
         enqueueSend(
             credentials = credentials,
             to = mail.to,

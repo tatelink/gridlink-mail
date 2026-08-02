@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import app.sterna.core.data.DataFactory
 import app.sterna.core.data.account.AccountStore
+import app.sterna.core.data.mail.BodyCachePurge
 import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.mail.OutboxScheduler
 import app.sterna.core.data.settings.SettingsRepository
@@ -91,6 +92,19 @@ class AppContainer(context: Context) {
         appScope.launch {
             runCatching { storageRepository.purgeOrphanedAccounts { accountStore.accounts().map { it.id } } }
                 .onFailure { android.util.Log.w("Sterna", "orphaned-cache sweep failed; retried next start", it) }
+        }
+        // One-shot after an upgrade: drop the cached message bodies (the unsubscribe headers are
+        // the current reason, and they will not be the last). A body
+        // serialised by an older build is short of whatever field the new one learned to read,
+        // and openMessage serves the cache before looking at anything — so without this, a new
+        // reader feature is invisible on precisely the mail already in the cache: the twenty
+        // newest of the inbox, kept warm by the prefetch. It refills itself on the next open.
+        appScope.launch {
+            runCatching {
+                BodyCachePurge(appContext).onceForVersion(BuildConfig.VERSION_CODE) {
+                    mailRepository.clearCachedBodies()
+                }
+            }.onFailure { android.util.Log.w("Sterna", "body-cache upgrade purge failed; retried next start", it) }
         }
         // Re-arm any send left mid-flight (WorkManager persists jobs, but re-checking is a safety net).
         appScope.launch {

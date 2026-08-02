@@ -22,7 +22,6 @@ class UnsubscribeMailTest {
             MailtoUnsubscribe("leave@list.example.com"),
             identityName,
             identityEmail,
-            "Unsubscribe",
         )
 
         assertEquals(listOf("leave@list.example.com"), mail.to)
@@ -37,23 +36,30 @@ class UnsubscribeMailTest {
             MailtoUnsubscribe("leave@list.example.com", subject = "unsubscribe abc", body = "token=xyz"),
             identityName,
             identityEmail,
-            "Unsubscribe",
         )
 
         assertEquals("unsubscribe abc", mail.subject)
         assertEquals("token=xyz", mail.body)
     }
 
-    /** The witness: with nothing in the URI, the caller's own default subject and an empty body. */
-    @Test fun `a bare mailto falls back to the default subject and an empty body`() {
+    /**
+     * The witness: with nothing in the URI, a fixed subject and an empty body.
+     *
+     * ⛔ And the subject is fixed in ENGLISH, not translated. It used to be the reader's own
+     * interface label, so a French account sent a mail whose subject line was "Se désabonner" and
+     * a Russian one "Отписаться" — to a list whose software matches on that line. What the reader
+     * sees is translated; what a stranger's robot has to understand is not. The default is not a
+     * parameter any more precisely so that no caller can hand a localised string back in.
+     */
+    @Test fun `a bare mailto falls back to a fixed english subject and an empty body`() {
         val mail = unsubscribeMail(
             MailtoUnsubscribe("leave@list.example.com"),
             identityName,
             identityEmail,
-            "Unsubscribe",
         )
 
-        assertEquals("Unsubscribe", mail.subject)
+        assertEquals("Unsubscribe", UNSUBSCRIBE_SUBJECT)
+        assertEquals(UNSUBSCRIBE_SUBJECT, mail.subject)
         assertEquals("", mail.body)
     }
 
@@ -67,7 +73,6 @@ class UnsubscribeMailTest {
             MailtoUnsubscribe("leave@list.example.com"),
             identityName,
             identityEmail,
-            "Unsubscribe",
         )
 
         assertEquals("Alex Doe", mail.fromName)
@@ -76,7 +81,7 @@ class UnsubscribeMailTest {
 
     /** No identity known: nothing is invented — the send path falls back to the account's own. */
     @Test fun `no identity leaves the from fields alone`() {
-        val mail = unsubscribeMail(MailtoUnsubscribe("leave@list.example.com"), null, null, "Unsubscribe")
+        val mail = unsubscribeMail(MailtoUnsubscribe("leave@list.example.com"), null, null)
 
         assertNull(mail.fromName)
         assertNull(mail.fromEmail)

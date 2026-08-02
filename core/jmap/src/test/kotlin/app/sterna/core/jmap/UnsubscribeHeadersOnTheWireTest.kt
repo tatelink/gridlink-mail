@@ -172,6 +172,113 @@ class UnsubscribeHeadersOnTheWireTest {
     }
 
     /**
+     * The same refusal, spoken the other way. A method-level `invalidArguments` is the polite
+     * form; a server that does not know the property may just as well answer **HTTP 400** to the
+     * whole request, and that arrives as a completely different exception. Without this, the
+     * fallback would not fire and the account would stop opening messages altogether — the exact
+     * disaster the fallback exists to prevent, reached by the other door.
+     */
+    @Test fun `a server that refuses the properties with HTTP 400 still opens the message`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"type":"urn:ietf:params:jmap:error:notRequest"}"""))
+        server.enqueue(emailResponse(""))
+
+        val email = client.getEmail(session(), "acc1", "m1", auth)
+
+        assertEquals("m1", email.id)
+        assertEquals(2, server.requestCount)
+        val first = server.takeRequest().body.readUtf8()
+        val second = server.takeRequest().body.readUtf8()
+        assertTrue("the first attempt asks", first.contains("header:List-Unsubscribe"))
+        assertFalse("the replay must drop them", second.contains("header:List-Unsubscribe"))
+        assertTrue(second, second.contains("\"bodyValues\""))
+    }
+
+    /**
+     * ⛔ And the boundary of THAT. A 400 is the only status replayed. 401/403 are credentials,
+     * 5xx is the server being ill: replaying any of them would double the traffic, and — worse —
+     * hide a real refusal behind a second attempt that fails for the same reason.
+     */
+    @Test fun `an authentication or server error is never replayed`() = runBlocking {
+        listOf(401, 403, 500, 503).forEach { code ->
+            // A fresh client per code: the "refuses the properties" memo is per instance, and a
+            // shared one would let the first code's verdict decide the next code's request.
+            val fresh = JmapClient()
+            server.enqueue(MockResponse().setResponseCode(code))
+
+            val failure = runCatching { fresh.getEmail(session(), "acc1", "m1", auth) }.exceptionOrNull()
+
+            assertTrue("HTTP $code: $failure", failure is JmapException)
+            assertEquals("HTTP $code must reach the caller", code, (failure as JmapException).httpCode)
+        }
+        assertEquals("exactly one request per status, no replays", 4, server.requestCount)
+    }
+
+    /**
+     * ⛔ Opening a message and prefetching bodies are NOT the same request, and a rate limit is
+     * where the difference is felt. `getEmail` is the reader sitting in front of a spinner: it
+     * fails at once, with its own sentence, which is displayed as it is. The two were briefly
+     * folded into one function — which quietly gave the reader four backoffs of waiting and
+     * changed the words on their screen.
+     */
+    @Test fun `opening a message does not retry a rate limit, and keeps its own words`() = runBlocking {
+        repeat(6) { server.enqueue(MockResponse().setResponseCode(429)) }
+
+        val failure = runCatching { client.getEmail(session(), "acc1", "m1", auth) }.exceptionOrNull()
+
+        assertEquals("the reader waits for one request, not five", 1, server.requestCount)
+        assertEquals(429, (failure as JmapException).httpCode)
+        assertTrue(
+            "the reader is shown this text verbatim: ${failure.message}",
+            failure.message.orEmpty().startsWith("Email/get failed: HTTP 429"),
+        )
+    }
+
+    /**
+     * The witness for the pair above: the background prefetch DOES back off (RFC 8620 §3.6.1),
+     * because nobody is waiting for it. And whatever either of them does, every attempt still
+     * carries the properties: a rate limit must never be read as "this server refuses them", or
+     * a busy minute would cost the account its banner for the rest of the process.
+     */
+    @Test fun `the prefetch backs off instead, and never drops the properties`() = runBlocking {
+        repeat(8) { server.enqueue(MockResponse().setResponseCode(429)) }
+
+        val failure = runCatching {
+            client.getEmailsWithBody(session(), "acc1", listOf("m1"), auth)
+        }.exceptionOrNull()
+
+        assertEquals(429, (failure as JmapException).httpCode)
+        assertEquals("the limit retry is four attempts on top of the first", 5, server.requestCount)
+        repeat(server.requestCount) {
+            assertTrue(
+                "every attempt must keep the properties",
+                server.takeRequest().body.readUtf8().contains("header:List-Unsubscribe"),
+            )
+        }
+    }
+
+    /**
+     * RFC 8620 §3.6.1's `urn:ietf:params:jmap:error:limit` is *also* an HTTP 400 — the same status
+     * a server uses to reject a property it does not know. It is a rate limit all the same, and
+     * must not be replayed without the properties: that would cost the account its banner for the
+     * process because the server was busy for a second.
+     */
+    @Test fun `the JMAP limit error is a rate limit, not a rejected property`() = runBlocking {
+        val limit = MockResponse().setResponseCode(400)
+            .setBody("""{"type":"urn:ietf:params:jmap:error:limit","limit":"maxConcurrentRequests"}""")
+        repeat(8) { server.enqueue(limit) }
+
+        runCatching { client.getEmailsWithBody(session(), "acc1", listOf("m1"), auth) }
+
+        assertEquals("four backoffs and no replay", 5, server.requestCount)
+        repeat(server.requestCount) {
+            assertTrue(
+                "a busy server must not be read as one that refuses the properties",
+                server.takeRequest().body.readUtf8().contains("header:List-Unsubscribe"),
+            )
+        }
+    }
+
+    /**
      * And the limit of the fallback: a real failure is NOT retried without the properties. Doing
      * so would swallow the error and hand the reader an empty message instead of a diagnosis.
      */

@@ -54,6 +54,27 @@ class UnsubscribeClientTest {
     }
 
     /**
+     * ⛔ The URL is used VERBATIM — path and query string, byte for byte (decision D6).
+     *
+     * The subscriber token lives in the query on most large senders, and `LinkCleaner`, which
+     * strips tracking parameters everywhere else in the app, is deliberately not applied here:
+     * the parameter that looks like tracking IS the thing that identifies which subscription to
+     * end. Strip it and the request either fails or, far more often, answers 200 and unsubscribes
+     * nobody — while the reader is told it went through. This is the one invariant of the feature
+     * that fails silently in the right direction, so it is asserted on the bytes the server saw
+     * rather than stated in a comment.
+     */
+    @Test fun `the whole url is sent, query string included`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        client.post(server.url("/u/abc?token=xyz&list=42").toString())
+
+        val request = server.takeRequest()
+        assertEquals("/u/abc?token=xyz&list=42", request.path)
+        assertEquals("List-Unsubscribe=One-Click", request.body.readUtf8())
+    }
+
+    /**
      * ⛔ The invariant this whole class exists for. The POST goes to a domain named by the sender
      * of an email; carrying the account's credentials there would hand them to a stranger. There
      * is no global interceptor in the project, so this holds as long as nobody routes the call
