@@ -772,6 +772,10 @@ class JmapClient internal constructor(
      * Run a body-bearing `Email/get` that asks for the two `header:List-Unsubscribe*` properties,
      * and — if the server rejects them — run it once more without.
      *
+     * These two calls are the ONLY ones that ask for them (RFC 8621 §4.1.3 lets any header be
+     * requested by name): a folder page fetches dozens of rows every time it is scrolled and must
+     * not pay for a header only the open message uses.
+     *
      * **Why this exists at all.** A server that does not know a requested property may reject the
      * WHOLE `Email/get`. That would not mean "no unsubscribe button": it would mean no message
      * opens at all, on that account, for as long as the app is installed. Stalwart was measured

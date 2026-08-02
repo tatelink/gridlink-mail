@@ -128,21 +128,6 @@ sealed interface UnsubscribeState {
 }
 
 /**
- * The gesture still on offer for [options] in [state], or null when there is nothing left to
- * press. ONE decision, executed by the banner, the overflow entry and the action itself, because
- * the three disagreeing is precisely how a list gets left twice.
- *
- * [UnsubscribeState.Sent] and [UnsubscribeState.Queued] are done: the request went out (or is in
- * the outbox, which will send it), and offering the button again invites a second POST to a
- * server that already answered — for a large sender, from an address that just proved it is read.
- * [UnsubscribeState.Sending] is in flight. A [UnsubscribeState.Failed] IS offered again: a
- * refusal or a dead network is a retry, not a dead end.
- *
- * ⚠ Session-only, and deliberately so: this state lives in the ViewModel, so it is forgotten when
- * the app is restarted and the button comes back. Remembering it across restarts is a column in
- * the message table, which this lot does not open.
- */
-/**
  * An unsubscribe waiting for the reader to confirm it, WITH the options it was offered for.
  *
  * The options travel with the pending gesture instead of being read again when the button is
@@ -159,6 +144,21 @@ data class PendingUnsubscribe(
     val target: String? get() = options.confirmationTarget(action)
 }
 
+/**
+ * The gesture still on offer for [options] in [state], or null when there is nothing left to
+ * press. ONE decision, executed by the banner, the overflow entry and the action itself, because
+ * the three disagreeing is precisely how a list gets left twice.
+ *
+ * [UnsubscribeState.Sent] and [UnsubscribeState.Queued] are done: the request went out (or is in
+ * the outbox, which will send it), and offering the button again invites a second POST to a
+ * server that already answered — for a large sender, from an address that just proved it is read.
+ * [UnsubscribeState.Sending] is in flight. A [UnsubscribeState.Failed] IS offered again: a
+ * refusal or a dead network is a retry, not a dead end.
+ *
+ * ⚠ Session-only, and deliberately so: this state lives in the ViewModel, so it is forgotten when
+ * the app is restarted and the button comes back. Remembering it across restarts is a column in
+ * the message table, which this lot does not open.
+ */
 fun offeredUnsubscribeAction(options: UnsubscribeOptions?, state: UnsubscribeState): UnsubscribeAction? =
     when (state) {
         UnsubscribeState.Sending, UnsubscribeState.Sent, UnsubscribeState.Queued -> null

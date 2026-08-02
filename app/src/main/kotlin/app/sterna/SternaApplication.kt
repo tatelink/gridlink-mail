@@ -94,11 +94,11 @@ class AppContainer(context: Context) {
                 .onFailure { android.util.Log.w("Sterna", "orphaned-cache sweep failed; retried next start", it) }
         }
         // One-shot after an upgrade: drop the cached message bodies (the unsubscribe headers are
-        // the current reason, and they will not be the last). A body
-        // serialised by an older build is short of whatever field the new one learned to read,
-        // and openMessage serves the cache before looking at anything — so without this, a new
-        // reader feature is invisible on precisely the mail already in the cache: the twenty
-        // newest of the inbox, kept warm by the prefetch. It refills itself on the next open.
+        // the current reason, and they will not be the last). A body serialised by an older build
+        // is short of whatever field the new one learned to read, and openMessage serves the
+        // cache before looking at anything — so without this, a new reader feature is invisible
+        // on precisely the mail already in the cache: the twenty newest of the inbox, kept warm
+        // by the prefetch. Bodies only, and they refill themselves on the next open.
         appScope.launch {
             runCatching {
                 BodyCachePurge(appContext).onceForVersion(BuildConfig.VERSION_CODE) {
