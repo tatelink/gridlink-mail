@@ -165,6 +165,8 @@ fun GridlinkMessageListScreen(
             ) {
                 LazyColumn(
                     state = listState,
+                    // Capped top speed and a longer, heavier coast. See [GridlinkFling].
+                    flingBehavior = rememberGridlinkFlingBehavior(),
                     // 🔴 The list ENDS above the floating controls; nothing scrolls behind them.
                     // The bottom rows dissolve into the glass instead of being sliced off by the
                     // panel edge, which is what stops a hard cut appearing mid-row while scrolling.
