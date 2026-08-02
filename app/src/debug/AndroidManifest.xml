@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only additions. Merged into the main manifest for debug builds and absent from release,
+  so nothing declared here can ship: no extra launcher icon, no developer surface in production.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+          Gallery host for the Gridlink UI work (docs/GRIDLINK-UI-BRIEF.md). Its own launcher entry
+          so the screens can be opened directly, without navigating the real app to reach a
+          half-built screen.
+        -->
+        <activity
+            android:name="app.sterna.gridlink.GridlinkGalleryActivity"
+            android:exported="true"
+            android:label="Gridlink UI"
+            android:theme="@style/Theme.Sterna">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
