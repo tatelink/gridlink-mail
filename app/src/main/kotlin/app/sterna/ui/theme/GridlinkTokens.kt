@@ -144,11 +144,26 @@ data class GridlinkColors(
     val textPrimary: Color,
     val textSecondary: Color,
     val accent: Color,
-    /** Warm secondary accent. Day has none in the brief, so it falls back to [attention]. */
+    /**
+     * Warm secondary accent. Currently unreferenced: the brief names it but never spends it, and
+     * Day's used to be an alias of [attention] before that went blue. Kept because §1 lists it, and
+     * a token the palette defines but nothing uses is cheaper than one a screen needs and lacks.
+     */
     val accentWarm: Color,
     val positive: Color,
     val attention: Color,
     val destructive: Color,
+    /**
+     * The halo behind an action surface: the compose button, and the nav pill at a lower alpha.
+     *
+     * ⚠️ Split out from [accent], which is what it used to be derived from. That worked in Night,
+     * where a blue glow on near-black is the whole look, and was invisible in Day, where a blue
+     * glow sits on a blue gradient and does precisely nothing. The colour of the light and the
+     * colour of the thing emitting it are two different decisions and now say so.
+     *
+     * 🔴 Null in OLED. No glows, ever, and that is not a tuning question.
+     */
+    val actionGlow: Color?,
     /**
      * Fill of a SELECTED row.
      *
@@ -186,8 +201,22 @@ val GridlinkDayColors = GridlinkColors(
     accent = Color(0xFF1B7FE8),
     accentWarm = Color(0xFFD97706),
     positive = Color(0xFF16A34A),
-    attention = Color(0xFFD97706),
+    // ⚠️ Blue, not the brief's amber, and Day is the only mode that departs.
+    //
+    // §1's grammar gives unread to amber in all three palettes. In Night and OLED that is right:
+    // both are dark, warm amber against them is the only warm thing on screen and it reads as a
+    // flag. Day is a cyan-to-blue gradient under white glass, and an amber dot on it does not read
+    // as a flag, it reads as a colour from a different app. So Day gets a blue.
+    //
+    // 🔴 It has to be a different blue from [accent], or unread starts looking tappable. This is
+    // deliberately deeper and more saturated: a royal blue against the accent's lighter azure, so
+    // the two are separated by value and not only by hue. If a dot ever looks like a button, this
+    // is the number that went wrong.
+    attention = Color(0xFF0B3FD1),
     destructive = Color(0xFFDC2626),
+    // A near-white bloom, because the light has to be brighter than what it sits on and Day's
+    // background is already mid-blue. This is the "slight glow" behind the compose button.
+    actionGlow = Color(0xFFEAF6FF),
     // Heavier than the dark modes: this fill sits on white glass, where a thin accent wash barely
     // registers at all.
     selection = Color(0xFF1B7FE8).copy(alpha = 0.22f),
@@ -222,6 +251,8 @@ val GridlinkNightColors = GridlinkColors(
     positive = Color(0xFF34D399),
     attention = Color(0xFFFBBF24),
     destructive = Color(0xFFDC2626),
+    // The accent itself. On near-black a blue surface glowing blue is exactly the intent.
+    actionGlow = Color(0xFF3B82F6),
     selection = Color(0xFF3B82F6).copy(alpha = 0.18f),
     divider = Color.White.copy(alpha = 0.12f),
     usesShadows = true,
@@ -250,6 +281,7 @@ val GridlinkOledColors = GridlinkColors(
     positive = Color(0xFF34D399),
     attention = Color(0xFFFB923C),
     destructive = Color(0xFFB91C1C),
+    actionGlow = null,
     // 🔴 The faintest of the three. See the field's KDoc: this is the one place OLED lights pixels
     // it would rather leave off, so it gets the minimum that still reads as a fill.
     selection = Color(0xFFF97316).copy(alpha = 0.14f),
