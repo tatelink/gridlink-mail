@@ -202,14 +202,17 @@ fun GridlinkRoot(
     initialFolderActionId: String? = null,
     initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
     initialScrubLetter: Char? = null,
-    initialCompose: GridlinkComposeDraft? = null,
-    initialComposeFocus: GridlinkComposeField = GridlinkComposeField.TO,
-    initiallyScheduling: Boolean = false,
+    initialCompose: GridlinkComposeRequest? = null,
     demoRecycle: Boolean = false,
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
-    // Not `rememberSaveable`: a draft holds contacts and attachments, which is a parcelable saver's
-    // worth of work for state that a real build will own outside the UI anyway.
+    // Not `rememberSaveable`: a request holds contacts and attachments, which is a parcelable
+    // saver's worth of work for state that a real build will own outside the UI anyway.
+    //
+    // 🔴 One nullable request, and the opening state travels INSIDE it. Focus and the schedule sheet
+    // used to be parameters of this function, which meant a gallery launch that asked for the sheet
+    // put every subsequently opened composer on the sheet too, including the one the compose button
+    // opens. See [GridlinkComposeRequest].
     var composing by remember(initialCompose) { mutableStateOf(initialCompose) }
 
     Box(modifier = modifier) {
@@ -217,7 +220,7 @@ fun GridlinkRoot(
             GridlinkDestination.INBOX -> GridlinkMessageListScreen(
                 destination = destination,
                 onSelectDestination = { destination = it },
-                onCompose = { composing = GridlinkComposeDraft.Fresh },
+                onCompose = { composing = GridlinkComposeRequest.Fresh },
                 initiallyExpanded = initiallyExpanded,
                 initiallySelected = initiallySelected,
                 initialSearchExpanded = initialSearchExpanded,
@@ -229,7 +232,7 @@ fun GridlinkRoot(
             GridlinkDestination.FOLDERS -> GridlinkFolderScreen(
                 destination = destination,
                 onSelectDestination = { destination = it },
-                onCompose = { composing = GridlinkComposeDraft.Fresh },
+                onCompose = { composing = GridlinkComposeRequest.Fresh },
                 initialActionFolderId = initialFolderActionId,
                 initialStage = initialFolderStage,
             )
@@ -250,12 +253,12 @@ fun GridlinkRoot(
             )
         }
 
-        composing?.let { draft ->
+        composing?.let { request ->
             GridlinkComposeScreen(
                 onClose = { composing = null },
-                draft = draft,
-                initialFocus = initialComposeFocus,
-                initiallyScheduling = initiallyScheduling,
+                draft = request.draft,
+                initialFocus = request.focus,
+                initiallyScheduling = request.scheduling,
             )
         }
     }

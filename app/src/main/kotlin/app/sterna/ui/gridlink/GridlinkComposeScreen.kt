@@ -299,6 +299,28 @@ enum class GridlinkComposeField { NONE, TO, SUBJECT, BODY }
 data class GridlinkAttachment(val name: String, val size: String)
 
 /**
+ * One request to open the composer: what to load, and what state to open it in.
+ *
+ * 🔴 The focus and the sheet belong HERE and not on [GridlinkRoot], which is where they were and
+ * which was a real bug: they were screen-level parameters, so `--ez schedule true` did not open the
+ * *first* composer on the schedule sheet, it opened *every* composer on it. Tapping compose after
+ * closing that one went straight back to Send Later, with no way to reach the actual composer.
+ * Wrapping them in the same value that opens the composer makes them per-opening by construction,
+ * and the compose button's [Fresh] carries the plain defaults.
+ */
+@Immutable
+data class GridlinkComposeRequest(
+    val draft: GridlinkComposeDraft,
+    val focus: GridlinkComposeField = GridlinkComposeField.TO,
+    val scheduling: Boolean = false,
+) {
+    companion object {
+        /** What the compose button opens: an empty draft, caret in TO, no sheet. */
+        val Fresh = GridlinkComposeRequest(GridlinkComposeDraft.Fresh)
+    }
+}
+
+/**
  * Everything the composer renders, so the two frames the design specifies are two values rather
  * than two code paths with a boolean between them.
  */

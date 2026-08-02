@@ -24,6 +24,7 @@ import app.sterna.ui.gridlink.GRIDLINK_BUNDLE_SWIPE_ID
 import app.sterna.ui.gridlink.GridlinkCalendarView
 import app.sterna.ui.gridlink.GridlinkComposeDraft
 import app.sterna.ui.gridlink.GridlinkComposeField
+import app.sterna.ui.gridlink.GridlinkComposeRequest
 import app.sterna.ui.gridlink.GridlinkDestination
 import app.sterna.ui.gridlink.GridlinkFolderStage
 import app.sterna.ui.gridlink.GridlinkModePill
@@ -240,6 +241,12 @@ class GridlinkGalleryActivity : ComponentActivity() {
         require(!scheduling || draft != null) {
             "schedule=true only means anything inside the composer. Add --es compose reply."
         }
+        // 🔴 One request, so the opening state is per-opening. These used to be three separate
+        // parameters on GridlinkRoot, which made `--ez schedule true` open EVERY composer on the
+        // schedule sheet, including the one the compose button opens.
+        val composeRequest = draft?.let {
+            GridlinkComposeRequest(draft = it, focus = composeFocus, scheduling = scheduling)
+        }
         // Sends every archived, moved or deleted row back to the top a moment later. On by default
         // *here and only here*: the sample inbox is otherwise a consumable, and a gesture you can
         // only watch five times is a gesture nobody reviews properly. Never reaches release.
@@ -257,9 +264,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialFolderActionId = folderId,
                 initialFolderStage = folderStage,
                 initialScrubLetter = scrubLetter,
-                initialCompose = draft,
-                initialComposeFocus = composeFocus,
-                initiallyScheduling = scheduling,
+                initialCompose = composeRequest,
                 demoRecycle = recycle,
             )
         }
@@ -279,9 +284,7 @@ private fun GridlinkGallery(
     initialFolderActionId: String? = null,
     initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
     initialScrubLetter: Char? = null,
-    initialCompose: GridlinkComposeDraft? = null,
-    initialComposeFocus: GridlinkComposeField = GridlinkComposeField.TO,
-    initiallyScheduling: Boolean = false,
+    initialCompose: GridlinkComposeRequest? = null,
     demoRecycle: Boolean = false,
 ) {
     // null = follow the automatic time-of-day ladder; non-null = the manual override pill won.
@@ -316,8 +319,6 @@ private fun GridlinkGallery(
                     initialFolderStage = initialFolderStage,
                     initialScrubLetter = initialScrubLetter,
                     initialCompose = initialCompose,
-                    initialComposeFocus = initialComposeFocus,
-                    initiallyScheduling = initiallyScheduling,
                     demoRecycle = demoRecycle,
                 )
             }
