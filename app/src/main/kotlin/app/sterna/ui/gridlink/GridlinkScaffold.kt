@@ -250,6 +250,7 @@ fun GridlinkRoot(
     initialScrubLetter: Char? = null,
     initialCompose: GridlinkComposeRequest? = null,
     demoRecycle: Boolean = false,
+    initiallyEmpty: Boolean = false,
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
     // Not `rememberSaveable`: a request holds contacts and attachments, which is a parcelable
@@ -273,6 +274,7 @@ fun GridlinkRoot(
                 initialSwipeId = initialSwipeId,
                 initialSwipeFraction = initialSwipeFraction,
                 demoRecycle = demoRecycle,
+                initiallyEmpty = initiallyEmpty,
             )
 
             GridlinkDestination.FOLDERS -> GridlinkFolderScreen(

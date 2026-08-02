@@ -401,8 +401,12 @@ private fun MenuRow(
  * in flight is exactly when the previous timestamp is about to be wrong. Stating "Synced 4 min ago"
  * during a sync would be true for another second and misleading for the rest of the day it stayed
  * on screen after the sync failed.
+ *
+ * Shared with [GridlinkEmptyInbox], which asks the same question of the same state and must not
+ * answer it in different words. That is also why [now] is a parameter: the drawer freezes it at the
+ * moment it opens, the empty state ticks it, and neither of those belongs in here.
  */
-private fun gridlinkSyncSentence(sync: GridlinkSyncState, lastSyncedAt: Long?, now: Long): String {
+internal fun gridlinkSyncSentence(sync: GridlinkSyncState, lastSyncedAt: Long?, now: Long): String {
     val age = lastSyncedAt?.let { gridlinkSyncAge(now - it) }
     return when (sync) {
         GridlinkSyncState.SYNCING -> "Syncing all accounts"
@@ -416,7 +420,7 @@ private fun gridlinkSyncSentence(sync: GridlinkSyncState, lastSyncedAt: Long?, n
  * which needs a magnitude and not a duration: "2 hr ago" and "2 hr 14 min ago" lead to the same
  * decision and only one of them is short enough to sit under an email address.
  */
-private fun gridlinkSyncAge(elapsedMs: Long): String {
+internal fun gridlinkSyncAge(elapsedMs: Long): String {
     val minutes = elapsedMs / 60_000L
     return when {
         // Negative is possible: the stamp is a wall clock and the wall clock can move backwards.

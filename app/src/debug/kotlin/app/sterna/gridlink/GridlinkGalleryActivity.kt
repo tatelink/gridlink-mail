@@ -247,6 +247,10 @@ class GridlinkGalleryActivity : ComponentActivity() {
         // *here and only here*: the sample inbox is otherwise a consumable, and a gesture you can
         // only watch five times is a gesture nobody reviews properly. Never reaches release.
         val recycle = intent?.getBooleanExtra("recycle", true) ?: true
+        // Opens on an inbox with nothing in it, which is the only way to look at the empty state
+        // without swiping the sample list away a row at a time.
+        //   am start -S -n .../GridlinkGalleryActivity --ez empty true --es sync offline
+        val empty = intent?.getBooleanExtra("empty", false) ?: false
         setContent {
             GridlinkGallery(
                 initialOverride = mode,
@@ -264,6 +268,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialSync = sync,
                 menuOpenAtStart = menuOpen,
                 demoRecycle = recycle,
+                initiallyEmpty = empty,
             )
         }
     }
@@ -286,6 +291,7 @@ private fun GridlinkGallery(
     initialSync: GridlinkSyncState = GridlinkSyncState.SYNCED,
     menuOpenAtStart: Boolean = false,
     demoRecycle: Boolean = false,
+    initiallyEmpty: Boolean = false,
 ) {
     // 🔴 The gallery no longer owns the palette, it seeds it. Day / Night / OLED is a real app
     // setting now, living in GridlinkApp and reachable from the menu panel's Appearance track, so a
@@ -314,6 +320,7 @@ private fun GridlinkGallery(
             initialScrubLetter = initialScrubLetter,
             initialCompose = initialCompose,
             demoRecycle = demoRecycle,
+            initiallyEmpty = initiallyEmpty,
         )
     }
 }
