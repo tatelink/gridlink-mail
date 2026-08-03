@@ -1595,10 +1595,17 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * Select everything the list on screen is showing — the search results when they are what is
      * drawn, the folder otherwise (#126). The choice is [selectAllKeys], so it can be run in a test;
      * this reads the same [searchState] the screen is drawn from, live, at the moment of the tap.
+     *
+     * Outside a search the folder is read through [MailRepository.selectableIds], which pages the
+     * list's OWN WHERE clause: with the "unread only" funnel on, the list shows unread mail and so
+     * does the selection. The unfiltered read that used to sit here handed the bulk action every
+     * read message of the folder too — the second half of #126, and the destructive half: select
+     * all + delete moved messages that were never on screen to the Trash.
      */
     fun selectAll() {
         _selectionActive.value = true
         val search = searchState.value
+        val filtered = unreadOnly.value
         viewModelScope.launch {
             _selectedKeys.value = selectAllKeys(
                 searching = search.active,
@@ -1606,7 +1613,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 results = search.results?.map { it.emailKey() },
                 loading = search.loading,
                 complete = search.complete,
-                folderKeys = repo.cachedIds(currentScopes()),
+                folderKeys = repo.selectableIds(currentScopes(), filtered),
             )
         }
     }

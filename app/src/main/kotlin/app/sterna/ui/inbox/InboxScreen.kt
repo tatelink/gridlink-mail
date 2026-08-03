@@ -1412,6 +1412,13 @@ fun InboxScreen(
                         }
                     },
                     selected = email.emailKey() in selectedKeys,
+                    // LOAD-BEARING BEYOND THIS ROW, and nothing else says so: this is one of the
+                    // guards that make "selection active while the search results are empty"
+                    // unreachable. Selection mode is entered by a long-press on a row, so no row,
+                    // no selection — and selectAllKeys' search branch is only ever entered while
+                    // results are on screen. Simplify this to `true` some day and a selection can
+                    // outlive the list it was taken from, at which point "Select all" takes the
+                    // folder behind an empty result list and deletes it (#126).
                     gesturesEnabled = !selectionActive,
                     unread = row.unread,
                     threadCount = row.threadCount,

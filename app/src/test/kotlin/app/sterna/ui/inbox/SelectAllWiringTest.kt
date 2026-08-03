@@ -1,5 +1,6 @@
 package app.sterna.ui.inbox
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -49,21 +50,43 @@ class SelectAllWiringTest {
     @Test fun `every argument of the decision is the live one`() {
         val call = callArguments(body(INBOX_VIEW_MODEL, "selectAll"), "selectAllKeys").singleOrNull()
         checkNotNull(call) { "selectAll() must contain exactly one selectAllKeys(...) call" }
-        // A call handed constants — results = null, searching = false — is a call that still
-        // selects the whole folder while every presence rule above is satisfied.
-        listOf(
-            "searching = search.active",
-            "query = search.query",
-            "results = search.results",
-            "loading = search.loading",
-            "complete = search.complete",
-            "folderKeys = repo.cachedIds(currentScopes())",
-        ).forEach { argument ->
-            assertTrue(
-                "selectAllKeys(...) must be handed '$argument'. Arguments were:\n$call",
-                argument in call.replace(Regex("""\s+"""), " "),
-            )
-        }
+        // WHOLE arguments, compared as a list — not substrings. A substring rule accepts anything
+        // written after what it matched, and one of those rewrites is destructive across accounts:
+        // `results = search.results?.map { EmailKey(store.currentId(), it.id) }` still contains
+        // "results = search.results", and it hands the bulk action a key pointing at THIS account's
+        // message of that id — the local index is not account-filtered and ids collide between
+        // accounts of one server, so a message from another account, never seen, is deleted.
+        assertEquals(
+            "selectAllKeys(...) must be handed exactly these arguments, whole. Arguments were:\n$call",
+            listOf(
+                "searching = search.active",
+                "query = search.query",
+                "results = search.results?.map { it.emailKey() }",
+                "loading = search.loading",
+                "complete = search.complete",
+                "folderKeys = repo.selectableIds(currentScopes(), filtered)",
+            ),
+            arguments(call),
+        )
+    }
+
+    @Test fun `the folder branch is read through the list's own filter`() {
+        // The second half of #126: the navigation list is filtered in SQL by "unread only", so the
+        // selection must be too, or the funnel plus Select all plus delete moves read mail that was
+        // never on screen to the Trash. `filtered` must be the LIVE funnel state — a call handed
+        // `false` satisfies the argument rule above only if that constant is written there, and
+        // this rule is what makes writing it impossible without going through the funnel.
+        val body = body(INBOX_VIEW_MODEL, "selectAll").replace(Regex("""\s+"""), " ")
+        assertTrue(
+            "selectAll() must read the live 'unread only' state (val filtered = unreadOnly.value) " +
+                "and hand it to the folder read. Body was:\n$body",
+            "val filtered = unreadOnly.value" in body,
+        )
+        assertTrue(
+            "selectAll() must not read the folder unfiltered: repo.cachedIds() is the whole folder, " +
+                "filters and all, and that IS #126. Body was:\n$body",
+            "repo.cachedIds" !in body,
+        )
     }
 
     @Test fun `the decision branches on the screen's own display rule`() {
@@ -82,17 +105,31 @@ class SelectAllWiringTest {
         // The drift detector. selectAllKeys' first two terms are InboxScreen's `searchActive`; this
         // rule fails if the screen stops spelling it that way, which is the moment to carry the
         // change across rather than the moment to discover it on a phone.
-        val screen = code(INBOX_SCREEN).replace(Regex("""\s+"""), " ")
+        //
+        // Anchored on the BRANCH, and compared WHOLE-LINE, for two reasons the auditors proved:
+        //  - the same `val searchActive = …` line exists elsewhere in the file (a scroll
+        //    LaunchedEffect), so a file-wide substring rule can be satisfied by the wrong one while
+        //    the list's own predicate has changed;
+        //  - a substring rule accepts a conjunct appended to it — `&& !selectionActive` is the
+        //    obvious one, and it draws the folder while the selection holds the search results.
+        val lines = codeLines(INBOX_SCREEN).map { it.trim() }
+        val branch = "searchActive -> when (searchDisplay(ui.searchResults.size, ui.searchLoading, ui.searchComplete)) {"
+        val at = lines.indexOfFirst { it == branch }
         assertTrue(
-            "InboxScreen must still gate its search branch on 'ui.searching && " +
-                "ui.searchQuery.isNotBlank()' — selectAllKeys copies exactly that predicate, and " +
-                "if the screen's changes the two lists part company.",
-            "val searchActive = ui.searching && ui.searchQuery.isNotBlank()" in screen,
+            "InboxScreen must still branch its list area on exactly:\n  $branch\nThat call — its " +
+                "arguments included — is the shape selectAllKeys is fed; a different one means the " +
+                "screen and the selection are answering two different questions.",
+            at >= 0,
         )
-        assertTrue(
-            "InboxScreen must still branch its search area on searchDisplay(ui.searchResults.size, " +
-                "ui.searchLoading, ui.searchComplete) — the shape selectAllKeys is fed.",
-            "searchDisplay(ui.searchResults.size, ui.searchLoading, ui.searchComplete)" in screen,
+        val declaration = lines.take(at).indexOfLast { it.startsWith("val searchActive") }
+        assertTrue("no 'val searchActive' declared above the list's search branch", declaration >= 0)
+        assertEquals(
+            "the searchActive the list branches on must be exactly 'ui.searching && " +
+                "ui.searchQuery.isNotBlank()' — selectAllKeys runs that predicate and nothing else. " +
+                "An extra conjunct here (say '&& !selectionActive') makes the screen draw one list " +
+                "while Select all takes another, which is #126 with the roles swapped.",
+            "val searchActive = ui.searching && ui.searchQuery.isNotBlank()",
+            lines[declaration],
         )
     }
 
@@ -123,8 +160,6 @@ class SelectAllWiringTest {
         return line.trimEnd()
     }
 
-    /** [file]'s code as one string, so a call the formatter wraps over four lines reads the same. */
-    private fun code(file: File): String = codeLines(file).joinToString("\n")
 
     /**
      * The declaration of `fun`/`val` [name] in [file] and its body, as text: everything up to the
@@ -153,6 +188,28 @@ class SelectAllWiringTest {
     }
 
     private fun String.indentWidth() = length - trimStart().length
+
+    /**
+     * A call's arguments, one entry each, whitespace normalised: split on the commas that are at
+     * the call's own depth, so a nested call or lambda keeps its own. This is what lets the rules
+     * above compare arguments WHOLE — the sole defence against a mutation that leaves the pinned
+     * text in place and appends to it.
+     */
+    private fun arguments(call: String): List<String> {
+        val out = mutableListOf<String>()
+        val current = StringBuilder()
+        var depth = 0
+        call.forEach { c ->
+            when (c) {
+                '(', '{', '[' -> { depth++; current.append(c) }
+                ')', '}', ']' -> { depth--; current.append(c) }
+                ',' -> if (depth == 0) { out += current.toString(); current.clear() } else current.append(c)
+                else -> current.append(c)
+            }
+        }
+        out += current.toString()
+        return out.map { it.replace(Regex("""\s+"""), " ").trim() }.filter { it.isNotEmpty() }
+    }
 
     /** The argument text of every call to [name] in [text], parentheses balanced. */
     private fun callArguments(text: String, name: String): List<String> =

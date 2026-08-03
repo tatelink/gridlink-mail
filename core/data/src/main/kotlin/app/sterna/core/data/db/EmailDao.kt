@@ -275,11 +275,21 @@ interface EmailDao {
     )
     suspend fun representativeCountForMailbox(accountId: String, mailboxId: String): Int
 
-    /** All cached ids in one account's mailbox (for "select all" — account-scoped like
+    /** All cached ids in one account's mailbox (for cache eviction — account-scoped like
      *  [getByMailbox], so a same-server sibling account's colliding mailbox id can't
-     *  leak its rows into a bulk selection). */
+     *  leak its rows into a bulk operation). NOT what "Select all" reads: the list on screen
+     *  is filtered, and an unfiltered read of the folder is Codeberg #126 — see [keysForSelection]. */
     @Query("SELECT id FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId")
     suspend fun idsForMailbox(accountId: String, mailboxId: String): List<String>
+
+    /**
+     * The (account, id) keys "Select all" may take, built by MailRepository.selectionIdsQuery from
+     * the SAME WHERE clause the flat list pages with — folder scope, unread filter, snooze filter.
+     * A [RawQuery] because that clause is dynamic (scope count and filters vary per view), exactly
+     * like [pagingSource]'s.
+     */
+    @RawQuery
+    suspend fun keysForSelection(query: SupportSQLiteQuery): List<EmailKeyRow>
 
     /** Cached rows by id across accounts (unified-view selections; callers disambiguate
      *  by the returned rows' accountId). */
@@ -412,6 +422,12 @@ interface EmailDao {
 data class EmailRetentionRow(
     val id: String,
     val sortKey: Long,
+)
+
+/** Projection for [EmailDao.keysForSelection]: the account-qualified key of one selectable row. */
+data class EmailKeyRow(
+    val accountId: String,
+    val id: String,
 )
 
 /** Projection for [EmailDao.countsByAccount]. */
