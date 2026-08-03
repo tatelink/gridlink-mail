@@ -685,6 +685,16 @@
     <string name="sender_volume_block">Manda la posta futura nel cestino, segnata come letta</string>
     <string name="sender_volume_block_done">Esiste già una regola di filtro per questo mittente</string>
     <string name="sender_volume_block_added">Regola di filtro aggiunta</string>
+    <string name="sender_volume_search">Vedi questi messaggi</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d messaggio eliminato</item>
+        <item quantity="many">%1$d di messaggi eliminati</item>
+        <item quantity="other">%1$d messaggi eliminati</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Su questo account è attivo un altro script di filtro, quindi da qui non si può aggiungere alcuna regola. Le regole di questo account si modificano in %1$s → %2$s.</string>
+    <string name="sender_volume_block_foreign">È attivo un altro script di filtro</string>
+    <string name="sender_volume_block_title">Inviare nel cestino la posta futura da %1$s?</string>
+    <string name="sender_volume_block_body">Una regola sul server invierà nel cestino la posta futura da questo indirizzo, contrassegnata come letta. Nulla di già ricevuto viene spostato. La regola si può modificare o rimuovere in %1$s → %2$s.</string>
     <string name="offline_banner">Sei offline</string>
     <string name="settings_conversation_section">Conversazioni</string>
     <string name="settings_conversation_title">Vista conversazione</string>

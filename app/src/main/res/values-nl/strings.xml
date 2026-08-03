@@ -680,6 +680,15 @@
     <string name="sender_volume_block">Toekomstige post naar de prullenbak, als gelezen gemarkeerd</string>
     <string name="sender_volume_block_done">Er bestaat al een filterregel voor deze afzender</string>
     <string name="sender_volume_block_added">Filterregel toegevoegd</string>
+    <string name="sender_volume_search">Deze berichten bekijken</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d bericht verwijderd</item>
+        <item quantity="other">%1$d berichten verwijderd</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Er is een ander filterscript actief op dit account, dus hier kan geen regel worden toegevoegd. De regels van dit account bewerk je in %1$s → %2$s.</string>
+    <string name="sender_volume_block_foreign">Er is een ander filterscript actief</string>
+    <string name="sender_volume_block_title">Toekomstige post van %1$s naar de prullenbak?</string>
+    <string name="sender_volume_block_body">Een regel op de server stuurt toekomstige post van dit adres naar de prullenbak, gemarkeerd als gelezen. Al ontvangen berichten blijven staan. De regel kun je wijzigen of verwijderen in %1$s → %2$s.</string>
     <string name="offline_banner">Je bent offline</string>
 
     <!-- Conversations -->

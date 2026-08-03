@@ -685,6 +685,16 @@
     <string name="sender_volume_block">Envoyer le courrier à venir à la corbeille, marqué lu</string>
     <string name="sender_volume_block_done">Une règle de filtrage existe déjà pour cet expéditeur</string>
     <string name="sender_volume_block_added">Règle de filtrage ajoutée</string>
+    <string name="sender_volume_search">Voir ces messages</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d message supprimé</item>
+        <item quantity="many">%1$d de messages supprimés</item>
+        <item quantity="other">%1$d messages supprimés</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Un autre script de filtrage est actif sur ce compte : aucune règle ne peut être ajoutée d\'ici. C\'est dans %1$s → %2$s que les règles de ce compte se modifient.</string>
+    <string name="sender_volume_block_foreign">Un autre script de filtrage est actif</string>
+    <string name="sender_volume_block_title">Envoyer le courrier à venir de %1$s à la corbeille ?</string>
+    <string name="sender_volume_block_body">Une règle sur le serveur enverra le courrier à venir de cette adresse à la corbeille, marqué lu. Rien de ce qui est déjà reçu ne bouge. La règle se modifie ou se retire dans %1$s → %2$s.</string>
     <string name="offline_banner">Vous êtes hors ligne</string>
     <string name="settings_conversation_section">Conversations</string>
     <string name="settings_conversation_title">Affichage par conversation</string>

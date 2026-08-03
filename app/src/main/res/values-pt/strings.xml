@@ -685,6 +685,16 @@
     <string name="sender_volume_block">Enviar o correio futuro para a lixeira, marcado como lido</string>
     <string name="sender_volume_block_done">Já existe uma regra de filtragem para este remetente</string>
     <string name="sender_volume_block_added">Regra de filtragem adicionada</string>
+    <string name="sender_volume_search">Ver estas mensagens</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d mensagem eliminada</item>
+        <item quantity="many">%1$d de mensagens eliminadas</item>
+        <item quantity="other">%1$d mensagens eliminadas</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Há outro script de filtragem ativo nesta conta, por isso não é possível adicionar nenhuma regra a partir daqui. As regras desta conta editam-se em %1$s → %2$s.</string>
+    <string name="sender_volume_block_foreign">Há outro script de filtragem ativo</string>
+    <string name="sender_volume_block_title">Enviar para o lixo o correio futuro de %1$s?</string>
+    <string name="sender_volume_block_body">Uma regra no servidor enviará para o lixo o correio futuro deste endereço, marcado como lido. Nada do que já foi recebido é movido. A regra pode ser alterada ou removida em %1$s → %2$s.</string>
     <string name="offline_banner">Está offline</string>
     <string name="settings_conversation_section">Conversas</string>
     <string name="settings_conversation_title">Vista de conversa</string>

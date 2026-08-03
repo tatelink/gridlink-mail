@@ -80,12 +80,41 @@ internal fun canDeleteFrom(mailboxes: List<Mailbox>): Boolean = mailboxes.any { 
  * in a list row to say that, so the row does not carry it; the Filters screen, which warns in red
  * above its Save button, stays the way to do it knowingly.
  */
-internal fun canBlockSender(state: FilterRulesState?, trashPath: String?): Boolean = when {
-    trashPath == null -> false
-    state is FilterRulesState.Unsupported -> false
-    state is FilterRulesState.Loaded -> !state.foreignActiveScript
-    else -> true
+internal fun canBlockSender(state: FilterRulesState?, trashPath: String?): Boolean =
+    blockAvailability(state, trashPath) == BlockAvailability.OFFERED
+
+/**
+ * The four answers behind [canBlockSender] — kept apart because ONE of them can be explained and
+ * the others cannot.
+ *
+ * [FOREIGN_SCRIPT] is invisible without a word: the account is perfectly capable of the gesture,
+ * the entry simply is not there, and nothing on the screen says why. It is also far more common
+ * than it looks — turning the holiday responder on activates a `vacation` script and switches
+ * Sterna's off — so a reader coming back from a fortnight away finds the gesture evaporated.
+ * [NO_TRASH] and [UNSUPPORTED] stay mute on purpose: they are the Filters screen's own silences
+ * (an IMAP account gets a "not supported" note there and nothing here), and a note per absent
+ * gesture is a screen made of apologies.
+ */
+internal enum class BlockAvailability { OFFERED, NO_TRASH, UNSUPPORTED, FOREIGN_SCRIPT }
+
+/** See [canBlockSender] for why each answer is what it is. */
+internal fun blockAvailability(state: FilterRulesState?, trashPath: String?): BlockAvailability = when {
+    trashPath == null -> BlockAvailability.NO_TRASH
+    state is FilterRulesState.Unsupported -> BlockAvailability.UNSUPPORTED
+    state is FilterRulesState.Loaded && state.foreignActiveScript -> BlockAvailability.FOREIGN_SCRIPT
+    else -> BlockAvailability.OFFERED
 }
+
+/**
+ * The note at the foot of the list, or null when there is nothing honest to add.
+ *
+ * ONE case gets one, [BlockAvailability.FOREIGN_SCRIPT], and the note carries no button: taking
+ * a running script over is a decision the Filters screen already warns about in red before its
+ * Save button, and duplicating that here would be offering the dangerous half without the
+ * warning.
+ */
+internal fun blockNoteRes(availability: BlockAvailability): Int? =
+    if (availability == BlockAvailability.FOREIGN_SCRIPT) R.string.sender_volume_foreign_script else null
 
 /** Which of the screen's bodies is drawn — see [screenBody]. */
 internal enum class SenderScreenBody { NO_ACCOUNT, LOADING, FAILED, EMPTY, ROWS }
@@ -112,8 +141,8 @@ internal fun screenBody(state: MailBySenderUiState): SenderScreenBody = when {
 /** One entry of a row's overflow menu: which gesture, which words, and whether it can be tapped. */
 internal data class SenderMenuEntry(val action: SenderAction, val labelRes: Int, val enabled: Boolean)
 
-/** The two gestures a row offers. */
-internal enum class SenderAction { DELETE, BLOCK }
+/** The three gestures a row offers. */
+internal enum class SenderAction { SEARCH, DELETE, BLOCK }
 
 /**
  * What one row's overflow menu holds, given what the account can do ([canDelete], [canBlock]),
@@ -132,6 +161,16 @@ internal enum class SenderAction { DELETE, BLOCK }
  *    and this screen exists for batches big enough to take a while.
  *  - [blocked] is the third case: the gesture is possible and pointless, so the entry is there,
  *    greyed, and its words say why.
+ *
+ * **The ORDER is a decision, not a layout.** Looking comes first: this screen makes one confirm a
+ * NUMBER and never a content, and "see these messages" is the only entry that answers "who is
+ * this?" before anything is done about it. The rule comes before the delete, and that is the
+ * defect the order fixes rather than a tidy-up — the aggregate excludes the Trash, so deleting a
+ * sender's mail takes its total to zero and **its row disappears**, taking the "never again"
+ * gesture with it; the address then has to be retyped by hand in Settings → Filters. Inverting
+ * the two does not remove the trap (the row can still be emptied on purpose), it stops the menu
+ * PROPOSING it — and it puts the destructive entry last, which is the convention this project
+ * already writes down in `InboxScreen.kt` ("Destructive, so it sits last (#48)").
  */
 internal fun senderMenuEntries(
     canDelete: Boolean,
@@ -139,9 +178,11 @@ internal fun senderMenuEntries(
     blocked: Boolean,
     working: Boolean,
 ): List<SenderMenuEntry> = buildList {
-    if (canDelete) {
-        add(SenderMenuEntry(SenderAction.DELETE, R.string.sender_volume_delete, enabled = !working))
-    }
+    // Always there, always tappable: it writes nothing, destroys nothing, and reading what a
+    // batch is about to sweep is exactly what one wants while that batch is on its way. The
+    // screen stays on the back stack, so its ViewModel — and the batch in flight — outlive the
+    // navigation.
+    add(SenderMenuEntry(SenderAction.SEARCH, R.string.sender_volume_search, enabled = true))
     if (canBlock) {
         add(
             SenderMenuEntry(
@@ -150,6 +191,9 @@ internal fun senderMenuEntries(
                 enabled = !blocked && !working,
             ),
         )
+    }
+    if (canDelete) {
+        add(SenderMenuEntry(SenderAction.DELETE, R.string.sender_volume_delete, enabled = !working))
     }
 }
 
@@ -192,6 +236,11 @@ data class MailBySenderUiState(
     val canDelete: Boolean = false,
     /** See [canBlockSender]. */
     val canBlock: Boolean = false,
+    /**
+     * The note under the last row, when there is one to draw — see [blockNoteRes]. Null while the
+     * script has not been read: nothing is known yet, so there is nothing to explain.
+     */
+    val blockNote: Int? = null,
     /** The rules the account's script carries, as last read — for the duplicate check. */
     val rules: List<FilterRule> = emptyList(),
     /**
@@ -220,11 +269,29 @@ data class MailBySenderUiState(
 internal fun deleteStarted(state: MailBySenderUiState): MailBySenderUiState =
     state.copy(working = true, pending = null)
 
-/** An offer to move a just-deleted batch back where it came from. */
+/**
+ * An offer to move a just-deleted batch back where it came from, and [deleted] — how many
+ * messages the announcement may claim.
+ *
+ * The two numbers are NOT the same and that is the whole point of carrying both: [targets] holds
+ * only what can be put back (a message already sitting in the Trash is not moved back, and one
+ * whose source folder is unknown cannot be), while [deleted] is what the server confirmed it
+ * moved. The snackbar counts the delete, the Undo acts on the targets.
+ */
 data class SenderUndo(
     val credentials: AccountCredentials,
     val targets: List<MailRepository.RestoreTarget>,
+    val deleted: Int,
 )
+
+/**
+ * How many messages the "deleted" message may claim: the ids the server CONFIRMED it moved.
+ *
+ * Not the batch that was sent (a partial failure is reported separately, and counting the whole
+ * batch would announce messages that are still where they were), and not the Undo's targets
+ * either — those exclude what was already in the Trash and what has no known way back.
+ */
+internal fun deletedCount(result: MailRepository.BulkResult): Int = result.succeeded.size
 
 /**
  * Backs "Mail by sender": what this phone holds, per sender, for the CURRENT account.
@@ -299,6 +366,9 @@ class MailBySenderViewModel(application: Application) : AndroidViewModel(applica
                 .getOrElseUnlessCancelled { null }
             _state.value = _state.value.copy(
                 canBlock = canBlockSender(loaded, trashPath),
+                // Written from the SAME two readings the availability is decided from, so the
+                // note and the missing entry can never describe different accounts.
+                blockNote = blockNoteRes(blockAvailability(loaded, trashPath)),
                 rules = (loaded as? FilterRulesState.Loaded)?.rules.orEmpty(),
             )
         }
@@ -348,7 +418,11 @@ class MailBySenderViewModel(application: Application) : AndroidViewModel(applica
                 if (result.failed.isNotEmpty()) {
                     _message.value = getApplication<Application>().getString(R.string.status_action_failed)
                 }
-                _undo.value = if (targets.isEmpty()) null else SenderUndo(credentials, targets)
+                _undo.value = if (targets.isEmpty()) {
+                    null
+                } else {
+                    SenderUndo(credentials, targets, deletedCount(result))
+                }
                 load()
             } finally {
                 // On EVERY way out, including the one nobody wrote down. `cachedEmailsByIds` is

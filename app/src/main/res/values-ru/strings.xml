@@ -692,6 +692,17 @@
     <string name="sender_volume_block">Отправлять будущие письма в корзину, помечая прочитанными</string>
     <string name="sender_volume_block_done">Для этого отправителя уже есть правило фильтра</string>
     <string name="sender_volume_block_added">Правило фильтра добавлено</string>
+    <string name="sender_volume_search">Показать эти письма</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">Удалено %1$d письмо</item>
+        <item quantity="few">Удалено %1$d письма</item>
+        <item quantity="many">Удалено %1$d писем</item>
+        <item quantity="other">Удалено %1$d писем</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">В этой учётной записи активен другой скрипт фильтрации, поэтому отсюда нельзя добавить правило. Правила этой учётной записи редактируются в %1$s → %2$s.</string>
+    <string name="sender_volume_block_foreign">Активен другой скрипт фильтрации</string>
+    <string name="sender_volume_block_title">Отправлять будущие письма от %1$s в корзину?</string>
+    <string name="sender_volume_block_body">Правило на сервере будет отправлять будущие письма с этого адреса в корзину, помечая их прочитанными. Уже полученные письма останутся на месте. Правило можно изменить или удалить в %1$s → %2$s.</string>
     <string name="offline_banner">Вы не в сети</string>
     <string name="settings_conversation_section">Беседы</string>
     <string name="settings_conversation_title">Просмотр беседы</string>

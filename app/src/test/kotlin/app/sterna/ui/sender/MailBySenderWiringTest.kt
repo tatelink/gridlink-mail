@@ -112,6 +112,83 @@ class MailBySenderWiringTest {
         )
     }
 
+    @Test fun `the search entry opens the search on that row's own address`() {
+        // The argument, not the call: `onSearch = {}` compiles, the entry is there, every rule
+        // about WHICH entries exist stays green, and the one gesture that lets you look before
+        // you destroy quietly does nothing.
+        val row = callArguments(code(SCREEN), "SenderRow").single { "row = row" in it }
+        assertTrue(
+            "SenderRow must be given 'onSearch = { onOpenSearch(row.email) }' — that row's " +
+                "address, not the screen's or a constant. Call was:\n$row",
+            "onSearch = { onOpenSearch(row.email) }," in row,
+        )
+    }
+
+    @Test fun `the deleted message is counted, in this screen's own plural`() {
+        // "Message deleted", singular, for forty messages — on a screen whose entire job is to
+        // count. The count must be the offer's `deleted` (what the server confirmed it moved),
+        // not `targets.size` (what can be put back, which excludes mail already in the Trash).
+        val screen = code(SCREEN)
+        assertTrue(
+            "the snackbar must read 'pluralStringResource(R.plurals.sender_volume_deleted, " +
+                "it.deleted, it.deleted)'",
+            "pluralStringResource(R.plurals.sender_volume_deleted, it.deleted, it.deleted)" in screen,
+        )
+        assertTrue(
+            "R.string.status_message_deleted must be gone from this screen: it is the inbox's " +
+                "singular, it is shared with a path this lot does not touch, and it is the lie " +
+                "this correction is about",
+            "R.string.status_message_deleted" !in screen,
+        )
+        assertTrue(
+            "no count read off the targets may reach the snackbar",
+            "targets.size" !in screen && "it.targets" !in screen,
+        )
+    }
+
+    @Test fun `the undo offer carries the number the server confirmed`() {
+        val body = functionBody(VIEW_MODEL, "confirmDelete")
+        assertTrue(
+            "the offer must be built as 'SenderUndo(credentials, targets, deletedCount(result))' " +
+                "— the count executed by MailBySenderTest, over the result of the delete. Body " +
+                "was:\n$body",
+            "SenderUndo(credentials, targets, deletedCount(result))" in body,
+        )
+    }
+
+    @Test fun `the foot note comes from the pure decision, over the same two readings`() {
+        // The note and the missing entry must describe ONE account: written from a different
+        // reading, the screen can print "another script is active" beside a working entry, or
+        // hide the entry with no note at all. Two assignments in one copy() — exactly the shape
+        // a mutation drops half of.
+        val body = functionBody(VIEW_MODEL, "load")
+        assertTrue(
+            "load() must set 'canBlock = canBlockSender(loaded, trashPath)'. Body was:\n$body",
+            "canBlock = canBlockSender(loaded, trashPath)," in body,
+        )
+        assertTrue(
+            "…and 'blockNote = blockNoteRes(blockAvailability(loaded, trashPath))', from the " +
+                "same two readings. Body was:\n$body",
+            "blockNote = blockNoteRes(blockAvailability(loaded, trashPath))," in body,
+        )
+        val screen = code(SCREEN)
+        assertTrue(
+            "the screen must draw the note the state carries, as 'state.blockNote?.let', and " +
+                "decide nothing of its own",
+            "state.blockNote?.let" in screen,
+        )
+        assertTrue(
+            "the note must name the Filters screen by its own localised labels, not by an " +
+                "English path typed into nine translations",
+            "R.string.settings_filters_title" in screen && "R.string.inbox_settings" in screen,
+        )
+        // NOT pinned here, and said so rather than left to be discovered: that the note carries
+        // no button. Taking a running Sieve script over is the Filters screen's decision — it
+        // warns in red above its own Save button — but the `when` branch this note lives in runs
+        // to the end of the file, so any rule about what it does NOT contain would be a rule
+        // about the whole screen.
+    }
+
     @Test fun `the script is only ever saved as addBlockRule's save callback`() {
         val lines = codeLines(VIEW_MODEL)
         assertTrue(

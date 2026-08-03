@@ -685,6 +685,16 @@
     <string name="sender_volume_block">Enviar el correo futuro a la papelera, marcado como leído</string>
     <string name="sender_volume_block_done">Ya existe una regla de filtrado para este remitente</string>
     <string name="sender_volume_block_added">Regla de filtrado añadida</string>
+    <string name="sender_volume_search">Ver estos mensajes</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d mensaje eliminado</item>
+        <item quantity="many">%1$d de mensajes eliminados</item>
+        <item quantity="other">%1$d mensajes eliminados</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Hay otro script de filtrado activo en esta cuenta, así que no se puede añadir ninguna regla desde aquí. Las reglas de esta cuenta se editan en %1$s → %2$s.</string>
+    <string name="sender_volume_block_foreign">Hay otro script de filtrado activo</string>
+    <string name="sender_volume_block_title">¿Enviar a la papelera el correo futuro de %1$s?</string>
+    <string name="sender_volume_block_body">Una regla en el servidor enviará a la papelera el correo futuro de esta dirección, marcado como leído. Nada de lo ya recibido se mueve. La regla se puede cambiar o quitar en %1$s → %2$s.</string>
     <string name="offline_banner">Estás sin conexión</string>
     <string name="settings_conversation_section">Conversaciones</string>
     <string name="settings_conversation_title">Vista de conversación</string>

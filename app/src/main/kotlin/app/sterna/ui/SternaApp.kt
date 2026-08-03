@@ -504,11 +504,14 @@ private fun MainNavHost(
             )
         }
         composable(
-            route = "search?q={q}",
+            route = "search?q={q}&from={from}",
             // The initial term is read straight from the entry's SavedStateHandle by
             // SearchViewModel, so it survives a process death like the rest of the criteria.
+            // `from` arrives the same way, from "see these messages" on the per-sender screen,
+            // and does exactly as much as `q`: it fills its field, it does not run the search.
             arguments = listOf(
                 navArgument("q") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("from") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
             SearchScreen(
@@ -557,7 +560,14 @@ private fun MainNavHost(
             )
         }
         composable("bysender") { entry ->
-            MailBySenderScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
+            MailBySenderScreen(
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
+                // Look before destroying: the address travels as the search's `from` criterion,
+                // the same way the inbox's bar hands its words over as `q`.
+                onOpenSearch = { from ->
+                    entry.navigateOnce { nav.navigate("search?from=${Uri.encode(from)}") }
+                },
+            )
         }
     }
 }

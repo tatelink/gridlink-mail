@@ -167,6 +167,15 @@
     <string name="sender_volume_block">Send future mail to Trash, marked read</string>
     <string name="sender_volume_block_done">A filter rule already exists for this sender</string>
     <string name="sender_volume_block_added">Filter rule added</string>
+    <string name="sender_volume_search">See these messages</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d message deleted</item>
+        <item quantity="other">%1$d messages deleted</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Another filter script is active on this account, so no filter rule can be added from here. %1$s → %2$s is where this account\'s rules are edited.</string>
+    <string name="sender_volume_block_foreign">Another filter script is active</string>
+    <string name="sender_volume_block_title">Send future mail from %1$s to Trash?</string>
+    <string name="sender_volume_block_body">A rule on the server will send future mail from this address to Trash, marked read. Nothing already received moves. The rule can be changed or removed in %1$s → %2$s.</string>
     <string name="offline_banner">You\'re offline</string>
     <string name="inbox_compose">Compose</string>
     <string name="inbox_no_results">No results</string>

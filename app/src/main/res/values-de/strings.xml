@@ -680,6 +680,15 @@
     <string name="sender_volume_block">Künftige E-Mails in den Papierkorb, als gelesen markiert</string>
     <string name="sender_volume_block_done">Für diesen Absender gibt es bereits eine Filterregel</string>
     <string name="sender_volume_block_added">Filterregel hinzugefügt</string>
+    <string name="sender_volume_search">Diese Nachrichten anzeigen</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d Nachricht gelöscht</item>
+        <item quantity="other">%1$d Nachrichten gelöscht</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Auf diesem Konto ist ein anderes Filterskript aktiv, daher lässt sich hier keine Regel hinzufügen. Unter %1$s → %2$s werden die Regeln dieses Kontos bearbeitet.</string>
+    <string name="sender_volume_block_foreign">Ein anderes Filterskript ist aktiv</string>
+    <string name="sender_volume_block_title">Künftige Nachrichten von %1$s in den Papierkorb?</string>
+    <string name="sender_volume_block_body">Eine Regel auf dem Server verschiebt künftige Nachrichten von dieser Adresse in den Papierkorb und markiert sie als gelesen. Bereits empfangene Nachrichten bleiben unberührt. Die Regel lässt sich unter %1$s → %2$s ändern oder entfernen.</string>
     <string name="offline_banner">Du bist offline</string>
     <string name="settings_conversation_section">Konversationen</string>
     <string name="settings_conversation_title">Konversationsansicht</string>

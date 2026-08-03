@@ -61,6 +61,7 @@ import app.sterna.ui.components.ContactAvatar
 @Composable
 fun MailBySenderScreen(
     onBack: () -> Unit,
+    onOpenSearch: (from: String) -> Unit,
     viewModel: MailBySenderViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -68,7 +69,12 @@ fun MailBySenderScreen(
     val undo by viewModel.undo.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val undoLabel = stringResource(R.string.inbox_undo)
-    val deletedLabel = stringResource(R.string.status_message_deleted)
+    // Counted, not "Message deleted" in the singular for forty. The count is the offer's own
+    // `deleted` — what the server confirmed it moved — and the plural is this screen's, not the
+    // inbox's shared string: the grouped path through the inbox is not in this lot.
+    val deletedLabel = undo?.let {
+        pluralStringResource(R.plurals.sender_volume_deleted, it.deleted, it.deleted)
+    }
 
     LaunchedEffect(message) {
         val m = message ?: return@LaunchedEffect
@@ -79,7 +85,7 @@ fun MailBySenderScreen(
     LaunchedEffect(undo) {
         undo ?: return@LaunchedEffect
         val result = snackbarHostState.showSnackbar(
-            message = deletedLabel,
+            message = deletedLabel ?: return@LaunchedEffect,
             actionLabel = undoLabel,
             withDismissAction = true,
             duration = SnackbarDuration.Short,
@@ -182,10 +188,33 @@ fun MailBySenderScreen(
                         canBlock = state.canBlock,
                         blocked = viewModel.isBlocked(row.email),
                         working = state.working,
+                        onSearch = { onOpenSearch(row.email) },
                         onDelete = { viewModel.askDelete(row) },
                         onBlock = { viewModel.blockSender(row) },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+                // The one absent gesture that can be explained, explained at the foot of the
+                // list — the shape FiltersScreen's own note uses, and with no button, because
+                // taking a running script over belongs to the screen that warns in red first.
+                state.blockNote?.let { note ->
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                stringResource(
+                                    note,
+                                    stringResource(R.string.inbox_settings),
+                                    stringResource(R.string.settings_filters_title),
+                                ),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -234,6 +263,7 @@ private fun SenderRow(
     canBlock: Boolean,
     blocked: Boolean,
     working: Boolean,
+    onSearch: () -> Unit,
     onDelete: () -> Unit,
     onBlock: () -> Unit,
 ) {
@@ -289,6 +319,7 @@ private fun SenderRow(
                         onClick = {
                             menuOpen = false
                             when (entry.action) {
+                                SenderAction.SEARCH -> onSearch()
                                 SenderAction.DELETE -> onDelete()
                                 SenderAction.BLOCK -> onBlock()
                             }

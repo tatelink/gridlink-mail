@@ -1,6 +1,7 @@
 package app.sterna.ui.sender
 
 import app.sterna.core.data.mail.FilterRulesState
+import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.mail.SenderVolume
 import app.sterna.core.jmap.model.Mailbox
 import org.junit.Assert.assertEquals
@@ -216,20 +217,21 @@ class MailBySenderTest {
 
     // -- what a row's menu holds --------------------------------------------------------------------
 
-    @Test fun `a batch in flight greys the entries out, it does not remove them`() {
+    @Test fun `a batch in flight greys the two writing entries out, it does not remove them`() {
         // The defect the greying replaces: with both entries taken away, every tap on the row's
         // ⋮ during a batch opens an EMPTY 280 dp menu, with no word anywhere on the screen about
         // why. A greyed entry says "not now" and keeps the gesture where the finger left it.
         val entries = senderMenuEntries(canDelete = true, canBlock = true, blocked = false, working = true)
         assertEquals(
-            "both entries must still be there while a batch is on its way",
-            listOf(SenderAction.DELETE, SenderAction.BLOCK),
+            "all three entries must still be there while a batch is on its way",
+            listOf(SenderAction.SEARCH, SenderAction.BLOCK, SenderAction.DELETE),
             entries.map { it.action },
         )
         assertEquals(
-            "…and neither may be tappable: the second gesture returns at the ViewModel's guard " +
-                "and would do nothing at all, silently",
-            listOf(false, false),
+            "…the two that WRITE may not be tappable — the second gesture returns at the " +
+                "ViewModel's guard and would do nothing at all, silently — while looking at the " +
+                "messages a batch is sweeping stays available, because it changes nothing",
+            listOf(true, false, false),
             entries.map { it.enabled },
         )
     }
@@ -240,29 +242,155 @@ class MailBySenderTest {
         // IMAP, no Sieve, another script running). There is nothing to wait for, so there is
         // nothing to grey out — and an entry that greys out forever reads as a bug.
         assertEquals(
-            emptyList<SenderAction>(),
+            "the search needs nothing of the account and never goes away",
+            listOf(SenderAction.SEARCH),
             senderMenuEntries(canDelete = false, canBlock = false, blocked = false, working = false)
                 .map { it.action },
         )
         assertEquals(
-            listOf(SenderAction.BLOCK),
+            listOf(SenderAction.SEARCH, SenderAction.BLOCK),
             senderMenuEntries(canDelete = false, canBlock = true, blocked = false, working = false)
                 .map { it.action },
         )
         assertEquals(
-            listOf(SenderAction.DELETE),
+            listOf(SenderAction.SEARCH, SenderAction.DELETE),
             senderMenuEntries(canDelete = true, canBlock = false, blocked = false, working = false)
                 .map { it.action },
         )
     }
 
-    @Test fun `an account that can do both, with nothing in flight, gets two tappable entries`() {
+    @Test fun `an account that can do both, with nothing in flight, gets three tappable entries`() {
         val entries = senderMenuEntries(canDelete = true, canBlock = true, blocked = false, working = false)
         assertEquals(
-            listOf(app.sterna.R.string.sender_volume_delete, app.sterna.R.string.sender_volume_block),
+            listOf(
+                app.sterna.R.string.sender_volume_search,
+                app.sterna.R.string.sender_volume_block,
+                app.sterna.R.string.sender_volume_delete,
+            ),
             entries.map { it.labelRes },
         )
-        assertEquals(listOf(true, true), entries.map { it.enabled })
+        assertEquals(listOf(true, true, true), entries.map { it.enabled })
+    }
+
+    // -- R1: the order of the row menu, which is a defect and not a layout -----------------------
+
+    @Test fun `the rule comes before the delete, and the delete is last`() {
+        // The aggregate excludes the Trash. Delete first and the sender's total falls to zero,
+        // its ROW DISAPPEARS, and the "never again" gesture — which lives on that row — becomes
+        // unreachable for that sender: the address then has to be retyped by hand in Filters.
+        // Nothing on screen says the order, and the menu used to propose the destructive one
+        // first, against the convention the project already writes down in InboxScreen ("#48").
+        val entries = senderMenuEntries(canDelete = true, canBlock = true, blocked = false, working = false)
+        assertEquals(
+            "the rule must be offered BEFORE the delete that can take its row away, and the " +
+                "destructive entry must sit last",
+            listOf(SenderAction.SEARCH, SenderAction.BLOCK, SenderAction.DELETE),
+            entries.map { it.action },
+        )
+        assertTrue(
+            "…and that holds however the row is: a rule already there, a batch in flight",
+            listOf(true to true, true to false, false to true, false to false).all { (blocked, working) ->
+                senderMenuEntries(canDelete = true, canBlock = true, blocked = blocked, working = working)
+                    .map { it.action } ==
+                    listOf(SenderAction.SEARCH, SenderAction.BLOCK, SenderAction.DELETE)
+            },
+        )
+    }
+
+    // -- R2: looking before destroying -----------------------------------------------------------
+
+    @Test fun `every row offers to see the messages first`() {
+        // The most visible gap in the walk-through: one confirms a NUMBER and never a content.
+        // The entry needs nothing of the account — no Trash, no Sieve, no round trip — so it is
+        // there for every row of every account, and it leads the menu.
+        listOf(true, false).forEach { canDelete ->
+            listOf(true, false).forEach { canBlock ->
+                val entries = senderMenuEntries(canDelete, canBlock, blocked = false, working = false)
+                assertEquals(
+                    "canDelete=$canDelete canBlock=$canBlock must still open on the search",
+                    SenderAction.SEARCH,
+                    entries.first().action,
+                )
+                assertEquals(
+                    app.sterna.R.string.sender_volume_search,
+                    entries.first().labelRes,
+                )
+                assertTrue("and it is always tappable", entries.first().enabled)
+            }
+        }
+    }
+
+    // -- R3: the number the deletion announces ----------------------------------------------------
+
+    @Test fun `the deletion announces what the server confirmed it moved`() {
+        // Not the batch that was sent (a partial failure is reported on its own, and counting
+        // the whole batch would announce messages that never moved), and not the Undo's targets
+        // either: a message already in the Trash is not moved back, so it is not a target — and
+        // it WAS deleted. Two ids succeed here and only one is restorable.
+        val result = MailRepository.BulkResult(succeeded = setOf("a", "b"), failed = setOf("c"))
+        assertEquals(2, deletedCount(result))
+        val targets = restoreTargets(
+            succeeded = result.succeeded,
+            sources = mapOf("a" to "trash", "b" to "inbox"),
+            dest = "trash",
+        )
+        assertEquals(
+            "the snackbar's number is the delete's, not the undo's — they differ exactly here",
+            1,
+            targets.size,
+        )
+    }
+
+    @Test fun `nothing confirmed announces nothing`() {
+        assertEquals(0, deletedCount(MailRepository.BulkResult(emptySet(), setOf("a", "b"))))
+    }
+
+    // -- R4: saying why the rule gesture is missing -------------------------------------------------
+
+    @Test fun `only the foreign script gets a note, and it names one`() {
+        // The one "no" that is invisible AND explicable. The other two are the Filters screen's
+        // own silences: an IMAP account gets a "not supported" note over there and nothing here,
+        // and an account with no nameable Trash is offered nothing rather than told about a
+        // folder it does not have.
+        assertEquals(
+            app.sterna.R.string.sender_volume_foreign_script,
+            blockNoteRes(BlockAvailability.FOREIGN_SCRIPT),
+        )
+        assertNull("an account that CAN do it has nothing to explain", blockNoteRes(BlockAvailability.OFFERED))
+        assertNull(blockNoteRes(BlockAvailability.UNSUPPORTED))
+        assertNull(blockNoteRes(BlockAvailability.NO_TRASH))
+    }
+
+    @Test fun `each no is told apart from the others`() {
+        // The screen used to flatten all three into canBlock = false, which is why none of them
+        // could be explained. Turning the holiday responder on activates a `vacation` script and
+        // switches Sterna's off — measured on Stalwart — so FOREIGN_SCRIPT is the common case,
+        // not the exotic one.
+        assertEquals(
+            BlockAvailability.FOREIGN_SCRIPT,
+            blockAvailability(FilterRulesState.Loaded(emptyList(), foreignActiveScript = true), "Trash"),
+        )
+        assertEquals(
+            BlockAvailability.UNSUPPORTED,
+            blockAvailability(FilterRulesState.Unsupported, "Trash"),
+        )
+        assertEquals(
+            "no Trash to name answers first: there is nothing to write into a rule whatever the " +
+                "script says",
+            BlockAvailability.NO_TRASH,
+            blockAvailability(FilterRulesState.Loaded(emptyList(), foreignActiveScript = true), null),
+        )
+        assertEquals(
+            BlockAvailability.OFFERED,
+            blockAvailability(FilterRulesState.Loaded(emptyList()), "Trash"),
+        )
+        assertEquals(
+            "a read that FAILED is not a foreign script and not an unsupported server — the " +
+                "entry stays, and no note claims a cause nobody established",
+            BlockAvailability.OFFERED,
+            blockAvailability(null, "Trash"),
+        )
+        assertNull(blockNoteRes(blockAvailability(null, "Trash")))
     }
 
     @Test fun `a sender the script already handles keeps its entry, greyed, and says why`() {
