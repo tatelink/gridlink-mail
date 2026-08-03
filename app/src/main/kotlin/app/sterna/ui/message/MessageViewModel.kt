@@ -143,6 +143,14 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         initialValue = emptySet(),
     )
 
+    /** Whether the reader shows the bottom Reply/Forward bar at all (#63). Global, so the bar does
+     *  not come and go while paging through a unified inbox's messages. */
+    val replyBar = settings.replyBar.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = true,
+    )
+
     /** Reading text size for the message body. */
     val messageTextSize = settings.messageTextSize.stateIn(
         scope = viewModelScope,

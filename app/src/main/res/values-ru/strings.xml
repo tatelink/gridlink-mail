@@ -268,6 +268,8 @@
     <string name="settings_signature_on_replies_subtitle">Добавлять её и при ответе или пересылке</string>
     <string name="settings_signature_below_quote_title">Подпись под цитируемым текстом</string>
     <string name="settings_signature_below_quote_subtitle">В ответе размещать её под цитатой, а не над ней</string>
+    <string name="settings_reply_bar_title">Панель ответа</string>
+    <string name="settings_reply_bar_subtitle">Показывать «Ответить» и «Переслать» внизу сообщения. Оба действия остаются доступны на верхней панели.</string>
     <string name="settings_signature_delimiter_title">Строка-разделитель перед подписью</string>
     <string name="settings_signature_delimiter_subtitle">Другие почтовые программы узнают вашу подпись по этой строке «-- » и могут скрывать её при цитировании письма; без неё они этого больше не смогут, а поле подписи будет содержать ровно то, что уходит в письме.</string>
     <string name="settings_swipe_right_title">Смахивание вправо</string>

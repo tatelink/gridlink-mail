@@ -388,6 +388,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setSignatureDelimiter(enabled) }
     }
 
+    val replyBar = settings.replyBar.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = true,
+    )
+
+    fun setReplyBar(enabled: Boolean) {
+        viewModelScope.launch { settings.setReplyBar(enabled) }
+    }
+
     val messageTextSize = settings.messageTextSize.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

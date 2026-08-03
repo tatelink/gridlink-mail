@@ -1022,6 +1022,7 @@ private fun MessageContent(
     val confirmLinks by viewModel.confirmLinks.collectAsStateWithLifecycle()
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
     val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
+    val replyBarEnabled by viewModel.replyBar.collectAsStateWithLifecycle()
     // Per-message manual override (set from the fixed toolbar's menu, hence in the VM);
     // the sender allowlist auto-shows without it.
     val manualShow by viewModel.manualShowImages.collectAsStateWithLifecycle()
@@ -1055,6 +1056,7 @@ private fun MessageContent(
                 calendar = calendar,
                 onRespondToInvite = viewModel::respondToInvite,
                 textZoom = messageTextSize.zoom,
+                replyBarEnabled = replyBarEnabled,
                 onBarVisibleChanged = viewModel::setReplyBarVisible,
                 onComposeTo = onComposeTo,
                 showRecipients = ownMessage,
@@ -1090,6 +1092,10 @@ private fun ConversationBody(
     calendar: CalendarInvite?,
     onRespondToInvite: (String) -> Unit,
     textZoom: Int,
+    /** Whether the bottom Reply/Forward bar is wanted at all (#63). It gates the bar's visibility
+     *  and the blank the document reserves for it, and NOTHING else: the reveal machinery below
+     *  also drives the body's alpha, its spinner and the collapsing header. */
+    replyBarEnabled: Boolean,
     onBarVisibleChanged: (Boolean) -> Unit,
     onComposeTo: (address: String) -> Unit,
     showRecipients: Boolean = false,
@@ -1138,7 +1144,7 @@ private fun ConversationBody(
     // swipe — #62): this page only reports whether its resting/scroll state wants the bar, and
     // the chrome follows the SETTLED page's value. The invisible measuring copy below stays
     // in-page — it only reserves the bar's height in the document.
-    val barVisible = bodyReady && showBar
+    val barVisible = replyBarVisible(replyBarEnabled, bodyReady, showBar)
     LaunchedEffect(barVisible) { onBarVisibleChanged(barVisible) }
     // Measured header height (device px) and the live body scroll offset. scrollY is read only in the
     // layout phase (the header's offset lambda) so updating it every scroll frame re-lays-out the
@@ -1169,7 +1175,9 @@ private fun ConversationBody(
     var barHeightPx by remember { mutableIntStateOf(0) }
     val clearancePx = with(density) { 4.dp.roundToPx() }
     val defaultBarPx = with(density) { 76.dp.roundToPx() }
-    val bottomInsetPx = (if (barHeightPx > 0) barHeightPx else defaultBarPx) + clearancePx
+    // Zero when the bar is switched off: the blank is a DIV inside the document, so leaving it
+    // there would end every message with a strip of white under nothing (#63).
+    val bottomInsetPx = bodyBottomInsetPx(replyBarEnabled, barHeightPx, defaultBarPx, clearancePx)
 
     Box(
         Modifier

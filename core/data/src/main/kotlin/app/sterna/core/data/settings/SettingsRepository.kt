@@ -187,6 +187,18 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_SIGNATURE_DELIMITER] = enabled }
     }
 
+    /** Whether the reader shows the Reply/Forward bar along the bottom of a message. ON by default
+     *  — it is what the app has always done. Off, both of its actions are still one tap away in the
+     *  top bar (Reply has its own icon; Reply all and Forward open the menu beside it), so nothing
+     *  becomes unreachable (Codeberg #63). Global, not per account: the reader is shared by the
+     *  unified inbox, and a per-account answer would make the bar appear and disappear while moving
+     *  from one message to the next in one list. */
+    val replyBar: Flow<Boolean> = dataStore.data.map { it[KEY_REPLY_BAR] ?: true }
+
+    suspend fun setReplyBar(enabled: Boolean) {
+        dataStore.edit { it[KEY_REPLY_BAR] = enabled }
+    }
+
     /** Reading text size for the message body. */
     val messageTextSize: Flow<MessageTextSize> = dataStore.data.map { prefs ->
         prefs[KEY_MESSAGE_TEXT_SIZE]?.let { runCatching { MessageTextSize.valueOf(it) }.getOrNull() }
@@ -298,6 +310,7 @@ class SettingsRepository(context: Context) {
         signatureOnReplies = signatureOnReplies.first(),
         signatureBelowQuote = signatureBelowQuote.first(),
         signatureDelimiter = signatureDelimiter.first(),
+        replyBar = replyBar.first(),
         deliveryMode = deliveryMode.first().name,
         notificationContent = notificationContent.first().name,
     )
@@ -327,6 +340,7 @@ class SettingsRepository(context: Context) {
         backup.signatureOnReplies?.let { setSignatureOnReplies(it) }
         backup.signatureBelowQuote?.let { setSignatureBelowQuote(it) }
         backup.signatureDelimiter?.let { setSignatureDelimiter(it) }
+        backup.replyBar?.let { setReplyBar(it) }
         backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
         backup.notificationContent?.let { v -> runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }
     }
@@ -390,6 +404,7 @@ class SettingsRepository(context: Context) {
         private val KEY_SIGNATURE_ON_REPLIES = booleanPreferencesKey("signature_on_replies")
         private val KEY_SIGNATURE_BELOW_QUOTE = booleanPreferencesKey("signature_below_quote")
         private val KEY_SIGNATURE_DELIMITER = booleanPreferencesKey("signature_delimiter")
+        private val KEY_REPLY_BAR = booleanPreferencesKey("reply_bar")
         private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         private val KEY_HAS_SEEN_WELCOME = booleanPreferencesKey("has_seen_welcome")
