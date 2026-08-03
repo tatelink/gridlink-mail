@@ -415,18 +415,37 @@ internal fun discardWording(
  */
 internal enum class DiscardChoice { CANCEL, DISCARD, SAVE_DRAFT }
 
+/** One answer of the leave dialog: the button, and whether it may be tapped at all. */
+internal data class DiscardAnswer(val choice: DiscardChoice, val enabled: Boolean)
+
 /**
  * Cancel first, the confirming answer last — the order the settings screens' own three-answer exit
  * already uses (`SaveChangesDialog`), so the two do not read differently.
  *
- * [mayKeepDraft] is `draftSaveAllowed`, the same value the toolbar hides its Save button on: the
- * dialog must not offer what the toolbar withholds.
+ * The two conditions are the toolbar's two conditions, and they are not the same question — which
+ * is why the dialog needs both (#35):
+ *
+ *  - [mayKeepDraft] is [draftSaveAllowed], the value the toolbar HIDES its Save icon on. An
+ *    encrypted message may not be offered a way into Drafts at all, so the button is absent, and the
+ *    dialog's body then owes the user the reason ([discardWording]);
+ *  - [hasContent] is [draftHasContent], the value the toolbar GREYS its Save icon on. Empty, the
+ *    save is not a save: `ComposeViewModel.saveDraft` reads the same rule, finds nothing worth
+ *    persisting, and DELETES the draft the composer was opened on (the 1.3.12 behaviour — an
+ *    emptied draft must not linger as a shell in Drafts). Reached from this dialog, that is a
+ *    button labelled "Save draft" destroying the copy on the server with no word said. Open a
+ *    saved draft, clear the subject and the body, tap the X, tap Save draft: the draft is gone.
+ *
+ * Greyed rather than dropped, deliberately. Dropping it would keep the dialog's own precedent for
+ * "not on offer" (the encrypted case) but make two sentences false: the OUTBOX body says the
+ * message "moves to Drafts if you save it", beside a button that would no longer be there, and the
+ * toolbar the user just came from shows a greyed icon rather than none. Same state, same shape, in
+ * both places.
  */
-internal fun discardChoices(mayKeepDraft: Boolean): List<DiscardChoice> =
+internal fun discardChoices(mayKeepDraft: Boolean, hasContent: Boolean): List<DiscardAnswer> =
     listOfNotNull(
-        DiscardChoice.CANCEL,
-        DiscardChoice.DISCARD,
-        DiscardChoice.SAVE_DRAFT.takeIf { mayKeepDraft },
+        DiscardAnswer(DiscardChoice.CANCEL, enabled = true),
+        DiscardAnswer(DiscardChoice.DISCARD, enabled = true),
+        DiscardAnswer(DiscardChoice.SAVE_DRAFT, enabled = hasContent).takeIf { mayKeepDraft },
     )
 
 /**

@@ -543,11 +543,14 @@ fun ComposeScreen(
     }
 
     if (showDiscard) {
-        // The leave dialog obeys the same rule as the toolbar's Save action (#35): an encrypted
-        // message may not leave a plaintext copy on the server, so when encrypting the dialog does
-        // not offer to save — it says WHY (a draft is stored as typed, unprotected) and offers only
-        // Discard and Cancel. Offering "Save draft" here was the leak: the toolbar hid the action,
-        // this dialog uploaded the same text one tap later.
+        // The leave dialog obeys the same TWO rules as the toolbar's Save action (#35): an
+        // encrypted message may not leave a plaintext copy on the server, so when encrypting the
+        // dialog does not offer to save — it says WHY (a draft is stored as typed, unprotected) and
+        // offers only Discard and Cancel. Offering "Save draft" here was the leak: the toolbar hid
+        // the action, this dialog uploaded the same text one tap later. The second rule is
+        // `canSaveDraft` below, handed to discardChoices: over an emptied composer the toolbar
+        // greys its icon and this dialog offered a live button, which deletes the draft it was
+        // opened on rather than saving it.
         val mayKeepDraft = draftSaveAllowed(pgpMode)
         // What the dialog is allowed to CLAIM, decided by [discardWording] (#70): a message pulled
         // back out of the Outbox is not destroyed by leaving — its row goes back where it was — so
@@ -626,11 +629,11 @@ fun ComposeScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
-                    discardChoices(mayKeepDraft).forEach { choice ->
+                    discardChoices(mayKeepDraft, canSaveDraft).forEach { (choice, enabled) ->
                         when (choice) {
                             // Back to the composer, text intact, still encrypted if it was. This is
                             // what tapping outside the dialog has always done; it now has a button.
-                            DiscardChoice.CANCEL -> TextButton(onClick = { showDiscard = false }) {
+                            DiscardChoice.CANCEL -> TextButton(onClick = { showDiscard = false }, enabled = enabled) {
                                 Text(stringResource(R.string.compose_discard_cancel))
                             }
                             DiscardChoice.DISCARD -> TextButton(onClick = {
@@ -638,11 +641,11 @@ fun ComposeScreen(
                                 // Discards the edits, not the queued message: that one goes back
                                 // (#70), and a saved draft stays in Drafts (#35, #127).
                                 cancel()
-                            }) { Text(discardLabel, color = MaterialTheme.colorScheme.error) }
+                            }, enabled = enabled) { Text(discardLabel, color = MaterialTheme.colorScheme.error) }
                             DiscardChoice.SAVE_DRAFT -> TextButton(onClick = {
                                 showDiscard = false
                                 viewModel.saveDraft(to, cc, bcc, subject.text, body.text)
-                            }) { Text(stringResource(R.string.compose_discard_save)) }
+                            }, enabled = enabled) { Text(stringResource(R.string.compose_discard_save)) }
                         }
                     }
                 }

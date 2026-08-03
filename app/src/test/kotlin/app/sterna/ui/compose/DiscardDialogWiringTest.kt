@@ -95,9 +95,12 @@ class DiscardDialogWiringTest {
     @Test fun `the buttons are the ones discardChoices answers, and nothing else`() {
         val block = discardBlock()
         assertTrue(
-            "the dialog's buttons must be drawn from discardChoices(mayKeepDraft) — the decision " +
-                "DiscardChoicesTest runs. Block was:\n$block",
-            "discardChoices(mayKeepDraft)" in block,
+            "the dialog's buttons must be drawn from discardChoices(mayKeepDraft, canSaveDraft) — " +
+                "the decision DiscardChoicesTest runs. `canSaveDraft` is the toolbar's own " +
+                "draftHasContent value: with anything else there, the dialog offers a tappable " +
+                "'Save draft' over an emptied composer, and that tap DELETES the draft on the " +
+                "server (#35). Block was:\n$block",
+            "discardChoices(mayKeepDraft, canSaveDraft)" in block,
         )
         assertEquals(
             "exactly three TextButtons, one per DiscardChoice: an extra one is a button no test " +
@@ -118,7 +121,7 @@ class DiscardDialogWiringTest {
             "the CANCEL arm must only close the dialog — it is the way BACK to the message, so it " +
                 "may neither save nor discard. Block was:\n$block",
             Regex(
-                """DiscardChoice\.CANCEL\s*->\s*TextButton\(onClick\s*=\s*\{\s*showDiscard\s*=\s*false\s*}\s*\)""",
+                """DiscardChoice\.CANCEL\s*->\s*TextButton\(onClick\s*=\s*\{\s*showDiscard\s*=\s*false\s*}[^)]*\)""",
             ).containsMatchIn(block),
         )
     }

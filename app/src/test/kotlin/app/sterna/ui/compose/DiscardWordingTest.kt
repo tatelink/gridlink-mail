@@ -66,7 +66,10 @@ class DiscardWordingTest {
         // 1.4.3's guarantee, checked on the new variant rather than assumed to be inherited: the
         // buttons are decided by mayKeepDraft alone, so the sixth wording cannot have reopened the
         // plaintext path.
-        assertEquals(listOf(DiscardChoice.CANCEL, DiscardChoice.DISCARD), discardChoices(mayKeepDraft = false))
+        assertEquals(
+            listOf(DiscardChoice.CANCEL, DiscardChoice.DISCARD),
+            discardChoices(mayKeepDraft = false, hasContent = true).map { it.choice },
+        )
     }
 
     @Test fun aQueuedMessageOutranksADraftBehindTheSameScreen() {

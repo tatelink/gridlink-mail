@@ -15,6 +15,12 @@ import org.junit.Test
  * decision; they do not re-derive it. Note the first one: it pins the behaviour that existed before
  * #126 and had no test at all — outside a search, the folder is still the answer, because the
  * navigation list is a paging list and what it has not loaded cannot be read off it.
+ *
+ * NOT here, and it used to look as if it were: "a key silently rewritten onto the current account".
+ * [selectAllKeys] never touches a key — it picks WHICH list to hand back — so a case claiming to
+ * cover that was a strict duplicate of "a search showing results selects exactly those results",
+ * with a comment describing something the function cannot do. The rewrite it named happens at the
+ * call site, where the results are turned into keys, and `SelectAllWiringTest` is what holds that.
  */
 class SelectAllKeysTest {
     private val folder = listOf(EmailKey("acct-A", "f1"), EmailKey("acct-A", "f2"), EmailKey("acct-A", "f3"))
@@ -75,15 +81,4 @@ class SelectAllKeysTest {
         assertEquals(2, selected.size)
     }
 
-    @Test
-    fun `a result from another account is selected as itself`() {
-        // The local index does not filter by account and the server search is not bounded to the
-        // visible folder, so a result list can span folders and accounts. Whatever is on screen is
-        // what gets selected, keys included — a key silently rewritten to the current account would
-        // act on a different message.
-        assertEquals(
-            setOf(EmailKey("acct-A", "f2"), EmailKey("acct-B", "x9")),
-            keys(searching = true, query = "invoice", results = hits),
-        )
-    }
 }
