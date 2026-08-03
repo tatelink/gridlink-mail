@@ -17,6 +17,7 @@ import app.sterna.push.Notifications
 import app.sterna.push.PushController
 import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.db.OutboxState
 import app.sterna.core.data.getOrElseUnlessCancelled
 import app.sterna.core.data.mail.EmailKey
@@ -614,16 +615,20 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * unified list they belong to accounts that are not the selected one, so neither [mailboxes]
      * (the current account's drawer) nor the selected folder's role can answer for them.
      *
-     * Re-scoped when the set of accounts changes: [unifiedInboxScopes] is refreshed on every
-     * account add/remove/switch, so it doubles as that signal. The account list itself is re-read
-     * from the store rather than taken from the scopes, whose pairs skip an account that has no
-     * cached inbox id yet.
+     * Re-scoped off [app.sterna.core.data.account.AccountStore.accountsFlow], which is published
+     * from the single choke point every list write goes through (`saveAccounts`): an account added,
+     * an account signed out, a linked sub-account minted or pruned by the reconcile. When it emits
+     * is [folderRolesFlow]'s, and that is where it is tested.
+     *
+     * It used to hang off [unifiedInboxScopes], and that was the defect: those are (account, inbox)
+     * PAIRS, an account has no inbox id before its first folder sync, and an equal value does not
+     * re-emit — so adding an account left the map scoped to the previous ones and its rows fell
+     * back to the pre-#115 rule. Switching accounts does not emit here and does not need to: the
+     * map covers every configured account, whichever one is selected.
      */
-    val folderRoles: StateFlow<Map<Pair<String, String>, String>> = unifiedInboxScopes
-        .map { store.accounts().map { it.id } }
-        .distinctUntilChanged()
-        .flatMapLatest { accountIds -> repo.observeFolderRoles(accountIds) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    val folderRoles: StateFlow<Map<Pair<String, String>, String>> =
+        folderRolesFlow(store.accountsFlow) { accountIds -> repo.observeFolderRoles(accountIds) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val searchState = MutableStateFlow(SearchUi())
     private var searchJob: Job? = null
@@ -2086,6 +2091,32 @@ internal fun selectionAccount(keys: Set<EmailKey>): String? =
  * for one question drift apart, and the drift is silent — the user selects one list and deletes
  * another.
  */
+/**
+ * The roles map of [InboxViewModel.folderRoles], as a flow of its own so the RE-SCOPING can be run
+ * by a test (#115). [accounts] is the account list as a live value; [roles] opens the (account,
+ * folder) → role map for a set of account ids.
+ *
+ * What it has to get right is when it asks again. The map is keyed by account, so it has to be
+ * reopened whenever the SET of accounts changes — an account added, an account signed out — or the
+ * rows of the new account are judged by a map that does not contain them, and fall back to the
+ * pre-#115 answer while the reader, which reads the database directly, says something else.
+ *
+ * That is why it hangs off the account list itself and not off `unifiedInboxScopes`, which is what
+ * shipped first: those are (account, inbox) PAIRS, an account has no inbox id until its first
+ * folder sync, and a StateFlow does not re-emit an equal value — so adding an account moved
+ * nothing at all. The set of ids is what the map is keyed by, and [distinctUntilChanged] on it is
+ * what keeps the store's other writes (an inbox id learned, an unread counter moved, identities
+ * refreshed — all of which republish the whole list) from re-subscribing to Room for nothing.
+ */
+internal fun folderRolesFlow(
+    accounts: Flow<List<StoredAccount>>,
+    roles: (List<String>) -> Flow<Map<Pair<String, String>, String>>,
+): Flow<Map<Pair<String, String>, String>> =
+    accounts
+        .map { list -> list.map { it.id } }
+        .distinctUntilChanged()
+        .flatMapLatest(roles)
+
 internal fun selectAllKeys(
     searching: Boolean,
     query: String,
