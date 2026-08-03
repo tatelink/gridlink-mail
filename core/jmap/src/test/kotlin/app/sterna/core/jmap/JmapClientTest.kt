@@ -906,6 +906,109 @@ class JmapClientTest {
         assertEquals("s1", result.newState)
     }
 
+    // ---- A thread bigger than one server page ----
+    //
+    // Thread/get + a back-referenced Email/get in ONE request asked for every message of the
+    // thread with no bound at all. Past maxObjectsInGet the server refuses the get whole, so
+    // expanding a long conversation returned NOTHING — the only one of these three siblings that
+    // loses something the reader can see.
+
+    /**
+     * A server holding one thread of [threadSize] messages. Answers `Thread/get`, and answers
+     * `Email/get` either from an explicit id list or from a `#ids` back-reference — refusing,
+     * in both cases, any get that would carry more than [maxObjectsInGet] ids.
+     */
+    private class ThreadDispatcher(
+        private val threadSize: Int,
+        private val maxObjectsInGet: Int,
+    ) : Dispatcher() {
+        /** The method name of each request's FIRST call, in order. */
+        val calls = mutableListOf<String>()
+
+        /** The ids each explicit `Email/get` asked for, in order. */
+        val getBatches = mutableListOf<List<String>>()
+
+        private val all = (1..threadSize).map { "e$it" }
+
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val body = request.body.readUtf8()
+            val methodCalls = Json.parseToJsonElement(body).jsonObject["methodCalls"]!!.jsonArray
+            val first = methodCalls[0].jsonArray
+            calls += first[0].jsonPrimitive.content
+            val responses = mutableListOf<String>()
+            if (first[0].jsonPrimitive.content == "Thread/get") {
+                responses += """["Thread/get",{"accountId":"acc1","state":"t1",
+                    "list":[{"id":"th1","emailIds":[${all.joinToString(",") { "\"$it\"" }}]}],
+                    "notFound":[]},"t0"]"""
+                // The old shape: a second call whose ids the SERVER resolves from the first.
+                val chained = methodCalls.getOrNull(1)?.jsonArray
+                if (chained != null) {
+                    responses += emailGet(all, "g0")
+                }
+            } else {
+                val ids = getIdsOf(body)
+                getBatches += ids
+                responses += emailGet(ids, "g0", withMailboxIds = "\"mailboxIds\"" in body)
+            }
+            return MockResponse().setBody("""{"methodResponses":[${responses.joinToString(",")}]}""")
+        }
+
+        /**
+         * One row per id. A real server returns ONLY the properties the request asked for, and
+         * this one does too for `mailboxIds` — otherwise a test could not tell a request that
+         * asks for it from one that does not, and the property could be dropped unnoticed.
+         */
+        private fun emailGet(ids: List<String>, callId: String, withMailboxIds: Boolean = true): String =
+            if (ids.size > maxObjectsInGet) {
+                """["error",{"type":"requestTooLarge"},"$callId"]"""
+            } else {
+                val mailboxes = if (withMailboxIds) ",\"mailboxIds\":{\"mbA\":true}" else ""
+                """["Email/get",{"accountId":"acc1","state":"g1","list":[${
+                    ids.joinToString(",") { "{\"id\":\"$it\"$mailboxes}" }
+                }],"notFound":[]},"$callId"]"""
+            }
+    }
+
+    @Test fun getThreadEmails_splitsTheGetInsteadOfLettingTheServerRefuseTheWholeThread() = runBlocking {
+        // 700 messages in one thread, a server admitting 500 per get. Asking for all 700 in a
+        // back-reference gets the whole get refused and the expansion shows nothing.
+        val dispatcher = ThreadDispatcher(threadSize = 700, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val emails = client.getThreadEmails(sessionAdvertisingGet(500), "acc1", "th1", BasicAuth("u", "p"))
+
+        // One Thread/get, then the get split across the advertised limit — never one request.
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf("Thread/get", "Email/get", "Email/get"), dispatcher.calls)
+        assertEquals(listOf(500, 200), dispatcher.getBatches.map { it.size })
+        assertEquals((1..700).map { "e$it" }, emails.map { it.id })
+    }
+
+    @Test fun getThreadEmails_stillAsksForWhatPlacesAMemberInAFolder() = runBlocking {
+        // A thread that fits is still two requests, and still reads mailboxIds: the caller
+        // persists each member under its real folder and SKIPS any member without one, so
+        // dropping that property would make an expansion fetch everything and keep nothing.
+        val dispatcher = ThreadDispatcher(threadSize = 3, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val emails = client.getThreadEmails(sessionAdvertisingGet(500), "acc1", "th1", BasicAuth("u", "p"))
+
+        assertEquals(2, server.requestCount)
+        assertEquals(listOf("e1", "e2", "e3"), dispatcher.getBatches.single())
+        assertEquals(listOf("e1", "e2", "e3"), emails.map { it.id })
+        assertEquals(mapOf("mbA" to true), emails.first().mailboxIds)
+    }
+
+    @Test fun getThreadEmails_asksNothingMoreWhenTheThreadIsEmpty() = runBlocking {
+        val dispatcher = ThreadDispatcher(threadSize = 0, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val emails = client.getThreadEmails(sessionAdvertisingGet(500), "acc1", "th1", BasicAuth("u", "p"))
+
+        assertEquals(1, server.requestCount)
+        assertTrue(emails.isEmpty())
+    }
+
     // ---- The windowed folder query: a window bigger than one server page ----
     //
     // "Messages to sync = All" is 1000 messages; Stalwart advertises maxObjectsInGet = 500. The

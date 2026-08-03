@@ -854,13 +854,69 @@ class JmapClient internal constructor(
         }
     }
 
-    /** Fetch all emails in a thread (lightweight, no body) via Thread/get + Email/get (RFC 8621 §3). */
+    /**
+     * Every message of a thread (lightweight, no body) — `Thread/get`, then `Email/get` on the ids
+     * it named, split across as many requests as [JmapSession.getBatchSize] requires
+     * ([getInBatches]).
+     *
+     * ⛔ TWO requests, not one chained pair. This used to back-reference the thread's whole
+     * membership into a single `Email/get` (a `resultOf` path down to each thread's `emailIds`),
+     * which put the id list beyond any reach of ours: past `maxObjectsInGet` the server refuses
+     * the get WHOLE (RFC 8620 §5.1) and
+     * expanding a long conversation returned nothing at all. Splitting a back-reference is
+     * impossible — the ids only exist server-side — so the reference has to go.
+     *
+     * The property set is this path's own, and `mailboxIds` in it is not decoration:
+     * [MailRepository.fetchThreadMembers] files each member under the folder it names and SKIPS
+     * any member without one. Reusing [getEmailsByIds] verbatim would have dropped it, and the
+     * expansion would have fetched every message and persisted none.
+     */
     suspend fun getThreadEmails(
         session: JmapSession,
         accountId: String,
         threadId: String,
         auth: JmapAuth,
     ): List<Email> = withContext(Dispatchers.IO) {
+        val ids = threadEmailIds(session, accountId, threadId, auth)
+        getInBatches(session, ids) { batch ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.MAIL_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Email/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { batch.forEach { add(it) } }
+                            putJsonArray("properties") {
+                                listOf(
+                                    "id", "threadId", "subject", "preview", "receivedAt",
+                                    "from", "to", "hasAttachment", "keywords", "mailboxIds",
+                                ).forEach { add(it) }
+                            }
+                        }
+                        add("g0")
+                    }
+                }
+            }
+            decodeList(postJmap(session, auth, payload), "Email/get", Email.serializer())
+        }
+    }
+
+    /**
+     * The email ids a thread is made of, in the server's order (RFC 8621 §3) — the first half of
+     * [getThreadEmails]. An unknown thread answers an empty list rather than throwing: a
+     * conversation whose thread the server no longer knows is not an error, and the caller then
+     * simply keeps what the cache gave it.
+     */
+    private suspend fun threadEmailIds(
+        session: JmapSession,
+        accountId: String,
+        threadId: String,
+        auth: JmapAuth,
+    ): List<String> {
         val payload = buildJsonObject {
             putJsonArray("using") {
                 add(Jmap.CORE_CAPABILITY)
@@ -875,38 +931,13 @@ class JmapClient internal constructor(
                     }
                     add("t0")
                 }
-                addJsonArray {
-                    add("Email/get")
-                    addJsonObject {
-                        put("accountId", accountId)
-                        putJsonObject("#ids") {
-                            put("resultOf", "t0")
-                            put("name", "Thread/get")
-                            put("path", "/list/*/emailIds")
-                        }
-                        putJsonArray("properties") {
-                            listOf(
-                                "id", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "hasAttachment", "keywords", "mailboxIds",
-                            ).forEach { add(it) }
-                        }
-                    }
-                    add("g0")
-                }
             }
         }
-        val request = Request.Builder()
-            .url(session.apiUrl)
-            .header("Authorization", auth.authorizationHeader())
-            .header("Accept", "application/json")
-            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-        httpClient.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw JmapException("Thread/get failed: HTTP ${response.code} ${response.message}")
-            }
-            decodeList(body, "Email/get", Email.serializer())
+        val list = methodResponseArgs(postJmap(session, auth, payload), "Thread/get")["list"]
+            ?.jsonArray ?: return emptyList()
+        return list.flatMap { thread ->
+            thread.jsonObject["emailIds"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                ?: emptyList()
         }
     }
 
