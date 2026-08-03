@@ -40,11 +40,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.LocalContentColor
 import app.sterna.core.data.pgp.PgpMode
+import app.sterna.core.jmap.model.Email
 import app.sterna.pgp.rememberPgpInteractionLauncher
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -126,11 +128,24 @@ import app.sterna.ui.components.ContactAvatar
 import app.sterna.ui.components.drawTern
 import app.sterna.contacts.ContactSuggestion
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ExperimentalLayoutApi: the leave dialog's FlowRow, which wraps its three answers instead of
+// truncating them where the labels are long (German, Russian) — same as the settings screens'.
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ComposeScreen(
     onDone: () -> Unit,
     onCancel: () -> Unit,
+    /**
+     * Send the draft this composer is editing to the Trash, the way the list does it (#127) —
+     * through the inbox's own ViewModel, so it is the same move and the same Undo.
+     *
+     * It receives a TAKER rather than the message: the draft is a one-shot state
+     * ([ComposeViewModel.takeEditingDraft], which also refuses while a send is in flight), and
+     * consuming it before the navigation guard has agreed to run means a tap the guard drops has
+     * thrown the state away for nothing. The reader's delete puts its mutation inside the guard;
+     * this is the same shape, for a value that has to be fetched rather than passed.
+     */
+    onDeleteDraft: (take: () -> Email?) -> Unit,
     replyTo: String? = null,
     mode: String? = null,
     accountId: String? = null,
@@ -157,6 +172,11 @@ fun ComposeScreen(
     val pgpKeylessRecipients by viewModel.pgpKeylessRecipients.collectAsStateWithLifecycle()
     val onlyCopy by viewModel.onlyCopy.collectAsStateWithLifecycle()
     val editingOutbox by viewModel.editingOutbox.collectAsStateWithLifecycle()
+    val editingDraft by viewModel.editingDraft.collectAsStateWithLifecycle()
+    // Whether a draft saved on the SERVER survives leaving — what the leave dialog may not announce
+    // as destroyed (#35). Not `draftId != null`: an undone send reopens with restore=true and no
+    // draftId in the route while its draft is still sitting in Drafts.
+    val savedDraftBehind by viewModel.savedDraftBehind.collectAsStateWithLifecycle()
     val attachmentsTouched by viewModel.attachmentsTouched.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -429,6 +449,10 @@ fun ComposeScreen(
     )
     var showDiscard by remember { mutableStateOf(false) }
     val attemptClose = { if (dirty && !sending) showDiscard = true else cancel() }
+    // The trash icon's confirmation (#127). Unconditional, unlike the leave dialog above: this one
+    // is not about unsaved changes, it is about removing the draft itself — the message the user
+    // came here to edit — and the Undo it leaves behind restores the SERVER copy, not the screen.
+    var pendingDraftDelete by remember { mutableStateOf(false) }
 
     // Pre-send guards, chained: "forgot attachment?" then "many recipients?".
     var showForgotAttachment by remember { mutableStateOf(false) }
@@ -492,21 +516,53 @@ fun ComposeScreen(
 
     BackHandler(enabled = !showDiscard) { attemptClose() }
 
+    if (pendingDraftDelete) {
+        // Same shape as the Outbox's own delete confirmation (title, body, error-coloured action,
+        // Cancel) — but NOT its words: that message has never been sent and exists nowhere else,
+        // while this draft goes to the Trash exactly as it would from the list.
+        AlertDialog(
+            onDismissRequest = { pendingDraftDelete = false },
+            title = { Text(stringResource(R.string.compose_delete_draft_title)) },
+            text = { Text(stringResource(R.string.compose_delete_draft_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDraftDelete = false
+                    // The message is taken INSIDE the navigation guard (see SternaApp): a tap the
+                    // guard refuses must not have consumed the draft on its way to being ignored.
+                    onDeleteDraft { viewModel.takeEditingDraft() }
+                }) {
+                    Text(stringResource(R.string.inbox_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDraftDelete = false }) {
+                    Text(stringResource(R.string.inbox_cancel))
+                }
+            },
+        )
+    }
+
     if (showDiscard) {
-        // The leave dialog obeys the same rule as the toolbar's Save action (#35): an encrypted
-        // message may not leave a plaintext copy on the server, so when encrypting the dialog does
-        // not offer to save — it says WHY (a draft is stored as typed, unprotected) and offers only
-        // Discard and Cancel. Offering "Save draft" here was the leak: the toolbar hid the action,
-        // this dialog uploaded the same text one tap later.
+        // The leave dialog obeys the same TWO rules as the toolbar's Save action (#35): an
+        // encrypted message may not leave a plaintext copy on the server, so when encrypting the
+        // dialog does not offer to save — it says WHY (a draft is stored as typed, unprotected) and
+        // offers only Discard and Cancel. Offering "Save draft" here was the leak: the toolbar hid
+        // the action, this dialog uploaded the same text one tap later. The second rule is
+        // `canSaveDraft` below, handed to discardChoices: over an emptied composer the toolbar
+        // greys its icon and this dialog offered a live button, which deletes the draft it was
+        // opened on rather than saving it.
         val mayKeepDraft = draftSaveAllowed(pgpMode)
         // What the dialog is allowed to CLAIM, decided by [discardWording] (#70): a message pulled
         // back out of the Outbox is not destroyed by leaving — its row goes back where it was — so
         // it may not be announced as "Discard message?". Nor may it be promised delivery: a failed
         // send returns to FAILED and waits for Retry. The buttons on offer are a separate question,
         // still [mayKeepDraft]'s (#35).
-        val wording = discardWording(editingOutbox, mayKeepDraft)
+        val wording = discardWording(editingOutbox, mayKeepDraft, editingDraft = savedDraftBehind)
+        // "Discard changes" wherever a copy of the message survives leaving — the outbox row, and
+        // the draft still in Drafts. The DRAFT variant used to say "Discard" beside a title and a
+        // body that both spoke of changes only.
         val discardLabel = stringResource(
-            if (wording.fromOutbox) {
+            if (wording.keepsMessage) {
                 R.string.compose_discard_changes
             } else {
                 R.string.compose_discard_discard
@@ -517,10 +573,17 @@ fun ComposeScreen(
             title = {
                 Text(
                     stringResource(
-                        if (wording.fromOutbox) {
-                            R.string.compose_discard_title_outbox
-                        } else {
-                            R.string.compose_discard_title
+                        when {
+                            wording.fromOutbox -> R.string.compose_discard_title_outbox
+                            // A draft already saved on the server is not destroyed by leaving:
+                            // cancel() → abandon() is a no-op outside the outbox, and the draft is
+                            // still in Drafts afterwards. "Discard message?" was literally false —
+                            // the body beside it said "changes" all along (#35, #127). Its own key,
+                            // not the outbox's: the two name different situations.
+                            wording == DiscardWording.DRAFT ||
+                                wording == DiscardWording.ENCRYPTED_DRAFT ->
+                                R.string.compose_discard_title_changes
+                            else -> R.string.compose_discard_title
                         },
                     ),
                 )
@@ -536,37 +599,54 @@ fun ComposeScreen(
                             DiscardWording.OUTBOX_ENCRYPTED ->
                                 R.string.compose_discard_message_outbox_encrypted
                             DiscardWording.ENCRYPTED -> R.string.compose_discard_message_encrypted
-                            DiscardWording.PLAIN -> R.string.compose_discard_message
+                            // Encrypting a draft that is already on the server: it still owes the
+                            // user the reason the Save button is gone, but it may not end on
+                            // "leaving discards the message" — the copy in Drafts survives (#35).
+                            DiscardWording.ENCRYPTED_DRAFT ->
+                                R.string.compose_discard_message_encrypted_draft
+                            // "You haven't saved your changes" is true of both, and of both
+                            // buttons beside it; only the title has to tell them apart.
+                            DiscardWording.DRAFT,
+                            DiscardWording.PLAIN,
+                            -> R.string.compose_discard_message
                         },
                     ),
                 )
             },
+            // AlertDialog has two button slots and this exit needs three answers, so all of them go
+            // in the confirm slot as a FlowRow: one line where the labels fit, wrapped where they
+            // don't (German, Russian), never truncated. Same shape and same order as the settings
+            // screens' own three-answer exit (SaveChangesDialog), recopied rather than reused: that
+            // one hard-codes its title and its three labels, and parameterising all four would have
+            // been a new component rather than a shared one.
+            //
+            // WHICH buttons is [discardChoices], where it can be run: that Cancel is never missing
+            // (#35, #127) and that Save draft never appears while encrypting (the 1.4.3 plaintext
+            // leak) are both guarantees somebody has already come looking for, and neither was
+            // reachable from a test while it was the shape of an `if` here.
             confirmButton = {
-                if (mayKeepDraft) {
-                    TextButton(onClick = {
-                        showDiscard = false
-                        viewModel.saveDraft(to, cc, bcc, subject.text, body.text)
-                    }) { Text(stringResource(R.string.compose_discard_save)) }
-                } else {
-                    TextButton(onClick = {
-                        showDiscard = false
-                        // Same discard as above: the edits go, a queued message goes back (#70).
-                        cancel()
-                    }) { Text(discardLabel) }
-                }
-            },
-            dismissButton = {
-                if (mayKeepDraft) {
-                    TextButton(onClick = {
-                        showDiscard = false
-                        // Discards the edits, not the queued message: that one goes back (#70).
-                        cancel()
-                    }) { Text(discardLabel) }
-                } else {
-                    // Encrypted: Discard is the confirm button, so this one only closes the
-                    // dialog — back to the composer, message intact, still encrypted.
-                    TextButton(onClick = { showDiscard = false }) {
-                        Text(stringResource(R.string.compose_discard_cancel))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    discardChoices(mayKeepDraft, canSaveDraft).forEach { (choice, enabled) ->
+                        when (choice) {
+                            // Back to the composer, text intact, still encrypted if it was. This is
+                            // what tapping outside the dialog has always done; it now has a button.
+                            DiscardChoice.CANCEL -> TextButton(onClick = { showDiscard = false }, enabled = enabled) {
+                                Text(stringResource(R.string.compose_discard_cancel))
+                            }
+                            DiscardChoice.DISCARD -> TextButton(onClick = {
+                                showDiscard = false
+                                // Discards the edits, not the queued message: that one goes back
+                                // (#70), and a saved draft stays in Drafts (#35, #127).
+                                cancel()
+                            }, enabled = enabled) { Text(discardLabel, color = MaterialTheme.colorScheme.error) }
+                            DiscardChoice.SAVE_DRAFT -> TextButton(onClick = {
+                                showDiscard = false
+                                viewModel.saveDraft(to, cc, bcc, subject.text, body.text)
+                            }, enabled = enabled) { Text(stringResource(R.string.compose_discard_save)) }
+                        }
                     }
                 }
             },
@@ -641,6 +721,23 @@ fun ComposeScreen(
                     // Attachments are allowed in every mode (they ride inside the encrypted entity).
                     IconButton(onClick = { picker.launch("*/*") }, enabled = !sending) {
                         Icon(Icons.Filled.AttachFile, contentDescription = stringResource(R.string.compose_attach))
+                    }
+                    // Deleting the draft (#127). OUTSIDE the draftSaveAllowed block below: a delete
+                    // persists nothing, so it has no reason to disappear when the padlock closes.
+                    // When it is offered is [draftDeleteOffered]; the message it acts on comes from
+                    // the ViewModel, which refuses while a send is in flight (INV-6).
+                    if (draftDeleteOffered(restore, draftId, editingDraft != null)) {
+                        IconButton(
+                            // Asks first (#127): everything typed since this composer opened is
+                            // unsaved, and the delete takes the SERVER copy — so the Undo restores
+                            // the draft as it was on the server, never the text on screen. The
+                            // composer already asks before dropping those edits when the X is
+                            // tapped; this button dropped them with no question at all.
+                            onClick = { pendingDraftDelete = true },
+                            enabled = !sending,
+                        ) {
+                            Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.message_delete))
+                        }
                     }
                     // Encrypting can't carry plaintext to the server: no draft, no schedule. Same
                     // rule, same function as the leave dialog above (#35).

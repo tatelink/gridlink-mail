@@ -187,6 +187,18 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_SIGNATURE_DELIMITER] = enabled }
     }
 
+    /** Whether the reader shows the Reply/Forward bar along the bottom of a message. ON by default
+     *  — it is what the app has always done. Off, both of its actions are still one tap away in the
+     *  top bar (Reply has its own icon; Reply all and Forward open the menu beside it), so nothing
+     *  becomes unreachable (Codeberg #63). Global, not per account: the reader is shared by the
+     *  unified inbox, and a per-account answer would make the bar appear and disappear while moving
+     *  from one message to the next in one list. */
+    val replyBar: Flow<Boolean> = dataStore.data.map(::replyBarFrom)
+
+    suspend fun setReplyBar(enabled: Boolean) {
+        dataStore.edit { it[KEY_REPLY_BAR] = enabled }
+    }
+
     /** Reading text size for the message body. */
     val messageTextSize: Flow<MessageTextSize> = dataStore.data.map { prefs ->
         prefs[KEY_MESSAGE_TEXT_SIZE]?.let { runCatching { MessageTextSize.valueOf(it) }.getOrNull() }
@@ -298,6 +310,7 @@ class SettingsRepository(context: Context) {
         signatureOnReplies = signatureOnReplies.first(),
         signatureBelowQuote = signatureBelowQuote.first(),
         signatureDelimiter = signatureDelimiter.first(),
+        replyBar = replyBar.first(),
         deliveryMode = deliveryMode.first().name,
         notificationContent = notificationContent.first().name,
     )
@@ -327,6 +340,7 @@ class SettingsRepository(context: Context) {
         backup.signatureOnReplies?.let { setSignatureOnReplies(it) }
         backup.signatureBelowQuote?.let { setSignatureBelowQuote(it) }
         backup.signatureDelimiter?.let { setSignatureDelimiter(it) }
+        backup.replyBar?.let { setReplyBar(it) }
         backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
         backup.notificationContent?.let { v -> runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }
     }
@@ -404,3 +418,26 @@ class SettingsRepository(context: Context) {
         private val KEY_QUIET_END = intPreferencesKey("quiet_hours_end")
     }
 }
+
+/** The key the reader's Reply/Forward bar switch is stored under. Renaming it loses the setting of
+ *  every user who has turned the bar off, so it is pinned by name in [replyBarFrom]'s test. */
+internal val KEY_REPLY_BAR = booleanPreferencesKey("reply_bar")
+
+/**
+ * What the reader shows when nobody has touched the switch: the bar, which is what the app has
+ * always done and what the setting's own subtitle promises (Codeberg #63). One definition, read by
+ * [replyBarFrom] and by the settings screen's initial value.
+ */
+const val REPLY_BAR_DEFAULT = true
+
+/**
+ * Whether the reader shows its bottom Reply/Forward bar, read from the stored preferences.
+ *
+ * The LOOKUP is in here, not the flow, and that is deliberate. It was a function of the stored
+ * `Boolean?` first, which left the default reachable from outside it: `replyBarFrom(prefs[KEY] ?:
+ * false)` takes the bar away from every user who has never touched the switch — the exact opposite
+ * of what is announced — and no test can see it, since the argument is already defaulted by the
+ * time the function runs. Given the whole [Preferences] there is nothing left to pre-empt: the test
+ * hands it an empty store, a store with the switch on, and one with it off.
+ */
+internal fun replyBarFrom(prefs: Preferences): Boolean = prefs[KEY_REPLY_BAR] ?: REPLY_BAR_DEFAULT

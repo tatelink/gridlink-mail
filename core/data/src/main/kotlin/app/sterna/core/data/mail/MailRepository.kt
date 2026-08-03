@@ -19,6 +19,7 @@ import app.sterna.core.data.account.OAuthCredentials
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.filter.SieveCodec
+import app.sterna.core.data.db.AccountMailboxRole
 import app.sterna.core.data.db.EmailDao
 import app.sterna.core.data.db.EmailFtsDao
 import app.sterna.core.data.db.EmailBodyDao
@@ -472,8 +473,6 @@ internal fun pagingSql(
     sort: SortOrder,
     unreadOnly: Boolean,
 ): String {
-    val scope = folderScopeSql(scopeCount, "emails")
-    val seenFilter = if (unreadOnly) " AND seen = 0" else ""
     val orderBy = when (sort) {
         SortOrder.DATE_DESC -> "sortKey DESC"
         SortOrder.DATE_ASC -> "sortKey ASC"
@@ -482,10 +481,61 @@ internal fun pagingSql(
         SortOrder.UNREAD_FIRST -> "seen ASC, sortKey DESC"
         SortOrder.FLAGGED_FIRST -> "flagged DESC, sortKey DESC"
     }
+    return "SELECT * FROM emails WHERE ${listRowsWhereSql(scopeCount, unreadOnly)} ORDER BY $orderBy"
+}
+
+/**
+ * WHICH ROWS the flat list holds — the whole of it, sort excluded: the (account, folder) scope,
+ * the unread filter, and the snooze filter. ONE clause, shared by the two readers that must not
+ * disagree about it:
+ *
+ *  - [pagingSql], which draws the rows;
+ *  - [selectionIdsSql], which is what "Select all" takes (Codeberg #126).
+ *
+ * They disagreed. The list was filtered in SQL and the selection read the folder whole, so
+ * turning on "unread only", long-pressing and tapping Select all handed the bulk action every
+ * READ message of the folder as well — messages that were never on screen, moved to the Trash.
+ * A second predicate written to look like the first drifts from it in silence, and the drift is
+ * destructive; there is only one predicate now, and a test runs both queries against the same
+ * rows and asserts they answer the same ids.
+ */
+internal fun listRowsWhereSql(scopeCount: Int, unreadOnly: Boolean): String {
+    val scope = folderScopeSql(scopeCount, "emails")
+    val seenFilter = if (unreadOnly) " AND seen = 0" else ""
     // Hide messages snoozed into the future (re-appear once their time passes).
     val notSnoozed = " AND ${notSnoozedSql("emails")}"
-    return "SELECT * FROM emails WHERE ($scope)$seenFilter$notSnoozed ORDER BY $orderBy"
+    return "($scope)$seenFilter$notSnoozed"
 }
+
+/**
+ * The rows of `MailboxDao.observeRoles`, as the map a caller judges a message's folder by (#115).
+ *
+ * Keyed by (account, folder) and not by folder: servers number mailboxes per account (#121/#31), so
+ * one account's Sent would otherwise answer for another account's Inbox — every message in it
+ * showing its recipients instead of its sender. A role-less folder is left OUT rather than mapped
+ * to a blank: absent means "unknown, fall back", and a blank would mean "not outgoing", which is an
+ * answer this map has no business giving.
+ *
+ * Its own function so a test can run it beside the statement that feeds it (`FolderRolesSqlTest`).
+ */
+internal fun folderRoleMap(rows: List<AccountMailboxRole>): Map<Pair<String, String>, String> =
+    rows.mapNotNull { row -> row.role?.let { (row.accountId to row.id) to it } }.toMap()
+
+/**
+ * The keys "Select all" may take from the folder behind the list: the same rows [pagingSql]
+ * draws, projected to (accountId, id). Bind order is [pagingQuery]'s — (account id, mailbox id)
+ * per scope, account first.
+ */
+internal fun selectionIdsSql(scopeCount: Int, unreadOnly: Boolean): String =
+    "SELECT accountId, id FROM emails WHERE ${listRowsWhereSql(scopeCount, unreadOnly)}"
+
+internal fun selectionIdsQuery(
+    scopes: List<Pair<String, String>>,
+    unreadOnly: Boolean,
+): SimpleSQLiteQuery = SimpleSQLiteQuery(
+    selectionIdsSql(scopes.size, unreadOnly),
+    scopes.flatMap { listOf(it.first, it.second) }.toTypedArray(),
+)
 
 /**
  * Build the conversation-collapsed paged query: one row per thread
@@ -1491,11 +1541,23 @@ class MailRepository(
     // like Stalwart number mailboxes per-account, so two accounts' inboxes can share an id
     // and a mailbox-only read would silently pull a sibling account's rows into a bulk op.
 
-    /** All cached (account, id) keys for the given (account, mailbox) scopes (drives "select all"). */
+    /** All cached (account, id) keys for the given (account, mailbox) scopes — the whole folder,
+     *  filters included, so it drives cache eviction and NOT "select all" (see [selectableIds]). */
     suspend fun cachedIds(scopes: List<Pair<String, String>>): List<EmailKey> =
         scopes.flatMap { (accountId, mailboxId) ->
             emailDao.idsForMailbox(accountId, mailboxId).map { EmailKey(accountId, it) }
         }
+
+    /**
+     * The keys "Select all" may take outside a search: the rows the flat list is PAGING, run
+     * through [selectionIdsQuery] — the same WHERE clause, so the unread filter (and the snooze
+     * filter that rides with it) reaches the selection instead of stopping at the screen.
+     * Codeberg #126: with the funnel on, the unfiltered read handed read messages to the bulk
+     * action, and "select all + delete" moved mail that was never displayed to the Trash.
+     */
+    suspend fun selectableIds(scopes: List<Pair<String, String>>, unreadOnly: Boolean): List<EmailKey> =
+        emailDao.keysForSelection(selectionIdsQuery(scopes, unreadOnly))
+            .map { EmailKey(it.accountId, it.id) }
 
     /** All cached emails for the given (account, mailbox) scopes (drives "mark all read"). */
     suspend fun cachedEmailsForMailboxes(scopes: List<Pair<String, String>>): List<Email> =
@@ -4093,6 +4155,17 @@ class MailRepository(
     fun observeSentMailboxes(accountIds: List<String>): Flow<List<Pair<String, String>>> =
         mailboxDao.observeSentMailboxes(accountIds.distinct())
             .map { rows -> rows.map { it.accountId to it.id } }
+            .distinctUntilChanged()
+
+    /**
+     * Every known (account, folder) → role of [accountIds], reactively — the map that lets a row
+     * be judged by the folder it is IN rather than by the folder on screen (Codeberg #115, the
+     * children of an unfolded conversation). A folder missing from the map is unknown, not
+     * role-less: callers must fall back rather than conclude.
+     */
+    fun observeFolderRoles(accountIds: List<String>): Flow<Map<Pair<String, String>, String>> =
+        mailboxDao.observeRoles(accountIds.distinct())
+            .map(::folderRoleMap)
             .distinctUntilChanged()
 
     /**

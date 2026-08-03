@@ -33,7 +33,11 @@
     <string name="compose_discard_title">Descartar mensagem?</string>
     <string name="compose_discard_message">Você não guardou as suas alterações.</string>
     <string name="compose_discard_message_encrypted">Esta mensagem está criptografada, por isso não pode ser guardada como rascunho: um rascunho fica no servidor de e-mail exatamente como foi escrito, legível por quem tiver acesso a ele. Se sair agora, a mensagem é descartada.</string>
+    <string name="compose_discard_message_encrypted_draft">Esta mensagem está criptografada, por isso as suas alterações não podem ser guardadas como rascunho: um rascunho fica no servidor de e-mail exatamente como foi escrito, legível por quem tiver acesso a ele. Se sair agora, só as alterações são descartadas; o rascunho já guardado permanece em Rascunhos.</string>
+    <string name="compose_delete_draft_title">Eliminar este rascunho?</string>
+    <string name="compose_delete_draft_body">A mesma eliminação da lista: o rascunho vai para o Lixo, ou é removido definitivamente se esta conta não tiver pasta Lixo. O que escreveu desde que o abriu não é guardado.</string>
     <string name="compose_discard_title_outbox">Descartar as alterações?</string>
+    <string name="compose_discard_title_changes">Descartar as alterações?</string>
     <string name="compose_discard_message_outbox">As suas alterações são descartadas, mas a mensagem não: continua na caixa de saída, ou passa para os Rascunhos se a guardar.</string>
     <string name="compose_discard_message_outbox_encrypted">As suas alterações são descartadas, mas a mensagem não: continua na caixa de saída. Elimine-a aí se quiser livrar-se dela.</string>
     <string name="compose_discard_changes">Descartar alterações</string>
@@ -267,6 +271,8 @@
     <string name="settings_signature_on_replies_subtitle">Adicioná-la também ao responder ou reencaminhar</string>
     <string name="settings_signature_below_quote_title">Assinatura abaixo do texto citado</string>
     <string name="settings_signature_below_quote_subtitle">Numa resposta, colocá-la sob a mensagem citada em vez de acima</string>
+    <string name="settings_reply_bar_title">Barra de resposta</string>
+    <string name="settings_reply_bar_subtitle">Mostrar Responder e Encaminhar na parte inferior da mensagem. Responder continua na barra superior, Encaminhar no menu dela.</string>
     <string name="settings_signature_delimiter_title">Linha separadora antes da assinatura</string>
     <string name="settings_signature_delimiter_subtitle">Outras aplicações de correio reconhecem a sua assinatura por esta linha «-- » e conseguem ocultá-la ao citar a sua mensagem; sem ela deixam de conseguir, e o campo da assinatura passa a conter exactamente o que é enviado.</string>
     <string name="settings_swipe_right_title">Deslizar para a direita</string>

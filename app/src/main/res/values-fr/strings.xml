@@ -33,7 +33,11 @@
     <string name="compose_discard_title">Abandonner le message ?</string>
     <string name="compose_discard_message">Vous n\'avez pas enregistré vos modifications.</string>
     <string name="compose_discard_message_encrypted">Ce message est chiffré : il ne peut pas être conservé en brouillon, car un brouillon est stocké sur le serveur de courrier tel que vous l\'avez écrit, lisible par qui y a accès. Quitter maintenant abandonne le message.</string>
+    <string name="compose_discard_message_encrypted_draft">Ce message est chiffré : vos modifications ne peuvent pas être conservées en brouillon, car un brouillon est stocké sur le serveur de courrier tel que vous l\'avez écrit, lisible par qui y a accès. Quitter maintenant abandonne seulement les modifications ; le brouillon déjà enregistré reste dans Brouillons.</string>
+    <string name="compose_delete_draft_title">Supprimer ce brouillon ?</string>
+    <string name="compose_delete_draft_body">La même suppression que dans la liste : le brouillon part à la Corbeille, ou disparaît définitivement si ce compte n\'a pas de dossier Corbeille. Ce qui a été tapé depuis son ouverture n\'est pas enregistré.</string>
     <string name="compose_discard_title_outbox">Abandonner vos modifications ?</string>
+    <string name="compose_discard_title_changes">Abandonner vos modifications ?</string>
     <string name="compose_discard_message_outbox">Vos modifications sont abandonnées, mais pas le message : il reste dans la boîte d\'envoi, ou passe dans les Brouillons si vous l\'enregistrez.</string>
     <string name="compose_discard_message_outbox_encrypted">Vos modifications sont abandonnées, mais pas le message : il reste dans la boîte d\'envoi. C\'est là qu\'il faut le supprimer si vous voulez vous en défaire.</string>
     <string name="compose_discard_changes">Abandonner les modifications</string>
@@ -267,6 +271,8 @@
     <string name="settings_signature_on_replies_subtitle">L\'ajouter aussi quand vous répondez ou transférez un message</string>
     <string name="settings_signature_below_quote_title">Signature sous le texte cité</string>
     <string name="settings_signature_below_quote_subtitle">Dans une réponse, la placer sous le message cité plutôt qu\'au-dessus</string>
+    <string name="settings_reply_bar_title">Barre de réponse</string>
+    <string name="settings_reply_bar_subtitle">Afficher Répondre et Transférer en bas d\'un message. Répondre reste dans la barre du haut, Transférer dans son menu.</string>
     <string name="settings_signature_delimiter_title">Ligne de séparation avant la signature</string>
     <string name="settings_signature_delimiter_subtitle">Les autres logiciels de messagerie reconnaissent votre signature à cette ligne « -- » et peuvent la masquer en citant votre message ; sans elle ils ne le peuvent plus, et le champ signature contient alors exactement ce qui est envoyé.</string>
     <string name="settings_swipe_right_title">Balayer vers la droite</string>

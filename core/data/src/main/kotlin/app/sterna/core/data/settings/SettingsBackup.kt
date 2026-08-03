@@ -47,6 +47,8 @@ data class SettingsBackup(
     val signatureBelowQuote: Boolean? = null,
     /** Whether the composer adds the standard "-- " delimiter line above the signature (#90). */
     val signatureDelimiter: Boolean? = null,
+    /** Whether the reader shows the Reply/Forward bar along the bottom of a message (#63). */
+    val replyBar: Boolean? = null,
     /** [DeliveryMode] name (Instant / Battery saver). */
     val deliveryMode: String? = null,
     val notificationContent: String? = null,

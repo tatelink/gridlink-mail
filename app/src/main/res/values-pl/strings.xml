@@ -33,7 +33,11 @@
     <string name="compose_discard_title">Odrzucić wiadomość?</string>
     <string name="compose_discard_message">Nie zapisano wprowadzonych zmian.</string>
     <string name="compose_discard_message_encrypted">Ta wiadomość jest zaszyfrowana, więc nie można zachować jej jako wersji roboczej: wersja robocza jest przechowywana na serwerze pocztowym dokładnie w takiej postaci, w jakiej ją napisano, czytelna dla każdego, kto ma do niej dostęp. Wyjście teraz odrzuca wiadomość.</string>
+    <string name="compose_discard_message_encrypted_draft">Ta wiadomość jest zaszyfrowana, więc twoich zmian nie można zachować jako wersji roboczej: wersja robocza jest przechowywana na serwerze pocztowym dokładnie w takiej postaci, w jakiej ją napisano, czytelna dla każdego, kto ma do niej dostęp. Wyjście teraz odrzuca tylko zmiany; zapisana wcześniej wersja robocza pozostaje w Wersjach roboczych.</string>
+    <string name="compose_delete_draft_title">Usunąć tę wersję roboczą?</string>
+    <string name="compose_delete_draft_body">To samo usunięcie co na liście: wersja robocza trafia do Kosza albo znika na dobre, jeśli to konto nie ma folderu Kosz. To, co napisano od jej otwarcia, nie zostanie zapisane.</string>
     <string name="compose_discard_title_outbox">Odrzucić zmiany?</string>
+    <string name="compose_discard_title_changes">Odrzucić zmiany?</string>
     <string name="compose_discard_message_outbox">Zmiany zostaną odrzucone, ale wiadomość nie: pozostanie w skrzynce nadawczej albo trafi do Wersji roboczych, jeśli ją zapiszesz.</string>
     <string name="compose_discard_message_outbox_encrypted">Zmiany zostaną odrzucone, ale wiadomość nie: pozostanie w skrzynce nadawczej. Usuń ją tam, jeśli chcesz się jej pozbyć.</string>
     <string name="compose_discard_changes">Odrzuć zmiany</string>
@@ -267,6 +271,8 @@
     <string name="settings_signature_on_replies_subtitle">Dodawaj go także przy odpowiadaniu i przekazywaniu</string>
     <string name="settings_signature_below_quote_title">Podpis pod cytowanym tekstem</string>
     <string name="settings_signature_below_quote_subtitle">W odpowiedzi umieszczaj go pod cytowaną wiadomością zamiast nad nią</string>
+    <string name="settings_reply_bar_title">Pasek odpowiedzi</string>
+    <string name="settings_reply_bar_subtitle">Pokazuj Odpowiedz i Przekaż na dole wiadomości. Odpowiedz pozostaje na górnym pasku, Przekaż w jego menu.</string>
     <string name="settings_signature_delimiter_title">Wiersz oddzielający przed podpisem</string>
     <string name="settings_signature_delimiter_subtitle">Inne programy pocztowe rozpoznają Twój podpis po tym wierszu „-- ” i potrafią go ukryć przy cytowaniu wiadomości; bez niego już nie potrafią, a pole podpisu zawiera wtedy dokładnie to, co zostanie wysłane.</string>
     <string name="settings_swipe_right_title">Przesunięcie w prawo</string>
