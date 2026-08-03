@@ -1,5 +1,6 @@
 package app.sterna.ui.message
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -33,15 +34,38 @@ class ReplyBarWiringTest {
     }
 
     @Test fun `the blank the document reserves goes through the same setting`() {
-        val screen = code(MESSAGE_SCREEN)
+        val screen = code(MESSAGE_SCREEN).replace(Regex("""\s+"""), " ")
         assertTrue(
-            "the bottom inset must be bodyBottomInsetPx(replyBarEnabled, …). It is a DIV inside the " +
-                "HTML document, not Compose padding, so hiding the bar without zeroing it leaves a " +
-                "strip of white at the end of every message — and dropping the invisible measuring " +
-                "copy instead does not help, since the fallback height then reserves it anyway.",
-            Regex(
-                """val\s+bottomInsetPx\s*=\s*bodyBottomInsetPx\(\s*replyBarEnabled\s*,""",
-            ).containsMatchIn(screen),
+            "the bottom inset must be the WHOLE call " +
+                "bodyBottomInsetPx(replyBarEnabled, barHeightPx, defaultBarPx, clearancePx). It is " +
+                "a DIV inside the HTML document, not Compose padding, so hiding the bar without " +
+                "zeroing it leaves a strip of white at the end of every message.\n" +
+                "The three arguments after the first are pinned because pinning only the first was " +
+                "not enough: swapping the last two (defaultBarPx for clearancePx) reserves the " +
+                "measured bar PLUS 76 dp instead of plus 4 — about 72 dp of white at the end of " +
+                "every message, for everyone, since the setting is on by default. The first frame " +
+                "is identical (4 + 76 = 76 + 4), so it only appears once the bar has been " +
+                "measured and nothing about it looks wrong in a diff.",
+            "val bottomInsetPx = bodyBottomInsetPx(replyBarEnabled, barHeightPx, defaultBarPx, clearancePx)" in screen,
+        )
+    }
+
+    @Test fun `the invisible measuring copy is not composed when the bar is off`() {
+        // alpha(0f) hides a node from the eye, not from the finger: Compose hit-tests a fully
+        // transparent node like any other. With the setting OFF and nothing drawn on top of it —
+        // offline, or a body that failed to load — a band the height of a bar the user switched
+        // off would sit at the bottom of the reader swallowing taps.
+        val screen = code(MESSAGE_SCREEN)
+        val at = screen.indexOf("ReplyForwardBar {}")
+        assertTrue(
+            "the invisible measuring copy (ReplyForwardBar {}) is gone from MessageScreen — if it " +
+                "moved, move this rule with it.",
+            at >= 0,
+        )
+        val before = screen.substring(0, at).takeLast(400)
+        assertTrue(
+            "the measuring copy must sit inside 'if (replyBarEnabled) {'. Preceding source was:\n$before",
+            Regex("""if \(replyBarEnabled\) \{[\s\S]*$""").containsMatchIn(before),
         )
     }
 
@@ -82,7 +106,68 @@ class ReplyBarWiringTest {
         )
     }
 
+    @Test fun `the subtitle's promise matches where the two actions really are`() {
+        // The setting's subtitle told the user where Reply and Forward would still be found with
+        // the bar off, and it was wrong in nine languages: "Both stay available in the toolbar at
+        // the top" — Forward is not in the toolbar, it is in the overflow menu beside it. Reply's
+        // own icon is there; Reply all and Forward are menu items.
+        //
+        // So the rule reads the READER, not the sentence: if Forward ever moves up into the
+        // toolbar, this fails and the sentence is rewritten with it.
+        val screen = code(MESSAGE_SCREEN).replace(Regex("""\s+"""), " ")
+        assertTrue(
+            "Reply must still be a toolbar icon of the reader: IconButton(onClick = { " +
+                "onReply(\"reply\", replyTargetId, accountId) }). Screen was normalised.",
+            """IconButton(onClick = { onReply("reply", replyTargetId, accountId) })""" in screen,
+        )
+        assertTrue(
+            "Forward must still be a DropdownMenuItem, not a toolbar icon — the subtitle says it " +
+                "is in the menu.",
+            Regex(
+                """DropdownMenuItem\( text = \{ Text\(stringResource\(R\.string\.message_forward\)\) }[^)]*""" +
+                    """[\s\S]{0,200}?onReply\("forward", replyTargetId, accountId\)""",
+            ).containsMatchIn(screen),
+        )
+        assertTrue(
+            "Forward must NOT also be a toolbar IconButton: two ways to reach it makes the " +
+                "sentence ambiguous again.",
+            """IconButton(onClick = { onReply("forward"""" !in screen,
+        )
+    }
+
+    @Test fun `every language puts Forward in a menu, not in the top bar`() {
+        // Same instrument and same trade as SettingsScreenHonestyTest's protocol rule: requiring a
+        // literal constrains the SHAPE of every translation, and that is accepted here because the
+        // whole point of the sentence is WHERE the action is. Translation parity cannot see this —
+        // the key exists in every locale already; only its content was false.
+        val files = localeStringFiles()
+        assertTrue(
+            "only ${files.size} locale string files found; the app ships at least nine, so this " +
+                "rule is no longer reading them all and a locale can keep the old sentence.",
+            files.size >= 9,
+        )
+        val wrong = files.mapNotNull { file ->
+            val subtitle = SUBTITLE.find(file.readText())?.groupValues?.get(1)
+                ?: return@mapNotNull "${file.parentFile.name}: no settings_reply_bar_subtitle"
+            val namesAMenu = MENU_WORDS.any { it in subtitle.lowercase() }
+            if (namesAMenu) null else "${file.parentFile.name}: does not say Forward is in a menu — \"$subtitle\""
+        }
+        assertEquals(
+            "the reply-bar subtitle must place Forward in its MENU, in every language: the shipped " +
+                "sentence promised the top toolbar, where Forward is not, and a reader who turns " +
+                "the bar off goes looking for it there.",
+            emptyList<String>(), wrong,
+        )
+    }
+
     // -- reading the sources --------------------------------------------------------------------
+
+    private fun localeStringFiles(): List<File> = (File(root, "app/src/main/res").listFiles() ?: emptyArray())
+        .filter { it.isDirectory && (it.name == "values" || it.name.startsWith("values-")) }
+        .map { File(it, "strings.xml") }
+        .filter { it.isFile && SUBTITLE.containsMatchIn(it.readText()) }
+        .sortedBy { it.parentFile.name }
+
 
     /** [file]'s code as one string, comments cut — the comments beside these call sites name the
      *  very expressions the rules forbid. */
@@ -119,6 +204,15 @@ class ReplyBarWiringTest {
             Regex("""\bspinnerDue\b"""),
             Regex("""\.alpha\("""),
         )
+
+        /** The reply-bar subtitle, per locale. */
+        private val SUBTITLE = Regex(
+            "<string name=\"settings_reply_bar_subtitle\">(.*?)</string>",
+            RegexOption.DOT_MATCHES_ALL,
+        )
+
+        /** "Menu", in the nine languages the app ships. */
+        private val MENU_WORDS = listOf("menu", "menü", "menú", "меню")
 
         private const val MESSAGE_SCREEN_PATH =
             "app/src/main/kotlin/app/sterna/ui/message/MessageScreen.kt"

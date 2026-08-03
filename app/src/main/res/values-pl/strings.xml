@@ -272,7 +272,7 @@
     <string name="settings_signature_below_quote_title">Podpis pod cytowanym tekstem</string>
     <string name="settings_signature_below_quote_subtitle">W odpowiedzi umieszczaj go pod cytowaną wiadomością zamiast nad nią</string>
     <string name="settings_reply_bar_title">Pasek odpowiedzi</string>
-    <string name="settings_reply_bar_subtitle">Pokazuj Odpowiedz i Przekaż na dole wiadomości. Oba pozostają dostępne na górnym pasku.</string>
+    <string name="settings_reply_bar_subtitle">Pokazuj Odpowiedz i Przekaż na dole wiadomości. Odpowiedz pozostaje na górnym pasku, Przekaż w jego menu.</string>
     <string name="settings_signature_delimiter_title">Wiersz oddzielający przed podpisem</string>
     <string name="settings_signature_delimiter_subtitle">Inne programy pocztowe rozpoznają Twój podpis po tym wierszu „-- ” i potrafią go ukryć przy cytowaniu wiadomości; bez niego już nie potrafią, a pole podpisu zawiera wtedy dokładnie to, co zostanie wysłane.</string>
     <string name="settings_swipe_right_title">Przesunięcie w prawo</string>

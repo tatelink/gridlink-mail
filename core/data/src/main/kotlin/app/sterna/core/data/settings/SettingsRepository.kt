@@ -193,7 +193,7 @@ class SettingsRepository(context: Context) {
      *  becomes unreachable (Codeberg #63). Global, not per account: the reader is shared by the
      *  unified inbox, and a per-account answer would make the bar appear and disappear while moving
      *  from one message to the next in one list. */
-    val replyBar: Flow<Boolean> = dataStore.data.map { it[KEY_REPLY_BAR] ?: true }
+    val replyBar: Flow<Boolean> = dataStore.data.map { replyBarFrom(it[KEY_REPLY_BAR]) }
 
     suspend fun setReplyBar(enabled: Boolean) {
         dataStore.edit { it[KEY_REPLY_BAR] = enabled }
@@ -419,3 +419,14 @@ class SettingsRepository(context: Context) {
         private val KEY_QUIET_END = intPreferencesKey("quiet_hours_end")
     }
 }
+
+/**
+ * What the reader's Reply/Forward bar switch answers for a STORED value: absent means ON, which is
+ * what the app has always done and what the setting's own subtitle promises (Codeberg #63).
+ *
+ * A function rather than an elvis inside the flow because the DEFAULT is the part a test can reach:
+ * `?: true` flipped to `?: false` takes the bar away from every user who has never touched the
+ * switch -- the exact opposite of what is announced -- and the whole suite stayed green, DataStore
+ * being out of reach of a JVM test here.
+ */
+internal fun replyBarFrom(stored: Boolean?): Boolean = stored ?: true

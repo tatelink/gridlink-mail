@@ -1187,15 +1187,24 @@ private fun ConversationBody(
         // Invisible, no-op copy of the bar, used ONLY to measure its height up front so the body
         // reserves the right space from the first frame (no content jump when the bar appears). It is
         // the bottom-most child, so the WebView above it takes all touches; its onReply is a no-op.
-        Box(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .alpha(0f)
-                .onSizeChanged { barHeightPx = it.height }
-                .clearAndSetSemantics {},
-        ) {
-            ReplyForwardBar {}
+        //
+        // Composed only when the bar is switched on (#63). alpha(0f) hides it from the eye and not
+        // from the finger — Compose hit-tests a fully transparent node exactly like any other — so
+        // with the setting OFF and no body yet on top of it (offline, a load that failed) a band
+        // the height of a bar it was told not to show would sit at the bottom taking taps. Nothing
+        // else needs it either: bodyBottomInsetPx answers 0 while the setting is off, whatever
+        // barHeightPx happens to hold.
+        if (replyBarEnabled) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .alpha(0f)
+                    .onSizeChanged { barHeightPx = it.height }
+                    .clearAndSetSemantics {},
+            ) {
+                ReplyForwardBar {}
+            }
         }
         if (full != null) {
             val scheme = MaterialTheme.colorScheme

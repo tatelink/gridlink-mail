@@ -42,6 +42,11 @@ class SettingsBackupSignatureTest {
     }
 
     @Test fun theyAreCarriedAsFalseWhenExplicitlyOff() {
+        // The VALUES, not the keys — this is where the pattern was invented and where it was
+        // copied from. The codec writes with encodeDefaults and explicitNulls, so every key is
+        // present in every export (`"signatureOnReplies": null` for an unset field) and asserting
+        // on the key alone is true of any export whatsoever, including one that dropped the
+        // settings entirely.
         val json0 = SettingsBackupCodec.encode(
             SettingsBackup(
                 signatureOnReplies = false,
@@ -49,8 +54,8 @@ class SettingsBackupSignatureTest {
                 signatureDelimiter = false,
             ),
         )
-        assertTrue("exported: $json0", json0.contains("signatureOnReplies"))
-        assertTrue("exported: $json0", json0.contains("signatureBelowQuote"))
-        assertTrue("exported: $json0", json0.contains("signatureDelimiter"))
+        assertTrue("exported: $json0", json0.contains("\"signatureOnReplies\": false"))
+        assertTrue("exported: $json0", json0.contains("\"signatureBelowQuote\": false"))
+        assertTrue("exported: $json0", json0.contains("\"signatureDelimiter\": false"))
     }
 }
