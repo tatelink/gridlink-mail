@@ -682,6 +682,41 @@
     <string name="outbox_delete_body">Ela não foi enviada e não está guardada em nenhum outro lugar. A mensagem e seus anexos serão perdidos.</string>
     <string name="outbox_delete_permanently">Eliminar definitivamente</string>
     <string name="outbox_banner_failed">Algumas mensagens não foram enviadas. Toque para rever.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">Por remetente</string>
+    <string name="sender_volume_title">Correio por remetente</string>
+    <string name="sender_volume_empty">Nenhuma mensagem guardada neste telefone.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d mensagem guardada neste telefone</item>
+        <item quantity="many">%1$d de mensagens guardadas neste telefone</item>
+        <item quantity="other">%1$d mensagens guardadas neste telefone</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Enviados, Rascunhos, Lixeira e Spam não são contados, nem as mensagens adiadas.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d mensagem não lida</item>
+        <item quantity="many">%1$d de mensagens não lidas</item>
+        <item quantity="other">%1$d mensagens não lidas</item>
+    </plurals>
+    <string name="sender_volume_delete">Eliminar estas mensagens</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">Eliminar %1$d mensagem de %2$s?</item>
+        <item quantity="many">Eliminar %1$d de mensagens de %2$s?</item>
+        <item quantity="other">Eliminar %1$d mensagens de %2$s?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">Vão para a lixeira. Isto abrange todas as pastas desta conta guardadas neste telefone, exceto Enviados, Rascunhos, Lixeira e Spam; as mensagens adiadas também não são contadas. Correio mais antigo deste remetente pode permanecer no servidor.</string>
+    <string name="sender_volume_block">Enviar o correio futuro para a lixeira, marcado como lido</string>
+    <string name="sender_volume_block_done">Já existe uma regra de filtragem para este remetente</string>
+    <string name="sender_volume_block_added">Regra de filtragem adicionada</string>
+    <string name="sender_volume_search">Ver estas mensagens</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d mensagem eliminada</item>
+        <item quantity="many">%1$d de mensagens eliminadas</item>
+        <item quantity="other">%1$d mensagens eliminadas</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Há outro script de filtragem ativo nesta conta, por isso não é possível adicionar nenhuma regra a partir daqui. As regras desta conta editam-se em %1$s → %2$s.</string>
+    <string name="sender_volume_block_foreign">Há outro script de filtragem ativo</string>
+    <string name="sender_volume_block_title">Enviar para o lixo o correio futuro de %1$s?</string>
+    <string name="sender_volume_block_body">Uma regra no servidor enviará para o lixo o correio futuro deste endereço, marcado como lido. Nada do que já foi recebido é movido. A regra pode ser alterada ou removida em %1$s → %2$s.</string>
     <string name="offline_banner">Está offline</string>
     <string name="sync_error_banner">Falha na sincronização: %1$s</string>
     <string name="settings_conversation_section">Conversas</string>

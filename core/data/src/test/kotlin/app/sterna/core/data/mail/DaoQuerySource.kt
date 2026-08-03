@@ -216,9 +216,7 @@ internal object DaoQuerySource {
         val head = source.substring(0, fn.range.first)
         val annotation = head.lastIndexOf("@Query(")
         if (annotation < 0 || head.substring(annotation).contains(DECLARATION)) return null
-        val literals = stringLiterals(head.substring(annotation + "@Query(".length))
-        check(literals.isNotEmpty()) { "@Query on '$functionName' holds no string literal" }
-        val sql = literals.joinToString("")
+        val sql = annotationSql(daoName, head.substring(annotation + "@Query(".length), functionName)
         INTERPOLATION.find(sql)?.let {
             error(
                 "@Query on '$functionName' in $daoName carries a Kotlin interpolation, '${it.value}' — " +
@@ -297,30 +295,94 @@ internal object DaoQuerySource {
         return if (between.isEmpty() || between.startsWith(":")) from + brace else -1
     }
 
-    /** The double-quoted literals of [text] up to its first unbalanced `)`, in order. */
-    private fun stringLiterals(text: String): List<String> {
-        val out = mutableListOf<String>()
+    /**
+     * The statement an `@Query(…)` argument spells out: [text] is everything after the opening
+     * parenthesis, and this reads its double-quoted literals up to the first unbalanced `)`,
+     * joined in order — with any `const val` of the SAME FILE it concatenates replaced by that
+     * constant's own text.
+     *
+     * The constants matter: two DAO functions that must run over the same rows share their scope
+     * clause by naming ONE constant in both `@Query` annotations, which is what makes them the
+     * same clause rather than two copies that drift ([EmailDao.senderVolumes] and
+     * [EmailDao.senderMessageIds], and the same idiom in `EmailBodyDao`/`PurgeSnapshotDao`).
+     * Reading only the literals would silently hand a test the statement with its `WHERE` cut
+     * out — a query nobody runs, passing.
+     */
+    private fun annotationSql(daoName: String, text: String, functionName: String): String {
+        val out = StringBuilder()
+        var pieces = 0
         var i = 0
         var depth = 0
         while (i < text.length) {
             val c = text[i]
             when {
-                c == '"' -> {
-                    val sb = StringBuilder()
-                    i++
-                    while (i < text.length && text[i] != '"') {
-                        if (text[i] == '\\' && i + 1 < text.length) i++
-                        sb.append(text[i]); i++
-                    }
-                    out += sb.toString()
-                    i++
-                }
+                c == '"' -> { i = readLiteral(text, i, out); pieces++ }
                 c == '(' -> { depth++; i++ }
-                c == ')' -> { if (depth == 0) return out; depth--; i++ }
+                c == ')' -> { if (depth == 0) break; depth--; i++ }
+                c.isLetter() || c == '_' -> {
+                    val start = i
+                    while (i < text.length && (text[i].isLetterOrDigit() || text[i] == '_')) i++
+                    out.append(constantText(daoName, text.substring(start, i), functionName))
+                    pieces++
+                }
                 else -> i++
             }
         }
-        return out
+        check(pieces > 0) { "@Query on '$functionName' holds no string literal" }
+        return out.toString()
+    }
+
+    /**
+     * The text of `const val [name]` in [daoName] — string literals and other constants of the
+     * same file joined by `+`, resolved recursively.
+     *
+     * Anything else in the initializer (a call, a template, a `when`) fails loudly: silently
+     * stopping there would hand back a truncated statement, which is exactly the "test validates
+     * a query the app does not run" failure this object exists to end.
+     */
+    private fun constantText(daoName: String, name: String, functionName: String): String {
+        val source = daoSource(daoName)
+        val declaration = Regex("""\bconst val $name\b[^=\n]*=""").find(source)
+            ?: error(
+                "@Query on '$functionName' in $daoName concatenates '$name', which is not a " +
+                    "'const val' of that file — this reads the annotation as TEXT, so it cannot " +
+                    "resolve a constant declared anywhere else.",
+            )
+        val out = StringBuilder()
+        var i = declaration.range.last + 1
+        while (true) {
+            while (i < source.length && source[i].isWhitespace()) i++
+            check(i < source.length) { "'const val $name' in $daoName has no value" }
+            val c = source[i]
+            when {
+                c == '"' -> i = readLiteral(source, i, out)
+                c.isLetter() || c == '_' -> {
+                    val start = i
+                    while (i < source.length && (source[i].isLetterOrDigit() || source[i] == '_')) i++
+                    out.append(constantText(daoName, source.substring(start, i), functionName))
+                }
+                else -> error(
+                    "'const val $name' in $daoName is not written as string literals and " +
+                        "constants joined by '+'. Teach this to resolve whatever it is now, " +
+                        "rather than letting a test execute a truncated statement.",
+                )
+            }
+            var next = i
+            while (next < source.length && source[next].isWhitespace()) next++
+            if (next >= source.length || source[next] != '+') return out.toString()
+            i = next + 1
+        }
+    }
+
+    /** Append the double-quoted literal starting at [at] in [text] to [into]; returns the index
+     *  just past its closing quote. */
+    private fun readLiteral(text: String, at: Int, into: StringBuilder): Int {
+        var i = at + 1
+        while (i < text.length && text[i] != '"') {
+            if (text[i] == '\\' && i + 1 < text.length) i++
+            into.append(text[i]); i++
+        }
+        return i + 1
     }
 
     /**

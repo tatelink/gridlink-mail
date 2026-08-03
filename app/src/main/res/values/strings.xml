@@ -149,6 +149,37 @@
     <string name="outbox_delete_body">It hasn\'t been sent and isn\'t saved anywhere else. The message and its attachments will be lost.</string>
     <string name="outbox_delete_permanently">Delete permanently</string>
     <string name="outbox_banner_failed">Some messages didn\'t send. Tap to review.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">By sender</string>
+    <string name="sender_volume_title">Mail by sender</string>
+    <string name="sender_volume_empty">No mail stored on this phone.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d message stored on this phone</item>
+        <item quantity="other">%1$d messages stored on this phone</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Sent, Drafts, Trash and Spam are not counted, and neither are snoozed messages.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d unread message</item>
+        <item quantity="other">%1$d unread messages</item>
+    </plurals>
+    <string name="sender_volume_delete">Delete these messages</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">Delete %1$d message from %2$s?</item>
+        <item quantity="other">Delete %1$d messages from %2$s?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">They go to the Trash. This covers every folder of this account stored on this phone, except Sent, Drafts, Trash and Spam; messages you snoozed are not counted either. Older mail from this sender may remain on the server.</string>
+    <string name="sender_volume_block">Send future mail to Trash, marked read</string>
+    <string name="sender_volume_block_done">A filter rule already exists for this sender</string>
+    <string name="sender_volume_block_added">Filter rule added</string>
+    <string name="sender_volume_search">See these messages</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d message deleted</item>
+        <item quantity="other">%1$d messages deleted</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Another filter script is active on this account, so no filter rule can be added from here. %1$s → %2$s is where this account\'s rules are edited.</string>
+    <string name="sender_volume_block_foreign">Another filter script is active</string>
+    <string name="sender_volume_block_title">Send future mail from %1$s to Trash?</string>
+    <string name="sender_volume_block_body">A rule on the server will send future mail from this address to Trash, marked read. Nothing already received moves. The rule can be changed or removed in %1$s → %2$s.</string>
     <string name="offline_banner">You\'re offline</string>
     <!-- A refresh that failed while the device IS online: never the offline wording. %1$s is the
          failure's own text (a status line or an exception message, never mail content). -->

@@ -684,6 +684,45 @@
     <string name="outbox_delete_body">Nie została wysłana i nie jest nigdzie indziej zapisana. Wiadomość i jej załączniki zostaną utracone.</string>
     <string name="outbox_delete_permanently">Usuń trwale</string>
     <string name="outbox_banner_failed">Niektóre wiadomości nie zostały wysłane. Dotknij, aby sprawdzić.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">Wg nadawcy</string>
+    <string name="sender_volume_title">Poczta wg nadawcy</string>
+    <string name="sender_volume_empty">Brak poczty zapisanej na tym telefonie.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d wiadomość zapisana na tym telefonie</item>
+        <item quantity="few">%1$d wiadomości zapisane na tym telefonie</item>
+        <item quantity="many">%1$d wiadomości zapisanych na tym telefonie</item>
+        <item quantity="other">%1$d wiadomości zapisanych na tym telefonie</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Wysłane, Wersje robocze, Kosz i Spam nie są liczone, podobnie jak odłożone wiadomości.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d nieprzeczytana wiadomość</item>
+        <item quantity="few">%1$d nieprzeczytane wiadomości</item>
+        <item quantity="many">%1$d nieprzeczytanych wiadomości</item>
+        <item quantity="other">%1$d nieprzeczytanych wiadomości</item>
+    </plurals>
+    <string name="sender_volume_delete">Usuń te wiadomości</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">Usunąć %1$d wiadomość od %2$s?</item>
+        <item quantity="few">Usunąć %1$d wiadomości od %2$s?</item>
+        <item quantity="many">Usunąć %1$d wiadomości od %2$s?</item>
+        <item quantity="other">Usunąć %1$d wiadomości od %2$s?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">Trafią do kosza. Dotyczy to każdego folderu tego konta zapisanego na tym telefonie, oprócz Wysłane, Wersje robocze, Kosz i Spam; odłożone wiadomości również nie są liczone. Starsza poczta od tego nadawcy może pozostać na serwerze.</string>
+    <string name="sender_volume_block">Przyszłą pocztę do kosza, oznaczoną jako przeczytana</string>
+    <string name="sender_volume_block_done">Dla tego nadawcy istnieje już reguła filtrowania</string>
+    <string name="sender_volume_block_added">Dodano regułę filtrowania</string>
+    <string name="sender_volume_search">Zobacz te wiadomości</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">Usunięto %1$d wiadomość</item>
+        <item quantity="few">Usunięto %1$d wiadomości</item>
+        <item quantity="many">Usunięto %1$d wiadomości</item>
+        <item quantity="other">Usunięto %1$d wiadomości</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Na tym koncie działa inny skrypt filtrujący, więc nie można stąd dodać reguły. Reguły tego konta edytuje się w %1$s → %2$s.</string>
+    <string name="sender_volume_block_foreign">Działa inny skrypt filtrujący</string>
+    <string name="sender_volume_block_title">Wysyłać przyszłe wiadomości od %1$s do kosza?</string>
+    <string name="sender_volume_block_body">Reguła na serwerze będzie wysyłać przyszłe wiadomości z tego adresu do kosza, oznaczone jako przeczytane. Nic z tego, co już odebrano, nie zostanie przeniesione. Regułę można zmienić lub usunąć w %1$s → %2$s.</string>
     <string name="offline_banner">Jesteś offline</string>
     <string name="sync_error_banner">Synchronizacja nie powiodła się: %1$s</string>
     <string name="settings_conversation_section">Konwersacje</string>

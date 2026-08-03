@@ -57,6 +57,7 @@ import app.sterna.ui.message.MessageScreen
 import app.sterna.ui.message.NavFadeGuard
 import app.sterna.ui.outbox.OutboxScreen
 import app.sterna.ui.scheduled.ScheduledSendsScreen
+import app.sterna.ui.sender.MailBySenderScreen
 import app.sterna.ui.snoozed.SnoozedScreen
 import app.sterna.ui.search.SearchScreen
 import app.sterna.ui.onboarding.WelcomeScreen
@@ -348,6 +349,7 @@ private fun MainNavHost(
                 onOpenScheduled = { entry.navigateOnce { nav.navigate("scheduled") } },
                 onOpenSnoozed = { entry.navigateOnce { nav.navigate("snoozed") } },
                 onOpenOutbox = { entry.navigateOnce { nav.navigate("outbox") } },
+                onOpenMailBySender = { entry.navigateOnce { nav.navigate("bysender") } },
                 accounts = accounts,
                 currentAccountId = currentAccountId,
                 onSwitchAccount = onSwitchAccount,
@@ -525,11 +527,14 @@ private fun MainNavHost(
             )
         }
         composable(
-            route = "search?q={q}",
+            route = "search?q={q}&from={from}",
             // The initial term is read straight from the entry's SavedStateHandle by
             // SearchViewModel, so it survives a process death like the rest of the criteria.
+            // `from` arrives the same way, from "see these messages" on the per-sender screen,
+            // and does exactly as much as `q`: it fills its field, it does not run the search.
             arguments = listOf(
                 navArgument("q") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("from") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
             SearchScreen(
@@ -575,6 +580,16 @@ private fun MainNavHost(
             OutboxScreen(
                 onBack = { entry.navigateOnce { nav.popBackStack() } },
                 onEditDraft = { entry.navigateOnce { nav.navigate("compose?restore=true") } },
+            )
+        }
+        composable("bysender") { entry ->
+            MailBySenderScreen(
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
+                // Look before destroying: the address travels as the search's `from` criterion,
+                // the same way the inbox's bar hands its words over as `q`.
+                onOpenSearch = { from ->
+                    entry.navigateOnce { nav.navigate("search?from=${Uri.encode(from)}") }
+                },
             )
         }
     }

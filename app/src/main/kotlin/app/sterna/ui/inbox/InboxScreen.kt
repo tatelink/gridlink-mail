@@ -233,6 +233,8 @@ fun InboxScreen(
     onOpenScheduled: () -> Unit,
     onOpenSnoozed: () -> Unit,
     onOpenOutbox: () -> Unit,
+    /** "Mail by sender": what this phone holds, per sender, for the current account. */
+    onOpenMailBySender: () -> Unit,
     accounts: List<app.sterna.core.data.account.StoredAccount>,
     currentAccountId: String,
     onSwitchAccount: (String) -> Unit,
@@ -1309,6 +1311,17 @@ fun InboxScreen(
                                         },
                                         onClick = { overflowOpen = false; onOpenOutbox() },
                                     )
+                                    // After the Outbox, before anything destructive (#48). Absent
+                                    // in the Trash for the same reason as the two lists above: it
+                                    // counts the folders one keeps mail in, and the Trash is not
+                                    // one of them.
+                                    if (!isTrash) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.inbox_by_sender)) },
+                                            leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
+                                            onClick = { overflowOpen = false; onOpenMailBySender() },
+                                        )
+                                    }
                                     // Destructive, so it sits last (#48).
                                     if (isTrash) {
                                         DropdownMenuItem(

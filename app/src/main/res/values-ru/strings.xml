@@ -686,6 +686,45 @@
     <string name="outbox_delete_body">Оно не было отправлено и нигде больше не сохранено. Сообщение и вложения будут потеряны.</string>
     <string name="outbox_delete_permanently">Удалить навсегда</string>
     <string name="outbox_banner_failed">Некоторые сообщения не отправлены. Нажмите, чтобы проверить.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">По отправителю</string>
+    <string name="sender_volume_title">Почта по отправителям</string>
+    <string name="sender_volume_empty">На этом телефоне нет сохранённой почты.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d письмо сохранено на этом телефоне</item>
+        <item quantity="few">%1$d письма сохранено на этом телефоне</item>
+        <item quantity="many">%1$d писем сохранено на этом телефоне</item>
+        <item quantity="other">%1$d писем сохранено на этом телефоне</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Отправленные, Черновики, Корзина и Спам не учитываются, отложенные письма тоже.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d непрочитанное письмо</item>
+        <item quantity="few">%1$d непрочитанных письма</item>
+        <item quantity="many">%1$d непрочитанных писем</item>
+        <item quantity="other">%1$d непрочитанных писем</item>
+    </plurals>
+    <string name="sender_volume_delete">Удалить эти письма</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">Удалить %1$d письмо от %2$s?</item>
+        <item quantity="few">Удалить %1$d письма от %2$s?</item>
+        <item quantity="many">Удалить %1$d писем от %2$s?</item>
+        <item quantity="other">Удалить %1$d писем от %2$s?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">Они отправятся в корзину. Это касается всех папок этой учётной записи, сохранённых на этом телефоне, кроме Отправленные, Черновики, Корзина и Спам; отложенные письма также не учитываются. Более старая почта от этого отправителя может остаться на сервере.</string>
+    <string name="sender_volume_block">Отправлять будущие письма в корзину, помечая прочитанными</string>
+    <string name="sender_volume_block_done">Для этого отправителя уже есть правило фильтра</string>
+    <string name="sender_volume_block_added">Правило фильтра добавлено</string>
+    <string name="sender_volume_search">Показать эти письма</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">Удалено %1$d письмо</item>
+        <item quantity="few">Удалено %1$d письма</item>
+        <item quantity="many">Удалено %1$d писем</item>
+        <item quantity="other">Удалено %1$d писем</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">В этой учётной записи активен другой скрипт фильтрации, поэтому отсюда нельзя добавить правило. Правила этой учётной записи редактируются в %1$s → %2$s.</string>
+    <string name="sender_volume_block_foreign">Активен другой скрипт фильтрации</string>
+    <string name="sender_volume_block_title">Отправлять будущие письма от %1$s в корзину?</string>
+    <string name="sender_volume_block_body">Правило на сервере будет отправлять будущие письма с этого адреса в корзину, помечая их прочитанными. Уже полученные письма останутся на месте. Правило можно изменить или удалить в %1$s → %2$s.</string>
     <string name="offline_banner">Вы не в сети</string>
     <string name="sync_error_banner">Не удалось синхронизировать: %1$s</string>
     <string name="settings_conversation_section">Беседы</string>
