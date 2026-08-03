@@ -19,6 +19,7 @@ import app.sterna.core.data.account.OAuthCredentials
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.filter.SieveCodec
+import app.sterna.core.data.db.AccountMailboxRole
 import app.sterna.core.data.db.EmailDao
 import app.sterna.core.data.db.EmailFtsDao
 import app.sterna.core.data.db.EmailBodyDao
@@ -500,6 +501,20 @@ internal fun listRowsWhereSql(scopeCount: Int, unreadOnly: Boolean): String {
     val notSnoozed = " AND ${notSnoozedSql("emails")}"
     return "($scope)$seenFilter$notSnoozed"
 }
+
+/**
+ * The rows of `MailboxDao.observeRoles`, as the map a caller judges a message's folder by (#115).
+ *
+ * Keyed by (account, folder) and not by folder: servers number mailboxes per account (#121/#31), so
+ * one account's Sent would otherwise answer for another account's Inbox — every message in it
+ * showing its recipients instead of its sender. A role-less folder is left OUT rather than mapped
+ * to a blank: absent means "unknown, fall back", and a blank would mean "not outgoing", which is an
+ * answer this map has no business giving.
+ *
+ * Its own function so a test can run it beside the statement that feeds it (`FolderRolesSqlTest`).
+ */
+internal fun folderRoleMap(rows: List<AccountMailboxRole>): Map<Pair<String, String>, String> =
+    rows.mapNotNull { row -> row.role?.let { (row.accountId to row.id) to it } }.toMap()
 
 /**
  * The keys "Select all" may take from the folder behind the list: the same rows [pagingSql]
@@ -4085,7 +4100,7 @@ class MailRepository(
      */
     fun observeFolderRoles(accountIds: List<String>): Flow<Map<Pair<String, String>, String>> =
         mailboxDao.observeRoles(accountIds.distinct())
-            .map { rows -> rows.mapNotNull { row -> row.role?.let { (row.accountId to row.id) to it } }.toMap() }
+            .map(::folderRoleMap)
             .distinctUntilChanged()
 
     /**

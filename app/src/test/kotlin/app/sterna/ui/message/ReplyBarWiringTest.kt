@@ -37,16 +37,15 @@ class ReplyBarWiringTest {
         val screen = code(MESSAGE_SCREEN).replace(Regex("""\s+"""), " ")
         assertTrue(
             "the bottom inset must be the WHOLE call " +
-                "bodyBottomInsetPx(replyBarEnabled, barHeightPx, defaultBarPx, clearancePx). It is " +
-                "a DIV inside the HTML document, not Compose padding, so hiding the bar without " +
-                "zeroing it leaves a strip of white at the end of every message.\n" +
-                "The three arguments after the first are pinned because pinning only the first was " +
-                "not enough: swapping the last two (defaultBarPx for clearancePx) reserves the " +
-                "measured bar PLUS 76 dp instead of plus 4 — about 72 dp of white at the end of " +
-                "every message, for everyone, since the setting is on by default. The first frame " +
-                "is identical (4 + 76 = 76 + 4), so it only appears once the bar has been " +
-                "measured and nothing about it looks wrong in a diff.",
-            "val bottomInsetPx = bodyBottomInsetPx(replyBarEnabled, barHeightPx, defaultBarPx, clearancePx)" in screen,
+                "bodyBottomInsetPx(replyBarEnabled, barHeightPx, density.density). It is a DIV " +
+                "inside the HTML document, not Compose padding, so hiding the bar without zeroing " +
+                "it leaves a strip of white at the end of every message.\n" +
+                "The two dp values it used to be handed (the fallback height and the clearance) " +
+                "now live inside the function: as two `val`s here they could be swapped for each " +
+                "other — the measured bar plus 76 dp instead of plus 4, about 72 dp of white at " +
+                "the end of every message, with the first frame identical (4 + 76 = 76 + 4) and " +
+                "no test able to reach it. ReplyBarTest fails on that swap now.",
+            "val bottomInsetPx = bodyBottomInsetPx(replyBarEnabled, barHeightPx, density.density)" in screen,
         )
     }
 

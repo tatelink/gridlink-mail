@@ -193,7 +193,7 @@ class SettingsRepository(context: Context) {
      *  becomes unreachable (Codeberg #63). Global, not per account: the reader is shared by the
      *  unified inbox, and a per-account answer would make the bar appear and disappear while moving
      *  from one message to the next in one list. */
-    val replyBar: Flow<Boolean> = dataStore.data.map { replyBarFrom(it[KEY_REPLY_BAR]) }
+    val replyBar: Flow<Boolean> = dataStore.data.map(::replyBarFrom)
 
     suspend fun setReplyBar(enabled: Boolean) {
         dataStore.edit { it[KEY_REPLY_BAR] = enabled }
@@ -404,7 +404,6 @@ class SettingsRepository(context: Context) {
         private val KEY_SIGNATURE_ON_REPLIES = booleanPreferencesKey("signature_on_replies")
         private val KEY_SIGNATURE_BELOW_QUOTE = booleanPreferencesKey("signature_below_quote")
         private val KEY_SIGNATURE_DELIMITER = booleanPreferencesKey("signature_delimiter")
-        private val KEY_REPLY_BAR = booleanPreferencesKey("reply_bar")
         private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         private val KEY_HAS_SEEN_WELCOME = booleanPreferencesKey("has_seen_welcome")
@@ -420,13 +419,25 @@ class SettingsRepository(context: Context) {
     }
 }
 
+/** The key the reader's Reply/Forward bar switch is stored under. Renaming it loses the setting of
+ *  every user who has turned the bar off, so it is pinned by name in [replyBarFrom]'s test. */
+internal val KEY_REPLY_BAR = booleanPreferencesKey("reply_bar")
+
 /**
- * What the reader's Reply/Forward bar switch answers for a STORED value: absent means ON, which is
- * what the app has always done and what the setting's own subtitle promises (Codeberg #63).
- *
- * A function rather than an elvis inside the flow because the DEFAULT is the part a test can reach:
- * `?: true` flipped to `?: false` takes the bar away from every user who has never touched the
- * switch -- the exact opposite of what is announced -- and the whole suite stayed green, DataStore
- * being out of reach of a JVM test here.
+ * What the reader shows when nobody has touched the switch: the bar, which is what the app has
+ * always done and what the setting's own subtitle promises (Codeberg #63). One definition, read by
+ * [replyBarFrom] and by the settings screen's initial value.
  */
-internal fun replyBarFrom(stored: Boolean?): Boolean = stored ?: true
+const val REPLY_BAR_DEFAULT = true
+
+/**
+ * Whether the reader shows its bottom Reply/Forward bar, read from the stored preferences.
+ *
+ * The LOOKUP is in here, not the flow, and that is deliberate. It was a function of the stored
+ * `Boolean?` first, which left the default reachable from outside it: `replyBarFrom(prefs[KEY] ?:
+ * false)` takes the bar away from every user who has never touched the switch — the exact opposite
+ * of what is announced — and no test can see it, since the argument is already defaulted by the
+ * time the function runs. Given the whole [Preferences] there is nothing left to pre-empt: the test
+ * hands it an empty store, a store with the switch on, and one with it off.
+ */
+internal fun replyBarFrom(prefs: Preferences): Boolean = prefs[KEY_REPLY_BAR] ?: REPLY_BAR_DEFAULT

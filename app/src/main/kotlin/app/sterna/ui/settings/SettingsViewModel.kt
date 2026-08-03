@@ -9,6 +9,7 @@ import app.sterna.core.data.account.K9SettingsImporter
 import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.data.settings.PreviewLines
+import app.sterna.core.data.settings.REPLY_BAR_DEFAULT
 import app.sterna.core.data.settings.SettingsBackup
 import app.sterna.core.data.settings.SettingsBackupCodec
 import app.sterna.core.data.settings.SettingsRepository
@@ -388,10 +389,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setSignatureDelimiter(enabled) }
     }
 
+    // The first frame, before DataStore has answered: REPLY_BAR_DEFAULT, the same definition the
+    // repository reads the stored value against (#63). A literal here was a second copy of the
+    // default, and the two could disagree for as long as the store takes to open.
     val replyBar = settings.replyBar.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = true,
+        initialValue = REPLY_BAR_DEFAULT,
     )
 
     fun setReplyBar(enabled: Boolean) {

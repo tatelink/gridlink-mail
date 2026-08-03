@@ -17,6 +17,7 @@ import app.sterna.ui.compose.receivingAddress
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.calendar.ICalendar
 import app.sterna.core.data.calendar.ParsedEvent
+import app.sterna.core.data.settings.REPLY_BAR_DEFAULT
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.jmap.ContentTooLargeException
 import app.sterna.core.jmap.DownloadLimits
@@ -144,11 +145,13 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     )
 
     /** Whether the reader shows the bottom Reply/Forward bar at all (#63). Global, so the bar does
-     *  not come and go while paging through a unified inbox's messages. */
+     *  not come and go while paging through a unified inbox's messages. The first frame, before
+     *  DataStore has answered, is REPLY_BAR_DEFAULT: the same definition the stored value is read
+     *  against, rather than a second copy of it here. */
     val replyBar = settings.replyBar.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = true,
+        initialValue = REPLY_BAR_DEFAULT,
     )
 
     /** Reading text size for the message body. */

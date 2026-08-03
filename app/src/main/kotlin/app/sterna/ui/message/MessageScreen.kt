@@ -1173,11 +1173,12 @@ private fun ConversationBody(
     // measuring copy below) plus a little clearance, so the bar never covers the last line when it
     // reveals at the end. A default until measured avoids any cut on the first frame.
     var barHeightPx by remember { mutableIntStateOf(0) }
-    val clearancePx = with(density) { 4.dp.roundToPx() }
-    val defaultBarPx = with(density) { 76.dp.roundToPx() }
     // Zero when the bar is switched off: the blank is a DIV inside the document, so leaving it
-    // there would end every message with a strip of white under nothing (#63).
-    val bottomInsetPx = bodyBottomInsetPx(replyBarEnabled, barHeightPx, defaultBarPx, clearancePx)
+    // there would end every message with a strip of white under nothing (#63). The fallback height
+    // and the clearance live inside bodyBottomInsetPx, where a test can exercise them: as two
+    // `val`s here they could be swapped for each other, which puts ~72 dp of white at the end of
+    // every message with nothing to see in a diff and no test able to reach it.
+    val bottomInsetPx = bodyBottomInsetPx(replyBarEnabled, barHeightPx, density.density)
 
     Box(
         Modifier
