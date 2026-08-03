@@ -193,6 +193,7 @@ import app.sterna.ui.components.verticalScrollbar
 import app.sterna.ui.isOutgoingFolder
 import app.sterna.ui.rememberMotionEnabled
 import app.sterna.ui.showsRecipients
+import app.sterna.ui.showsRecipientsInThread
 import app.sterna.ui.search.SearchCount
 import app.sterna.ui.search.SearchDisplay
 import app.sterna.ui.search.searchCount
@@ -251,6 +252,10 @@ fun InboxScreen(
     // Inline conversation expansion: which threads are unfolded, and their lazily-loaded members.
     val expandedThreads by viewModel.expandedThreads.collectAsStateWithLifecycle()
     val threadMembers by viewModel.threadMembers.collectAsStateWithLifecycle()
+    // (account, folder) → role, every account: what a row inside an unfolded conversation is judged
+    // by. Those rows are not all in the folder on screen — the unfold spans the viewed folder(s)
+    // plus Sent — and in the unified list they are not all in the current account either (#115).
+    val folderRoles by viewModel.folderRoles.collectAsStateWithLifecycle()
     var showMoveSheet by remember { mutableStateOf(false) }
     var showCreateFolder by remember { mutableStateOf(false) }
     var folderToRename by remember { mutableStateOf<Mailbox?>(null) }
@@ -1452,11 +1457,20 @@ fun InboxScreen(
                         leftAction = swipe.left,
                         unarchiveContext = isUnarchiveContext(ui),
                         trashContext = isTrashContext(ui),
-                        // Per child, and deliberately NOT the top-level row's rule: inside an
-                        // unfolded incoming conversation, "To: …" is how your own reply is told
-                        // apart from the messages around it (Codeberg #69), so authorship keeps
-                        // deciding here even in the Inbox.
-                        showRecipientsFor = { child -> showsRecipientsInThread(child, ui, accounts) },
+                        // Per child, through the SAME decision as the top-level row and the reader
+                        // — on the child's OWN folder, because an unfolded conversation spans the
+                        // viewed folder(s) plus Sent and the folder on screen says nothing about
+                        // the message inside it. Your own reply lives in Sent and keeps its
+                        // "To: …" (#69); your own message echoed back into the Inbox reads by its
+                        // sender (#115), which is what the reader says when this line is tapped.
+                        showRecipientsFor = { child ->
+                            showsRecipientsInThread(
+                                accountId = child.accountId,
+                                mailboxId = child.mailboxId,
+                                roles = folderRoles,
+                                selfAuthored = isSelfAuthored(child.from, sendAsIdentities(child, accounts)),
+                            )
+                        },
                         highlightId = highlightId,
                         selectionActive = selectionActive,
                         selectedKeys = selectedKeys,
@@ -2117,13 +2131,6 @@ private fun isTrashContext(ui: MailUi): Boolean =
 private fun visibleFolderRole(ui: MailUi): String? =
     ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
 
-/** True when the visible folder holds the user's own outgoing mail (Sent, Drafts), where a
- *  row shows who the mail went to — the sender is always yourself there (Codeberg #59). */
-private fun isOwnMailContext(ui: MailUi): Boolean {
-    val role = visibleFolderRole(ui)
-    return role == "sent" || role == "drafts"
-}
-
 /**
  * True when [from] (a message's sender) is one of the user's own send-as [identities], matched
  * case-insensitively on the bare address — i.e. the message was written by the user, so it should
@@ -2134,24 +2141,6 @@ internal fun isSelfAuthored(from: List<EmailAddress>, identities: List<StoredIde
     val sender = from.firstOrNull()?.email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
     return identities.any { it.email.trim().lowercase() == sender }
 }
-
-/**
- * Whether a row INSIDE an unfolded conversation shows "To: …" instead of its (self) sender. True in
- * the Sent/Drafts folders (the author is always yourself there, Codeberg #59) OR when the message
- * is self-authored by address — so a draft/sent mail moved to Trash still reads correctly
- * (Codeberg #69), and a self reply among incoming messages is told apart from them.
- *
- * NOT the top-level row's rule, which is [showsRecipients]: the two differ on exactly one case, a
- * self-authored message in an incoming folder. At the top level that is #115 — a mail you sent to
- * yourself, announced as sent mail in the Inbox. Under an unfolded conversation the surrounding
- * messages are the context that makes the same line informative rather than wrong.
- *
- * Identities are resolved from the row's OWN account, correct for the unified/multi-account inbox.
- * (An address shared by two accounts could match either identity list, which merely mirrors what
- * the reader itself shows — acceptable.)
- */
-private fun showsRecipientsInThread(email: Email, ui: MailUi, accounts: List<StoredAccount>): Boolean =
-    isOwnMailContext(ui) || isSelfAuthored(email.from, sendAsIdentities(email, accounts))
 
 /**
  * The addresses the row's own account can send as. Mirrors AccountStore.identities: a linked

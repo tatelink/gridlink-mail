@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -606,6 +607,23 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         applyNotificationFolder(folders)
         if (selectionIsGone((selection.value as? Sel.Folder)?.id, folders)) showInbox()
     }
+
+    /**
+     * (account, folder) → role, for EVERY configured account — what the rows of an unfolded
+     * conversation are judged by (#115). Those rows span the viewed folder(s) plus Sent, and in the
+     * unified list they belong to accounts that are not the selected one, so neither [mailboxes]
+     * (the current account's drawer) nor the selected folder's role can answer for them.
+     *
+     * Re-scoped when the set of accounts changes: [unifiedInboxScopes] is refreshed on every
+     * account add/remove/switch, so it doubles as that signal. The account list itself is re-read
+     * from the store rather than taken from the scopes, whose pairs skip an account that has no
+     * cached inbox id yet.
+     */
+    val folderRoles: StateFlow<Map<Pair<String, String>, String>> = unifiedInboxScopes
+        .map { store.accounts().map { it.id } }
+        .distinctUntilChanged()
+        .flatMapLatest { accountIds -> repo.observeFolderRoles(accountIds) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val searchState = MutableStateFlow(SearchUi())
     private var searchJob: Job? = null

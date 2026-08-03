@@ -10,12 +10,13 @@ import java.io.File
  * `OutboxCountWiringTest`: it reads source files as text and proves nothing about what appears on
  * screen.
  *
- * [ShowsRecipientsTest] runs the decision, but the whole point of #115's fix is that TWO surfaces
- * make it — the list row and the reader — and that they make the same one. Either can be unplugged
- * in a single line with every behaviour test green, and the result is the incoherence the fix was
- * asked to remove: a row that says "from Alice" opening onto a header that says "To: Alice".
- * `InboxScreen` is a composable and `MessageViewModel` an `AndroidViewModel`; neither is
- * instantiable in a JVM test here, so reading the source is what is left.
+ * [ShowsRecipientsTest] runs the decision, but the whole point of #115's fix is that THREE surfaces
+ * make it — the list row, the rows of an unfolded conversation, and the reader — and that they make
+ * the same one. Any of them can be unplugged in a single line with every behaviour test green, and
+ * the result is the incoherence the fix was asked to remove: a row that says "To: Alice" opening
+ * onto a header that says "from Alice". `InboxScreen` is a composable and `MessageViewModel` an
+ * `AndroidViewModel`; neither is instantiable in a JVM test here, so reading the source is what is
+ * left.
  *
  * The rules pin arguments, not just names: `showsRecipients(role, unified = false, ...)` written
  * on the list's top-level row would put the unified inbox — the screen the app opens on — straight
@@ -49,47 +50,83 @@ class OwnMessageWiringTest {
             "the row's showRecipients must be showsRecipients(...): the shared decision. Was:\n$row",
             "showsRecipients(" in row,
         )
-        val flat = row.replace(Regex("""\s+"""), " ")
-        assertTrue(
-            "the row must pass the VISIBLE folder's role. Was:\n$row",
-            "role = visibleFolderRole(ui)" in flat,
-        )
-        assertTrue(
-            "the row must pass ui.unified, not a constant: the all-inboxes view selects no folder, " +
-                "so its role is null, and 'unified = false' there leaves #115 standing on the " +
-                "screen the app opens on. Was:\n$row",
-            "unified = ui.unified" in flat,
-        )
-        assertTrue(
-            "the row must pass the message's own authorship — a constant false takes #59/#69 away " +
-                "from Sent, Drafts and the Trash. Was:\n$row",
-            "selfAuthored = isSelfAuthored(email.from, sendAsIdentities(email, accounts))" in flat,
+        val call = callArguments(row, "showsRecipients").single()
+        assertEquals(
+            "the row must be handed exactly these arguments, whole — the VISIBLE folder's role, " +
+                "ui.unified (the all-inboxes view selects no folder, so its role is null and a " +
+                "constant false there leaves #115 standing on the screen the app opens on), and " +
+                "the message's own authorship (a constant false takes #59/#69 away from Sent, " +
+                "Drafts and the Trash). Arguments were:\n$call",
+            listOf(
+                "role = visibleFolderRole(ui)",
+                "unified = ui.unified",
+                "selfAuthored = isSelfAuthored(email.from, sendAsIdentities(email, accounts))",
+            ),
+            arguments(call),
         )
     }
 
-    @Test fun `the unfolded conversation keeps its own rule, and only it`() {
-        // Deliberate divergence, stated so that removing it is a decision and not a slip: inside an
-        // unfolded incoming thread, your own reply keeps its "To: …" line because the messages
-        // around it are what make that informative. It must stay a SEPARATE function — folding it
-        // into the shared one would carry #115's change into the thread, and folding the shared one
-        // into it would revert #115 outright.
+    @Test fun `the rows of an unfolded conversation are judged by their own folder`() {
+        // The THIRD surface. It carried the pre-#115 rule under its own name, which made the list
+        // contradict the reader one level down: your own message echoed into the Inbox read
+        // "To: …" as a child, and said the sender's name once tapped. It now makes the same call
+        // as its two neighbours — on the child's OWN folder, since an unfolded conversation spans
+        // the viewed folder(s) plus Sent.
         val screen = code(INBOX_SCREEN)
         assertEquals(
             "showsRecipientsInThread must be called exactly once, for the children of an unfolded " +
                 "conversation.",
             1, Regex("""showsRecipientsInThread\(""").findAll(body(INBOX_SCREEN, "emailRow")).count(),
         )
+        val call = callArguments(body(INBOX_SCREEN, "emailRow"), "showsRecipientsInThread").single()
+        assertEquals(
+            "the child row must be handed exactly these arguments, whole. The role must come from " +
+                "the CHILD (accountId + mailboxId, resolved account-qualified in folderRoles), not " +
+                "from the folder on screen, and the authorship must be the child's own sender — " +
+                "'child.to' here silently takes #69's in-thread half away. Arguments were:\n$call",
+            listOf(
+                "accountId = child.accountId",
+                "mailboxId = child.mailboxId",
+                "roles = folderRoles",
+                "selfAuthored = isSelfAuthored(child.from, sendAsIdentities(child, accounts))",
+            ),
+            arguments(call),
+        )
         assertTrue(
-            "showsRecipientsInThread must keep the plain disjunction (folder OR authorship): it is " +
-                "the pre-#115 rule, kept on purpose for the thread's children.",
-            Regex(
-                """isOwnMailContext\(ui\)\s*\|\|\s*isSelfAuthored\(""",
-            ).containsMatchIn(body(INBOX_SCREEN, "showsRecipientsInThread")),
+            "the screen must not keep a second folder rule beside the shared one: isOwnMailContext " +
+                "was the visible folder's test, and applying it to a message that lives somewhere " +
+                "else is what made the child row and the reader disagree.",
+            !Regex("""\bisOwnMailContext\(""").containsMatchIn(screen),
         )
         assertTrue(
             "the screen must not reach the pre-#115 rule under its old name anywhere: isOwnMessage " +
                 "was the top-level row's rule and is exactly what #115 changed.",
             !Regex("""\bisOwnMessage\(""").containsMatchIn(screen),
+        )
+    }
+
+    @Test fun `the in-thread rule answers through the shared decision, not beside it`() {
+        // showsRecipientsInThread is a behaviour-tested function (ShowsRecipientsTest), but what
+        // stops it drifting from its two neighbours is that it CALLS them. A body that re-decided
+        // for itself would pass its own tests and disagree with the reader again.
+        val body = body(FOLDER_ACTIONS, "showsRecipientsInThread").replace(Regex("""\s+"""), " ")
+        assertTrue(
+            "showsRecipientsInThread must answer with showsRecipients(...). Body was:\n$body",
+            "showsRecipients(" in body,
+        )
+        assertTrue(
+            "it must hand it the role of the folder the message is IN (messageFolderRole), never " +
+                "the visible folder's. Body was:\n$body",
+            "role = messageFolderRole(accountId, mailboxId, roles)" in body,
+        )
+        assertTrue(
+            "it must pass the message's own authorship through, not a constant. Body was:\n$body",
+            "selfAuthored = selfAuthored" in body,
+        )
+        assertTrue(
+            "it must not re-test folder names on its own: a stray \"sent\" here is a second rule " +
+                "that will drift from showsRecipients. Body was:\n$body",
+            !Regex(""""(sent|drafts|inbox)"""").containsMatchIn(body),
         )
     }
 
@@ -116,6 +153,50 @@ class OwnMessageWiringTest {
             i++
         }
         return body.substring(at)
+    }
+
+    /** The argument text of every call to [name] in [text], parentheses balanced. */
+    private fun callArguments(text: String, name: String): List<String> =
+        Regex("""\b${Regex.escape(name)}\(""").findAll(text)
+            .map { balanced(text, it.range.last, '(', ')') }
+            .toList()
+
+    /** [text] from the first [open] at or after [from], up to the [close] that balances it. */
+    private fun balanced(text: String, from: Int, open: Char, close: Char): String {
+        val start = text.indexOf(open, from).let { if (it < 0) from else it + 1 }
+        var depth = 1
+        var i = start
+        while (i < text.length && depth > 0) {
+            when (text[i]) {
+                open -> depth++
+                close -> depth--
+            }
+            i++
+        }
+        return text.substring(start, (i - 1).coerceAtLeast(start)).trim()
+    }
+
+    /**
+     * A call's arguments, one entry each, whitespace normalised: split on the commas at the call's
+     * own depth. Comparing arguments WHOLE is the point — a substring rule accepts everything
+     * written after what it matched, and `child.from` mutated to `child.to` or a conjunct appended
+     * to `ui.unified` are exactly the edits that leave one of these surfaces answering differently
+     * from the other two.
+     */
+    private fun arguments(call: String): List<String> {
+        val out = mutableListOf<String>()
+        val current = StringBuilder()
+        var depth = 0
+        call.forEach { c ->
+            when (c) {
+                '(', '{', '[' -> { depth++; current.append(c) }
+                ')', '}', ']' -> { depth--; current.append(c) }
+                ',' -> if (depth == 0) { out += current.toString(); current.clear() } else current.append(c)
+                else -> current.append(c)
+            }
+        }
+        out += current.toString()
+        return out.map { it.replace(Regex("""\s+"""), " ").trim() }.filter { it.isNotEmpty() }
     }
 
     /** The lines of [file] that are code, with comments taken off — load-bearing here, since the
@@ -179,6 +260,7 @@ class OwnMessageWiringTest {
         private const val APP_SOURCES = "app/src/main/kotlin"
         private const val INBOX_SCREEN_PATH = "$APP_SOURCES/app/sterna/ui/inbox/InboxScreen.kt"
         private const val MESSAGE_VIEW_MODEL_PATH = "$APP_SOURCES/app/sterna/ui/message/MessageViewModel.kt"
+        private const val FOLDER_ACTIONS_PATH = "$APP_SOURCES/app/sterna/ui/FolderActions.kt"
 
         private val root: File by lazy {
             generateSequence(File("").absoluteFile) { it.parentFile }
@@ -191,5 +273,6 @@ class OwnMessageWiringTest {
 
         private val INBOX_SCREEN: File by lazy { File(root, INBOX_SCREEN_PATH) }
         private val MESSAGE_VIEW_MODEL: File by lazy { File(root, MESSAGE_VIEW_MODEL_PATH) }
+        private val FOLDER_ACTIONS: File by lazy { File(root, FOLDER_ACTIONS_PATH) }
     }
 }

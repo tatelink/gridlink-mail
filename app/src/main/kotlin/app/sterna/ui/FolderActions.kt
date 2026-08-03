@@ -68,3 +68,50 @@ internal fun showsRecipients(role: String?, unified: Boolean, selfAuthored: Bool
     if (unified || normalised == "inbox") return false
     return selfAuthored
 }
+
+/**
+ * The same decision for a row INSIDE an unfolded conversation — the third surface, which used to
+ * carry the pre-#115 rule under its own name and so contradicted the reader it opens.
+ *
+ * The difference is not the rule, it is the role: an unfolded conversation spans the viewed
+ * folder(s) PLUS Sent, so its rows do not all live in the folder on screen and the visible folder's
+ * role says nothing about them. [roles] is the (account, folder) → role map the folder cache
+ * publishes, and the role looked up here is the message's OWN.
+ *
+ * That is what makes the two witnesses come out right, both BY THE ROLE:
+ *
+ *  - a reply you wrote in an incoming thread lives in Sent, an outgoing role, so it keeps reading
+ *    "To: …" — which is what tells it apart from the incoming messages around it (#69);
+ *  - your own message echoed back into the Inbox (a mailing list, a mail sent to yourself) lives in
+ *    the Inbox, so it reads by its sender — exactly what the reader says when the line is tapped.
+ *
+ * [unified] is not a parameter and cannot be: unified is the state of having no folder selected,
+ * and this rule never consults the selected folder. An unknown folder — an account whose folder
+ * list has not synced, a folder with no role — resolves to a null role, which lands on the author
+ * test: the pre-#115 answer, i.e. the behaviour degrades to what it was rather than to nonsense.
+ */
+internal fun showsRecipientsInThread(
+    accountId: String?,
+    mailboxId: String?,
+    roles: Map<Pair<String, String>, String>,
+    selfAuthored: Boolean,
+): Boolean = showsRecipients(
+    role = messageFolderRole(accountId, mailboxId, roles),
+    unified = false,
+    selfAuthored = selfAuthored,
+)
+
+/**
+ * The role of the folder a message is actually filed in, or null when that cannot be said: no
+ * account on the row, no folder on the row, or a folder the cache does not know a role for.
+ * Account-qualified, because servers number folders per account (issue #31/#121) and a bare
+ * folder id would borrow a sibling account's role.
+ */
+internal fun messageFolderRole(
+    accountId: String?,
+    mailboxId: String?,
+    roles: Map<Pair<String, String>, String>,
+): String? {
+    if (accountId == null || mailboxId == null) return null
+    return roles[accountId to mailboxId]
+}

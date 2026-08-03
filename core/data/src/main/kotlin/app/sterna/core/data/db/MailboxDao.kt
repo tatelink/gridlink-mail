@@ -49,6 +49,21 @@ interface MailboxDao {
     fun observeSentMailboxes(accountIds: List<String>): Flow<List<AccountMailboxId>>
 
     /**
+     * Every cached (account, folder) → role of the given accounts, reactively.
+     *
+     * The list needs this for the rows INSIDE an unfolded conversation (Codeberg #115): those
+     * messages do not all live in the folder on screen — the unfold spans the viewed folders plus
+     * Sent — so "is this one outgoing?" can only be answered by the folder each one is actually in.
+     * Every account, not just the current one, because the unified list unfolds conversations of
+     * accounts that are not the selected one.
+     *
+     * Role-less folders are left out: they answer nothing, and their absence is the same "unknown"
+     * as a folder list that has not synced yet.
+     */
+    @Query("SELECT accountId, id, role FROM mailboxes WHERE accountId IN (:accountIds) AND role IS NOT NULL")
+    fun observeRoles(accountIds: List<String>): Flow<List<AccountMailboxRole>>
+
+    /**
      * Id of the account's folder whose lowercased name is one of [names], preferring a
      * top-level folder — used to find an archive folder when the server set no `archive` role.
      */
@@ -98,6 +113,13 @@ interface MailboxDao {
 data class AccountMailboxId(
     val accountId: String,
     val id: String,
+)
+
+/** Projection for [MailboxDao.observeRoles]: one account-qualified folder and its role. */
+data class AccountMailboxRole(
+    val accountId: String,
+    val id: String,
+    val role: String?,
 )
 
 /** Projection for [MailboxDao.searchOrder]: a folder id and its normalised role. */

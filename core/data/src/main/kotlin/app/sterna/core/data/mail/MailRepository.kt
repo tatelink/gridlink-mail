@@ -4078,6 +4078,17 @@ class MailRepository(
             .distinctUntilChanged()
 
     /**
+     * Every known (account, folder) → role of [accountIds], reactively — the map that lets a row
+     * be judged by the folder it is IN rather than by the folder on screen (Codeberg #115, the
+     * children of an unfolded conversation). A folder missing from the map is unknown, not
+     * role-less: callers must fall back rather than conclude.
+     */
+    fun observeFolderRoles(accountIds: List<String>): Flow<Map<Pair<String, String>, String>> =
+        mailboxDao.observeRoles(accountIds.distinct())
+            .map { rows -> rows.mapNotNull { row -> row.role?.let { (row.accountId to row.id) to it } }.toMap() }
+            .distinctUntilChanged()
+
+    /**
      * Remove one account's [emailIds] from the local cache only (optimistic UI removal),
      * decrementing each row's OWN source folder's drawer counts. Used by the held-back destroy
      * paths (in-Trash delete, bulk delete, empty-trash): the rows leave the list and the counts drop
