@@ -17,6 +17,10 @@ import app.sterna.ui.compose.receivingAddress
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.calendar.ICalendar
 import app.sterna.core.data.calendar.ParsedEvent
+import app.sterna.core.data.filter.BlockOutcome
+import app.sterna.core.data.filter.addBlockRule
+import app.sterna.core.data.filter.alreadyBlocked
+import app.sterna.core.data.mail.FilterRulesState
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.jmap.ContentTooLargeException
 import app.sterna.core.jmap.DownloadLimits
@@ -25,6 +29,7 @@ import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailHeader
 import app.sterna.core.jmap.model.Mailbox
 import app.sterna.ui.inbox.moveTargets
+import app.sterna.ui.sender.trashFilePath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -97,6 +102,73 @@ sealed interface CryptoUiState {
 
     /** Decrypt/verify failed; null message = no OpenPGP provider installed. */
     data class Failed(val message: String?) : CryptoUiState
+}
+
+/** What the sender's row in the participants panel offers about the per-sender filter rule. */
+enum class SenderRuleEntry {
+    /** No entry at all. */
+    ABSENT,
+
+    /** There, and tappable. */
+    OFFERED,
+
+    /** There, greyed: the account's script already sends this address away. */
+    ALREADY_RULED,
+
+    /** There, greyed: another Sieve script is active, so saving would switch it off. */
+    FOREIGN_SCRIPT,
+}
+
+/**
+ * Whether the reader may add "file future mail from this address into the Trash, marked read"
+ * from the message it is reading, and in what state the entry appears.
+ *
+ * The same gesture the per-sender screen carries, and it is HERE for the reason the screen alone
+ * could not cover: the screen's aggregate excludes the Trash, so deleting a sender's mail takes
+ * its row away and the gesture with it, and the moment one actually wants the rule is the moment
+ * one is reading the mail that prompted it.
+ *
+ * [isSender] — the row is in the From group. To and Cc are not who wrote, and a FROM rule on a
+ * recipient is a rule about mail that person has not sent; the entry is not offered there.
+ *
+ * The three noes are the screen's, with ONE deliberate difference. [trashPath] null and
+ * [FilterRulesState.Unsupported] take the entry away exactly as they do on the screen: nothing
+ * honest to offer, and nothing invented to stand in. But `foreignActiveScript` GREYS the entry
+ * here instead of hiding it — the difference is that a dialog has room for the reason and a list
+ * row has not, which is the whole benefit of this location. It stays disabled, and it opens
+ * nothing that would offer to take the running script over: that decision belongs to the Filters
+ * screen, which warns in red above its Save button.
+ *
+ * A state of null — the script has not been read yet, or the read failed — leaves the entry
+ * OFFERED. Hiding it there would make an unreachable server look like an IMAP account, with no
+ * word and no retry; tapping it runs
+ * [app.sterna.core.data.filter.addBlockRule], which reads again at the moment of writing and
+ * reports what happened. That read is the guard, and it is absolute: nothing here can talk it
+ * into writing over another script.
+ */
+fun senderRuleEntry(
+    isSender: Boolean,
+    trashPath: String?,
+    rules: FilterRulesState?,
+    address: String,
+): SenderRuleEntry = when {
+    !isSender -> SenderRuleEntry.ABSENT
+    trashPath == null -> SenderRuleEntry.ABSENT
+    rules is FilterRulesState.Unsupported -> SenderRuleEntry.ABSENT
+    // "Already there" answers before "cannot", for the same reason addBlockRule does: neither
+    // case writes anything, they differ only in what the reader is told, and "another script is
+    // active" on an address that is already handled reports an obstacle where there is none.
+    rules is FilterRulesState.Loaded && alreadyBlocked(rules.rules, address) ->
+        SenderRuleEntry.ALREADY_RULED
+    rules is FilterRulesState.Loaded && rules.foreignActiveScript -> SenderRuleEntry.FOREIGN_SCRIPT
+    else -> SenderRuleEntry.OFFERED
+}
+
+/** The words each state of the entry wears — greyed entries say WHY, they do not just look dead. */
+fun senderRuleLabel(entry: SenderRuleEntry): Int = when (entry) {
+    SenderRuleEntry.ALREADY_RULED -> R.string.sender_volume_block_done
+    SenderRuleEntry.FOREIGN_SCRIPT -> R.string.sender_volume_block_foreign
+    else -> R.string.sender_volume_block
 }
 
 /**
@@ -254,6 +326,76 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     val accountMailboxes: StateFlow<List<Mailbox>> = _ownerAccountId.flatMapLatest { id ->
         if (id == null) flowOf(emptyList()) else repo.observeMailboxes(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The account's filter rules as last read, or null when they have not been read (or the read
+     * failed) — see [senderRuleEntry] for what null means to the entry.
+     *
+     * Read ONLY when the participants panel is opened ([loadSenderRules]), never on opening a
+     * message: it is a network round-trip, and paying for one on every message read — including
+     * every message merely swiped past — to decide the state of an entry nobody has looked for
+     * yet is not a trade this app makes.
+     */
+    private val _senderRules = MutableStateFlow<FilterRulesState?>(null)
+    val senderRules = _senderRules.asStateFlow()
+
+    /** One-shot word about the rule gesture (added / already there / failed), shown and cleared. */
+    private val _senderRuleStatus = MutableStateFlow<String?>(null)
+    val senderRuleStatus = _senderRuleStatus.asStateFlow()
+
+    fun clearSenderRuleStatus() { _senderRuleStatus.value = null }
+
+    /**
+     * Read the account's script, once, when the participants panel opens.
+     *
+     * Idempotent while it holds an answer: reopening the panel does not go back to the server.
+     * A read that failed leaves null, so the next opening tries again — and until then the entry
+     * is offered, which is what a merely unreachable server deserves.
+     */
+    fun loadSenderRules() {
+        if (_senderRules.value != null) return
+        val credentials = credentials() ?: return
+        viewModelScope.launch {
+            _senderRules.value = runCatching { repo.loadFilterRules(credentials) }.getOrNull()
+        }
+    }
+
+    /**
+     * Add the "future mail to Trash, marked read" rule for [address] to the account's script.
+     *
+     * The whole gesture is [addBlockRule] — read the rules, then save them WITH one more —
+     * handed the read and the write, because `saveFilterRules` rewrites the ENTIRE script: a
+     * save that did not start from a successful read would delete the account's filters instead
+     * of adding one. It is also where the refusal on a foreign active script lives, and that
+     * guard takes no argument that could switch it off.
+     */
+    fun blockSender(address: String) {
+        val credentials = credentials() ?: return
+        viewModelScope.launch {
+            val trashPath = trashFilePath(accountMailboxes.value)
+            if (trashPath == null) {
+                _senderRuleStatus.value =
+                    getApplication<Application>().getString(R.string.status_action_failed)
+                return@launch
+            }
+            val outcome = addBlockRule(
+                address = address,
+                trashFolder = trashPath,
+                load = { repo.loadFilterRules(credentials) },
+                save = { rules -> repo.saveFilterRules(credentials, rules) },
+            )
+            _senderRuleStatus.value = getApplication<Application>().getString(
+                when (outcome) {
+                    BlockOutcome.ADDED -> R.string.sender_volume_block_added
+                    BlockOutcome.ALREADY_PRESENT -> R.string.sender_volume_block_done
+                    BlockOutcome.FAILED -> R.string.status_action_failed
+                },
+            )
+            // Re-read, so the entry greys itself out for the address just handled instead of
+            // going on offering a rule that is now there.
+            _senderRules.value = runCatching { repo.loadFilterRules(credentials) }.getOrNull()
+        }
+    }
 
     /** OpenPGP state of the opened message (status card + header badges). */
     private val _crypto = MutableStateFlow<CryptoUiState>(CryptoUiState.None)

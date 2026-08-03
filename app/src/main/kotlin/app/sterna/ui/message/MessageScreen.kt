@@ -64,6 +64,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
@@ -142,6 +143,7 @@ import app.sterna.ui.inbox.mailboxPathLabel
 import app.sterna.ui.components.Monogram
 import app.sterna.ui.isOutgoingFolder
 import app.sterna.ui.rememberLeaveOnce
+import app.sterna.ui.sender.trashFilePath
 import app.sterna.ui.snoozed.SnoozeDeadlineHeader
 import app.sterna.util.LinkCleaner
 import app.sterna.util.MailDates
@@ -1028,6 +1030,26 @@ private fun MessageContent(
     val senderEmail = (state as? MessageState.Loaded)?.email?.from?.firstOrNull()?.email
     val senderAllowed = senderEmail?.lowercase()?.let { it in imageAllowlist } == true
     val showRemote = manualShow || senderAllowed
+    // The per-sender filter rule offered from the participants panel. The Trash is named from
+    // the account's OWN cached folder list (no network), the script state is read once when the
+    // panel opens, and which of the four answers this makes is senderRuleEntry()'s — the same
+    // decision the per-sender screen takes, executed by a test.
+    val senderRules by viewModel.senderRules.collectAsStateWithLifecycle()
+    val accountMailboxes by viewModel.accountMailboxes.collectAsStateWithLifecycle()
+    val senderRuleStatus by viewModel.senderRuleStatus.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    LaunchedEffect(senderRuleStatus) {
+        val status = senderRuleStatus ?: return@LaunchedEffect
+        Toast.makeText(context, status, Toast.LENGTH_SHORT).show()
+        viewModel.clearSenderRuleStatus()
+    }
+    val senderRule = SenderRuleOffer(
+        entryFor = { isSender, address ->
+            senderRuleEntry(isSender, trashFilePath(accountMailboxes), senderRules, address)
+        },
+        onOpened = viewModel::loadSenderRules,
+        onBlock = viewModel::blockSender,
+    )
 
     Box(Modifier.fillMaxSize()) {
         when (val s = state) {
@@ -1057,6 +1079,7 @@ private fun MessageContent(
                 textZoom = messageTextSize.zoom,
                 onBarVisibleChanged = viewModel::setReplyBarVisible,
                 onComposeTo = onComposeTo,
+                senderRule = senderRule,
                 showRecipients = ownMessage,
                 deliveredTo = deliveredTo,
                 crypto = crypto,
@@ -1092,6 +1115,7 @@ private fun ConversationBody(
     textZoom: Int,
     onBarVisibleChanged: (Boolean) -> Unit,
     onComposeTo: (address: String) -> Unit,
+    senderRule: SenderRuleOffer,
     showRecipients: Boolean = false,
     deliveredTo: String? = null,
     crypto: CryptoUiState = CryptoUiState.None,
@@ -1261,7 +1285,7 @@ private fun ConversationBody(
         ) {
             MessageHeader(
                 msg, full, attachmentStatus, onOpenAttachment, calendar, onRespondToInvite,
-                onComposeTo, showRecipients, deliveredTo, crypto, onCryptoAction,
+                onComposeTo, senderRule, showRecipients, deliveredTo, crypto, onCryptoAction,
             )
         }
         // Spinner until the body has laid out (cached/prefetched mail beats the 500ms, so none flashes).
@@ -1325,6 +1349,7 @@ private fun MessageHeader(
     calendar: CalendarInvite?,
     onRespondToInvite: (String) -> Unit,
     onComposeTo: (address: String) -> Unit,
+    senderRule: SenderRuleOffer,
     showRecipients: Boolean = false,
     deliveredTo: String? = null,
     crypto: CryptoUiState = CryptoUiState.None,
@@ -1463,15 +1488,32 @@ private fun MessageHeader(
             cc = full?.cc ?: emptyList(),
             deliveredTo = deliveredTo,
             onComposeTo = { address -> showParticipants = false; onComposeTo(address) },
+            senderRule = senderRule,
             onDismiss = { showParticipants = false },
         )
     }
 }
 
 /**
+ * Everything the participants panel needs to offer the per-sender filter rule, in one value so
+ * the reader's composables gain ONE parameter rather than three.
+ *
+ * [entryFor] is [senderRuleEntry] with the screen's state already bound — a plain function a JVM
+ * test runs, called here rather than restated. [onOpened] reads the account's script the first
+ * time the panel is opened; [onBlock] adds the rule.
+ */
+private class SenderRuleOffer(
+    val entryFor: (isSender: Boolean, address: String) -> SenderRuleEntry =
+        { _, _ -> SenderRuleEntry.ABSENT },
+    val onOpened: () -> Unit = {},
+    val onBlock: (address: String) -> Unit = {},
+)
+
+/**
  * Slide-up panel listing every participant of the open message, grouped From / To / Cc, each with
- * their full address and actions (add to contacts, write to, copy address, copy name + address),
- * above them [deliveredTo]: which of the reader's OWN addresses received it (#81).
+ * their full address and actions (add to contacts, write to, copy address, copy name + address,
+ * and — for the sender alone — the per-sender filter rule), above them [deliveredTo]: which of
+ * the reader's OWN addresses received it (#81).
  * Opened by tapping the sender in [MessageHeader]. To/Cc come from the full body, so they are empty
  * until it has loaded.
  */
@@ -1483,8 +1525,12 @@ private fun ParticipantsSheet(
     cc: List<EmailAddress>,
     deliveredTo: String?,
     onComposeTo: (address: String) -> Unit,
+    senderRule: SenderRuleOffer,
     onDismiss: () -> Unit,
 ) {
+    // The one round-trip this feature costs, paid when the panel is opened and not when a
+    // message is: see MessageViewModel.loadSenderRules.
+    LaunchedEffect(Unit) { senderRule.onOpened() }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -1500,9 +1546,13 @@ private fun ParticipantsSheet(
             // First, because it is the one line the panel is opened for on a multi-alias account:
             // scanning a long To/Cc list for your own address is exactly what this spares (#81).
             ReceivedAtGroup(deliveredTo)
-            ParticipantGroup(R.string.participants_from, from, onComposeTo)
-            ParticipantGroup(R.string.participants_to, to, onComposeTo)
-            ParticipantGroup(R.string.participants_cc, cc, onComposeTo)
+            // isSender is TRUE for the From group and false for the other two, and it is an
+            // argument of the decision rather than "whichever group got a callback": a rule on
+            // FROM aimed at someone who was merely in Cc is a rule about mail that person has
+            // not sent.
+            ParticipantGroup(R.string.participants_from, from, isSender = true, onComposeTo, senderRule)
+            ParticipantGroup(R.string.participants_to, to, isSender = false, onComposeTo, senderRule)
+            ParticipantGroup(R.string.participants_cc, cc, isSender = false, onComposeTo, senderRule)
         }
     }
 }
@@ -1536,7 +1586,9 @@ private fun ReceivedAtGroup(address: String?) {
 private fun ParticipantGroup(
     titleRes: Int,
     people: List<EmailAddress>,
+    isSender: Boolean,
     onComposeTo: (address: String) -> Unit,
+    senderRule: SenderRuleOffer,
 ) {
     if (people.isEmpty()) return
     HorizontalDivider()
@@ -1546,14 +1598,16 @@ private fun ParticipantGroup(
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
     )
-    people.forEach { addr -> ParticipantRow(addr, onComposeTo) }
+    people.forEach { addr -> ParticipantRow(addr, isSender, onComposeTo, senderRule) }
 }
 
 /** A single participant: avatar, name + address, add-to-contacts icon, and an overflow menu. */
 @Composable
 private fun ParticipantRow(
     addr: EmailAddress,
+    isSender: Boolean,
     onComposeTo: (address: String) -> Unit,
+    senderRule: SenderRuleOffer,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -1566,6 +1620,8 @@ private fun ParticipantRow(
     val leaveOnce = rememberLeaveOnce()
     val hasName = !addr.name.isNullOrBlank()
     var menuOpen by remember { mutableStateOf(false) }
+    var confirmRule by remember { mutableStateOf(false) }
+    val entry = senderRule.entryFor(isSender, addr.email)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1640,7 +1696,48 @@ private fun ParticipantRow(
                     Toast.makeText(context, copiedMsg, Toast.LENGTH_SHORT).show()
                 },
             )
+            // The per-sender rule, on the sender's row only. Which of the four states this is —
+            // absent, offered, already ruled, another script running — is senderRuleEntry(), a
+            // plain function a JVM test runs; all that happens here is that each answer gets a
+            // rendering. It is deliberately NOT in the message's own ⋮: a rule per sender is
+            // unconditional, so it would appear on every message ever opened, personal mail
+            // included, and take that menu to eight permanent entries.
+            if (entry != SenderRuleEntry.ABSENT) {
+                DropdownMenuItem(
+                    enabled = entry == SenderRuleEntry.OFFERED,
+                    text = { Text(stringResource(senderRuleLabel(entry))) },
+                    leadingIcon = { Icon(Icons.Filled.DeleteSweep, contentDescription = null) },
+                    onClick = { menuOpen = false; confirmRule = true },
+                )
+            }
         }
+    }
+    if (confirmRule) {
+        // A dialog, and this is the point of putting the gesture here: a list row has nowhere to
+        // say what the rule does, and this one says it before anything is written.
+        AlertDialog(
+            onDismissRequest = { confirmRule = false },
+            title = { Text(stringResource(R.string.sender_volume_block_title, addr.email)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.sender_volume_block_body,
+                        stringResource(R.string.inbox_settings),
+                        stringResource(R.string.settings_filters_title),
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmRule = false; senderRule.onBlock(addr.email) }) {
+                    Text(stringResource(R.string.sender_volume_block))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRule = false }) {
+                    Text(stringResource(R.string.inbox_cancel))
+                }
+            },
+        )
     }
 }
 
