@@ -17,6 +17,7 @@ import app.sterna.ui.gridlink.GridlinkRoot
 import app.sterna.ui.gridlink.GridlinkSample
 import app.sterna.ui.gridlink.GridlinkSampleTree
 import app.sterna.ui.gridlink.GridlinkSyncState
+import app.sterna.ui.gridlink.GridlinkUndoFrame
 import app.sterna.ui.theme.GridlinkMode
 
 /**
@@ -248,6 +249,26 @@ class GridlinkGalleryActivity : ComponentActivity() {
         val composeRequest = draft?.let {
             GridlinkComposeRequest(draft = it, focus = composeFocus, scheduling = scheduling)
         }
+        // §6c's undo window, held at a fraction. The ring drains over ten real seconds, so a
+        // screencap fired after `input tap` on send lands wherever the shell scheduling happened to
+        // put it: not reproducible, and never the three specific fractions the brief asks for.
+        // Freezing also stops the clock, so the window never expires out from under a slow capture.
+        //   am start -S -n .../GridlinkGalleryActivity --es undo full
+        //   am start -S -n .../GridlinkGalleryActivity --es undo half
+        //   am start -S -n .../GridlinkGalleryActivity --es undo nearly
+        val undoName = intent?.getStringExtra("undo")?.trim()?.takeIf { it.isNotEmpty() }
+        val undoFrame = undoName?.let {
+            requireNotNull(GridlinkUndoFrame.parse(it)) {
+                "Unknown undo frame '$it'. Known: " +
+                    GridlinkUndoFrame.entries.joinToString { frame -> frame.name.lowercase() }
+            }
+        }
+        // The bar is what the composer leaves behind, so asking for both is asking for a frame the
+        // app cannot reach: the composer would be drawn over the bar counting down its own send.
+        require(undoFrame == null || draft == null) {
+            "undo='$undoName' and compose='$composeName' are mutually exclusive. Sending is what " +
+                "closes the composer and opens the bar, so the two are never on screen together."
+        }
         // The chrome row's two variables. Sync has no user-reachable route to Syncing or Offline in
         // the prototype (nothing is talking to a server yet), so the only way to look at those two
         // states is to ask for them here.
@@ -305,6 +326,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialCreateUnder = createUnder,
                 initialScrubLetter = scrubLetter,
                 initialCompose = composeRequest,
+                initialUndoFrame = undoFrame,
                 initialSync = sync,
                 menuOpenAtStart = menuOpen,
                 demoRecycle = recycle,
@@ -331,6 +353,7 @@ private fun GridlinkGallery(
     initialCreateUnder: String? = null,
     initialScrubLetter: Char? = null,
     initialCompose: GridlinkComposeRequest? = null,
+    initialUndoFrame: GridlinkUndoFrame? = null,
     initialSync: GridlinkSyncState = GridlinkSyncState.SYNCED,
     menuOpenAtStart: Boolean = false,
     demoRecycle: Boolean = false,
@@ -365,6 +388,7 @@ private fun GridlinkGallery(
             initialCreateUnder = initialCreateUnder,
             initialScrubLetter = initialScrubLetter,
             initialCompose = initialCompose,
+            initialUndoFrame = initialUndoFrame,
             demoRecycle = demoRecycle,
             initiallyEmpty = initiallyEmpty,
             initialOpenId = initialOpenId,

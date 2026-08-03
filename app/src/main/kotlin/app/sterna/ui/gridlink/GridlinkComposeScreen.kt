@@ -100,6 +100,16 @@ import app.sterna.ui.theme.gridlinkSenderBarColor
 fun GridlinkComposeScreen(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Send. Hands back the request that would reopen this exact composer, because §6c's undo has to
+     * restore what was sent and not what was opened.
+     *
+     * 🔴 The composer owns its recipients, its query and its attachments, so by the time send is
+     * tapped the [draft] parameter is stale by however much the user typed. Passing it back up would
+     * make undo silently revert their edits — the one thing an undo must never do. Defaults to
+     * [onClose] so a caller that has no undo window still gets a send button that closes.
+     */
+    onSend: (GridlinkComposeRequest) -> Unit = { onClose() },
     draft: GridlinkComposeDraft = GridlinkComposeDraft.Fresh,
     initialFocus: GridlinkComposeField = GridlinkComposeField.TO,
     initiallyScheduling: Boolean = false,
@@ -116,6 +126,23 @@ fun GridlinkComposeScreen(
     // the same fact arriving one animation late and which reports nothing at all on an emulator
     // running with a hardware keyboard, i.e. every screenshot this prototype gets captured on.
     val keyboardUp = focused != GridlinkComposeField.NONE
+
+    /**
+     * What was actually on screen when send was tapped.
+     *
+     * ⚠️ Subject and body are copied straight through because neither is editable yet:
+     * [GridlinkComposeTextRow] renders the draft's string and has nowhere to put a new one. The
+     * moment either becomes a real field this has to read its state instead, and undo restoring a
+     * stale subject is the bug that will announce it.
+     */
+    fun sendRequest() = GridlinkComposeRequest(
+        draft = draft.copy(
+            recipients = recipients,
+            recipientQuery = query,
+            attachments = attachments,
+        ),
+        focus = focused,
+    )
 
     BackHandler(enabled = true) {
         when {
@@ -147,7 +174,7 @@ fun GridlinkComposeScreen(
                     ) {
                         GridlinkSendButton(
                             size = GridlinkDimens.headerControl,
-                            onClick = onClose,
+                            onClick = { onSend(sendRequest()) },
                             onLongClick = { scheduling = true },
                         )
                     }
@@ -267,7 +294,7 @@ fun GridlinkComposeScreen(
                 ) {
                     GridlinkSendButton(
                         size = GridlinkDimens.composeButton,
-                        onClick = onClose,
+                        onClick = { onSend(sendRequest()) },
                         onLongClick = { scheduling = true },
                     )
                 }
@@ -277,6 +304,12 @@ fun GridlinkComposeScreen(
 
     if (scheduling) {
         GridlinkScheduleSheet(
+            // 🔴 Closes, and deliberately does NOT open the undo window. The two halves of §6c are
+            // different mechanisms and only one of them needs an escape hatch: an undo window exists
+            // because a send you did not mean is already gone in ten seconds, whereas a scheduled
+            // message sits visibly in its own tree node until Monday and can be cancelled from there
+            // for as long as you like. A ten-second countdown on top of a three-day delay would be
+            // rushing a decision that is not urgent.
             onPick = {
                 scheduling = false
                 onClose()

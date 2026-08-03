@@ -1,5 +1,6 @@
 package app.sterna.ui.theme
 
+import android.provider.Settings
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.SpringSpec
@@ -8,8 +9,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -874,6 +877,39 @@ object GridlinkMotion {
      * as the list being unsure.
      */
     fun <T> groupCollapse(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 400f)
+}
+
+/**
+ * Whether the user has asked the system to stop animating things.
+ *
+ * §8's last line requires this and, until the undo bar, nothing in the fork read it. Android has no
+ * "prefer reduced motion" flag of its own: the setting a user actually reaches for is Developer
+ * options' animator duration scale, or the accessibility shortcut that zeroes it, and both land on
+ * [Settings.Global.ANIMATOR_DURATION_SCALE]. Zero means off.
+ *
+ * ## 🔴 What this is NOT for
+ * Compose already honours the same setting on its own, through `MotionDurationScale` in the
+ * animation coroutine context: with animations off, every `animateTo` completes on the frame it
+ * starts. So this is not needed to *shorten* anything, and reading it to conditionally pick a
+ * shorter spring would be doing the platform's job twice.
+ *
+ * It exists for the opposite case: places where the automatic behaviour is wrong. An animation that
+ * is decoration should collapse to an opacity change, which is what §8 asks for and what the
+ * automatic collapse already gives. An animation that is *information* must keep running, and there
+ * the automatic collapse is a bug — see the countdown ring in `GridlinkUndoBar`, which is a clock
+ * face and would otherwise jump straight to empty and take the undo window with it.
+ *
+ * ⚠️ Read once and remembered. The setting can change while the app is alive and this will not
+ * notice until the composition is recreated. Observing it means a ContentObserver and a lifecycle,
+ * which is real machinery for a setting people change roughly never, and a stale read here costs
+ * one animation rather than any correctness.
+ */
+@Composable
+fun gridlinkReducedMotion(): Boolean {
+    val resolver = LocalContext.current.contentResolver
+    return remember(resolver) {
+        Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
