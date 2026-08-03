@@ -49,6 +49,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
@@ -124,7 +125,17 @@ private const val MODAL_ANIM_MS = 200
 private const val MODAL_ENTER_SCALE = 0.96f
 
 /**
- * How solid the frosted fill is. The remainder is what bleeds through from behind.
+ * How solid the frosted fill is when the backdrop behind it is really blurred.
+ *
+ * Far thinner than [FROST_OPACITY], and it is the blur that buys that. Once the high frequencies
+ * are gone there is nothing legible left to hide, so the veil is only doing what a veil should do:
+ * lifting the panel's value away from the room and giving the tint somewhere to sit. Everything
+ * below 0.5 stops reading as a surface and starts reading as a smudge on the lens.
+ */
+private const val FROST_BLUR_OPACITY = 0.58f
+
+/**
+ * How solid the frosted fill is with no blur behind it, on API 30 and below.
  *
  * 🔴 Measured on the device, not chosen. 0.88 was the first attempt and it was plainly wrong: every
  * sender name and subject line in the list behind the drawer was still readable, which is the exact
@@ -162,12 +173,14 @@ private val FROST_SHEEN = listOf(
  * translucent but not". Both halves of that are load-bearing. Translucent enough that the screen
  * behind tints it and moves it; not so translucent that you can read what is back there.
  *
- * ## 🔴 There is no blur here, and there cannot be
- * [Modifier.blur][androidx.compose.ui.draw.blur] blurs a composable's OWN content, not the backdrop.
- * A backdrop-blur API does not exist in this Compose version, §9 of the brief bans live blur behind
- * scrolling content anyway, and the backdrop is a gradient with three soft blobs on it, so blurring
- * it would produce a nearly identical image at real cost. The frost is therefore composed, not
- * sampled: one solid veil, one sheen, one hairline.
+ * ## 🔴 Two frosts, and which one you get depends on the platform
+ * Pass a [GridlinkBackdrop] and the panel draws a real blurred copy of what is behind it, and the
+ * veil thins right down to [FROST_BLUR_OPACITY]. That is only available on API 31 and up; see
+ * [GridlinkBackdrop] for the mechanism and for why the modals do not use it.
+ *
+ * With no backdrop the frost is composed rather than sampled: one solid veil at the much heavier
+ * [FROST_OPACITY], one sheen, one hairline. [Modifier.blur][androidx.compose.ui.draw.blur] is not a
+ * substitute; it blurs a composable's OWN content, not the backdrop.
  *
  * ## 🔴 Why the veil is composited first and then made transparent
  * The old stack painted two opaque fills, `background` then `surfaceRaised`, because Day's raised
@@ -184,13 +197,22 @@ private val FROST_SHEEN = listOf(
  * across the top third of a drawer is exactly the large soft field that mode exists to avoid.
  */
 @Composable
-private fun Modifier.gridlinkFrostedGlass(shape: Shape): Modifier {
+private fun Modifier.gridlinkFrostedGlass(
+    shape: Shape,
+    backdrop: GridlinkBackdrop? = null,
+    backdropShift: DrawScope.() -> Float = { 0f },
+): Modifier {
     val colors = GridlinkTheme.colors
-    val veil = remember(colors.surfaceRaised, colors.background) {
-        colors.surfaceRaised.over(colors.background).copy(alpha = FROST_OPACITY)
+    val alpha = if (backdrop != null) FROST_BLUR_OPACITY else FROST_OPACITY
+    val veil = remember(colors.surfaceRaised, colors.background, alpha) {
+        colors.surfaceRaised.over(colors.background).copy(alpha = alpha)
     }
     return this
+        // 🔴 Clip first. Everything below draws to the node's full bounds, and the blurred backdrop
+        // is a copy of the entire window, so without the clip already in place the panel paints the
+        // whole screen over itself.
         .clip(shape)
+        .gridlinkBackdropBehind(backdrop, backdropShift)
         .background(veil, shape)
         .then(
             if (colors.usesShadows) {
@@ -505,6 +527,9 @@ fun GridlinkSlideOutPanel(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = GridlinkTheme.colors
+    // Null below API 31, and null if whoever drew this did not mark a region to look through. Both
+    // fall back to the composed frost rather than to nothing.
+    val backdrop = LocalGridlinkBackdrop.current
     val shape = RoundedCornerShape(
         topEnd = GridlinkRadii.card,
         bottomEnd = GridlinkRadii.card,
@@ -564,8 +589,16 @@ fun GridlinkSlideOutPanel(
                 // scrolling column to do it would be the one place in the app that stutters.
                 .graphicsLayer { translationX = -size.width * (1f - progress) }
                 // Same surface as GridlinkModalCard, and the drawer is the one that shows it off:
-                // it is the only frosted panel with live content sliding past behind it.
-                .gridlinkFrostedGlass(shape)
+                // it is the only frosted panel with live content sliding past behind it, and the
+                // only one that gets a really blurred backdrop rather than the composed stand-in.
+                //
+                // 🔴 The shift undoes the translationX above. The panel slides; the room behind it
+                // does not.
+                .gridlinkFrostedGlass(
+                    shape = shape,
+                    backdrop = backdrop,
+                    backdropShift = { size.width * (1f - progress) },
+                )
                 // 🔴 Swallow taps, or every press inside the panel falls through to the scrim's
                 // dismiss and the drawer closes as you reach for a row in it.
                 .clickable(
