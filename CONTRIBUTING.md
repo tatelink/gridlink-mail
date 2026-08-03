@@ -25,6 +25,31 @@ Gradle installed.
 ./gradlew :app:installDebug
 ```
 
+## Tests, and what they cannot see
+
+Every test in this repository is a **JVM unit test**. There is **no instrumented test and no
+Robolectric**, in any module. Nothing here composes, lays out or renders a composable, and nothing
+instantiates an `AndroidViewModel`, a DataStore or a Room database. Read a green suite as exactly
+that much.
+
+Two habits follow from it, and both are load-bearing:
+
+- **A decision that matters is extracted as a pure function and RUN by a test** — not described by
+  one. A test that recomputes the rule from the same inputs in order to choose what to assert is a
+  copy of the rule: invert the shipped condition and it stays green.
+- **Where the decision cannot be reached (a composable, a ViewModel), a SOURCE LINT pins the call
+  site**: it reads the file as text and checks that the screen calls the tested function with the
+  right arguments. Such a lint proves that a call is *written*, never that it *works*. Every one of
+  them says so in its own header, and each says what it does not cover.
+
+A source lint must pin **whole arguments and whole calls**, not substrings. A rule looking for
+`f(a,` accepts anything after the comma, and that is not theoretical: pinning only the first
+argument of one call let its last two be swapped, which put about 72 dp of blank space at the end of
+every message with the whole suite green.
+
+**No fix is complete without a test that was seen to FAIL before it and pass after.** If the fix is
+a new function, stub it to reproduce the shipped behaviour, watch the test go red, then write it.
+
 ## Behind a proxy
 
 Put proxy settings in `~/.gradle/gradle.properties` (not in the repo):
