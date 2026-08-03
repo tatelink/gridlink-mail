@@ -1,0 +1,24 @@
+Sélection du courrier
+
+- Pendant une recherche, « Tout sélectionner » prend désormais les résultats affichés au lieu du dossier entier. Filtrer, tout sélectionner et supprimer ne vide plus le dossier.
+- Avec le filtre « non lus » actif, « Tout sélectionner » prend les messages non lus, pas les messages lus derrière eux.
+- Les messages différés ne sont plus sélectionnés : ils ne sont pas à l'écran.
+
+Lecture
+
+- Un message que vous vous envoyez à vous-même se lit maintenant par son expéditeur dans la Boîte de réception, dans la liste, dans une conversation dépliée et dans le lecteur. Envoyés, Brouillons et Corbeille sont inchangés.
+- Un nouveau réglage retire les boutons Répondre et Transférer en bas d'un message. Répondre reste dans la barre du haut, Transférer dans son menu.
+
+Rédaction
+
+- La boîte qui s'ouvre en quittant le composeur offre maintenant Annuler, pour revenir à ce que vous étiez en train d'écrire.
+- Elle n'annonce plus qu'elle abandonne le message quand un brouillon enregistré reste sur le serveur : elle dit qu'elle abandonne vos modifications.
+- « Enregistrer le brouillon » est grisé quand le composeur est vide, parce qu'enregistrer du vide supprimerait le brouillon.
+- Un brouillon peut être supprimé depuis le composeur lui-même. L'application demande confirmation, puis le brouillon part à la Corbeille et peut être récupéré.
+
+Synchronisation
+
+- Un dossier plus grand qu'une page du serveur se synchronise. Le réglage « Tout » ne laisse plus un gros dossier non synchronisé derrière un « Vous êtes hors ligne » permanent.
+- Une conversation comptant plus de membres que le serveur n'en sert d'un coup s'ouvre, au lieu de ne rien afficher.
+- L'indexation locale de la recherche se dimensionne sur ce que le serveur accepte.
+- Un rafraîchissement qui échoue pour une autre raison que le réseau ne dit plus que vous êtes hors ligne : il dit que la synchronisation a échoué, et montre pourquoi.

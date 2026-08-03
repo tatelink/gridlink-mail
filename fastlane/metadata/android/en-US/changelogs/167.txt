@@ -1,0 +1,24 @@
+Selecting mail
+
+- During a search, Select all now takes the results on screen instead of the whole folder. Filtering, selecting all and deleting no longer empties the folder.
+- With the unread filter on, Select all takes the unread messages, not the read ones behind them.
+- Snoozed messages are no longer selected: they are not on screen.
+
+Reading
+
+- A message you send to yourself now reads by its sender in the Inbox, in the list, inside an unfolded conversation, and in the reader. Sent, Drafts and Trash are unchanged.
+- A new setting removes the Reply and Forward buttons at the bottom of a message. Reply stays in the toolbar at the top, Forward in its menu.
+
+Writing
+
+- The prompt you get when leaving the composer now offers Cancel, so you can go back to what you were writing.
+- It no longer says it will discard the message when a saved draft stays on the server: it says it drops your changes.
+- Save draft is greyed out when the composer is empty, because saving nothing would delete the draft.
+- A draft can be deleted from the composer itself. It asks first, then the draft goes to the Trash and can be brought back.
+
+Sync
+
+- A folder larger than one server page now syncs. The "Everything" setting no longer leaves a large folder unsynced behind a permanent "You're offline".
+- A conversation with more members than the server serves at once now opens instead of showing nothing.
+- Local search indexing sizes itself on what the server accepts.
+- A refresh that fails for a reason other than the network no longer says you are offline: it says the sync failed, and shows why.
