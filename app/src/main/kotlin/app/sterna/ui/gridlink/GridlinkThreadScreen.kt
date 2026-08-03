@@ -3,6 +3,7 @@ package app.sterna.ui.gridlink
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,14 +31,20 @@ import androidx.compose.material.icons.automirrored.outlined.Forward
 import androidx.compose.material.icons.automirrored.outlined.ReplyAll
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.Report
+import androidx.compose.material.icons.outlined.Unsubscribe
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -86,13 +93,25 @@ import app.sterna.ui.theme.gridlinkSenderBarColor
 fun GridlinkThreadScreen(
     message: GridlinkMessage,
     onBack: () -> Unit,
-    onReply: () -> Unit,
+    onAction: (GridlinkThreadAction) -> Unit,
     modifier: Modifier = Modifier,
+    initiallyConfirmingUnsubscribe: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     val panelShape = RoundedCornerShape(GridlinkRadii.card)
+    var confirmingUnsubscribe by remember(message.id, initiallyConfirmingUnsubscribe) {
+        mutableStateOf(initiallyConfirmingUnsubscribe)
+    }
 
-    GridlinkBackground(modifier = modifier) {
+    GridlinkBackground(
+        // 🔴 Swallows every touch that nothing inside handled. This screen is drawn OVER the message
+        // list rather than replacing it, and Compose hit-testing walks every sibling under the
+        // pointer, so a tap on a dead area of the thread used to land on whatever the list had in
+        // the same place. That is not theoretical: the bottom-right of the thread's action pill sits
+        // exactly over the list's Compose button, so tapping Archive opened the composer. Children
+        // still win, because the main pass runs bottom-up and this only sees what they ignored.
+        modifier = modifier.pointerInput(Unit) { detectTapGestures { } },
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -160,9 +179,48 @@ fun GridlinkThreadScreen(
                 horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                GridlinkThreadActionPill(modifier = Modifier.weight(1f))
-                GridlinkThreadReplyButton(onClick = onReply)
+                GridlinkThreadActionPill(
+                    message = message,
+                    onAction = { action ->
+                        // 🔴 Unsubscribe is the one action here that talks to someone else. Every
+                        // other button rearranges mail that is already on the device, and this one
+                        // tells a sender you exist and are reading. It gets asked first.
+                        if (action == GridlinkThreadAction.UNSUBSCRIBE) {
+                            confirmingUnsubscribe = true
+                        } else {
+                            onAction(action)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                GridlinkThreadReplyButton(
+                    onClick = { onAction(GridlinkThreadAction.REPLY) },
+                )
             }
+        }
+    }
+
+    if (confirmingUnsubscribe) {
+        GridlinkDialog(
+            title = "Unsubscribe from ${message.sender}?",
+            confirmLabel = "Unsubscribe",
+            onConfirm = {
+                confirmingUnsubscribe = false
+                onAction(GridlinkThreadAction.UNSUBSCRIBE)
+            },
+            onDismiss = { confirmingUnsubscribe = false },
+        ) {
+            Text(
+                // ⚠️ States the side effect, which is the entire reason this dialog exists. An
+                // unsubscribe request is a signed confirmation to a bulk sender that the address is
+                // live and monitored, and for a sender acting in bad faith that is worth more than
+                // the mail they were sending. Anyone who cares should archive instead, and they can
+                // only decide that if the app says so.
+                text = "Sends a request to ${message.domain} and files this message. " +
+                    "It also confirms to them that this address is real.",
+                style = GridlinkType.body,
+                color = colors.textSecondary,
+            )
         }
     }
 }
@@ -378,19 +436,44 @@ private fun GridlinkThreadAttachment(
 }
 
 /**
- * The three secondary actions, in the same shell the nav pill uses on the list.
+ * Everything you can do to an open message.
+ *
+ * 🔴 [REPLY] is the accent circle and the other four share the pill. It is deliberately not in the
+ * pill as well: two controls that do the same thing on one 64dp baseline is how you end up tapping
+ * the wrong one, and the circle is already the loudest object on the screen.
+ */
+enum class GridlinkThreadAction { REPLY, REPLY_ALL, FORWARD, ARCHIVE, SPAM, UNSUBSCRIBE }
+
+/**
+ * The four secondary actions, in the same shell the nav pill uses on the list.
  *
  * The bottom of every screen in this app is one wide pill plus one accent circle, and a thread that
- * arranged its actions any other way would read as a different product. So: Reply all, Forward and
- * Archive share the pill, and Reply gets the circle, which is the same relationship the list has
- * between navigation and Compose.
+ * arranged its actions any other way would read as a different product. Reply gets the circle, which
+ * is the same relationship the list has between navigation and Compose.
  *
- * ⚠️ All three are inert. Archive in particular cannot work yet: the list owns its own copy of the
- * messages, so nothing here can remove a row from it. Wiring these means hoisting that state out of
- * [GridlinkMessageListScreen], which is the same change the real JMAP store will force anyway.
+ * ## 🔴 Four, and which four depends on the sender
+ * Brandon asked for Reply, Reply all, Forward, Archive, Unsubscribe and Spam. Six will not fit: the
+ * pill is about 323dp wide once the circle and the chrome pad are out of it, and six 11sp labels in
+ * that space would need "Unsub". So the set is contextual, which is also more honest than a fixed
+ * six:
+ *
+ * - **A person wrote it:** Reply all, Forward, Archive, Spam. There is no unsubscribe link in a mail
+ *   from a colleague, and offering one that cannot work is worse than not offering it.
+ * - **A machine sent it** ([GridlinkMessage.automated]): Forward, Archive, Unsubscribe, Spam. Reply
+ *   all drops out, because replying to everyone on a billing statement means replying to a no-reply
+ *   robot and a mailing list, and Reply is still on the circle for the rare one that does read them.
+ *
+ * ⚠️ The real signal is the `List-Unsubscribe` header, not [GridlinkMessage.automated]. The sample
+ * data has no headers, and `automated` is the field that means the same thing here. Swap it when the
+ * JMAP store lands, and expect the two to disagree: plenty of genuine bulk mail ships no header at
+ * all, and the button has to disappear for those rather than fail.
  */
 @Composable
-private fun GridlinkThreadActionPill(modifier: Modifier = Modifier) {
+private fun GridlinkThreadActionPill(
+    message: GridlinkMessage,
+    onAction: (GridlinkThreadAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkRadii.pill)
     Row(
@@ -406,19 +489,37 @@ private fun GridlinkThreadActionPill(modifier: Modifier = Modifier) {
             .padding(GridlinkSpacing.s8),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GridlinkThreadActionItem(
-            label = "Reply all",
-            icon = Icons.AutoMirrored.Outlined.ReplyAll,
-            modifier = Modifier.weight(1f),
-        )
+        if (message.automated) {
+            GridlinkThreadActionItem(
+                label = "Unsubscribe",
+                icon = Icons.Outlined.Unsubscribe,
+                onClick = { onAction(GridlinkThreadAction.UNSUBSCRIBE) },
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            GridlinkThreadActionItem(
+                label = "Reply all",
+                icon = Icons.AutoMirrored.Outlined.ReplyAll,
+                onClick = { onAction(GridlinkThreadAction.REPLY_ALL) },
+                modifier = Modifier.weight(1f),
+            )
+        }
         GridlinkThreadActionItem(
             label = "Forward",
             icon = Icons.AutoMirrored.Outlined.Forward,
+            onClick = { onAction(GridlinkThreadAction.FORWARD) },
             modifier = Modifier.weight(1f),
         )
         GridlinkThreadActionItem(
             label = "Archive",
             icon = Icons.Outlined.Archive,
+            onClick = { onAction(GridlinkThreadAction.ARCHIVE) },
+            modifier = Modifier.weight(1f),
+        )
+        GridlinkThreadActionItem(
+            label = "Spam",
+            icon = Icons.Outlined.Report,
+            onClick = { onAction(GridlinkThreadAction.SPAM) },
             modifier = Modifier.weight(1f),
         )
     }
@@ -428,13 +529,15 @@ private fun GridlinkThreadActionPill(modifier: Modifier = Modifier) {
 private fun GridlinkThreadActionItem(
     label: String,
     icon: ImageVector,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .clip(RoundedCornerShape(GridlinkRadii.pill)),
+            .clip(RoundedCornerShape(GridlinkRadii.pill))
+            .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -449,6 +552,10 @@ private fun GridlinkThreadActionItem(
             style = GridlinkType.toolbarLabel,
             color = colors.textPrimary,
             maxLines = 1,
+            // "Unsubscribe" is the longest label in the app and it is within about 10dp of its
+            // slot on a folded display. Ellipsis rather than a clip so if it ever does run out of
+            // room it says so, instead of quietly dropping the last letter and reading as a typo.
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 2.dp),
         )
     }
@@ -554,5 +661,52 @@ internal fun gridlinkReplyTo(message: GridlinkMessage): GridlinkComposeRequest {
             attachments = emptyList(),
         ),
         focus = GridlinkComposeField.BODY,
+    )
+}
+
+/**
+ * Builds a reply-all to [message].
+ *
+ * ⚠️ **Right now this addresses exactly the same people [gridlinkReplyTo] does, and that is not a
+ * bug in the button, it is the sample model.** [GridlinkMessage] carries one sender and no To or Cc
+ * list, so there is literally nobody else on the message to add. Inventing a second recipient to
+ * make the button look busier would put a name in a real-looking composer that no message ever
+ * addressed, which §9 forbids and which is the sort of demo detail that survives into shipping code.
+ *
+ * What it does change is the title, so the composer says which of the two you pressed. When the JMAP
+ * store lands this becomes `to + cc` minus your own identities, and it is the *minus* that matters:
+ * every mail client that gets reply-all wrong gets it wrong by leaving you on the list.
+ */
+internal fun gridlinkReplyAllTo(message: GridlinkMessage): GridlinkComposeRequest {
+    val reply = gridlinkReplyTo(message)
+    return reply.copy(draft = reply.draft.copy(title = "Reply all"))
+}
+
+/**
+ * Builds a forward of [message].
+ *
+ * Three things differ from a reply and each is load-bearing. There is no recipient, because a
+ * forward is the one compose action where the app cannot guess who it is for, so the TO field takes
+ * focus instead of the body. The attachment travels, because a forwarded invoice without the invoice
+ * is the most annoying possible outcome. And the subject is prefixed "Fwd: " rather than "Re: ",
+ * which is the only thing telling the far end this is a relay and not a conversation.
+ */
+internal fun gridlinkForward(message: GridlinkMessage): GridlinkComposeRequest {
+    val subject = if (message.subject.startsWith("Fwd: ", ignoreCase = true)) {
+        message.subject
+    } else {
+        "Fwd: ${message.subject}"
+    }
+    return GridlinkComposeRequest(
+        draft = GridlinkComposeDraft(
+            title = "Forward",
+            recipients = emptyList(),
+            recipientQuery = "",
+            subject = subject,
+            body = "",
+            quoted = "Quoted — ${message.sender}, ${message.timestamp}",
+            attachments = listOfNotNull(message.attachment),
+        ),
+        focus = GridlinkComposeField.TO,
     )
 }
