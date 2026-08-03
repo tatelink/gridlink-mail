@@ -612,6 +612,7 @@
     <string name="status_action_failed">Kon de actie niet voltooien.</string>
     <string name="status_restore_failed">Kon sommige berichten niet herstellen.</string>
     <string name="status_moved_to_folder">Verplaatst naar %1$s</string>
+    <string name="status_action_partly_failed">Sommige berichten konden niet worden verwerkt.</string>
     <string name="status_move_other_account">Sommige berichten zijn niet verplaatst (ander account).</string>
 
     <!-- Notifications -->
@@ -659,6 +660,7 @@
     <string name="outbox_delete_permanently">Definitief verwijderen</string>
     <string name="outbox_banner_failed">Sommige berichten zijn niet verzonden. Tik om te bekijken.</string>
     <string name="offline_banner">Je bent offline</string>
+    <string name="sync_error_banner">Synchroniseren mislukt: %1$s</string>
 
     <!-- Conversations -->
     <string name="settings_conversation_section">Gesprekken</string>

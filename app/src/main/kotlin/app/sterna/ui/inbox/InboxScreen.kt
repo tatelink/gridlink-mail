@@ -1468,16 +1468,20 @@ fun InboxScreen(
 
             val refreshState = rememberPullToRefreshState()
             Column(Modifier.fillMaxSize().padding(padding)) {
-            // "Can't reach the server" is either event-driven from the connectivity callback
-            // (WiFi/airplane off) or inferred from a failed refresh (#65): the VPN-killswitch case
-            // keeps the WiFi transport up + NOT_VPN, so the callback still reads online — only a
-            // failed request reveals it. Fold both into one condition.
-            val unreachable = ui.offline || ui.error != null
-            // Thin offline line above the list, but only when there are cached rows to sit above
-            // (WYSIWYG). The zero-rows case shows the offline empty-state below instead, so the
-            // two never double up.
-            if (unreachable && pagedEmails.itemCount > 0) {
-                OfflineBanner()
+            // Offline, failed, or neither — never "offline" for a failure the device did not
+            // confirm. See [refreshNotice]: the VPN-killswitch case (#65) still reads offline,
+            // because a failed request is what corrects the connectivity flag itself; what no
+            // longer reads offline is a server that answered and refused.
+            val notice = refreshNotice(ui.offline, ui.error)
+            // Thin line above the list, but only when there are cached rows to sit above
+            // (WYSIWYG). The zero-rows case shows the matching centred state below instead, so
+            // the two never double up.
+            if (pagedEmails.itemCount > 0) {
+                when (notice) {
+                    RefreshNotice.OFFLINE -> OfflineBanner()
+                    RefreshNotice.ERROR -> SyncErrorBanner(ui.error.orEmpty())
+                    RefreshNotice.NONE -> Unit
+                }
             }
             // A calm, tappable line when a send has permanently failed: route to the outbox.
             if (outboxHasFailures) {
@@ -1642,7 +1646,7 @@ fun InboxScreen(
                             }
                         }
                     ui.refreshing || refreshLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                    unreachable -> PullableCenter {
+                    notice == RefreshNotice.OFFLINE -> PullableCenter {
                         EmptyState(
                             art = EmptyArt.OFFLINE,
                             title = stringResource(R.string.empty_offline_title),
@@ -1652,6 +1656,24 @@ fun InboxScreen(
                                 Button(onClick = viewModel::refresh) { Text(stringResource(R.string.inbox_retry)) }
                             },
                         )
+                    }
+                    // Nothing cached AND the refresh failed: the same "it failed, here is what
+                    // it said, try again" shape as the list's own load-more footer — never the
+                    // offline scene, whose drawing and whose promise ("we'll sync as soon as
+                    // you're back") would both be untrue here.
+                    notice == RefreshNotice.ERROR -> PullableCenter {
+                        Column(
+                            Modifier.align(Alignment.Center).padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.sync_error_banner, ui.error.orEmpty()),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            Button(onClick = viewModel::refresh) { Text(stringResource(R.string.inbox_retry)) }
+                        }
                     }
                     else -> {
                         // Pick the scene + voice by what's empty: the inbox (hero),
@@ -2381,6 +2403,39 @@ private fun OfflineBanner() {
             Text(
                 stringResource(R.string.offline_banner),
                 style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}
+
+/**
+ * A discreet banner for a refresh that FAILED while the device is online — the error surface, not
+ * the offline one, and carrying the failure's own text: until this existed, that text was shown
+ * nowhere at all and every failure was filed under "You're offline".
+ *
+ * Two lines at most. The text is a status line or an exception message, never mail content: the
+ * two guards that keep it that way live in the JMAP client (`postJmap` reports the HTTP status
+ * only, never a slice of the body; `decodeList` re-throws without kotlinx's JSON excerpt, which
+ * for an Email/get would be a subject and a preview).
+ */
+@Composable
+private fun SyncErrorBanner(message: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.Warning, contentDescription = null)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                stringResource(R.string.sync_error_banner, message),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

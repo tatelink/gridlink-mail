@@ -111,8 +111,12 @@ import java.util.UUID
  * folder deltas count every thread member (each reply is its own change), so the cap sits
  * at the common SyncWindow page size: a delta under it stays cheaper than the full-query
  * fallback it would otherwise trigger.
+ *
+ * It doubles as this file's SQLite bound-variable bound: every id list that goes into an
+ * `IN (...)`, read ([byIdsChunked]) or written ([deleteFromCacheAndIndex]), is chunked at this
+ * value — comfortably under the 999 bindings SQLite accepts below Android 12.
  */
-private const val MAX_CHANGES = 200
+internal const val MAX_CHANGES = 200
 
 /**
  * How long a locally mutated id (flag/seen change, delete, or an undo's move-back) is protected
@@ -385,9 +389,13 @@ internal suspend fun <T> stageOrRollback(rollback: suspend () -> Unit, stage: su
 /** Max full-text search matches returned to the UI. */
 private const val LOCAL_SEARCH_LIMIT = 100
 
-// Header crawl: tiny responses, so use the max page (maxObjectsInGet=500) and a high backstop —
-// headers are ~200 B in FTS, so even 200k rows is cheap and covers years-old mail. The pass stops
-// naturally when the query is exhausted.
+// Header crawl: tiny responses, so ask for a big page and keep a high backstop — headers are
+// ~200 B in FTS, so even 200k rows is cheap and covers years-old mail. The pass stops naturally
+// when the query is exhausted.
+//
+// This is what the crawl WANTS, not what it sends: every request is capped to the server's
+// advertised maxObjectsInGet ([requestPageSize]). It used to be sent as-is, and a server admitting
+// less refused every page whole.
 private const val HEADER_PAGE = 500
 private const val HEADER_MAX = 200_000
 private const val INDEX_TTL_MS = 10 * 60 * 1000L
@@ -402,9 +410,6 @@ private const val UNREAD_RESOLVE_PAGE = 500
 
 /** Upper bound on server-resolved unread ids for one "Mark all read" (20 pages of 500). */
 private const val UNREAD_RESOLVE_MAX = 10_000
-
-/** Ids per bulk Email/set seen update — "mark all read" (RFC 8620 maxObjectsInSet floor). */
-private const val SET_SEEN_BATCH = 500
 
 /**
  * Build the dynamic ORDER BY / WHERE for the paged list: purely the chosen [sort];
@@ -927,6 +932,12 @@ class MailRepository(
      * whole page, or the delta's `toFetch`. Never null, and never a partial list — everything in
      * it has just been written to the cache, and the retention prune spares exactly it.
      *
+     * "The full query's whole page" means EVERY request of the walk, not the last one: a window
+     * larger than the server's per-request limit is fetched in several requests and accumulated
+     * into one page ([JmapClient.queryEmailsWindow]). Returning only the last request's ids would
+     * put Codeberg #110 straight back on requests 2..n — the prune would delete, in the same
+     * refresh, mail the server had just handed over.
+     *
      * The two branches must both answer, which is the correction of a first version of the
      * Codeberg #110 fix that answered only for the full query: the delta branch writes rows the
      * cache has NEVER held (`added - cachedIds`), so a message an external client or a Sieve rule
@@ -937,7 +948,9 @@ class MailRepository(
         accountId: String,
         auth: JmapAuth,
         mailboxId: String,
-        limit: Int,
+        // How much to fetch and in what size of request — never a bare number, so the window and
+        // the size of one request cannot be confused for each other. See [folderSyncSizing].
+        sizing: FolderSyncSizing,
         // Local StoredAccount id used to tag cached rows (distinct from the JMAP
         // [accountId] used for API calls), so per-account routing and storage work.
         localAccountId: String,
@@ -1040,9 +1053,19 @@ class MailRepository(
             }
         }
         // Cold cache, or the server can't compute changes — full query.
-        val page = client.queryEmailsPage(session, accountId, mailboxId, limit, auth)
+        //
+        // ⛔ ONE call, ONE page, ONE write, however many requests the window costs. The walk
+        // ([JmapClient.queryEmailsWindow]) accumulates every request's messages and hands back a
+        // single page precisely because the line below is `replaceMailbox`, which DELETES what is
+        // not in the list it is given: writing per network page would empty the folder down to
+        // the last page on every refresh. Nothing here may become a loop.
+        val page = client.queryEmailsWindow(session, accountId, mailboxId, sizing.windowTarget, sizing.pageSize, auth)
         emailDao.replaceMailbox(localAccountId, mailboxId, page.emails.map { it.toEntity(localAccountId, mailboxId) }, recentlyMutatedIds(localAccountId))
-        android.util.Log.i("MailSync", "full query $mailboxId: ${page.emails.size} emails")
+        android.util.Log.i(
+            "MailSync",
+            "full query $mailboxId: ${page.emails.size} emails " +
+                "(window ${sizing.windowTarget} in pages of ${sizing.pageSize})",
+        )
         val queryState = page.queryState
         val emailState = page.emailState
         if (queryState != null && emailState != null) {
@@ -1484,7 +1507,11 @@ class MailRepository(
     suspend fun cachedEmailsByIds(keys: Collection<EmailKey>): List<Email> {
         if (keys.isEmpty()) return emptyList()
         return keys.groupBy({ it.accountId }, { it.emailId }).flatMap { (accountId, ids) ->
-            if (accountId != null) emailDao.emailsByIds(accountId, ids) else emailDao.emailsByIds(ids)
+            // Chunked ([byIdsChunked]): this is the read a select-all enters the bulk paths
+            // through, and its list is the whole selection.
+            byIdsChunked(ids) { chunk ->
+                if (accountId != null) emailDao.emailsByIds(accountId, chunk) else emailDao.emailsByIds(chunk)
+            }
         }.map { it.toEmail() }
     }
 
@@ -1553,12 +1580,19 @@ class MailRepository(
         // same role source as searchableFolderIds, so what the index holds and what a search may
         // surface can never diverge. Excluded server-side, so those headers never come down.
         val excluded = excludedSearchFolderIds(mailboxDao.searchOrder(credentials.id))
+        // ⛔ Bound ONCE and used for all three of "what to ask for", "how far to skip a failed
+        // page" and "was that page short?": HEADER_PAGE was a hardcoded 500 in all three, so on a
+        // server admitting less every page was refused whole (RFC 8620 §5.1, the same rejection
+        // that broke the folder sync) and the crawl gave up after MAX_CRAWL_ERRORS — with nothing
+        // on screen, since the index has no surface of its own. Local search silently stopped
+        // being covered beyond what the display cache held.
+        val pageSize = requestPageSize(HEADER_PAGE, ctx.session.getBatchSize())
         var position = 0
         var failed = false
         var consecutiveErrors = 0
         while (position < HEADER_MAX) {
             val page = try {
-                client.crawlHeaders(ctx.session, ctx.accountId, position, HEADER_PAGE, ctx.auth, excluded)
+                client.crawlHeaders(ctx.session, ctx.accountId, position, pageSize, ctx.auth, excluded)
             } catch (e: CancellationException) {
                 throw e // search closed / VM cleared: bail WITHOUT stamping so we resume next time
             } catch (e: Exception) {
@@ -1566,7 +1600,7 @@ class MailRepository(
                 // crawling; give up only after repeated failures.
                 failed = true
                 if (++consecutiveErrors >= MAX_CRAWL_ERRORS) break
-                position += HEADER_PAGE
+                position += pageSize
                 continue
             }
             consecutiveErrors = 0
@@ -1578,7 +1612,7 @@ class MailRepository(
                 emailFtsDao.upsert(page.emails.map { it.toFts(credentials.id) })
                 onPage?.invoke()
             }
-            if (page.queryCount < HEADER_PAGE) break
+            if (page.queryCount < pageSize) break
             position += page.queryCount
         }
         // Only throttle once the crawl finished cleanly; a partial/failed run must stay retryable so
@@ -1633,7 +1667,10 @@ class MailRepository(
                 val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
                     ?: resolved.mailboxes.firstOrNull()
                     ?: continue
-                syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit, credentials.id)
+                syncMailbox(
+                    resolved.session, resolved.accountId, resolved.auth, inbox.id,
+                    folderSyncSizing(limit, resolved.session.getBatchSize()), credentials.id,
+                )
                 // Persist the fetched folder counters (previously discarded), AFTER the row sync
                 // so badge and list move together — the unified refresh reconciles the drawer for
                 // every account, not just the current one.
@@ -1994,18 +2031,25 @@ class MailRepository(
             ?: mailboxes.firstOrNull()
             ?: error("No mailboxes found.")
 
+        // The window's two halves, computed ONCE and taken apart here rather than at each use:
+        // the request is capped to what this server accepts in one go, the retention floor is
+        // not (see [folderSyncSizing] — capping both is Codeberg #110 reopened).
+        val sizing = folderSyncSizing(limit, session.getBatchSize())
         // The folder rows must land even when the message sync throws (server hiccup mid-
         // refresh): otherwise the drawer keeps stale — or, right after a migration, empty —
         // folders although the list we already fetched is good. Failure persists the rows,
         // then rethrows; the prune stays success-only.
-        val sync = runCatching { syncMailbox(session, accountId, auth, target.id, limit, credentials.id) }
+        val sync = runCatching { syncMailbox(session, accountId, auth, target.id, sizing, credentials.id) }
         val syncError = sync.exceptionOrNull()
         // The prune spares whatever this very sync fetched — the full query's page, or the
         // delta's newly-written rows. `getOrNull()` is null only when the sync threw, which the
         // guard already excludes; passing it through unmapped keeps the second lock in place
         // (a null there prunes nothing rather than everything). Codeberg #110.
         if (syncError == null && pruneBeforeMillis != null) {
-            pruneRetention(credentials.id, target.id, pruneBeforeMillis, sync.getOrNull()?.toSet(), limit)
+            // `sizing.retentionFloor`, NEVER `sizing.pageSize`: the floor is the user's window
+            // ("keep at least the newest N whatever their age"), and the server's per-request
+            // limit has no business shortening it.
+            pruneRetention(credentials.id, target.id, pruneBeforeMillis, sync.getOrNull()?.toSet(), sizing.retentionFloor)
         }
         // Folder counters land AFTER the email rows: badge and list update together, and an
         // optimistic nudge from a concurrent action isn't overwritten mid-refresh by counters
@@ -2525,8 +2569,9 @@ class MailRepository(
     }
 
     /**
-     * Mark many messages read/unread. JMAP: ONE `Email/set` per [SET_SEEN_BATCH]-id chunk
-     * instead of one round trip per message; local seen state, the folder-count nudges
+     * Mark many messages read/unread. JMAP: ONE `Email/set` per chunk of what the SERVER says it
+     * accepts ([JmapSession.setBatchSize]) instead of one round trip per message; local seen state,
+     * the folder-count nudges
      * (grouped per folder like [adjustCountsForRemoval]) and the reconcile protection are
      * applied only to ids the server confirmed. Ids beyond the cache (resolved server-side
      * by [unreadIds]) have no row to nudge from — the caller's reconciling refresh converges
@@ -2540,9 +2585,16 @@ class MailRepository(
             return
         }
         val ctx = connect(credentials)
-        emailIds.chunked(SET_SEEN_BATCH).forEach { chunk ->
+        // The chunk is the server's own limit, so the client's own splitting ([JmapClient.move])
+        // never has to re-split what we hand it — the bookkeeping below stays per request.
+        emailIds.chunked(ctx.session.setBatchSize()).forEach { chunk ->
             // Captured before the write so only real transitions nudge the counters (#46).
-            val rows = emailDao.emailsByIds(credentials.id, chunk).associateBy { it.id }
+            // Chunked AGAIN, and on purpose: the loop above is bounded by a NETWORK limit that
+            // lives in another module (JMAP_BATCH_CEILING), and raising that ceiling one day must
+            // not quietly push this SELECT past SQLite's 999 bindings on Android 8/9. Two nested
+            // splits, two different reasons.
+            val rows = byIdsChunked(chunk) { slice -> emailDao.emailsByIds(credentials.id, slice) }
+                .associateBy { it.id }
             val result = client.setSeenAll(ctx.session, ctx.accountId, chunk, seen, ctx.auth)
             // Per-id notFound rejections are ghosts (destroyed server-side) — prune them
             // instead of leaving zombie rows that can never change state (see setRead).
@@ -2843,7 +2895,7 @@ class MailRepository(
         failed += ids.filter { ImapMailService.uidOf(it) == null }
         if (uidToId.isEmpty()) return
         // Captured before the local rows are dropped, to nudge the drawer counts (INV-COUNT).
-        val rows = emailDao.emailsByIds(credentials.id, uidToId.values.toList())
+        val rows = byIdsChunked(uidToId.values.toList()) { chunk -> emailDao.emailsByIds(credentials.id, chunk) }
         runCatching { imap.moveBatch(credentials, source, uidToId.keys.toList(), dest) }
             .onSuccess { mapping ->
                 uidToId.forEach { (uid, id) ->
@@ -2870,16 +2922,20 @@ class MailRepository(
         val uidToId = ids.mapNotNull { id -> ImapMailService.uidOf(id)?.let { it to id } }.toMap()
         failed += ids.filter { ImapMailService.uidOf(it) == null }
         if (uidToId.isEmpty()) return
-        val rows = emailDao.emailsByIds(credentials.id, uidToId.values.toList())
+        val rows = byIdsChunked(uidToId.values.toList()) { chunk -> emailDao.emailsByIds(credentials.id, chunk) }
         imap.deleteBatch(credentials, source, uidToId.keys.toList(), expectedUidValidity)
         deleteFromCacheAndIndex(credentials.id, uidToId.values)
         succeeded += uidToId.values
         adjustCountsForRemoval(rows, destMailboxId = null)
     }
 
-    /** JMAP: move every id to exactly [target] in one `Email/set`, then drop the local rows.
+    /** JMAP: move every id to exactly [target], then drop the local rows. The client splits that
+     *  into as many `Email/set` requests as the server's `maxObjectsInSet` requires and hands back
+     *  ONE aggregated result, so everything below still reads "what the server confirmed".
      *  Only ids the server confirmed moved are dropped — a per-id `notUpdated` (wrong account,
-     *  destroyed elsewhere, …) keeps its row and lands in [BulkResult.failed].
+     *  destroyed elsewhere, …) keeps its row and lands in [BulkResult.failed]; so do the ids of a
+     *  batch that never reached the server, under [Jmap.SET_ERROR_TRANSPORT] — NOT `notFound`,
+     *  which would prune their rows.
      *
      *  The ids that were ALREADY in [target] are among the confirmed ones: an `Email/set` that files
      *  a message into the folder it is in succeeds, having done nothing. Those are the bulk twin of
@@ -2889,7 +2945,7 @@ class MailRepository(
      *  the index did not. */
     private suspend fun jmapMoveAll(ctx: Context, emailIds: List<String>, target: String): BulkResult {
         val localAccountId = ctx.credentials.id
-        val rows = emailDao.emailsByIds(localAccountId, emailIds)
+        val rows = byIdsChunked(emailIds) { chunk -> emailDao.emailsByIds(localAccountId, chunk) }
         return runCatching { client.move(ctx.session, ctx.accountId, emailIds, target, ctx.auth) }
             .map { result ->
                 val moved = emailIds.filter { it in result.done }.toSet()
@@ -2907,13 +2963,16 @@ class MailRepository(
             .getOrElse { BulkResult(emptySet(), emailIds.toSet()) }
     }
 
-    /** JMAP: destroy every id in one `Email/set`, then drop the local rows (confirmed ids only,
-     *  like [jmapMoveAll]). A failed request THROWS (transport-level, retryable) rather than
-     *  marking the ids failed — see [imapDestroyGroup]; per-id `notDestroyed` rejections land
-     *  in [BulkResult.failed]. */
+    /** JMAP: destroy every id, then drop the local rows (confirmed ids only, like [jmapMoveAll]).
+     *  The client splits this across as many `Email/set` requests as the server accepts.
+     *  A failed request THROWS (transport-level, retryable) rather than marking the ids failed —
+     *  see [imapDestroyGroup] — INCLUDING mid-way, so the batches already destroyed skip the
+     *  bookkeeping below on that run. Harmless: [MessageDestroyWorker] replays the whole list and
+     *  an already-destroyed id comes back `notFound`, which is counted as a success just below.
+     *  Per-id `notDestroyed` rejections land in [BulkResult.failed]. */
     private suspend fun jmapDestroyAll(ctx: Context, emailIds: List<String>): BulkResult {
         val localAccountId = ctx.credentials.id
-        val rows = emailDao.emailsByIds(localAccountId, emailIds)
+        val rows = byIdsChunked(emailIds) { chunk -> emailDao.emailsByIds(localAccountId, chunk) }
         val result = client.destroy(ctx.session, ctx.accountId, emailIds, ctx.auth)
         val destroyed = emailIds.filter { it in result.done }.toSet()
         deleteFromCacheAndIndex(localAccountId, destroyed)
@@ -2940,7 +2999,8 @@ class MailRepository(
     private suspend fun markSelectionRead(credentials: AccountCredentials, emailIds: List<String>) {
         // Account-scoped read (issue #31): same-server sub-accounts can hold colliding email ids,
         // so an unscoped lookup could flag a sibling account's message.
-        val unread = emailDao.emailsByIds(credentials.id, emailIds).filter { !it.seen }.map { it.id }
+        val unread = byIdsChunked(emailIds) { chunk -> emailDao.emailsByIds(credentials.id, chunk) }
+            .filter { !it.seen }.map { it.id }
         if (unread.isEmpty()) return
         runCatching { setReadAll(credentials, unread, true) }
     }
@@ -2965,7 +3025,8 @@ class MailRepository(
             emailIds.filter { ImapMailService.mailboxOf(it) == inbox }
         } else {
             // Account-scoped (issue #31): resolve source folders within this account only.
-            emailDao.emailsByIds(credentials.id, emailIds).filter { it.mailboxId == inbox }.map { it.id }
+            byIdsChunked(emailIds) { chunk -> emailDao.emailsByIds(credentials.id, chunk) }
+                .filter { it.mailboxId == inbox }.map { it.id }
         }
         if (leaving.isNotEmpty()) markSelectionRead(credentials, leaving)
     }
@@ -3518,7 +3579,8 @@ class MailRepository(
      * already-triaged message) — a small transient the next sync corrects anyway.
      */
     private suspend fun restoreCounts(accountId: String, targets: List<RestoreTarget>) {
-        val seenById = emailDao.emailsByIds(accountId, targets.map { it.emailId }).associate { it.id to it.seen }
+        val seenById = byIdsChunked(targets.map { it.emailId }) { chunk -> emailDao.emailsByIds(accountId, chunk) }
+            .associate { it.id to it.seen }
         val moves = targets.mapNotNull { t ->
             val dest = t.destMailboxId ?: return@mapNotNull null // a destroy can't be undone
             (dest to (seenById[t.emailId] ?: true))
@@ -3849,8 +3911,9 @@ class MailRepository(
         // the cached row's folder while the server still lists it, else the role-ranked pick —
         // never the server map's arbitrary first key, which could feed a search-row action
         // (delete's destroy-vs-move, undo's restore target) a Trash/Junk folder by accident.
-        val cachedMailbox =
-            emailDao.emailsByIds(credentials.id, hits.emails.map { it.id }).associate { it.id to it.mailboxId }
+        val cachedMailbox = byIdsChunked(hits.emails.map { it.id }) { chunk ->
+            emailDao.emailsByIds(credentials.id, chunk)
+        }.associate { it.id to it.mailboxId }
         val resolved = hits.emails.map { e ->
             val serverBoxes = e.mailboxIds.keys
             val mailbox = cachedMailbox[e.id]?.takeIf { it in serverBoxes }
@@ -3946,7 +4009,9 @@ class MailRepository(
         // ([viewMailboxIds]), else the "most alive" mailbox by role — never the map's arbitrary
         // first key, which could re-key a correctly-filed row (even the representative) into
         // Trash and feed the destroy-vs-move decision a wrong folder.
-        val cachedMailbox = emailDao.emailsByIds(credentials.id, emails.map { it.id }).associate { it.id to it.mailboxId }
+        val cachedMailbox = byIdsChunked(emails.map { it.id }) { chunk ->
+            emailDao.emailsByIds(credentials.id, chunk)
+        }.associate { it.id to it.mailboxId }
         val entities = emails.mapNotNull { e ->
             val serverBoxes = e.mailboxIds.keys
             val mailbox = cachedMailbox[e.id]?.takeIf { it in serverBoxes }
@@ -4216,7 +4281,10 @@ class MailRepository(
             }
         }
         val refreshes = targets.map { mailbox ->
-            syncMailbox(resolved.session, resolved.accountId, resolved.auth, mailbox.id, limit, credentials.id)
+            syncMailbox(
+                resolved.session, resolved.accountId, resolved.auth, mailbox.id,
+                folderSyncSizing(limit, resolved.session.getBatchSize()), credentials.id,
+            )
             FolderRefresh(
                 mailboxId = mailbox.id,
                 name = mailbox.name,
@@ -4983,10 +5051,11 @@ class MailRepository(
         // un-cached Sent reply would otherwise leave the conversation looking like one message.
         // For an on-behalf send that is the SUB-account's Sent (where the copy just landed).
         runCatching {
+            val sizing = folderSyncSizing(PAGE_SIZE, ctx.session.getBatchSize())
             if (onBehalf) {
-                ownSentId?.let { syncMailbox(ctx.session, ctx.accountId, ctx.auth, it, PAGE_SIZE, credentials.id) }
+                ownSentId?.let { syncMailbox(ctx.session, ctx.accountId, ctx.auth, it, sizing, credentials.id) }
             } else {
-                syncMailbox(ctx.session, ctx.accountId, ctx.auth, sentId, PAGE_SIZE, credentials.id)
+                syncMailbox(ctx.session, ctx.accountId, ctx.auth, sentId, sizing, credentials.id)
             }
         }
     }

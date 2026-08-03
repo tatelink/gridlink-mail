@@ -17,6 +17,18 @@ object Jmap {
     /** Well-known path for JMAP autodiscovery (RFC 8620 §2.2). */
     const val WELL_KNOWN_PATH = "/.well-known/jmap"
 
+    /**
+     * The per-id "failure" type a batched `Email/set` reports for ids it never got an answer for:
+     * the batch whose request failed at transport level, and every batch after it that was
+     * therefore not attempted.
+     *
+     * ⛔ It is deliberately NOT a `SetError` type from RFC 8620 §5.3, and above all not
+     * `"notFound"`: callers treat `notFound` as "destroyed elsewhere" and DELETE the local row.
+     * An unreachable server must never make live messages vanish from the cache, so this string
+     * is prefixed and impossible to confuse with anything a server can send.
+     */
+    const val SET_ERROR_TRANSPORT = "sterna:transportFailed"
+
     /** Well-known path for OAuth 2.0 authorization-server metadata (RFC 8414). */
     const val OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server"
 

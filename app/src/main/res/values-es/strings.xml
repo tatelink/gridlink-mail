@@ -614,6 +614,7 @@
     <string name="status_action_failed">No se pudo completar la acción.</string>
     <string name="status_restore_failed">No se pudieron restaurar algunos mensajes.</string>
     <string name="status_moved_to_folder">Movido a %1$s</string>
+    <string name="status_action_partly_failed">Algunos mensajes no se pudieron procesar.</string>
     <string name="status_move_other_account">Algunos mensajes no se movieron (otra cuenta).</string>
 
     <!-- Notifications -->
@@ -661,6 +662,7 @@
     <string name="outbox_delete_permanently">Eliminar definitivamente</string>
     <string name="outbox_banner_failed">Algunos mensajes no se enviaron. Toca para revisar.</string>
     <string name="offline_banner">Estás sin conexión</string>
+    <string name="sync_error_banner">Error de sincronización: %1$s</string>
     <string name="settings_conversation_section">Conversaciones</string>
     <string name="settings_conversation_title">Vista de conversación</string>
     <string name="settings_conversation_subtitle">Agrupa los mensajes de un mismo hilo en una sola fila, con un contador. Los hilos vienen del servidor: en las cuentas JMAP los mensajes se agrupan, en una cuenta IMAP cada mensaje se queda en su propia fila.</string>

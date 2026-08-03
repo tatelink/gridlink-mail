@@ -614,6 +614,7 @@
     <string name="status_action_failed">Impossibile completare l\'azione.</string>
     <string name="status_restore_failed">Impossibile ripristinare alcuni messaggi.</string>
     <string name="status_moved_to_folder">Spostato in %1$s</string>
+    <string name="status_action_partly_failed">Non è stato possibile elaborare alcuni messaggi.</string>
     <string name="status_move_other_account">Alcuni messaggi non sono stati spostati (altro account).</string>
 
     <!-- Notifications -->
@@ -661,6 +662,7 @@
     <string name="outbox_delete_permanently">Elimina definitivamente</string>
     <string name="outbox_banner_failed">Alcuni messaggi non sono partiti. Tocca per controllare.</string>
     <string name="offline_banner">Sei offline</string>
+    <string name="sync_error_banner">Sincronizzazione non riuscita: %1$s</string>
     <string name="settings_conversation_section">Conversazioni</string>
     <string name="settings_conversation_title">Vista conversazione</string>
     <string name="settings_conversation_subtitle">Raggruppa i messaggi della stessa conversazione in un\'unica riga, con un conteggio. Le conversazioni vengono dal server: negli account JMAP i messaggi vengono raggruppati, in un account IMAP ogni messaggio resta sulla propria riga.</string>

@@ -616,6 +616,7 @@
     <string name="status_action_failed">Nie udało się wykonać akcji.</string>
     <string name="status_restore_failed">Nie udało się przywrócić niektórych wiadomości.</string>
     <string name="status_moved_to_folder">Przeniesiono do %1$s</string>
+    <string name="status_action_partly_failed">Nie udało się przetworzyć niektórych wiadomości.</string>
     <string name="status_move_other_account">Niektóre wiadomości nie zostały przeniesione (inne konto).</string>
 
     <!-- Notifications -->
@@ -663,6 +664,7 @@
     <string name="outbox_delete_permanently">Usuń trwale</string>
     <string name="outbox_banner_failed">Niektóre wiadomości nie zostały wysłane. Dotknij, aby sprawdzić.</string>
     <string name="offline_banner">Jesteś offline</string>
+    <string name="sync_error_banner">Synchronizacja nie powiodła się: %1$s</string>
     <string name="settings_conversation_section">Konwersacje</string>
     <string name="settings_conversation_title">Widok konwersacji</string>
     <string name="settings_conversation_subtitle">Grupuj wiadomości z tego samego wątku w jeden wiersz, z licznikiem. Wątki pochodzą z serwera: na kontach JMAP wiadomości są grupowane, na koncie IMAP każda wiadomość zostaje w osobnym wierszu.</string>

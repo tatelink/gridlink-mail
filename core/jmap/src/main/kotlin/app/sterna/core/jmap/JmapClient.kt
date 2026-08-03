@@ -25,6 +25,7 @@ import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import java.io.Closeable
+import java.io.IOException
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
@@ -235,8 +236,99 @@ class JmapClient internal constructor(
                 queryState = methodResponseArgs(body, "Email/query")["queryState"]?.jsonPrimitive?.contentOrNull,
                 emailState = methodResponseArgs(body, "Email/get")["state"]?.jsonPrimitive?.contentOrNull,
                 total = methodResponseArgs(body, "Email/query")["total"]?.jsonPrimitive?.intOrNull,
+                queryCount = (methodResponseArgs(body, "Email/query")["ids"] as? JsonArray)?.size ?: 0,
             )
         }
+    }
+
+    /**
+     * The newest [target] messages of a mailbox, in as many requests as the server's per-request
+     * object limit ([pageSize]) needs, handed back as ONE accumulated page.
+     *
+     * ⛔ Why this exists at all: [queryEmailsPage] sends `Email/query` and a back-referenced
+     * `Email/get` in ONE request, so the get's id list is produced by the server and the query's
+     * `limit` is the only lever on it. Past `maxObjectsInGet` the server rejects the whole get
+     * (RFC 8620 §5.1) and the call throws — which is exactly what "Messages to sync = All" (1000)
+     * did on a Stalwart advertising 500: the folder's full-query fallback failed, so no sync
+     * cursor was ever stored, so the next refresh took the same fallback again. A closed loop; the
+     * folder never synced again.
+     *
+     * ⛔ It returns ONE page for the whole window, not a page per request, because its caller
+     * reconciles the mailbox with `replaceMailbox`, which DELETES what is not in the list it is
+     * given. One write per network page would empty the folder down to the last page every time.
+     *
+     * ⛔ And it never swallows a failure to hand back what it managed to fetch: a partial page
+     * would be reconciled as "these are the folder's contents" and delete the rest. Any failure
+     * propagates, exactly as the single-request version did.
+     *
+     * Paging is by ANCHOR on the previous page's last id (RFC 8620 §5.5), never by absolute
+     * position: mail arriving at the top between two requests shifts every position and would
+     * duplicate or skip a page. The one-shot fallback to a position is for the anchor having left
+     * the folder mid-walk (`anchorNotFound`), the same recovery the scroll mediator makes.
+     *
+     * The cursors returned are the FIRST response's: a `queryState` describes the query it came
+     * from, and handing back the last page's would let the next delta be computed against a state
+     * that never described the whole folder.
+     */
+    suspend fun queryEmailsWindow(
+        session: JmapSession,
+        accountId: String,
+        mailboxId: String,
+        target: Int,
+        pageSize: Int,
+        auth: JmapAuth,
+    ): EmailPage = withContext(Dispatchers.IO) {
+        // Insertion-ordered and keyed by id: the walk's pages can overlap (a recovery page starts
+        // at a position the previous one already covered), and a duplicate would be written twice
+        // and counted twice against the window.
+        val accumulated = LinkedHashMap<String, Email>()
+        var first: EmailPage? = null
+        var seenIds = 0
+        var limit = nextWindowPageLimit(fetched = 0, target = target, pageSize = pageSize, last = null)
+        while (limit != null) {
+            // The oldest message accumulated so far, i.e. where the previous request stopped.
+            val anchor = accumulated.values.lastOrNull()?.id
+            val page = try {
+                queryEmailsPage(
+                    session, accountId, mailboxId, limit, auth,
+                    anchorId = anchor,
+                    anchorOffset = if (anchor != null) 1 else 0,
+                )
+            } catch (e: JmapException) {
+                // The anchor left the folder mid-walk (deleted, moved elsewhere). Recover ONCE on
+                // an absolute position — the count already accumulated, which is where this walk
+                // stopped in a newest-first list. Any other failure propagates: see above, a
+                // partial window deletes mail.
+                if (anchor == null || e.errorType != "anchorNotFound") throw e
+                queryEmailsPage(
+                    session, accountId, mailboxId, limit, auth,
+                    position = accumulated.size,
+                )
+            }
+            if (first == null) first = page
+            val before = accumulated.size
+            page.emails.forEach { accumulated.putIfAbsent(it.id, it) }
+            seenIds += page.queryCount
+            limit = nextWindowPageLimit(
+                fetched = accumulated.size,
+                target = target,
+                pageSize = pageSize,
+                last = WalkedPage(
+                    requested = limit,
+                    queryCount = page.queryCount,
+                    added = accumulated.size - before,
+                ),
+            )
+        }
+        EmailPage(
+            emails = accumulated.values.toList(),
+            queryState = first?.queryState,
+            emailState = first?.emailState,
+            total = first?.total,
+            // Every id the walk's queries listed, so a caller can still tell a short GET from an
+            // exhausted folder. Not a single query's count — this page is not a single query.
+            queryCount = seenIds,
+        )
     }
 
     /**
@@ -400,38 +492,39 @@ class JmapClient internal constructor(
         )
     }
 
-    /** Email/get a specific set of ids with list (no-body) properties. */
+    /** Email/get a specific set of ids with list (no-body) properties, split across as many
+     *  requests as [JmapSession.getBatchSize] requires ([getInBatches]) and concatenated. */
     suspend fun getEmailsByIds(
         session: JmapSession,
         accountId: String,
         ids: List<String>,
         auth: JmapAuth,
     ): List<Email> = withContext(Dispatchers.IO) {
-        if (ids.isEmpty()) return@withContext emptyList()
-        val payload = buildJsonObject {
-            putJsonArray("using") {
-                add(Jmap.CORE_CAPABILITY)
-                add(Jmap.MAIL_CAPABILITY)
-            }
-            putJsonArray("methodCalls") {
-                addJsonArray {
-                    add("Email/get")
-                    addJsonObject {
-                        put("accountId", accountId)
-                        putJsonArray("ids") { ids.forEach { add(it) } }
-                        putJsonArray("properties") {
-                            listOf(
-                                "id", "threadId", "subject", "preview",
-                                "receivedAt", "from", "to", "hasAttachment", "keywords",
-                            ).forEach { add(it) }
+        getInBatches(session, ids) { batch ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.MAIL_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Email/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { batch.forEach { add(it) } }
+                            putJsonArray("properties") {
+                                listOf(
+                                    "id", "threadId", "subject", "preview",
+                                    "receivedAt", "from", "to", "hasAttachment", "keywords",
+                                ).forEach { add(it) }
+                            }
                         }
+                        add("g0")
                     }
-                    add("g0")
                 }
             }
+            decodeList(postJmap(session, auth, payload), "Email/get", Email.serializer())
         }
-        val body = postJmap(session, auth, payload)
-        decodeList(body, "Email/get", Email.serializer())
     }
 
     /**
@@ -441,6 +534,11 @@ class JmapClient internal constructor(
      * sync ghost sweep and returns ONLY ids listed in the response's `notFound` array: a
      * failed or malformed response throws rather than guessing, so a transient error can
      * never be mistaken for "these messages are gone".
+     *
+     * ⛔ That contract is why the batching here ([getInBatches]) must NOT gather a partial union:
+     * the caller DELETES the rows this returns. A batch that never answered would otherwise hand
+     * back "those messages are gone" about live mail — so a failing batch throws, exactly as an
+     * unsplit call did.
      */
     suspend fun missingEmailIds(
         session: JmapSession,
@@ -448,28 +546,27 @@ class JmapClient internal constructor(
         ids: List<String>,
         auth: JmapAuth,
     ): Set<String> = withContext(Dispatchers.IO) {
-        if (ids.isEmpty()) return@withContext emptySet()
-        val payload = buildJsonObject {
-            putJsonArray("using") {
-                add(Jmap.CORE_CAPABILITY)
-                add(Jmap.MAIL_CAPABILITY)
-            }
-            putJsonArray("methodCalls") {
-                addJsonArray {
-                    add("Email/get")
-                    addJsonObject {
-                        put("accountId", accountId)
-                        putJsonArray("ids") { ids.forEach { add(it) } }
-                        putJsonArray("properties") { add("id") }
+        getInBatches(session, ids) { batch ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.MAIL_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Email/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { batch.forEach { add(it) } }
+                            putJsonArray("properties") { add("id") }
+                        }
+                        add("g0")
                     }
-                    add("g0")
                 }
             }
-        }
-        val body = postJmap(session, auth, payload)
-        val args = methodResponseArgs(body, "Email/get")
-        args["notFound"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }?.toSet()
-            ?: emptySet()
+            val args = methodResponseArgs(postJmap(session, auth, payload), "Email/get")
+            args["notFound"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+        }.toSet()
     }
 
     /**
@@ -715,9 +812,10 @@ class JmapClient internal constructor(
     }
 
     /**
-     * Fetch several messages WITH their bodies in one Email/get (for prefetching the top of
-     * the inbox into the local cache). Same properties as [getEmail] but many ids at once;
-     * does NOT mark anything read.
+     * Fetch several messages WITH their bodies (for prefetching the top of the inbox into the
+     * local cache), split across as many Email/get requests as [JmapSession.getBatchSize] requires
+     * ([getInBatches]). Same properties as [getEmail] but many ids at once; does NOT mark anything
+     * read.
      */
     suspend fun getEmailsWithBody(
         session: JmapSession,
@@ -725,44 +823,100 @@ class JmapClient internal constructor(
         ids: List<String>,
         auth: JmapAuth,
     ): List<Email> = withContext(Dispatchers.IO) {
-        if (ids.isEmpty()) return@withContext emptyList()
-        val payload = buildJsonObject {
-            putJsonArray("using") {
-                add(Jmap.CORE_CAPABILITY)
-                add(Jmap.MAIL_CAPABILITY)
-            }
-            putJsonArray("methodCalls") {
-                addJsonArray {
-                    add("Email/get")
-                    addJsonObject {
-                        put("accountId", accountId)
-                        putJsonArray("ids") { ids.forEach { add(it) } }
-                        putJsonArray("properties") {
-                            listOf(
-                                "id", "blobId", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
-                                "hasAttachment", "keywords",
-                                "htmlBody", "textBody", "attachments", "bodyValues",
-                            ).forEach { add(it) }
+        getInBatches(session, ids) { batch ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.MAIL_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Email/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { batch.forEach { add(it) } }
+                            putJsonArray("properties") {
+                                listOf(
+                                    "id", "blobId", "threadId", "subject", "preview", "receivedAt",
+                                    "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
+                                    "hasAttachment", "keywords",
+                                    "htmlBody", "textBody", "attachments", "bodyValues",
+                                ).forEach { add(it) }
+                            }
+                            put("fetchHTMLBodyValues", true)
+                            put("fetchTextBodyValues", true)
                         }
-                        put("fetchHTMLBodyValues", true)
-                        put("fetchTextBodyValues", true)
+                        add("g0")
                     }
-                    add("g0")
                 }
             }
+            decodeList(postJmap(session, auth, payload), "Email/get", Email.serializer())
         }
-        val body = postJmap(session, auth, payload)
-        decodeList(body, "Email/get", Email.serializer())
     }
 
-    /** Fetch all emails in a thread (lightweight, no body) via Thread/get + Email/get (RFC 8621 §3). */
+    /**
+     * Every message of a thread (lightweight, no body) — `Thread/get`, then `Email/get` on the ids
+     * it named, split across as many requests as [JmapSession.getBatchSize] requires
+     * ([getInBatches]).
+     *
+     * ⛔ TWO requests, not one chained pair. This used to back-reference the thread's whole
+     * membership into a single `Email/get` (a `resultOf` path down to each thread's `emailIds`),
+     * which put the id list beyond any reach of ours: past `maxObjectsInGet` the server refuses
+     * the get WHOLE (RFC 8620 §5.1) and
+     * expanding a long conversation returned nothing at all. Splitting a back-reference is
+     * impossible — the ids only exist server-side — so the reference has to go.
+     *
+     * The property set is this path's own, and `mailboxIds` in it is not decoration:
+     * [MailRepository.fetchThreadMembers] files each member under the folder it names and SKIPS
+     * any member without one. Reusing [getEmailsByIds] verbatim would have dropped it, and the
+     * expansion would have fetched every message and persisted none.
+     */
     suspend fun getThreadEmails(
         session: JmapSession,
         accountId: String,
         threadId: String,
         auth: JmapAuth,
     ): List<Email> = withContext(Dispatchers.IO) {
+        val ids = threadEmailIds(session, accountId, threadId, auth)
+        getInBatches(session, ids) { batch ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.MAIL_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Email/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { batch.forEach { add(it) } }
+                            putJsonArray("properties") {
+                                listOf(
+                                    "id", "threadId", "subject", "preview", "receivedAt",
+                                    "from", "to", "hasAttachment", "keywords", "mailboxIds",
+                                ).forEach { add(it) }
+                            }
+                        }
+                        add("g0")
+                    }
+                }
+            }
+            decodeList(postJmap(session, auth, payload), "Email/get", Email.serializer())
+        }
+    }
+
+    /**
+     * The email ids a thread is made of, in the server's order (RFC 8621 §3) — the first half of
+     * [getThreadEmails]. An unknown thread answers an empty list rather than throwing: a
+     * conversation whose thread the server no longer knows is not an error, and the caller then
+     * simply keeps what the cache gave it.
+     */
+    private suspend fun threadEmailIds(
+        session: JmapSession,
+        accountId: String,
+        threadId: String,
+        auth: JmapAuth,
+    ): List<String> {
         val payload = buildJsonObject {
             putJsonArray("using") {
                 add(Jmap.CORE_CAPABILITY)
@@ -777,38 +931,13 @@ class JmapClient internal constructor(
                     }
                     add("t0")
                 }
-                addJsonArray {
-                    add("Email/get")
-                    addJsonObject {
-                        put("accountId", accountId)
-                        putJsonObject("#ids") {
-                            put("resultOf", "t0")
-                            put("name", "Thread/get")
-                            put("path", "/list/*/emailIds")
-                        }
-                        putJsonArray("properties") {
-                            listOf(
-                                "id", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "hasAttachment", "keywords", "mailboxIds",
-                            ).forEach { add(it) }
-                        }
-                    }
-                    add("g0")
-                }
             }
         }
-        val request = Request.Builder()
-            .url(session.apiUrl)
-            .header("Authorization", auth.authorizationHeader())
-            .header("Accept", "application/json")
-            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-        httpClient.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw JmapException("Thread/get failed: HTTP ${response.code} ${response.message}")
-            }
-            decodeList(body, "Email/get", Email.serializer())
+        val list = methodResponseArgs(postJmap(session, auth, payload), "Thread/get")["list"]
+            ?.jsonArray ?: return emptyList()
+        return list.flatMap { thread ->
+            thread.jsonObject["emailIds"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                ?: emptyList()
         }
     }
 
@@ -843,9 +972,16 @@ class JmapClient internal constructor(
         setKeyword(session, accountId, emailId, "\$seen", seen, auth)
 
     /**
-     * Set or clear the \$seen keyword on many emails in ONE `Email/set` — over [postWithRetry],
-     * like the bulk [move] — so "Mark all read" doesn't cost one round trip per message.
-     * Returns the per-id outcome (no-op for an empty list).
+     * Set or clear the \$seen keyword on many emails — over [postWithRetry], like the bulk [move] —
+     * so "Mark all read" doesn't cost one round trip per message. Split into requests of at most
+     * [JmapSession.setBatchSize] ids ([setInBatches]); returns the aggregated per-id outcome (no-op
+     * for an empty list).
+     *
+     * ⛔ THROWS on a transport failure, like [destroy] and unlike [move]: "Mark all read" dismisses
+     * the notifications of the mail it marked only when this call came back without throwing. Turn
+     * a dead connection into a quiet partial result and it would clear the notifications of mail
+     * that is still unread. The batches already confirmed keep their local effect — the caller
+     * commits per batch.
      */
     suspend fun setSeenAll(
         session: JmapSession,
@@ -853,19 +989,17 @@ class JmapClient internal constructor(
         emailIds: List<String>,
         seen: Boolean,
         auth: JmapAuth,
-    ): EmailSetResult {
-        if (emailIds.isEmpty()) return EmailSetResult(null, emptySet(), emptyMap())
-        val args = emailSet(session, auth) {
+    ): EmailSetResult = setInBatches(session, emailIds, rethrowTransportFailure = true) { batch ->
+        emailSet(session, auth) {
             put("accountId", accountId)
             putJsonObject("update") {
-                emailIds.forEach { id ->
+                batch.forEach { id ->
                     putJsonObject(id) {
                         if (seen) put("keywords/\$seen", true) else put("keywords/\$seen", JsonNull)
                     }
                 }
             }
         }
-        return emailSetResult(args)
     }
 
     /** Move an email so it belongs to exactly [targetMailboxId]. Returns the new state.
@@ -892,9 +1026,15 @@ class JmapClient internal constructor(
     }
 
     /**
-     * Move many emails so each belongs to exactly [targetMailboxId], in ONE `Email/set`
-     * (Codeberg #29) — over [postWithRetry], so a big batch is one request that still backs
-     * off on the server's rate limit. Returns the per-id outcome (no-op for an empty list).
+     * Move many emails so each belongs to exactly [targetMailboxId] (Codeberg #29) — over
+     * [postWithRetry], so each request still backs off on the server's rate limit. Split into
+     * requests of at most [JmapSession.setBatchSize] ids ([setInBatches]); returns the aggregated
+     * per-id outcome (no-op for an empty list).
+     *
+     * Does NOT surface a transport failure: the ids of the failing batch and of every batch after
+     * it come back in [EmailSetResult.failed] under [Jmap.SET_ERROR_TRANSPORT], so a caller that
+     * used to turn the whole exception into "everything failed" now keeps the credit of the
+     * batches that did go through.
      */
     suspend fun move(
         session: JmapSession,
@@ -902,28 +1042,39 @@ class JmapClient internal constructor(
         emailIds: List<String>,
         targetMailboxId: String,
         auth: JmapAuth,
-    ): EmailSetResult {
-        if (emailIds.isEmpty()) return EmailSetResult(null, emptySet(), emptyMap())
-        val args = emailSet(session, auth) {
+    ): EmailSetResult = setInBatches(session, emailIds, rethrowTransportFailure = false) { batch ->
+        emailSet(session, auth) {
             put("accountId", accountId)
             putJsonObject("update") {
-                emailIds.forEach { id ->
+                batch.forEach { id ->
                     putJsonObject(id) { putJsonObject("mailboxIds") { put(targetMailboxId, true) } }
                 }
             }
         }
-        return emailSetResult(args)
     }
 
-    /** Permanently delete many emails in one `Email/set` (Codeberg #29). Returns the per-id
-     *  outcome (no-op for an empty list). */
-    suspend fun destroy(session: JmapSession, accountId: String, emailIds: List<String>, auth: JmapAuth): EmailSetResult {
-        if (emailIds.isEmpty()) return EmailSetResult(null, emptySet(), emptyMap())
-        val args = emailSet(session, auth) {
+    /**
+     * Permanently delete many emails (Codeberg #29), split into requests of at most
+     * [JmapSession.setBatchSize] ids ([setInBatches]). Returns the aggregated per-id outcome
+     * (no-op for an empty list).
+     *
+     * ⛔ Unlike [move], this THROWS on a transport failure, including one that hits the third batch
+     * of five: the destroy worker must RETRY a user-confirmed destroy, never abandon it. The
+     * consequence is that the batches already destroyed do not go through the caller's local
+     * bookkeeping on that run — harmless, because the replay is idempotent: the worker resends the
+     * whole list, an already-destroyed id comes back `notFound`, and the caller counts that as a
+     * success.
+     */
+    suspend fun destroy(
+        session: JmapSession,
+        accountId: String,
+        emailIds: List<String>,
+        auth: JmapAuth,
+    ): EmailSetResult = setInBatches(session, emailIds, rethrowTransportFailure = true) { batch ->
+        emailSet(session, auth) {
             put("accountId", accountId)
-            putJsonArray("destroy") { emailIds.forEach { add(it) } }
+            putJsonArray("destroy") { batch.forEach { add(it) } }
         }
-        return emailSetResult(args)
     }
 
     /** Create a mailbox (e.g. an Archive folder) and return its new id (RFC 8621 §2.5). */
@@ -1893,6 +2044,82 @@ class JmapClient internal constructor(
             }
         }
         return methodResponseArgs(postWithRetry(session.apiUrl, auth.authorizationHeader(), payload), "Email/set")
+    }
+
+    /**
+     * Run [ids] through [oneBatch] in requests of at most [JmapSession.getBatchSize] ids, and
+     * CONCATENATE the answers in order. The read-side twin of [setInBatches] — same reason it
+     * lives here (this layer holds the session, hence the server's `maxObjectsInGet`), and RFC 8620
+     * §5.1 has the server reject the WHOLE call past that limit.
+     *
+     * ⛔ One deliberate difference: there is NO partial credit here, and no `catch`. A failing batch
+     * propagates, so the caller sees the failure it saw when the call was unsplit. Half an answer
+     * would be worse than none — the callers overwrite the cache with what comes back
+     * ([MailRepository.restoreAll]) or DELETE the rows it names ([missingEmailIds]). Partial credit
+     * is a write-side idea; it does not transfer to a read.
+     */
+    private suspend fun <T> getInBatches(
+        session: JmapSession,
+        ids: List<String>,
+        oneBatch: suspend (List<String>) -> List<T>,
+    ): List<T> {
+        if (ids.isEmpty()) return emptyList()
+        return ids.chunked(session.getBatchSize()).flatMap { oneBatch(it) }
+    }
+
+    /**
+     * Run [emailIds] through [oneBatch] in requests of at most [JmapSession.setBatchSize] ids, and
+     * aggregate the answers into ONE [EmailSetResult] — so callers keep the bookkeeping they had
+     * when a bulk action was a single `Email/set`.
+     *
+     * Why this lives here and not in the repository: this is the only layer holding the session,
+     * hence the server's `maxObjectsInSet`, and three call sites ([move]'s bulk form used by an
+     * Undo and by the unarchive-on-reply path, [destroy], [setSeenAll]) reach the client directly.
+     * A server rejects a `Email/set` carrying more ids than it advertises IN ONE BLOCK, so an
+     * unsplit select-all fails wholesale — the very symptom this exists for.
+     *
+     * Aggregation:
+     * - `done` and `failed` are the UNIONS over the batches;
+     * - `newState` is the LAST batch's. Recording an older state is safe (the next delta simply
+     *   re-reads wider); recording one NEWER than our local writes is the bug.
+     *
+     * On a transport failure (HTTP/network — [JmapException], [IOException]) we STOP: on a dead
+     * connection every remaining batch would only grind through [postWithRetry]'s backoff. The
+     * failing batch and every batch never attempted are reported, so nothing disappears silently.
+     * [rethrowTransportFailure] picks which contract the caller has: `false` returns the partial
+     * result with those ids marked [Jmap.SET_ERROR_TRANSPORT]; `true` rethrows (see [destroy]).
+     *
+     * ⛔ [Jmap.SET_ERROR_TRANSPORT] is deliberately not `"notFound"`: the repository prunes the
+     * local row of a `notFound` id, so labelling an unreachable batch that way would delete live
+     * messages out of the cache.
+     */
+    private suspend fun setInBatches(
+        session: JmapSession,
+        emailIds: List<String>,
+        rethrowTransportFailure: Boolean,
+        oneBatch: suspend (List<String>) -> JsonObject,
+    ): EmailSetResult {
+        if (emailIds.isEmpty()) return EmailSetResult(null, emptySet(), emptyMap())
+        val batches = emailIds.chunked(session.setBatchSize())
+        val done = mutableSetOf<String>()
+        val failed = mutableMapOf<String, String>()
+        var newState: String? = null
+        batches.forEachIndexed { index, batch ->
+            val args = try {
+                oneBatch(batch)
+            } catch (e: Exception) {
+                if (e !is JmapException && e !is IOException) throw e
+                if (rethrowTransportFailure) throw e
+                // This batch AND every batch we will now not send.
+                batches.drop(index).flatten().forEach { failed[it] = Jmap.SET_ERROR_TRANSPORT }
+                return EmailSetResult(newState, done, failed)
+            }
+            val result = emailSetResult(args)
+            done += result.done
+            failed += result.failed
+            result.newState?.let { newState = it }
+        }
+        return EmailSetResult(newState, done, failed)
     }
 
     /** Per-id outcome of an Email/set response (updated/destroyed vs notUpdated/notDestroyed). */

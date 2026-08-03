@@ -616,6 +616,7 @@
     <string name="status_action_failed">Не удалось выполнить действие.</string>
     <string name="status_restore_failed">Не удалось восстановить некоторые письма.</string>
     <string name="status_moved_to_folder">Перемещено в %1$s</string>
+    <string name="status_action_partly_failed">Некоторые письма не удалось обработать.</string>
     <string name="status_move_other_account">Некоторые письма не были перемещены (другой аккаунт).</string>
 
     <!-- Notifications -->
@@ -665,6 +666,7 @@
     <string name="outbox_delete_permanently">Удалить навсегда</string>
     <string name="outbox_banner_failed">Некоторые сообщения не отправлены. Нажмите, чтобы проверить.</string>
     <string name="offline_banner">Вы не в сети</string>
+    <string name="sync_error_banner">Не удалось синхронизировать: %1$s</string>
     <string name="settings_conversation_section">Беседы</string>
     <string name="settings_conversation_title">Просмотр беседы</string>
     <string name="settings_conversation_subtitle">Объединять сообщения одной цепочки в одну строку с указанием количества. Цепочки приходят с сервера: в учётных записях JMAP письма объединяются, в учётной записи IMAP каждое письмо остаётся в отдельной строке.</string>

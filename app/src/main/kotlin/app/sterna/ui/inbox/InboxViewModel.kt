@@ -817,11 +817,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * into a single reconcile (and [refresh] itself cancels-and-replaces any refresh already in
      * flight), then retried a few times on a widening gap ([ReconnectRefresh]).
      *
-     * The offline banner reads `offline || error`, so an error left over from a refresh that
-     * failed *during* the outage survives the outage itself and keeps the banner up until some
-     * later refresh happens to succeed (the user pulling to refresh). Connectivity coming back
-     * makes that error stale, so drop it right away; the attempts below put a real one back if
-     * the server is genuinely unreachable.
+     * An error left over from a refresh that failed *during* the outage survives the outage
+     * itself and keeps a notice up until some later refresh happens to succeed (the user pulling
+     * to refresh) — since [refreshNotice] shows a failure once the device is back online, that
+     * stale error would now be shown as its own technical failure rather than as the outage it
+     * really was. Connectivity coming back makes it stale, so drop it right away; the attempts
+     * below put a real one back if the server is genuinely unreachable.
      */
     private fun onReconnected() {
         reconnectJob?.cancel()
@@ -1702,8 +1703,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             if (undoLabel != null && undoEntries.isNotEmpty()) {
                 _undo.value = UndoAction(undoEntries, undoLabel)
             }
-            if (failedKeys.isNotEmpty()) {
-                _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+            // Partial and total are not the same news: a select-all past the server's
+            // maxObjectsInSet used to archive most of the selection and still say "Couldn't
+            // complete the action". The rows actually handed to the batches are `emails`, not the
+            // selection — a selected key with no cached row was never attempted (see [bulkOutcome]).
+            when (bulkOutcome(emails.size, failedKeys.size)) {
+                BulkOutcome.NONE -> Unit
+                BulkOutcome.TOTAL ->
+                    _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+                BulkOutcome.PARTIAL ->
+                    _message.value = getApplication<Application>().getString(R.string.status_action_partly_failed)
             }
         }
     }
