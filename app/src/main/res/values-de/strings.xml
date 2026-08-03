@@ -660,6 +660,7 @@
     <string name="outbox_delete_permanently">Endgültig löschen</string>
     <string name="outbox_banner_failed">Einige Nachrichten wurden nicht gesendet. Zum Prüfen tippen.</string>
     <string name="offline_banner">Du bist offline</string>
+    <string name="sync_error_banner">Abgleich fehlgeschlagen: %1$s</string>
     <string name="settings_conversation_section">Konversationen</string>
     <string name="settings_conversation_title">Konversationsansicht</string>
     <string name="settings_conversation_subtitle">Nachrichten desselben Threads in einer Zeile zusammenfassen, mit einer Anzahl. Threads kommen vom Server: In JMAP-Konten werden Nachrichten so gruppiert, in einem IMAP-Konto bleibt jede Nachricht in ihrer eigenen Zeile.</string>

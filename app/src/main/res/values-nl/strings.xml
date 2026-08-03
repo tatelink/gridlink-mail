@@ -660,6 +660,7 @@
     <string name="outbox_delete_permanently">Definitief verwijderen</string>
     <string name="outbox_banner_failed">Sommige berichten zijn niet verzonden. Tik om te bekijken.</string>
     <string name="offline_banner">Je bent offline</string>
+    <string name="sync_error_banner">Synchroniseren mislukt: %1$s</string>
 
     <!-- Conversations -->
     <string name="settings_conversation_section">Gesprekken</string>

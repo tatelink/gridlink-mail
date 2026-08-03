@@ -146,6 +146,9 @@
     <string name="outbox_delete_permanently">Delete permanently</string>
     <string name="outbox_banner_failed">Some messages didn\'t send. Tap to review.</string>
     <string name="offline_banner">You\'re offline</string>
+    <!-- A refresh that failed while the device IS online: never the offline wording. %1$s is the
+         failure's own text (a status line or an exception message, never mail content). -->
+    <string name="sync_error_banner">Sync failed: %1$s</string>
     <string name="inbox_compose">Compose</string>
     <string name="inbox_no_results">No results</string>
     <string name="inbox_load_more_failed">Couldn\'t load more</string>
