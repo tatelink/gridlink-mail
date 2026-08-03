@@ -128,6 +128,16 @@ class UnsubscribeStripTest {
             "the strip must ask unsubscribeStripBody(state) rather than re-decide from the state",
             "val body = unsubscribeStripBody(state)" in strip,
         )
+        // Written after watching its mutation survive the whole campaign: swap the failure's
+        // colour for onSurfaceVariant and everything above still passes. The failure is the one
+        // shape allowed to take more room and to say more, and the colour is what tells it apart
+        // from the terminal line — which is drawn in onSurfaceVariant three lines away.
+        assertTrue(
+            "a failure must be drawn in the error colour: it is the only thing distinguishing " +
+                "'the sender's server refused' from 'the request went out', and the two sit in " +
+                "the same place in the same strip. Strip was:\n$strip",
+            "color = MaterialTheme.colorScheme.error," in strip,
+        )
     }
 
     @Test fun `nothing else in the reader was moved`() {
