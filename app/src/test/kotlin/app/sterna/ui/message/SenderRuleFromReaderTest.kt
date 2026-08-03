@@ -196,6 +196,53 @@ class SenderRuleFromReaderTest {
         )
     }
 
+    /**
+     * Both rules below were written after WATCHING their mutation survive the whole campaign.
+     * Neither breaks anything a test could see: the code compiles, every decision above still
+     * runs, and the feature quietly stops being what it says it is.
+     */
+    @Test fun `opening the panel is what reads the account's script`() {
+        // The mutation that survived: delete the one line that arms the read. The state then
+        // stays null for ever, so senderRuleEntry answers OFFERED every time — "a rule already
+        // exists for this sender" and "another filter script is active" are then WORDS THAT CAN
+        // NEVER APPEAR, and every test above goes on passing because each of them hands the
+        // decision a state directly.
+        val screen = SOURCE.readText()
+        assertTrue(
+            "the participants panel must arm the read, as 'LaunchedEffect(Unit) { " +
+                "senderRule.onOpened() }' — nothing else in this screen ever asks for the script",
+            "LaunchedEffect(Unit) { senderRule.onOpened() }" in screen,
+        )
+        assertTrue(
+            "…and that callback must be the ViewModel's read: 'onOpened = viewModel::loadSenderRules'",
+            "onOpened = viewModel::loadSenderRules," in screen,
+        )
+        assertTrue(
+            "the entry's state must come from the script the panel read — 'senderRules' — and " +
+                "not from a constant",
+            "val senderRules by viewModel.senderRules.collectAsStateWithLifecycle()" in screen,
+        )
+    }
+
+    @Test fun `the confirmation names the address it is about to file`() {
+        // The other survivor: keep the dialog, keep its title, drop the address it interpolates.
+        // The reader is then asked to confirm a rule about nobody in particular — on a panel
+        // that lists several people, one row apart.
+        val screen = SOURCE.readText()
+        assertTrue(
+            "the dialog's title must name the address: 'stringResource(R.string." +
+                "sender_volume_block_title, addr.email)'",
+            "stringResource(R.string.sender_volume_block_title, addr.email)" in screen,
+        )
+        assertTrue(
+            "and its body must say where the rule can be undone, in the app's own localised " +
+                "labels rather than an English path typed into nine translations",
+            "R.string.sender_volume_block_body," in screen &&
+                "stringResource(R.string.inbox_settings)," in screen &&
+                "stringResource(R.string.settings_filters_title)," in screen,
+        )
+    }
+
     @Test fun `the reader's write path is addBlockRule, with a read taken at the moment of writing`() {
         // Same rule as the per-sender screen's, for the same reason: saveFilterRules rewrites the
         // WHOLE script, so a save built on anything but a fresh successful read deletes the
