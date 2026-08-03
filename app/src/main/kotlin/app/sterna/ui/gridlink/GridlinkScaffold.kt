@@ -309,6 +309,7 @@ fun GridlinkRoot(
     initialCalendarView: GridlinkCalendarView = GridlinkCalendarView.MONTH,
     initialFolderActionId: String? = null,
     initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
+    initialCreateUnder: String? = null,
     initialScrubLetter: Char? = null,
     initialCompose: GridlinkComposeRequest? = null,
     demoRecycle: Boolean = false,
@@ -419,6 +420,7 @@ fun GridlinkRoot(
                     onCompose = { composing = GridlinkComposeRequest.Fresh },
                     initialActionFolderId = initialFolderActionId,
                     initialStage = initialFolderStage,
+                    initialCreateUnder = initialCreateUnder,
                 )
 
                 // Calendar and Contacts deliberately do NOT open the composer. Their compose button

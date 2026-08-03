@@ -172,6 +172,25 @@ class GridlinkGalleryActivity : ComponentActivity() {
         require(stageName == null || folderId != null) {
             "stage='$stageName' without --es folder would render nothing."
         }
+        // §6d's inline create, held open with the field focused and the keyboard up. Not drivable
+        // from adb: the New folder row's position depends on which branches are open, and the row
+        // only becomes a field once tapped, so a guessed `input tap` either misses or lands on a
+        // real folder and opens it.
+        //   am start -n .../GridlinkGalleryActivity --es tab folders --es create root
+        //   am start -n .../GridlinkGalleryActivity --es tab folders --es create ops
+        val createUnder = intent?.getStringExtra("create")?.trim()?.takeIf { it.isNotEmpty() }
+        if (createUnder != null) {
+            require(tab == GridlinkDestination.FOLDERS) {
+                "create='$createUnder' only means anything on the folder tree. Add --es tab folders."
+            }
+            require(
+                createUnder == "root" ||
+                    GridlinkSampleTree.allFolders.any { it.id == createUnder },
+            ) {
+                "Unknown create parent '$createUnder'. Use 'root' for the top level, or one of: " +
+                    GridlinkSampleTree.allFolders.joinToString { it.id }
+            }
+        }
         // The A-Z rail held at a letter, with the lens up and the list already jumped there. A scrub
         // is a press-and-drag along a 24dp strip, which `input swipe` can only approximate, and the
         // rail collapses the instant the finger lifts, so a screenshot taken after the swipe returns
@@ -283,6 +302,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialCalendarView = calendarView,
                 initialFolderActionId = folderId,
                 initialFolderStage = folderStage,
+                initialCreateUnder = createUnder,
                 initialScrubLetter = scrubLetter,
                 initialCompose = composeRequest,
                 initialSync = sync,
@@ -308,6 +328,7 @@ private fun GridlinkGallery(
     initialCalendarView: GridlinkCalendarView = GridlinkCalendarView.MONTH,
     initialFolderActionId: String? = null,
     initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
+    initialCreateUnder: String? = null,
     initialScrubLetter: Char? = null,
     initialCompose: GridlinkComposeRequest? = null,
     initialSync: GridlinkSyncState = GridlinkSyncState.SYNCED,
@@ -341,6 +362,7 @@ private fun GridlinkGallery(
             initialCalendarView = initialCalendarView,
             initialFolderActionId = initialFolderActionId,
             initialFolderStage = initialFolderStage,
+            initialCreateUnder = initialCreateUnder,
             initialScrubLetter = initialScrubLetter,
             initialCompose = initialCompose,
             demoRecycle = demoRecycle,

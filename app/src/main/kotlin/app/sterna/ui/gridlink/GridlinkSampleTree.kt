@@ -282,6 +282,32 @@ fun List<GridlinkFolder>.updateFolder(
     if (folder.id == id) transform(folder) else folder.copy(children = folder.children.updateFolder(id, transform))
 }
 
+/**
+ * A copy of the tree with [folder] added under [parentId], or at the root when that is null.
+ *
+ * Appended rather than inserted in sorted position. JMAP has no ordering on a mailbox beyond
+ * `sortOrder`, which nothing here sets, so the honest answer to "where does it go" is "at the end of
+ * where you made it", and that is also where the eye is already looking: the New folder row it was
+ * just typed into sits directly below.
+ */
+fun List<GridlinkFolder>.addFolder(parentId: String?, folder: GridlinkFolder): List<GridlinkFolder> =
+    if (parentId == null) {
+        this + folder
+    } else {
+        updateFolder(parentId) { it.copy(children = it.children + folder) }
+    }
+
+/**
+ * Lowercased names of everything directly under [parentId], or of the roots when that is null.
+ *
+ * The sibling-uniqueness counterpart to [siblingNames] for a folder that does not exist yet, so it
+ * is keyed by where the folder is going rather than by what it is.
+ */
+fun List<GridlinkFolder>.childNames(parentId: String?): Set<String> {
+    val level = if (parentId == null) this else findFolder(parentId)?.children.orEmpty()
+    return level.mapTo(mutableSetOf()) { it.name.lowercase() }
+}
+
 /** A copy of the tree with [id] gone. Its children go with it; see [GridlinkFolder.mayBeDeletedNow]. */
 fun List<GridlinkFolder>.removeFolder(id: String): List<GridlinkFolder> = this
     .filterNot { it.id == id }

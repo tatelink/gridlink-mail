@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Create
+import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.DriveFileRenameOutline
@@ -40,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,6 +57,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -115,6 +119,8 @@ fun GridlinkFolderScreen(
     /** Screen-capture hook: open the long-press sheet on this folder without long-pressing it. */
     initialActionFolderId: String? = null,
     initialStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
+    /** Screen-capture hook: start with one New folder row already editing. "root" for the top level. */
+    initialCreateUnder: String? = null,
     onOpenFolder: (GridlinkFolder) -> Unit = {},
     onCompose: () -> Unit = {},
 ) {
@@ -126,11 +132,18 @@ fun GridlinkFolderScreen(
     // Ancestors of a harness-requested folder are forced open, so `--es folderSheet ops-456` cannot
     // produce a sheet floating over a tree that does not visibly contain the row it names. Same
     // no-plausible-wrong-picture rule the gallery's other extras enforce by crashing.
-    val seedExpanded = remember(initiallyExpanded, initialActionFolderId) {
+    val seedExpanded = remember(initiallyExpanded, initialActionFolderId, initialCreateUnder) {
         val ancestors = initialActionFolderId
             ?.let { GridlinkSampleTree.mailboxes.ancestorIds(it) }
             .orEmpty()
-        initiallyExpanded + ancestors
+        // 🔴 The create target itself, not only its ancestors. A branch's New folder row exists only
+        // while that branch is open, so seeding `creating` at a folder that is shut asks the harness
+        // to focus a row that is not in the list, which is a silent no-op frame rather than a crash.
+        val createTarget = initialCreateUnder
+            ?.takeIf { it != "root" }
+            ?.let { GridlinkSampleTree.mailboxes.ancestorIds(it).orEmpty() + it }
+            .orEmpty()
+        initiallyExpanded + ancestors + createTarget
     }
     var expandedIds by remember(seedExpanded) { mutableStateOf(seedExpanded) }
     var openFolderId by remember(initialOpenFolderId) { mutableStateOf(initialOpenFolderId) }
@@ -142,6 +155,17 @@ fun GridlinkFolderScreen(
     var actionFolderId by remember(initialActionFolderId) { mutableStateOf(initialActionFolderId) }
     var stage by remember(initialStage) { mutableStateOf(initialStage) }
     val actionFolder = actionFolderId?.let { tree.findFolder(it) }
+
+    // Which New folder row is currently a text field, if any. A box around a nullable parent id
+    // rather than the id itself, because the root's parent id IS null and "creating at the root" has
+    // to be distinguishable from "not creating".
+    var creating by remember(initialCreateUnder) {
+        mutableStateOf(initialCreateUnder?.let { GridlinkCreateTarget(it.takeIf { id -> id != "root" }) })
+    }
+    // Ids for folders that do not exist on any server. A counter and not a name hash: two folders
+    // called the same thing in different branches are legal, and a hash would collide them into one
+    // LazyColumn key, which silently swaps their contents as you scroll.
+    var created by remember { mutableIntStateOf(0) }
 
     // Flattened here rather than by nesting composables. A recursive tree of Columns cannot be
     // lazy, so every folder in the account would compose whether or not its branch is open; a
@@ -181,35 +205,68 @@ fun GridlinkFolderScreen(
                 bottom = GridlinkDimens.listFade,
             ),
         ) {
-            items(items = rows, key = { it.folder.id }) { row ->
-                GridlinkFolderRow(
-                    row = row,
-                    open = row.folder.id == openFolderId,
-                    onToggle = {
-                        expandedIds = if (row.folder.id in expandedIds) {
-                            expandedIds - row.folder.id
+            items(
+                items = rows,
+                key = { item ->
+                    when (item) {
+                        is GridlinkFolderTreeItem.Row -> item.folder.id
+                        is GridlinkFolderTreeItem.NewFolder -> "new:${item.parentId ?: "root"}"
+                    }
+                },
+            ) { item ->
+                when (item) {
+                    is GridlinkFolderTreeItem.Row -> GridlinkFolderRow(
+                        row = item,
+                        open = item.folder.id == openFolderId,
+                        onToggle = {
+                            expandedIds = if (item.folder.id in expandedIds) {
+                                expandedIds - item.folder.id
+                            } else {
+                                expandedIds + item.folder.id
+                            }
+                        },
+                        onOpen = {
+                            openFolderId = item.folder.id
+                            onOpenFolder(item.folder)
+                        },
+                        // 🔴 Null is the whole protection mechanism for the role mailboxes. Not a
+                        // callback that checks a flag and returns: `combinedClickable` with a
+                        // non-null onLongClick consumes the gesture and fires the platform's own
+                        // long-press haptic, so a no-op handler still buzzes and still reads as
+                        // "something happened, and then nothing did".
+                        onLongPress = if (item.folder.hasActions) {
+                            {
+                                actionFolderId = item.folder.id
+                                stage = GridlinkFolderStage.SHEET
+                            }
                         } else {
-                            expandedIds + row.folder.id
-                        }
-                    },
-                    onOpen = {
-                        openFolderId = row.folder.id
-                        onOpenFolder(row.folder)
-                    },
-                    // 🔴 Null is the whole protection mechanism for the role mailboxes. Not a
-                    // callback that checks a flag and returns: `combinedClickable` with a non-null
-                    // onLongClick consumes the gesture and fires the platform's own long-press
-                    // haptic, so a no-op handler still buzzes and still reads as "something
-                    // happened, and then nothing did".
-                    onLongPress = if (row.folder.hasActions) {
-                        {
-                            actionFolderId = row.folder.id
-                            stage = GridlinkFolderStage.SHEET
-                        }
-                    } else {
-                        null
-                    },
-                )
+                            null
+                        },
+                    )
+
+                    is GridlinkFolderTreeItem.NewFolder -> GridlinkNewFolderRow(
+                        item = item,
+                        editing = creating?.parentId == item.parentId && creating != null,
+                        takenNames = tree.childNames(item.parentId),
+                        // 🔴 Only one field open at a time, enforced by there being one piece of
+                        // state rather than one per row. Two live fields would mean two focus
+                        // requesters fighting over the keyboard, and the loser looks focused while
+                        // typing lands somewhere else.
+                        onStart = { creating = GridlinkCreateTarget(item.parentId) },
+                        onCancel = { creating = null },
+                        onCreate = { name ->
+                            created += 1
+                            tree = tree.addFolder(
+                                parentId = item.parentId,
+                                folder = GridlinkFolder(id = "made-$created", name = name),
+                            )
+                            // The parent has children now, so it has a chevron now, and a folder
+                            // that was expanded stays expanded. A root create needs nothing.
+                            item.parentId?.let { expandedIds = expandedIds + it }
+                            creating = null
+                        },
+                    )
+                }
             }
         }
     }
@@ -257,25 +314,62 @@ fun GridlinkFolderScreen(
 /** How far into the long-press flow the folder screen is. */
 enum class GridlinkFolderStage { SHEET, RENAME, DELETE }
 
-/** One folder as it appears on screen: the folder plus where it sits in the tree. */
-data class GridlinkFolderTreeRow(
-    val folder: GridlinkFolder,
-    val depth: Int,
-    val expanded: Boolean,
-)
+/** One line of the flattened tree: a real folder, or the New folder row that closes a level. */
+sealed interface GridlinkFolderTreeItem {
+    val depth: Int
 
+    /** One folder as it appears on screen: the folder plus where it sits in the tree. */
+    data class Row(
+        val folder: GridlinkFolder,
+        override val depth: Int,
+        val expanded: Boolean,
+    ) : GridlinkFolderTreeItem
+
+    /** The create affordance for one level. [parentId] is null at the root. */
+    data class NewFolder(
+        val parentId: String?,
+        override val depth: Int,
+    ) : GridlinkFolderTreeItem
+}
+
+/**
+ * The visible tree, one flat list.
+ *
+ * ## 🔴 Every folder expands, including the ones with nothing in them
+ * This used to skip the recursion for a childless folder, which made the chevron mean "this folder
+ * contains folders". That reading is tidier and it broke create outright: a New folder row closes
+ * each *expanded* level, so a leaf could never be opened and could therefore never be given its
+ * first child. Every user folder in the sample is a leaf, so "add a subfolder" was unreachable for
+ * all of them.
+ *
+ * The chevron now means "look inside this folder", which is true of any folder, and an empty one
+ * opens onto a single New folder row. That is the whole point: the empty level is not a dead end, it
+ * is the create affordance for that branch, and it is the only place the affordance could go and
+ * still make the parent unambiguous.
+ *
+ * ⚠️ This does put a chevron on all twenty-odd rows, including the role mailboxes. That is
+ * deliberate and it is not just consistency: a subfolder of Inbox or Archive is ordinary IMAP, so a
+ * tree that refused to open them would be refusing something the server allows. The layout does not
+ * shift, because the chevron slot was already reserved on every row so the names align.
+ */
 private fun flattenFolders(
     folders: List<GridlinkFolder>,
     expandedIds: Set<String>,
+    parentId: String? = null,
     depth: Int = 0,
-): List<GridlinkFolderTreeRow> = buildList {
+): List<GridlinkFolderTreeItem> = buildList {
     folders.forEach { folder ->
         val expanded = folder.id in expandedIds
-        add(GridlinkFolderTreeRow(folder, depth, expanded))
-        if (expanded && folder.children.isNotEmpty()) {
-            addAll(flattenFolders(folder.children, expandedIds, depth + 1))
+        add(GridlinkFolderTreeItem.Row(folder, depth, expanded))
+        if (expanded) {
+            addAll(flattenFolders(folder.children, expandedIds, folder.id, depth + 1))
         }
     }
+    // 🔴 At the END of the level, not the top. §6d's reason for putting it here at all is that the
+    // parent has to be unambiguous from where you tapped, and a row above a group reads as belonging
+    // to whatever is above it. Below the last child, indented to the children's own depth, the row
+    // is visibly the last thing inside the branch.
+    add(GridlinkFolderTreeItem.NewFolder(parentId, depth))
 }
 
 /**
@@ -297,7 +391,7 @@ private fun flattenFolders(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GridlinkFolderRow(
-    row: GridlinkFolderTreeRow,
+    row: GridlinkFolderTreeItem.Row,
     open: Boolean,
     onToggle: () -> Unit,
     onOpen: () -> Unit,
@@ -307,7 +401,6 @@ private fun GridlinkFolderRow(
 ) {
     val colors = GridlinkTheme.colors
     val haptics = LocalHapticFeedback.current
-    val hasChildren = row.folder.children.isNotEmpty()
     val chevronRotation by animateFloatAsState(
         // Same convention as the message bundle: down means open. Reusing the one arrow glyph the
         // app already rotates keeps a second chevron asset, and a second rotation convention, out.
@@ -344,59 +437,25 @@ private fun GridlinkFolderRow(
     ) {
         Spacer(Modifier.width(GridlinkSpacing.s12))
 
-        // One vertical rule per level of nesting, drawn by every row in the branch. Consecutive rows
-        // are the same height with no gap between them, so the per-row segments join into the
-        // continuous guide §6d asks for without anything having to measure the group.
-        //
-        // 🔴 The rule is NOT centred in its indent column, and that is the whole trick. Centred, it
-        // lands 6dp to the left of the parent's chevron and reads as a stray line down the panel
-        // edge rather than as a line descending from the folder it belongs to — which is the one
-        // job it has. Offsetting it by half a chevron box puts it exactly under the parent's
-        // disclosure arrow, so the rule visibly starts at the thing you tapped to open.
-        val ruleOffset = (GridlinkSpacing.s28 - GridlinkDimens.treeRule) / 2
-        repeat(row.depth) {
-            Box(
-                modifier = Modifier
-                    .width(GridlinkSpacing.folderIndentPerLevel)
-                    .fillMaxHeight(),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(start = ruleOffset)
-                        .width(GridlinkDimens.treeRule)
-                        .fillMaxHeight()
-                        // Not colors.divider: the row separator is tuned to be nearly subliminal and
-                        // a vertical run of it disappears. Same reasoning, and the same value, as
-                        // the bundle's containment rule.
-                        .background(colors.textSecondary.copy(alpha = 0.40f)),
-                )
-            }
-        }
+        GridlinkTreeIndent(row.depth)
 
-        // Reserved whether or not there is a chevron, so names align down one column regardless of
-        // whether a folder happens to have children.
+        // 🔴 On every row, including the empty ones. The chevron means "look inside", not "contains
+        // folders", and an empty folder opens onto its New folder row. See [flattenFolders]: making
+        // this conditional on children is what made a leaf impossible to add a subfolder to.
         Box(
-            modifier = Modifier.size(GridlinkSpacing.s28),
+            modifier = Modifier
+                .size(GridlinkSpacing.s28)
+                .clickable(onClick = onToggle),
             contentAlignment = Alignment.Center,
         ) {
-            if (hasChildren) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable(onClick = onToggle),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.KeyboardArrowDown,
-                        contentDescription = if (row.expanded) "Collapse" else "Expand",
-                        tint = colors.textSecondary,
-                        modifier = Modifier
-                            .size(18.dp)
-                            .rotate(chevronRotation),
-                    )
-                }
-            }
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (row.expanded) "Collapse" else "Expand",
+                tint = colors.textSecondary,
+                modifier = Modifier
+                    .size(18.dp)
+                    .rotate(chevronRotation),
+            )
         }
 
         Icon(
@@ -435,6 +494,46 @@ private fun GridlinkFolderRow(
     }
 }
 
+/**
+ * The nesting guides down the left of a tree row.
+ *
+ * One vertical rule per level of nesting, drawn by every row in the branch. Consecutive rows are the
+ * same height with no gap between them, so the per-row segments join into the continuous guide §6d
+ * asks for without anything having to measure the group. That is also why this has to be drawn by
+ * the New folder row and not only by folders: skip it there and every branch's guide stops one row
+ * short, with a visible tick of white before the level ends.
+ *
+ * 🔴 The rule is NOT centred in its indent column, and that is the whole trick. Centred, it lands
+ * 6dp to the left of the parent's chevron and reads as a stray line down the panel edge rather than
+ * as a line descending from the folder it belongs to, which is the one job it has. Offsetting it by
+ * half a chevron box puts it exactly under the parent's disclosure arrow, so the rule visibly starts
+ * at the thing you tapped to open.
+ */
+@Composable
+private fun GridlinkTreeIndent(depth: Int) {
+    val colors = GridlinkTheme.colors
+    val ruleOffset = (GridlinkSpacing.s28 - GridlinkDimens.treeRule) / 2
+    repeat(depth) {
+        Box(
+            modifier = Modifier
+                .width(GridlinkSpacing.folderIndentPerLevel)
+                .fillMaxHeight(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = ruleOffset)
+                    .width(GridlinkDimens.treeRule)
+                    .fillMaxHeight()
+                    // Not colors.divider: the row separator is tuned to be nearly subliminal and a
+                    // vertical run of it disappears. Same reasoning, and the same value, as the
+                    // bundle's containment rule.
+                    .background(colors.textSecondary.copy(alpha = 0.40f)),
+            )
+        }
+    }
+}
+
 private fun GridlinkFolderRole.icon(): ImageVector = when (this) {
     GridlinkFolderRole.INBOX -> Icons.Outlined.Inbox
     GridlinkFolderRole.DRAFTS -> Icons.Outlined.Create
@@ -443,6 +542,172 @@ private fun GridlinkFolderRole.icon(): ImageVector = when (this) {
     GridlinkFolderRole.JUNK -> Icons.Outlined.Report
     GridlinkFolderRole.TRASH -> Icons.Outlined.DeleteOutline
     GridlinkFolderRole.USER -> Icons.Outlined.Folder
+}
+
+// ---------------------------------------------------------------------------------------------
+// Inline create
+// ---------------------------------------------------------------------------------------------
+
+/** Which New folder row is open. Boxed, because a null [parentId] means the root and not "none". */
+private data class GridlinkCreateTarget(val parentId: String?)
+
+/**
+ * §6d's create affordance: a row that turns into the field, with no dialog in between.
+ *
+ * ## Why a row and not a "+" in the header
+ * 🔴 The brief's reason, and it is the whole design: "so the folder's parent is unambiguous from
+ * where you tapped". A create button in the header has to ask which branch afterwards, which means a
+ * picker, which means the dialog this is specifically not. A row sitting at the end of a level, at
+ * the level's own indent and inside the level's own guide rules, has already answered the question
+ * before the keyboard opens.
+ *
+ * ## Why the field replaces the row instead of appearing under it
+ * Same reason. A field that opens below the "New folder" line is a field one indent step ambiguous
+ * from the level below it, and at three levels deep that is 16dp of difference deciding which branch
+ * your folder lands in. Replacing the row in place means the thing you are typing into is standing
+ * exactly where the folder will be.
+ *
+ * ## What cancels it
+ * Empty and Done, or tapping the label of another New folder row (only one may be open, see the
+ * caller). There is deliberately no cancel button: the row is a row again the moment it has nothing
+ * in it, and a small X inside a 44dp line is a target that gets hit by accident far more often than
+ * on purpose.
+ */
+@Composable
+private fun GridlinkNewFolderRow(
+    item: GridlinkFolderTreeItem.NewFolder,
+    editing: Boolean,
+    takenNames: Set<String>,
+    onStart: () -> Unit,
+    onCancel: () -> Unit,
+    onCreate: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    var value by remember(item.parentId, editing) { mutableStateOf(TextFieldValue()) }
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val trimmed = value.text.trim()
+    val duplicate = trimmed.isNotEmpty() && trimmed.lowercase() in takenNames
+    val valid = trimmed.isNotEmpty() && !duplicate
+
+    fun submit() {
+        when {
+            valid -> {
+                keyboard?.hide()
+                onCreate(trimmed)
+            }
+            // Done on an empty field is how you back out, so it closes rather than complains. Done
+            // on a duplicate is a real mistake and keeps the field up with the reason under it.
+            trimmed.isEmpty() -> {
+                keyboard?.hide()
+                onCancel()
+            }
+        }
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(GridlinkDimens.folderRowHeight)
+                .then(if (editing) Modifier else Modifier.clickable(onClick = onStart)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(Modifier.width(GridlinkSpacing.s12))
+            GridlinkTreeIndent(item.depth)
+            // The chevron slot, empty. A New folder row has nothing to expand, and skipping the box
+            // would slide its glyph and label 28dp left of every name in the level it belongs to.
+            Spacer(Modifier.width(GridlinkSpacing.s28))
+
+            Icon(
+                imageVector = Icons.Outlined.CreateNewFolder,
+                contentDescription = null,
+                // Accent while editing, so the one live field on the screen is findable without
+                // reading; secondary otherwise, because at rest this is the quietest row in a tree
+                // that already has a lot of rows.
+                tint = if (editing) colors.accent else colors.textSecondary.copy(alpha = 0.65f),
+                modifier = Modifier
+                    .padding(start = GridlinkSpacing.s4)
+                    .size(18.dp),
+            )
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = GridlinkSpacing.s12),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (editing) {
+                    BasicTextField(
+                        value = value,
+                        onValueChange = { value = it },
+                        singleLine = true,
+                        // Same size and weight as a folder name, on purpose. What you type is what
+                        // the row will say, and a field styled as a field would make the create step
+                        // look like a different kind of object from its own result.
+                        textStyle = GridlinkType.senderName.copy(color = colors.textPrimary),
+                        cursorBrush = SolidColor(colors.accent),
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Words,
+                            imeAction = ImeAction.Done,
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { submit() }),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                    )
+                    if (value.text.isEmpty()) {
+                        Text(
+                            text = "Folder name",
+                            style = GridlinkType.senderName,
+                            color = colors.textSecondary.copy(alpha = 0.5f),
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "New folder",
+                        style = GridlinkType.senderName,
+                        color = colors.textSecondary.copy(alpha = 0.65f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Spacer(Modifier.width(GridlinkSpacing.rowHorizontal))
+        }
+
+        if (editing && duplicate) {
+            Text(
+                text = "“$trimmed” is already in here.",
+                style = GridlinkType.metadata,
+                // 🔴 Secondary text, not an alarm colour. See GridlinkRenameFolderDialog: same rule,
+                // same reason.
+                color = colors.textSecondary,
+                modifier = Modifier.padding(
+                    // Lined up under the field rather than under the row, so the message points at
+                    // the thing that is wrong instead of at the branch it is in.
+                    start = GridlinkSpacing.s12 +
+                        GridlinkSpacing.folderIndentPerLevel * item.depth +
+                        GridlinkSpacing.s28 + GridlinkSpacing.s4 + 18.dp + GridlinkSpacing.s12,
+                    end = GridlinkSpacing.rowHorizontal,
+                    bottom = GridlinkSpacing.s8,
+                ),
+            )
+        }
+    }
+
+    // 🔴 Keyed on `editing` and not on Unit. The row composes long before it is tapped, so an effect
+    // that runs once would request focus on a field that does not exist. And it waits a frame for
+    // the same reason the rename dialog does: composing the field is not attaching it, and
+    // requestFocus on an unattached node throws rather than doing nothing.
+    LaunchedEffect(editing) {
+        if (editing) {
+            withFrameNanos { }
+            focusRequester.requestFocus()
+            keyboard?.show()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -566,10 +831,18 @@ private fun GridlinkRenameFolderDialog(
             Text(
                 text = problem,
                 style = GridlinkType.metadata,
-                // 🔴 caution, NOT destructive. The destructive token is reserved for delete and
-                // nothing else, precisely so that seeing it always means something is about to be
-                // thrown away. A validation message wearing it costs that.
-                color = colors.caution,
+                // 🔴 Secondary text. Both alarm colours are spoken for and neither is true here.
+                // [destructive] is delete and only delete, so that red always means something is
+                // about to be thrown away. [caution] is stage one of the two-stage destructive
+                // swipe: its own KDoc defines it as "keep going and this gets worse", which is an
+                // escalation, and this is the opposite of one. Nothing bad is happening or about to
+                // happen. The name is taken, so Done did nothing, and the sentence says why.
+                //
+                // ⚠️ Quiet on purpose, and it can afford to be because it is not the only signal:
+                // the field stays open with the cursor in it, and the row it would have created
+                // never appears. A validation line that shouts is compensating for a form that
+                // closed on you.
+                color = colors.textSecondary,
                 modifier = Modifier.padding(top = GridlinkSpacing.s8),
             )
         }
