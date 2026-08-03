@@ -16,6 +16,9 @@ import androidx.room.Upsert
 const val BODY_CACHE_ID_PREFIX_SQL: String =
     "DELETE FROM email_bodies WHERE accountId = :accountId AND id LIKE :idPrefix ESCAPE '\\'"
 
+/** The statement behind [EmailBodyDao.deleteAll], shared with its JVM test for the same reason. */
+const val BODY_CACHE_CLEAR_SQL: String = "DELETE FROM email_bodies"
+
 @Dao
 interface EmailBodyDao {
 
@@ -64,6 +67,16 @@ interface EmailBodyDao {
     @Query("SELECT DISTINCT accountId FROM email_bodies")
     suspend fun accountIds(): List<String>
 
-    @Query("DELETE FROM email_bodies")
+    /**
+     * Drop every cached body, for every account — the once-per-upgrade purge
+     * ([app.sterna.core.data.mail.BodyCachePurge]).
+     *
+     * The statement is a constant for the same reason [BODY_CACHE_ID_PREFIX_SQL] is: so a JVM
+     * test executes the very SQL that ships. What has to be pinned here is its SCOPE — this
+     * table and no other. The messages, their attachments and the search index are not caches in
+     * the same sense; losing them costs a full resync, and one word too many in this statement
+     * would do exactly that, silently, at the first launch after an update.
+     */
+    @Query(BODY_CACHE_CLEAR_SQL)
     suspend fun deleteAll()
 }

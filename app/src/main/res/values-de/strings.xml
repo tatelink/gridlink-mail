@@ -147,6 +147,21 @@
     <string name="message_report_spam">Als Spam melden</string>
     <string name="message_not_spam">Kein Spam</string>
     <string name="message_snooze">Zurückstellen…</string>
+    <!-- Abbestellen (RFC 2369 / RFC 8058) -->
+    <string name="message_unsubscribe">Abbestellen</string>
+    <string name="message_unsubscribe_banner">Dieser Absender bietet eine Möglichkeit zum Abbestellen</string>
+    <string name="message_unsubscribe_open_page">Seite öffnen</string>
+    <string name="message_unsubscribe_confirm_title">Abbestellen?</string>
+    <string name="message_unsubscribe_confirm_post">Sterna sendet eine Abbestellanfrage an %1$s. Kein Browser, keine Seite, nichts wird geladen.</string>
+    <string name="message_unsubscribe_confirm_mail">Sterna sendet eine Abbestell-E-Mail an %1$s.</string>
+    <string name="message_unsubscribe_confirm_open">Dieser Absender bietet kein automatisches Abbestellen. Das Öffnen von %1$s im Browser kann ihm Ihre IP-Adresse zeigen.</string>
+    <string name="message_unsubscribe_sending">Wird abbestellt…</string>
+    <string name="message_unsubscribe_sent">Abbestellanfrage gesendet</string>
+    <string name="message_unsubscribe_queued">Abbestell-E-Mail in der Warteschlange</string>
+    <string name="message_unsubscribe_failed">Abbestellen fehlgeschlagen</string>
+    <string name="message_unsubscribe_failed_redirect">Der Server des Absenders wollte die Anfrage umleiten, was sie in einen Seitenaufruf verwandeln würde. Sterna hat abgelehnt.</string>
+    <string name="message_unsubscribe_failed_offline">Kein Netzwerk. Bitte später erneut versuchen.</string>
+    <string name="message_unsubscribe_failed_unreachable">Der Abmeldeserver des Absenders ist nicht erreichbar.</string>
     <string name="message_view_headers">Kopfzeilen anzeigen</string>
     <string name="message_headers_title">Nachrichten-Kopfzeilen</string>
     <string name="message_headers_empty">Keine Kopfzeilen vorhanden</string>

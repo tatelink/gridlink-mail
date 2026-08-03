@@ -147,6 +147,21 @@
     <string name="message_report_spam">Denunciar spam</string>
     <string name="message_not_spam">Não é spam</string>
     <string name="message_snooze">Adiar…</string>
+    <!-- Cancelar subscrição (RFC 2369 / RFC 8058) -->
+    <string name="message_unsubscribe">Cancelar subscrição</string>
+    <string name="message_unsubscribe_banner">Este remetente oferece uma forma de cancelar a subscrição</string>
+    <string name="message_unsubscribe_open_page">Abrir página</string>
+    <string name="message_unsubscribe_confirm_title">Cancelar subscrição?</string>
+    <string name="message_unsubscribe_confirm_post">O Sterna enviará um pedido de cancelamento para %1$s. Sem navegador, sem página, nada é carregado.</string>
+    <string name="message_unsubscribe_confirm_mail">O Sterna enviará um e-mail de cancelamento para %1$s.</string>
+    <string name="message_unsubscribe_confirm_open">Este remetente não oferece cancelamento automático. Abrir %1$s num navegador pode revelar-lhe o seu endereço IP.</string>
+    <string name="message_unsubscribe_sending">A cancelar subscrição…</string>
+    <string name="message_unsubscribe_sent">Pedido de cancelamento enviado</string>
+    <string name="message_unsubscribe_queued">E-mail de cancelamento em fila</string>
+    <string name="message_unsubscribe_failed">Falha ao cancelar a subscrição</string>
+    <string name="message_unsubscribe_failed_redirect">O servidor do remetente pediu para redirecionar o pedido, o que o transformaria num carregamento de página. O Sterna recusou.</string>
+    <string name="message_unsubscribe_failed_offline">Sem rede. Tente novamente mais tarde.</string>
+    <string name="message_unsubscribe_failed_unreachable">Não foi possível contactar o servidor de cancelamento do remetente.</string>
     <string name="message_view_headers">Ver cabeçalhos</string>
     <string name="message_headers_title">Cabeçalhos da mensagem</string>
     <string name="message_headers_empty">Nenhum cabeçalho para mostrar</string>

@@ -147,6 +147,21 @@
     <string name="message_report_spam">Signaler comme spam</string>
     <string name="message_not_spam">Non spam</string>
     <string name="message_snooze">Reporter…</string>
+    <!-- Désabonnement en un geste (RFC 2369 / RFC 8058) -->
+    <string name="message_unsubscribe">Se désabonner</string>
+    <string name="message_unsubscribe_banner">Cet expéditeur propose un moyen de se désabonner</string>
+    <string name="message_unsubscribe_open_page">Ouvrir la page</string>
+    <string name="message_unsubscribe_confirm_title">Se désabonner ?</string>
+    <string name="message_unsubscribe_confirm_post">Sterna enverra une demande de désabonnement à %1$s. Aucun navigateur, aucune page, rien de chargé.</string>
+    <string name="message_unsubscribe_confirm_mail">Sterna enverra un e-mail de désabonnement à %1$s.</string>
+    <string name="message_unsubscribe_confirm_open">Cet expéditeur ne propose pas de désabonnement automatique. Ouvrir %1$s dans un navigateur peut lui révéler votre adresse IP.</string>
+    <string name="message_unsubscribe_sending">Désabonnement…</string>
+    <string name="message_unsubscribe_sent">Demande de désabonnement envoyée</string>
+    <string name="message_unsubscribe_queued">E-mail de désabonnement en file d\'attente</string>
+    <string name="message_unsubscribe_failed">Échec du désabonnement</string>
+    <string name="message_unsubscribe_failed_redirect">Le serveur de l\'expéditeur a demandé une redirection, ce qui transformerait la requête en chargement de page. Sterna a refusé.</string>
+    <string name="message_unsubscribe_failed_offline">Pas de réseau. Réessayez plus tard.</string>
+    <string name="message_unsubscribe_failed_unreachable">Le serveur de désabonnement de l\'expéditeur est injoignable.</string>
     <string name="message_view_headers">Afficher les en-têtes</string>
     <string name="message_headers_title">En-têtes du message</string>
     <string name="message_headers_empty">Aucun en-tête à afficher</string>

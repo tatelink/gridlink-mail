@@ -17,17 +17,26 @@ import app.sterna.ui.compose.receivingAddress
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.calendar.ICalendar
 import app.sterna.core.data.calendar.ParsedEvent
+import app.sterna.core.data.mail.UnsubscribeAction
+import app.sterna.core.data.mail.UnsubscribeHeader
+import app.sterna.core.data.mail.UnsubscribeOptions
+import app.sterna.core.data.mail.confirmationTarget
+import app.sterna.core.data.mail.preferredAction
 import app.sterna.core.data.settings.REPLY_BAR_DEFAULT
 import app.sterna.core.data.settings.MessageTextSize
+import app.sterna.core.data.unsubscribe.UnsubscribeFailure
+import app.sterna.core.data.unsubscribe.UnsubscribeResult
 import app.sterna.core.jmap.ContentTooLargeException
 import app.sterna.core.jmap.DownloadLimits
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailHeader
 import app.sterna.core.jmap.model.Mailbox
+import app.sterna.net.hasUsableNetwork
 import app.sterna.ui.inbox.isSelfAuthored
 import app.sterna.ui.inbox.moveTargets
 import app.sterna.ui.showsRecipients
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -100,6 +109,107 @@ sealed interface CryptoUiState {
 
     /** Decrypt/verify failed; null message = no OpenPGP provider installed. */
     data class Failed(val message: String?) : CryptoUiState
+}
+
+/**
+ * Lifecycle of an unsubscribe on the open message, reflected on the banner above the body.
+ * Session-only, like [InviteResponse]: remembering that a list was left would mean a column in
+ * the message table, and that is a later piece of work with its own migration.
+ */
+sealed interface UnsubscribeState {
+    data object Idle : UnsubscribeState
+
+    /** The POST is in flight (the `mailto:` form never lingers here — the outbox takes it). */
+    data object Sending : UnsubscribeState
+
+    /** The sender's server accepted the one-click request. */
+    data object Sent : UnsubscribeState
+
+    /** The unsubscribe mail is in the outbox; delivery and retry are the outbox's business. */
+    data object Queued : UnsubscribeState
+
+    data class Failed(val reason: UnsubscribeFailure) : UnsubscribeState
+}
+
+/**
+ * An unsubscribe waiting for the reader to confirm it, WITH the options it was offered for.
+ *
+ * The options travel with the pending gesture instead of being read again when the button is
+ * pressed, so what the dialog names and what the request goes to cannot come apart. They can:
+ * the reader is a pager over live state, and the message behind an open dialog can be reloaded
+ * (a settle, a refresh, a swipe) — the second read then answers for another message, or for
+ * none, and the button would have sent an unsubscribe to the previous list, or to nothing.
+ */
+data class PendingUnsubscribe(
+    val action: UnsubscribeAction,
+    val options: UnsubscribeOptions,
+) {
+    /** What the confirmation names — the same decision the action itself follows. */
+    val target: String? get() = options.confirmationTarget(action)
+}
+
+/**
+ * The gesture still on offer for [options] in [state], or null when there is nothing left to
+ * press. ONE decision, executed by the banner, the overflow entry and the action itself, because
+ * the three disagreeing is precisely how a list gets left twice.
+ *
+ * [UnsubscribeState.Sent] and [UnsubscribeState.Queued] are done: the request went out (or is in
+ * the outbox, which will send it), and offering the button again invites a second POST to a
+ * server that already answered — for a large sender, from an address that just proved it is read.
+ * [UnsubscribeState.Sending] is in flight. A [UnsubscribeState.Failed] IS offered again: a
+ * refusal or a dead network is a retry, not a dead end.
+ *
+ * ⚠ Session-only, and deliberately so: this state lives in the ViewModel, so it is forgotten when
+ * the app is restarted and the button comes back. Remembering it across restarts is a column in
+ * the message table, which this lot does not open.
+ */
+fun offeredUnsubscribeAction(options: UnsubscribeOptions?, state: UnsubscribeState): UnsubscribeAction? =
+    when (state) {
+        UnsubscribeState.Sending, UnsubscribeState.Sent, UnsubscribeState.Queued -> null
+        UnsubscribeState.Idle, is UnsubscribeState.Failed -> options?.preferredAction()
+    }
+
+/**
+ * Which of its four shapes the unsubscribe strip draws — the decision taken out of the
+ * `@Composable` so a JVM test can RUN it.
+ *
+ * [ACTION] and [SENDING] and [DONE] are the same height on purpose, and that is not a taste: the
+ * measured height of the header is part of the key of the `remember` that builds the body's HTML
+ * document, so a strip that changes size **cancels the body load in flight and starts another**.
+ * The header is where an unsubscribe happens, so before this the reader reloaded the message
+ * every time someone left a list. [FAILED] is the one shape allowed to grow — it carries a
+ * sentence the reader has to read, and it only appears after a deliberate gesture.
+ */
+enum class UnsubscribeStripBody {
+    /** Nothing done yet: one button, no sentence. */
+    ACTION,
+
+    /** In flight: the same button, its icon replaced by a spinner, and it cannot be pressed. */
+    SENDING,
+
+    /** Sent or queued: no button at all, one terminal line. */
+    DONE,
+
+    /** Refused, or the network died: the reason, and the button again. */
+    FAILED,
+    ;
+
+    /**
+     * Whether the strip's button may START an unsubscribe here.
+     *
+     * It must agree with [offeredUnsubscribeAction] in every state, and a test holds the two
+     * together: the strip drawing a live button where the action refuses to run is a button that
+     * does nothing, and the reverse is the second POST to a list that already answered.
+     */
+    val acts: Boolean get() = this == ACTION || this == FAILED
+}
+
+/** See [UnsubscribeStripBody]. */
+fun unsubscribeStripBody(state: UnsubscribeState): UnsubscribeStripBody = when (state) {
+    UnsubscribeState.Idle -> UnsubscribeStripBody.ACTION
+    UnsubscribeState.Sending -> UnsubscribeStripBody.SENDING
+    UnsubscribeState.Sent, UnsubscribeState.Queued -> UnsubscribeStripBody.DONE
+    is UnsubscribeState.Failed -> UnsubscribeStripBody.FAILED
 }
 
 /**
@@ -318,6 +428,99 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _headers.value = null
     }
 
+    // ---- unsubscribe (RFC 2369 / RFC 8058) ----
+
+    /** What the open message offers as a way out of its mailing list; null = no banner, no menu
+     *  entry, and no error either — a message that offers nothing is simply mail. */
+    private val _unsubscribe = MutableStateFlow<UnsubscribeOptions?>(null)
+    val unsubscribe = _unsubscribe.asStateFlow()
+
+    private val _unsubscribeState = MutableStateFlow<UnsubscribeState>(UnsubscribeState.Idle)
+    val unsubscribeState = _unsubscribeState.asStateFlow()
+
+    /** The gesture awaiting confirmation, or null when no dialog is up. Confirmation is
+     *  systematic and has no setting (decision D7): the dialog is where the app says what is
+     *  about to leave and to whom, which is the whole of WYSIWYG applied to a network call. */
+    private val _unsubscribeConfirm = MutableStateFlow<PendingUnsubscribe?>(null)
+    val unsubscribeConfirm = _unsubscribeConfirm.asStateFlow()
+
+    /** Ask before acting; a no-op when the message offers nothing, or when it is already done. */
+    fun askUnsubscribe() {
+        val options = _unsubscribe.value ?: return
+        val action = offeredUnsubscribeAction(options, _unsubscribeState.value) ?: return
+        // The options are CAPTURED here, not read again when the button is pressed: the dialog
+        // then names, and the action then uses, one and the same target. A reload behind the open
+        // dialog (the pager settling, a refresh) would otherwise leave the two disagreeing — or
+        // leave the dialog naming nothing at all.
+        _unsubscribeConfirm.value = PendingUnsubscribe(action, options)
+    }
+
+    fun dismissUnsubscribeConfirm() {
+        _unsubscribeConfirm.value = null
+    }
+
+    /**
+     * Carry out the confirmed unsubscribe: the one-click POST, or the mail through the outbox.
+     * [UnsubscribeAction.OPEN_PAGE] is not handled here — handing a URL to a browser is the
+     * screen's job, and it deliberately looks nothing like the other two.
+     *
+     * It acts on the target the confirmation NAMED (see [askUnsubscribe]), and only while
+     * [offeredUnsubscribeAction] still offers it — so a dialog left open across a completed
+     * unsubscribe cannot send a second request to a list that already answered.
+     *
+     * The result is applied only if this ViewModel still holds the SAME message of the SAME
+     * account. The reader is a pager: a swipe while the POST is in flight would otherwise land
+     * "Unsubscribed" on the neighbouring message (ids are per account — issue #31).
+     */
+    fun unsubscribe() {
+        val pending = _unsubscribeConfirm.value ?: return
+        if (offeredUnsubscribeAction(pending.options, _unsubscribeState.value) == null) return
+        _unsubscribeConfirm.value = null
+        val ownerId = loadedId ?: return
+        val ownerAccount = accountId
+        val app = getApplication<Application>()
+        _unsubscribeState.value = UnsubscribeState.Sending
+        viewModelScope.launch {
+            val outcome: UnsubscribeState = try {
+                val credentials = credentials() ?: error(app.getString(R.string.status_no_saved_account))
+                when (pending.action) {
+                    UnsubscribeAction.ONE_CLICK -> {
+                        val url = pending.options.oneClickUrl ?: error("no one-click url")
+                        // The connectivity read is handed over as a lambda, so it is answered when
+                        // the POST fails and not now: this is the app's one connectivity check
+                        // ([hasUsableNetwork], the same one that picks "Sending…" over "queued" at
+                        // send time, #70), and `core:data` must not reach for Android to get it.
+                        // Without it a dead unsubscribe endpoint — an expired domain, a shut-down
+                        // list — is reported as "No network" to a phone that is plainly online.
+                        when (val result = repo.unsubscribeOneClick(url) { hasUsableNetwork(app) }) {
+                            is UnsubscribeResult.Sent -> UnsubscribeState.Sent
+                            is UnsubscribeResult.Failed -> UnsubscribeState.Failed(result.reason)
+                        }
+                    }
+                    UnsubscribeAction.MAIL -> {
+                        val mailto = pending.options.mailto ?: error("no mailto")
+                        repo.sendUnsubscribeMail(credentials, mailto)
+                        UnsubscribeState.Queued
+                    }
+                    // Not ours to run; leaving the state untouched keeps the banner as it was.
+                    UnsubscribeAction.OPEN_PAGE -> UnsubscribeState.Idle
+                }
+            } catch (cancelled: CancellationException) {
+                // A cancellation is not a failure to report: the page it belonged to is gone.
+                throw cancelled
+            } catch (t: Throwable) {
+                // Said out loud, because the screen cannot say it: "Unsubscribe failed" is one
+                // sentence for a refused enqueueSend, a missing identity and a broken database
+                // alike, and without this line the reason left no trace anywhere at all.
+                android.util.Log.w("SternaUnsubscribe", "unsubscribe failed: ${pending.action}", t)
+                UnsubscribeState.Failed(UnsubscribeFailure.REFUSED)
+            }
+            if (loadedId == ownerId && accountId == ownerAccount) {
+                _unsubscribeState.value = outcome
+            }
+        }
+    }
+
     /** One automatic decrypt attempt per opened message (when the page settles). */
     private var autoDecryptTried = false
 
@@ -354,6 +557,14 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         }
         loadedId = emailId
         this.accountId = accountId
+        // FIRST, before anything else and before the coroutine below: the unsubscribe of the
+        // message we are leaving. Everything under it is a label that would merely look wrong on
+        // the new message; this one is a BUTTON, and until the fetch returns it would still be
+        // wired to the previous message's list — a tap unsubscribing from something the reader is
+        // no longer looking at, with a confirmation naming a sender they did not choose.
+        _unsubscribe.value = null
+        _unsubscribeState.value = UnsubscribeState.Idle
+        _unsubscribeConfirm.value = null
         // Re-point the move picker at the account this page's message belongs to, before any
         // of its state is read (the folders come from the cache, so no network is involved).
         _ownerAccountId.value = credentials()?.id
@@ -424,6 +635,9 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 // erases what the cache already found (#81).
                 _deliveredTo.value = receivingAddress(anchor, ownAddresses()) ?: _deliveredTo.value
                 _mailboxId.value = anchor.mailboxId ?: listEmail?.mailboxId
+                // Read off the OPENED message: the two headers only ever ride with the body
+                // fetch, never with the cached list row painted a moment ago.
+                _unsubscribe.value = UnsubscribeHeader.parse(anchor.listUnsubscribe, anchor.listUnsubscribePost)
                 // OpenPGP: reflect the crypto state; a decrypt is attempted once the
                 // page settles in front of the user (see onActiveChanged), not while
                 // the pager pre-composes neighbours.
@@ -450,6 +664,13 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 // The reader shows the single opened message; the conversation (the rest of the
                 // thread) now lives only in the list's inline unfold, so no thread merge here.
             } catch (t: Throwable) {
+                // The unsubscribe again, and for a different reason than in the prologue: the
+                // read may have failed AFTER the options were set, or with a dialog open on them.
+                // Nothing here can be acted on any more — there is no message on screen — and a
+                // banner that outlives its message is a banner that never goes away.
+                _unsubscribe.value = null
+                _unsubscribeState.value = UnsubscribeState.Idle
+                _unsubscribeConfirm.value = null
                 _state.value = MessageState.Error(readFailureText(t))
             }
         }

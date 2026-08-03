@@ -147,6 +147,21 @@
     <string name="message_report_spam">Zgłoś jako spam</string>
     <string name="message_not_spam">To nie spam</string>
     <string name="message_snooze">Odłóż…</string>
+    <!-- Wypisanie się (RFC 2369 / RFC 8058) -->
+    <string name="message_unsubscribe">Wypisz się</string>
+    <string name="message_unsubscribe_banner">Ten nadawca udostępnia sposób wypisania się</string>
+    <string name="message_unsubscribe_open_page">Otwórz stronę</string>
+    <string name="message_unsubscribe_confirm_title">Wypisać się?</string>
+    <string name="message_unsubscribe_confirm_post">Sterna wyśle żądanie wypisania do %1$s. Bez przeglądarki, bez strony, nic nie jest wczytywane.</string>
+    <string name="message_unsubscribe_confirm_mail">Sterna wyśle e-mail z prośbą o wypisanie do %1$s.</string>
+    <string name="message_unsubscribe_confirm_open">Ten nadawca nie udostępnia automatycznego wypisania. Otwarcie %1$s w przeglądarce może ujawnić mu Twój adres IP.</string>
+    <string name="message_unsubscribe_sending">Wypisywanie…</string>
+    <string name="message_unsubscribe_sent">Żądanie wypisania wysłane</string>
+    <string name="message_unsubscribe_queued">E-mail z prośbą o wypisanie w kolejce</string>
+    <string name="message_unsubscribe_failed">Nie udało się wypisać</string>
+    <string name="message_unsubscribe_failed_redirect">Serwer nadawcy poprosił o przekierowanie żądania, co zamieniłoby je we wczytanie strony. Sterna odmówiła.</string>
+    <string name="message_unsubscribe_failed_offline">Brak sieci. Spróbuj ponownie później.</string>
+    <string name="message_unsubscribe_failed_unreachable">Nie można połączyć się z serwerem wypisywania nadawcy.</string>
     <string name="message_view_headers">Pokaż nagłówki</string>
     <string name="message_headers_title">Nagłówki wiadomości</string>
     <string name="message_headers_empty">Brak nagłówków do wyświetlenia</string>

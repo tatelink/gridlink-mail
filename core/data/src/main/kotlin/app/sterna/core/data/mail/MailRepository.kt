@@ -20,6 +20,8 @@ import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.filter.SieveCodec
 import app.sterna.core.data.db.AccountMailboxRole
+import app.sterna.core.data.unsubscribe.UnsubscribeClient
+import app.sterna.core.data.unsubscribe.UnsubscribeResult
 import app.sterna.core.data.db.EmailDao
 import app.sterna.core.data.db.EmailFtsDao
 import app.sterna.core.data.db.EmailBodyDao
@@ -371,6 +373,22 @@ internal suspend fun <T> readCachedOrPurge(
     runCatching { purge() }
     null
 }
+
+/**
+ * The `List-Unsubscribe` / `List-Unsubscribe-Post` pair as read off an IMAP message's raw source,
+ * in that order — the IMAP half of what JMAP asks the server for by property name.
+ *
+ * A named function rather than two lines inside `openEmailImap`, so WHICH headers are read (and
+ * that both are) is a decision a test can execute: the repository itself needs Room and an Android
+ * context, so nothing inside it can be reached from a JVM test.
+ *
+ * [MimeParser.headerOf] unfolds continuation lines already, which matters here more than anywhere:
+ * a `List-Unsubscribe` carrying two URIs is very often folded, and a naive read would hand the
+ * parser half a header. It is a Map, so a message repeating a header keeps the LAST occurrence —
+ * accepted for this lot, and stated here rather than discovered later.
+ */
+internal fun unsubscribeHeadersOf(raw: String): Pair<String?, String?> =
+    MimeParser.headerOf(raw, "List-Unsubscribe") to MimeParser.headerOf(raw, "List-Unsubscribe-Post")
 
 /**
  * Run [stage] — persisting an outbox item's payload/attachments after its row is already inserted —
@@ -2195,9 +2213,21 @@ class MailRepository(
         }
         // The cache holds no threading headers; lift them from the source so a reply
         // built from this email carries In-Reply-To/References.
+        //
+        // The unsubscribe headers ride along for FREE: the whole source is already in hand, so
+        // this costs no extra round trip and no change to any FETCH command — which matters,
+        // because a `BODY.PEEK[HEADER.FIELDS (…)]` would break ImapParser's tokenisation (it
+        // stops on parentheses) and return an empty string with no error at all.
+        //
+        // ⚠ `headerOf` is a Map, so a message carrying `List-Unsubscribe` TWICE keeps the last
+        // one. Accepted for this lot: both are the sender's own, and picking one of two is not
+        // the failure mode worth a second parser.
+        val unsubscribe = unsubscribeHeadersOf(raw)
         return cached.withBody(body).copy(
             messageId = headerIds(MimeParser.headerOf(raw, "Message-ID")),
             references = headerIds(MimeParser.headerOf(raw, "References")),
+            listUnsubscribe = unsubscribe.first,
+            listUnsubscribePost = unsubscribe.second,
         )
     }
 
@@ -2510,6 +2540,18 @@ class MailRepository(
         },
         purge = { emailBodyDao.deleteById(accountId, emailId) },
     )
+
+    /**
+     * Drop every cached message body, for every account. The bodies ONLY — the message list, the
+     * attachments and the search index are untouched.
+     *
+     * Called once after an upgrade (see [BodyCachePurge]): a body serialised by an older build
+     * cannot grow a field the new one reads, and `openMessage` serves the cache before looking at
+     * anything. Cheap by construction — the next open refetches, which is what a cache is for.
+     */
+    suspend fun clearCachedBodies() {
+        emailBodyDao.deleteAll()
+    }
 
     /** Inline images present if the body needs them; downloads + persists them on first open. */
     private suspend fun ensureInlineImages(
@@ -5175,6 +5217,50 @@ class MailRepository(
             attachments = listOf(attachment),
             fromName = identity?.name,
             fromEmail = identity?.email,
+        )
+    }
+
+    // ---- unsubscribe (RFC 2369 / RFC 8058) ----
+
+    /** Built once, on first use: nothing else in the app talks to third-party domains. */
+    private val unsubscribeClient by lazy { UnsubscribeClient() }
+
+    /**
+     * Send the RFC 8058 one-click unsubscribe to [url]: one POST, no browser, no page, and no
+     * `Authorization` header — [UnsubscribeClient] exists precisely so this request cannot
+     * inherit the account's credentials on their way to a stranger's server.
+     *
+     * [isOnline] is passed through, not answered here: this module has no business reading
+     * `ConnectivityManager`. It decides, when the POST dies on the transport, whether the reader
+     * is off the network or the sender's host is dead — see `oneClickFailure`. It has no default
+     * on purpose: a caller that has no connectivity to report would silently reintroduce the
+     * "No network" lie every failed unsubscribe used to tell.
+     */
+    suspend fun unsubscribeOneClick(url: String, isOnline: () -> Boolean): UnsubscribeResult =
+        unsubscribeClient.oneClick(url, isOnline)
+
+    /**
+     * Queue the `mailto:` form of an unsubscribe through the ordinary outbox, so it retries and
+     * survives like any other send rather than being a special one-shot request.
+     *
+     * Built on [sendCalendarReply]'s pattern, identity included: a delegated sub-account submits
+     * through its login (issue #31), and a list unsubscribes the address it sees in `From`.
+     * The subject, when the URI names none, is [UNSUBSCRIBE_SUBJECT] — deliberately not a
+     * translated label, since it is read by the list's software and not by a person.
+     */
+    suspend fun sendUnsubscribeMail(
+        credentials: AccountCredentials,
+        mailto: MailtoUnsubscribe,
+    ) {
+        val identity = accountStore.identities(credentials.id).firstOrNull()
+        val mail = unsubscribeMail(mailto, identity?.name, identity?.email)
+        enqueueSend(
+            credentials = credentials,
+            to = mail.to,
+            subject = mail.subject,
+            body = mail.body,
+            fromName = mail.fromName,
+            fromEmail = mail.fromEmail,
         )
     }
 

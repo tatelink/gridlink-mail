@@ -3,7 +3,11 @@ package app.sterna.ui.message
 import app.sterna.appLocale
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.VerifiedUser
+import app.sterna.core.data.mail.UnsubscribeAction
+import app.sterna.core.data.mail.UnsubscribeOptions
+import app.sterna.core.data.mail.preferredAction
 import app.sterna.core.data.pgp.PgpSignatureState
+import app.sterna.core.data.unsubscribe.UnsubscribeFailure
 import app.sterna.core.imap.CryptoKind
 import app.sterna.pgp.rememberPgpInteractionLauncher
 import android.content.Context
@@ -71,12 +75,14 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Unsubscribe
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -655,6 +661,10 @@ private fun MessageActions(
     val folders by viewModel.moveTargets.collectAsStateWithLifecycle()
     // The account's whole folder list, only to spell out a target's parent path (#109).
     val accountFolders by viewModel.accountMailboxes.collectAsStateWithLifecycle()
+    // The open message's way out of its mailing list, if it offers one (RFC 2369 / RFC 8058),
+    // and how far it has got — the menu entry stands down once the gesture has been made.
+    val unsubscribe by viewModel.unsubscribe.collectAsStateWithLifecycle()
+    val unsubscribeState by viewModel.unsubscribeState.collectAsStateWithLifecycle()
     val loaded = state as? MessageState.Loaded ?: return
     val senderEmail = loaded.email.from.firstOrNull()?.email
     val senderAllowed = senderEmail?.lowercase()?.let { it in imageAllowlist } == true
@@ -855,6 +865,30 @@ private fun MessageActions(
                     onClick = { snoozeSubmenu = true },
                 )
             }
+            // Unsubscribe (RFC 2369 / RFC 8058) — shown only when the message carries a usable way
+            // out AND that way out has not already been taken, so the entry is never a dead end
+            // and never a second request to a list that already answered. The same decision drives
+            // the banner's button (see [UnsubscribeStrip]): the two used to disagree, and going
+            // round by the menu sent the POST again. The label says which gesture it is: "Open
+            // page" is a browser and everything a page load implies, and calling that
+            // "Unsubscribe" like the other two would be the one dishonest word in the feature.
+            offeredUnsubscribeAction(unsubscribe, unsubscribeState)?.let { action ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(
+                                if (action == UnsubscribeAction.OPEN_PAGE) {
+                                    R.string.message_unsubscribe_open_page
+                                } else {
+                                    R.string.message_unsubscribe
+                                },
+                            ),
+                        )
+                    },
+                    leadingIcon = { Icon(Icons.Filled.Unsubscribe, contentDescription = null) },
+                    onClick = { menuOpen = false; viewModel.askUnsubscribe() },
+                )
+            }
             // Read-only raw-headers view (issue #60). Headers are fetched on demand here, so
             // the normal reader path never pulls them.
             DropdownMenuItem(
@@ -916,6 +950,80 @@ private fun MessageActions(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { movePicker = false }) { Text(stringResource(R.string.inbox_cancel)) }
+            },
+        )
+    }
+    // The unsubscribe confirmation (decision D7: systematic, and no setting to switch it off).
+    // Rendered here rather than next to the banner because both the banner and the overflow entry
+    // open it, and they live on either side of the pager boundary — the settled page's ViewModel
+    // is the one thing they share.
+    val pendingUnsubscribe by viewModel.unsubscribeConfirm.collectAsStateWithLifecycle()
+    val leaveOnce = rememberLeaveOnce()
+    pendingUnsubscribe?.let { pending ->
+        val action = pending.action
+        // Named from the options the confirmation was OPENED for, never re-read from the live
+        // state: what this dialog says and what the button then does are one and the same thing.
+        // Which form of the target each gesture names — host, address, or the whole URL — is
+        // decided once, in :core:data, and executed by a test (UnsubscribeOptions.confirmationTarget).
+        val target = pending.target
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissUnsubscribeConfirm() },
+            title = { Text(stringResource(R.string.message_unsubscribe_confirm_title)) },
+            text = {
+                // The same Column-with-weight as the external-link dialog above, for the same
+                // reason spelled out there: Material's text slot is a height-bounded box with no
+                // scrolling of its own, and an unsubscribe URL is exactly the kind of hundreds-of-
+                // characters string that would eat the whole slot and leave the button measured
+                // at zero height — gone, not merely crowded.
+                Column {
+                    Text(
+                        text = when (action) {
+                            UnsubscribeAction.ONE_CLICK ->
+                                stringResource(R.string.message_unsubscribe_confirm_post, target.orEmpty())
+                            UnsubscribeAction.MAIL ->
+                                stringResource(R.string.message_unsubscribe_confirm_mail, target.orEmpty())
+                            // The full URL, not just the host, exactly like the reader's ordinary
+                            // external-link dialog: this is the one unsubscribe that opens a page
+                            // in a browser, and consenting to "open a page on this host" is not
+                            // the same as consenting to open THIS address.
+                            UnsubscribeAction.OPEN_PAGE ->
+                                stringResource(R.string.message_unsubscribe_confirm_open, target.orEmpty())
+                        },
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (action == UnsubscribeAction.OPEN_PAGE) {
+                        // A page load is a hand-off to another app, so it takes the same
+                        // one-shot guard every other "leave the app" action in the reader does.
+                        // The URL is the CAPTURED one — the address named two lines above, not
+                        // whatever the live state holds by the time the button is pressed.
+                        val page = pending.options.pageUrl
+                        viewModel.dismissUnsubscribeConfirm()
+                        if (page != null) leaveOnce { openExternally(context, Uri.parse(page)) }
+                    } else {
+                        viewModel.unsubscribe()
+                    }
+                }) {
+                    Text(
+                        stringResource(
+                            if (action == UnsubscribeAction.OPEN_PAGE) {
+                                R.string.message_unsubscribe_open_page
+                            } else {
+                                R.string.message_unsubscribe
+                            },
+                        ),
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissUnsubscribeConfirm() }) {
+                    Text(stringResource(R.string.settings_cancel))
+                }
             },
         )
     }
@@ -1014,6 +1122,8 @@ private fun MessageContent(
     val ownMessage by viewModel.ownMessage.collectAsStateWithLifecycle()
     val deliveredTo by viewModel.deliveredTo.collectAsStateWithLifecycle()
     val crypto by viewModel.crypto.collectAsStateWithLifecycle()
+    val unsubscribe by viewModel.unsubscribe.collectAsStateWithLifecycle()
+    val unsubscribeState by viewModel.unsubscribeState.collectAsStateWithLifecycle()
     // OpenKeychain's passphrase/key dialogs round-trip through this launcher.
     val pgpLauncher = rememberPgpInteractionLauncher { data ->
         if (data != null) viewModel.decrypt(data) else viewModel.cancelDecrypt()
@@ -1068,6 +1178,11 @@ private fun MessageContent(
                         else -> viewModel.decrypt()
                     }
                 },
+                unsubscribe = unsubscribe,
+                unsubscribeState = unsubscribeState,
+                // The banner never acts on its own: it opens the same confirmation the
+                // overflow entry does (decision D7).
+                onUnsubscribe = viewModel::askUnsubscribe,
             )
         }
     }
@@ -1102,6 +1217,9 @@ private fun ConversationBody(
     deliveredTo: String? = null,
     crypto: CryptoUiState = CryptoUiState.None,
     onCryptoAction: () -> Unit = {},
+    unsubscribe: UnsubscribeOptions? = null,
+    unsubscribeState: UnsubscribeState = UnsubscribeState.Idle,
+    onUnsubscribe: () -> Unit = {},
 ) {
     val msg = messages.firstOrNull() ?: return
     val full = msg.body
@@ -1280,6 +1398,7 @@ private fun ConversationBody(
             MessageHeader(
                 msg, full, attachmentStatus, onOpenAttachment, calendar, onRespondToInvite,
                 onComposeTo, showRecipients, deliveredTo, crypto, onCryptoAction,
+                unsubscribe, unsubscribeState, onUnsubscribe,
             )
         }
         // Spinner until the body has laid out (cached/prefetched mail beats the 500ms, so none flashes).
@@ -1347,6 +1466,9 @@ private fun MessageHeader(
     deliveredTo: String? = null,
     crypto: CryptoUiState = CryptoUiState.None,
     onCryptoAction: () -> Unit = {},
+    unsubscribe: UnsubscribeOptions? = null,
+    unsubscribeState: UnsubscribeState = UnsubscribeState.Idle,
+    onUnsubscribe: () -> Unit = {},
 ) {
     val sender = msg.header.from.firstOrNull()
     // The user's own message (Sent/Drafts, or sent under one of the account's identities): the
@@ -1471,6 +1593,12 @@ private fun MessageHeader(
                     },
                 )
             }
+        }
+        // The way out of a mailing list, when the sender offers one. Last of the strips, so it
+        // never pushes the crypto verdict or a meeting invitation below the fold.
+        unsubscribe?.let { options ->
+            HorizontalDivider()
+            UnsubscribeStrip(options, unsubscribeState, onUnsubscribe)
         }
         HorizontalDivider()
     }
@@ -1874,6 +2002,126 @@ private fun PgpStatusCard(crypto: CryptoUiState, onAction: () -> Unit) {
                 }
             }
             CryptoUiState.None -> Unit
+        }
+    }
+}
+
+/**
+ * The unsubscribe strip above the body: one button to leave the list, or — once left — one line
+ * saying what happened.
+ *
+ * **A button, not a sentence, and the reason is frequency.** The reader carries four strips. The
+ * two RARE ones (the OpenPGP verdict, a calendar invitation) are a tinted icon plus a sentence
+ * plus an [OutlinedButton]: those are decisions being asked for. The other FREQUENT one — the
+ * attachment list — is `labelLarge` in `onSurfaceVariant` with a muted icon and no button at all:
+ * that is content being listed. Since February 2024 Google and Yahoo require `List-Unsubscribe`
+ * from every bulk sender, so this header is no longer the mark of a mailing list, it is the mark
+ * of commercial mail in general — which put the grammar of the exceptions on something that
+ * happens on nearly every message that is not personal. There is no honest filter to add (deciding
+ * which lists are "legitimate" is a score, and this app does not score mail), so the answer is to
+ * make each appearance cost less.
+ *
+ * [TextButton] and not an `AssistChip`: the plain text button is already the house vocabulary for
+ * a secondary action (`OutboxScreen`, `FiltersScreen`), and there is no AssistChip anywhere in
+ * this application.
+ *
+ * ⭐ **The constant height is not tidiness.** The measured height of the header is part of the key
+ * of the `remember` that builds the body's HTML document (see [ConversationBody]) — the file
+ * already documents the damage — so a strip that changes size cancels the body load in flight.
+ * The header is exactly where an unsubscribe happens, so every unsubscribe used to reload the
+ * message. [UnsubscribeStripBody] keeps the three ordinary shapes to one height; only the failure
+ * grows, and only after a deliberate gesture.
+ *
+ * The button LABEL is the honest part: "Open page" when all the sender offers is a browser link,
+ * because that gesture loads a page and hands over an IP address, and dressing it as the one-click
+ * POST would be selling the same word for two very different things.
+ *
+ * ⚠ Kept in this file, and deliberately not extracted to a small private @Composable of its own in
+ * another one: R8 inlines short composables and the result draws NOTHING in a release build
+ * (`MessageScreenKt` is not in proguard-rules.pro's -keep list, unlike MonogramKt). Any change
+ * here needs a release-build check on the device, not just a debug one.
+ */
+@Composable
+private fun UnsubscribeStrip(
+    options: UnsubscribeOptions,
+    state: UnsubscribeState,
+    onUnsubscribe: () -> Unit,
+) {
+    // The label of the button, when there is one to draw — the same decision the overflow entry
+    // and the action itself take (see [offeredUnsubscribeAction]). `preferredAction` alone would
+    // answer for a gesture already made, and the strip would go on offering it.
+    val action = options.preferredAction() ?: return
+    val body = unsubscribeStripBody(state)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            // No vertical padding of its own: the button's own minimum IS the strip's height, and
+            // it is the floor for the two states that draw less. See the KDoc above — a strip
+            // that changes height reloads the body underneath it.
+            .heightIn(min = ButtonDefaults.MinHeight)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (body == UnsubscribeStripBody.DONE) {
+            // Done is done: no button left to press, and nothing that could be pressed twice.
+            Text(
+                text = stringResource(
+                    if (state == UnsubscribeState.Queued) {
+                        R.string.message_unsubscribe_queued
+                    } else {
+                        R.string.message_unsubscribe_sent
+                    },
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            val failed = state as? UnsubscribeState.Failed
+            if (failed != null) {
+                // The one shape allowed to grow: a refusal has to say what happened, and a
+                // failure is a retry rather than a dead end — the button comes back beside it.
+                Text(
+                    text = stringResource(
+                        when (failed.reason) {
+                            UnsubscribeFailure.REDIRECT -> R.string.message_unsubscribe_failed_redirect
+                            UnsubscribeFailure.OFFLINE -> R.string.message_unsubscribe_failed_offline
+                            UnsubscribeFailure.UNREACHABLE ->
+                                R.string.message_unsubscribe_failed_unreachable
+                            UnsubscribeFailure.REFUSED -> R.string.message_unsubscribe_failed
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
+                )
+            }
+            TextButton(onClick = onUnsubscribe, enabled = body.acts) {
+                if (body == UnsubscribeStripBody.SENDING) {
+                    // In the icon's place, at the icon's size: the button keeps its height, so
+                    // the header does, so the body underneath is not reloaded mid-gesture.
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        Icons.Filled.Unsubscribe,
+                        // The sentence this strip used to spend a whole line on, recycled where
+                        // it costs no height and gains a screen reader something: the icon was
+                        // announced as nothing at all before.
+                        contentDescription = stringResource(R.string.message_unsubscribe_banner),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(
+                        when {
+                            body == UnsubscribeStripBody.SENDING -> R.string.message_unsubscribe_sending
+                            action == UnsubscribeAction.OPEN_PAGE -> R.string.message_unsubscribe_open_page
+                            else -> R.string.message_unsubscribe
+                        },
+                    ),
+                )
+            }
         }
     }
 }
