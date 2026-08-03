@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -344,6 +345,28 @@ fun GridlinkRoot(
         }
     }
 
+    // Filing a message from inside the thread. The list owns its own copy of the mail and should
+    // keep owning it (see the note on its `humans`/`robots` state), so the thread does not reach in
+    // and mutate anything: it posts a request, and the list applies it through the same `remove()`
+    // path a swipe uses, which is why the row leaves with the same animation either way.
+    var removeRequest by remember { mutableStateOf<GridlinkRemoveRequest?>(null) }
+    var removeNonce by remember { mutableIntStateOf(0) }
+
+    /**
+     * Files the open message and goes back to the list.
+     *
+     * 🔴 The order matters and is the opposite of what reads naturally. `closeThread()` starts an
+     * animation and returns immediately, so the request is posted first and the list applies it
+     * while the thread is still sliding off. The row's collapse therefore happens behind the thread
+     * and is over by the time the list is uncovered, instead of a row visibly vanishing under the
+     * user's eyes on a screen they just arrived back at.
+     */
+    fun fileOpenThread(id: String) {
+        removeNonce += 1
+        removeRequest = GridlinkRemoveRequest(setOf(id), removeNonce)
+        closeThread()
+    }
+
     // 🔴 PredictiveBackHandler, not BackHandler. The difference is the whole point of building the
     // open as one scrubable value: this delivers the drag as a flow of progress, so the thread
     // follows the finger and follows it back if the finger changes its mind. Normal completion of
@@ -387,6 +410,7 @@ fun GridlinkRoot(
                     initialSwipeFraction = initialSwipeFraction,
                     demoRecycle = demoRecycle,
                     initiallyEmpty = initiallyEmpty,
+                    removeRequest = removeRequest,
                 )
 
                 GridlinkDestination.FOLDERS -> GridlinkFolderScreen(
@@ -464,7 +488,29 @@ fun GridlinkRoot(
                 GridlinkThreadScreen(
                     message = message,
                     onBack = ::closeThread,
-                    onReply = { composing = gridlinkReplyTo(message) },
+                    onAction = { action ->
+                        when (action) {
+                            GridlinkThreadAction.REPLY ->
+                                composing = gridlinkReplyTo(message)
+
+                            GridlinkThreadAction.REPLY_ALL ->
+                                composing = gridlinkReplyAllTo(message)
+
+                            GridlinkThreadAction.FORWARD ->
+                                composing = gridlinkForward(message)
+
+                            // All three file the message and leave. ⚠️ They are the same code today
+                            // and they must not stay that way: archive moves it, spam moves it AND
+                            // trains the filter, and unsubscribe sends a request first. The list
+                            // only knows how to make a row leave, so that is all any of them can do
+                            // until there is a server on the other end. What each one is *supposed*
+                            // to do is written down here so the difference is not lost.
+                            GridlinkThreadAction.ARCHIVE,
+                            GridlinkThreadAction.SPAM,
+                            GridlinkThreadAction.UNSUBSCRIBE,
+                            -> fileOpenThread(message.id)
+                        }
+                    },
                 )
             }
         }

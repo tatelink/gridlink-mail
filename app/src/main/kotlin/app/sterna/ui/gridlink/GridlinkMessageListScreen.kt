@@ -25,6 +25,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.pullToRefresh
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +61,17 @@ const val GRIDLINK_BUNDLE_SWIPE_ID = "bundle"
  * still looking at the screen when it returns.
  */
 private const val GRIDLINK_RECYCLE_DELAY_MS = 1400L
+
+/**
+ * One "these have left the inbox" message, sent to the list from outside it.
+ *
+ * 🔴 [nonce] is the whole reason this is a class and not a `Set<String>`. It is the key of the
+ * `LaunchedEffect` that applies it, and two identical requests in a row are a real sequence: archive
+ * a message, let the demo recycle bring it back, archive it again. Without something that differs,
+ * the second one is the same key and never runs.
+ */
+@Immutable
+data class GridlinkRemoveRequest(val ids: Set<String>, val nonce: Int)
 
 /**
  * How long the "mark read" rewrite waits after a row is removed, so the recomposition it forces
@@ -163,6 +176,17 @@ fun GridlinkMessageListScreen(
      * middle of it.
      */
     initiallyEmpty: Boolean = false,
+    /**
+     * A message filed from somewhere outside this screen, currently the open thread's Archive, Spam
+     * and Unsubscribe buttons. Null when there is nothing to apply.
+     *
+     * 🔴 This screen stays the owner of the mail. The alternative was hoisting `humans`, `robots`,
+     * `removedIds` and the recycle loop into [GridlinkRoot] so the thread could mutate them
+     * directly, which spreads one screen's state across two files for one button. A request that
+     * the list applies through its own [remove] means an archive from the thread and an archive
+     * from a swipe are the same code path and cannot drift apart.
+     */
+    removeRequest: GridlinkRemoveRequest? = null,
     onOpenMessage: (GridlinkMessage) -> Unit = {},
     onCompose: () -> Unit = {},
 ) {
@@ -343,6 +367,13 @@ fun GridlinkMessageListScreen(
                 selectedIds = emptySet()
             }
         }
+    }
+
+    // 🔴 Keyed on the whole request, which is why [GridlinkRemoveRequest] carries a nonce. Keyed on
+    // the ids alone, archiving a message, letting the demo recycle bring it back and archiving it
+    // again would be the same key twice in a row and the second one would silently do nothing.
+    LaunchedEffect(removeRequest) {
+        removeRequest?.let { remove(it.ids) }
     }
 
     val bundleTemplate = remember { GridlinkSample.reportsBundle }

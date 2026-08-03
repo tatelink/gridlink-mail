@@ -727,18 +727,25 @@ object GridlinkType {
     )
 
     /**
-     * Running prose that is meant to be read rather than scanned: the message body in the composer,
-     * and later the thread view.
+     * Running prose that is meant to be read rather than scanned: the message body in the composer
+     * and in the thread view.
      *
-     * Same 15sp as a list row and a much taller line, which is the entire difference. The row styles
-     * are crushed to 18sp so two of them fit a 64dp row; that is right for one line you glance at
-     * and wrong for a paragraph you actually read.
+     * 🔴 One step LARGER than the list rows, not the same size. It was 15sp/22sp to match a row, on
+     * the theory that one type size everywhere is tidier. Reading an actual message on the device
+     * killed that: a list row is one line you glance at, and a body is four hundred words you track
+     * across and down, which is a different job for the eye and wants a different size.
+     *
+     * 16sp with a 27sp line is a 1.69 ratio. Prose wants somewhere between 1.5 and 1.75, and the old
+     * 22sp on 15sp was 1.47, which is the bottom of the range and reads as cramped the moment a
+     * paragraph runs past three lines. Do not chase this any higher: past about 1.8 the lines stop
+     * belonging to the same paragraph and the eye starts losing its place on the way back to the
+     * left margin, which is the exact problem the extra leading was meant to fix.
      */
     val body = TextStyle(
         fontFamily = GridlinkFontFamily,
-        fontSize = 15.sp,
+        fontSize = 16.sp,
         fontWeight = FontWeight.Normal,
-        lineHeight = 22.sp,
+        lineHeight = 27.sp,
     )
 
     /**
