@@ -40,11 +40,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.LocalContentColor
 import app.sterna.core.data.pgp.PgpMode
+import app.sterna.core.jmap.model.Email
 import app.sterna.pgp.rememberPgpInteractionLauncher
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -133,6 +135,9 @@ import app.sterna.contacts.ContactSuggestion
 fun ComposeScreen(
     onDone: () -> Unit,
     onCancel: () -> Unit,
+    /** Send the draft this composer is editing to the Trash, the way the list does it (#127) —
+     *  through the inbox's own ViewModel, so it is the same move and the same Undo. */
+    onDeleteDraft: (Email) -> Unit,
     replyTo: String? = null,
     mode: String? = null,
     accountId: String? = null,
@@ -159,6 +164,7 @@ fun ComposeScreen(
     val pgpKeylessRecipients by viewModel.pgpKeylessRecipients.collectAsStateWithLifecycle()
     val onlyCopy by viewModel.onlyCopy.collectAsStateWithLifecycle()
     val editingOutbox by viewModel.editingOutbox.collectAsStateWithLifecycle()
+    val editingDraft by viewModel.editingDraft.collectAsStateWithLifecycle()
     val attachmentsTouched by viewModel.attachmentsTouched.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -660,6 +666,18 @@ fun ComposeScreen(
                     // Attachments are allowed in every mode (they ride inside the encrypted entity).
                     IconButton(onClick = { picker.launch("*/*") }, enabled = !sending) {
                         Icon(Icons.Filled.AttachFile, contentDescription = stringResource(R.string.compose_attach))
+                    }
+                    // Deleting the draft (#127). OUTSIDE the draftSaveAllowed block below: a delete
+                    // persists nothing, so it has no reason to disappear when the padlock closes.
+                    // When it is offered is [draftDeleteOffered]; the message it acts on comes from
+                    // the ViewModel, which refuses while a send is in flight (INV-6).
+                    if (draftDeleteOffered(restore, draftId, editingDraft != null)) {
+                        IconButton(
+                            onClick = { viewModel.takeEditingDraft()?.let(onDeleteDraft) },
+                            enabled = !sending,
+                        ) {
+                            Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.message_delete))
+                        }
                     }
                     // Encrypting can't carry plaintext to the server: no draft, no schedule. Same
                     // rule, same function as the leave dialog above (#35).

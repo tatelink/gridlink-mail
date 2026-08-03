@@ -477,6 +477,32 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
      */
     private var editingDraftLossy = false
 
+    /**
+     * The saved draft behind this composer AS A MESSAGE — the cached row, ready to be deleted —
+     * or null when there is none to delete (#127).
+     *
+     * Not derived from [editingDraftId]: that one is a private var with no flow, and it is set
+     * AFTER the draft has been fetched and never at all if the fetch fails, so a screen cannot
+     * follow it. This is set at the same moment, and only if the cache also holds the row the
+     * delete needs. Offline, a reopened draft leaves it null — the composer then knows it cannot
+     * offer a delete, rather than offering one that would do nothing.
+     */
+    private val _editingDraft = MutableStateFlow<Email?>(null)
+    val editingDraft: StateFlow<Email?> = _editingDraft.asStateFlow()
+
+    /**
+     * The draft to delete, handed over exactly once, or null when there is nothing to hand over.
+     *
+     * Refuses while a send or a save is in flight (INV-6, like `abandon`/`sendInternal`/`submit`):
+     * a send carries `draftEmailId = editingDraftId` and destroys the original when it lands, so a
+     * delete racing it would be a second destruction of the same message. Clears as it hands over,
+     * so a double tap cannot delete twice.
+     */
+    fun takeEditingDraft(): Email? {
+        if (_state.value is ComposeState.Sending) return null
+        return _editingDraft.value?.also { _editingDraft.value = null }
+    }
+
     private fun credentials(): AccountCredentials? =
         (_selectedFrom.value?.accountId ?: accountId)?.let { store.credentials(it) } ?: store.load()
 
@@ -651,6 +677,10 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                     inReplyTo = draft.inReplyTo
                     references = draft.references
                     editingDraftId = draftId
+                    // The row the Delete button would act on (#127), taken now, from the cache the
+                    // Drafts list itself was drawn from. Only here: a draft that could not be read
+                    // must not be offered a delete (see [editingDraft]).
+                    _editingDraft.value = runCatching { repo.cachedEmail(credentials.id, draftId) }.getOrNull()
                     // What this editor cannot give back on a re-save: rich formatting (the HTML
                     // body is flattened to text), inline images and calendar parts (not carried).
                     editingDraftLossy = draft.htmlContent() != null ||

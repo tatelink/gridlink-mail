@@ -396,6 +396,23 @@ internal fun discardChoices(mayKeepDraft: Boolean): List<DiscardChoice> =
     )
 
 /**
+ * Whether the composer offers to delete the draft it is editing (#127).
+ *
+ * Three conditions, each of them a way of not lying about what the button would do:
+ *
+ *  - [draftId], the navigation argument: this composer was opened FROM a saved draft. A new mail,
+ *    a reply and a forward have nothing to delete;
+ *  - not [restore]: a message pulled back out of the send queue carries a draft id too, and what is
+ *    expected of it is the outbox's own gesture, on a row parked in `EDITING` that must be handed
+ *    back or consumed. That screen is titled "Edit"; this button is not for it;
+ *  - [draftInHand]: the draft was actually READ and its row is in the cache, so there is a message
+ *    to delete. Offline, a reopen whose fetch failed has a draft id and nothing behind it — and a
+ *    button that would silently do nothing is worse than no button.
+ */
+internal fun draftDeleteOffered(restore: Boolean, draftId: String?, draftInHand: Boolean): Boolean =
+    !restore && draftId != null && draftInHand
+
+/**
  * Where the caret starts in a prefilled body, or null when [focus] is not the body (that field
  * takes the keyboard instead). [bodyLength] is the whole prefilled body, signature included;
  * [linkBodyLength] how much of it a `mailto:` link supplied, 0 when it supplied none.
