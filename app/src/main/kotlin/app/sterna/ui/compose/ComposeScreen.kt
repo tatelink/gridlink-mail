@@ -126,7 +126,9 @@ import app.sterna.ui.components.ContactAvatar
 import app.sterna.ui.components.drawTern
 import app.sterna.contacts.ContactSuggestion
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ExperimentalLayoutApi: the leave dialog's FlowRow, which wraps its three answers instead of
+// truncating them where the labels are long (German, Russian) — same as the settings screens'.
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ComposeScreen(
     onDone: () -> Unit,
@@ -504,7 +506,7 @@ fun ComposeScreen(
         // it may not be announced as "Discard message?". Nor may it be promised delivery: a failed
         // send returns to FAILED and waits for Retry. The buttons on offer are a separate question,
         // still [mayKeepDraft]'s (#35).
-        val wording = discardWording(editingOutbox, mayKeepDraft)
+        val wording = discardWording(editingOutbox, mayKeepDraft, editingDraft = draftId != null)
         val discardLabel = stringResource(
             if (wording.fromOutbox) {
                 R.string.compose_discard_changes
@@ -517,10 +519,15 @@ fun ComposeScreen(
             title = {
                 Text(
                     stringResource(
-                        if (wording.fromOutbox) {
-                            R.string.compose_discard_title_outbox
-                        } else {
-                            R.string.compose_discard_title
+                        when {
+                            wording.fromOutbox -> R.string.compose_discard_title_outbox
+                            // A draft already saved on the server is not destroyed by leaving:
+                            // cancel() → abandon() is a no-op outside the outbox, and the draft is
+                            // still in Drafts afterwards. "Discard message?" was literally false —
+                            // the body beside it said "changes" all along (#35, #127). Its own key,
+                            // not the outbox's: the two name different situations.
+                            wording == DiscardWording.DRAFT -> R.string.compose_discard_title_changes
+                            else -> R.string.compose_discard_title
                         },
                     ),
                 )
@@ -536,37 +543,49 @@ fun ComposeScreen(
                             DiscardWording.OUTBOX_ENCRYPTED ->
                                 R.string.compose_discard_message_outbox_encrypted
                             DiscardWording.ENCRYPTED -> R.string.compose_discard_message_encrypted
-                            DiscardWording.PLAIN -> R.string.compose_discard_message
+                            // "You haven't saved your changes" is true of both, and of both
+                            // buttons beside it; only the title has to tell them apart.
+                            DiscardWording.DRAFT,
+                            DiscardWording.PLAIN,
+                            -> R.string.compose_discard_message
                         },
                     ),
                 )
             },
+            // AlertDialog has two button slots and this exit needs three answers, so all of them go
+            // in the confirm slot as a FlowRow: one line where the labels fit, wrapped where they
+            // don't (German, Russian), never truncated. Same shape and same order as the settings
+            // screens' own three-answer exit (SaveChangesDialog), recopied rather than reused: that
+            // one hard-codes its title and its three labels, and parameterising all four would have
+            // been a new component rather than a shared one.
+            //
+            // WHICH buttons is [discardChoices], where it can be run: that Cancel is never missing
+            // (#35, #127) and that Save draft never appears while encrypting (the 1.4.3 plaintext
+            // leak) are both guarantees somebody has already come looking for, and neither was
+            // reachable from a test while it was the shape of an `if` here.
             confirmButton = {
-                if (mayKeepDraft) {
-                    TextButton(onClick = {
-                        showDiscard = false
-                        viewModel.saveDraft(to, cc, bcc, subject.text, body.text)
-                    }) { Text(stringResource(R.string.compose_discard_save)) }
-                } else {
-                    TextButton(onClick = {
-                        showDiscard = false
-                        // Same discard as above: the edits go, a queued message goes back (#70).
-                        cancel()
-                    }) { Text(discardLabel) }
-                }
-            },
-            dismissButton = {
-                if (mayKeepDraft) {
-                    TextButton(onClick = {
-                        showDiscard = false
-                        // Discards the edits, not the queued message: that one goes back (#70).
-                        cancel()
-                    }) { Text(discardLabel) }
-                } else {
-                    // Encrypted: Discard is the confirm button, so this one only closes the
-                    // dialog — back to the composer, message intact, still encrypted.
-                    TextButton(onClick = { showDiscard = false }) {
-                        Text(stringResource(R.string.compose_discard_cancel))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    discardChoices(mayKeepDraft).forEach { choice ->
+                        when (choice) {
+                            // Back to the composer, text intact, still encrypted if it was. This is
+                            // what tapping outside the dialog has always done; it now has a button.
+                            DiscardChoice.CANCEL -> TextButton(onClick = { showDiscard = false }) {
+                                Text(stringResource(R.string.compose_discard_cancel))
+                            }
+                            DiscardChoice.DISCARD -> TextButton(onClick = {
+                                showDiscard = false
+                                // Discards the edits, not the queued message: that one goes back
+                                // (#70), and a saved draft stays in Drafts (#35, #127).
+                                cancel()
+                            }) { Text(discardLabel, color = MaterialTheme.colorScheme.error) }
+                            DiscardChoice.SAVE_DRAFT -> TextButton(onClick = {
+                                showDiscard = false
+                                viewModel.saveDraft(to, cc, bcc, subject.text, body.text)
+                            }) { Text(stringResource(R.string.compose_discard_save)) }
+                        }
                     }
                 }
             },

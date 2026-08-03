@@ -34,6 +34,7 @@
     <string name="compose_discard_message">Du hast deine Änderungen nicht gespeichert.</string>
     <string name="compose_discard_message_encrypted">Diese Nachricht ist verschlüsselt und kann deshalb nicht als Entwurf behalten werden: Ein Entwurf wird genau so, wie du ihn geschrieben hast, auf dem Mailserver gespeichert und ist für alle mit Zugriff lesbar. Wenn du jetzt gehst, wird die Nachricht verworfen.</string>
     <string name="compose_discard_title_outbox">Änderungen verwerfen?</string>
+    <string name="compose_discard_title_changes">Änderungen verwerfen?</string>
     <string name="compose_discard_message_outbox">Deine Änderungen werden verworfen, die Nachricht aber nicht: Sie bleibt im Postausgang oder wandert in die Entwürfe, wenn du sie speicherst.</string>
     <string name="compose_discard_message_outbox_encrypted">Deine Änderungen werden verworfen, die Nachricht aber nicht: Sie bleibt im Postausgang. Lösche sie dort, wenn du sie loswerden willst.</string>
     <string name="compose_discard_changes">Änderungen verwerfen</string>

@@ -306,6 +306,9 @@ internal enum class DiscardWording(val fromOutbox: Boolean) {
     PLAIN(false),
     ENCRYPTED(false),
 
+    /** A draft already saved on the server is behind this screen: leaving drops the edits only. */
+    DRAFT(false),
+
     /** Out of the outbox, with "Save draft" offered beside "Discard changes". */
     OUTBOX(true),
 
@@ -340,13 +343,57 @@ internal enum class DiscardWording(val fromOutbox: Boolean) {
  * so a flat "it stays in the outbox" is false of the button sitting right next to it. Without it,
  * only leaving is possible and the shorter sentence is the true one — and it may then point at the
  * outbox's own delete, which is the only way left to be rid of the message.
+ *
+ * [editingDraft] is the second thing that can survive this screen (#35, #127): a draft already
+ * saved on the server, reopened from the Drafts list. Leaving destroys nothing of it — `cancel()`
+ * calls `abandon()`, a no-op outside the outbox — so "Discard message?" was literally false there,
+ * while the body under it said "changes" all along. It is the navigation argument, not whether the
+ * draft could actually be READ: an offline reopen whose fetch failed still has its draft sitting in
+ * Drafts, untouched. Ranked below the encrypted case, which has a Save button to account for and
+ * is the question in front of the user, and below the outbox, which says where the message went.
+ *
+ * What is left saying "Discard message?" is a message that exists nowhere but on this screen — and
+ * there the title is true.
  */
-internal fun discardWording(editingOutbox: Boolean, mayKeepDraft: Boolean): DiscardWording = when {
+internal fun discardWording(
+    editingOutbox: Boolean,
+    mayKeepDraft: Boolean,
+    editingDraft: Boolean,
+): DiscardWording = when {
     editingOutbox && mayKeepDraft -> DiscardWording.OUTBOX
     editingOutbox -> DiscardWording.OUTBOX_ENCRYPTED
     !mayKeepDraft -> DiscardWording.ENCRYPTED
+    editingDraft -> DiscardWording.DRAFT
     else -> DiscardWording.PLAIN
 }
+
+/**
+ * A button the leave dialog offers, in the order they are laid out.
+ *
+ * A list rather than a shape in the composable, because both things this decides are guarantees
+ * somebody has already gone looking for. [CANCEL] is #35/#127: the reporter's screenshot shows
+ * [Discard] [Save draft] and nothing that goes back to the message he was writing — tapping outside
+ * the dialog always did, but no button said so, and the one that reads like a way out is the one
+ * that throws the editing away. [SAVE_DRAFT] is 1.4.3's plaintext guarantee, the other way round:
+ * an encrypted message may never be offered a way into Drafts, because a draft is uploaded exactly
+ * as typed. That one used to be held by an `if` around a branch of the composable, where nothing
+ * could run it.
+ */
+internal enum class DiscardChoice { CANCEL, DISCARD, SAVE_DRAFT }
+
+/**
+ * Cancel first, the confirming answer last — the order the settings screens' own three-answer exit
+ * already uses (`SaveChangesDialog`), so the two do not read differently.
+ *
+ * [mayKeepDraft] is `draftSaveAllowed`, the same value the toolbar hides its Save button on: the
+ * dialog must not offer what the toolbar withholds.
+ */
+internal fun discardChoices(mayKeepDraft: Boolean): List<DiscardChoice> =
+    listOfNotNull(
+        DiscardChoice.CANCEL,
+        DiscardChoice.DISCARD,
+        DiscardChoice.SAVE_DRAFT.takeIf { mayKeepDraft },
+    )
 
 /**
  * Where the caret starts in a prefilled body, or null when [focus] is not the body (that field
