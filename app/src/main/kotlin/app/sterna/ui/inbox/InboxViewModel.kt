@@ -31,7 +31,9 @@ import app.sterna.core.jmap.model.Mailbox
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.send.SendOutbox
 import app.sterna.ui.NotificationFolderSwitch
+import app.sterna.ui.search.SearchDisplay
 import app.sterna.ui.search.searchComplete
+import app.sterna.ui.search.searchDisplay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -1589,10 +1591,23 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Select everything the list on screen is showing — the search results when they are what is
+     * drawn, the folder otherwise (#126). The choice is [selectAllKeys], so it can be run in a test;
+     * this reads the same [searchState] the screen is drawn from, live, at the moment of the tap.
+     */
     fun selectAll() {
         _selectionActive.value = true
+        val search = searchState.value
         viewModelScope.launch {
-            _selectedKeys.value = repo.cachedIds(currentScopes()).toSet()
+            _selectedKeys.value = selectAllKeys(
+                searching = search.active,
+                query = search.query,
+                results = search.results?.map { it.emailKey() },
+                loading = search.loading,
+                complete = search.complete,
+                folderKeys = repo.cachedIds(currentScopes()),
+            )
         }
     }
 
@@ -2030,4 +2045,33 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
  */
 internal fun selectionAccount(keys: Set<EmailKey>): String? =
     keys.map { it.accountId }.distinct().singleOrNull()
+
+/**
+ * What "Select all" is allowed to take: the list that is ON SCREEN.
+ *
+ * Two branches, because the two lists are not the same kind of thing. The search results are held
+ * whole in the ViewModel and drawn straight from there, so "everything shown" is a value we have.
+ * The navigation list is a `LazyPagingItems`, which does not expose the pages it has not loaded —
+ * "what the list renders" cannot be asked of it — so outside a search the folder's cached ids stay
+ * the answer, as they have always been.
+ *
+ * The predicate is the SCREEN's, not a second one written to look like it: results are on screen
+ * when the search bar is up with something typed in it (`InboxScreen`'s `searchActive`) AND the
+ * same [searchDisplay] call the screen branches on answers [SearchDisplay.RESULTS]. Two predicates
+ * for one question drift apart, and the drift is silent — the user selects one list and deletes
+ * another.
+ */
+internal fun selectAllKeys(
+    searching: Boolean,
+    query: String,
+    results: List<EmailKey>?,
+    loading: Boolean,
+    complete: Boolean,
+    folderKeys: List<EmailKey>,
+): Set<EmailKey> {
+    val shown = results.orEmpty()
+    val onScreen = searching && query.isNotBlank() &&
+        searchDisplay(shown.size, loading, complete) == SearchDisplay.RESULTS
+    return if (onScreen) shown.toSet() else folderKeys.toSet()
+}
 
