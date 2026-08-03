@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -96,66 +97,76 @@ fun GridlinkScaffold(
     val chrome = LocalGridlinkChrome.current
     val sync = chrome.sync
     var menuOpen by rememberSaveable(chrome.menuOpenAtStart) { mutableStateOf(chrome.menuOpenAtStart) }
-    GridlinkBackground(modifier = modifier) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.systemBars),
+    // What the drawer looks through. Null on API 30 and below, where the frost is composed instead.
+    val backdrop = rememberGridlinkBackdrop()
+    Box(modifier = modifier.fillMaxSize()) {
+        // 🔴 The captured region is the backdrop plus the screen, and the drawer is a SIBLING of it
+        // rather than a child. Inside, the recording would contain the drawer, so the drawer would
+        // draw a blurred picture of itself over itself, once per frame, each pass feeding the next.
+        GridlinkBackground(
+            modifier = Modifier.gridlinkBackdropSource(backdrop, active = menuOpen),
         ) {
-            GridlinkChromeRow(onOpenMenu = { menuOpen = true }, sync = sync)
-            header()
-            if (belowHeader != null) {
-                Box(
-                    modifier = Modifier.padding(
-                        start = GridlinkSpacing.chrome,
-                        end = GridlinkSpacing.chrome,
-                        bottom = GridlinkSpacing.s16,
-                    ),
-                ) {
-                    belowHeader()
-                }
-            }
-
-            // The panel: a floating sheet of glass, not a system surface.
-            //
-            // 🔴 Inset by the same [GridlinkSpacing.chrome] the header text and the nav pill use, so
-            // all three share one pad line down both edges. The inset is also what lets the aurora
-            // show down the sides, which is the only reason to have painted it.
-            val panelShape = RoundedCornerShape(GridlinkRadii.card)
-            Box(
+            Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = GridlinkSpacing.chrome)
-                    .clip(panelShape)
-                    .background(colors.listSurface, panelShape)
-                    .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
-                content = panel,
-            )
-
-            // One line of floating controls, not two. The compose button is detached from the nav
-            // pill but shares its baseline and its height, so the bottom of the screen stays a
-            // single band and the panel keeps the vertical space a stacked FAB would have taken.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        start = GridlinkSpacing.chrome,
-                        top = GridlinkSpacing.s16,
-                        end = GridlinkSpacing.chrome,
-                        bottom = GridlinkSpacing.chrome,
-                    ),
-                horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),
-                verticalAlignment = Alignment.CenterVertically,
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.systemBars),
             ) {
-                GridlinkNavPill(
-                    selected = destination,
-                    onSelect = onSelectDestination,
-                    selecting = selecting,
-                    onSelectionAction = onSelectionAction,
-                    modifier = Modifier.weight(1f),
+                GridlinkChromeRow(onOpenMenu = { menuOpen = true }, sync = sync)
+                header()
+                if (belowHeader != null) {
+                    Box(
+                        modifier = Modifier.padding(
+                            start = GridlinkSpacing.chrome,
+                            end = GridlinkSpacing.chrome,
+                            bottom = GridlinkSpacing.s16,
+                        ),
+                    ) {
+                        belowHeader()
+                    }
+                }
+
+                // The panel: a floating sheet of glass, not a system surface.
+                //
+                // 🔴 Inset by the same [GridlinkSpacing.chrome] the header text and the nav pill
+                // use, so all three share one pad line down both edges. The inset is also what lets
+                // the aurora show down the sides, which is the only reason to have painted it.
+                val panelShape = RoundedCornerShape(GridlinkRadii.card)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = GridlinkSpacing.chrome)
+                        .clip(panelShape)
+                        .background(colors.listSurface, panelShape)
+                        .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
+                    content = panel,
                 )
-                GridlinkComposeButton(onClick = onCompose, destination = destination)
+
+                // One line of floating controls, not two. The compose button is detached from the
+                // nav pill but shares its baseline and its height, so the bottom of the screen
+                // stays a single band and the panel keeps the vertical space a stacked FAB would
+                // have taken.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = GridlinkSpacing.chrome,
+                            top = GridlinkSpacing.s16,
+                            end = GridlinkSpacing.chrome,
+                            bottom = GridlinkSpacing.chrome,
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    GridlinkNavPill(
+                        selected = destination,
+                        onSelect = onSelectDestination,
+                        selecting = selecting,
+                        onSelectionAction = onSelectionAction,
+                        modifier = Modifier.weight(1f),
+                    )
+                    GridlinkComposeButton(onClick = onCompose, destination = destination)
+                }
             }
         }
 
@@ -167,24 +178,29 @@ fun GridlinkScaffold(
         // It is drawn here rather than in a dialog window on purpose. See GridlinkSlideOutPanel for
         // the three separate ways a dialog got a full-height drawer wrong.
         if (menuOpen) {
-            GridlinkMenuPanel(
-                account = GRIDLINK_SAMPLE_ACCOUNT,
-                sync = sync,
-                lastSyncedAt = chrome.lastSyncedAt,
-                mode = chrome.mode,
-                followingClock = chrome.followingClock,
-                // 🔴 Does NOT close the panel. Every other row in here is a destination and closing
-                // is the right answer for those; the palette is a thing you judge by looking at it,
-                // and the panel staying up is what lets you tap through all four and watch the app
-                // behind it repaint.
-                onSelectMode = chrome::selectMode,
-                counts = GRIDLINK_SAMPLE_MENU_COUNTS,
-                // Every destination behind this is a stub, so the honest behaviour is to close and
-                // do nothing rather than to navigate somewhere that would be an empty screen with a
-                // title on it. Wire these as each one lands.
-                onSelect = { menuOpen = false },
-                onDismiss = { menuOpen = false },
-            )
+            // 🔴 Provided here and not around the whole scaffold. The local tells a panel it may
+            // look through the recorded region, and the recorded region is everything above this
+            // line; handing it to the content would let something inside the recording read it.
+            CompositionLocalProvider(LocalGridlinkBackdrop provides backdrop) {
+                GridlinkMenuPanel(
+                    account = GRIDLINK_SAMPLE_ACCOUNT,
+                    sync = sync,
+                    lastSyncedAt = chrome.lastSyncedAt,
+                    mode = chrome.mode,
+                    followingClock = chrome.followingClock,
+                    // 🔴 Does NOT close the panel. Every other row in here is a destination and
+                    // closing is the right answer for those; the palette is a thing you judge by
+                    // looking at it, and the panel staying up is what lets you tap through all four
+                    // and watch the app behind it repaint.
+                    onSelectMode = chrome::selectMode,
+                    counts = GRIDLINK_SAMPLE_MENU_COUNTS,
+                    // Every destination behind this is a stub, so the honest behaviour is to close
+                    // and do nothing rather than to navigate somewhere that would be an empty
+                    // screen with a title on it. Wire these as each one lands.
+                    onSelect = { menuOpen = false },
+                    onDismiss = { menuOpen = false },
+                )
+            }
         }
     }
 }
