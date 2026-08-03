@@ -440,7 +440,8 @@ private fun GridlinkThreadAttachment(
  *
  * 🔴 [REPLY] is the accent circle and the other four share the pill. It is deliberately not in the
  * pill as well: two controls that do the same thing on one 64dp baseline is how you end up tapping
- * the wrong one, and the circle is already the loudest object on the screen.
+ * the wrong one, and the circle is already the loudest object on the screen. The circle carries the
+ * word "Reply" for the same reason, see [GridlinkThreadReplyButton].
  */
 enum class GridlinkThreadAction { REPLY, REPLY_ALL, FORWARD, ARCHIVE, SPAM, UNSUBSCRIBE }
 
@@ -561,7 +562,22 @@ private fun GridlinkThreadActionItem(
     }
 }
 
-/** The one live action on the screen, in the slot the Compose button occupies everywhere else. */
+/**
+ * The one live action on the screen, in the slot the Compose button occupies everywhere else.
+ *
+ * ## 🔴 It is labelled, and the Compose button is not
+ * This started as a bare glyph, on the Compose button's logic: one accent circle per screen, always
+ * the primary verb, learn it once. That logic does not survive contact with this particular screen.
+ * Compose sits next to four *navigation* labels, so it is the only thing down there that does
+ * anything and a glyph is enough. Reply sits next to four *actions*, three of which are also things
+ * you do to this message and one of which is Reply all, and the reply arrow and the reply-all arrow
+ * are the same arrow with a second stroke. Brandon read the row and reported there was no Reply
+ * button, which is the only test that counts: at a glance the circle read as a back arrow.
+ *
+ * So it gets the same 20dp icon over 11sp label as a pill slot, which fits inside 64dp with room to
+ * spare (20 + 2 + about 13). The bottom row is now five labelled actions where one is accented,
+ * instead of four labelled actions and a rebus.
+ */
 @Composable
 private fun GridlinkThreadReplyButton(
     onClick: () -> Unit,
@@ -570,23 +586,34 @@ private fun GridlinkThreadReplyButton(
     val colors = GridlinkTheme.colors
     val size = GridlinkDimens.composeButton
     val fill = gridlinkAccentFill(colors.accent)
-    Box(
+    // Measured against the accent itself, not the gradient built from it. The fill darkens toward
+    // its far corner, so testing the brush is not possible and testing the dark end would flip the
+    // glyph to white on a pale accent where the lit corner needs black.
+    val onAccent = gridlinkOnAccent(colors.accent)
+    Column(
         modifier = modifier
             .size(size)
             .gridlinkGlow(colors.actionGlow?.copy(alpha = 0.40f), radiusMultiplier = 0.95f)
             .clip(CircleShape)
             .background(fill, CircleShape)
             .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
         Icon(
             imageVector = Icons.AutoMirrored.Filled.Reply,
-            contentDescription = "Reply",
-            // Measured against the accent itself, not the gradient built from it. The fill darkens
-            // toward its far corner, so testing the brush is not possible and testing the dark end
-            // would flip the glyph to white on a pale accent where the lit corner needs black.
-            tint = gridlinkOnAccent(colors.accent),
-            modifier = Modifier.size(size * 0.41f),
+            // Null, not "Reply". The label below is real text and a screen reader would otherwise
+            // announce the button twice.
+            contentDescription = null,
+            tint = onAccent,
+            modifier = Modifier.size(20.dp),
+        )
+        Text(
+            text = "Reply",
+            style = GridlinkType.toolbarLabel,
+            color = onAccent,
+            maxLines = 1,
+            modifier = Modifier.padding(top = 2.dp),
         )
     }
 }
