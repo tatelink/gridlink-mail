@@ -45,6 +45,18 @@ class SyncPagingTest {
         assertEquals(50, sizing.windowTarget)
     }
 
+    @Test fun aRequestIsCappedToWhatTheServerAdmits() {
+        // The header crawl that feeds local search asked for a hardcoded 500. On a server
+        // admitting 200 every page was refused whole and the crawl gave up after three refusals —
+        // silently: it has no surface of its own, so local search just stopped being covered.
+        assertEquals(200, requestPageSize(wanted = 500, serverCapacity = 200))
+    }
+
+    @Test fun aRequestSmallerThanTheServerLimitIsLeftAlone() {
+        assertEquals(500, requestPageSize(wanted = 500, serverCapacity = 5000))
+        assertEquals(1, requestPageSize(wanted = 500, serverCapacity = 0))
+    }
+
     @Test fun aServerAdvertisingNothingUsableStillLeavesAWalkThatAdvances() {
         assertEquals(1, folderSyncSizing(windowLimit = 200, serverCapacity = 0).pageSize)
         assertEquals(200, folderSyncSizing(windowLimit = 200, serverCapacity = 0).retentionFloor)

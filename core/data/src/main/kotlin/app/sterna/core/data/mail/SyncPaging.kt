@@ -39,6 +39,21 @@ internal data class FolderSyncSizing(
 internal fun folderSyncSizing(windowLimit: Int, serverCapacity: Int): FolderSyncSizing =
     FolderSyncSizing(
         windowTarget = windowLimit,
-        pageSize = windowLimit.coerceAtMost(serverCapacity).coerceAtLeast(1),
+        pageSize = requestPageSize(windowLimit, serverCapacity),
         retentionFloor = windowLimit,
     )
+
+/**
+ * How many objects ONE request may ask for: what the caller wants ([wanted]) capped by what the
+ * server admits ([serverCapacity]), never below 1.
+ *
+ * The header crawl that feeds local search asked for a hardcoded 500 with no reference to the
+ * advertised limit. On a server admitting less, every page was refused whole; the crawl skips a
+ * failed page and gives up after three, so the local index simply stopped being filled — with no
+ * surface anywhere to say so, unlike the folder sync, which at least raises an error.
+ *
+ * Deliberately shared with [folderSyncSizing] so there is exactly ONE expression in the app that
+ * turns "what I want" plus "what the server takes" into a request size.
+ */
+internal fun requestPageSize(wanted: Int, serverCapacity: Int): Int =
+    wanted.coerceAtMost(serverCapacity).coerceAtLeast(1)

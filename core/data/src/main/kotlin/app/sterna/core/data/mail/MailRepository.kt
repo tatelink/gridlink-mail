@@ -389,9 +389,13 @@ internal suspend fun <T> stageOrRollback(rollback: suspend () -> Unit, stage: su
 /** Max full-text search matches returned to the UI. */
 private const val LOCAL_SEARCH_LIMIT = 100
 
-// Header crawl: tiny responses, so use the max page (maxObjectsInGet=500) and a high backstop —
-// headers are ~200 B in FTS, so even 200k rows is cheap and covers years-old mail. The pass stops
-// naturally when the query is exhausted.
+// Header crawl: tiny responses, so ask for a big page and keep a high backstop — headers are
+// ~200 B in FTS, so even 200k rows is cheap and covers years-old mail. The pass stops naturally
+// when the query is exhausted.
+//
+// This is what the crawl WANTS, not what it sends: every request is capped to the server's
+// advertised maxObjectsInGet ([requestPageSize]). It used to be sent as-is, and a server admitting
+// less refused every page whole.
 private const val HEADER_PAGE = 500
 private const val HEADER_MAX = 200_000
 private const val INDEX_TTL_MS = 10 * 60 * 1000L
@@ -1576,12 +1580,19 @@ class MailRepository(
         // same role source as searchableFolderIds, so what the index holds and what a search may
         // surface can never diverge. Excluded server-side, so those headers never come down.
         val excluded = excludedSearchFolderIds(mailboxDao.searchOrder(credentials.id))
+        // ⛔ Bound ONCE and used for all three of "what to ask for", "how far to skip a failed
+        // page" and "was that page short?": HEADER_PAGE was a hardcoded 500 in all three, so on a
+        // server admitting less every page was refused whole (RFC 8620 §5.1, the same rejection
+        // that broke the folder sync) and the crawl gave up after MAX_CRAWL_ERRORS — with nothing
+        // on screen, since the index has no surface of its own. Local search silently stopped
+        // being covered beyond what the display cache held.
+        val pageSize = requestPageSize(HEADER_PAGE, ctx.session.getBatchSize())
         var position = 0
         var failed = false
         var consecutiveErrors = 0
         while (position < HEADER_MAX) {
             val page = try {
-                client.crawlHeaders(ctx.session, ctx.accountId, position, HEADER_PAGE, ctx.auth, excluded)
+                client.crawlHeaders(ctx.session, ctx.accountId, position, pageSize, ctx.auth, excluded)
             } catch (e: CancellationException) {
                 throw e // search closed / VM cleared: bail WITHOUT stamping so we resume next time
             } catch (e: Exception) {
@@ -1589,7 +1600,7 @@ class MailRepository(
                 // crawling; give up only after repeated failures.
                 failed = true
                 if (++consecutiveErrors >= MAX_CRAWL_ERRORS) break
-                position += HEADER_PAGE
+                position += pageSize
                 continue
             }
             consecutiveErrors = 0
@@ -1601,7 +1612,7 @@ class MailRepository(
                 emailFtsDao.upsert(page.emails.map { it.toFts(credentials.id) })
                 onPage?.invoke()
             }
-            if (page.queryCount < HEADER_PAGE) break
+            if (page.queryCount < pageSize) break
             position += page.queryCount
         }
         // Only throttle once the crawl finished cleanly; a partial/failed run must stay retryable so
