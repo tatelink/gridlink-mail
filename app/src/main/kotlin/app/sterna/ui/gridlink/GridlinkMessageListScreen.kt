@@ -177,6 +177,16 @@ fun GridlinkMessageListScreen(
      */
     initiallyEmpty: Boolean = false,
     /**
+     * The first load, before any mail has arrived: [GridlinkListSkeleton] draws instead of the list.
+     *
+     * ⚠️ Gallery-only today, because nothing in the fork talks to a server and the sample list is
+     * simply there. When JMAP lands this becomes a real flag off the first Email/query, and the two
+     * things it switches off below (the unread count and the pull gesture) are the reason it is a
+     * parameter of this screen rather than a wrapper around it: both are chrome the skeleton cannot
+     * reach from inside the panel.
+     */
+    loading: Boolean = false,
+    /**
      * A message filed from somewhere outside this screen, currently the open thread's Archive, Spam
      * and Unsubscribe buttons. Null when there is nothing to apply.
      *
@@ -426,7 +436,11 @@ fun GridlinkMessageListScreen(
         header = {
             GridlinkHeader(
                 title = "Inbox",
-                unread = unreadCount,
+                // 🔴 Zero while loading, which suppresses the whole subline. The count is computed
+                // off lists this screen already holds, so it would happily render "21 unread" over
+                // a panel of blank placeholders: a number the app cannot have yet, sitting above
+                // the component whose entire job is to admit it does not have the mail.
+                unread = if (loading) 0 else unreadCount,
                 selectedCount = selectedIds.size,
                 // 🔴 Hidden while selecting. A search field and a selection are two different
                 // modes of the same list, and offering both at once invites you to start one and
@@ -456,7 +470,11 @@ fun GridlinkMessageListScreen(
                 .pullToRefresh(
                     isRefreshing = refreshing,
                     state = pullState,
-                    enabled = hasMail,
+                    // Off while loading, on the same principle that turns it off on an empty list:
+                    // there are no rows to drag. It is also already refreshing, and a pull that
+                    // starts a second fetch on top of the first is a gesture that can only make
+                    // things worse.
+                    enabled = hasMail && !loading,
                     onRefresh = {
                         scope.launch {
                             refreshing = true
@@ -477,6 +495,16 @@ fun GridlinkMessageListScreen(
             // The early return also takes the pull indicator below out of the composition, which is
             // correct: `enabled = hasMail` had already turned the gesture off, so the only thing that
             // could still draw it is a `refreshing` flag that nothing can now set.
+            // 🔴 Before the empty check, not after it. "No mail" and "no mail YET" are different
+            // claims and only one of them is knowable here: an empty response and an outstanding
+            // request look identical from inside this Box. Tested first, the skeleton wins for as
+            // long as the answer is genuinely unknown, and the empty state only ever draws once the
+            // server has actually said there is nothing.
+            if (loading) {
+                GridlinkListSkeleton()
+                return@Box
+            }
+
             if (!hasMail) {
                 GridlinkEmptyInbox(
                     sync = chrome.sync,

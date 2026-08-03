@@ -291,6 +291,16 @@ class GridlinkGalleryActivity : ComponentActivity() {
         // without swiping the sample list away a row at a time.
         //   am start -S -n .../GridlinkGalleryActivity --ez empty true --es sync offline
         val empty = intent?.getBooleanExtra("empty", false) ?: false
+        // Holds the inbox on §8's skeleton. There is no server yet, so the sample list is simply
+        // there on the first frame and the loading state is otherwise unreachable.
+        //   am start -S -n .../GridlinkGalleryActivity --ez loading true
+        val loading = intent?.getBooleanExtra("loading", false) ?: false
+        // "Nothing" and "not yet" are answers to the same question and the screen can only draw one
+        // of them. Asking for both would silently give the skeleton, which tests first.
+        require(!(loading && empty)) {
+            "loading and empty are mutually exclusive. An empty inbox is a finished load, so the " +
+                "skeleton and the empty state are two answers to the same question."
+        }
         // §5. The thread view, already open, and optionally held part-way through its arrival. The
         // fraction is the frame that cannot be captured any other way: the open is a spring and the
         // back gesture is a drag, and `input tap` followed by a screencap either catches a blur at
@@ -331,6 +341,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 menuOpenAtStart = menuOpen,
                 demoRecycle = recycle,
                 initiallyEmpty = empty,
+                initiallyLoading = loading,
                 initialOpenId = openId,
                 initialOpenFraction = openAt,
             )
@@ -358,6 +369,7 @@ private fun GridlinkGallery(
     menuOpenAtStart: Boolean = false,
     demoRecycle: Boolean = false,
     initiallyEmpty: Boolean = false,
+    initiallyLoading: Boolean = false,
     initialOpenId: String? = null,
     initialOpenFraction: Float = 1f,
 ) {
@@ -391,6 +403,7 @@ private fun GridlinkGallery(
             initialUndoFrame = initialUndoFrame,
             demoRecycle = demoRecycle,
             initiallyEmpty = initiallyEmpty,
+            initiallyLoading = initiallyLoading,
             initialOpenId = initialOpenId,
             initialOpenFraction = initialOpenFraction,
         )

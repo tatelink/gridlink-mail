@@ -315,6 +315,7 @@ fun GridlinkRoot(
     initialUndoFrame: GridlinkUndoFrame? = null,
     demoRecycle: Boolean = false,
     initiallyEmpty: Boolean = false,
+    initiallyLoading: Boolean = false,
     initialOpenId: String? = null,
     initialOpenFraction: Float = 1f,
 ) {
@@ -430,6 +431,7 @@ fun GridlinkRoot(
                     initialSwipeFraction = initialSwipeFraction,
                     demoRecycle = demoRecycle,
                     initiallyEmpty = initiallyEmpty,
+                    loading = initiallyLoading,
                     removeRequest = removeRequest,
                 )
 
