@@ -2,6 +2,7 @@ package app.sterna.core.jmap
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -118,7 +119,7 @@ class OAuthClient internal constructor(
             if (!response.isSuccessful) {
                 throw JmapException("Device authorization failed: HTTP ${response.code}", httpCode = response.code)
             }
-            json.decodeFromString<DeviceAuthorization>(body)
+            decodeGuarded(body, "device authorization", DeviceAuthorization.serializer())
         }
     }
 
@@ -138,7 +139,7 @@ class OAuthClient internal constructor(
             httpClient.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (response.isSuccessful) {
-                    DeviceTokenResult.Success(json.decodeFromString<OAuthTokens>(body))
+                    DeviceTokenResult.Success(decodeGuarded(body, "token", OAuthTokens.serializer()))
                 } else {
                     val parsed = parseError(body)
                     when (parsed?.error) {
@@ -172,9 +173,31 @@ class OAuthClient internal constructor(
             if (!response.isSuccessful) {
                 throw JmapException("Token refresh failed: HTTP ${response.code}", httpCode = response.code)
             }
-            json.decodeFromString<OAuthTokens>(body)
+            decodeGuarded(body, "token", OAuthTokens.serializer())
         }
     }
+
+    /**
+     * Decode an OAuth response WITHOUT letting the payload into the failure.
+     *
+     * kotlinx.serialization puts a slice of the offending JSON in its message — and on these
+     * endpoints that JSON is the access and refresh tokens themselves. The message does not stay
+     * in logcat: `refresh` is called from the token refresher, under
+     * `MailRepository.jmapAuth`/`refresh`, whose `t.message` the mail list now DISPLAYS. A
+     * truncated body, a proxy's HTML error page served as JSON, a number where a string belongs —
+     * any of them is enough, and the reader would be shown their own bearer token.
+     *
+     * So: no excerpt and no cause, exactly like `JmapClient.decodeList` and `postJmap`. [what] is
+     * enough to place the failure, and the raw body is available to whoever can attach a debugger.
+     */
+    private fun <T> decodeGuarded(body: String, what: String, serializer: KSerializer<T>): T =
+        try {
+            json.decodeFromString(serializer, body)
+        } catch (_: IllegalArgumentException) {
+            // SerializationException is an IllegalArgumentException, and so is what
+            // decodeFromString raises on a structurally wrong document.
+            throw JmapException("Could not decode the $what response")
+        }
 
     internal fun parseError(body: String): OAuthError? = runCatching {
         val obj = json.parseToJsonElement(body).jsonObject

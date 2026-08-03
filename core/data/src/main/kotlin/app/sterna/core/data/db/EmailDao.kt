@@ -8,6 +8,7 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
 import app.sterna.core.data.getOrElseUnlessCancelled
+import app.sterna.core.data.mail.reconcileEvictions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
@@ -397,6 +398,17 @@ interface EmailDao {
      * ids protected from pruning even when the fresh page omits them (recently mutated/restored,
      * see [deleteNotInSparing]) — pass the recently-mutated set so a full re-query can't clobber
      * an optimistic Undo before the server catches up.
+     *
+     * ⛔ The eviction is decided in Kotlin and applied BY ID IN BATCHES, not by handing the whole
+     * page to a `NOT IN (:keepIds)`: SQLite accepts 999 bound variables below Android 12 and a
+     * full sync window is up to 1 000 ids, so that statement threw — and it threw before the sync
+     * cursor was stored, leaving the folder re-querying whole for ever. See [reconcileEvictions]
+     * for why the set is computed against the WHOLE page before it is cut up (cutting the
+     * `NOT IN` instead would delete the folder one batch at a time).
+     *
+     * [evictFromCacheKeepingIndex], like the two statements it replaces here, deliberately leaves
+     * the search-index rows alone: these messages are still in their folder on the server, they
+     * merely fell out of the page the list caches.
      */
     @Transaction
     suspend fun replaceMailbox(
@@ -406,11 +418,11 @@ interface EmailDao {
         spareIds: List<String> = emptyList(),
     ) {
         upsertAll(emails)
-        if (spareIds.isEmpty()) {
-            deleteNotIn(accountId, mailboxId, emails.map { it.id })
-        } else {
-            deleteNotInSparing(accountId, mailboxId, emails.map { it.id }, spareIds)
-        }
+        reconcileEvictions(
+            cachedIds = idsForMailbox(accountId, mailboxId),
+            keepIds = emails.mapTo(HashSet()) { it.id },
+            spareIds = spareIds.toHashSet(),
+        ).forEach { batch -> evictFromCacheKeepingIndex(accountId, batch) }
     }
 }
 

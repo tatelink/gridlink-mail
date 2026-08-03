@@ -1037,6 +1037,14 @@ class JmapClientTest {
         /** The `Email/query` arguments of every request, in order. */
         val queries = mutableListOf<JsonObject>()
 
+        /**
+         * The folder as the SERVER holds it, and it changes under the walk: an `anchorNotFound`
+         * means the anchor has LEFT this list, so [anchorNotFoundAt] really removes it. Without
+         * that, every later position still lines up with the original list and a test cannot tell
+         * a correct recovery from one that skips the message the anchor was in front of.
+         */
+        private val all = (1..folderSize).mapTo(mutableListOf()) { "e$it" }
+
         override fun dispatch(request: RecordedRequest): MockResponse {
             val body = request.body.readUtf8()
             val args = Json.parseToJsonElement(body).jsonObject["methodCalls"]!!
@@ -1044,11 +1052,14 @@ class JmapClientTest {
             queries += args
             val n = queries.size
             if (failAt == n) return MockResponse().setResponseCode(500)
-            val all = (1..folderSize).map { "e$it" }
             val anchor = args["anchor"]?.jsonPrimitive?.content
             val start = if (anchor != null) {
+                if (anchorNotFoundAt == n) {
+                    all.remove(anchor)
+                    return methodError("anchorNotFound")
+                }
                 val at = all.indexOf(anchor)
-                if (at < 0 || anchorNotFoundAt == n) return methodError("anchorNotFound")
+                if (at < 0) return methodError("anchorNotFound")
                 at + (args["anchorOffset"]?.jsonPrimitive?.int ?: 0)
             } else {
                 args["position"]?.jsonPrimitive?.int ?: 0
@@ -1210,6 +1221,13 @@ class JmapClientTest {
         // The anchor can leave the folder between two requests (deleted, moved). Recover once on
         // an absolute position rather than failing the whole refresh — the same recovery the
         // scroll mediator makes.
+        //
+        // ⛔ And recover BEHIND where the anchor was, not at it. `anchorNotFound` means the list
+        // has lost a row, so every index past the anchor has shifted DOWN by one: asking at the
+        // count we had accumulated lands on the message AFTER the one that followed the anchor,
+        // and that skipped message is not just missed — the caller reconciles the mailbox with
+        // what comes back, so it is DELETED from the cache while the server still has it, and no
+        // later delta brings it back. Overlapping instead is free: the accumulation de-duplicates.
         val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500, anchorNotFoundAt = 2)
         server.dispatcher = dispatcher
 
@@ -1220,7 +1238,10 @@ class JmapClientTest {
 
         assertEquals(3, server.requestCount)
         assertEquals(listOf(null, "e500", null), dispatcher.anchors())
-        assertEquals(500, dispatcher.queries[2]["position"]!!.jsonPrimitive.int)
+        // 499, not 500: e500 (the anchor) is gone from the server's list, so e501 now sits at 499.
+        assertEquals(499, dispatcher.queries[2]["position"]!!.jsonPrimitive.int)
+        // The message that followed the vanished anchor is IN the page, not deleted from the cache.
+        assertTrue("e501 was skipped by the recovery", page.emails.any { it.id == "e501" })
         assertEquals(700, page.emails.size)
     }
 

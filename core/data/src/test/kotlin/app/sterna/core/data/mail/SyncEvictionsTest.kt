@@ -548,6 +548,47 @@ class SyncEvictionsTest {
         )
     }
 
+    // -- the full-query reconcile: what it drops, and in what size of statement ------------
+
+    @Test fun noEvictionBatchCanOverrunTheSqliteBound() {
+        // A folder scrolled deep (the mediator writes past the window) then re-queried whole: the
+        // reconcile has thousands of rows to drop. One statement per id list means one statement
+        // with thousands of bound variables, and SQLite below Android 12 accepts 999 — it throws,
+        // before the sync cursor is stored, so the next refresh re-runs the same full query.
+        val cached = (1..5000).map { "e$it" }
+        val keep = (1..1000).map { "e$it" }.toSet()
+
+        val batches = reconcileEvictions(cached, keep, spareIds = emptySet())
+
+        assertTrue(
+            "a batch of ${batches.maxOf { it.size }} ids goes into one IN (...)",
+            batches.all { it.size <= MAX_CHANGES },
+        )
+        assertEquals(4000, batches.sumOf { it.size })
+        assertEquals((1001..5000).map { "e$it" }, batches.flatten())
+    }
+
+    @Test fun theSetToDropIsDecidedAgainstTheWHOLEKeptListBeforeItIsCutUp() {
+        // ⛔ The trap of the obvious fix: chunking a `NOT IN (:keepIds)` into several statements
+        // deletes everything outside each chunk in turn — the whole folder, one batch at a time.
+        // Here nothing was dropped from the page, so nothing may be evicted, however it is cut.
+        val cached = (1..1000).map { "e$it" }
+
+        val batches = reconcileEvictions(cached, keepIds = cached.toSet(), spareIds = emptySet())
+
+        assertEquals(emptyList<List<String>>(), batches)
+    }
+
+    @Test fun theRecentlyMutatedSpareSurvivesTheReconcile() {
+        // Same protection deleteNotInSparing gave: a stale page must not clobber an optimistic
+        // Undo the server has not caught up on yet.
+        val cached = listOf("kept", "gone", "restored")
+
+        val batches = reconcileEvictions(cached, keepIds = setOf("kept"), spareIds = setOf("restored"))
+
+        assertEquals(listOf(listOf("gone")), batches)
+    }
+
     // -- sweepReason must never contradict the gate ---------------------------------------
 
     @Test fun theLoggedReasonAgreesWithTheGateOverTheWholeInputGrid() {
