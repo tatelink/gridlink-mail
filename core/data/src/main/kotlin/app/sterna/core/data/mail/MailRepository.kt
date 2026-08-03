@@ -928,6 +928,12 @@ class MailRepository(
      * whole page, or the delta's `toFetch`. Never null, and never a partial list — everything in
      * it has just been written to the cache, and the retention prune spares exactly it.
      *
+     * "The full query's whole page" means EVERY request of the walk, not the last one: a window
+     * larger than the server's per-request limit is fetched in several requests and accumulated
+     * into one page ([JmapClient.queryEmailsWindow]). Returning only the last request's ids would
+     * put Codeberg #110 straight back on requests 2..n — the prune would delete, in the same
+     * refresh, mail the server had just handed over.
+     *
      * The two branches must both answer, which is the correction of a first version of the
      * Codeberg #110 fix that answered only for the full query: the delta branch writes rows the
      * cache has NEVER held (`added - cachedIds`), so a message an external client or a Sieve rule
@@ -938,7 +944,9 @@ class MailRepository(
         accountId: String,
         auth: JmapAuth,
         mailboxId: String,
-        limit: Int,
+        // How much to fetch and in what size of request — never a bare number, so the window and
+        // the size of one request cannot be confused for each other. See [folderSyncSizing].
+        sizing: FolderSyncSizing,
         // Local StoredAccount id used to tag cached rows (distinct from the JMAP
         // [accountId] used for API calls), so per-account routing and storage work.
         localAccountId: String,
@@ -1041,9 +1049,19 @@ class MailRepository(
             }
         }
         // Cold cache, or the server can't compute changes — full query.
-        val page = client.queryEmailsPage(session, accountId, mailboxId, limit, auth)
+        //
+        // ⛔ ONE call, ONE page, ONE write, however many requests the window costs. The walk
+        // ([JmapClient.queryEmailsWindow]) accumulates every request's messages and hands back a
+        // single page precisely because the line below is `replaceMailbox`, which DELETES what is
+        // not in the list it is given: writing per network page would empty the folder down to
+        // the last page on every refresh. Nothing here may become a loop.
+        val page = client.queryEmailsWindow(session, accountId, mailboxId, sizing.windowTarget, sizing.pageSize, auth)
         emailDao.replaceMailbox(localAccountId, mailboxId, page.emails.map { it.toEntity(localAccountId, mailboxId) }, recentlyMutatedIds(localAccountId))
-        android.util.Log.i("MailSync", "full query $mailboxId: ${page.emails.size} emails")
+        android.util.Log.i(
+            "MailSync",
+            "full query $mailboxId: ${page.emails.size} emails " +
+                "(window ${sizing.windowTarget} in pages of ${sizing.pageSize})",
+        )
         val queryState = page.queryState
         val emailState = page.emailState
         if (queryState != null && emailState != null) {
@@ -1638,7 +1656,10 @@ class MailRepository(
                 val inbox = resolved.mailboxes.firstOrNull { it.role == "inbox" }
                     ?: resolved.mailboxes.firstOrNull()
                     ?: continue
-                syncMailbox(resolved.session, resolved.accountId, resolved.auth, inbox.id, limit, credentials.id)
+                syncMailbox(
+                    resolved.session, resolved.accountId, resolved.auth, inbox.id,
+                    folderSyncSizing(limit, resolved.session.getBatchSize()), credentials.id,
+                )
                 // Persist the fetched folder counters (previously discarded), AFTER the row sync
                 // so badge and list move together — the unified refresh reconciles the drawer for
                 // every account, not just the current one.
@@ -1999,18 +2020,25 @@ class MailRepository(
             ?: mailboxes.firstOrNull()
             ?: error("No mailboxes found.")
 
+        // The window's two halves, computed ONCE and taken apart here rather than at each use:
+        // the request is capped to what this server accepts in one go, the retention floor is
+        // not (see [folderSyncSizing] — capping both is Codeberg #110 reopened).
+        val sizing = folderSyncSizing(limit, session.getBatchSize())
         // The folder rows must land even when the message sync throws (server hiccup mid-
         // refresh): otherwise the drawer keeps stale — or, right after a migration, empty —
         // folders although the list we already fetched is good. Failure persists the rows,
         // then rethrows; the prune stays success-only.
-        val sync = runCatching { syncMailbox(session, accountId, auth, target.id, limit, credentials.id) }
+        val sync = runCatching { syncMailbox(session, accountId, auth, target.id, sizing, credentials.id) }
         val syncError = sync.exceptionOrNull()
         // The prune spares whatever this very sync fetched — the full query's page, or the
         // delta's newly-written rows. `getOrNull()` is null only when the sync threw, which the
         // guard already excludes; passing it through unmapped keeps the second lock in place
         // (a null there prunes nothing rather than everything). Codeberg #110.
         if (syncError == null && pruneBeforeMillis != null) {
-            pruneRetention(credentials.id, target.id, pruneBeforeMillis, sync.getOrNull()?.toSet(), limit)
+            // `sizing.retentionFloor`, NEVER `sizing.pageSize`: the floor is the user's window
+            // ("keep at least the newest N whatever their age"), and the server's per-request
+            // limit has no business shortening it.
+            pruneRetention(credentials.id, target.id, pruneBeforeMillis, sync.getOrNull()?.toSet(), sizing.retentionFloor)
         }
         // Folder counters land AFTER the email rows: badge and list update together, and an
         // optimistic nudge from a concurrent action isn't overwritten mid-refresh by counters
@@ -4242,7 +4270,10 @@ class MailRepository(
             }
         }
         val refreshes = targets.map { mailbox ->
-            syncMailbox(resolved.session, resolved.accountId, resolved.auth, mailbox.id, limit, credentials.id)
+            syncMailbox(
+                resolved.session, resolved.accountId, resolved.auth, mailbox.id,
+                folderSyncSizing(limit, resolved.session.getBatchSize()), credentials.id,
+            )
             FolderRefresh(
                 mailboxId = mailbox.id,
                 name = mailbox.name,
@@ -5009,10 +5040,11 @@ class MailRepository(
         // un-cached Sent reply would otherwise leave the conversation looking like one message.
         // For an on-behalf send that is the SUB-account's Sent (where the copy just landed).
         runCatching {
+            val sizing = folderSyncSizing(PAGE_SIZE, ctx.session.getBatchSize())
             if (onBehalf) {
-                ownSentId?.let { syncMailbox(ctx.session, ctx.accountId, ctx.auth, it, PAGE_SIZE, credentials.id) }
+                ownSentId?.let { syncMailbox(ctx.session, ctx.accountId, ctx.auth, it, sizing, credentials.id) }
             } else {
-                syncMailbox(ctx.session, ctx.accountId, ctx.auth, sentId, PAGE_SIZE, credentials.id)
+                syncMailbox(ctx.session, ctx.accountId, ctx.auth, sentId, sizing, credentials.id)
             }
         }
     }

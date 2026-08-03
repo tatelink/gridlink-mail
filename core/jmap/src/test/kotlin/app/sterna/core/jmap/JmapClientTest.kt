@@ -8,7 +8,9 @@ import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.core.jmap.model.VacationResponse
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -902,6 +904,221 @@ class JmapClientTest {
         assertEquals(ids, setIdsOf(dispatcher.bodies.single()))
         assertEquals(ids.toSet(), result.done)
         assertEquals("s1", result.newState)
+    }
+
+    // ---- The windowed folder query: a window bigger than one server page ----
+    //
+    // "Messages to sync = All" is 1000 messages; Stalwart advertises maxObjectsInGet = 500. The
+    // folder query sends Email/query + a BACK-REFERENCED Email/get in one request, so the get's
+    // id list is whatever the query matched: over the limit the server rejects the whole get
+    // (RFC 8620 §5.1), the call throws, no sync cursor is stored, and the next refresh takes the
+    // same failing path. The folder never syncs again.
+
+    /**
+     * A mailbox of [folderSize] messages (`e1` newest … `eN` oldest) answering `Email/query` +
+     * back-referenced `Email/get`, and — this is the point — REFUSING the get with
+     * `requestTooLarge` when the query matched more than [maxObjectsInGet] ids, exactly as the
+     * bench probe recorded on Stalwart.
+     *
+     * [failAt] turns the n-th request into an HTTP 500 (a transport failure mid-walk);
+     * [anchorNotFoundAt] makes the n-th request's anchor unknown to the server.
+     */
+    private class FolderDispatcher(
+        private val folderSize: Int,
+        private val maxObjectsInGet: Int,
+        private val failAt: Int? = null,
+        private val anchorNotFoundAt: Int? = null,
+        /** Ids the query lists but the get does NOT return (destroyed between the two calls). */
+        private val omittedByGet: Set<String> = emptySet(),
+    ) : Dispatcher() {
+        /** The `Email/query` arguments of every request, in order. */
+        val queries = mutableListOf<JsonObject>()
+
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val body = request.body.readUtf8()
+            val args = Json.parseToJsonElement(body).jsonObject["methodCalls"]!!
+                .jsonArray[0].jsonArray[1].jsonObject
+            queries += args
+            val n = queries.size
+            if (failAt == n) return MockResponse().setResponseCode(500)
+            val all = (1..folderSize).map { "e$it" }
+            val anchor = args["anchor"]?.jsonPrimitive?.content
+            val start = if (anchor != null) {
+                val at = all.indexOf(anchor)
+                if (at < 0 || anchorNotFoundAt == n) return methodError("anchorNotFound")
+                at + (args["anchorOffset"]?.jsonPrimitive?.int ?: 0)
+            } else {
+                args["position"]?.jsonPrimitive?.int ?: 0
+            }
+            val matched = all.drop(start).take(args["limit"]!!.jsonPrimitive.int)
+            val ids = matched.joinToString(",") { "\"$it\"" }
+            val (gone, returned) = matched.partition { it in omittedByGet }
+            // The query always answers; only the get is refused. That asymmetry is the defect.
+            val get = if (matched.size > maxObjectsInGet) {
+                """["error",{"type":"requestTooLarge"},"g0"]"""
+            } else {
+                """["Email/get",{"accountId":"acc1","state":"e$n",
+                   "list":[${returned.joinToString(",") { "{\"id\":\"$it\"}" }}],
+                   "notFound":[${gone.joinToString(",") { "\"$it\"" }}]},"g0"]"""
+            }
+            return MockResponse().setBody(
+                """{"methodResponses":[
+                     ["Email/query",{"accountId":"acc1","queryState":"q$n","position":$start,
+                      "ids":[$ids]},"q0"],
+                     $get]}""",
+            )
+        }
+
+        private fun methodError(type: String) =
+            MockResponse().setBody("""{"methodResponses":[["error",{"type":"$type"},"q0"]]}""")
+    }
+
+    /** The `limit` each request's `Email/query` carried, in order. */
+    private fun FolderDispatcher.limits(): List<Int> = queries.map { it["limit"]!!.jsonPrimitive.int }
+
+    /** The `anchor` each request's `Email/query` carried (null = an absolute position). */
+    private fun FolderDispatcher.anchors(): List<String?> =
+        queries.map { it["anchor"]?.jsonPrimitive?.content }
+
+    @Test fun queryEmailsWindow_splitsAWindowBiggerThanTheServerPageIntoTwoRequests() = runBlocking {
+        // ⭐ The lot's central case: 700 messages, a server admitting 500 per get, the "All"
+        // window (1000). Two requests, and ONE page handed back — the caller reconciles the
+        // mailbox with what it returns, so a page per request would delete the folder down to
+        // the last one.
+        val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(2, server.requestCount)
+        assertEquals(listOf(500, 500), dispatcher.limits())
+        // Anchored on the previous page's last id, never on an absolute position: mail landing
+        // at the top between the two requests would otherwise skip or duplicate a page.
+        assertEquals(listOf(null, "e500"), dispatcher.anchors())
+        assertEquals(700, page.emails.size)
+        assertEquals((1..700).map { "e$it" }, page.emails.map { it.id })
+        // The FIRST response's cursors: a queryState only describes the query it came from.
+        assertEquals("q1", page.queryState)
+        assertEquals("e1", page.emailState)
+    }
+
+    @Test fun queryEmailsWindow_asksTheSecondRequestOnlyForWhatTheWindowStillWants() = runBlocking {
+        // The window (700) is not a multiple of the page (500): the second request asks for 200,
+        // not another 500 — the window is a promise about how much to keep, not a floor.
+        val dispatcher = FolderDispatcher(folderSize = 5000, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 700, pageSize = 500, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(listOf(500, 200), dispatcher.limits())
+        assertEquals(700, page.emails.size)
+    }
+
+    @Test fun queryEmailsWindow_isASingleRequestWhenTheWindowFitsInOnePage() = runBlocking {
+        val dispatcher = FolderDispatcher(folderSize = 5000, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 50, pageSize = 50, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(1, server.requestCount)
+        assertEquals(listOf(50), dispatcher.limits())
+        assertEquals(50, page.emails.size)
+    }
+
+    @Test fun queryEmailsWindow_stopsWhenTheFolderIsSmallerThanTheWindow() = runBlocking {
+        // 300 messages under a 1000 window: one request, and no second round trip per refresh
+        // for ever after.
+        val dispatcher = FolderDispatcher(folderSize = 300, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(1, server.requestCount)
+        assertEquals(300, page.emails.size)
+    }
+
+    @Test fun queryEmailsWindow_paginatesEvenWhenTheServerAdvertisesNothing() = runBlocking {
+        // A silent server falls back to 100 ids per request. Capping WITHOUT paginating would
+        // quietly shrink every window on such a server to 100 messages.
+        val dispatcher = FolderDispatcher(folderSize = 5000, maxObjectsInGet = 100)
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(null), "acc1", "mbInbox",
+            target = 500, pageSize = 100, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(5, server.requestCount)
+        assertEquals(500, page.emails.size)
+    }
+
+    @Test fun queryEmailsWindow_keepsWalkingWhenTheGetReturnedFewerObjectsThanTheQueryListed() = runBlocking {
+        // A message destroyed between the query and the back-referenced get: 500 ids listed, 499
+        // objects returned. Paging on what came BACK would read that as an exhausted folder and
+        // abandon the remaining 200 messages of the window, on every refresh.
+        val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500, omittedByGet = setOf("e250"))
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(2, server.requestCount)
+        assertEquals(699, page.emails.size)
+        assertEquals("e700", page.emails.last().id)
+    }
+
+    @Test fun queryEmailsWindow_throwsRatherThanHandingBackTheHalfItFetched() {
+        // ⛔ THE dangerous one: the caller reconciles the mailbox with what comes back, deleting
+        // whatever is missing from it. Half a window would be read as "the folder holds these
+        // 500" and delete the other 200; an empty one would erase the folder outright.
+        val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500, failAt = 2)
+        server.dispatcher = dispatcher
+        try {
+            runBlocking {
+                client.queryEmailsWindow(
+                    sessionAdvertisingGet(500), "acc1", "mbInbox",
+                    target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+                )
+            }
+            throw AssertionError("expected JmapException — a partial window deletes mail")
+        } catch (e: JmapException) {
+            // queryEmailsPage reports the status in the message, not in httpCode (only postJmap
+            // fills that in); what matters here is that the failure came out at all.
+            assertTrue(e.message.orEmpty().contains("HTTP 500"))
+        }
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun queryEmailsWindow_fallsBackToAPositionWhenTheAnchorHasGone() = runBlocking {
+        // The anchor can leave the folder between two requests (deleted, moved). Recover once on
+        // an absolute position rather than failing the whole refresh — the same recovery the
+        // scroll mediator makes.
+        val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500, anchorNotFoundAt = 2)
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(null, "e500", null), dispatcher.anchors())
+        assertEquals(500, dispatcher.queries[2]["position"]!!.jsonPrimitive.int)
+        assertEquals(700, page.emails.size)
     }
 
     private companion object {

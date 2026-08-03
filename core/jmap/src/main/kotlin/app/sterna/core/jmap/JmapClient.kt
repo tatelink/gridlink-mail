@@ -236,8 +236,99 @@ class JmapClient internal constructor(
                 queryState = methodResponseArgs(body, "Email/query")["queryState"]?.jsonPrimitive?.contentOrNull,
                 emailState = methodResponseArgs(body, "Email/get")["state"]?.jsonPrimitive?.contentOrNull,
                 total = methodResponseArgs(body, "Email/query")["total"]?.jsonPrimitive?.intOrNull,
+                queryCount = (methodResponseArgs(body, "Email/query")["ids"] as? JsonArray)?.size ?: 0,
             )
         }
+    }
+
+    /**
+     * The newest [target] messages of a mailbox, in as many requests as the server's per-request
+     * object limit ([pageSize]) needs, handed back as ONE accumulated page.
+     *
+     * ⛔ Why this exists at all: [queryEmailsPage] sends `Email/query` and a back-referenced
+     * `Email/get` in ONE request, so the get's id list is produced by the server and the query's
+     * `limit` is the only lever on it. Past `maxObjectsInGet` the server rejects the whole get
+     * (RFC 8620 §5.1) and the call throws — which is exactly what "Messages to sync = All" (1000)
+     * did on a Stalwart advertising 500: the folder's full-query fallback failed, so no sync
+     * cursor was ever stored, so the next refresh took the same fallback again. A closed loop; the
+     * folder never synced again.
+     *
+     * ⛔ It returns ONE page for the whole window, not a page per request, because its caller
+     * reconciles the mailbox with `replaceMailbox`, which DELETES what is not in the list it is
+     * given. One write per network page would empty the folder down to the last page every time.
+     *
+     * ⛔ And it never swallows a failure to hand back what it managed to fetch: a partial page
+     * would be reconciled as "these are the folder's contents" and delete the rest. Any failure
+     * propagates, exactly as the single-request version did.
+     *
+     * Paging is by ANCHOR on the previous page's last id (RFC 8620 §5.5), never by absolute
+     * position: mail arriving at the top between two requests shifts every position and would
+     * duplicate or skip a page. The one-shot fallback to a position is for the anchor having left
+     * the folder mid-walk (`anchorNotFound`), the same recovery the scroll mediator makes.
+     *
+     * The cursors returned are the FIRST response's: a `queryState` describes the query it came
+     * from, and handing back the last page's would let the next delta be computed against a state
+     * that never described the whole folder.
+     */
+    suspend fun queryEmailsWindow(
+        session: JmapSession,
+        accountId: String,
+        mailboxId: String,
+        target: Int,
+        pageSize: Int,
+        auth: JmapAuth,
+    ): EmailPage = withContext(Dispatchers.IO) {
+        // Insertion-ordered and keyed by id: the walk's pages can overlap (a recovery page starts
+        // at a position the previous one already covered), and a duplicate would be written twice
+        // and counted twice against the window.
+        val accumulated = LinkedHashMap<String, Email>()
+        var first: EmailPage? = null
+        var seenIds = 0
+        var limit = nextWindowPageLimit(fetched = 0, target = target, pageSize = pageSize, last = null)
+        while (limit != null) {
+            // The oldest message accumulated so far, i.e. where the previous request stopped.
+            val anchor = accumulated.values.lastOrNull()?.id
+            val page = try {
+                queryEmailsPage(
+                    session, accountId, mailboxId, limit, auth,
+                    anchorId = anchor,
+                    anchorOffset = if (anchor != null) 1 else 0,
+                )
+            } catch (e: JmapException) {
+                // The anchor left the folder mid-walk (deleted, moved elsewhere). Recover ONCE on
+                // an absolute position — the count already accumulated, which is where this walk
+                // stopped in a newest-first list. Any other failure propagates: see above, a
+                // partial window deletes mail.
+                if (anchor == null || e.errorType != "anchorNotFound") throw e
+                queryEmailsPage(
+                    session, accountId, mailboxId, limit, auth,
+                    position = accumulated.size,
+                )
+            }
+            if (first == null) first = page
+            val before = accumulated.size
+            page.emails.forEach { accumulated.putIfAbsent(it.id, it) }
+            seenIds += page.queryCount
+            limit = nextWindowPageLimit(
+                fetched = accumulated.size,
+                target = target,
+                pageSize = pageSize,
+                last = WalkedPage(
+                    requested = limit,
+                    queryCount = page.queryCount,
+                    added = accumulated.size - before,
+                ),
+            )
+        }
+        EmailPage(
+            emails = accumulated.values.toList(),
+            queryState = first?.queryState,
+            emailState = first?.emailState,
+            total = first?.total,
+            // Every id the walk's queries listed, so a caller can still tell a short GET from an
+            // exhausted folder. Not a single query's count — this page is not a single query.
+            queryCount = seenIds,
+        )
     }
 
     /**
