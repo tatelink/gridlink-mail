@@ -48,15 +48,25 @@ class DiscardWordingTest {
     }
 
     @Test fun aDraftBeingEncryptedStillExplainsWhyItCannotBeSaved() {
-        // Reached by closing the padlock by hand on a reopened draft. The encrypted wording wins:
-        // it is the one that explains why the Save button is gone, which is the question in front
-        // of the user. (Its last sentence, "Leaving now discards the message", is inaccurate here —
-        // the SERVER copy survives. Left as is: fixing it means a sixth wording and a new string in
-        // nine languages, and the case needs a deliberate padlock tap on a reopened draft.)
+        // Reached by closing the padlock by hand on a reopened draft. Both halves are owed at once:
+        // the reason the Save button is gone (a draft is uploaded exactly as typed), AND the fact
+        // that the copy in Drafts survives. The plain ENCRYPTED wording ends on "Leaving now
+        // discards the message", which is false here — that was the last title still lying.
         assertEquals(
-            DiscardWording.ENCRYPTED,
+            DiscardWording.ENCRYPTED_DRAFT,
             discardWording(editingOutbox = false, mayKeepDraft = false, editingDraft = true),
         )
+        assertTrue(
+            "an encrypted draft keeps its message, so it may not be announced as destroyed",
+            discardWording(editingOutbox = false, mayKeepDraft = false, editingDraft = true).keepsMessage,
+        )
+    }
+
+    @Test fun theEncryptedDraftStillOffersNoWayIntoDrafts() {
+        // 1.4.3's guarantee, checked on the new variant rather than assumed to be inherited: the
+        // buttons are decided by mayKeepDraft alone, so the sixth wording cannot have reopened the
+        // plaintext path.
+        assertEquals(listOf(DiscardChoice.CANCEL, DiscardChoice.DISCARD), discardChoices(mayKeepDraft = false))
     }
 
     @Test fun aQueuedMessageOutranksADraftBehindTheSameScreen() {
@@ -76,7 +86,10 @@ class DiscardWordingTest {
     @Test fun onlyAMessageThatExistsNowhereElseMayBeAnnouncedAsDestroyed() {
         // The rule stated once over the whole input space, so a later branch cannot quietly widen
         // the one title that claims destruction. PLAIN is that title; everything with a copy
-        // somewhere else (a server draft, an outbox row) must say something else.
+        // somewhere else (a server draft, an outbox row) must say something else — and must SAY SO
+        // through `keepsMessage`, which is what the title and the discard button are drawn from.
+        // Without that second assertion a new variant could be added, be correctly reached, and
+        // still be titled "Discard message?" on screen.
         listOf(true, false).forEach { mayKeepDraft ->
             listOf(true, false).forEach { editingOutbox ->
                 listOf(true, false).forEach { editingDraft ->
@@ -88,9 +101,58 @@ class DiscardWordingTest {
                             "\"Discard message?\" is false.",
                         !existsElsewhere || wording != DiscardWording.PLAIN,
                     )
+                    assertEquals(
+                        "discardWording($editingOutbox, $mayKeepDraft, $editingDraft) = $wording " +
+                            "must report keepsMessage = $existsElsewhere: that flag is what the " +
+                            "title and the discard button key on, so a variant that gets it wrong " +
+                            "reaches the screen saying the opposite of what it decided.",
+                        existsElsewhere, wording.keepsMessage,
+                    )
                 }
             }
         }
+    }
+
+    // -- where `editingDraft` comes from, which is where the last lie was -----------------------
+
+    @Test fun aComposerOpenedOnASavedDraftHasOneBehindIt() {
+        assertTrue(savedDraftBehindScreen(draftId = "d1", restoredDraftId = null))
+    }
+
+    @Test fun anUndoneSendStartedFromADraftStillHasThatDraftBehindIt() {
+        // THE hole, and it is the reported symptom reached by another path. A send started from a
+        // draft leaves that draft in Drafts until the message is DELIVERED; Undo only removes the
+        // queued row. The composer is then reopened with restore=true and NO draftId in the route,
+        // so a rule reading the route alone said "nothing behind this screen" and the dialog
+        // announced the destruction of a draft that is still on the server.
+        assertTrue(savedDraftBehindScreen(draftId = null, restoredDraftId = "d1"))
+    }
+
+    @Test fun anUndoneSendOfANewMailHasNothingBehindIt() {
+        // The message really does exist nowhere else here — it was never a draft — so this is the
+        // case where "Discard message?" is the true title, and it must stay reachable.
+        assertFalse(savedDraftBehindScreen(draftId = null, restoredDraftId = null))
+        assertEquals(
+            DiscardWording.PLAIN,
+            discardWording(
+                editingOutbox = false,
+                mayKeepDraft = true,
+                editingDraft = savedDraftBehindScreen(draftId = null, restoredDraftId = null),
+            ),
+        )
+    }
+
+    @Test fun aDraftReopenedOfflineIsStillADraftOnTheServer() {
+        // The navigation argument, not whether the draft could be READ: an offline reopen whose
+        // fetch failed has its draft sitting in Drafts, untouched.
+        assertEquals(
+            DiscardWording.DRAFT,
+            discardWording(
+                editingOutbox = false,
+                mayKeepDraft = true,
+                editingDraft = savedDraftBehindScreen(draftId = "d1", restoredDraftId = null),
+            ),
+        )
     }
 
     @Test fun aMessageTakenBackOutOfTheOutboxIsNeverAnnouncedAsDestroyed() {

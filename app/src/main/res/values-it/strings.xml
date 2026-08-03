@@ -33,6 +33,7 @@
     <string name="compose_discard_title">Eliminare il messaggio?</string>
     <string name="compose_discard_message">Non hai salvato le modifiche.</string>
     <string name="compose_discard_message_encrypted">Questo messaggio è cifrato, quindi non può essere conservato come bozza: una bozza viene archiviata sul server di posta esattamente come l\'hai scritta, leggibile da chiunque vi abbia accesso. Uscendo ora il messaggio viene eliminato.</string>
+    <string name="compose_discard_message_encrypted_draft">Questo messaggio è cifrato, quindi le tue modifiche non possono essere conservate come bozza: una bozza viene archiviata sul server di posta esattamente come l\'hai scritta, leggibile da chiunque vi abbia accesso. Uscendo ora si perdono solo le modifiche; la bozza già salvata resta in Bozze.</string>
     <string name="compose_discard_title_outbox">Scartare le modifiche?</string>
     <string name="compose_discard_title_changes">Scartare le modifiche?</string>
     <string name="compose_discard_message_outbox">Le tue modifiche vengono scartate, ma il messaggio no: resta nella posta in uscita, oppure passa alle Bozze se lo salvi.</string>

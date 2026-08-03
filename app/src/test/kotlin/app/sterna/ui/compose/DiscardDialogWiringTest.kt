@@ -20,16 +20,66 @@ import java.io.File
  */
 class DiscardDialogWiringTest {
 
-    @Test fun `each wording draws its own title, and the draft has its own key`() {
-        val block = discardBlock()
+    @Test fun `the dialog is handed the two live values it decides on`() {
+        // The auditors' two one-line mutations, both green until this rule existed:
+        //  - `editingDraft = false` at the call site annuls #35 outright — the pure function is
+        //    untouched, every behaviour test passes, and the reporter's screenshot comes back;
+        //  - `mayKeepDraft = true` re-offers "Save draft" while encrypting, which is the exact
+        //    shape of the 1.4.3 plaintext leak (only saveDraft's own refusal then stands between
+        //    the tap and an unencrypted copy on the server).
+        // Pinned as whole expressions, not as names: a rule looking for "discardWording(" is
+        // satisfied by any argument at all.
+        val block = discardBlock().replace(Regex("""\s+"""), " ")
         assertTrue(
-            "the leave dialog must title the DRAFT case with compose_discard_title_changes. Reusing " +
+            "the dialog must take its Save-draft rule from draftSaveAllowed(pgpMode) — the same " +
+                "value the toolbar hides its Save action on. Block was:\n$block",
+            "val mayKeepDraft = draftSaveAllowed(pgpMode)" in block,
+        )
+        assertTrue(
+            "the dialog must decide its wording with " +
+                "discardWording(editingOutbox, mayKeepDraft, editingDraft = savedDraftBehind). " +
+                "`savedDraftBehind` is the live answer to \"is there a draft on the server behind " +
+                "this screen\"; `draftId != null` is not — an undone send reopens with no draftId " +
+                "in the route while its draft is still in Drafts. Block was:\n$block",
+            "val wording = discardWording(editingOutbox, mayKeepDraft, editingDraft = savedDraftBehind)" in block,
+        )
+    }
+
+    @Test fun `the discard button says what leaving actually does`() {
+        val block = discardBlock().replace(Regex("""\s+"""), " ")
+        assertTrue(
+            "the discard button must be labelled from wording.keepsMessage: 'Discard changes' " +
+                "wherever a copy survives (the outbox row, the draft in Drafts), 'Discard' only " +
+                "where the message exists nowhere else. Keying it on fromOutbox left the draft " +
+                "case saying 'Discard' beside a title and a body that both said 'changes'. " +
+                "Block was:\n$block",
+            "if (wording.keepsMessage) { R.string.compose_discard_changes } else " +
+                "{ R.string.compose_discard_discard }" in block,
+        )
+    }
+
+    @Test fun `each wording draws its own title, and the draft has its own key`() {
+        val block = discardBlock().replace(Regex("""\s+"""), " ")
+        assertTrue(
+            "both draft cases must be titled compose_discard_title_changes. Reusing " +
                 "compose_discard_title_outbox would say the right words for the wrong reason (that " +
                 "key names the outbox case), and compose_discard_title puts back the sentence " +
-                "#35/#127 is about: a draft that is still in Drafts, announced as discarded. " +
-                "Block was:\n$block",
-            Regex("""DiscardWording\.DRAFT\s*->\s*R\.string\.compose_discard_title_changes""")
-                .containsMatchIn(block),
+                "#35/#127 is about: a draft that is still in Drafts, announced as discarded. The " +
+                "encrypted one belongs here too — closing the padlock does not destroy the copy on " +
+                "the server. Block was:\n$block",
+            "wording == DiscardWording.DRAFT || wording == DiscardWording.ENCRYPTED_DRAFT -> " +
+                "R.string.compose_discard_title_changes" in block,
+        )
+        assertTrue(
+            "the encrypted-draft case must draw compose_discard_message_encrypted_draft: it still " +
+                "owes the user the reason the Save button is gone, but it may not end on 'leaving " +
+                "discards the message'. Block was:\n$block",
+            "DiscardWording.ENCRYPTED_DRAFT -> R.string.compose_discard_message_encrypted_draft" in block,
+        )
+        assertTrue(
+            "the plain encrypted case must keep its own body — the one that DOES announce the " +
+                "destruction, because there the message really exists nowhere else. Block was:\n$block",
+            "DiscardWording.ENCRYPTED -> R.string.compose_discard_message_encrypted" in block,
         )
         assertTrue(
             "the outbox case must keep compose_discard_title_outbox (#70). Block was:\n$block",
@@ -38,7 +88,7 @@ class DiscardDialogWiringTest {
         assertTrue(
             "compose_discard_title — the one title that claims the message is destroyed — must " +
                 "still be reachable, for a message that exists nowhere else. Block was:\n$block",
-            Regex("""else\s*->\s*R\.string\.compose_discard_title\b""").containsMatchIn(block),
+            Regex("""else -> R\.string\.compose_discard_title\b""").containsMatchIn(block),
         )
     }
 

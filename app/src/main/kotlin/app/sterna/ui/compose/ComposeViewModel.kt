@@ -491,6 +491,16 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
     val editingDraft: StateFlow<Email?> = _editingDraft.asStateFlow()
 
     /**
+     * Whether a draft saved on the SERVER is behind this composer — what the leave dialog may not
+     * announce as destroyed (#35). Deliberately broader than [editingDraft], which is the row the
+     * Delete button acts on and is null unless the cache actually holds it: a draft that could not
+     * be read still exists in Drafts, and an undone send carries the id of one that this screen was
+     * never navigated to. The rule is [savedDraftBehindScreen]; this only publishes its answer.
+     */
+    private val _savedDraftBehind = MutableStateFlow(false)
+    val savedDraftBehind: StateFlow<Boolean> = _savedDraftBehind.asStateFlow()
+
+    /**
      * The draft to delete, handed over exactly once, or null when there is nothing to hand over.
      *
      * Refuses while a send or a save is in flight (INV-6, like `abandon`/`sendInternal`/`submit`):
@@ -600,6 +610,12 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         // described as one — not as the edit of a message that is no longer there. Set here rather
         // than in the restore branch alone so no other path can inherit a stale answer.
         _editingOutbox.value = holdsQueuedOutboxRow(restore, outbox.restored.value)
+        // The OTHER thing that can survive this screen (#35): a draft saved on the server. Settled
+        // here for the same reason and from the same two facts — the navigation argument, and the
+        // draft id an undone send carries back. Not in the branches below: the restore branch
+        // consumes `outbox.restored`, so after it there is nothing left to ask.
+        _savedDraftBehind.value =
+            savedDraftBehindScreen(draftId, if (restore) outbox.restored.value?.draftEmailId else null)
         this.accountId = accountId
         val options = store.accounts().flatMap { acc ->
             store.identities(acc.id).map { FromOption(acc.id, it) }

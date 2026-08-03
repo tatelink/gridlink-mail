@@ -33,6 +33,7 @@
     <string name="compose_discard_title">Descartar mensagem?</string>
     <string name="compose_discard_message">Você não guardou as suas alterações.</string>
     <string name="compose_discard_message_encrypted">Esta mensagem está criptografada, por isso não pode ser guardada como rascunho: um rascunho fica no servidor de e-mail exatamente como foi escrito, legível por quem tiver acesso a ele. Se sair agora, a mensagem é descartada.</string>
+    <string name="compose_discard_message_encrypted_draft">Esta mensagem está criptografada, por isso as suas alterações não podem ser guardadas como rascunho: um rascunho fica no servidor de e-mail exatamente como foi escrito, legível por quem tiver acesso a ele. Se sair agora, só as alterações são descartadas; o rascunho já guardado permanece em Rascunhos.</string>
     <string name="compose_discard_title_outbox">Descartar as alterações?</string>
     <string name="compose_discard_title_changes">Descartar as alterações?</string>
     <string name="compose_discard_message_outbox">As suas alterações são descartadas, mas a mensagem não: continua na caixa de saída, ou passa para os Rascunhos se a guardar.</string>

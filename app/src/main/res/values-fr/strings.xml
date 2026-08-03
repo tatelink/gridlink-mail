@@ -33,6 +33,7 @@
     <string name="compose_discard_title">Abandonner le message ?</string>
     <string name="compose_discard_message">Vous n\'avez pas enregistré vos modifications.</string>
     <string name="compose_discard_message_encrypted">Ce message est chiffré : il ne peut pas être conservé en brouillon, car un brouillon est stocké sur le serveur de courrier tel que vous l\'avez écrit, lisible par qui y a accès. Quitter maintenant abandonne le message.</string>
+    <string name="compose_discard_message_encrypted_draft">Ce message est chiffré : vos modifications ne peuvent pas être conservées en brouillon, car un brouillon est stocké sur le serveur de courrier tel que vous l\'avez écrit, lisible par qui y a accès. Quitter maintenant abandonne seulement les modifications ; le brouillon déjà enregistré reste dans Brouillons.</string>
     <string name="compose_discard_title_outbox">Abandonner vos modifications ?</string>
     <string name="compose_discard_title_changes">Abandonner vos modifications ?</string>
     <string name="compose_discard_message_outbox">Vos modifications sont abandonnées, mais pas le message : il reste dans la boîte d\'envoi, ou passe dans les Brouillons si vous l\'enregistrez.</string>

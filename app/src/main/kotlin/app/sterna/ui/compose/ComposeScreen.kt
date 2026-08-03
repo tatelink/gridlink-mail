@@ -165,6 +165,10 @@ fun ComposeScreen(
     val onlyCopy by viewModel.onlyCopy.collectAsStateWithLifecycle()
     val editingOutbox by viewModel.editingOutbox.collectAsStateWithLifecycle()
     val editingDraft by viewModel.editingDraft.collectAsStateWithLifecycle()
+    // Whether a draft saved on the SERVER survives leaving — what the leave dialog may not announce
+    // as destroyed (#35). Not `draftId != null`: an undone send reopens with restore=true and no
+    // draftId in the route while its draft is still sitting in Drafts.
+    val savedDraftBehind by viewModel.savedDraftBehind.collectAsStateWithLifecycle()
     val attachmentsTouched by viewModel.attachmentsTouched.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -512,9 +516,12 @@ fun ComposeScreen(
         // it may not be announced as "Discard message?". Nor may it be promised delivery: a failed
         // send returns to FAILED and waits for Retry. The buttons on offer are a separate question,
         // still [mayKeepDraft]'s (#35).
-        val wording = discardWording(editingOutbox, mayKeepDraft, editingDraft = draftId != null)
+        val wording = discardWording(editingOutbox, mayKeepDraft, editingDraft = savedDraftBehind)
+        // "Discard changes" wherever a copy of the message survives leaving — the outbox row, and
+        // the draft still in Drafts. The DRAFT variant used to say "Discard" beside a title and a
+        // body that both spoke of changes only.
         val discardLabel = stringResource(
-            if (wording.fromOutbox) {
+            if (wording.keepsMessage) {
                 R.string.compose_discard_changes
             } else {
                 R.string.compose_discard_discard
@@ -532,7 +539,9 @@ fun ComposeScreen(
                             // still in Drafts afterwards. "Discard message?" was literally false —
                             // the body beside it said "changes" all along (#35, #127). Its own key,
                             // not the outbox's: the two name different situations.
-                            wording == DiscardWording.DRAFT -> R.string.compose_discard_title_changes
+                            wording == DiscardWording.DRAFT ||
+                                wording == DiscardWording.ENCRYPTED_DRAFT ->
+                                R.string.compose_discard_title_changes
                             else -> R.string.compose_discard_title
                         },
                     ),
@@ -549,6 +558,11 @@ fun ComposeScreen(
                             DiscardWording.OUTBOX_ENCRYPTED ->
                                 R.string.compose_discard_message_outbox_encrypted
                             DiscardWording.ENCRYPTED -> R.string.compose_discard_message_encrypted
+                            // Encrypting a draft that is already on the server: it still owes the
+                            // user the reason the Save button is gone, but it may not end on
+                            // "leaving discards the message" — the copy in Drafts survives (#35).
+                            DiscardWording.ENCRYPTED_DRAFT ->
+                                R.string.compose_discard_message_encrypted_draft
                             // "You haven't saved your changes" is true of both, and of both
                             // buttons beside it; only the title has to tell them apart.
                             DiscardWording.DRAFT,

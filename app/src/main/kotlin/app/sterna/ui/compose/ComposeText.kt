@@ -259,6 +259,27 @@ internal fun initialComposeFocus(
 internal fun holdsQueuedOutboxRow(restore: Boolean, restored: SendOutbox.ComposeDraft?): Boolean =
     restore && restored?.editingOutboxId != null
 
+/**
+ * Whether a draft saved on the SERVER survives leaving this composer — the input [discardWording]
+ * calls `editingDraft`, and the thing the dialog may not announce as destroyed (#35).
+ *
+ * Two ways in, and the second is the one that was missing. [draftId] is the navigation argument: the
+ * composer was opened on a draft from the Drafts list. It is preferred to whether the draft could
+ * actually be READ, because an offline reopen whose fetch failed still has its draft sitting in
+ * Drafts, untouched.
+ *
+ * [restoredDraftId] is `SendOutbox.ComposeDraft.draftEmailId`, carried by an undone send — and the
+ * hole. A send started from a draft keeps that draft in Drafts until the message is DELIVERED; Undo
+ * only takes the queued row away, so the draft is still there. The composer is then reopened with
+ * `restore = true` and NO draftId in the route, so a rule reading the route alone answered "nothing
+ * behind this screen" and the dialog said "Discard message?" over a draft that exists — the reported
+ * symptom, reached by another path. Pass it only when [restore] is set: like the outbox row above,
+ * the handed-over draft does not survive the app being killed, and the argument alone must not be
+ * allowed to describe an empty composer.
+ */
+internal fun savedDraftBehindScreen(draftId: String?, restoredDraftId: String?): Boolean =
+    draftId != null || restoredDraftId != null
+
 /** What the composer's top bar calls this message. Mapped to a string by the screen. */
 internal enum class ComposeTitle { NEW, REPLY, FORWARD, DRAFT, OUTBOX_EDIT }
 
@@ -302,18 +323,22 @@ internal fun composeTitle(
  * Which wording the "you are leaving without saving" dialog uses. [fromOutbox] is what the title and
  * the discard button key on — those two read the same whether or not a draft is on offer.
  */
-internal enum class DiscardWording(val fromOutbox: Boolean) {
-    PLAIN(false),
-    ENCRYPTED(false),
+internal enum class DiscardWording(val keepsMessage: Boolean, val fromOutbox: Boolean) {
+    PLAIN(keepsMessage = false, fromOutbox = false),
+    ENCRYPTED(keepsMessage = false, fromOutbox = false),
 
     /** A draft already saved on the server is behind this screen: leaving drops the edits only. */
-    DRAFT(false),
+    DRAFT(keepsMessage = true, fromOutbox = false),
+
+    /** That same draft, with the padlock closed by hand: leaving still drops the edits only, and
+     *  the body still has to explain why this one cannot be re-saved as a draft. */
+    ENCRYPTED_DRAFT(keepsMessage = true, fromOutbox = false),
 
     /** Out of the outbox, with "Save draft" offered beside "Discard changes". */
-    OUTBOX(true),
+    OUTBOX(keepsMessage = true, fromOutbox = true),
 
     /** Out of the outbox while encrypting, so only "Discard changes" and "Cancel" are offered. */
-    OUTBOX_ENCRYPTED(true),
+    OUTBOX_ENCRYPTED(keepsMessage = true, fromOutbox = true),
 }
 
 /**
@@ -352,8 +377,16 @@ internal enum class DiscardWording(val fromOutbox: Boolean) {
  * Drafts, untouched. Ranked below the encrypted case, which has a Save button to account for and
  * is the question in front of the user, and below the outbox, which says where the message went.
  *
+ * A draft being ENCRYPTED has to answer both halves at once, which is why it has a wording of its
+ * own: the copy in Drafts survives (so nothing may be announced as destroyed) AND the Save button is
+ * gone (so the dialog still owes the user the reason — a draft is uploaded exactly as typed). Before
+ * it existed, `!mayKeepDraft` outranked the draft and the user was told, over a draft still sitting
+ * on the server, that "leaving now discards the message".
+ *
  * What is left saying "Discard message?" is a message that exists nowhere but on this screen — and
- * there the title is true.
+ * there the title is true. [DiscardWording.keepsMessage] is that fact, carried on the enum, so the
+ * title and the discard button both key on it rather than on a list of variants that has to be
+ * kept in step by hand.
  */
 internal fun discardWording(
     editingOutbox: Boolean,
@@ -362,6 +395,7 @@ internal fun discardWording(
 ): DiscardWording = when {
     editingOutbox && mayKeepDraft -> DiscardWording.OUTBOX
     editingOutbox -> DiscardWording.OUTBOX_ENCRYPTED
+    !mayKeepDraft && editingDraft -> DiscardWording.ENCRYPTED_DRAFT
     !mayKeepDraft -> DiscardWording.ENCRYPTED
     editingDraft -> DiscardWording.DRAFT
     else -> DiscardWording.PLAIN
