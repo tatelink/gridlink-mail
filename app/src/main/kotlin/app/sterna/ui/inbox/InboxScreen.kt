@@ -192,6 +192,7 @@ import app.sterna.ui.components.accountColorOf
 import app.sterna.ui.components.verticalScrollbar
 import app.sterna.ui.isOutgoingFolder
 import app.sterna.ui.rememberMotionEnabled
+import app.sterna.ui.showsRecipients
 import app.sterna.ui.search.SearchCount
 import app.sterna.ui.search.SearchDisplay
 import app.sterna.ui.search.searchCount
@@ -1366,9 +1367,15 @@ fun InboxScreen(
                     unarchiveContext = isUnarchiveContext(ui),
                     trashContext = isTrashContext(ui),
                     // Search results keep the sender line whatever folder they came from.
-                    // Decided per row by authorship, so a self-authored mail (e.g. one moved to
-                    // Trash) still shows who it went TO, not the self sender (Codeberg #69).
-                    showRecipients = !fromSearch && isOwnMessage(email, ui, accounts),
+                    // Otherwise: the shared decision, so this row and the reader it opens say the
+                    // same thing. Sent/Drafts by folder (#59), a self-authored mail moved to the
+                    // Trash by authorship (#69) — but NOT a mail you sent to yourself sitting in
+                    // the Inbox, which is received mail and reads by its sender (#115).
+                    showRecipients = !fromSearch && showsRecipients(
+                        role = visibleFolderRole(ui),
+                        unified = ui.unified,
+                        selfAuthored = isSelfAuthored(email.from, sendAsIdentities(email, accounts)),
+                    ),
                     // A collapsed conversation acts on the whole thread; a flat row on its one message.
                     onSwipe = { action ->
                         if (expandable) performThreadSwipe(action, email, viewModel, ui)
@@ -1438,9 +1445,11 @@ fun InboxScreen(
                         leftAction = swipe.left,
                         unarchiveContext = isUnarchiveContext(ui),
                         trashContext = isTrashContext(ui),
-                        // Per child: a self reply inside an incoming conversation shows "To: …"
-                        // even when the thread itself isn't in Sent/Drafts (Codeberg #69).
-                        showRecipientsFor = { child -> isOwnMessage(child, ui, accounts) },
+                        // Per child, and deliberately NOT the top-level row's rule: inside an
+                        // unfolded incoming conversation, "To: …" is how your own reply is told
+                        // apart from the messages around it (Codeberg #69), so authorship keeps
+                        // deciding here even in the Inbox.
+                        showRecipientsFor = { child -> showsRecipientsInThread(child, ui, accounts) },
                         highlightId = highlightId,
                         selectionActive = selectionActive,
                         selectedKeys = selectedKeys,
@@ -2096,10 +2105,15 @@ private fun isUnarchiveContext(ui: MailUi): Boolean {
 private fun isTrashContext(ui: MailUi): Boolean =
     ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
 
+/** The role of the folder on screen, or null in the unified view (which selects none) and for a
+ *  folder whose role the server never gave. */
+private fun visibleFolderRole(ui: MailUi): String? =
+    ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
+
 /** True when the visible folder holds the user's own outgoing mail (Sent, Drafts), where a
  *  row shows who the mail went to — the sender is always yourself there (Codeberg #59). */
 private fun isOwnMailContext(ui: MailUi): Boolean {
-    val role = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
+    val role = visibleFolderRole(ui)
     return role == "sent" || role == "drafts"
 }
 
@@ -2115,15 +2129,21 @@ internal fun isSelfAuthored(from: List<EmailAddress>, identities: List<StoredIde
 }
 
 /**
- * Whether a row should render as the user's own outgoing mail (show "To: …" instead of the self
- * sender). True in the Sent/Drafts folders (the author is always yourself there, Codeberg #59) OR
- * when the message is self-authored by address — so a draft/sent mail moved to Trash still reads
- * correctly (Codeberg #69), and a self reply inside an incoming conversation shows its recipients
- * too. Identities are resolved from the row's OWN account, correct for the unified/multi-account
- * inbox. (An address shared by two accounts could match either identity list, which merely mirrors
- * what the reader itself shows — acceptable.)
+ * Whether a row INSIDE an unfolded conversation shows "To: …" instead of its (self) sender. True in
+ * the Sent/Drafts folders (the author is always yourself there, Codeberg #59) OR when the message
+ * is self-authored by address — so a draft/sent mail moved to Trash still reads correctly
+ * (Codeberg #69), and a self reply among incoming messages is told apart from them.
+ *
+ * NOT the top-level row's rule, which is [showsRecipients]: the two differ on exactly one case, a
+ * self-authored message in an incoming folder. At the top level that is #115 — a mail you sent to
+ * yourself, announced as sent mail in the Inbox. Under an unfolded conversation the surrounding
+ * messages are the context that makes the same line informative rather than wrong.
+ *
+ * Identities are resolved from the row's OWN account, correct for the unified/multi-account inbox.
+ * (An address shared by two accounts could match either identity list, which merely mirrors what
+ * the reader itself shows — acceptable.)
  */
-private fun isOwnMessage(email: Email, ui: MailUi, accounts: List<StoredAccount>): Boolean =
+private fun showsRecipientsInThread(email: Email, ui: MailUi, accounts: List<StoredAccount>): Boolean =
     isOwnMailContext(ui) || isSelfAuthored(email.from, sendAsIdentities(email, accounts))
 
 /**

@@ -24,7 +24,9 @@ import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailHeader
 import app.sterna.core.jmap.model.Mailbox
+import app.sterna.ui.inbox.isSelfAuthored
 import app.sterna.ui.inbox.moveTargets
+import app.sterna.ui.showsRecipients
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -462,16 +464,19 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     private fun ownAddresses(): List<String> =
         store.identities(accountId).map { it.email } + listOfNotNull(credentials()?.username)
 
-    /** Whether [email] is the user's own outgoing mail: its from address is one of the account's
-     *  send-as identities (case-insensitive), so a sent message is recognised wherever it is read
-     *  (e.g. inside an Inbox conversation) — or, when the sender can't be told, it sits in a
-     *  Sent/Drafts folder, where the author is always yourself (Codeberg #59). */
-    private fun isOwnMessage(email: Email, mailboxRole: String?): Boolean {
-        if (mailboxRole == "sent" || mailboxRole == "drafts") return true
-        val from = email.from.firstOrNull()?.email?.trim()?.lowercase() ?: return false
-        if (from.isEmpty()) return false
-        return store.identities(accountId).any { it.email.trim().lowercase() == from }
-    }
+    /**
+     * Whether the reader shows this message by its recipients instead of its sender — the SAME
+     * decision the list row makes ([showsRecipients]), so the header cannot contradict the line the
+     * user just tapped (#115).
+     *
+     * `unified = false`: the reader resolves the real folder of the message it is showing, whatever
+     * list it was opened from, so there is no unified case to declare here.
+     */
+    private fun isOwnMessage(email: Email, mailboxRole: String?): Boolean = showsRecipients(
+        role = mailboxRole,
+        unified = false,
+        selfAuthored = isSelfAuthored(email.from, store.identities(accountId)),
+    )
 
     /**
      * Called by the pager as this page becomes (or stops being) the settled, front-most one.

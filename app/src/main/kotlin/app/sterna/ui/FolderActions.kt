@@ -36,3 +36,35 @@ internal fun canSnoozeIn(role: String?): Boolean =
 // and folders literally named "Spam" onto it — but a role reaching here unmapped must not slip
 // through on a spelling.
 private val NO_SNOOZE_ROLES = OUTGOING_ROLES + setOf("junk", "spam", "trash")
+
+/**
+ * Whether a message should be shown by its RECIPIENTS ("To: …") instead of its sender — the one
+ * decision the list row and the reader both make, so they cannot answer it differently about the
+ * same message.
+ *
+ * Two things can make a message read as outgoing: the folder it sits in (Sent, Drafts — the author
+ * is yourself there by construction, Codeberg #59), or the fact that you wrote it (Codeberg #69: a
+ * sent message or a draft dragged to the Trash still has to say who it went to).
+ *
+ * The author test alone was true EVERYWHERE, and a message you send to yourself lands in the
+ * Inbox — where it was announced as "To: your own address", i.e. as sent mail sitting in the
+ * folder of received mail (#115). So the author test is dropped in a context that is explicitly
+ * incoming, and only there:
+ *
+ *  - [role] `inbox`, and
+ *  - [unified], the all-inboxes view — which selects no folder at all, so its role is null. That
+ *    view aggregates Inboxes and nothing else, and it is the screen the app opens on, so a rule
+ *    written for the role alone would leave the report standing where it was made.
+ *
+ * Everywhere else — Archive, Trash, Junk, a custom folder, a role that has not resolved yet — the
+ * author test stands, because nothing there has established that the folder holds incoming mail.
+ *
+ * [role] is trimmed and lower-cased like its neighbours above: the IMAP side normalises roles,
+ * the JMAP side hands them through as the server spells them.
+ */
+internal fun showsRecipients(role: String?, unified: Boolean, selfAuthored: Boolean): Boolean {
+    val normalised = role?.trim()?.lowercase()
+    if (normalised in OUTGOING_ROLES) return true
+    if (unified || normalised == "inbox") return false
+    return selfAuthored
+}
