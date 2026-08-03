@@ -312,6 +312,7 @@ fun GridlinkRoot(
     initialCreateUnder: String? = null,
     initialScrubLetter: Char? = null,
     initialCompose: GridlinkComposeRequest? = null,
+    initialUndoFrame: GridlinkUndoFrame? = null,
     demoRecycle: Boolean = false,
     initiallyEmpty: Boolean = false,
     initialOpenId: String? = null,
@@ -326,6 +327,24 @@ fun GridlinkRoot(
     // put every subsequently opened composer on the sheet too, including the one the compose button
     // opens. See [GridlinkComposeRequest].
     var composing by remember(initialCompose) { mutableStateOf(initialCompose) }
+
+    // §6c's undo window. Lives here rather than in the composer for the obvious reason: the composer
+    // is gone by the time the bar is up. It is the same shape as `composing` — one nullable value
+    // that is the whole of the state — and the two are mutually exclusive by construction, because
+    // the only thing that opens the bar is the thing that closes the composer.
+    var undoing by remember(initialUndoFrame) {
+        mutableStateOf(
+            initialUndoFrame?.let { GridlinkUndoSend(GRIDLINK_UNDO_SAMPLE, nonce = 0) },
+        )
+    }
+    var undoNonce by remember { mutableIntStateOf(0) }
+
+    /** Send: close the composer, start the clock, keep everything needed to put it back. */
+    fun sendWithUndo(request: GridlinkComposeRequest) {
+        undoNonce += 1
+        undoing = GridlinkUndoSend(request, undoNonce)
+        composing = null
+    }
 
     // The open thread, and how far in it is. Two pieces of state and not one, because they do not
     // change together: the message arrives on the tap and leaves one animation LATER, and clearing
@@ -520,10 +539,35 @@ fun GridlinkRoot(
         composing?.let { request ->
             GridlinkComposeScreen(
                 onClose = { composing = null },
+                onSend = ::sendWithUndo,
                 draft = request.draft,
                 initialFocus = request.focus,
                 initiallyScheduling = request.scheduling,
             )
         }
+
+        // 🔴 Last, and therefore on top of everything including the composer. That ordering is not
+        // cosmetic: undo, and the composer comes back OVER the bar, which is exactly right because
+        // the bar has served its purpose and is on its way out. If this were declared above
+        // `composing` the reopened composer would appear underneath the countdown it just cancelled.
+        undoing?.let { send ->
+            GridlinkUndoBar(
+                send = send,
+                onUndo = {
+                    undoing = null
+                    composing = send.request
+                },
+                onExpire = { undoing = null },
+                frozenAt = initialUndoFrame?.remaining,
+            )
+        }
     }
 }
+
+/**
+ * The draft the gallery's frozen undo frames are "sending".
+ *
+ * §1d's reply, because it is the only sample draft with a recipient on it and the bar's second line
+ * is the recipient. A fresh draft would capture three frames of a bar with nothing to say.
+ */
+private val GRIDLINK_UNDO_SAMPLE = GridlinkComposeRequest(GridlinkComposeDraft.Reply)
