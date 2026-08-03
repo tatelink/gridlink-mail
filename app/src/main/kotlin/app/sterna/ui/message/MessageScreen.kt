@@ -82,6 +82,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -1988,13 +1989,30 @@ private fun PgpStatusCard(crypto: CryptoUiState, onAction: () -> Unit) {
 }
 
 /**
- * The unsubscribe strip above the body: what the sender offers as a way out of the list, and one
- * button to take it — or, once taken, what happened.
+ * The unsubscribe strip above the body: one button to leave the list, or — once left — one line
+ * saying what happened.
  *
- * Written in the reader's own visual grammar, which is NOT a card: a horizontal divider (supplied
- * by the caller) then a plain [Row] with 16 dp / 10 dp padding, a 20 dp primary-tinted icon, a
- * `bodyMedium` label taking the remaining width, and an [OutlinedButton] — exactly [PgpStatusCard]
- * and [CalendarEventCard]. There is no Card, Surface or ElevatedCard anywhere in this screen.
+ * **A button, not a sentence, and the reason is frequency.** The reader carries four strips. The
+ * two RARE ones (the OpenPGP verdict, a calendar invitation) are a tinted icon plus a sentence
+ * plus an [OutlinedButton]: those are decisions being asked for. The other FREQUENT one — the
+ * attachment list — is `labelLarge` in `onSurfaceVariant` with a muted icon and no button at all:
+ * that is content being listed. Since February 2024 Google and Yahoo require `List-Unsubscribe`
+ * from every bulk sender, so this header is no longer the mark of a mailing list, it is the mark
+ * of commercial mail in general — which put the grammar of the exceptions on something that
+ * happens on nearly every message that is not personal. There is no honest filter to add (deciding
+ * which lists are "legitimate" is a score, and this app does not score mail), so the answer is to
+ * make each appearance cost less.
+ *
+ * [TextButton] and not an `AssistChip`: the plain text button is already the house vocabulary for
+ * a secondary action (`OutboxScreen`, `FiltersScreen`), and there is no AssistChip anywhere in
+ * this application.
+ *
+ * ⭐ **The constant height is not tidiness.** The measured height of the header is part of the key
+ * of the `remember` that builds the body's HTML document (see [ConversationBody]) — the file
+ * already documents the damage — so a strip that changes size cancels the body load in flight.
+ * The header is exactly where an unsubscribe happens, so every unsubscribe used to reload the
+ * message. [UnsubscribeStripBody] keeps the three ordinary shapes to one height; only the failure
+ * grows, and only after a deliberate gesture.
  *
  * The button LABEL is the honest part: "Open page" when all the sender offers is a browser link,
  * because that gesture loads a page and hands over an IP address, and dressing it as the one-click
@@ -2015,55 +2033,73 @@ private fun UnsubscribeStrip(
     // and the action itself take (see [offeredUnsubscribeAction]). `preferredAction` alone would
     // answer for a gesture already made, and the strip would go on offering it.
     val action = options.preferredAction() ?: return
+    val body = unsubscribeStripBody(state)
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            // No vertical padding of its own: the button's own minimum IS the strip's height, and
+            // it is the floor for the two states that draw less. See the KDoc above — a strip
+            // that changes height reloads the body underneath it.
+            .heightIn(min = ButtonDefaults.MinHeight)
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        val failed = state as? UnsubscribeState.Failed
-        Icon(
-            Icons.Filled.Unsubscribe,
-            contentDescription = null,
-            tint = if (failed != null) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.primary
-            },
-            modifier = Modifier.size(20.dp),
-        )
-        Text(
-            text = when (state) {
-                UnsubscribeState.Idle -> stringResource(R.string.message_unsubscribe_banner)
-                UnsubscribeState.Sending -> stringResource(R.string.message_unsubscribe_sending)
-                UnsubscribeState.Sent -> stringResource(R.string.message_unsubscribe_sent)
-                UnsubscribeState.Queued -> stringResource(R.string.message_unsubscribe_queued)
-                is UnsubscribeState.Failed -> stringResource(
-                    when (state.reason) {
-                        UnsubscribeFailure.REDIRECT -> R.string.message_unsubscribe_failed_redirect
-                        UnsubscribeFailure.OFFLINE -> R.string.message_unsubscribe_failed_offline
-                        UnsubscribeFailure.UNREACHABLE ->
-                            R.string.message_unsubscribe_failed_unreachable
-                        UnsubscribeFailure.REFUSED -> R.string.message_unsubscribe_failed
-                    },
-                )
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (failed != null) MaterialTheme.colorScheme.error else Color.Unspecified,
-            modifier = Modifier.weight(1f),
-        )
-        when {
-            state == UnsubscribeState.Sending ->
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        if (body == UnsubscribeStripBody.DONE) {
             // Done is done: no button left to press, and nothing that could be pressed twice.
-            // Idle and Failed both offer the action — a failure is a retry, not a dead end.
-            offeredUnsubscribeAction(options, state) == null -> Unit
-            else -> OutlinedButton(onClick = onUnsubscribe) {
+            Text(
+                text = stringResource(
+                    if (state == UnsubscribeState.Queued) {
+                        R.string.message_unsubscribe_queued
+                    } else {
+                        R.string.message_unsubscribe_sent
+                    },
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            val failed = state as? UnsubscribeState.Failed
+            if (failed != null) {
+                // The one shape allowed to grow: a refusal has to say what happened, and a
+                // failure is a retry rather than a dead end — the button comes back beside it.
+                Text(
+                    text = stringResource(
+                        when (failed.reason) {
+                            UnsubscribeFailure.REDIRECT -> R.string.message_unsubscribe_failed_redirect
+                            UnsubscribeFailure.OFFLINE -> R.string.message_unsubscribe_failed_offline
+                            UnsubscribeFailure.UNREACHABLE ->
+                                R.string.message_unsubscribe_failed_unreachable
+                            UnsubscribeFailure.REFUSED -> R.string.message_unsubscribe_failed
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
+                )
+            }
+            TextButton(onClick = onUnsubscribe, enabled = body.acts) {
+                if (body == UnsubscribeStripBody.SENDING) {
+                    // In the icon's place, at the icon's size: the button keeps its height, so
+                    // the header does, so the body underneath is not reloaded mid-gesture.
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        Icons.Filled.Unsubscribe,
+                        // The sentence this strip used to spend a whole line on, recycled where
+                        // it costs no height and gains a screen reader something: the icon was
+                        // announced as nothing at all before.
+                        contentDescription = stringResource(R.string.message_unsubscribe_banner),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
                 Text(
                     stringResource(
-                        if (action == UnsubscribeAction.OPEN_PAGE) {
-                            R.string.message_unsubscribe_open_page
-                        } else {
-                            R.string.message_unsubscribe
+                        when {
+                            body == UnsubscribeStripBody.SENDING -> R.string.message_unsubscribe_sending
+                            action == UnsubscribeAction.OPEN_PAGE -> R.string.message_unsubscribe_open_page
+                            else -> R.string.message_unsubscribe
                         },
                     ),
                 )

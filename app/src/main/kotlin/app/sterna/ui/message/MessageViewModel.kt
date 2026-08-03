@@ -167,6 +167,49 @@ fun offeredUnsubscribeAction(options: UnsubscribeOptions?, state: UnsubscribeSta
     }
 
 /**
+ * Which of its four shapes the unsubscribe strip draws — the decision taken out of the
+ * `@Composable` so a JVM test can RUN it.
+ *
+ * [ACTION] and [SENDING] and [DONE] are the same height on purpose, and that is not a taste: the
+ * measured height of the header is part of the key of the `remember` that builds the body's HTML
+ * document, so a strip that changes size **cancels the body load in flight and starts another**.
+ * The header is where an unsubscribe happens, so before this the reader reloaded the message
+ * every time someone left a list. [FAILED] is the one shape allowed to grow — it carries a
+ * sentence the reader has to read, and it only appears after a deliberate gesture.
+ */
+enum class UnsubscribeStripBody {
+    /** Nothing done yet: one button, no sentence. */
+    ACTION,
+
+    /** In flight: the same button, its icon replaced by a spinner, and it cannot be pressed. */
+    SENDING,
+
+    /** Sent or queued: no button at all, one terminal line. */
+    DONE,
+
+    /** Refused, or the network died: the reason, and the button again. */
+    FAILED,
+    ;
+
+    /**
+     * Whether the strip's button may START an unsubscribe here.
+     *
+     * It must agree with [offeredUnsubscribeAction] in every state, and a test holds the two
+     * together: the strip drawing a live button where the action refuses to run is a button that
+     * does nothing, and the reverse is the second POST to a list that already answered.
+     */
+    val acts: Boolean get() = this == ACTION || this == FAILED
+}
+
+/** See [UnsubscribeStripBody]. */
+fun unsubscribeStripBody(state: UnsubscribeState): UnsubscribeStripBody = when (state) {
+    UnsubscribeState.Idle -> UnsubscribeStripBody.ACTION
+    UnsubscribeState.Sending -> UnsubscribeStripBody.SENDING
+    UnsubscribeState.Sent, UnsubscribeState.Queued -> UnsubscribeStripBody.DONE
+    is UnsubscribeState.Failed -> UnsubscribeStripBody.FAILED
+}
+
+/**
  * The raw-headers viewer's state (issue #60). Null (see [MessageViewModel.headers]) means the
  * viewer is closed; the states below drive it while open.
  */
