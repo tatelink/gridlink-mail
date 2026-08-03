@@ -726,6 +726,14 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _manualShowImages.value = false
         _headers.value = null
         _attachmentStatus.value = null
+        // The per-sender rule, both halves. The status is the answer to a gesture made on the
+        // message we are leaving ("Rule added"), and it would be read as this message's. The
+        // script is worse than stale: the pager crosses ACCOUNTS in the unified inbox, so the
+        // previous account's rules would decide whether THIS account's sender is already ruled
+        // — a grey "already there" on an address nothing files away, or the reverse. Null costs
+        // nothing: the script is read lazily, only when the participants panel is opened.
+        _senderRules.value = null
+        _senderRuleStatus.value = null
         viewModelScope.launch {
             // Account-scoped: a snooze belongs to one account's message (issue #31).
             _snoozedUntil.value = runCatching {
