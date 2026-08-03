@@ -33,7 +33,11 @@
     <string name="compose_discard_title">Nachricht verwerfen?</string>
     <string name="compose_discard_message">Du hast deine Änderungen nicht gespeichert.</string>
     <string name="compose_discard_message_encrypted">Diese Nachricht ist verschlüsselt und kann deshalb nicht als Entwurf behalten werden: Ein Entwurf wird genau so, wie du ihn geschrieben hast, auf dem Mailserver gespeichert und ist für alle mit Zugriff lesbar. Wenn du jetzt gehst, wird die Nachricht verworfen.</string>
+    <string name="compose_discard_message_encrypted_draft">Diese Nachricht ist verschlüsselt, deshalb können deine Änderungen nicht als Entwurf behalten werden: Ein Entwurf wird genau so, wie du ihn geschrieben hast, auf dem Mailserver gespeichert und ist für alle mit Zugriff lesbar. Wenn du jetzt gehst, gehen nur die Änderungen verloren; der bereits gespeicherte Entwurf bleibt in den Entwürfen.</string>
+    <string name="compose_delete_draft_title">Diesen Entwurf löschen?</string>
+    <string name="compose_delete_draft_body">Dieselbe Löschung wie in der Liste: Der Entwurf wandert in den Papierkorb oder wird endgültig entfernt, wenn dieses Konto keinen Papierkorb hat. Was du seit dem Öffnen getippt hast, wird nicht gespeichert.</string>
     <string name="compose_discard_title_outbox">Änderungen verwerfen?</string>
+    <string name="compose_discard_title_changes">Änderungen verwerfen?</string>
     <string name="compose_discard_message_outbox">Deine Änderungen werden verworfen, die Nachricht aber nicht: Sie bleibt im Postausgang oder wandert in die Entwürfe, wenn du sie speicherst.</string>
     <string name="compose_discard_message_outbox_encrypted">Deine Änderungen werden verworfen, die Nachricht aber nicht: Sie bleibt im Postausgang. Lösche sie dort, wenn du sie loswerden willst.</string>
     <string name="compose_discard_changes">Änderungen verwerfen</string>
@@ -267,6 +271,8 @@
     <string name="settings_signature_on_replies_subtitle">Auch beim Antworten und Weiterleiten einfügen</string>
     <string name="settings_signature_below_quote_title">Signatur unter dem zitierten Text</string>
     <string name="settings_signature_below_quote_subtitle">In einer Antwort unter die zitierte Nachricht setzen statt darüber</string>
+    <string name="settings_reply_bar_title">Antwortleiste</string>
+    <string name="settings_reply_bar_subtitle">Antworten und Weiterleiten am unteren Rand einer Nachricht anzeigen. Antworten bleibt in der Leiste oben, Weiterleiten in deren Menü.</string>
     <string name="settings_signature_delimiter_title">Trennzeile vor der Signatur</string>
     <string name="settings_signature_delimiter_subtitle">Andere E-Mail-Programme erkennen Ihre Signatur an dieser Zeile „-- “ und können sie beim Zitieren Ihrer Nachricht ausblenden; ohne sie geht das nicht mehr, und das Signaturfeld enthält dann genau das, was gesendet wird.</string>
     <string name="settings_swipe_right_title">Nach rechts wischen</string>
@@ -612,6 +618,7 @@
     <string name="status_action_failed">Die Aktion konnte nicht abgeschlossen werden.</string>
     <string name="status_restore_failed">Einige Nachrichten konnten nicht wiederhergestellt werden.</string>
     <string name="status_moved_to_folder">Verschoben nach %1$s</string>
+    <string name="status_action_partly_failed">Einige Nachrichten konnten nicht verarbeitet werden.</string>
     <string name="status_move_other_account">Einige Nachrichten wurden nicht verschoben (anderes Konto).</string>
 
     <!-- Notifications -->
@@ -659,6 +666,7 @@
     <string name="outbox_delete_permanently">Endgültig löschen</string>
     <string name="outbox_banner_failed">Einige Nachrichten wurden nicht gesendet. Zum Prüfen tippen.</string>
     <string name="offline_banner">Du bist offline</string>
+    <string name="sync_error_banner">Abgleich fehlgeschlagen: %1$s</string>
     <string name="settings_conversation_section">Konversationen</string>
     <string name="settings_conversation_title">Konversationsansicht</string>
     <string name="settings_conversation_subtitle">Nachrichten desselben Threads in einer Zeile zusammenfassen, mit einer Anzahl. Threads kommen vom Server: In JMAP-Konten werden Nachrichten so gruppiert, in einem IMAP-Konto bleibt jede Nachricht in ihrer eigenen Zeile.</string>

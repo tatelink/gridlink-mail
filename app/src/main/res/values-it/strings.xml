@@ -33,7 +33,11 @@
     <string name="compose_discard_title">Eliminare il messaggio?</string>
     <string name="compose_discard_message">Non hai salvato le modifiche.</string>
     <string name="compose_discard_message_encrypted">Questo messaggio è cifrato, quindi non può essere conservato come bozza: una bozza viene archiviata sul server di posta esattamente come l\'hai scritta, leggibile da chiunque vi abbia accesso. Uscendo ora il messaggio viene eliminato.</string>
+    <string name="compose_discard_message_encrypted_draft">Questo messaggio è cifrato, quindi le tue modifiche non possono essere conservate come bozza: una bozza viene archiviata sul server di posta esattamente come l\'hai scritta, leggibile da chiunque vi abbia accesso. Uscendo ora si perdono solo le modifiche; la bozza già salvata resta in Bozze.</string>
+    <string name="compose_delete_draft_title">Eliminare questa bozza?</string>
+    <string name="compose_delete_draft_body">La stessa eliminazione della lista: la bozza va nel Cestino, o viene rimossa definitivamente se questo account non ha una cartella Cestino. Quanto scritto da quando l\'hai aperta non viene salvato.</string>
     <string name="compose_discard_title_outbox">Scartare le modifiche?</string>
+    <string name="compose_discard_title_changes">Scartare le modifiche?</string>
     <string name="compose_discard_message_outbox">Le tue modifiche vengono scartate, ma il messaggio no: resta nella posta in uscita, oppure passa alle Bozze se lo salvi.</string>
     <string name="compose_discard_message_outbox_encrypted">Le tue modifiche vengono scartate, ma il messaggio no: resta nella posta in uscita. Eliminalo da lì se vuoi liberartene.</string>
     <string name="compose_discard_changes">Scarta modifiche</string>
@@ -267,6 +271,8 @@
     <string name="settings_signature_on_replies_subtitle">Aggiungerla anche quando rispondi o inoltri un messaggio</string>
     <string name="settings_signature_below_quote_title">Firma sotto il testo citato</string>
     <string name="settings_signature_below_quote_subtitle">In una risposta, metterla sotto il messaggio citato anziché sopra</string>
+    <string name="settings_reply_bar_title">Barra di risposta</string>
+    <string name="settings_reply_bar_subtitle">Mostra Rispondi e Inoltra in fondo al messaggio. Rispondi resta nella barra in alto, Inoltra nel suo menu.</string>
     <string name="settings_signature_delimiter_title">Riga separatrice prima della firma</string>
     <string name="settings_signature_delimiter_subtitle">Le altre app di posta riconoscono la tua firma da questa riga «-- » e possono nasconderla quando citano il tuo messaggio; senza di essa non possono più, e il campo firma contiene allora esattamente ciò che viene inviato.</string>
     <string name="settings_swipe_right_title">Scorri a destra</string>
@@ -614,6 +620,7 @@
     <string name="status_action_failed">Impossibile completare l\'azione.</string>
     <string name="status_restore_failed">Impossibile ripristinare alcuni messaggi.</string>
     <string name="status_moved_to_folder">Spostato in %1$s</string>
+    <string name="status_action_partly_failed">Non è stato possibile elaborare alcuni messaggi.</string>
     <string name="status_move_other_account">Alcuni messaggi non sono stati spostati (altro account).</string>
 
     <!-- Notifications -->
@@ -661,6 +668,7 @@
     <string name="outbox_delete_permanently">Elimina definitivamente</string>
     <string name="outbox_banner_failed">Alcuni messaggi non sono partiti. Tocca per controllare.</string>
     <string name="offline_banner">Sei offline</string>
+    <string name="sync_error_banner">Sincronizzazione non riuscita: %1$s</string>
     <string name="settings_conversation_section">Conversazioni</string>
     <string name="settings_conversation_title">Vista conversazione</string>
     <string name="settings_conversation_subtitle">Raggruppa i messaggi della stessa conversazione in un\'unica riga, con un conteggio. Le conversazioni vengono dal server: negli account JMAP i messaggi vengono raggruppati, in un account IMAP ogni messaggio resta sulla propria riga.</string>

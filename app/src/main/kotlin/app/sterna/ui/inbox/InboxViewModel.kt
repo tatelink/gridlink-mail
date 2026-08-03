@@ -17,6 +17,7 @@ import app.sterna.push.Notifications
 import app.sterna.push.PushController
 import app.sterna.snooze.Snoozes
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.db.OutboxState
 import app.sterna.core.data.getOrElseUnlessCancelled
 import app.sterna.core.data.mail.EmailKey
@@ -31,7 +32,9 @@ import app.sterna.core.jmap.model.Mailbox
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.send.SendOutbox
 import app.sterna.ui.NotificationFolderSwitch
+import app.sterna.ui.search.SearchDisplay
 import app.sterna.ui.search.searchComplete
+import app.sterna.ui.search.searchDisplay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -42,6 +45,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -605,6 +609,27 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         if (selectionIsGone((selection.value as? Sel.Folder)?.id, folders)) showInbox()
     }
 
+    /**
+     * (account, folder) → role, for EVERY configured account — what the rows of an unfolded
+     * conversation are judged by (#115). Those rows span the viewed folder(s) plus Sent, and in the
+     * unified list they belong to accounts that are not the selected one, so neither [mailboxes]
+     * (the current account's drawer) nor the selected folder's role can answer for them.
+     *
+     * Re-scoped off [app.sterna.core.data.account.AccountStore.accountsFlow], which is published
+     * from the single choke point every list write goes through (`saveAccounts`): an account added,
+     * an account signed out, a linked sub-account minted or pruned by the reconcile. When it emits
+     * is [folderRolesFlow]'s, and that is where it is tested.
+     *
+     * It used to hang off [unifiedInboxScopes], and that was the defect: those are (account, inbox)
+     * PAIRS, an account has no inbox id before its first folder sync, and an equal value does not
+     * re-emit — so adding an account left the map scoped to the previous ones and its rows fell
+     * back to the pre-#115 rule. Switching accounts does not emit here and does not need to: the
+     * map covers every configured account, whichever one is selected.
+     */
+    val folderRoles: StateFlow<Map<Pair<String, String>, String>> =
+        folderRolesFlow(store.accountsFlow) { accountIds -> repo.observeFolderRoles(accountIds) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     private val searchState = MutableStateFlow(SearchUi())
     private var searchJob: Job? = null
 
@@ -817,11 +842,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * into a single reconcile (and [refresh] itself cancels-and-replaces any refresh already in
      * flight), then retried a few times on a widening gap ([ReconnectRefresh]).
      *
-     * The offline banner reads `offline || error`, so an error left over from a refresh that
-     * failed *during* the outage survives the outage itself and keeps the banner up until some
-     * later refresh happens to succeed (the user pulling to refresh). Connectivity coming back
-     * makes that error stale, so drop it right away; the attempts below put a real one back if
-     * the server is genuinely unreachable.
+     * An error left over from a refresh that failed *during* the outage survives the outage
+     * itself and keeps a notice up until some later refresh happens to succeed (the user pulling
+     * to refresh) — since [refreshNotice] shows a failure once the device is back online, that
+     * stale error would now be shown as its own technical failure rather than as the outage it
+     * really was. Connectivity coming back makes it stale, so drop it right away; the attempts
+     * below put a real one back if the server is genuinely unreachable.
      */
     private fun onReconnected() {
         reconnectJob?.cancel()
@@ -1589,10 +1615,30 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Select everything the list on screen is showing — the search results when they are what is
+     * drawn, the folder otherwise (#126). The choice is [selectAllKeys], so it can be run in a test;
+     * this reads the same [searchState] the screen is drawn from, live, at the moment of the tap.
+     *
+     * Outside a search the folder is read through [MailRepository.selectableIds], which pages the
+     * list's OWN WHERE clause: with the "unread only" funnel on, the list shows unread mail and so
+     * does the selection. The unfiltered read that used to sit here handed the bulk action every
+     * read message of the folder too — the second half of #126, and the destructive half: select
+     * all + delete moved messages that were never on screen to the Trash.
+     */
     fun selectAll() {
         _selectionActive.value = true
+        val search = searchState.value
+        val filtered = unreadOnly.value
         viewModelScope.launch {
-            _selectedKeys.value = repo.cachedIds(currentScopes()).toSet()
+            _selectedKeys.value = selectAllKeys(
+                searching = search.active,
+                query = search.query,
+                results = search.results?.map { it.emailKey() },
+                loading = search.loading,
+                complete = search.complete,
+                folderKeys = repo.selectableIds(currentScopes(), filtered),
+            )
         }
     }
 
@@ -1702,8 +1748,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             if (undoLabel != null && undoEntries.isNotEmpty()) {
                 _undo.value = UndoAction(undoEntries, undoLabel)
             }
-            if (failedKeys.isNotEmpty()) {
-                _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+            // Partial and total are not the same news: a select-all past the server's
+            // maxObjectsInSet used to archive most of the selection and still say "Couldn't
+            // complete the action". The rows actually handed to the batches are `emails`, not the
+            // selection — a selected key with no cached row was never attempted (see [bulkOutcome]).
+            when (bulkOutcome(emails.size, failedKeys.size)) {
+                BulkOutcome.NONE -> Unit
+                BulkOutcome.TOTAL ->
+                    _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+                BulkOutcome.PARTIAL ->
+                    _message.value = getApplication<Application>().getString(R.string.status_action_partly_failed)
             }
         }
     }
@@ -2030,4 +2084,59 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
  */
 internal fun selectionAccount(keys: Set<EmailKey>): String? =
     keys.map { it.accountId }.distinct().singleOrNull()
+
+/**
+ * What "Select all" is allowed to take: the list that is ON SCREEN.
+ *
+ * Two branches, because the two lists are not the same kind of thing. The search results are held
+ * whole in the ViewModel and drawn straight from there, so "everything shown" is a value we have.
+ * The navigation list is a `LazyPagingItems`, which does not expose the pages it has not loaded —
+ * "what the list renders" cannot be asked of it — so outside a search the folder's cached ids stay
+ * the answer, as they have always been.
+ *
+ * The predicate is the SCREEN's, not a second one written to look like it: results are on screen
+ * when the search bar is up with something typed in it (`InboxScreen`'s `searchActive`) AND the
+ * same [searchDisplay] call the screen branches on answers [SearchDisplay.RESULTS]. Two predicates
+ * for one question drift apart, and the drift is silent — the user selects one list and deletes
+ * another.
+ */
+/**
+ * The roles map of [InboxViewModel.folderRoles], as a flow of its own so the RE-SCOPING can be run
+ * by a test (#115). [accounts] is the account list as a live value; [roles] opens the (account,
+ * folder) → role map for a set of account ids.
+ *
+ * What it has to get right is when it asks again. The map is keyed by account, so it has to be
+ * reopened whenever the SET of accounts changes — an account added, an account signed out — or the
+ * rows of the new account are judged by a map that does not contain them, and fall back to the
+ * pre-#115 answer while the reader, which reads the database directly, says something else.
+ *
+ * That is why it hangs off the account list itself and not off `unifiedInboxScopes`, which is what
+ * shipped first: those are (account, inbox) PAIRS, an account has no inbox id until its first
+ * folder sync, and a StateFlow does not re-emit an equal value — so adding an account moved
+ * nothing at all. The set of ids is what the map is keyed by, and [distinctUntilChanged] on it is
+ * what keeps the store's other writes (an inbox id learned, an unread counter moved, identities
+ * refreshed — all of which republish the whole list) from re-subscribing to Room for nothing.
+ */
+internal fun folderRolesFlow(
+    accounts: Flow<List<StoredAccount>>,
+    roles: (List<String>) -> Flow<Map<Pair<String, String>, String>>,
+): Flow<Map<Pair<String, String>, String>> =
+    accounts
+        .map { list -> list.map { it.id } }
+        .distinctUntilChanged()
+        .flatMapLatest(roles)
+
+internal fun selectAllKeys(
+    searching: Boolean,
+    query: String,
+    results: List<EmailKey>?,
+    loading: Boolean,
+    complete: Boolean,
+    folderKeys: List<EmailKey>,
+): Set<EmailKey> {
+    val shown = results.orEmpty()
+    val onScreen = searching && query.isNotBlank() &&
+        searchDisplay(shown.size, loading, complete) == SearchDisplay.RESULTS
+    return if (onScreen) shown.toSet() else folderKeys.toSet()
+}
 

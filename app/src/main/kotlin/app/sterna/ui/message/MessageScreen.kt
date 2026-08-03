@@ -1022,6 +1022,7 @@ private fun MessageContent(
     val confirmLinks by viewModel.confirmLinks.collectAsStateWithLifecycle()
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
     val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
+    val replyBarEnabled by viewModel.replyBar.collectAsStateWithLifecycle()
     // Per-message manual override (set from the fixed toolbar's menu, hence in the VM);
     // the sender allowlist auto-shows without it.
     val manualShow by viewModel.manualShowImages.collectAsStateWithLifecycle()
@@ -1055,6 +1056,7 @@ private fun MessageContent(
                 calendar = calendar,
                 onRespondToInvite = viewModel::respondToInvite,
                 textZoom = messageTextSize.zoom,
+                replyBarEnabled = replyBarEnabled,
                 onBarVisibleChanged = viewModel::setReplyBarVisible,
                 onComposeTo = onComposeTo,
                 showRecipients = ownMessage,
@@ -1090,6 +1092,10 @@ private fun ConversationBody(
     calendar: CalendarInvite?,
     onRespondToInvite: (String) -> Unit,
     textZoom: Int,
+    /** Whether the bottom Reply/Forward bar is wanted at all (#63). It gates the bar's visibility
+     *  and the blank the document reserves for it, and NOTHING else: the reveal machinery below
+     *  also drives the body's alpha, its spinner and the collapsing header. */
+    replyBarEnabled: Boolean,
     onBarVisibleChanged: (Boolean) -> Unit,
     onComposeTo: (address: String) -> Unit,
     showRecipients: Boolean = false,
@@ -1138,7 +1144,7 @@ private fun ConversationBody(
     // swipe — #62): this page only reports whether its resting/scroll state wants the bar, and
     // the chrome follows the SETTLED page's value. The invisible measuring copy below stays
     // in-page — it only reserves the bar's height in the document.
-    val barVisible = bodyReady && showBar
+    val barVisible = replyBarVisible(replyBarEnabled, bodyReady, showBar)
     LaunchedEffect(barVisible) { onBarVisibleChanged(barVisible) }
     // Measured header height (device px) and the live body scroll offset. scrollY is read only in the
     // layout phase (the header's offset lambda) so updating it every scroll frame re-lays-out the
@@ -1167,9 +1173,12 @@ private fun ConversationBody(
     // measuring copy below) plus a little clearance, so the bar never covers the last line when it
     // reveals at the end. A default until measured avoids any cut on the first frame.
     var barHeightPx by remember { mutableIntStateOf(0) }
-    val clearancePx = with(density) { 4.dp.roundToPx() }
-    val defaultBarPx = with(density) { 76.dp.roundToPx() }
-    val bottomInsetPx = (if (barHeightPx > 0) barHeightPx else defaultBarPx) + clearancePx
+    // Zero when the bar is switched off: the blank is a DIV inside the document, so leaving it
+    // there would end every message with a strip of white under nothing (#63). The fallback height
+    // and the clearance live inside bodyBottomInsetPx, where a test can exercise them: as two
+    // `val`s here they could be swapped for each other, which puts ~72 dp of white at the end of
+    // every message with nothing to see in a diff and no test able to reach it.
+    val bottomInsetPx = bodyBottomInsetPx(replyBarEnabled, barHeightPx, density.density)
 
     Box(
         Modifier
@@ -1179,15 +1188,24 @@ private fun ConversationBody(
         // Invisible, no-op copy of the bar, used ONLY to measure its height up front so the body
         // reserves the right space from the first frame (no content jump when the bar appears). It is
         // the bottom-most child, so the WebView above it takes all touches; its onReply is a no-op.
-        Box(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .alpha(0f)
-                .onSizeChanged { barHeightPx = it.height }
-                .clearAndSetSemantics {},
-        ) {
-            ReplyForwardBar {}
+        //
+        // Composed only when the bar is switched on (#63). alpha(0f) hides it from the eye and not
+        // from the finger — Compose hit-tests a fully transparent node exactly like any other — so
+        // with the setting OFF and no body yet on top of it (offline, a load that failed) a band
+        // the height of a bar it was told not to show would sit at the bottom taking taps. Nothing
+        // else needs it either: bodyBottomInsetPx answers 0 while the setting is off, whatever
+        // barHeightPx happens to hold.
+        if (replyBarEnabled) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .alpha(0f)
+                    .onSizeChanged { barHeightPx = it.height }
+                    .clearAndSetSemantics {},
+            ) {
+                ReplyForwardBar {}
+            }
         }
         if (full != null) {
             val scheme = MaterialTheme.colorScheme

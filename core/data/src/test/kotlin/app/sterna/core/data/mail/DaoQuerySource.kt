@@ -151,6 +151,14 @@ internal object DaoQuerySource {
         )
 
     /**
+     * The whole source text of a file of the `mail` package ([fileName] without its `.kt`) — for
+     * the rare check that is about the FILE rather than one function: "no call of this shape
+     * anywhere", which no per-function lookup can state.
+     */
+    fun mailSource(fileName: String): String =
+        sources.getOrPut("mail/$fileName") { locate("$MAIL_DIR$fileName.kt").readText() }
+
+    /**
      * The SQL of the `@Query` annotating `fun [functionName]` in `EmailDao`, with Room's named
      * parameters left in place (`:accountId`, …) — [bindOrder] turns them into positional `?`.
      */

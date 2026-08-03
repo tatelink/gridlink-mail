@@ -33,7 +33,11 @@
     <string name="compose_discard_title">Удалить сообщение?</string>
     <string name="compose_discard_message">Вы не сохранили изменения.</string>
     <string name="compose_discard_message_encrypted">Это письмо зашифровано, поэтому его нельзя сохранить как черновик: черновик хранится на почтовом сервере ровно в том виде, в каком вы его написали, и доступен для чтения любому, у кого есть доступ. Если выйти сейчас, письмо будет удалено.</string>
+    <string name="compose_discard_message_encrypted_draft">Это письмо зашифровано, поэтому ваши изменения нельзя сохранить как черновик: черновик хранится на почтовом сервере ровно в том виде, в каком вы его написали, и доступен для чтения любому, у кого есть доступ. Если выйти сейчас, пропадут только изменения; уже сохранённый черновик останется в Черновиках.</string>
+    <string name="compose_delete_draft_title">Удалить этот черновик?</string>
+    <string name="compose_delete_draft_body">То же удаление, что и в списке: черновик отправляется в Корзину или удаляется навсегда, если у этой учётной записи нет папки Корзина. Всё, что набрано с момента открытия, не сохраняется.</string>
     <string name="compose_discard_title_outbox">Сбросить изменения?</string>
+    <string name="compose_discard_title_changes">Сбросить изменения?</string>
     <string name="compose_discard_message_outbox">Ваши изменения будут сброшены, а сообщение — нет: оно останется в исходящих или попадёт в Черновики, если вы его сохраните.</string>
     <string name="compose_discard_message_outbox_encrypted">Ваши изменения будут сброшены, а сообщение — нет: оно останется в исходящих. Удалите его там, если хотите от него избавиться.</string>
     <string name="compose_discard_changes">Сбросить изменения</string>
@@ -267,6 +271,8 @@
     <string name="settings_signature_on_replies_subtitle">Добавлять её и при ответе или пересылке</string>
     <string name="settings_signature_below_quote_title">Подпись под цитируемым текстом</string>
     <string name="settings_signature_below_quote_subtitle">В ответе размещать её под цитатой, а не над ней</string>
+    <string name="settings_reply_bar_title">Панель ответа</string>
+    <string name="settings_reply_bar_subtitle">Показывать «Ответить» и «Переслать» внизу сообщения. «Ответить» остаётся на верхней панели, «Переслать» — в её меню.</string>
     <string name="settings_signature_delimiter_title">Строка-разделитель перед подписью</string>
     <string name="settings_signature_delimiter_subtitle">Другие почтовые программы узнают вашу подпись по этой строке «-- » и могут скрывать её при цитировании письма; без неё они этого больше не смогут, а поле подписи будет содержать ровно то, что уходит в письме.</string>
     <string name="settings_swipe_right_title">Смахивание вправо</string>
@@ -616,6 +622,7 @@
     <string name="status_action_failed">Не удалось выполнить действие.</string>
     <string name="status_restore_failed">Не удалось восстановить некоторые письма.</string>
     <string name="status_moved_to_folder">Перемещено в %1$s</string>
+    <string name="status_action_partly_failed">Некоторые письма не удалось обработать.</string>
     <string name="status_move_other_account">Некоторые письма не были перемещены (другой аккаунт).</string>
 
     <!-- Notifications -->
@@ -665,6 +672,7 @@
     <string name="outbox_delete_permanently">Удалить навсегда</string>
     <string name="outbox_banner_failed">Некоторые сообщения не отправлены. Нажмите, чтобы проверить.</string>
     <string name="offline_banner">Вы не в сети</string>
+    <string name="sync_error_banner">Не удалось синхронизировать: %1$s</string>
     <string name="settings_conversation_section">Беседы</string>
     <string name="settings_conversation_title">Просмотр беседы</string>
     <string name="settings_conversation_subtitle">Объединять сообщения одной цепочки в одну строку с указанием количества. Цепочки приходят с сервера: в учётных записях JMAP письма объединяются, в учётной записи IMAP каждое письмо остаётся в отдельной строке.</string>

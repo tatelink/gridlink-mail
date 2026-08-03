@@ -169,6 +169,33 @@ internal fun retentionEvictions(
 }
 
 /**
+ * Which cached ids a FULL-QUERY reconcile drops, in batches no single statement can choke on —
+ * `EmailDao.replaceMailbox`'s decision, extracted here to be executed in a JVM test.
+ *
+ * ⛔ Why a complement and not a `NOT IN (:keepIds)`: SQLite binds at most 999 variables below
+ * Android 12 ([MAX_CHANGES] is this file's bound for exactly that reason, Codeberg #29), and a
+ * full sync window is up to 1 000 ids — so the reconcile of a big window bound MORE variables
+ * than the engine accepts and threw. The throw landed before the sync cursor was stored, so the
+ * next refresh took the same full query again: the closed loop the paging fix had just opened,
+ * one layer down. Unreachable before that fix (the request failed earlier), reachable after it.
+ *
+ * ⛔ And why the complement is computed ONCE, against the WHOLE [keepIds]: chunking a
+ * `NOT IN (:keepIds)` into several statements would delete everything outside each chunk in turn,
+ * i.e. the entire folder. The set to delete is decided first and only then cut up; each batch is
+ * then a plain list of ids to remove, and cutting it differently can never change what goes.
+ *
+ * [spareIds] are the recently-mutated ids a stale page must not clobber, exactly as
+ * `EmailDao.deleteNotInSparing` spared them.
+ */
+internal fun reconcileEvictions(
+    cachedIds: List<String>,
+    keepIds: Set<String>,
+    spareIds: Set<String>,
+    chunk: Int = MAX_CHANGES,
+): List<List<String>> =
+    cachedIds.filter { it !in keepIds && it !in spareIds }.chunked(chunk)
+
+/**
  * Whether this sync cycle should run a mailbox's existence sweep. The sweep costs one
  * `Email/get` per 200 cached rows, so it cannot ride on every incremental sync — and it would,
  * if it keyed off [stateAdvanced] alone: `Email/changes`' state is ACCOUNT-WIDE, so it advances

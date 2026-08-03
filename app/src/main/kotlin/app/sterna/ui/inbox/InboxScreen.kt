@@ -192,6 +192,8 @@ import app.sterna.ui.components.accountColorOf
 import app.sterna.ui.components.verticalScrollbar
 import app.sterna.ui.isOutgoingFolder
 import app.sterna.ui.rememberMotionEnabled
+import app.sterna.ui.showsRecipients
+import app.sterna.ui.showsRecipientsInThread
 import app.sterna.ui.search.SearchCount
 import app.sterna.ui.search.SearchDisplay
 import app.sterna.ui.search.searchCount
@@ -250,6 +252,10 @@ fun InboxScreen(
     // Inline conversation expansion: which threads are unfolded, and their lazily-loaded members.
     val expandedThreads by viewModel.expandedThreads.collectAsStateWithLifecycle()
     val threadMembers by viewModel.threadMembers.collectAsStateWithLifecycle()
+    // (account, folder) → role, every account: what a row inside an unfolded conversation is judged
+    // by. Those rows are not all in the folder on screen — the unfold spans the viewed folder(s)
+    // plus Sent — and in the unified list they are not all in the current account either (#115).
+    val folderRoles by viewModel.folderRoles.collectAsStateWithLifecycle()
     var showMoveSheet by remember { mutableStateOf(false) }
     var showCreateFolder by remember { mutableStateOf(false) }
     var folderToRename by remember { mutableStateOf<Mailbox?>(null) }
@@ -1366,9 +1372,15 @@ fun InboxScreen(
                     unarchiveContext = isUnarchiveContext(ui),
                     trashContext = isTrashContext(ui),
                     // Search results keep the sender line whatever folder they came from.
-                    // Decided per row by authorship, so a self-authored mail (e.g. one moved to
-                    // Trash) still shows who it went TO, not the self sender (Codeberg #69).
-                    showRecipients = !fromSearch && isOwnMessage(email, ui, accounts),
+                    // Otherwise: the shared decision, so this row and the reader it opens say the
+                    // same thing. Sent/Drafts by folder (#59), a self-authored mail moved to the
+                    // Trash by authorship (#69) — but NOT a mail you sent to yourself sitting in
+                    // the Inbox, which is received mail and reads by its sender (#115).
+                    showRecipients = !fromSearch && showsRecipients(
+                        role = visibleFolderRole(ui),
+                        unified = ui.unified,
+                        selfAuthored = isSelfAuthored(email.from, sendAsIdentities(email, accounts)),
+                    ),
                     // A collapsed conversation acts on the whole thread; a flat row on its one message.
                     onSwipe = { action ->
                         if (expandable) performThreadSwipe(action, email, viewModel, ui)
@@ -1405,6 +1417,13 @@ fun InboxScreen(
                         }
                     },
                     selected = email.emailKey() in selectedKeys,
+                    // LOAD-BEARING BEYOND THIS ROW, and nothing else says so: this is one of the
+                    // guards that make "selection active while the search results are empty"
+                    // unreachable. Selection mode is entered by a long-press on a row, so no row,
+                    // no selection — and selectAllKeys' search branch is only ever entered while
+                    // results are on screen. Simplify this to `true` some day and a selection can
+                    // outlive the list it was taken from, at which point "Select all" takes the
+                    // folder behind an empty result list and deletes it (#126).
                     gesturesEnabled = !selectionActive,
                     unread = row.unread,
                     threadCount = row.threadCount,
@@ -1438,9 +1457,20 @@ fun InboxScreen(
                         leftAction = swipe.left,
                         unarchiveContext = isUnarchiveContext(ui),
                         trashContext = isTrashContext(ui),
-                        // Per child: a self reply inside an incoming conversation shows "To: …"
-                        // even when the thread itself isn't in Sent/Drafts (Codeberg #69).
-                        showRecipientsFor = { child -> isOwnMessage(child, ui, accounts) },
+                        // Per child, through the SAME decision as the top-level row and the reader
+                        // — on the child's OWN folder, because an unfolded conversation spans the
+                        // viewed folder(s) plus Sent and the folder on screen says nothing about
+                        // the message inside it. Your own reply lives in Sent and keeps its
+                        // "To: …" (#69); your own message echoed back into the Inbox reads by its
+                        // sender (#115), which is what the reader says when this line is tapped.
+                        showRecipientsFor = { child ->
+                            showsRecipientsInThread(
+                                accountId = child.accountId,
+                                mailboxId = child.mailboxId,
+                                roles = folderRoles,
+                                selfAuthored = isSelfAuthored(child.from, sendAsIdentities(child, accounts)),
+                            )
+                        },
                         highlightId = highlightId,
                         selectionActive = selectionActive,
                         selectedKeys = selectedKeys,
@@ -1468,16 +1498,20 @@ fun InboxScreen(
 
             val refreshState = rememberPullToRefreshState()
             Column(Modifier.fillMaxSize().padding(padding)) {
-            // "Can't reach the server" is either event-driven from the connectivity callback
-            // (WiFi/airplane off) or inferred from a failed refresh (#65): the VPN-killswitch case
-            // keeps the WiFi transport up + NOT_VPN, so the callback still reads online — only a
-            // failed request reveals it. Fold both into one condition.
-            val unreachable = ui.offline || ui.error != null
-            // Thin offline line above the list, but only when there are cached rows to sit above
-            // (WYSIWYG). The zero-rows case shows the offline empty-state below instead, so the
-            // two never double up.
-            if (unreachable && pagedEmails.itemCount > 0) {
-                OfflineBanner()
+            // Offline, failed, or neither — never "offline" for a failure the device did not
+            // confirm. See [refreshNotice]: the VPN-killswitch case (#65) still reads offline,
+            // because a failed request is what corrects the connectivity flag itself; what no
+            // longer reads offline is a server that answered and refused.
+            val notice = refreshNotice(ui.offline, ui.error)
+            // Thin line above the list, but only when there are cached rows to sit above
+            // (WYSIWYG). The zero-rows case shows the matching centred state below instead, so
+            // the two never double up.
+            if (pagedEmails.itemCount > 0) {
+                when (notice) {
+                    RefreshNotice.OFFLINE -> OfflineBanner()
+                    RefreshNotice.ERROR -> SyncErrorBanner(ui.error.orEmpty())
+                    RefreshNotice.NONE -> Unit
+                }
             }
             // A calm, tappable line when a send has permanently failed: route to the outbox.
             if (outboxHasFailures) {
@@ -1642,7 +1676,7 @@ fun InboxScreen(
                             }
                         }
                     ui.refreshing || refreshLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                    unreachable -> PullableCenter {
+                    notice == RefreshNotice.OFFLINE -> PullableCenter {
                         EmptyState(
                             art = EmptyArt.OFFLINE,
                             title = stringResource(R.string.empty_offline_title),
@@ -1652,6 +1686,24 @@ fun InboxScreen(
                                 Button(onClick = viewModel::refresh) { Text(stringResource(R.string.inbox_retry)) }
                             },
                         )
+                    }
+                    // Nothing cached AND the refresh failed: the same "it failed, here is what
+                    // it said, try again" shape as the list's own load-more footer — never the
+                    // offline scene, whose drawing and whose promise ("we'll sync as soon as
+                    // you're back") would both be untrue here.
+                    notice == RefreshNotice.ERROR -> PullableCenter {
+                        Column(
+                            Modifier.align(Alignment.Center).padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.sync_error_banner, ui.error.orEmpty()),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            Button(onClick = viewModel::refresh) { Text(stringResource(R.string.inbox_retry)) }
+                        }
                     }
                     else -> {
                         // Pick the scene + voice by what's empty: the inbox (hero),
@@ -2096,12 +2148,10 @@ private fun isUnarchiveContext(ui: MailUi): Boolean {
 private fun isTrashContext(ui: MailUi): Boolean =
     ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role == "trash"
 
-/** True when the visible folder holds the user's own outgoing mail (Sent, Drafts), where a
- *  row shows who the mail went to — the sender is always yourself there (Codeberg #59). */
-private fun isOwnMailContext(ui: MailUi): Boolean {
-    val role = ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
-    return role == "sent" || role == "drafts"
-}
+/** The role of the folder on screen, or null in the unified view (which selects none) and for a
+ *  folder whose role the server never gave. */
+private fun visibleFolderRole(ui: MailUi): String? =
+    ui.mailboxes.firstOrNull { it.id == ui.selectedMailboxId }?.role
 
 /**
  * True when [from] (a message's sender) is one of the user's own send-as [identities], matched
@@ -2113,18 +2163,6 @@ internal fun isSelfAuthored(from: List<EmailAddress>, identities: List<StoredIde
     val sender = from.firstOrNull()?.email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
     return identities.any { it.email.trim().lowercase() == sender }
 }
-
-/**
- * Whether a row should render as the user's own outgoing mail (show "To: …" instead of the self
- * sender). True in the Sent/Drafts folders (the author is always yourself there, Codeberg #59) OR
- * when the message is self-authored by address — so a draft/sent mail moved to Trash still reads
- * correctly (Codeberg #69), and a self reply inside an incoming conversation shows its recipients
- * too. Identities are resolved from the row's OWN account, correct for the unified/multi-account
- * inbox. (An address shared by two accounts could match either identity list, which merely mirrors
- * what the reader itself shows — acceptable.)
- */
-private fun isOwnMessage(email: Email, ui: MailUi, accounts: List<StoredAccount>): Boolean =
-    isOwnMailContext(ui) || isSelfAuthored(email.from, sendAsIdentities(email, accounts))
 
 /**
  * The addresses the row's own account can send as. Mirrors AccountStore.identities: a linked
@@ -2381,6 +2419,39 @@ private fun OfflineBanner() {
             Text(
                 stringResource(R.string.offline_banner),
                 style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}
+
+/**
+ * A discreet banner for a refresh that FAILED while the device is online — the error surface, not
+ * the offline one, and carrying the failure's own text: until this existed, that text was shown
+ * nowhere at all and every failure was filed under "You're offline".
+ *
+ * Two lines at most. The text is a status line or an exception message, never mail content: the
+ * two guards that keep it that way live in the JMAP client (`postJmap` reports the HTTP status
+ * only, never a slice of the body; `decodeList` re-throws without kotlinx's JSON excerpt, which
+ * for an Email/get would be a subject and a preview).
+ */
+@Composable
+private fun SyncErrorBanner(message: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.Warning, contentDescription = null)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                stringResource(R.string.sync_error_banner, message),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

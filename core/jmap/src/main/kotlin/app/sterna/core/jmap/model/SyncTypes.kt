@@ -14,6 +14,15 @@ data class EmailPage(
     val emailState: String?,
     /** Total messages matching the query (when the server calculated it), for paging end-detection. */
     val total: Int? = null,
+    /**
+     * How many ids the `Email/query` half returned — which can EXCEED `emails.size` when the
+     * back-referenced `Email/get` omits some (a message destroyed between the two calls). It is
+     * what a multi-page walk must page on: a short GET is not an exhausted folder, and stopping
+     * on `emails.size` would abandon everything behind it. No default on purpose — a caller
+     * building a page has to say what the query saw, and `0` means "the folder is exhausted"
+     * to [app.sterna.core.jmap.nextWindowPageLimit].
+     */
+    val queryCount: Int,
 )
 
 /** Ids-only page of an `Email/query` (no `Email/get`) — for resolving bulk-action targets. */

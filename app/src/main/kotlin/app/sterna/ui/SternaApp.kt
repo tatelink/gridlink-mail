@@ -48,6 +48,7 @@ import app.sterna.push.PushController
 import app.sterna.security.LockScreen
 import app.sterna.ui.compose.ComposeScreen
 import app.sterna.ui.connect.ConnectScreen
+import app.sterna.core.jmap.model.Email
 import app.sterna.ui.inbox.InboxScreen
 import app.sterna.ui.inbox.InboxViewModel
 import app.sterna.ui.inbox.ThreadKey
@@ -484,11 +485,33 @@ private fun MainNavHost(
                 navArgument("body") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
+            // The inbox's own ViewModel (same backstack entry as the list and the reader), so
+            // deleting the draft being edited is the SAME gesture the Drafts list offers: a move to
+            // the Trash, with the held-back destroy and the Undo snackbar — which then shows on the
+            // list this pops back to. The reader's delete is wired exactly this way (#23, #127).
+            val inboxEntry = remember(entry) { nav.getBackStackEntry("inbox") }
+            val inboxViewModel: InboxViewModel = viewModel(inboxEntry)
             ComposeScreen(
                 // After a send (new mail, reply or forward) return to the inbox rather than
                 // the message that was open underneath compose.
                 onDone = { entry.navigateOnce { nav.popBackStack("inbox", inclusive = false) } },
                 onCancel = { entry.navigateOnce { nav.popBackStack() } },
+                // A single pop, like onCancel and unlike onDone: the composer was opened from the
+                // Drafts list, and that list is where the "Message deleted / Undo" snackbar has to
+                // appear. Deliberately NOT through ComposeState.Done, which flies the tern away —
+                // that animation belongs to a message that went out.
+                // The draft is TAKEN inside the guard, not before it (#127): takeEditingDraft()
+                // hands the row over exactly once, so consuming it outside meant a tap the guard
+                // drops — two fingers, the X and the trash in one frame — had thrown the draft
+                // away without deleting anything. Same shape as onDelete above: the mutation and
+                // the pop live inside navigateOnce together.
+                onDeleteDraft = { take ->
+                    entry.navigateOnce {
+                        val email = take() ?: return@navigateOnce
+                        inboxViewModel.delete(email)
+                        nav.popBackStack()
+                    }
+                },
                 replyTo = entry.arguments?.getString("replyTo")?.let { Uri.decode(it) },
                 mode = entry.arguments?.getString("mode"),
                 accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null },

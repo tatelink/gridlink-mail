@@ -35,7 +35,11 @@
     <string name="compose_discard_title">Discard message?</string>
     <string name="compose_discard_message">You haven\'t saved your changes.</string>
     <string name="compose_discard_message_encrypted">This message is encrypted, so it can\'t be kept as a draft: a draft is stored on the mail server exactly as you typed it, readable by anyone with access to it. Leaving now discards the message.</string>
+    <string name="compose_discard_message_encrypted_draft">This message is encrypted, so your changes can\'t be kept as a draft: a draft is stored on the mail server exactly as you typed it, readable by anyone with access to it. Leaving now drops the changes only; the draft already saved stays in Drafts.</string>
+    <string name="compose_delete_draft_title">Delete this draft?</string>
+    <string name="compose_delete_draft_body">The same delete as in the list: the draft goes to the Trash, or is removed for good if this account has no Trash folder. Anything typed since you opened it is not saved.</string>
     <string name="compose_discard_title_outbox">Discard your changes?</string>
+    <string name="compose_discard_title_changes">Discard your changes?</string>
     <string name="compose_discard_message_outbox">Your changes are dropped, but the message is not: it stays in the outbox, or moves to Drafts if you save it.</string>
     <string name="compose_discard_message_outbox_encrypted">Your changes are dropped, but the message is not: it stays in the outbox. Delete it there if you want it gone.</string>
     <string name="compose_discard_changes">Discard changes</string>
@@ -146,6 +150,9 @@
     <string name="outbox_delete_permanently">Delete permanently</string>
     <string name="outbox_banner_failed">Some messages didn\'t send. Tap to review.</string>
     <string name="offline_banner">You\'re offline</string>
+    <!-- A refresh that failed while the device IS online: never the offline wording. %1$s is the
+         failure's own text (a status line or an exception message, never mail content). -->
+    <string name="sync_error_banner">Sync failed: %1$s</string>
     <string name="inbox_compose">Compose</string>
     <string name="inbox_no_results">No results</string>
     <string name="inbox_load_more_failed">Couldn\'t load more</string>
@@ -365,6 +372,8 @@
     <string name="settings_signature_on_replies_subtitle">Add it when you reply to or forward a message too</string>
     <string name="settings_signature_below_quote_title">Signature below the quoted text</string>
     <string name="settings_signature_below_quote_subtitle">In a reply, put it under the quoted message instead of above it</string>
+    <string name="settings_reply_bar_title">Reply bar</string>
+    <string name="settings_reply_bar_subtitle">Show Reply and Forward at the bottom of a message. Reply stays in the toolbar at the top, Forward in its menu.</string>
     <string name="settings_signature_delimiter_title">Separator line above the signature</string>
     <string name="settings_signature_delimiter_subtitle">Other mail apps recognise your signature by this “-- ” line and can hide it when quoting your message; without it they no longer can, and the signature field then holds exactly what is sent.</string>
     <string name="settings_swipe_right_title">Swipe right</string>
@@ -753,6 +762,7 @@
     <string name="status_action_failed">Couldn\'t complete the action.</string>
     <string name="status_restore_failed">Couldn\'t restore some messages.</string>
     <string name="status_moved_to_folder">Moved to %1$s</string>
+    <string name="status_action_partly_failed">Some messages couldn\'t be processed.</string>
     <string name="status_move_other_account">Some messages were not moved (other account).</string>
 
     <!-- Notifications -->

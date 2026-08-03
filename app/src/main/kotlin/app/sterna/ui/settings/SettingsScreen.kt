@@ -522,6 +522,7 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val signatureOnReplies by viewModel.signatureOnReplies.collectAsStateWithLifecycle()
     val signatureBelowQuote by viewModel.signatureBelowQuote.collectAsStateWithLifecycle()
     val signatureDelimiter by viewModel.signatureDelimiter.collectAsStateWithLifecycle()
+    val replyBar by viewModel.replyBar.collectAsStateWithLifecycle()
     val options = listOf(
         SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
     )
@@ -578,6 +579,16 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                             MarkReadOn.MOVE -> viewModel.setMarkReadOnMove(on)
                         }
                     },
+                )
+                // On by default — it is what the app has always shown. The subtitle says where the
+                // two actions live without it, because that is the only question turning it off
+                // raises: Reply has its own icon in the top bar, Reply all and Forward are the
+                // first two entries of the menu beside it (#63).
+                SettingSwitch(
+                    title = stringResource(R.string.settings_reply_bar_title),
+                    subtitle = stringResource(R.string.settings_reply_bar_subtitle),
+                    checked = replyBar,
+                    onCheckedChange = viewModel::setReplyBar,
                 )
             }
             SettingsSection(stringResource(R.string.settings_swipe_actions_section)) {

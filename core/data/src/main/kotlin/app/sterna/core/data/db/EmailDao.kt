@@ -8,6 +8,7 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
 import app.sterna.core.data.getOrElseUnlessCancelled
+import app.sterna.core.data.mail.reconcileEvictions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
@@ -275,11 +276,21 @@ interface EmailDao {
     )
     suspend fun representativeCountForMailbox(accountId: String, mailboxId: String): Int
 
-    /** All cached ids in one account's mailbox (for "select all" — account-scoped like
+    /** All cached ids in one account's mailbox (for cache eviction — account-scoped like
      *  [getByMailbox], so a same-server sibling account's colliding mailbox id can't
-     *  leak its rows into a bulk selection). */
+     *  leak its rows into a bulk operation). NOT what "Select all" reads: the list on screen
+     *  is filtered, and an unfiltered read of the folder is Codeberg #126 — see [keysForSelection]. */
     @Query("SELECT id FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId")
     suspend fun idsForMailbox(accountId: String, mailboxId: String): List<String>
+
+    /**
+     * The (account, id) keys "Select all" may take, built by MailRepository.selectionIdsQuery from
+     * the SAME WHERE clause the flat list pages with — folder scope, unread filter, snooze filter.
+     * A [RawQuery] because that clause is dynamic (scope count and filters vary per view), exactly
+     * like [pagingSource]'s.
+     */
+    @RawQuery
+    suspend fun keysForSelection(query: SupportSQLiteQuery): List<EmailKeyRow>
 
     /** Cached rows by id across accounts (unified-view selections; callers disambiguate
      *  by the returned rows' accountId). */
@@ -387,6 +398,17 @@ interface EmailDao {
      * ids protected from pruning even when the fresh page omits them (recently mutated/restored,
      * see [deleteNotInSparing]) — pass the recently-mutated set so a full re-query can't clobber
      * an optimistic Undo before the server catches up.
+     *
+     * ⛔ The eviction is decided in Kotlin and applied BY ID IN BATCHES, not by handing the whole
+     * page to a `NOT IN (:keepIds)`: SQLite accepts 999 bound variables below Android 12 and a
+     * full sync window is up to 1 000 ids, so that statement threw — and it threw before the sync
+     * cursor was stored, leaving the folder re-querying whole for ever. See [reconcileEvictions]
+     * for why the set is computed against the WHOLE page before it is cut up (cutting the
+     * `NOT IN` instead would delete the folder one batch at a time).
+     *
+     * [evictFromCacheKeepingIndex], like the two statements it replaces here, deliberately leaves
+     * the search-index rows alone: these messages are still in their folder on the server, they
+     * merely fell out of the page the list caches.
      */
     @Transaction
     suspend fun replaceMailbox(
@@ -396,11 +418,11 @@ interface EmailDao {
         spareIds: List<String> = emptyList(),
     ) {
         upsertAll(emails)
-        if (spareIds.isEmpty()) {
-            deleteNotIn(accountId, mailboxId, emails.map { it.id })
-        } else {
-            deleteNotInSparing(accountId, mailboxId, emails.map { it.id }, spareIds)
-        }
+        reconcileEvictions(
+            cachedIds = idsForMailbox(accountId, mailboxId),
+            keepIds = emails.mapTo(HashSet()) { it.id },
+            spareIds = spareIds.toHashSet(),
+        ).forEach { batch -> evictFromCacheKeepingIndex(accountId, batch) }
     }
 }
 
@@ -412,6 +434,12 @@ interface EmailDao {
 data class EmailRetentionRow(
     val id: String,
     val sortKey: Long,
+)
+
+/** Projection for [EmailDao.keysForSelection]: the account-qualified key of one selectable row. */
+data class EmailKeyRow(
+    val accountId: String,
+    val id: String,
 )
 
 /** Projection for [EmailDao.countsByAccount]. */

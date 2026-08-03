@@ -7,7 +7,14 @@ import app.sterna.core.jmap.model.Quota
 import app.sterna.core.jmap.model.SearchQuery
 import app.sterna.core.jmap.model.VacationResponse
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -19,6 +26,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.Base64
+
+/** The ids one `Email/set` request body carries, in order — its `update` keys or its `destroy`. */
+/** The ids one `Email/get` request body asks for, in order. */
+private fun getIdsOf(body: String): List<String> =
+    Json.parseToJsonElement(body).jsonObject["methodCalls"]!!
+        .jsonArray[0].jsonArray[1].jsonObject["ids"]!!.jsonArray.map { it.jsonPrimitive.content }
+
+private fun setIdsOf(body: String): List<String> {
+    val args = Json.parseToJsonElement(body).jsonObject["methodCalls"]!!
+        .jsonArray[0].jsonArray[1].jsonObject
+    args["update"]?.jsonObject?.let { return it.keys.toList() }
+    args["destroy"]?.jsonArray?.let { arr -> return arr.map { it.jsonPrimitive.content } }
+    return emptyList()
+}
 
 class JmapClientTest {
     private lateinit var server: MockWebServer
@@ -552,6 +573,676 @@ class JmapClientTest {
         } catch (e: JmapException) {
             assertEquals("notFound", e.errorType)
         }
+    }
+
+    // ---- Email/get batching ----
+    //
+    // The Undo of a big bulk move re-fetches every id it moved back. maxObjectsInGet is 500 on the
+    // test server and RFC 8620 §5.1 rejects the WHOLE call past it — and the Undo swallows that
+    // failure, so the mail comes back on the server and vanishes from the list silently.
+
+    @Test fun getEmailsByIds_splitsIntoRequestsOfAtMostTheAdvertisedGetLimit() = runBlocking {
+        val dispatcher = EchoGetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val emails = client.getEmailsByIds(sessionAdvertisingGet(5), "acc1", ids, BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(5, 5, 2), dispatcher.bodies.map { getIdsOf(it).size })
+        assertEquals(ids, dispatcher.bodies.flatMap { getIdsOf(it) })
+        // Concatenated, in order, nothing lost.
+        assertEquals(ids, emails.map { it.id })
+        // Still the list (no-body) property set, in every request.
+        assertTrue(dispatcher.bodies.all { it.contains("\"preview\"") && !it.contains("\"bodyValues\"") })
+    }
+
+    @Test fun getEmailsByIds_throwsRatherThanReturningWhatItManagedToFetch() {
+        // A read has no partial credit: the Undo overwrites the cache with what comes back, so
+        // half an answer is worse than none — it would look like a successful restore of half.
+        val dispatcher = EchoGetDispatcher(failAt = 2)
+        server.dispatcher = dispatcher
+        try {
+            runBlocking {
+                client.getEmailsByIds(sessionAdvertisingGet(5), "acc1", (1..12).map { "e$it" }, BasicAuth("u", "p"))
+            }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertEquals(500, e.httpCode)
+        }
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun getEmailsWithBody_splitsIntoRequestsOfAtMostTheAdvertisedGetLimit() = runBlocking {
+        val dispatcher = EchoGetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val emails = client.getEmailsWithBody(sessionAdvertisingGet(5), "acc1", ids, BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(5, 5, 2), dispatcher.bodies.map { getIdsOf(it).size })
+        assertEquals(ids, emails.map { it.id })
+        // Every request still asks for the bodies, not just the first.
+        assertTrue(dispatcher.bodies.all { it.contains("\"fetchHTMLBodyValues\":true") })
+    }
+
+    @Test fun missingEmailIds_unionsTheNotFoundOfEveryBatch() = runBlocking {
+        val dispatcher = EchoGetDispatcher(missing = setOf("e2", "e7", "e12"))
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val missing = client.missingEmailIds(sessionAdvertisingGet(5), "acc1", ids, BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        assertEquals(setOf("e2", "e7", "e12"), missing)
+        // Still the ids-only existence check in every request, never a header re-download.
+        assertTrue(dispatcher.bodies.all { it.contains("\"properties\":[\"id\"]") })
+    }
+
+    @Test fun missingEmailIds_throwsRatherThanReturningAPartialUnion() {
+        // ⛔ THE dangerous one: the caller DELETES the rows this returns. A batch that never
+        // answered must never come back as "those messages are gone".
+        val dispatcher = EchoGetDispatcher(failAt = 2, missing = setOf("e2"))
+        server.dispatcher = dispatcher
+        try {
+            runBlocking {
+                client.missingEmailIds(sessionAdvertisingGet(5), "acc1", (1..12).map { "e$it" }, BasicAuth("u", "p"))
+            }
+            throw AssertionError("expected JmapException — a partial union prunes live mail")
+        } catch (e: JmapException) {
+            assertEquals(500, e.httpCode)
+        }
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun get_emptyListAndUnderTheLimitAreUnchanged() = runBlocking {
+        val dispatcher = EchoGetDispatcher()
+        server.dispatcher = dispatcher
+        val session = sessionAdvertisingGet(5)
+        val auth = BasicAuth("u", "p")
+
+        assertTrue(client.getEmailsByIds(session, "acc1", emptyList(), auth).isEmpty())
+        assertTrue(client.getEmailsWithBody(session, "acc1", emptyList(), auth).isEmpty())
+        assertTrue(client.missingEmailIds(session, "acc1", emptyList(), auth).isEmpty())
+        assertEquals(0, server.requestCount)
+
+        val ids = listOf("e1", "e2", "e3")
+        assertEquals(ids, client.getEmailsByIds(session, "acc1", ids, auth).map { it.id })
+        assertEquals(1, server.requestCount)
+        assertEquals(ids, getIdsOf(dispatcher.bodies.single()))
+    }
+
+    // ---- Email/set batching: no request may carry more ids than the server accepts ----
+    //
+    // A single `Email/set` carrying a whole select-all is rejected in ONE block past the server's
+    // maxObjectsInSet (Stalwart: 500), and nothing in the app used to read that number.
+
+    /**
+     * Answers every `Email/set` by echoing the ids it carried (as `updated` or `destroyed`), with
+     * a per-request `newState`, so a test can tell WHICH request confirmed WHAT. [failAt] makes
+     * the n-th request an HTTP 500 — a transport failure, not a per-id rejection.
+     */
+    private class EchoSetDispatcher(
+        private val failAt: Int? = null,
+        /** Ids the server refuses, mapped to their SetError type, whichever batch they land in. */
+        private val rejections: Map<String, String> = emptyMap(),
+    ) : Dispatcher() {
+        val bodies = mutableListOf<String>()
+
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val body = request.body.readUtf8()
+            bodies += body
+            if (failAt == bodies.size) return MockResponse().setResponseCode(500)
+            val destroying = body.contains("\"destroy\"")
+            val (refused, ids) = setIdsOf(body).partition { it in rejections }
+            val ok = if (destroying) {
+                "\"destroyed\":[${ids.joinToString(",") { "\"$it\"" }}]"
+            } else {
+                "\"updated\":{${ids.joinToString(",") { "\"$it\":null" }}}"
+            }
+            val key = if (destroying) "notDestroyed" else "notUpdated"
+            val bad = refused.joinToString(",") { "\"$it\":{\"type\":\"${rejections[it]}\"}" }
+            return MockResponse().setBody(
+                """{"methodResponses":[["Email/set",
+                   {"accountId":"acc1","newState":"s${bodies.size}",$ok,"$key":{$bad}},"s0"]]}""",
+            )
+        }
+    }
+
+    /** Answers every `Email/get` with one row per requested id, minus the [missing] ones. */
+    private class EchoGetDispatcher(
+        private val failAt: Int? = null,
+        private val missing: Set<String> = emptySet(),
+    ) : Dispatcher() {
+        val bodies = mutableListOf<String>()
+
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val body = request.body.readUtf8()
+            bodies += body
+            if (failAt == bodies.size) return MockResponse().setResponseCode(500)
+            val (gone, found) = getIdsOf(body).partition { it in missing }
+            return MockResponse().setBody(
+                """{"methodResponses":[["Email/get",{"accountId":"acc1","state":"g${bodies.size}",
+                   "list":[${found.joinToString(",") { "{\"id\":\"$it\"}" }}],
+                   "notFound":[${gone.joinToString(",") { "\"$it\"" }}]},"g0"]]}""",
+            )
+        }
+    }
+
+    private fun sessionAdvertising(maxObjectsInSet: Int?): JmapSession =
+        sessionAdvertising("maxObjectsInSet", maxObjectsInSet)
+
+    private fun sessionAdvertisingGet(maxObjectsInGet: Int?): JmapSession =
+        sessionAdvertising("maxObjectsInGet", maxObjectsInGet)
+
+    private fun sessionAdvertising(property: String, limit: Int?): JmapSession = JmapSession(
+        apiUrl = server.url("/jmap/api/").toString(),
+        capabilities = buildMap {
+            put(Jmap.MAIL_CAPABILITY, buildJsonObject { })
+            if (limit != null) put(Jmap.CORE_CAPABILITY, buildJsonObject { put(property, limit) })
+        },
+    )
+
+    @Test fun move_splitsIntoRequestsOfAtMostTheAdvertisedLimit() = runBlocking {
+        val dispatcher = EchoSetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val result = client.move(sessionAdvertising(5), "acc1", ids, "mbArchive", BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        val perRequest = dispatcher.bodies.map { setIdsOf(it) }
+        assertEquals(listOf(5, 5, 2), perRequest.map { it.size })
+        // Every id sent exactly once, in order, across the three requests.
+        assertEquals(ids, perRequest.flatten())
+        // Aggregated: the union of what the three requests confirmed, not the last one's.
+        assertEquals(ids.toSet(), result.done)
+        assertTrue(result.failed.isEmpty())
+        // The newest state we hold: the LAST batch's. An older one would merely re-read wider.
+        assertEquals("s3", result.newState)
+        // Each request is a well-formed move of its own ids.
+        assertTrue(dispatcher.bodies.all { it.contains("\"mailboxIds\":{\"mbArchive\":true}") })
+    }
+
+    @Test fun destroy_splitsIntoRequestsOfAtMostTheAdvertisedLimit() = runBlocking {
+        val dispatcher = EchoSetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val result = client.destroy(sessionAdvertising(5), "acc1", ids, BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        val perRequest = dispatcher.bodies.map { setIdsOf(it) }
+        assertEquals(listOf(5, 5, 2), perRequest.map { it.size })
+        assertEquals(ids, perRequest.flatten())
+        assertEquals(ids.toSet(), result.done)
+        assertEquals("s3", result.newState)
+        assertTrue(dispatcher.bodies.all { it.contains("\"destroy\":[") })
+    }
+
+    @Test fun setSeenAll_splitsIntoRequestsOfAtMostTheAdvertisedLimit() = runBlocking {
+        val dispatcher = EchoSetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val result = client.setSeenAll(sessionAdvertising(5), "acc1", ids, true, BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(5, 5, 2), dispatcher.bodies.map { setIdsOf(it).size })
+        assertEquals(ids.toSet(), result.done)
+    }
+
+    @Test fun move_withoutAnAdvertisedLimitFallsBackToAHundredPerRequest() = runBlocking {
+        val dispatcher = EchoSetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..250).map { "e$it" }
+
+        val result = client.move(sessionAdvertising(null), "acc1", ids, "mbArchive", BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(100, 100, 50), dispatcher.bodies.map { setIdsOf(it).size })
+        assertEquals(ids.toSet(), result.done)
+    }
+
+    @Test fun move_stopsAtTheFirstTransportFailureAndFailsEveryUntriedId() = runBlocking {
+        val dispatcher = EchoSetDispatcher(failAt = 2)
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val result = client.move(sessionAdvertising(5), "acc1", ids, "mbArchive", BasicAuth("u", "p"))
+
+        // Stopped: batch 3 was never sent. On a dead connection every further batch would only
+        // grind through postWithRetry's backoff.
+        assertEquals(2, server.requestCount)
+        assertEquals(ids.take(5).toSet(), result.done)
+        // The failing batch AND the batch never attempted — not silently dropped.
+        assertEquals(ids.drop(5).toSet(), result.failed.keys)
+        // ⛔ Never "notFound": the repository prunes the local row of a notFound id, so marking an
+        // unreachable batch that way would delete live messages from the cache.
+        assertTrue(result.failed.values.none { it == "notFound" })
+        assertEquals(setOf(Jmap.SET_ERROR_TRANSPORT), result.failed.values.toSet())
+    }
+
+    @Test fun destroy_throwsWhenABatchFailsMidway() {
+        val dispatcher = EchoSetDispatcher(failAt = 2)
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+        try {
+            runBlocking { client.destroy(sessionAdvertising(5), "acc1", ids, BasicAuth("u", "p")) }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertEquals(500, e.httpCode)
+        }
+        // The destroy worker retries a confirmed destroy; it must never read a partial result as
+        // "done". And we still stop rather than hammer the dead connection.
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun setSeenAll_throwsWhenABatchFailsMidway() {
+        // Like destroy, and for a caller-contract reason: "Mark all read" keeps the notifications
+        // it would otherwise dismiss ONLY if setReadAll threw (audit B5). Swallowing a transport
+        // failure here would dismiss the notifications of mail nothing ever marked read.
+        val dispatcher = EchoSetDispatcher(failAt = 2)
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+        try {
+            runBlocking { client.setSeenAll(sessionAdvertising(5), "acc1", ids, true, BasicAuth("u", "p")) }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertEquals(500, e.httpCode)
+        }
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun setBatched_emptyListSkipsTheNetworkEntirely() = runBlocking {
+        val session = sessionAdvertising(5)
+        val auth = BasicAuth("u", "p")
+        assertTrue(client.move(session, "acc1", emptyList(), "mb", auth).done.isEmpty())
+        assertTrue(client.destroy(session, "acc1", emptyList(), auth).done.isEmpty())
+        assertTrue(client.setSeenAll(session, "acc1", emptyList(), true, auth).done.isEmpty())
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test fun move_reportsThePerIdRejectionsOfEveryBatch() = runBlocking {
+        // The aggregation of per-id SetErrors, which nothing exercised: the repository keys the
+        // ghost prune off `notFound` and reports the rest as failures. Batch 2 of 3 rejects two of
+        // its five ids, for two DIFFERENT reasons.
+        val dispatcher = EchoSetDispatcher(rejections = mapOf("e6" to "notFound", "e8" to "forbidden"))
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val result = client.move(sessionAdvertising(5), "acc1", ids, "mbArchive", BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        // The other two batches keep their whole credit, and so do batch 2's three good ids.
+        assertEquals(ids.toSet() - setOf("e6", "e8"), result.done)
+        // ⛔ The TYPE survives aggregation: `notFound` is what makes the repository prune a ghost
+        // row, and anything else must NOT be read that way.
+        assertEquals(mapOf("e6" to "notFound", "e8" to "forbidden"), result.failed)
+    }
+
+    @Test fun destroy_reportsThePerIdRejectionsOfEveryBatch() = runBlocking {
+        val dispatcher = EchoSetDispatcher(rejections = mapOf("e7" to "notFound"))
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val result = client.destroy(sessionAdvertising(5), "acc1", ids, BasicAuth("u", "p"))
+
+        assertEquals(ids.toSet() - setOf("e7"), result.done)
+        assertEquals(mapOf("e7" to "notFound"), result.failed)
+    }
+
+    @Test fun move_underTheLimitIsStillOneRequestCarryingEveryId() = runBlocking {
+        val dispatcher = EchoSetDispatcher()
+        server.dispatcher = dispatcher
+        val ids = listOf("e1", "e2", "e3", "e4")
+
+        val result = client.move(sessionAdvertising(5), "acc1", ids, "mbArchive", BasicAuth("u", "p"))
+
+        assertEquals(1, server.requestCount)
+        assertEquals(ids, setIdsOf(dispatcher.bodies.single()))
+        assertEquals(ids.toSet(), result.done)
+        assertEquals("s1", result.newState)
+    }
+
+    // ---- A thread bigger than one server page ----
+    //
+    // Thread/get + a back-referenced Email/get in ONE request asked for every message of the
+    // thread with no bound at all. Past maxObjectsInGet the server refuses the get whole, so
+    // expanding a long conversation returned NOTHING — the only one of these three siblings that
+    // loses something the reader can see.
+
+    /**
+     * A server holding one thread of [threadSize] messages. Answers `Thread/get`, and answers
+     * `Email/get` either from an explicit id list or from a `#ids` back-reference — refusing,
+     * in both cases, any get that would carry more than [maxObjectsInGet] ids.
+     */
+    private class ThreadDispatcher(
+        private val threadSize: Int,
+        private val maxObjectsInGet: Int,
+    ) : Dispatcher() {
+        /** The method name of each request's FIRST call, in order. */
+        val calls = mutableListOf<String>()
+
+        /** The ids each explicit `Email/get` asked for, in order. */
+        val getBatches = mutableListOf<List<String>>()
+
+        private val all = (1..threadSize).map { "e$it" }
+
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val body = request.body.readUtf8()
+            val methodCalls = Json.parseToJsonElement(body).jsonObject["methodCalls"]!!.jsonArray
+            val first = methodCalls[0].jsonArray
+            calls += first[0].jsonPrimitive.content
+            val responses = mutableListOf<String>()
+            if (first[0].jsonPrimitive.content == "Thread/get") {
+                responses += """["Thread/get",{"accountId":"acc1","state":"t1",
+                    "list":[{"id":"th1","emailIds":[${all.joinToString(",") { "\"$it\"" }}]}],
+                    "notFound":[]},"t0"]"""
+                // The old shape: a second call whose ids the SERVER resolves from the first.
+                val chained = methodCalls.getOrNull(1)?.jsonArray
+                if (chained != null) {
+                    responses += emailGet(all, "g0")
+                }
+            } else {
+                val ids = getIdsOf(body)
+                getBatches += ids
+                responses += emailGet(ids, "g0", withMailboxIds = "\"mailboxIds\"" in body)
+            }
+            return MockResponse().setBody("""{"methodResponses":[${responses.joinToString(",")}]}""")
+        }
+
+        /**
+         * One row per id. A real server returns ONLY the properties the request asked for, and
+         * this one does too for `mailboxIds` — otherwise a test could not tell a request that
+         * asks for it from one that does not, and the property could be dropped unnoticed.
+         */
+        private fun emailGet(ids: List<String>, callId: String, withMailboxIds: Boolean = true): String =
+            if (ids.size > maxObjectsInGet) {
+                """["error",{"type":"requestTooLarge"},"$callId"]"""
+            } else {
+                val mailboxes = if (withMailboxIds) ",\"mailboxIds\":{\"mbA\":true}" else ""
+                """["Email/get",{"accountId":"acc1","state":"g1","list":[${
+                    ids.joinToString(",") { "{\"id\":\"$it\"$mailboxes}" }
+                }],"notFound":[]},"$callId"]"""
+            }
+    }
+
+    @Test fun getThreadEmails_splitsTheGetInsteadOfLettingTheServerRefuseTheWholeThread() = runBlocking {
+        // 700 messages in one thread, a server admitting 500 per get. Asking for all 700 in a
+        // back-reference gets the whole get refused and the expansion shows nothing.
+        val dispatcher = ThreadDispatcher(threadSize = 700, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val emails = client.getThreadEmails(sessionAdvertisingGet(500), "acc1", "th1", BasicAuth("u", "p"))
+
+        // One Thread/get, then the get split across the advertised limit — never one request.
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf("Thread/get", "Email/get", "Email/get"), dispatcher.calls)
+        assertEquals(listOf(500, 200), dispatcher.getBatches.map { it.size })
+        assertEquals((1..700).map { "e$it" }, emails.map { it.id })
+    }
+
+    @Test fun getThreadEmails_stillAsksForWhatPlacesAMemberInAFolder() = runBlocking {
+        // A thread that fits is still two requests, and still reads mailboxIds: the caller
+        // persists each member under its real folder and SKIPS any member without one, so
+        // dropping that property would make an expansion fetch everything and keep nothing.
+        val dispatcher = ThreadDispatcher(threadSize = 3, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val emails = client.getThreadEmails(sessionAdvertisingGet(500), "acc1", "th1", BasicAuth("u", "p"))
+
+        assertEquals(2, server.requestCount)
+        assertEquals(listOf("e1", "e2", "e3"), dispatcher.getBatches.single())
+        assertEquals(listOf("e1", "e2", "e3"), emails.map { it.id })
+        assertEquals(mapOf("mbA" to true), emails.first().mailboxIds)
+    }
+
+    @Test fun getThreadEmails_asksNothingMoreWhenTheThreadIsEmpty() = runBlocking {
+        val dispatcher = ThreadDispatcher(threadSize = 0, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val emails = client.getThreadEmails(sessionAdvertisingGet(500), "acc1", "th1", BasicAuth("u", "p"))
+
+        assertEquals(1, server.requestCount)
+        assertTrue(emails.isEmpty())
+    }
+
+    // ---- The windowed folder query: a window bigger than one server page ----
+    //
+    // "Messages to sync = All" is 1000 messages; Stalwart advertises maxObjectsInGet = 500. The
+    // folder query sends Email/query + a BACK-REFERENCED Email/get in one request, so the get's
+    // id list is whatever the query matched: over the limit the server rejects the whole get
+    // (RFC 8620 §5.1), the call throws, no sync cursor is stored, and the next refresh takes the
+    // same failing path. The folder never syncs again.
+
+    /**
+     * A mailbox of [folderSize] messages (`e1` newest … `eN` oldest) answering `Email/query` +
+     * back-referenced `Email/get`, and — this is the point — REFUSING the get with
+     * `requestTooLarge` when the query matched more than [maxObjectsInGet] ids, exactly as the
+     * bench probe recorded on Stalwart.
+     *
+     * [failAt] turns the n-th request into an HTTP 500 (a transport failure mid-walk);
+     * [anchorNotFoundAt] makes the n-th request's anchor unknown to the server.
+     */
+    private class FolderDispatcher(
+        private val folderSize: Int,
+        private val maxObjectsInGet: Int,
+        private val failAt: Int? = null,
+        private val anchorNotFoundAt: Int? = null,
+        /** Ids the query lists but the get does NOT return (destroyed between the two calls). */
+        private val omittedByGet: Set<String> = emptySet(),
+    ) : Dispatcher() {
+        /** The `Email/query` arguments of every request, in order. */
+        val queries = mutableListOf<JsonObject>()
+
+        /**
+         * The folder as the SERVER holds it, and it changes under the walk: an `anchorNotFound`
+         * means the anchor has LEFT this list, so [anchorNotFoundAt] really removes it. Without
+         * that, every later position still lines up with the original list and a test cannot tell
+         * a correct recovery from one that skips the message the anchor was in front of.
+         */
+        private val all = (1..folderSize).mapTo(mutableListOf()) { "e$it" }
+
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val body = request.body.readUtf8()
+            val args = Json.parseToJsonElement(body).jsonObject["methodCalls"]!!
+                .jsonArray[0].jsonArray[1].jsonObject
+            queries += args
+            val n = queries.size
+            if (failAt == n) return MockResponse().setResponseCode(500)
+            val anchor = args["anchor"]?.jsonPrimitive?.content
+            val start = if (anchor != null) {
+                if (anchorNotFoundAt == n) {
+                    all.remove(anchor)
+                    return methodError("anchorNotFound")
+                }
+                val at = all.indexOf(anchor)
+                if (at < 0) return methodError("anchorNotFound")
+                at + (args["anchorOffset"]?.jsonPrimitive?.int ?: 0)
+            } else {
+                args["position"]?.jsonPrimitive?.int ?: 0
+            }
+            val matched = all.drop(start).take(args["limit"]!!.jsonPrimitive.int)
+            val ids = matched.joinToString(",") { "\"$it\"" }
+            val (gone, returned) = matched.partition { it in omittedByGet }
+            // The query always answers; only the get is refused. That asymmetry is the defect.
+            val get = if (matched.size > maxObjectsInGet) {
+                """["error",{"type":"requestTooLarge"},"g0"]"""
+            } else {
+                """["Email/get",{"accountId":"acc1","state":"e$n",
+                   "list":[${returned.joinToString(",") { "{\"id\":\"$it\"}" }}],
+                   "notFound":[${gone.joinToString(",") { "\"$it\"" }}]},"g0"]"""
+            }
+            return MockResponse().setBody(
+                """{"methodResponses":[
+                     ["Email/query",{"accountId":"acc1","queryState":"q$n","position":$start,
+                      "ids":[$ids]},"q0"],
+                     $get]}""",
+            )
+        }
+
+        private fun methodError(type: String) =
+            MockResponse().setBody("""{"methodResponses":[["error",{"type":"$type"},"q0"]]}""")
+    }
+
+    /** The `limit` each request's `Email/query` carried, in order. */
+    private fun FolderDispatcher.limits(): List<Int> = queries.map { it["limit"]!!.jsonPrimitive.int }
+
+    /** The `anchor` each request's `Email/query` carried (null = an absolute position). */
+    private fun FolderDispatcher.anchors(): List<String?> =
+        queries.map { it["anchor"]?.jsonPrimitive?.content }
+
+    @Test fun queryEmailsWindow_splitsAWindowBiggerThanTheServerPageIntoTwoRequests() = runBlocking {
+        // ⭐ The lot's central case: 700 messages, a server admitting 500 per get, the "All"
+        // window (1000). Two requests, and ONE page handed back — the caller reconciles the
+        // mailbox with what it returns, so a page per request would delete the folder down to
+        // the last one.
+        val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(2, server.requestCount)
+        assertEquals(listOf(500, 500), dispatcher.limits())
+        // Anchored on the previous page's last id, never on an absolute position: mail landing
+        // at the top between the two requests would otherwise skip or duplicate a page.
+        assertEquals(listOf(null, "e500"), dispatcher.anchors())
+        assertEquals(700, page.emails.size)
+        assertEquals((1..700).map { "e$it" }, page.emails.map { it.id })
+        // The FIRST response's cursors: a queryState only describes the query it came from.
+        assertEquals("q1", page.queryState)
+        assertEquals("e1", page.emailState)
+    }
+
+    @Test fun queryEmailsWindow_asksTheSecondRequestOnlyForWhatTheWindowStillWants() = runBlocking {
+        // The window (700) is not a multiple of the page (500): the second request asks for 200,
+        // not another 500 — the window is a promise about how much to keep, not a floor.
+        val dispatcher = FolderDispatcher(folderSize = 5000, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 700, pageSize = 500, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(listOf(500, 200), dispatcher.limits())
+        assertEquals(700, page.emails.size)
+    }
+
+    @Test fun queryEmailsWindow_isASingleRequestWhenTheWindowFitsInOnePage() = runBlocking {
+        val dispatcher = FolderDispatcher(folderSize = 5000, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 50, pageSize = 50, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(1, server.requestCount)
+        assertEquals(listOf(50), dispatcher.limits())
+        assertEquals(50, page.emails.size)
+    }
+
+    @Test fun queryEmailsWindow_stopsWhenTheFolderIsSmallerThanTheWindow() = runBlocking {
+        // 300 messages under a 1000 window: one request, and no second round trip per refresh
+        // for ever after.
+        val dispatcher = FolderDispatcher(folderSize = 300, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(1, server.requestCount)
+        assertEquals(300, page.emails.size)
+    }
+
+    @Test fun queryEmailsWindow_paginatesEvenWhenTheServerAdvertisesNothing() = runBlocking {
+        // A silent server falls back to 100 ids per request. Capping WITHOUT paginating would
+        // quietly shrink every window on such a server to 100 messages.
+        val dispatcher = FolderDispatcher(folderSize = 5000, maxObjectsInGet = 100)
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(null), "acc1", "mbInbox",
+            target = 500, pageSize = 100, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(5, server.requestCount)
+        assertEquals(500, page.emails.size)
+    }
+
+    @Test fun queryEmailsWindow_keepsWalkingWhenTheGetReturnedFewerObjectsThanTheQueryListed() = runBlocking {
+        // A message destroyed between the query and the back-referenced get: 500 ids listed, 499
+        // objects returned. Paging on what came BACK would read that as an exhausted folder and
+        // abandon the remaining 200 messages of the window, on every refresh.
+        val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500, omittedByGet = setOf("e250"))
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(2, server.requestCount)
+        assertEquals(699, page.emails.size)
+        assertEquals("e700", page.emails.last().id)
+    }
+
+    @Test fun queryEmailsWindow_throwsRatherThanHandingBackTheHalfItFetched() {
+        // ⛔ THE dangerous one: the caller reconciles the mailbox with what comes back, deleting
+        // whatever is missing from it. Half a window would be read as "the folder holds these
+        // 500" and delete the other 200; an empty one would erase the folder outright.
+        val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500, failAt = 2)
+        server.dispatcher = dispatcher
+        try {
+            runBlocking {
+                client.queryEmailsWindow(
+                    sessionAdvertisingGet(500), "acc1", "mbInbox",
+                    target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+                )
+            }
+            throw AssertionError("expected JmapException — a partial window deletes mail")
+        } catch (e: JmapException) {
+            // queryEmailsPage reports the status in the message, not in httpCode (only postJmap
+            // fills that in); what matters here is that the failure came out at all.
+            assertTrue(e.message.orEmpty().contains("HTTP 500"))
+        }
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun queryEmailsWindow_fallsBackToAPositionWhenTheAnchorHasGone() = runBlocking {
+        // The anchor can leave the folder between two requests (deleted, moved). Recover once on
+        // an absolute position rather than failing the whole refresh — the same recovery the
+        // scroll mediator makes.
+        //
+        // ⛔ And recover BEHIND where the anchor was, not at it. `anchorNotFound` means the list
+        // has lost a row, so every index past the anchor has shifted DOWN by one: asking at the
+        // count we had accumulated lands on the message AFTER the one that followed the anchor,
+        // and that skipped message is not just missed — the caller reconciles the mailbox with
+        // what comes back, so it is DELETED from the cache while the server still has it, and no
+        // later delta brings it back. Overlapping instead is free: the accumulation de-duplicates.
+        val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500, anchorNotFoundAt = 2)
+        server.dispatcher = dispatcher
+
+        val page = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+        )
+
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(null, "e500", null), dispatcher.anchors())
+        // 499, not 500: e500 (the anchor) is gone from the server's list, so e501 now sits at 499.
+        assertEquals(499, dispatcher.queries[2]["position"]!!.jsonPrimitive.int)
+        // The message that followed the vanished anchor is IN the page, not deleted from the cache.
+        assertTrue("e501 was skipped by the recovery", page.emails.any { it.id == "e501" })
+        assertEquals(700, page.emails.size)
     }
 
     private companion object {
