@@ -57,7 +57,7 @@ class ComposeDeleteWiringTest {
         )
     }
 
-    @Test fun `the button is offered by the shared decision, and asks the ViewModel for the message`() {
+    @Test fun `the button is offered by the shared decision, and asks before deleting`() {
         val screen = code(COMPOSE_SCREEN)
         val at = screen.indexOf(OFFERED)
         assertTrue(
@@ -75,16 +75,62 @@ class ComposeDeleteWiringTest {
         )
         val block = balanced(screen, screen.indexOf('{', at), '{', '}')
         assertTrue(
-            "the button must take its message from viewModel.takeEditingDraft(), which refuses " +
-                "while a send is in flight (INV-6): a delete racing a send whose draftEmailId is " +
-                "this same draft destroys it twice. Reading a flow's value directly here skips " +
-                "that. Block was:\n$block",
-            "viewModel.takeEditingDraft()" in block,
+            "the trash icon must only RAISE the confirmation (pendingDraftDelete = true): what was " +
+                "typed since the composer opened is unsaved, the delete takes the server copy, and " +
+                "the Undo behind it restores that copy — not the screen. Deleting straight from " +
+                "the icon drops the editing with no question and no way back, while the same " +
+                "screen asks before dropping it when the X is tapped (#127). Block was:\n$block",
+            Regex("""onClick = \{ pendingDraftDelete = true }""")
+                .containsMatchIn(block.replace(Regex("""\s+"""), " ")),
         )
         assertTrue(
-            "the button must hand that message to onDeleteDraft and do nothing else with it. " +
-                "Block was:\n$block",
-            "onDeleteDraft" in block,
+            "the icon must not delete on its own: neither the taker nor the handler belongs here " +
+                "any more. Block was:\n$block",
+            "takeEditingDraft" !in block && "onDeleteDraft" !in block,
+        )
+    }
+
+    @Test fun `the confirmation says what this delete really does, and offers a way out`() {
+        val dialog = confirmationBlock()
+        val flat = dialog.replace(Regex("""\s+"""), " ")
+        assertTrue(
+            "the confirmation must use its OWN words (compose_delete_draft_title / _body). The " +
+                "outbox's delete strings say the message 'isn't saved anywhere else' and will be " +
+                "'lost', which is false here: this draft goes to the Trash, exactly as it would " +
+                "from the list. Dialog was:\n$dialog",
+            "R.string.compose_delete_draft_title" in flat && "R.string.compose_delete_draft_body" in flat,
+        )
+        assertTrue(
+            "no outbox wording may be reused here. Dialog was:\n$dialog",
+            "outbox_delete" !in flat,
+        )
+        assertTrue(
+            "the confirming button must take the draft through the taker and hand it to " +
+                "onDeleteDraft — one shot, refused while a send is in flight (INV-6). " +
+                "Dialog was:\n$dialog",
+            "onDeleteDraft { viewModel.takeEditingDraft() }" in flat,
+        )
+        assertTrue(
+            "there must be a Cancel that only closes the dialog: the way back to the draft. " +
+                "Dialog was:\n$dialog",
+            Regex("""dismissButton = \{ TextButton\(onClick = \{ pendingDraftDelete = false }\)""")
+                .containsMatchIn(flat),
+        )
+    }
+
+    @Test fun `the draft is taken inside the navigation guard, not before it`() {
+        // Ordering, and it is the reader's precedent: the mutating step belongs INSIDE
+        // navigateOnce. takeEditingDraft() hands the row over exactly once, so consuming it
+        // outside meant a tap the guard drops — two fingers, the X and the trash in one frame —
+        // had thrown the draft away while deleting nothing.
+        val handler = argument(composeRoute(), HANDLER).replace(Regex("""\s+"""), " ")
+        val guard = handler.indexOf("entry.navigateOnce {")
+        val take = handler.indexOf("take()")
+        assertTrue("onDeleteDraft must still go through entry.navigateOnce. Handler was:\n$handler", guard >= 0)
+        assertTrue("onDeleteDraft must call the taker it is handed. Handler was:\n$handler", take >= 0)
+        assertTrue(
+            "the taker must be called INSIDE entry.navigateOnce { … }. Handler was:\n$handler",
+            guard < take,
         )
     }
 
@@ -114,6 +160,17 @@ class ComposeDeleteWiringTest {
         val brace = code.indexOf("{ entry ->", at)
         check(brace >= 0) { "the compose destination no longer opens with '{ entry ->'" }
         return balanced(code, brace, '{', '}')
+    }
+
+    /** The `if (pendingDraftDelete) { … }` block of `ComposeScreen.kt`, braces balanced. */
+    private fun confirmationBlock(): String {
+        val code = code(COMPOSE_SCREEN)
+        val at = code.indexOf(CONFIRMATION)
+        check(at >= 0) {
+            "ComposeScreen.kt no longer contains '$CONFIRMATION' — the trash icon must ask before " +
+                "it deletes (#127)"
+        }
+        return balanced(code, code.indexOf('{', at), '{', '}')
     }
 
     /** The `name = …` argument of [text], up to the comma that closes it (brackets balanced). */
@@ -176,6 +233,7 @@ class ComposeDeleteWiringTest {
         private const val COMPOSE_ROUTE = "route = \"compose?"
         private const val HANDLER = "onDeleteDraft ="
         private const val OFFERED = "draftDeleteOffered("
+        private const val CONFIRMATION = "if (pendingDraftDelete) {"
         private const val SAVE_GUARD = "if (draftSaveAllowed(pgpMode))"
 
         private const val APP_SOURCES = "app/src/main/kotlin"

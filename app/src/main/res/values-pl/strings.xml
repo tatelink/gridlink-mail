@@ -34,6 +34,8 @@
     <string name="compose_discard_message">Nie zapisano wprowadzonych zmian.</string>
     <string name="compose_discard_message_encrypted">Ta wiadomość jest zaszyfrowana, więc nie można zachować jej jako wersji roboczej: wersja robocza jest przechowywana na serwerze pocztowym dokładnie w takiej postaci, w jakiej ją napisano, czytelna dla każdego, kto ma do niej dostęp. Wyjście teraz odrzuca wiadomość.</string>
     <string name="compose_discard_message_encrypted_draft">Ta wiadomość jest zaszyfrowana, więc twoich zmian nie można zachować jako wersji roboczej: wersja robocza jest przechowywana na serwerze pocztowym dokładnie w takiej postaci, w jakiej ją napisano, czytelna dla każdego, kto ma do niej dostęp. Wyjście teraz odrzuca tylko zmiany; zapisana wcześniej wersja robocza pozostaje w Wersjach roboczych.</string>
+    <string name="compose_delete_draft_title">Usunąć tę wersję roboczą?</string>
+    <string name="compose_delete_draft_body">To samo usunięcie co na liście: wersja robocza trafia do Kosza albo znika na dobre, jeśli to konto nie ma folderu Kosz. To, co napisano od jej otwarcia, nie zostanie zapisane.</string>
     <string name="compose_discard_title_outbox">Odrzucić zmiany?</string>
     <string name="compose_discard_title_changes">Odrzucić zmiany?</string>
     <string name="compose_discard_message_outbox">Zmiany zostaną odrzucone, ale wiadomość nie: pozostanie w skrzynce nadawczej albo trafi do Wersji roboczych, jeśli ją zapiszesz.</string>

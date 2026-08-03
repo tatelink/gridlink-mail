@@ -34,6 +34,8 @@
     <string name="compose_discard_message">No has guardado los cambios.</string>
     <string name="compose_discard_message_encrypted">Este mensaje está cifrado, así que no puede guardarse como borrador: un borrador se almacena en el servidor de correo tal como lo escribiste, legible por cualquiera que tenga acceso. Si sales ahora, el mensaje se descarta.</string>
     <string name="compose_discard_message_encrypted_draft">Este mensaje está cifrado, así que tus cambios no pueden guardarse como borrador: un borrador se almacena en el servidor de correo tal como lo escribiste, legible por cualquiera que tenga acceso. Si sales ahora, solo se descartan los cambios; el borrador ya guardado sigue en Borradores.</string>
+    <string name="compose_delete_draft_title">¿Eliminar este borrador?</string>
+    <string name="compose_delete_draft_body">El mismo borrado que en la lista: el borrador va a la Papelera, o se elimina definitivamente si esta cuenta no tiene carpeta Papelera. Lo escrito desde que lo abriste no se guarda.</string>
     <string name="compose_discard_title_outbox">¿Descartar los cambios?</string>
     <string name="compose_discard_title_changes">¿Descartar los cambios?</string>
     <string name="compose_discard_message_outbox">Se descartan tus cambios, pero el mensaje no: sigue en la bandeja de salida, o pasa a Borradores si lo guardas.</string>

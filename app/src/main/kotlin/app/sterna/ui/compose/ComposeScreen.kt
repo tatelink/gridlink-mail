@@ -135,9 +135,17 @@ import app.sterna.contacts.ContactSuggestion
 fun ComposeScreen(
     onDone: () -> Unit,
     onCancel: () -> Unit,
-    /** Send the draft this composer is editing to the Trash, the way the list does it (#127) —
-     *  through the inbox's own ViewModel, so it is the same move and the same Undo. */
-    onDeleteDraft: (Email) -> Unit,
+    /**
+     * Send the draft this composer is editing to the Trash, the way the list does it (#127) —
+     * through the inbox's own ViewModel, so it is the same move and the same Undo.
+     *
+     * It receives a TAKER rather than the message: the draft is a one-shot state
+     * ([ComposeViewModel.takeEditingDraft], which also refuses while a send is in flight), and
+     * consuming it before the navigation guard has agreed to run means a tap the guard drops has
+     * thrown the state away for nothing. The reader's delete puts its mutation inside the guard;
+     * this is the same shape, for a value that has to be fetched rather than passed.
+     */
+    onDeleteDraft: (take: () -> Email?) -> Unit,
     replyTo: String? = null,
     mode: String? = null,
     accountId: String? = null,
@@ -441,6 +449,10 @@ fun ComposeScreen(
     )
     var showDiscard by remember { mutableStateOf(false) }
     val attemptClose = { if (dirty && !sending) showDiscard = true else cancel() }
+    // The trash icon's confirmation (#127). Unconditional, unlike the leave dialog above: this one
+    // is not about unsaved changes, it is about removing the draft itself — the message the user
+    // came here to edit — and the Undo it leaves behind restores the SERVER copy, not the screen.
+    var pendingDraftDelete by remember { mutableStateOf(false) }
 
     // Pre-send guards, chained: "forgot attachment?" then "many recipients?".
     var showForgotAttachment by remember { mutableStateOf(false) }
@@ -503,6 +515,32 @@ fun ComposeScreen(
     }
 
     BackHandler(enabled = !showDiscard) { attemptClose() }
+
+    if (pendingDraftDelete) {
+        // Same shape as the Outbox's own delete confirmation (title, body, error-coloured action,
+        // Cancel) — but NOT its words: that message has never been sent and exists nowhere else,
+        // while this draft goes to the Trash exactly as it would from the list.
+        AlertDialog(
+            onDismissRequest = { pendingDraftDelete = false },
+            title = { Text(stringResource(R.string.compose_delete_draft_title)) },
+            text = { Text(stringResource(R.string.compose_delete_draft_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDraftDelete = false
+                    // The message is taken INSIDE the navigation guard (see SternaApp): a tap the
+                    // guard refuses must not have consumed the draft on its way to being ignored.
+                    onDeleteDraft { viewModel.takeEditingDraft() }
+                }) {
+                    Text(stringResource(R.string.inbox_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDraftDelete = false }) {
+                    Text(stringResource(R.string.inbox_cancel))
+                }
+            },
+        )
+    }
 
     if (showDiscard) {
         // The leave dialog obeys the same rule as the toolbar's Save action (#35): an encrypted
@@ -687,7 +725,12 @@ fun ComposeScreen(
                     // the ViewModel, which refuses while a send is in flight (INV-6).
                     if (draftDeleteOffered(restore, draftId, editingDraft != null)) {
                         IconButton(
-                            onClick = { viewModel.takeEditingDraft()?.let(onDeleteDraft) },
+                            // Asks first (#127): everything typed since this composer opened is
+                            // unsaved, and the delete takes the SERVER copy — so the Undo restores
+                            // the draft as it was on the server, never the text on screen. The
+                            // composer already asks before dropping those edits when the X is
+                            // tapped; this button dropped them with no question at all.
+                            onClick = { pendingDraftDelete = true },
                             enabled = !sending,
                         ) {
                             Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.message_delete))

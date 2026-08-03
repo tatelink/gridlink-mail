@@ -500,8 +500,14 @@ private fun MainNavHost(
                 // Drafts list, and that list is where the "Message deleted / Undo" snackbar has to
                 // appear. Deliberately NOT through ComposeState.Done, which flies the tern away —
                 // that animation belongs to a message that went out.
-                onDeleteDraft = { email ->
+                // The draft is TAKEN inside the guard, not before it (#127): takeEditingDraft()
+                // hands the row over exactly once, so consuming it outside meant a tap the guard
+                // drops — two fingers, the X and the trash in one frame — had thrown the draft
+                // away without deleting anything. Same shape as onDelete above: the mutation and
+                // the pop live inside navigateOnce together.
+                onDeleteDraft = { take ->
                     entry.navigateOnce {
+                        val email = take() ?: return@navigateOnce
                         inboxViewModel.delete(email)
                         nav.popBackStack()
                     }
