@@ -296,13 +296,25 @@ class JmapClient internal constructor(
                 )
             } catch (e: JmapException) {
                 // The anchor left the folder mid-walk (deleted, moved elsewhere). Recover ONCE on
-                // an absolute position — the count already accumulated, which is where this walk
-                // stopped in a newest-first list. Any other failure propagates: see above, a
-                // partial window deletes mail.
+                // an absolute position. Any other failure propagates: see above, a partial window
+                // deletes mail.
+                //
+                // ⛔ ONE BEHIND the count accumulated, not at it. `anchorNotFound` says the list
+                // has lost a row, so everything past the anchor has shifted down by one: asking
+                // at `accumulated.size` lands one message too far and skips the one that followed
+                // the anchor. That message would not merely be missed — the caller reconciles the
+                // mailbox with what this returns, so it would be DELETED from the cache while the
+                // server still holds it, and no later delta would bring it back.
+                //
+                // Under-shooting is free and over-shooting loses mail, so under-shoot: a repeated
+                // message is dropped by the accumulation's putIfAbsent. It corrects for the
+                // anchor's own removal, which is what the error reports; a burst of removals in
+                // the same instant can still shift further, and that is left to the ghost sweep
+                // and the next full query rather than guessed at here.
                 if (anchor == null || e.errorType != "anchorNotFound") throw e
                 queryEmailsPage(
                     session, accountId, mailboxId, limit, auth,
-                    position = accumulated.size,
+                    position = (accumulated.size - 1).coerceAtLeast(0),
                 )
             }
             if (first == null) first = page
