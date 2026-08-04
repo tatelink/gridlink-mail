@@ -83,8 +83,14 @@ REDIRECTS = {
 }
 
 # Names used in the template as {{u.<name>}}.
+#
+# `mastodon` is the one link that does NOT go through the domain, and it must
+# stay that way: Mastodon proves ownership of a site by comparing the address
+# written in the page with the profile's own address. A redirect through
+# /mastodon would never match, and the verified tick would never appear.
 URLS = {
     "home": "/",
+    "mastodon": "https://masto.top/@emon",
     "download": "/download",
     "source": "/source",
     "issues": "/issues",
