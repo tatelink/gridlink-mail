@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
@@ -266,17 +268,30 @@ fun MailBySenderScreen(
             onDismissRequest = { confirmRule = null },
             title = { Text(stringResource(R.string.sender_volume_block_title, ruleFor.email)) },
             text = {
+                // The body SCROLLS, as the reader's copy of this dialog does. Material's text
+                // slot is a height-bounded box with no scrolling of its own, and a bare Text in
+                // it is CLIPPED — not ellipsised, just cut, with nothing saying more exists. At
+                // the largest font scale this sentence was measured cut mid-word, losing exactly
+                // the half that says nothing already received moves and where the rule can be
+                // removed again.
                 Text(
                     stringResource(
                         R.string.sender_volume_block_body,
                         stringResource(R.string.inbox_settings),
                         stringResource(R.string.settings_filters_title),
                     ),
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
                 )
             },
             confirmButton = {
+                // A verb, not the menu entry's sentence, and for the reason measured on the
+                // reader's copy of this dialog: with the sentence here the label wrapped and
+                // Cancel was drawn INSIDE this button, one tap landing on both, on a permanent
+                // server-side write. The mechanism behind that is a hypothesis about Material's
+                // action row (its sources are not available here); the measurement is not. The
+                // menu entry keeps sender_volume_block, where the whole sentence fits and belongs.
                 TextButton(onClick = { confirmRule = null; viewModel.blockSender(ruleFor) }) {
-                    Text(stringResource(R.string.sender_volume_block))
+                    Text(stringResource(R.string.sender_volume_block_confirm))
                 }
             },
             dismissButton = {

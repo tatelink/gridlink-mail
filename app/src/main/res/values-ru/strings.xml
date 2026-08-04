@@ -731,6 +731,7 @@
     <string name="sender_volume_block_foreign">Активен другой скрипт фильтрации</string>
     <string name="sender_volume_block_title">Отправлять будущие письма от %1$s в корзину?</string>
     <string name="sender_volume_block_body">Правило на сервере будет отправлять будущие письма с этого адреса в корзину, помечая их прочитанными. Уже полученные письма останутся на месте. Правило можно изменить или удалить в %1$s → %2$s.</string>
+    <string name="sender_volume_block_confirm">Создать</string>
     <string name="offline_banner">Вы не в сети</string>
     <string name="sync_error_banner">Не удалось синхронизировать: %1$s</string>
     <string name="settings_conversation_section">Беседы</string>

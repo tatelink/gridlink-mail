@@ -729,6 +729,7 @@
     <string name="sender_volume_block_foreign">Działa inny skrypt filtrujący</string>
     <string name="sender_volume_block_title">Wysyłać przyszłe wiadomości od %1$s do kosza?</string>
     <string name="sender_volume_block_body">Reguła na serwerze będzie wysyłać przyszłe wiadomości z tego adresu do kosza, oznaczone jako przeczytane. Nic z tego, co już odebrano, nie zostanie przeniesione. Regułę można zmienić lub usunąć w %1$s → %2$s.</string>
+    <string name="sender_volume_block_confirm">Utwórz</string>
     <string name="offline_banner">Jesteś offline</string>
     <string name="sync_error_banner">Synchronizacja nie powiodła się: %1$s</string>
     <string name="settings_conversation_section">Konwersacje</string>

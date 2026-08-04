@@ -723,6 +723,7 @@
     <string name="sender_volume_block_foreign">È attivo un altro script di filtro</string>
     <string name="sender_volume_block_title">Inviare nel cestino la posta futura da %1$s?</string>
     <string name="sender_volume_block_body">Una regola sul server invierà nel cestino la posta futura da questo indirizzo, contrassegnata come letta. Nulla di già ricevuto viene spostato. La regola si può modificare o rimuovere in %1$s → %2$s.</string>
+    <string name="sender_volume_block_confirm">Crea regola</string>
     <string name="offline_banner">Sei offline</string>
     <string name="sync_error_banner">Sincronizzazione non riuscita: %1$s</string>
     <string name="settings_conversation_section">Conversazioni</string>

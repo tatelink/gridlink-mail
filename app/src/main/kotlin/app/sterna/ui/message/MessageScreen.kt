@@ -1901,17 +1901,38 @@ private fun ParticipantRow(
             onDismissRequest = { confirmRule = false },
             title = { Text(stringResource(R.string.sender_volume_block_title, addr.email)) },
             text = {
+                // The body SCROLLS. Material's text slot is a height-bounded box with no
+                // scrolling of its own (the same finding as the open-link dialog further down
+                // this file), and a bare Text in it is CLIPPED — not ellipsised, not scrollable,
+                // just cut, with nothing on screen saying more text exists. At the largest font
+                // scale this sentence runs to seventeen lines in German and was measured cut
+                // mid-word; what it loses is "nothing already received moves" and where the rule
+                // can be removed, which is the only reason the dialog is shown before the write.
                 Text(
                     stringResource(
                         R.string.sender_volume_block_body,
                         stringResource(R.string.inbox_settings),
                         stringResource(R.string.settings_filters_title),
                     ),
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
                 )
             },
             confirmButton = {
+                // A verb, not the menu entry's sentence. MEASURED, at font_scale 2.0: with the
+                // sentence here, this label wrapped to four lines and "Cancel" was drawn INSIDE
+                // this button — one tap landing on both, on a write that is permanent and has no
+                // Undo. WHY Material does that is a hypothesis, not a reading (its sources are not
+                // available here): the action rows look to be stacked in reverse order and placed
+                // at un-reversed positions, which predicts the overlap to appear as soon as one
+                // row is taller than the other, and an offset of the same order as the 172 px
+                // measured — "same order" and not "to the pixel", because the predicted figure is
+                // itself built on three constants nobody can read here (a TextButton's 8 dp
+                // vertical padding, 12 dp between rows, density 2.625). What is certain either
+                // way is that the label must not wrap.
+                // The menu entry keeps sender_volume_block, where a full line has room to say what
+                // the gesture does.
                 TextButton(onClick = { confirmRule = false; senderRule.onBlock(addr.email) }) {
-                    Text(stringResource(R.string.sender_volume_block))
+                    Text(stringResource(R.string.sender_volume_block_confirm))
                 }
             },
             dismissButton = {

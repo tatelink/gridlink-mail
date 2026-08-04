@@ -717,6 +717,7 @@
     <string name="sender_volume_block_foreign">Er is een ander filterscript actief</string>
     <string name="sender_volume_block_title">Toekomstige post van %1$s naar de prullenbak?</string>
     <string name="sender_volume_block_body">Een regel op de server stuurt toekomstige post van dit adres naar de prullenbak, gemarkeerd als gelezen. Al ontvangen berichten blijven staan. De regel kun je wijzigen of verwijderen in %1$s → %2$s.</string>
+    <string name="sender_volume_block_confirm">Regel maken</string>
     <string name="offline_banner">Je bent offline</string>
     <string name="sync_error_banner">Synchroniseren mislukt: %1$s</string>
 

@@ -180,6 +180,12 @@
     <string name="sender_volume_block_foreign">Another filter script is active</string>
     <string name="sender_volume_block_title">Send future mail from %1$s to Trash?</string>
     <string name="sender_volume_block_body">A rule on the server will send future mail from this address to Trash, marked read. Nothing already received moves. The rule can be changed or removed in %1$s → %2$s.</string>
+    <!-- The confirm button of that dialog. A VERB, and short: MAXIMUM 14 CHARACTERS in every
+         language, which is one line of a dialog action at the largest font scale. A label longer
+         than that wraps, its row becomes taller than "Cancel"'s, and the two buttons were then
+         measured drawn on top of each other. Where the object does not fit, translate the verb
+         alone. The menu entry keeps the full sentence (sender_volume_block); this is the button. -->
+    <string name="sender_volume_block_confirm">Create rule</string>
     <string name="offline_banner">You\'re offline</string>
     <!-- A refresh that failed while the device IS online: never the offline wording. %1$s is the
          failure's own text (a status line or an exception message, never mail content). -->

@@ -332,6 +332,12 @@ class SenderRuleFromReaderTest {
         // The other survivor: keep the dialog, keep its title, drop the address it interpolates.
         // The reader is then asked to confirm a rule about nobody in particular — on a panel
         // that lists several people, one row apart.
+        //
+        // NOT pinned here, and it took a mutation to notice: WHICH of the dialog's two action
+        // slots the write leaves from. The rules below read the file as one string, so swapping
+        // the confirm and dismiss lambdas — the write landing where "Cancel" is drawn — keeps
+        // every one of them true. That rule needs the slot lambdas extracted, so it lives with
+        // the other two-dialog rules, in SenderRuleDialogFitTest.
         val screen = SOURCE.readText()
         assertTrue(
             "the dialog's title must name the address: 'stringResource(R.string." +

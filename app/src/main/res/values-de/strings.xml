@@ -717,6 +717,7 @@
     <string name="sender_volume_block_foreign">Ein anderes Filterskript ist aktiv</string>
     <string name="sender_volume_block_title">Künftige Nachrichten von %1$s in den Papierkorb?</string>
     <string name="sender_volume_block_body">Eine Regel auf dem Server verschiebt künftige Nachrichten von dieser Adresse in den Papierkorb und markiert sie als gelesen. Bereits empfangene Nachrichten bleiben unberührt. Die Regel lässt sich unter %1$s → %2$s ändern oder entfernen.</string>
+    <string name="sender_volume_block_confirm">Erstellen</string>
     <string name="offline_banner">Du bist offline</string>
     <string name="sync_error_banner">Abgleich fehlgeschlagen: %1$s</string>
     <string name="settings_conversation_section">Konversationen</string>

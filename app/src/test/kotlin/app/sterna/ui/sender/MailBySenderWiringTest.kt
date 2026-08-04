@@ -319,9 +319,13 @@ class MailBySenderWiringTest {
             "viewModel.blockSender(ruleFor)" in confirm,
         )
         assertTrue(
-            "…under this screen's own confirm label (R.string.sender_volume_block), the same one " +
-                "the reader's dialog uses. Confirm button was:\n$confirm",
-            "R.string.sender_volume_block)" in confirm,
+            "…under the dialog's own confirm label (R.string.sender_volume_block_confirm), the " +
+                "same one the reader's dialog uses. It is NOT the menu entry's label: that one " +
+                "is a whole sentence, and a sentence in a dialog button wraps to four lines at a " +
+                "large font scale, which is how Material came to paint Cancel inside this very " +
+                "button. Whether it stays short in nine languages is SenderRuleDialogFitTest's " +
+                "rule. Confirm button was:\n$confirm",
+            "R.string.sender_volume_block_confirm)" in confirm,
         )
         assertTrue(
             "…and it must close the dialog as it writes, as 'confirmRule = null': the half that " +

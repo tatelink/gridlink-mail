@@ -723,6 +723,7 @@
     <string name="sender_volume_block_foreign">Un autre script de filtrage est actif</string>
     <string name="sender_volume_block_title">Envoyer le courrier à venir de %1$s à la corbeille ?</string>
     <string name="sender_volume_block_body">Une règle sur le serveur enverra le courrier à venir de cette adresse à la corbeille, marqué lu. Rien de ce qui est déjà reçu ne bouge. La règle se modifie ou se retire dans %1$s → %2$s.</string>
+    <string name="sender_volume_block_confirm">Créer</string>
     <string name="offline_banner">Vous êtes hors ligne</string>
     <string name="sync_error_banner">Échec de la synchronisation : %1$s</string>
     <string name="settings_conversation_section">Conversations</string>

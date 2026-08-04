@@ -723,6 +723,7 @@
     <string name="sender_volume_block_foreign">Hay otro script de filtrado activo</string>
     <string name="sender_volume_block_title">¿Enviar a la papelera el correo futuro de %1$s?</string>
     <string name="sender_volume_block_body">Una regla en el servidor enviará a la papelera el correo futuro de esta dirección, marcado como leído. Nada de lo ya recibido se mueve. La regla se puede cambiar o quitar en %1$s → %2$s.</string>
+    <string name="sender_volume_block_confirm">Crear regla</string>
     <string name="offline_banner">Estás sin conexión</string>
     <string name="sync_error_banner">Error de sincronización: %1$s</string>
     <string name="settings_conversation_section">Conversaciones</string>
