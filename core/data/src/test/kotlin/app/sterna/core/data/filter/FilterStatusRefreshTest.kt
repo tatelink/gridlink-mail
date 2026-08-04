@@ -2,7 +2,9 @@ package app.sterna.core.data.filter
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /**
  * The two decisions the filters and responder screens make ON TOP of [filterScriptWarning]:
@@ -230,5 +232,65 @@ class FilterStatusRefreshTest {
             ForeignScriptNotice.STOPS_AUTO_REPLY,
             foreignScriptNotice(foreignActive = true, vacationScriptExists = true),
         )
+    }
+
+    // ---- the read itself, out of the shipped source: a LAST RESORT, not the proof ----
+
+    /**
+     * Everything above executes the decision; this one cannot. `MailRepository` opens shared
+     * preferences in its constructor and needs a JMAP session, so no JVM test builds one — and a
+     * decision that is right but fed a constant is worth nothing. Measured, not supposed: a
+     * mutation campaign replaced the foreign-script question with `false` in
+     * `loadFilterScriptStatus` and the whole suite stayed green.
+     *
+     * So the ARGUMENTS are pinned, and only the ones no executed test can reach: which scripts the
+     * question is asked of, that the answer travels into BOTH the states this function can return,
+     * and that a failed read is `null` while an IMAP account or a server without Sieve is not.
+     */
+    @Test fun `the status read fills the foreign flag from the other scripts, and fails to null`() {
+        val body = loadFilterScriptStatusBody()
+        assertTrue(
+            "the other-script question must be asked of the OTHER scripts: with `false` written " +
+                "here the warning above Save can never name the auto-reply",
+            body.contains("val foreign = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }"),
+        )
+        assertEquals(
+            "both states this can return carry the answer — the one with a `sterna` script and " +
+                "the one without. Dropped from either, the screen goes quiet on that account",
+            2,
+            Regex("foreignActive = foreign\\b").findAll(body).count(),
+        )
+        assertTrue(
+            "a FAILED read must answer null: read as the \"nothing known\" value it erases the " +
+                "warning at the moment it becomes true",
+            body.contains(".getOrElseUnlessCancelled { null }"),
+        )
+        assertTrue(
+            "IMAP stays a known fact, not a failure — a null there would freeze whatever the " +
+                "screen happened to be showing",
+            body.contains("if (credentials.protocol == MailProtocol.IMAP) return FilterScriptStatus()"),
+        )
+    }
+
+    /** The body of `MailRepository.loadFilterScriptStatus`, from its signature to the next block. */
+    private fun loadFilterScriptStatusBody(): String {
+        val source = locate("core/data/src/main/kotlin/app/sterna/core/data/mail/MailRepository.kt").readText()
+        val start = source.indexOf("suspend fun loadFilterScriptStatus(credentials: AccountCredentials)")
+        check(start >= 0) { "MailRepository no longer declares loadFilterScriptStatus(credentials)" }
+        val end = source.indexOf("\n    /**", start)
+        check(end > start) { "no declaration follows loadFilterScriptStatus — the slice would be the whole file" }
+        return source.substring(start, end)
+    }
+
+    /** [relative] resolved from the test's working directory, walking up. */
+    private fun locate(relative: String): File {
+        val fromModule = relative.substringAfter("core/data/")
+        var dir: File? = File(System.getProperty("user.dir")).absoluteFile
+        while (dir != null) {
+            File(dir, relative).takeIf { it.isFile }?.let { return it }
+            File(dir, fromModule).takeIf { it.isFile }?.let { return it }
+            dir = dir.parentFile
+        }
+        error("Cannot find $relative from ${System.getProperty("user.dir")}")
     }
 }

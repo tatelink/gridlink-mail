@@ -117,15 +117,29 @@ class FilterWarningWiringTest {
             2,
             Regex("filtersStateWithStatus\\(").findAll(source).count(),
         )
+        // Measured, not supposed: with only "a call to loadFilterScriptStatus exists somewhere in
+        // this file" asserted, replacing the LOAD's status with `null` left the suite green — the
+        // save's own read matched the pattern and answered for it. Each of the two call sites is
+        // pinned on its own.
         assertTrue(
-            "the status handed over must be one this run actually read",
-            Regex("status = repo\\.loadFilterScriptStatus\\(credentials\\)").containsMatchIn(source) &&
+            "the load must fold in a status it read ITSELF (`status = repo.loadFilterScriptStatus(…)`)",
+            Regex("status = repo\\.loadFilterScriptStatus\\(credentials\\),").containsMatchIn(source),
+        )
+        assertTrue(
+            "and the save must fold in the status IT read, not null and not a fresh value",
+            Regex("val status = repo\\.loadFilterScriptStatus\\(credentials\\)").containsMatchIn(source) &&
                 Regex("status = status").containsMatchIn(source),
         )
         assertTrue(
             "the state folded into after a save must be the CURRENT one (`state = it`): rebuilt " +
                 "from scratch, the save would drop the rules and the label with it",
             Regex("filtersStateWithStatus\\(state = it, status = status\\)").containsMatchIn(source),
+        )
+        assertTrue(
+            "the load must carry over what the RULES read concluded (`foreignFromRulesRead = " +
+                "result.foreignActiveScript`): the script list cannot see a `sterna` script we " +
+                "failed to parse, so passing false there loses the refusal that protects it",
+            Regex("foreignFromRulesRead = result\\.foreignActiveScript").containsMatchIn(source),
         )
     }
 
