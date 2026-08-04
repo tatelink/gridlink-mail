@@ -287,9 +287,12 @@ class SenderRuleFromReaderTest {
         // because each is handed its state directly.
         val vm = VIEW_MODEL.readText()
         assertTrue(
-            "a read that fails must answer SenderScript.Unreachable: " +
-                "'.getOrDefault(SenderScript.Unreachable)'",
-            ".getOrDefault(SenderScript.Unreachable)" in vm,
+            "a read that fails must answer SenderScript.Unreachable, and a CANCELLED read must " +
+                "answer nothing at all: '.getOrElseUnlessCancelled { SenderScript.Unreachable }' " +
+                "(issue #99). The reader is a pager — this coroutine dies on every swipe, and " +
+                "reading that as 'unreachable' answers for a message nobody is looking at",
+            ".getOrElseUnlessCancelled { SenderScript.Unreachable }" in vm &&
+                "getOrDefault(SenderScript" !in vm,
         )
         assertTrue(
             "and the pager's reset must put it back to 'nothing has been asked': " +
@@ -316,9 +319,12 @@ class SenderRuleFromReaderTest {
             "_accountAddresses.value = ownAddresses()" in vm,
         )
         assertTrue(
-            "…and those must be the account's identities plus its login, not a hard-coded list",
-            Regex("private fun ownAddresses\\(\\): List<String> =\\s*\\n\\s*store\\.identities\\(accountId\\)")
-                .containsMatchIn(vm),
+            "…and the whole expression, not its opening: 'accountAddresses(store.identities(" +
+                "accountId), credentials()?.username)'. What each identity CONTRIBUTES is " +
+                "accountAddresses' business and AccountAddressesTest runs it; what this pins is " +
+                "that the identities asked for are THIS message's account's, and that the login " +
+                "goes in with them",
+            "accountAddresses(store.identities(accountId), credentials()?.username)" in vm,
         )
     }
 

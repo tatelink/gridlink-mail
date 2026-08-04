@@ -15,8 +15,10 @@ import app.sterna.push.Notifications
 import app.sterna.snooze.Snoozes
 import app.sterna.ui.compose.receivingAddress
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.account.accountAddresses
 import app.sterna.core.data.calendar.ICalendar
 import app.sterna.core.data.calendar.ParsedEvent
+import app.sterna.core.data.getOrElseUnlessCancelled
 import app.sterna.core.data.filter.BlockOutcome
 import app.sterna.core.data.filter.addBlockRule
 import app.sterna.core.data.filter.alreadyBlocked
@@ -537,10 +539,17 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** One read of the account's script, as the three-state answer the entry is decided on. */
+    /**
+     * One read of the account's script, as the three-state answer the entry is decided on.
+     *
+     * `getOrElseUnlessCancelled` and not `getOrDefault` (issue #99): a cancelled read is not a
+     * failed one. The reader is a pager, so this coroutine dies every time a page is swiped away
+     * — and swallowing that as "unreachable" would answer for a message nobody is looking at,
+     * including on the re-read that follows a rule just written.
+     */
     private suspend fun readSenderScript(credentials: AccountCredentials): SenderScript =
         runCatching { SenderScript.Read(repo.loadFilterRules(credentials)) }
-            .getOrDefault(SenderScript.Unreachable)
+            .getOrElseUnlessCancelled { SenderScript.Unreachable }
 
     /**
      * Add the "future mail to Trash, marked read" rule for [address] to the account's script.
@@ -907,7 +916,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
      *  login it authenticates with. A delegated sub-account needs no special case — the store
      *  already resolves its own address, or its login's, for it (issue #31). */
     private fun ownAddresses(): List<String> =
-        store.identities(accountId).map { it.email } + listOfNotNull(credentials()?.username)
+        accountAddresses(store.identities(accountId), credentials()?.username)
 
     /**
      * Whether the reader shows this message by its recipients instead of its sender — the SAME

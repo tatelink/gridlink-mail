@@ -213,6 +213,15 @@ class MailBySenderWiringTest {
                 "is drawn, and the round-trip that follows may never come back. Body was:\n$counts",
             "ownAddresses = ownAddresses(credentials)," in counts,
         )
+        assertTrue(
+            "…and that helper must be the shared one, whole: 'accountAddresses(store.identities(" +
+                "credentials.id), credentials.username)'. What an identity contributes is " +
+                "AccountAddressesTest's to run; pinned here is that the identities are THIS " +
+                "account's and that the login goes in with them — an argument swapped one line " +
+                "down empties the list and every decision test stays green, because each builds " +
+                "its own",
+            "accountAddresses(store.identities(credentials.id), credentials.username)" in code(VIEW_MODEL),
+        )
     }
 
     @Test fun `the script is only ever saved as addBlockRule's save callback`() {

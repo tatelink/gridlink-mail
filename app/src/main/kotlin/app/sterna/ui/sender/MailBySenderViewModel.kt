@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.sterna.R
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.account.accountAddresses
 import app.sterna.core.data.getOrElseUnlessCancelled
 import app.sterna.core.data.filter.BlockOutcome
 import app.sterna.core.data.filter.FilterRule
@@ -403,7 +404,7 @@ class MailBySenderViewModel(application: Application) : AndroidViewModel(applica
      * through its login (issue #31), which `AccountStore.identities` already does.
      */
     private fun ownAddresses(credentials: AccountCredentials): List<String> =
-        store.identities(credentials.id).map { it.email } + credentials.username
+        accountAddresses(store.identities(credentials.id), credentials.username)
 
     /**
      * Open the confirmation for [sender], reading the ids it will act on NOW.
