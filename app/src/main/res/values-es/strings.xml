@@ -707,7 +707,7 @@
     <string name="sender_volume_block">Enviar el correo futuro a la papelera, marcado como leído</string>
     <string name="sender_volume_block_done">Ya existe una regla de filtrado para este remitente</string>
     <string name="sender_volume_block_added">Regla de filtrado añadida</string>
-    <string name="sender_volume_search">Ver estos mensajes</string>
+    <string name="sender_volume_search">Buscar este remitente</string>
     <plurals name="sender_volume_deleted">
         <item quantity="one">%1$d mensaje eliminado</item>
         <item quantity="many">%1$d de mensajes eliminados</item>

@@ -165,8 +165,11 @@ internal enum class SenderAction { SEARCH, DELETE, BLOCK }
  *    greyed, and its words say why.
  *
  * **The ORDER is a decision, not a layout.** Looking comes first: this screen makes one confirm a
- * NUMBER and never a content, and "see these messages" is the only entry that answers "who is
- * this?" before anything is done about it. The rule comes before the delete, and that is the
+ * NUMBER and never a content, and the search is the only entry that answers "who is this?"
+ * before anything is done about it. It is worded "search this sender" and NOT "see these
+ * messages": it opens a SEARCH, over the server and over every account, so it routinely answers
+ * with a different set — and a larger number — than the row it was tapped from. The old wording
+ * promised the row's own messages and the measurement was 40 against 80 (`banc-1.4.8.md` § 4). The rule comes before the delete, and that is the
  * defect the order fixes rather than a tidy-up — the aggregate excludes the Trash, so deleting a
  * sender's mail takes its total to zero and **its row disappears**, taking the "never again"
  * gesture with it; the address then has to be retyped by hand in Settings → Filters. Inverting

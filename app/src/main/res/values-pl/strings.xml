@@ -712,7 +712,7 @@
     <string name="sender_volume_block">Przyszłą pocztę do kosza, oznaczoną jako przeczytana</string>
     <string name="sender_volume_block_done">Dla tego nadawcy istnieje już reguła filtrowania</string>
     <string name="sender_volume_block_added">Dodano regułę filtrowania</string>
-    <string name="sender_volume_search">Zobacz te wiadomości</string>
+    <string name="sender_volume_search">Szukaj tego nadawcy</string>
     <plurals name="sender_volume_deleted">
         <item quantity="one">Usunięto %1$d wiadomość</item>
         <item quantity="few">Usunięto %1$d wiadomości</item>

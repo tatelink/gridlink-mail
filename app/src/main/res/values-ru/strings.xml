@@ -714,7 +714,7 @@
     <string name="sender_volume_block">Отправлять будущие письма в корзину, помечая прочитанными</string>
     <string name="sender_volume_block_done">Для этого отправителя уже есть правило фильтра</string>
     <string name="sender_volume_block_added">Правило фильтра добавлено</string>
-    <string name="sender_volume_search">Показать эти письма</string>
+    <string name="sender_volume_search">Поиск по отправителю</string>
     <plurals name="sender_volume_deleted">
         <item quantity="one">Удалено %1$d письмо</item>
         <item quantity="few">Удалено %1$d письма</item>

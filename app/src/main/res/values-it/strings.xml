@@ -707,7 +707,7 @@
     <string name="sender_volume_block">Manda la posta futura nel cestino, segnata come letta</string>
     <string name="sender_volume_block_done">Esiste già una regola di filtro per questo mittente</string>
     <string name="sender_volume_block_added">Regola di filtro aggiunta</string>
-    <string name="sender_volume_search">Vedi questi messaggi</string>
+    <string name="sender_volume_search">Cerca questo mittente</string>
     <plurals name="sender_volume_deleted">
         <item quantity="one">%1$d messaggio eliminato</item>
         <item quantity="many">%1$d di messaggi eliminati</item>

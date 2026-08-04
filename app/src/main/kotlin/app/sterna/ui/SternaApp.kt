@@ -530,7 +530,7 @@ private fun MainNavHost(
             route = "search?q={q}&from={from}",
             // The initial term is read straight from the entry's SavedStateHandle by
             // SearchViewModel, so it survives a process death like the rest of the criteria.
-            // `from` arrives the same way, from "see these messages" on the per-sender screen,
+            // `from` arrives the same way, from "search this sender" on the per-sender screen,
             // and does exactly as much as `q`: it fills its field, it does not run the search.
             arguments = listOf(
                 navArgument("q") { type = NavType.StringType; nullable = true; defaultValue = null },

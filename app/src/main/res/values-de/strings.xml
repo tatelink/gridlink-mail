@@ -702,7 +702,7 @@
     <string name="sender_volume_block">Künftige E-Mails in den Papierkorb, als gelesen markiert</string>
     <string name="sender_volume_block_done">Für diesen Absender gibt es bereits eine Filterregel</string>
     <string name="sender_volume_block_added">Filterregel hinzugefügt</string>
-    <string name="sender_volume_search">Diese Nachrichten anzeigen</string>
+    <string name="sender_volume_search">Nach diesem Absender suchen</string>
     <plurals name="sender_volume_deleted">
         <item quantity="one">%1$d Nachricht gelöscht</item>
         <item quantity="other">%1$d Nachrichten gelöscht</item>

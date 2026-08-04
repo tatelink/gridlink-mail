@@ -707,7 +707,7 @@
     <string name="sender_volume_block">Envoyer le courrier à venir à la corbeille, marqué lu</string>
     <string name="sender_volume_block_done">Une règle de filtrage existe déjà pour cet expéditeur</string>
     <string name="sender_volume_block_added">Règle de filtrage ajoutée</string>
-    <string name="sender_volume_search">Voir ces messages</string>
+    <string name="sender_volume_search">Rechercher cet expéditeur</string>
     <plurals name="sender_volume_deleted">
         <item quantity="one">%1$d message supprimé</item>
         <item quantity="many">%1$d de messages supprimés</item>

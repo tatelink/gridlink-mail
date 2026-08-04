@@ -118,8 +118,8 @@ class MailBySenderWiringTest {
 
     @Test fun `the search entry opens the search on that row's own address`() {
         // The argument, not the call: `onSearch = {}` compiles, the entry is there, every rule
-        // about WHICH entries exist stays green, and the one gesture that lets you look before
-        // you destroy quietly does nothing.
+        // about WHICH entries exist stays green, and the one gesture that gives something to
+        // look at before anything is destroyed quietly does nothing.
         val row = callArguments(code(SCREEN), "SenderRow").single { "row = row" in it }
         assertTrue(
             "SenderRow must be given 'onSearch = { onOpenSearch(row.email) }' — that row's " +

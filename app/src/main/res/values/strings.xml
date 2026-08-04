@@ -171,7 +171,7 @@
     <string name="sender_volume_block">Send future mail to Trash, marked read</string>
     <string name="sender_volume_block_done">A filter rule already exists for this sender</string>
     <string name="sender_volume_block_added">Filter rule added</string>
-    <string name="sender_volume_search">See these messages</string>
+    <string name="sender_volume_search">Search this sender</string>
     <plurals name="sender_volume_deleted">
         <item quantity="one">%1$d message deleted</item>
         <item quantity="other">%1$d messages deleted</item>

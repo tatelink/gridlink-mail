@@ -707,7 +707,7 @@
     <string name="sender_volume_block">Enviar o correio futuro para a lixeira, marcado como lido</string>
     <string name="sender_volume_block_done">Já existe uma regra de filtragem para este remetente</string>
     <string name="sender_volume_block_added">Regra de filtragem adicionada</string>
-    <string name="sender_volume_search">Ver estas mensagens</string>
+    <string name="sender_volume_search">Procurar este remetente</string>
     <plurals name="sender_volume_deleted">
         <item quantity="one">%1$d mensagem eliminada</item>
         <item quantity="many">%1$d de mensagens eliminadas</item>

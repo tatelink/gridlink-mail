@@ -59,7 +59,7 @@ internal fun initialCriterion(saved: String?, argument: String?): String = saved
 const val SEARCH_QUERY_ARG = "q"
 
 /**
- * Nav argument: the address the screen opens on, so "see these messages" from the per-sender
+ * Nav argument: the address the screen opens on, so "search this sender" from the per-sender
  * screen lands on a search that is already about that sender.
  *
  * It behaves EXACTLY like [SEARCH_QUERY_ARG] and deliberately not one step further: it fills the

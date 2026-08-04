@@ -6,7 +6,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * "See these messages" hands the per-sender screen's address to the search as a nav argument, and
+ * "Search this sender" hands the per-sender screen's address to the search as a nav argument, and
  * that address has to behave EXACTLY like the words the inbox's search bar already hands over.
  *
  * The decision itself — what wins between a saved value and a navigation argument — is

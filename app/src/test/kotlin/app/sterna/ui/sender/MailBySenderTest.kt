@@ -357,12 +357,15 @@ class MailBySenderTest {
         )
     }
 
-    // -- R2: looking before destroying -----------------------------------------------------------
+    // -- R2: something to look at, before anything is destroyed ---------------------------------
 
-    @Test fun `every row offers to see the messages first`() {
+    @Test fun `every row offers to look, first`() {
         // The most visible gap in the walk-through: one confirms a NUMBER and never a content.
         // The entry needs nothing of the account — no Trash, no Sieve, no round trip — so it is
-        // there for every row of every account, and it leads the menu.
+        // there for every row of every account, and it leads the menu. What it opens is a SEARCH
+        // and not this row's own messages, which is why the label says "search this sender": the
+        // search asks the server, across every account, and answered 80 where the row counted 40
+        // (banc-1.4.8.md § 4). Nothing here pins that wording — only the string key is pinned.
         listOf(true, false).forEach { canDelete ->
             listOf(true, false).forEach { canBlock ->
                 val entries = menu(canDelete, canBlock, blocked = false, working = false)
