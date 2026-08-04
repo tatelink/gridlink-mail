@@ -30,12 +30,22 @@ data class FiltersUiState(
      */
     val rulesNotRunning: Boolean = false,
     /**
-     * A script named `vacation` sits next to ours on the server — the only evidence this repo has
-     * that this server materialises the auto-reply as a Sieve script, and therefore that Save,
-     * which ACTIVATES Sterna's script, switches that auto-reply off. Read here so the warning
-     * above the button can name the thing the user would lose instead of naming a script.
+     * The script named `vacation` is the ACTIVE one on the server: the auto-reply is running, and
+     * Save, which activates Sterna's script, is what would switch it off. Read here so the
+     * warning above the button can name the thing the user would lose instead of naming a script.
+     *
+     * Activity, not existence. An inactive `vacation` script beside a third active one (a webmail
+     * writes those) had the app announcing the auto-reply would stop while Save was about to
+     * switch off something else entirely.
      */
-    val vacationScriptExists: Boolean = false,
+    val vacationScriptActive: Boolean = false,
+    /**
+     * This account's `sterna` script is there and could not be parsed, so Save would REPLACE
+     * content nobody read. Carried separately from [foreignActive], which the rules read folds it
+     * into: that fold is what refuses the per-sender gesture, and it also made this the one cause
+     * the screen could never name.
+     */
+    val scriptUnreadable: Boolean = false,
     val accountLabel: String = "",
     val rules: List<FilterRule> = emptyList(),
     /**
@@ -116,6 +126,7 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
                             ),
                             status = repo.loadFilterScriptStatus(credentials),
                             foreignFromRulesRead = result.foreignActiveScript,
+                            unreadableFromRulesRead = result.scriptUnreadable,
                         )
                     }
                 }

@@ -20,7 +20,7 @@ class FiltersStatusUpdateTest {
         loading = false,
         rulesNotRunning = true,
         foreignActive = true,
-        vacationScriptExists = true,
+        vacationScriptActive = true,
     )
 
     @Test
@@ -49,13 +49,13 @@ class FiltersStatusUpdateTest {
                 scriptExists = true,
                 scriptActive = true,
                 enabledRuleCount = 2,
-                vacationScriptExists = false,
+                vacationScriptActive = false,
                 foreignActive = false,
             ),
         )
         assertFalse("the rules are running again", next.rulesNotRunning)
         assertFalse("our script IS the active one now", next.foreignActive)
-        assertFalse("no vacation script on this server", next.vacationScriptExists)
+        assertFalse("the vacation script is not the one running", next.vacationScriptActive)
     }
 
     @Test
@@ -66,13 +66,13 @@ class FiltersStatusUpdateTest {
                 scriptExists = true,
                 scriptActive = false,
                 enabledRuleCount = 2,
-                vacationScriptExists = true,
+                vacationScriptActive = true,
                 foreignActive = true,
             ),
         )
         assertTrue("an inactive script carrying rules is rules that are not running", next.rulesNotRunning)
         assertTrue(next.foreignActive)
-        assertTrue("the fact that lets the warning name the auto-reply", next.vacationScriptExists)
+        assertTrue("the fact that lets the warning name the auto-reply", next.vacationScriptActive)
     }
 
     @Test
@@ -82,24 +82,32 @@ class FiltersStatusUpdateTest {
             scriptExists = true,
             scriptActive = false,
             enabledRuleCount = 1,
-            vacationScriptExists = false,
+            vacationScriptActive = false,
             foreignActive = false,
         )
         val fresh = FiltersUiState(loading = false)
         with(filtersStateWithStatus(fresh, stopped)) {
             assertTrue(rulesNotRunning)
             assertFalse("no other script is active in the state that follows a holiday", foreignActive)
-            assertFalse(vacationScriptExists)
+            assertFalse(vacationScriptActive)
         }
         with(filtersStateWithStatus(fresh, stopped.copy(foreignActive = true))) {
             assertTrue(rulesNotRunning)
             assertTrue(foreignActive)
-            assertFalse(vacationScriptExists)
+            assertFalse(vacationScriptActive)
         }
-        with(filtersStateWithStatus(fresh, stopped.copy(vacationScriptExists = true))) {
+        with(filtersStateWithStatus(fresh, stopped.copy(vacationScriptActive = true))) {
             assertTrue(rulesNotRunning)
             assertFalse(foreignActive)
-            assertTrue(vacationScriptExists)
+            assertTrue(vacationScriptActive)
+        }
+        with(filtersStateWithStatus(fresh, stopped.copy(vacationScriptExists = true))) {
+            assertFalse(
+                "EXISTENCE is not what this screen's line is chosen on — activity is. Read here, " +
+                    "the account with an idle `vacation` script beside a third active one is told " +
+                    "its auto-reply is about to be stopped",
+                vacationScriptActive,
+            )
         }
         with(filtersStateWithStatus(fresh, stopped.copy(scriptActive = true))) {
             assertFalse("an active script carrying rules is rules that ARE running", rulesNotRunning)
@@ -137,5 +145,62 @@ class FiltersStatusUpdateTest {
             foreignFromRulesRead = true,
         )
         assertTrue(next.foreignActive)
+    }
+
+    /**
+     * ⛔ E2. The same read carries WHICH of the two refusals it is, all the way to the screen.
+     * Folded into `foreignActive` alone — as it was — the screen can only draw a sentence about
+     * somebody else's script or about the auto-reply, and the one thing Save is about to do here
+     * (replace content nobody could read) is the one thing nothing says.
+     */
+    @Test
+    fun `the unreadable script reaches the screen as a fact of its own`() {
+        val next = filtersStateWithStatus(
+            state = FiltersUiState(loading = false),
+            status = FilterScriptStatus(scriptExists = true, scriptActive = true, enabledRuleCount = 1),
+            foreignFromRulesRead = true,
+            unreadableFromRulesRead = true,
+        )
+        assertTrue("the refusal stays up, exactly as before", next.foreignActive)
+        assertTrue("and its cause is now nameable", next.scriptUnreadable)
+    }
+
+    /** The witness: a foreign active script is NOT an unreadable one, and must not borrow its line. */
+    @Test
+    fun `another active script alone does not claim our script is unreadable`() {
+        val next = filtersStateWithStatus(
+            state = FiltersUiState(loading = false),
+            status = FilterScriptStatus(
+                scriptExists = true,
+                scriptActive = false,
+                enabledRuleCount = 1,
+                foreignActive = true,
+            ),
+            foreignFromRulesRead = true,
+            unreadableFromRulesRead = false,
+        )
+        assertTrue(next.foreignActive)
+        assertFalse("nothing said our own script could not be read", next.scriptUnreadable)
+    }
+
+    @Test
+    fun `a save replaces the unreadable script, so its line goes out with the read that follows`() {
+        // The re-read after a save passes neither flag: the script on the server is the one just
+        // written, and a red line that survives it is the half-refresh bug in a new place.
+        val next = filtersStateWithStatus(
+            state = displayed.copy(scriptUnreadable = true),
+            status = FilterScriptStatus(scriptExists = true, scriptActive = true, enabledRuleCount = 1),
+        )
+        assertFalse("the script we just wrote is one we can read", next.scriptUnreadable)
+    }
+
+    @Test
+    fun `but a read that failed does not retire it either`() {
+        val next = filtersStateWithStatus(state = displayed.copy(scriptUnreadable = true), status = null)
+        assertTrue(
+            "null is \"I could not look\": clearing here would offer the write over a script " +
+                "nobody has managed to read, on the strength of a failure",
+            next.scriptUnreadable,
+        )
     }
 }

@@ -10,8 +10,20 @@ import app.sterna.core.data.mail.FilterRulesState
  * [sternaScript] is the body of the account's `sterna` script, or null when the account has none
  * at all. [otherActiveScript] is whether some OTHER script is the active one.
  *
- * **The two ways this answer says "do not write here".** They add up, and they are the same
- * flag on purpose — no new state, no new string, and every writer already refuses it:
+ * **The two ways this answer says "do not write here".** They add up into
+ * [FilterRulesState.Loaded.foreignActiveScript] on purpose: that one flag is what the two
+ * surfaces of the per-sender GESTURE already refuse — the reader's menu entry and the by-sender
+ * list — so the write that started this is stopped without a new state to thread through them.
+ *
+ * ⚠ It is not refused everywhere. The **Filters screen** writes without consulting it: its Save
+ * button rewrites the whole script from the list on screen, and that path is deliberately left
+ * open because it is the only way out of "the rules are not running" (the arbitration, and what
+ * it costs, are in `ai-work/issues/findings/finding-script-sieve-ecrase-par-ecran-filtres.md`).
+ * What that screen got instead is a red line of its own that names the overwrite —
+ * [ForeignScriptNotice.UNREADABLE_SCRIPT], fed by [FilterRulesState.Loaded.scriptUnreadable]
+ * below, because the fold above cannot tell the two causes apart once they are one boolean.
+ *
+ * The two causes:
  *
  *  - **another script is active.** Saving does not merely write Sterna's script, it ACTIVATES
  *    it, switching off whatever was running. Known since the filter editor learned to warn in
@@ -34,5 +46,6 @@ fun loadedFilterRules(sternaScript: String?, otherActiveScript: Boolean): Filter
     return FilterRulesState.Loaded(
         rules = parsed.orEmpty(),
         foreignActiveScript = otherActiveScript || unreadable,
+        scriptUnreadable = unreadable,
     )
 }

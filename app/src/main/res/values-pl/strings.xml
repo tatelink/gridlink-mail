@@ -350,6 +350,7 @@
     <string name="settings_filters_foreign_warning">Na serwerze jest aktywny inny skrypt filtrujący; zapisanie sprawi, że aktywny stanie się skrypt Sterna Mail.</string>
     <string name="settings_filters_not_running">Twoje reguły filtrowania nie są obecnie stosowane.</string>
     <string name="settings_filters_stops_auto_reply">Twoja automatyczna odpowiedź działa na serwerze. Zapisanie tych filtrów ją wyłączy.</string>
+    <string name="settings_filters_unreadable">Sterna Mail nie potrafi odczytać skryptu filtrującego tego konta; zapisanie go zastąpi.</string>
     <string name="settings_filters_edit_title">Edytuj regułę</string>
     <string name="settings_filter_name">Nazwa reguły</string>
     <string name="settings_filter_if">Jeżeli</string>

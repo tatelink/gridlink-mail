@@ -21,6 +21,22 @@ import java.sql.DriverManager
  */
 class BodyCacheUpgradeTest {
 
+    /**
+     * ⛔ THE THRESHOLD ITSELF, written out as a literal — the parade `IncognitoImeOptionsTest`
+     * already uses. Every other test in this file says `BODY_CACHE_PURGE_VERSION` on both sides
+     * of its assertion, so the constant can be moved to any value at all and the whole file stays
+     * green: the rules are about the SHAPE of the decision, not about which release needs it.
+     *
+     * Measured: raising it to 169 kept the suite green while moving the purge one release late —
+     * so nobody purges on the arrival of 1.4.8, the release that taught the reader to look for
+     * the unsubscribe headers, and the feature is invisible on precisely the cached newsletters
+     * it was written for. 168 = the release after 1.4.7 (versionCode 167). A fact about a past
+     * upgrade: it does not move when the version does.
+     */
+    @Test fun `the threshold is the release that needed it, by number`() {
+        assertEquals(168, BODY_CACHE_PURGE_VERSION)
+    }
+
     @Test fun `arriving at the threshold purges, and records the version it purged for`() {
         assertEquals(
             BODY_CACHE_PURGE_VERSION,

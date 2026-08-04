@@ -165,18 +165,19 @@ private fun FiltersList(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        // ONE line, not two: when a `vacation` script is what the save would switch off, the
-        // generic sentence is REPLACED by the one that names the auto-reply. "Another filter
-        // script is active" is true and useless — nothing in this app calls the auto-reply a
-        // filter script, so the sentence read as a fault to repair, above a button this release
-        // offers with nothing edited.
+        // ONE line, not two: an unreadable script of our own comes first (Save replaces content
+        // nobody read), then the `vacation` script being the ACTIVE one, which names what the
+        // save costs — the auto-reply — instead of the generic "another filter script is active",
+        // true and useless since nothing in this app calls the auto-reply a filter script.
         foreignScriptNotice(
+            scriptUnreadable = state.scriptUnreadable,
             foreignActive = state.foreignActive,
-            vacationScriptExists = state.vacationScriptExists,
+            vacationScriptActive = state.vacationScriptActive,
         )?.let { notice ->
             Text(
                 stringResource(
                     when (notice) {
+                        ForeignScriptNotice.UNREADABLE_SCRIPT -> R.string.settings_filters_unreadable
                         ForeignScriptNotice.STOPS_AUTO_REPLY -> R.string.settings_filters_stops_auto_reply
                         ForeignScriptNotice.ANOTHER_SCRIPT -> R.string.settings_filters_foreign_warning
                     },

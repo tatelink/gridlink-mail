@@ -206,32 +206,162 @@ class FilterStatusRefreshTest {
     fun `no foreign active script says nothing, whatever else exists`() {
         assertNull(
             "our own script being the active one is the nominal state: no line at all",
-            foreignScriptNotice(foreignActive = false, vacationScriptExists = false),
+            foreignScriptNotice(
+                scriptUnreadable = false,
+                foreignActive = false,
+                vacationScriptActive = false,
+            ),
         )
         assertNull(
             "a vacation script that is NOT the active one costs nothing to save over",
-            foreignScriptNotice(foreignActive = false, vacationScriptExists = true),
+            foreignScriptNotice(
+                scriptUnreadable = false,
+                foreignActive = false,
+                vacationScriptActive = true,
+            ),
         )
     }
 
     @Test
-    fun `a foreign active script with no vacation script keeps the generic line`() {
+    fun `a foreign active script with no active vacation script keeps the generic line`() {
         // Nothing observed says what that script is, so nothing is claimed about what Save costs.
         assertEquals(
             ForeignScriptNotice.ANOTHER_SCRIPT,
-            foreignScriptNotice(foreignActive = true, vacationScriptExists = false),
+            foreignScriptNotice(
+                scriptUnreadable = false,
+                foreignActive = true,
+                vacationScriptActive = false,
+            ),
         )
     }
 
     @Test
-    fun `a foreign active script beside a vacation script names the auto-reply`() {
+    fun `a foreign active script that IS the vacation script names the auto-reply`() {
         // B-2, the whole point: this release opens Save with nothing edited, and pressing it
         // during a holiday switches the auto-reply off. "Another filter script is active on the
         // server" is true and names nothing the user recognises.
         assertEquals(
             ForeignScriptNotice.STOPS_AUTO_REPLY,
-            foreignScriptNotice(foreignActive = true, vacationScriptExists = true),
+            foreignScriptNotice(
+                scriptUnreadable = false,
+                foreignActive = true,
+                vacationScriptActive = true,
+            ),
         )
+    }
+
+    /**
+     * ⛔ THE E1 WITNESS. The line used to be chosen on the mere EXISTENCE of a `vacation` script,
+     * and existence is not activity: an account whose active script is a third one (`roundcube`,
+     * `managesieve`) with an idle `vacation` beside it was told its auto-reply was running and
+     * would be stopped — while what Save was really about to switch off was the other script.
+     *
+     * The two arguments differ here, which is the only reason this case can fail: pass the same
+     * boolean twice and the state is unreachable.
+     */
+    @Test
+    fun `an idle vacation script beside another active one accuses nobody`() {
+        assertEquals(
+            "the sentence names the auto-reply only when the auto-reply's script is the one running",
+            ForeignScriptNotice.ANOTHER_SCRIPT,
+            foreignScriptNotice(
+                scriptUnreadable = false,
+                foreignActive = true,
+                vacationScriptActive = false,
+            ),
+        )
+    }
+
+    /**
+     * ⛔ THE E2 CASE. The refusal to write can come from our own `sterna` script being
+     * unparseable, and that cause reached the screen folded into `foreignActive` — so the screen
+     * showed a sentence about somebody else's script, or about the auto-reply, and never once
+     * about the content Save is going to replace. It goes FIRST.
+     */
+    @Test
+    fun `an unreadable script of our own is named before anything else`() {
+        assertEquals(
+            "an unreadable sterna script with nothing foreign active: the fold makes foreignActive " +
+                "true, and the old order had nothing to say about it",
+            ForeignScriptNotice.UNREADABLE_SCRIPT,
+            foreignScriptNotice(
+                scriptUnreadable = true,
+                foreignActive = true,
+                vacationScriptActive = false,
+            ),
+        )
+        assertEquals(
+            "and it outranks the auto-reply line: what Save destroys outranks what Save switches off",
+            ForeignScriptNotice.UNREADABLE_SCRIPT,
+            foreignScriptNotice(
+                scriptUnreadable = true,
+                foreignActive = true,
+                vacationScriptActive = true,
+            ),
+        )
+        assertEquals(
+            "…and it is said even with no foreign script active at all — the state where the OLD " +
+                "line promised the auto-reply would stop, which it would not have",
+            ForeignScriptNotice.UNREADABLE_SCRIPT,
+            foreignScriptNotice(
+                scriptUnreadable = true,
+                foreignActive = false,
+                vacationScriptActive = true,
+            ),
+        )
+    }
+
+    // ---- vacationFilterLine: the responder screen does not send for the remedy mid-holiday ----
+
+    /**
+     * ⛔ THE E3 CASE. While the user is away, RULES_NOT_RUNNING is true BECAUSE the responder is
+     * running — and the screen was printing "you can put your rules back in Settings → Filters" on
+     * the very screen whose switch reads ON. Following that path presses Save on the filters
+     * screen, which activates Sterna's script, which switches the auto-reply off. The sentence
+     * said nothing of the sort.
+     */
+    @Test
+    fun `the remedy is not offered while the responder is on`() {
+        assertEquals(
+            "with the responder on, the fact and only the fact",
+            VacationFilterLine.RULES_NOT_RUNNING_FACT,
+            vacationFilterLine(FilterScriptWarning.RULES_NOT_RUNNING, responderEnabled = true),
+        )
+    }
+
+    /** The witness, and the case M4 was written for: the return from holiday. */
+    @Test
+    fun `the remedy IS offered once the responder is off`() {
+        assertEquals(
+            "responder off and the rules still dead is exactly the state the remedy exists for",
+            VacationFilterLine.RULES_NOT_RUNNING_WITH_REMEDY,
+            vacationFilterLine(FilterScriptWarning.RULES_NOT_RUNNING, responderEnabled = false),
+        )
+    }
+
+    @Test
+    fun `the prediction is the same sentence whatever the switch says`() {
+        // It is only ever produced with the responder off (filterScriptWarning refuses to predict
+        // otherwise), and it is about the switch rather than about a remedy: nothing to choose.
+        for (enabled in listOf(true, false)) {
+            assertEquals(
+                VacationFilterLine.RESPONDER_WILL_SUSPEND_RULES,
+                vacationFilterLine(
+                    FilterScriptWarning.RESPONDER_WILL_SUSPEND_RULES,
+                    responderEnabled = enabled,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `nothing to warn about stays nothing, whatever the switch says`() {
+        for (enabled in listOf(true, false)) {
+            assertNull(
+                "a screen with nothing to say must not grow a sentence from the switch alone",
+                vacationFilterLine(null, responderEnabled = enabled),
+            )
+        }
     }
 
     // ---- the read itself, out of the shipped source: a LAST RESORT, not the proof ----
@@ -253,6 +383,37 @@ class FilterStatusRefreshTest {
             "the other-script question must be asked of the OTHER scripts: with `false` written " +
                 "here the warning above Save can never name the auto-reply",
             body.contains("val foreign = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }"),
+        )
+        // Measured, not supposed: `val vacation = false` here left the ENTIRE suite green while
+        // deleting both sentences this lot is about — the red line above Save and the prediction
+        // on the responder screen. Every executed test is handed booleans; not one travels
+        // through this line.
+        assertTrue(
+            "the vacation script must be looked for BY NAME in the list, as `val vacation = " +
+                "scripts.any { it.name == VACATION_SCRIPT_NAME }` — this is the EXISTENCE the " +
+                "prediction \"turning the auto-reply on will suspend your rules\" rests on, and " +
+                "a constant here makes that prediction permanently mute",
+            body.contains("val vacation = scripts.any { it.name == VACATION_SCRIPT_NAME }"),
+        )
+        assertTrue(
+            "…and its ACTIVITY must be a second question on the same list, as `val vacationActive " +
+                "= scripts.any { it.name == VACATION_SCRIPT_NAME && it.isActive }`: existence is " +
+                "not activity, and the line above Save claims the auto-reply is running NOW",
+            body.contains(
+                "val vacationActive = scripts.any { it.name == VACATION_SCRIPT_NAME && it.isActive }",
+            ),
+        )
+        assertEquals(
+            "existence travels into both states this can return — the one with a `sterna` script " +
+                "and the one without",
+            2,
+            Regex("vacationScriptExists = vacation\\b").findAll(body).count(),
+        )
+        assertEquals(
+            "…and so does activity: dropped from either, the account that has it lands on the " +
+                "generic line that names no consequence",
+            2,
+            Regex("vacationScriptActive = vacationActive\\b").findAll(body).count(),
         )
         assertEquals(
             "both states this can return carry the answer — the one with a `sterna` script and " +

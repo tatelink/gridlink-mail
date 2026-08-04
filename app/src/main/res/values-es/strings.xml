@@ -350,6 +350,7 @@
     <string name="settings_filters_foreign_warning">Hay otro script de filtrado activo en el servidor; al guardar, el de Sterna Mail pasará a ser el activo.</string>
     <string name="settings_filters_not_running">Tus reglas de filtrado no se están aplicando en este momento.</string>
     <string name="settings_filters_stops_auto_reply">Tu respuesta automática está activa en el servidor. Al guardar estos filtros se detendrá.</string>
+    <string name="settings_filters_unreadable">Sterna Mail no puede leer el script de filtrado de esta cuenta; al guardar, lo reemplazará.</string>
     <string name="settings_filters_edit_title">Editar regla</string>
     <string name="settings_filter_name">Nombre de la regla</string>
     <string name="settings_filter_if">Si</string>

@@ -11,7 +11,7 @@ const val VACATION_SCRIPT_NAME = "vacation"
 
 /**
  * What the account's Sieve scripts say about the user's filter rules, as observed on the
- * server. Five facts, nothing else: enough to decide [filterScriptWarning] and
+ * server. Six facts, nothing else: enough to decide [filterScriptWarning] and
  * [foreignScriptNotice], and small enough that no screen has to reason about scripts.
  *
  * The default is the "we know nothing" value: no script, so no warning. It is what an IMAP
@@ -26,8 +26,23 @@ data class FilterScriptStatus(
     val scriptActive: Boolean = false,
     /** How many rules it carries that actually filter mail (see [enabledRuleCount]). */
     val enabledRuleCount: Int = 0,
-    /** A script named [VACATION_SCRIPT_NAME] exists next to it. */
+    /**
+     * A script named [VACATION_SCRIPT_NAME] exists next to it. EXISTENCE, not activity: this is
+     * what [filterScriptWarning] predicts on ("this server materialises the responder as a Sieve
+     * script, so switching it on will stop the rules"), and that prediction needs nothing more.
+     */
     val vacationScriptExists: Boolean = false,
+    /**
+     * That `vacation` script is the ACTIVE one — the responder is running right now, on the
+     * evidence of the same list. Read next to the name, on the same object, at no extra cost.
+     *
+     * Separate from [vacationScriptExists] because the two answer different questions and only
+     * one of them is about the present. Saying "your auto-reply is running, saving will stop it"
+     * on mere existence is false on an account whose active script is a third one (`roundcube`,
+     * `managesieve`), and false again when the refusal came from a `sterna` script we could not
+     * read rather than from any foreign script at all.
+     */
+    val vacationScriptActive: Boolean = false,
     /**
      * Some script OTHER than `sterna` is the active one — so a save, which activates Sterna's
      * script, switches that other one off. Read from the same script list as the rest: no
@@ -125,10 +140,18 @@ enum class ForeignScriptNotice {
     ANOTHER_SCRIPT,
 
     /**
-     * The other active script is, on the evidence available, the vacation responder's — so what
-     * Save costs is the auto-reply, and that is what the line must say.
+     * The `vacation` script IS the active one: the auto-reply is running, so what Save costs is
+     * the auto-reply, and that is what the line must say.
      */
     STOPS_AUTO_REPLY,
+
+    /**
+     * This account has a `sterna` script nobody could parse. Until now the only thing said about
+     * it was one of the two lines above — a sentence about somebody else's script, or about an
+     * auto-reply — and neither names what a save would actually do here: replace content no one
+     * has read.
+     */
+    UNREADABLE_SCRIPT,
 }
 
 /**
@@ -140,18 +163,80 @@ enum class ForeignScriptNotice {
  * ever calls the auto-reply a *filter script*, so the sentence named the cause and hid the
  * consequence, above a button this release opens without any edit having been made.
  *
- * [vacationScriptExists] is the same evidence [filterScriptWarning] already predicts on: a script
- * named [VACATION_SCRIPT_NAME] beside ours. It does not prove that script is the active one, so
- * the wording promised is about the responder stopping, never about which script is running.
+ * The order of the guards is the whole content:
+ * - [scriptUnreadable] FIRST, before anything about another script. It is the only state where
+ *   pressing Save destroys something: the account's own script holds content this app could not
+ *   parse, and a save rewrites the whole script from the list on screen. The user is entitled to
+ *   read THAT before she reads what the save costs the auto-reply — and the cause is otherwise
+ *   invisible, since it reaches this screen folded into the same flag as "another script is
+ *   active" (the fold is deliberate, it is what keeps the write refused elsewhere).
+ * - no foreign script active: our own script is the active one, nothing to say.
+ * - [vacationScriptActive]: the `vacation` script is the one running, so what Save switches off
+ *   is the auto-reply. ACTIVITY, not existence — an inactive `vacation` script sitting beside a
+ *   third active one would otherwise make the app accuse the responder of something another
+ *   script is doing, and an unreadable `sterna` script with nothing foreign active at all would
+ *   make it promise a stop that never happens.
+ * - anything else foreign and active: the generic line, which claims nothing about whose it is.
  *
- * It REPLACES the generic line rather than adding to it: two red sentences stacked above one
- * button is how both stop being read.
+ * ONE line out of these three, never two: they all sit above one button, and two red sentences
+ * over one button is how both stop being read. ⚠ That promise is about THIS decision only. The
+ * filters screen also carries [FilterScriptWarning.RULES_NOT_RUNNING] above it, from a different
+ * fact, and during an absence the two DO stack — truthfully: the rules are stopped, and saving
+ * would stop the auto-reply.
  */
-fun foreignScriptNotice(foreignActive: Boolean, vacationScriptExists: Boolean): ForeignScriptNotice? = when {
+fun foreignScriptNotice(
+    scriptUnreadable: Boolean,
+    foreignActive: Boolean,
+    vacationScriptActive: Boolean,
+): ForeignScriptNotice? = when {
+    scriptUnreadable -> ForeignScriptNotice.UNREADABLE_SCRIPT
     !foreignActive -> null
-    vacationScriptExists -> ForeignScriptNotice.STOPS_AUTO_REPLY
+    vacationScriptActive -> ForeignScriptNotice.STOPS_AUTO_REPLY
     else -> ForeignScriptNotice.ANOTHER_SCRIPT
 }
+
+/** Which sentence the RESPONDER screen puts at its head, or null for none. */
+enum class VacationFilterLine {
+    /** The rules are not running, and the way to put them back is named. */
+    RULES_NOT_RUNNING_WITH_REMEDY,
+
+    /** The rules are not running. The fact alone: the remedy would undo this very screen. */
+    RULES_NOT_RUNNING_FACT,
+
+    /** Switching the responder on will suspend the rules. */
+    RESPONDER_WILL_SUSPEND_RULES,
+}
+
+/**
+ * Which of the two "not running" sentences the responder screen shows, given what its own switch
+ * says.
+ *
+ * The remedy — "you can put them back in Settings → Filters" — was printed on
+ * [FilterScriptWarning.RULES_NOT_RUNNING] with no condition at all. But while the user is AWAY
+ * that warning is true *because the responder is running*, so the screen whose switch reads ON
+ * was offering, in the same breath, the one gesture that switches it back OFF, without saying so:
+ * Save on the filters screen activates Sterna's script, and a server keeps one active script per
+ * account.
+ *
+ * So the remedy is offered only when the responder is known OFF — the return from holiday, which
+ * is the case it was written for. With the responder on, the screen states the fact and stops
+ * there: [FilterScriptWarning] does not change, the sentence does.
+ *
+ * @param responderEnabled what the switch on that screen shows. Not the server's copy: the
+ *   sentence sits three rows above the switch, and a sentence contradicting the widget beside it
+ *   is the same lie in the other direction.
+ */
+fun vacationFilterLine(warning: FilterScriptWarning?, responderEnabled: Boolean): VacationFilterLine? =
+    when (warning) {
+        null -> null
+        FilterScriptWarning.RESPONDER_WILL_SUSPEND_RULES -> VacationFilterLine.RESPONDER_WILL_SUSPEND_RULES
+        FilterScriptWarning.RULES_NOT_RUNNING ->
+            if (responderEnabled) {
+                VacationFilterLine.RULES_NOT_RUNNING_FACT
+            } else {
+                VacationFilterLine.RULES_NOT_RUNNING_WITH_REMEDY
+            }
+    }
 
 /**
  * Whether [warning] is the statement of fact — the rules are on the server and not running.

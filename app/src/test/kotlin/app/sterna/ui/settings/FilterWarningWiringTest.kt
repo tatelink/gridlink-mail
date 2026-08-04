@@ -28,10 +28,39 @@ class FilterWarningWiringTest {
 
     @Test fun `the responder screen prints the statement of fact for the inactive script`() {
         assertTrue(
-            "SettingsScreen must map RULES_NOT_RUNNING to R.string.settings_vacation_filters_not_running " +
-                "— the responder screen states the problem and its own Save is grey, so its sentence " +
-                "is the one that has to say where the remedy is",
+            "SettingsScreen must map RULES_NOT_RUNNING_WITH_REMEDY to " +
+                "R.string.settings_vacation_filters_not_running — the responder screen states the " +
+                "problem and its own Save is grey, so its sentence is the one that has to say " +
+                "where the remedy is",
             ARM_NOT_RUNNING.containsMatchIn(text(SETTINGS_SCREEN)),
+        )
+    }
+
+    @Test fun `the responder screen chooses that sentence against its own switch`() {
+        // E3: the remedy — Save on the filters screen — switches the auto-reply OFF, and during an
+        // absence it was offered on the screen whose switch reads ON, saying nothing of the sort.
+        // Which sentence is vacationFilterLine(), executed in FilterStatusRefreshTest; pinned here
+        // is the ARGUMENT, because passing `false` (or the server's copy, or nothing at all) puts
+        // the remedy straight back under a running responder with every executed test still green.
+        val source = text(SETTINGS_SCREEN)
+        assertTrue(
+            "the responder screen must ask 'vacationFilterLine(state.filterWarning, " +
+                "responderEnabled = state.enabled)' — the switch the user is looking at",
+            Regex(
+                "vacationFilterLine\\(state\\.filterWarning, responderEnabled = state\\.enabled\\)",
+            ).containsMatchIn(source),
+        )
+        assertTrue(
+            "the fact-only case must print R.string.settings_filters_not_running: the same words " +
+                "the filters screen uses for the same state, minus the path that would undo this " +
+                "screen. No new string, and no silence either",
+            ARM_FACT_ONLY.containsMatchIn(source),
+        )
+        assertTrue(
+            "the responder screen must not choose its sentence from the raw warning any more: a " +
+                "'FilterScriptWarning.RULES_NOT_RUNNING ->' arm here is the unconditional remedy " +
+                "written back",
+            "FilterScriptWarning.RULES_NOT_RUNNING ->" !in source,
         )
     }
 
@@ -46,7 +75,7 @@ class FilterWarningWiringTest {
 
     @Test fun `the responder screen prints the prediction only for the other case`() {
         assertTrue(
-            "SettingsScreen must map RESPONDER_WILL_SUSPEND_RULES to " +
+            "SettingsScreen must map VacationFilterLine.RESPONDER_WILL_SUSPEND_RULES to " +
                 "R.string.settings_vacation_suspends_filters",
             ARM_WILL_SUSPEND.containsMatchIn(text(SETTINGS_SCREEN)),
         )
@@ -84,18 +113,27 @@ class FilterWarningWiringTest {
     @Test fun `the filters screen chooses its foreign-script line through the tested decision`() {
         val source = text(FILTERS_SCREEN)
         assertTrue(
-            "FiltersScreen must ask foreignScriptNotice(...) with BOTH facts: without " +
-                "vacationScriptExists the line falls back to \"another filter script is active\", " +
-                "which names the cause and hides what pressing Save costs",
+            "FiltersScreen must ask foreignScriptNotice(...) with ALL THREE facts, in the state's " +
+                "own words: without scriptUnreadable the one line that names the overwrite can " +
+                "never appear, and without vacationScriptActive the line falls back to \"another " +
+                "filter script is active\", which names the cause and hides what Save costs",
             Regex(
-                "foreignScriptNotice\\(\\s*foreignActive = state\\.foreignActive,\\s*" +
-                    "vacationScriptExists = state\\.vacationScriptExists,",
+                "foreignScriptNotice\\(\\s*scriptUnreadable = state\\.scriptUnreadable,\\s*" +
+                    "foreignActive = state\\.foreignActive,\\s*" +
+                    "vacationScriptActive = state\\.vacationScriptActive,",
             ).containsMatchIn(source),
         )
         assertTrue(
             "the auto-reply case must print R.string.settings_filters_stops_auto_reply",
             Regex(
                 "ForeignScriptNotice\\.STOPS_AUTO_REPLY\\s*->\\s*R\\.string\\.settings_filters_stops_auto_reply",
+            ).containsMatchIn(source),
+        )
+        assertTrue(
+            "and the unreadable case must print R.string.settings_filters_unreadable — the only " +
+                "sentence that says a save will REPLACE what is on the server",
+            Regex(
+                "ForeignScriptNotice\\.UNREADABLE_SCRIPT\\s*->\\s*R\\.string\\.settings_filters_unreadable",
             ).containsMatchIn(source),
         )
         assertTrue(
@@ -141,6 +179,12 @@ class FilterWarningWiringTest {
                 "failed to parse, so passing false there loses the refusal that protects it",
             Regex("foreignFromRulesRead = result\\.foreignActiveScript").containsMatchIn(source),
         )
+        assertTrue(
+            "…and WHICH refusal it was (`unreadableFromRulesRead = result.scriptUnreadable`): the " +
+                "same read is the only place that fact exists, and dropped here the screen goes " +
+                "back to saying \"another script is active\" over a script it could not parse",
+            Regex("unreadableFromRulesRead = result\\.scriptUnreadable").containsMatchIn(source),
+        )
     }
 
     @Test fun `the prediction is gated on what the server holds, never on a literal`() {
@@ -180,8 +224,12 @@ class FilterWarningWiringTest {
 
     private companion object {
         val ARM_NOT_RUNNING = Regex(
-            "FilterScriptWarning\\.RULES_NOT_RUNNING\\s*->\\s*stringResource\\(\\s*" +
+            "VacationFilterLine\\.RULES_NOT_RUNNING_WITH_REMEDY\\s*->\\s*stringResource\\(\\s*" +
                 "R\\.string\\.settings_vacation_filters_not_running,",
+        )
+        val ARM_FACT_ONLY = Regex(
+            "VacationFilterLine\\.RULES_NOT_RUNNING_FACT\\s*->\\s*stringResource\\(" +
+                "R\\.string\\.settings_filters_not_running\\)",
         )
         val ARG_MENU = Regex("stringResource\\(R\\.string\\.inbox_settings\\)")
         val ARG_FILTERS = Regex("stringResource\\(R\\.string\\.settings_filters_title\\)")
@@ -189,7 +237,7 @@ class FilterWarningWiringTest {
             ARM_NOT_RUNNING.pattern + "\\s*" + ARG_MENU.pattern + ",\\s*" + ARG_FILTERS.pattern + ",",
         )
         val ARM_WILL_SUSPEND = Regex(
-            "FilterScriptWarning\\.RESPONDER_WILL_SUSPEND_RULES\\s*->\\s*" +
+            "VacationFilterLine\\.RESPONDER_WILL_SUSPEND_RULES\\s*->\\s*" +
                 "stringResource\\(R\\.string\\.settings_vacation_suspends_filters\\)",
         )
 

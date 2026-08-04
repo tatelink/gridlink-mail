@@ -797,8 +797,19 @@ sealed interface FilterRulesState {
     data object Unsupported : FilterRulesState
     data class Loaded(
         val rules: List<FilterRule>,
-        /** True if another script (not Sterna's) is the active one — saving will take over. */
+        /**
+         * True if the write must be refused: another script (not Sterna's) is the active one and
+         * saving will take it over, OR this account's own `sterna` script could not be parsed and
+         * saving would replace content nobody read. The two ADD UP here, deliberately (see
+         * [app.sterna.core.data.filter.loadedFilterRules]).
+         */
         val foreignActiveScript: Boolean = false,
+        /**
+         * The second of those two causes, kept apart from the first so a screen can NAME it. It
+         * cannot be recovered from the script list — that list carries names and active flags,
+         * never content — so it travels from this read or it is lost.
+         */
+        val scriptUnreadable: Boolean = false,
     ) : FilterRulesState
 }
 
@@ -5474,9 +5485,18 @@ class MailRepository(
             }
             val scripts = client.getSieveScripts(ctx.session, ctx.accountId, ctx.auth)
             val vacation = scripts.any { it.name == VACATION_SCRIPT_NAME }
+            // Existence and activity are two different facts read off the same object, one line
+            // apart and at no extra cost: the prediction needs the first (this server puts the
+            // responder in a Sieve script), the red line above Save needs the second (that script
+            // is the one running right now, so Save is what stops it).
+            val vacationActive = scripts.any { it.name == VACATION_SCRIPT_NAME && it.isActive }
             val foreign = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }
             val managed = scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }
-                ?: return@runCatching FilterScriptStatus(vacationScriptExists = vacation, foreignActive = foreign)
+                ?: return@runCatching FilterScriptStatus(
+                    vacationScriptExists = vacation,
+                    vacationScriptActive = vacationActive,
+                    foreignActive = foreign,
+                )
             val bytes = client.downloadBlob(
                 ctx.session, ctx.accountId, managed.blobId, "application/sieve", "sterna.siv", ctx.auth,
             )
@@ -5485,6 +5505,7 @@ class MailRepository(
                 scriptActive = managed.isActive,
                 enabledRuleCount = enabledRuleCount(SieveCodec.parseRules(bytes.toString(Charsets.UTF_8))),
                 vacationScriptExists = vacation,
+                vacationScriptActive = vacationActive,
                 foreignActive = foreign,
             )
         }.getOrElseUnlessCancelled { null }

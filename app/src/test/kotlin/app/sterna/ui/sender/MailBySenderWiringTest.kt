@@ -20,7 +20,9 @@ import java.io.File
  * spinner nor is drawn as a count of zero; that the in-flight flag comes down on every way out;
  * that no read reports a cancellation as a failure; that the script is only ever saved as
  * [app.sterna.core.data.filter.addBlockRule]'s `save` callback, with a `load` that goes to the
- * server at the moment of writing; and that nothing in this package can name a permanent destroy.
+ * server at the moment of writing; that the rule dialog is BOUND to the row it was opened over and
+ * that the ViewModel writes for the sender it was handed; and that nothing in this package can name
+ * a permanent destroy.
  *
  * WHICH entries a menu holds, and which of them are tappable, is NOT read here: it is
  * [senderMenuEntries], and [MailBySenderTest] runs it. What is read here is the call — because
@@ -350,6 +352,45 @@ class MailBySenderWiringTest {
         assertTrue(
             "the delete's dialog must have nothing to do with the rule. Dialog was:\n$delete",
             "blockSender" !in delete,
+        )
+    }
+
+    /**
+     * ⛔ The address the write actually goes to, on both sides of the hand-over. TWO mutations of
+     * an ARGUMENT sent the Sieve rule to `state.rows.first()` — the biggest sender of the list,
+     * i.e. the most active correspondent — while the dialog kept showing the address the user
+     * picked and the snackbar still said "Rule added". A permanent server-side write, no Undo, on
+     * an address nobody chose, under a confirmation that lies. Every assertion in this file
+     * stayed green, because both mutations keep the call and only change what it is handed.
+     *
+     * SOURCE LINT: it proves where the words are, never that a finger reaches them. What it pins
+     * is that ONE value travels from the row the menu was opened over to the JMAP write:
+     * `confirmRule` → `ruleFor` (title, confirm button) → `blockSender(sender)` → `address`.
+     */
+    @Test fun `the dialog is bound to the row it was opened over`() {
+        // The WHOLE line, not a substring of it: `"val ruleFor = confirmRule" in screen` passes
+        // over `val ruleFor = confirmRule?.let { state.rows.first() }`, which is the mutation this
+        // rule exists for — it survived the first version of this very test.
+        val bound = codeLines(SCREEN).map { it.trim() }.filter { it.startsWith("val ruleFor") }
+        assertEquals(
+            "the dialog's row must be the confirmation itself and nothing else, bound as exactly " +
+                "'val ruleFor = confirmRule'. This BINDING is the gap: every other rule here pins " +
+                "`ruleFor` where it is USED, so re-binding it to any other row keeps the title, " +
+                "the confirm button and the write perfectly consistent with each other — and all " +
+                "of them about a sender the user never pointed at.",
+            listOf("val ruleFor = confirmRule"),
+            bound,
+        )
+    }
+
+    /** The other end of the same hand-over, in the ViewModel: what the JMAP write is aimed at. */
+    @Test fun `the written rule names the sender the ViewModel was handed`() {
+        val body = functionBody(VIEW_MODEL, "blockSender")
+        assertTrue(
+            "blockSender must write for the sender it was HANDED, as 'address = sender.email' — " +
+                "one argument away from `_state.value.rows.first().email`, which is the list's " +
+                "biggest sender: the most active correspondent, silently, for ever. Body was:\n$body",
+            "address = sender.email," in body,
         )
     }
 

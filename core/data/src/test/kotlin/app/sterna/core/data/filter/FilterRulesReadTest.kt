@@ -48,6 +48,36 @@ class FilterRulesReadTest {
             "a script we cannot read must refuse the write, not look like an empty one",
             state.foreignActiveScript,
         )
+        assertTrue(
+            "…and it must say WHICH of the two refusals it is: folded into foreignActiveScript " +
+                "alone, the filters screen can only show a sentence about somebody else's script",
+            state.scriptUnreadable,
+        )
+    }
+
+    /**
+     * The two causes are told apart on the way out even though they add up on the way in. Without
+     * this, "unreadable" is indistinguishable from "another script is active" and the screen keeps
+     * announcing the wrong cost.
+     */
+    @Test fun `only the unreadable script raises the unreadable flag`() {
+        assertFalse(
+            "another active script says nothing about whether OURS could be read",
+            loadedFilterRules(SieveCodec.generate(listOf(rule)), otherActiveScript = true).scriptUnreadable,
+        )
+        assertFalse(
+            "no script at all is not an unreadable one",
+            loadedFilterRules(null, otherActiveScript = true).scriptUnreadable,
+        )
+        assertFalse(
+            "a blank script holds nothing to lose",
+            loadedFilterRules("  ", otherActiveScript = false).scriptUnreadable,
+        )
+        assertTrue(
+            "broken metadata is unreadable, whatever else is running",
+            loadedFilterRules("# STERNA-RULES-V1: {oops\nif true { keep; }", otherActiveScript = true)
+                .scriptUnreadable,
+        )
     }
 
     /** Marker present but its JSON broken: same refusal. Half a script is not zero rules. */
@@ -109,6 +139,17 @@ class FilterRulesReadTest {
         assertTrue(
             "the other-script question must still be asked of the OTHER scripts",
             body.contains("otherActiveScript = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }"),
+        )
+        // Measured: adding `&& it.isActive` to this selection left the whole suite green, and it
+        // reopens the very bug above — an unreadable script that is merely INACTIVE is then not
+        // seen at all, so the gesture is offered and the save recompiles the script from an empty
+        // list. The same edit also reports zero rules for a healthy but inactive script, which is
+        // the state the return from holiday leaves every account in.
+        assertTrue(
+            "the account's own script must be selected BY NAME ALONE, as `val managed = scripts" +
+                ".firstOrNull { it.name == SieveCodec.SCRIPT_NAME }`: a script that is not the " +
+                "active one is still the script this save would overwrite",
+            body.contains("val managed = scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }"),
         )
         assertFalse(
             "the state must come from loadedFilterRules, not be assembled beside it",
