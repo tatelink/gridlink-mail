@@ -1,16 +1,17 @@
 package app.sterna.core.data.filter
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
 /**
- * The two decisions the filters and responder screens make ON TOP of [filterScriptWarning]:
- * what a status read that FAILED does to what is on screen ([refreshedFilterWarning]), and which
- * red line goes above the Save button when saving would switch another script off
- * ([foreignScriptNotice]).
+ * The decisions the filters and responder screens make ON TOP of [filterScriptWarning]: what a
+ * status read that FAILED does to what is on screen ([refreshedFilterWarning]), which red line
+ * goes above the Save button when saving would switch another script off ([foreignScriptNotice]),
+ * and whether the empty rule list is worth a sentence of its own ([showsNoRulesNote]).
  *
  * Both are executed here, not read out of the source: they are plain functions, so there is no
  * excuse for a lint. The screens that call them are a composable and two `Application`-bound view
@@ -341,8 +342,16 @@ class FilterStatusRefreshTest {
 
     @Test
     fun `the prediction is the same sentence whatever the switch says`() {
-        // It is only ever produced with the responder off (filterScriptWarning refuses to predict
-        // otherwise), and it is about the switch rather than about a remedy: nothing to choose.
+        // Both switch positions are REACHED on screen, contrary to what this test used to claim.
+        // The warning is only ever PRODUCED with the responder off (filterScriptWarning refuses to
+        // predict to somebody who has already done the thing predicted), but production and
+        // display are not the same moment: VacationViewModel computes filterWarning at load and
+        // after a save, and `setEnabled` (VacationViewModel.kt) only copies `enabled`. So the
+        // instant the user flips the switch to ON without saving, SettingsScreen is calling
+        // vacationFilterLine(RESPONDER_WILL_SUSPEND_RULES, responderEnabled = true) — a prediction
+        // sitting above a switch that reads ON. The sentence is about the switch rather than about
+        // a remedy, so it stays the same one and says nothing false in that state; that is the
+        // behaviour pinned here, not an unreachable pair.
         for (enabled in listOf(true, false)) {
             assertEquals(
                 VacationFilterLine.RESPONDER_WILL_SUSPEND_RULES,
@@ -364,6 +373,44 @@ class FilterStatusRefreshTest {
         }
     }
 
+    // ---- showsNoRulesNote: an empty list is not always "no rules yet" ------------------------
+
+    /**
+     * ⛔ THE CONTRADICTION. Over an unreadable `sterna` script the rule list is empty *because
+     * nothing could be read out of it*, and the screen printed, one line under the other: "Sterna
+     * Mail cannot read this account's filter script; saving will replace it." then "No rules yet.
+     * Add one to filter incoming mail on the server." The second sentence is the false one, and it
+     * is the reassuring one.
+     */
+    @Test
+    fun `an unreadable script does not also claim there are no rules`() {
+        assertFalse(
+            "the warning above already said what the empty list means; repeating it as \"no rules " +
+                "yet\" contradicts it, and invites the very save that replaces the script",
+            showsNoRulesNote(ruleCount = 0, scriptUnreadable = true),
+        )
+    }
+
+    /** The witness: the ordinary empty account still gets told what to do. */
+    @Test
+    fun `an empty list on a readable script still says there are no rules`() {
+        assertTrue(
+            "a readable account with nothing in it is the case the sentence was written for — " +
+                "silencing it leaves a screen with a lone Add button and no explanation",
+            showsNoRulesNote(ruleCount = 0, scriptUnreadable = false),
+        )
+    }
+
+    @Test
+    fun `rules on screen say nothing about an empty list, unreadable or not`() {
+        for (unreadable in listOf(true, false)) {
+            assertFalse(
+                "rules are listed: the sentence is about their absence. unreadable=$unreadable",
+                showsNoRulesNote(ruleCount = 1, scriptUnreadable = unreadable),
+            )
+        }
+    }
+
     // ---- the read itself, out of the shipped source: a LAST RESORT, not the proof ----
 
     /**
@@ -376,50 +423,61 @@ class FilterStatusRefreshTest {
      * So the ARGUMENTS are pinned, and only the ones no executed test can reach: which scripts the
      * question is asked of, that the answer travels into BOTH the states this function can return,
      * and that a failed read is `null` while an IMAP account or a server without Sieve is not.
+     *
+     * ⛔ What a `contains` — or a `Regex` counted over the body — does NOT prove: both are
+     * satisfied by every mutation that makes the line LONGER. `&& false` appended to any of the
+     * three questions below leaves the asserted text exactly where it was, and that is how three
+     * mutations crossed the first version of this lint with the suite green. Each of those lines
+     * is therefore compared WHOLE, the way
+     * `MailBySenderWiringTest.the dialog is bound to the row it was opened over` does.
      */
     @Test fun `the status read fills the foreign flag from the other scripts, and fails to null`() {
         val body = loadFilterScriptStatusBody()
-        assertTrue(
-            "the other-script question must be asked of the OTHER scripts: with `false` written " +
-                "here the warning above Save can never name the auto-reply",
-            body.contains("val foreign = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }"),
+        assertEquals(
+            "the other-script question must be asked of the OTHER scripts and of nothing else, as " +
+                "exactly `val foreign = scripts.any { it.isActive && it.name != SieveCodec" +
+                ".SCRIPT_NAME }`: with `false` — or with `&& false` hung off the end of it — the " +
+                "warning above Save can never name the auto-reply",
+            listOf("val foreign = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }"),
+            declarationsOf(body, "foreign"),
         )
         // Measured, not supposed: `val vacation = false` here left the ENTIRE suite green while
         // deleting both sentences this lot is about — the red line above Save and the prediction
         // on the responder screen. Every executed test is handed booleans; not one travels
         // through this line.
-        assertTrue(
-            "the vacation script must be looked for BY NAME in the list, as `val vacation = " +
-                "scripts.any { it.name == VACATION_SCRIPT_NAME }` — this is the EXISTENCE the " +
+        assertEquals(
+            "the vacation script must be looked for BY NAME in the list, as exactly `val vacation " +
+                "= scripts.any { it.name == VACATION_SCRIPT_NAME }` — this is the EXISTENCE the " +
                 "prediction \"turning the auto-reply on will suspend your rules\" rests on, and " +
-                "a constant here makes that prediction permanently mute",
-            body.contains("val vacation = scripts.any { it.name == VACATION_SCRIPT_NAME }"),
+                "a constant (or a `&& false` tacked on) makes that prediction permanently mute",
+            listOf("val vacation = scripts.any { it.name == VACATION_SCRIPT_NAME }"),
+            declarationsOf(body, "vacation"),
         )
-        assertTrue(
-            "…and its ACTIVITY must be a second question on the same list, as `val vacationActive " +
-                "= scripts.any { it.name == VACATION_SCRIPT_NAME && it.isActive }`: existence is " +
-                "not activity, and the line above Save claims the auto-reply is running NOW",
-            body.contains(
-                "val vacationActive = scripts.any { it.name == VACATION_SCRIPT_NAME && it.isActive }",
-            ),
+        assertEquals(
+            "…and its ACTIVITY must be a second question on the same list, as exactly `val " +
+                "vacationActive = scripts.any { it.name == VACATION_SCRIPT_NAME && it.isActive }`: " +
+                "existence is not activity, and the line above Save claims the auto-reply is " +
+                "running NOW",
+            listOf("val vacationActive = scripts.any { it.name == VACATION_SCRIPT_NAME && it.isActive }"),
+            declarationsOf(body, "vacationActive"),
         )
         assertEquals(
             "existence travels into both states this can return — the one with a `sterna` script " +
-                "and the one without",
-            2,
-            Regex("vacationScriptExists = vacation\\b").findAll(body).count(),
+                "and the one without — as the value itself, nothing appended to it",
+            listOf("vacationScriptExists = vacation,", "vacationScriptExists = vacation,"),
+            assignmentsOf(body, "vacationScriptExists"),
         )
         assertEquals(
-            "…and so does activity: dropped from either, the account that has it lands on the " +
-                "generic line that names no consequence",
-            2,
-            Regex("vacationScriptActive = vacationActive\\b").findAll(body).count(),
+            "…and so does activity: dropped from either, or narrowed on the way, the account that " +
+                "has it lands on the generic line that names no consequence",
+            listOf("vacationScriptActive = vacationActive,", "vacationScriptActive = vacationActive,"),
+            assignmentsOf(body, "vacationScriptActive"),
         )
         assertEquals(
             "both states this can return carry the answer — the one with a `sterna` script and " +
                 "the one without. Dropped from either, the screen goes quiet on that account",
-            2,
-            Regex("foreignActive = foreign\\b").findAll(body).count(),
+            listOf("foreignActive = foreign,", "foreignActive = foreign,"),
+            assignmentsOf(body, "foreignActive"),
         )
         assertTrue(
             "a FAILED read must answer null: read as the \"nothing known\" value it erases the " +
@@ -431,6 +489,42 @@ class FilterStatusRefreshTest {
                 "screen happened to be showing",
             body.contains("if (credentials.protocol == MailProtocol.IMAP) return FilterScriptStatus()"),
         )
+    }
+
+    /**
+     * Every WHOLE line of [body] declaring `val [name]`, trimmed, comments dropped.
+     *
+     * The instrument of `MailBySenderWiringTest`: the line, never a substring of it. A list, not a
+     * single value, so that a second declaration of the same name fails the comparison rather than
+     * hiding behind the first.
+     */
+    private fun declarationsOf(body: String, name: String): List<String> =
+        codeLines(body).filter { it.substringBefore(" =") == "val $name" }
+
+    /** Every WHOLE line of [body] that passes something as the named argument [name]. */
+    private fun assignmentsOf(body: String, name: String): List<String> =
+        codeLines(body).filter { it.substringBefore(" =") == name }
+
+    /** [body] as trimmed code lines: comment lines dropped whole, trailing comments cut. */
+    private fun codeLines(body: String): List<String> = body.lines().mapNotNull { line ->
+        val code = line.trim()
+        if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) null
+        else withoutTrailingComment(code).takeIf { it.isNotBlank() }
+    }
+
+    private fun withoutTrailingComment(line: String): String {
+        var inString = false
+        var i = 0
+        while (i < line.length) {
+            val c = line[i]
+            when {
+                inString && c == '\\' -> i++
+                c == '"' -> inString = !inString
+                !inString && c == '/' && line.getOrNull(i + 1) == '/' -> return line.substring(0, i).trimEnd()
+            }
+            i++
+        }
+        return line.trimEnd()
     }
 
     /** The body of `MailRepository.loadFilterScriptStatus`, from its signature to the next block. */

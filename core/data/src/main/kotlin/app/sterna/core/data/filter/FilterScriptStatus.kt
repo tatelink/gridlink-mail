@@ -195,6 +195,22 @@ fun foreignScriptNotice(
     else -> ForeignScriptNotice.ANOTHER_SCRIPT
 }
 
+/**
+ * Whether the filters screen prints "No rules yet. Add one to filter incoming mail on the server."
+ *
+ * An empty list is the reason for that sentence, but not always the truth behind it. When the
+ * account's own script could not be parsed the rule list is empty *because nothing could be read
+ * out of it* — and [ForeignScriptNotice.UNREADABLE_SCRIPT] is already on screen, one line above,
+ * saying a save would replace content this app cannot read. Printing "No rules yet" under it makes
+ * the screen contradict itself in two consecutive sentences, and the reassuring one is the false
+ * one: there may well be rules, running, that this app cannot show.
+ *
+ * So the warning speaks alone. No new string and no new state: [scriptUnreadable] is the same flag
+ * the notice above is chosen from.
+ */
+fun showsNoRulesNote(ruleCount: Int, scriptUnreadable: Boolean): Boolean =
+    ruleCount == 0 && !scriptUnreadable
+
 /** Which sentence the RESPONDER screen puts at its head, or null for none. */
 enum class VacationFilterLine {
     /** The rules are not running, and the way to put them back is named. */

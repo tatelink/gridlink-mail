@@ -125,6 +125,12 @@ class FilterRulesReadTest {
      * So the ARGUMENTS are pinned, not the fact that a function of the right name is called: that
      * the blob it downloaded is what gets handed over, and that the answer is no longer assembled
      * on the spot from `parseRules`. A rename fails this loudly rather than quietly passing.
+     *
+     * ⛔ What a `contains` does NOT prove: a substring is satisfied by every mutation that makes
+     * the line LONGER. `val managed = scripts.firstOrNull { … }?.takeIf { it.isActive }` contains
+     * the text asserted below and walked straight past the first version of this lint. The line
+     * that carries the selection is therefore compared WHOLE, the way
+     * `MailBySenderWiringTest.the dialog is bound to the row it was opened over` does.
      */
     @Test fun `the repository hands the decision the script it downloaded`() {
         val body = loadFilterRulesBody()
@@ -140,21 +146,57 @@ class FilterRulesReadTest {
             "the other-script question must still be asked of the OTHER scripts",
             body.contains("otherActiveScript = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }"),
         )
-        // Measured: adding `&& it.isActive` to this selection left the whole suite green, and it
-        // reopens the very bug above — an unreadable script that is merely INACTIVE is then not
+        // Measured: narrowing this selection to the ACTIVE script left the whole suite green, and
+        // it reopens the very bug above — an unreadable script that is merely INACTIVE is then not
         // seen at all, so the gesture is offered and the save recompiles the script from an empty
         // list. The same edit also reports zero rules for a healthy but inactive script, which is
-        // the state the return from holiday leaves every account in.
-        assertTrue(
-            "the account's own script must be selected BY NAME ALONE, as `val managed = scripts" +
-                ".firstOrNull { it.name == SieveCodec.SCRIPT_NAME }`: a script that is not the " +
-                "active one is still the script this save would overwrite",
-            body.contains("val managed = scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }"),
+        // the state the return from holiday leaves every account in. Measured again on this lint:
+        // `?.takeIf { it.isActive }` appended to the line CONTAINS the text that used to be
+        // asserted, so the whole line is compared instead.
+        assertEquals(
+            "the account's own script must be selected BY NAME ALONE, as exactly `val managed = " +
+                "scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }` and nothing more on " +
+                "that line: a script that is not the active one is still the script this save " +
+                "would overwrite",
+            listOf("val managed = scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }"),
+            declarationsOf(body, "managed"),
         )
         assertFalse(
             "the state must come from loadedFilterRules, not be assembled beside it",
             body.contains("FilterRulesState.Loaded("),
         )
+    }
+
+    /**
+     * Every WHOLE line of [body] declaring `val [name]`, trimmed, comments dropped.
+     *
+     * The instrument of `MailBySenderWiringTest`: the line, never a substring of it. Returned as a
+     * list so that a second declaration of the same name — the other half of a mutation — fails
+     * the comparison instead of being hidden by the first.
+     */
+    private fun declarationsOf(body: String, name: String): List<String> =
+        codeLines(body).filter { it.substringBefore(" =") == "val $name" }
+
+    /** [body] as trimmed code lines: comment lines dropped whole, trailing comments cut. */
+    private fun codeLines(body: String): List<String> = body.lines().mapNotNull { line ->
+        val code = line.trim()
+        if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) null
+        else withoutTrailingComment(code).takeIf { it.isNotBlank() }
+    }
+
+    private fun withoutTrailingComment(line: String): String {
+        var inString = false
+        var i = 0
+        while (i < line.length) {
+            val c = line[i]
+            when {
+                inString && c == '\\' -> i++
+                c == '"' -> inString = !inString
+                !inString && c == '/' && line.getOrNull(i + 1) == '/' -> return line.substring(0, i).trimEnd()
+            }
+            i++
+        }
+        return line.trimEnd()
     }
 
     /** The body of `MailRepository.loadFilterRules`, from its signature to the next declaration. */

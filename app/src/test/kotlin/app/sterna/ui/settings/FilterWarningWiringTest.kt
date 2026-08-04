@@ -144,6 +144,31 @@ class FilterWarningWiringTest {
         )
     }
 
+    @Test fun `the filters screen asks the tested rule whether to say there are no rules`() {
+        // The decision is showsNoRulesNote(), executed in FilterStatusRefreshTest. Pinned here is
+        // the CONDITION, whole: written back as `state.rules.isEmpty()` the screen says "No rules
+        // yet. Add one…" straight under "Sterna Mail cannot read this account's filter script;
+        // saving will replace it", and every executed test stays green.
+        val condition = text(FILTERS_SCREEN).lines().map { it.trim() }
+            .filter { it.startsWith("showsNoRulesNote(") }
+        assertEquals(
+            "FiltersScreen must gate R.string.settings_filters_empty on exactly " +
+                "'showsNoRulesNote(ruleCount = state.rules.size, scriptUnreadable = " +
+                "state.scriptUnreadable) ->' — the count it is showing and the flag the warning " +
+                "above is chosen from. `scriptUnreadable = false` there is the contradiction " +
+                "written back with nothing to catch it",
+            listOf(
+                "showsNoRulesNote(ruleCount = state.rules.size, scriptUnreadable = state.scriptUnreadable) ->",
+            ),
+            condition,
+        )
+        assertTrue(
+            "…and the sentence it gates must still be the existing string: no new one, and no " +
+                "silence for the ordinary empty account",
+            "R.string.settings_filters_empty" in text(FILTERS_SCREEN),
+        )
+    }
+
     @Test fun `the filters view model folds a status read into the state, at load and after a save`() {
         // Written back as `it.copy(rulesNotRunning = ...)` here, the update leaves the reach of
         // every test again — and it is where it was wrong: two of the three facts were never

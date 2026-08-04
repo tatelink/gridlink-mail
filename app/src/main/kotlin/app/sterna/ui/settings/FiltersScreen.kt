@@ -46,6 +46,7 @@ import app.sterna.core.data.filter.ForeignScriptNotice
 import app.sterna.core.data.filter.RuleField
 import app.sterna.core.data.filter.RuleMatch
 import app.sterna.core.data.filter.foreignScriptNotice
+import app.sterna.core.data.filter.showsNoRulesNote
 
 /**
  * Server-side filter rules (JMAP Sieve) for the current account. Rules are
@@ -187,23 +188,29 @@ private fun FiltersList(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        if (state.rules.isEmpty()) {
-            Text(
-                stringResource(R.string.settings_filters_empty),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(16.dp),
-            )
-        } else {
-            state.rules.forEachIndexed { index, rule ->
+        when {
+            state.rules.isNotEmpty() -> {
+                state.rules.forEachIndexed { index, rule ->
+                    HorizontalDivider()
+                    RuleRow(
+                        rule = rule,
+                        onToggle = { viewModel.setRuleEnabled(index, it) },
+                        onEdit = { onEdit(index) },
+                    )
+                }
                 HorizontalDivider()
-                RuleRow(
-                    rule = rule,
-                    onToggle = { viewModel.setRuleEnabled(index, it) },
-                    onEdit = { onEdit(index) },
-                )
             }
-            HorizontalDivider()
+            // …and an empty list is not always "no rules". Over an unreadable script the line
+            // above already says a save would replace content nobody read; "No rules yet" under
+            // it is the same screen contradicting itself, reassuringly and wrongly. Which of the
+            // two speaks is showsNoRulesNote(), executed in FilterStatusRefreshTest.
+            showsNoRulesNote(ruleCount = state.rules.size, scriptUnreadable = state.scriptUnreadable) ->
+                Text(
+                    stringResource(R.string.settings_filters_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
         }
 
         OutlinedButton(onClick = onAdd, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
