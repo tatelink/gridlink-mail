@@ -154,8 +154,8 @@
     <string name="sender_volume_title">Mail by sender</string>
     <string name="sender_volume_empty">No mail stored on this phone.</string>
     <plurals name="sender_volume_cached">
-        <item quantity="one">%1$d message stored on this phone</item>
-        <item quantity="other">%1$d messages stored on this phone</item>
+        <item quantity="one">%1$d message of this account stored on this phone</item>
+        <item quantity="other">%1$d messages of this account stored on this phone</item>
     </plurals>
     <string name="sender_volume_scope">%1$s. Sent, Drafts, Trash and Spam are not counted, and neither are snoozed messages.</string>
     <plurals name="sender_volume_unread">

@@ -691,9 +691,9 @@
     <string name="sender_volume_title">Courrier par expéditeur</string>
     <string name="sender_volume_empty">Aucun message stocké sur ce téléphone.</string>
     <plurals name="sender_volume_cached">
-        <item quantity="one">%1$d message stocké sur ce téléphone</item>
-        <item quantity="many">%1$d de messages stockés sur ce téléphone</item>
-        <item quantity="other">%1$d messages stockés sur ce téléphone</item>
+        <item quantity="one">%1$d message de ce compte stocké sur ce téléphone</item>
+        <item quantity="many">%1$d de messages de ce compte stockés sur ce téléphone</item>
+        <item quantity="other">%1$d messages de ce compte stockés sur ce téléphone</item>
     </plurals>
     <string name="sender_volume_scope">%1$s. Les dossiers Envoyés, Brouillons, Corbeille et Spam ne sont pas comptés, ni les messages reportés.</string>
     <plurals name="sender_volume_unread">

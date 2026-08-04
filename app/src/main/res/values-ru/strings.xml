@@ -695,10 +695,10 @@
     <string name="sender_volume_title">Почта по отправителям</string>
     <string name="sender_volume_empty">На этом телефоне нет сохранённой почты.</string>
     <plurals name="sender_volume_cached">
-        <item quantity="one">%1$d письмо сохранено на этом телефоне</item>
-        <item quantity="few">%1$d письма сохранено на этом телефоне</item>
-        <item quantity="many">%1$d писем сохранено на этом телефоне</item>
-        <item quantity="other">%1$d писем сохранено на этом телефоне</item>
+        <item quantity="one">%1$d письмо этого аккаунта сохранено на этом телефоне</item>
+        <item quantity="few">%1$d письма этого аккаунта сохранено на этом телефоне</item>
+        <item quantity="many">%1$d писем этого аккаунта сохранено на этом телефоне</item>
+        <item quantity="other">%1$d писем этого аккаунта сохранено на этом телефоне</item>
     </plurals>
     <string name="sender_volume_scope">%1$s. Отправленные, Черновики, Корзина и Спам не учитываются, отложенные письма тоже.</string>
     <plurals name="sender_volume_unread">

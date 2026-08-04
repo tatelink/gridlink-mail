@@ -270,8 +270,125 @@ class MailBySenderWiringTest {
         )
     }
 
+    @Test fun `the server-side rule is written only from its own confirmation`() {
+        // SOURCE LINT, and a narrow one: it proves where the CALL sits, never that a dialog is
+        // drawn or that a finger can reach it. What it does pin is the argument — which row the
+        // rule is written for — and the one sentence that dialog exists for.
+        //
+        // The gesture reached the row menu with no confirmation at all: one tap wrote a permanent
+        // server-side rule, invisibly, with no Undo, while the SAME write from the reader went
+        // through a dialog. What the dialog adds is not the description of the effect (the menu
+        // entry's own label already says it) but sender_volume_block_body — "Nothing already
+        // received moves. The rule can be changed or removed in Settings → Filters": the sentence
+        // that says how to undo it. It is asserted here for that reason and not for tidiness.
+        val screen = code(SCREEN)
+        val dialogs = callArguments(screen, "AlertDialog")
+        assertEquals(
+            "the screen must draw TWO dialogs — the delete's and the rule's. Found ${dialogs.size}:" +
+                "\n${dialogs.joinToString("\n--\n")}",
+            2, dialogs.size,
+        )
+        val rule = dialogs.single { "R.string.sender_volume_block_title" in it }
+        val delete = dialogs.single { "pending" in it }
+        assertTrue(
+            "the rule dialog must name THE ROW's address in its title, as 'stringResource(" +
+                "R.string.sender_volume_block_title, ruleFor.email)'. A constant, or the screen's " +
+                "own anything, asks about one address and writes another. Dialog was:\n$rule",
+            "stringResource(R.string.sender_volume_block_title, ruleFor.email)" in rule,
+        )
+        val body = namedLambda(rule, "text")
+        listOf(
+            "R.string.sender_volume_block_body",
+            "R.string.inbox_settings",
+            "R.string.settings_filters_title",
+        ).forEach { expected ->
+            assertTrue(
+                "the rule dialog's body must be '$expected' — the sentence that says nothing " +
+                    "already received moves and where the rule can be removed, named by the " +
+                    "app's own localised labels. That sentence IS the dialog's reason to exist. " +
+                    "Body was:\n$body",
+                expected in body,
+            )
+        }
+        val confirm = namedLambda(rule, "confirmButton")
+        assertTrue(
+            "the write must leave from the confirm button, as 'viewModel.blockSender(ruleFor)' — " +
+                "the row the dialog was opened over. Confirm button was:\n$confirm",
+            "viewModel.blockSender(ruleFor)" in confirm,
+        )
+        assertTrue(
+            "…under this screen's own confirm label (R.string.sender_volume_block), the same one " +
+                "the reader's dialog uses. Confirm button was:\n$confirm",
+            "R.string.sender_volume_block)" in confirm,
+        )
+        assertTrue(
+            "…and it must close the dialog as it writes, as 'confirmRule = null': the half that " +
+                "is invisible in review. Left open over a write already gone, its button then " +
+                "returns at the ViewModel's `working` guard — a second tap that does nothing and " +
+                "says nothing, the defect this screen was audited for. Confirm button was:\n$confirm",
+            "confirmRule = null" in confirm,
+        )
+        val dismiss = namedLambda(rule, "dismissButton")
+        assertTrue(
+            "cancelling must write nothing and say so with R.string.inbox_cancel. Dismiss " +
+                "button was:\n$dismiss",
+            "blockSender" !in dismiss && "R.string.inbox_cancel" in dismiss,
+        )
+        assertEquals(
+            "…and nowhere else in the screen may call it: one call site, inside that confirm " +
+                "button. A second one is the tap that writes without asking — which is what this " +
+                "screen shipped with.",
+            1, Regex("""viewModel\.blockSender\(""").findAll(screen).count(),
+        )
+        val row = callArguments(screen, "SenderRow").single { "row = row" in it }
+        assertTrue(
+            "the menu entry must only ARM the confirmation, over its own row, as 'onBlock = { " +
+                "confirmRule = row }'. This is the argument, not the call: the call was there " +
+                "all along and went straight to the server. Call was:\n$row",
+            "onBlock = { confirmRule = row }," in row,
+        )
+        assertTrue(
+            "the delete's dialog must have nothing to do with the rule. Dialog was:\n$delete",
+            "blockSender" !in delete,
+        )
+    }
+
+    @Test fun `a delete that half worked is not announced as a total failure`() {
+        // The screen said "Couldn't complete the action" for a single rejected id and, in the
+        // next breath, counted the ones that DID go — two contradictory sentences about one
+        // gesture. Which of the three things there is to say is deleteMessageRes(), executed by
+        // MailBySenderTest; pinned here are the two numbers it is given, because the decision
+        // stays perfectly right while being handed the wrong pair.
+        val body = functionBody(VIEW_MODEL, "confirmDelete")
+        assertTrue(
+            "confirmDelete must ask 'deleteMessageRes(ids.size, result.failed.size)' — the list " +
+                "actually handed to the repository, and what came back rejected. Body was:\n$body",
+            "deleteMessageRes(ids.size, result.failed.size)" in body,
+        )
+        assertTrue(
+            "…and must decide nothing of its own from the rejected set: 'result.failed" +
+                ".isNotEmpty()' is the line that called one rejected id a total failure. Body " +
+                "was:\n$body",
+            "result.failed.isNotEmpty()" !in body,
+        )
+        assertTrue(
+            "…and must name no status string itself: which one is the decision's answer, and a " +
+                "second one written here is how the two parted company. Body was:\n$body",
+            "R.string.status_action" !in body,
+        )
+        assertTrue(
+            "…and the answer must actually be SHOWN, as '_message.value = getApplication<" +
+                "Application>().getString(it)': the decision is allowed to say nothing (NONE), so " +
+                "a body dropped from the ?.let is a total failure reported as silence, and every " +
+                "rule above stays green. Body was:\n$body",
+            "_message.value = getApplication<Application>().getString(it)" in body,
+        )
+    }
+
     @Test fun `the confirmation counts the list it will delete`() {
-        val dialog = callArguments(code(SCREEN), "AlertDialog").single()
+        // `.single { "pending" in it }` and not `.single()`: the screen draws a second dialog
+        // now, the rule's, and this rule is about the delete's.
+        val dialog = callArguments(code(SCREEN), "AlertDialog").single { "pending" in it }
         assertTrue(
             "the dialog's plural must be given pending.ids.size — the list its confirm button " +
                 "hands to the delete. The row's own total was read when the SCREEN loaded and can " +
@@ -479,6 +596,27 @@ class MailBySenderWiringTest {
             1, entries.size,
         )
         return entries.single()
+    }
+
+    /**
+     * The text of the `name = { … }` argument of a call, braces balanced — so a rule can ask what
+     * ONE slot of a dialog holds instead of what the dialog mentions somewhere. Fails loudly when
+     * the slot is gone: a rule quietly matching an empty string is worse than no rule.
+     */
+    private fun namedLambda(text: String, name: String): String {
+        val at = text.indexOf("$name = {")
+        check(at >= 0) { "no '$name = {' in:\n$text" }
+        val open = text.indexOf('{', at)
+        var depth = 0
+        var i = open
+        while (i < text.length) {
+            when (text[i]) {
+                '{' -> depth++
+                '}' -> if (--depth == 0) return text.substring(open, i + 1)
+            }
+            i++
+        }
+        error("unbalanced braces after '$name ='")
     }
 
     /**

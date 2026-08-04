@@ -691,9 +691,9 @@
     <string name="sender_volume_title">Posta per mittente</string>
     <string name="sender_volume_empty">Nessun messaggio salvato su questo telefono.</string>
     <plurals name="sender_volume_cached">
-        <item quantity="one">%1$d messaggio salvato su questo telefono</item>
-        <item quantity="many">%1$d di messaggi salvati su questo telefono</item>
-        <item quantity="other">%1$d messaggi salvati su questo telefono</item>
+        <item quantity="one">%1$d messaggio di questo account salvato su questo telefono</item>
+        <item quantity="many">%1$d di messaggi di questo account salvati su questo telefono</item>
+        <item quantity="other">%1$d messaggi di questo account salvati su questo telefono</item>
     </plurals>
     <string name="sender_volume_scope">%1$s. Inviati, Bozze, Cestino e Spam non sono conteggiati, né i messaggi posticipati.</string>
     <plurals name="sender_volume_unread">

@@ -689,8 +689,8 @@
     <string name="sender_volume_title">E-Mail nach Absender</string>
     <string name="sender_volume_empty">Keine E-Mails auf diesem Telefon gespeichert.</string>
     <plurals name="sender_volume_cached">
-        <item quantity="one">%1$d Nachricht auf diesem Telefon gespeichert</item>
-        <item quantity="other">%1$d Nachrichten auf diesem Telefon gespeichert</item>
+        <item quantity="one">%1$d Nachricht dieses Kontos auf diesem Telefon gespeichert</item>
+        <item quantity="other">%1$d Nachrichten dieses Kontos auf diesem Telefon gespeichert</item>
     </plurals>
     <string name="sender_volume_scope">%1$s. Gesendet, Entwürfe, Papierkorb und Spam werden nicht gezählt, zurückgestellte Nachrichten ebenso wenig.</string>
     <plurals name="sender_volume_unread">

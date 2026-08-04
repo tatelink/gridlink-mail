@@ -18,6 +18,8 @@ import app.sterna.core.data.mail.FilterRulesState
 import app.sterna.core.data.mail.MailRepository
 import app.sterna.core.data.mail.SenderVolume
 import app.sterna.core.jmap.model.Mailbox
+import app.sterna.ui.inbox.BulkOutcome
+import app.sterna.ui.inbox.bulkOutcome
 import app.sterna.ui.inbox.mailboxFilePath
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -317,6 +319,25 @@ data class SenderUndo(
 internal fun deletedCount(result: MailRepository.BulkResult): Int = result.succeeded.size
 
 /**
+ * What a finished delete has to SAY, as a string resource — or null when it has nothing to say.
+ *
+ * A batch of forty with one id rejected used to raise "Couldn't complete the action" and then, in
+ * the same breath, a snackbar counting the thirty-nine that went: two sentences contradicting each
+ * other about one gesture. [attempted] and [failed] go to [bulkOutcome], the inbox's own decision
+ * for the same question, so the two screens cannot drift apart — and the partial answer reaches
+ * `status_action_partly_failed`, a string that already exists in all nine languages and that this
+ * screen never used.
+ *
+ * Returns the resource id and not the text, so the decision runs in a plain JVM test:
+ * `MailBySenderViewModel` is an `AndroidViewModel` and cannot be instantiated in one.
+ */
+internal fun deleteMessageRes(attempted: Int, failed: Int): Int? = when (bulkOutcome(attempted, failed)) {
+    BulkOutcome.NONE -> null
+    BulkOutcome.PARTIAL -> R.string.status_action_partly_failed
+    BulkOutcome.TOTAL -> R.string.status_action_failed
+}
+
+/**
  * Backs "Mail by sender": what this phone holds, per sender, for the CURRENT account.
  *
  * Per account, like the Filters screen whose rules this screen writes into — a global screen
@@ -450,8 +471,11 @@ class MailBySenderViewModel(application: Application) : AndroidViewModel(applica
                 val result = runCatching { repo.deleteAll(credentials, ids) }
                     .getOrElse { MailRepository.BulkResult(emptySet(), ids.toSet()) }
                 val targets = restoreTargets(result.succeeded, sources, result.dest)
-                if (result.failed.isNotEmpty()) {
-                    _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+                // Partial and total are not the same news, and this screen used to tell both at
+                // once — see deleteMessageRes. `ids` is what the repository was handed; the
+                // rejected set is what came back.
+                deleteMessageRes(ids.size, result.failed.size)?.let {
+                    _message.value = getApplication<Application>().getString(it)
                 }
                 _undo.value = if (targets.isEmpty()) {
                     null

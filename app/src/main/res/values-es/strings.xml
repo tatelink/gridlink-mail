@@ -691,9 +691,9 @@
     <string name="sender_volume_title">Correo por remitente</string>
     <string name="sender_volume_empty">No hay correo almacenado en este teléfono.</string>
     <plurals name="sender_volume_cached">
-        <item quantity="one">%1$d mensaje almacenado en este teléfono</item>
-        <item quantity="many">%1$d de mensajes almacenados en este teléfono</item>
-        <item quantity="other">%1$d mensajes almacenados en este teléfono</item>
+        <item quantity="one">%1$d mensaje de esta cuenta almacenado en este teléfono</item>
+        <item quantity="many">%1$d de mensajes de esta cuenta almacenados en este teléfono</item>
+        <item quantity="other">%1$d mensajes de esta cuenta almacenados en este teléfono</item>
     </plurals>
     <string name="sender_volume_scope">%1$s. Enviados, Borradores, Papelera y Spam no se cuentan, ni los mensajes pospuestos.</string>
     <plurals name="sender_volume_unread">

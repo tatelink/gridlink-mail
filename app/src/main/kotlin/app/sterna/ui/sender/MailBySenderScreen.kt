@@ -68,6 +68,11 @@ fun MailBySenderScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val undo by viewModel.undo.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    // The row the rule is being confirmed for, or null. It lives here and not in the ViewModel
+    // because there is nothing to read before asking — the delete's confirmation carries the ids
+    // it materialised, this one carries a decision and an address. Same shape as the reader's
+    // (MessageScreen's `confirmRule`), for the same gesture.
+    var confirmRule by remember { mutableStateOf<SenderVolume?>(null) }
     val undoLabel = stringResource(R.string.inbox_undo)
     // Counted, not "Message deleted" in the singular for forty. The count is the offer's own
     // `deleted` — what the server confirmed it moved — and the plural is this screen's, not the
@@ -191,7 +196,7 @@ fun MailBySenderScreen(
                         working = state.working,
                         onSearch = { onOpenSearch(row.email) },
                         onDelete = { viewModel.askDelete(row) },
-                        onBlock = { viewModel.blockSender(row) },
+                        onBlock = { confirmRule = row },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
@@ -246,6 +251,36 @@ fun MailBySenderScreen(
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.cancelDelete() }) { Text(stringResource(R.string.inbox_cancel)) }
+            },
+        )
+    }
+
+    val ruleFor = confirmRule
+    if (ruleFor != null) {
+        // The same dialog the reader gets, word for word, because it is the same write: a rule on
+        // the server, permanent, with no Undo behind it. The menu entry's label already says what
+        // it does; what only the dialog can say is sender_volume_block_body — that nothing already
+        // received moves, and where the rule can be changed or removed. A list row has nowhere to
+        // put that sentence, which is why the gesture waits for a dialog before writing anything.
+        AlertDialog(
+            onDismissRequest = { confirmRule = null },
+            title = { Text(stringResource(R.string.sender_volume_block_title, ruleFor.email)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.sender_volume_block_body,
+                        stringResource(R.string.inbox_settings),
+                        stringResource(R.string.settings_filters_title),
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmRule = null; viewModel.blockSender(ruleFor) }) {
+                    Text(stringResource(R.string.sender_volume_block))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRule = null }) { Text(stringResource(R.string.inbox_cancel)) }
             },
         )
     }

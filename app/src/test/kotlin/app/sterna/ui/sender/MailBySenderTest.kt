@@ -408,6 +408,57 @@ class MailBySenderTest {
         assertEquals(0, deletedCount(MailRepository.BulkResult(emptySet(), setOf("a", "b"))))
     }
 
+    // -- what a delete that half worked is allowed to say -------------------------------------------
+
+    /**
+     * The three cases as `confirmDelete` builds them: the batch it handed over is `ids`, and the
+     * rejected set is the `BulkResult`'s own — including the one it fabricates when `deleteAll`
+     * throws, `BulkResult(emptySet(), ids.toSet())`, which is a total failure and must read as one.
+     */
+    private fun said(ids: List<String>, result: MailRepository.BulkResult) =
+        deleteMessageRes(ids.size, result.failed.size)
+
+    @Test fun `a delete that went through says nothing about failing`() {
+        val ids = listOf("m1", "m2", "m3")
+        assertNull(
+            "the snackbar already counts what went; there is no second thing to say",
+            said(ids, MailRepository.BulkResult(ids.toSet(), emptySet())),
+        )
+    }
+
+    @Test fun `a delete that half worked says SOME, not the total failure`() {
+        // The defect, in one assertion: the screen said "Couldn't complete the action" for one
+        // rejected id out of three and then, in the next breath, "2 messages deleted". Two
+        // sentences about one gesture, contradicting each other.
+        val ids = listOf("m1", "m2", "m3")
+        assertEquals(
+            app.sterna.R.string.status_action_partly_failed,
+            said(ids, MailRepository.BulkResult(setOf("m1", "m2"), setOf("m3"))),
+        )
+        assertEquals(
+            "…and the other way round too: one that went, two that did not, is still partial",
+            app.sterna.R.string.status_action_partly_failed,
+            said(ids, MailRepository.BulkResult(setOf("m1"), setOf("m2", "m3"))),
+        )
+    }
+
+    @Test fun `a delete where nothing moved is the failure it always was`() {
+        val ids = listOf("m1", "m2", "m3")
+        assertEquals(
+            app.sterna.R.string.status_action_failed,
+            said(ids, MailRepository.BulkResult(emptySet(), ids.toSet())),
+        )
+        assertEquals(
+            "the result confirmDelete fabricates when deleteAll THROWS is exactly that one",
+            app.sterna.R.string.status_action_failed,
+            said(listOf("m1"), MailRepository.BulkResult(emptySet(), setOf("m1"))),
+        )
+    }
+
+    @Test fun `an empty batch has nothing to report`() {
+        assertNull(said(emptyList(), MailRepository.BulkResult(emptySet(), emptySet())))
+    }
+
     // -- R4: saying why the rule gesture is missing -------------------------------------------------
 
     @Test fun `only the foreign script gets a note, and it names one`() {

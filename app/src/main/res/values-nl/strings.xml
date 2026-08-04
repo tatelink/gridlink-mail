@@ -689,8 +689,8 @@
     <string name="sender_volume_title">Post per afzender</string>
     <string name="sender_volume_empty">Geen post op deze telefoon opgeslagen.</string>
     <plurals name="sender_volume_cached">
-        <item quantity="one">%1$d bericht op deze telefoon opgeslagen</item>
-        <item quantity="other">%1$d berichten op deze telefoon opgeslagen</item>
+        <item quantity="one">%1$d bericht van dit account op deze telefoon opgeslagen</item>
+        <item quantity="other">%1$d berichten van dit account op deze telefoon opgeslagen</item>
     </plurals>
     <string name="sender_volume_scope">%1$s. Verzonden, Concepten, Prullenbak en Spam tellen niet mee, gesnoozede berichten evenmin.</string>
     <plurals name="sender_volume_unread">

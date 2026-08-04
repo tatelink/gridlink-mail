@@ -691,9 +691,9 @@
     <string name="sender_volume_title">Correio por remetente</string>
     <string name="sender_volume_empty">Nenhuma mensagem guardada neste telefone.</string>
     <plurals name="sender_volume_cached">
-        <item quantity="one">%1$d mensagem guardada neste telefone</item>
-        <item quantity="many">%1$d de mensagens guardadas neste telefone</item>
-        <item quantity="other">%1$d mensagens guardadas neste telefone</item>
+        <item quantity="one">%1$d mensagem desta conta guardada neste telefone</item>
+        <item quantity="many">%1$d de mensagens desta conta guardadas neste telefone</item>
+        <item quantity="other">%1$d mensagens desta conta guardadas neste telefone</item>
     </plurals>
     <string name="sender_volume_scope">%1$s. Enviados, Rascunhos, Lixeira e Spam não são contados, nem as mensagens adiadas.</string>
     <plurals name="sender_volume_unread">

@@ -110,7 +110,59 @@ class SenderVolumeCopyTest {
         )
     }
 
+    /**
+     * The header's number counts ONE account, so its sentence has to say so.
+     *
+     * `senderVolumes(credentials.id)` is scoped to the current account, and the screen is per
+     * account for that reason — but the plural said "%1$d messages stored on this phone", which on
+     * a phone carrying three accounts is a claim about all three. The phrase is not typed into
+     * this rule: it is each locale's OWN word for "account", read from the label the screen prints
+     * two lines higher up ([accountWord]), so a translation that names the account in its own
+     * words passes and one that quietly drops it does not.
+     */
+    @Test fun `the cached count says the account is its scope`() {
+        val offenders = locales().mapNotNull { dir ->
+            val word = accountWord(stringsOf(dir))
+            val items = pluralItemsOf(dir, "sender_volume_cached")
+            check(items.isNotEmpty()) { "${dir.name} carries no sender_volume_cached plural" }
+            val silent = items.filterValues { word !in it.lowercase() }
+            if (silent.isEmpty()) null else dir.name to "'$word' missing from ${silent.values}"
+        }
+        assertEquals(
+            "the number over the list is this account's alone — the query is scoped to it — and " +
+                "'stored on this phone' says the phone. Every quantity of the plural must name " +
+                "the account in its own language",
+            emptyList<Pair<String, String>>(),
+            offenders,
+        )
+    }
+
     // -- reading the resources ------------------------------------------------------------------
+
+    /**
+     * The locale's own word for "account", as the app already prints it above the list
+     * (`settings_vacation_account`, "Account: %1$s"), cut to its first four characters so a
+     * declined form still matches: Konto/Kontos, konto/konta, Аккаунт/аккаунта.
+     *
+     * Four characters is deliberately loose. It can accept a word that merely starts alike, and
+     * that is the failure this rule prefers: it exists to catch a sentence with NO account in it
+     * at all, not to grade a translation.
+     */
+    private fun accountWord(strings: Map<String, String>): String =
+        strings.getValue("settings_vacation_account")
+            .substringBefore("%1\$s")
+            .trim().trim(':', '：', ' ')
+            .lowercase()
+            .take(4)
+
+    /** One locale's [name] plural, quantity → text. */
+    private fun pluralItemsOf(dir: File, name: String): Map<String, String> {
+        val block = Regex("""<plurals name="$name">(.*?)</plurals>""", RegexOption.DOT_MATCHES_ALL)
+            .find(File(dir, "strings.xml").readText())
+            ?.groupValues?.get(1)
+            ?: return emptyMap()
+        return ITEM.findAll(block).associate { it.groupValues[1] to it.groupValues[2] }
+    }
 
     private fun locales(): List<File> = (res.listFiles() ?: emptyArray())
         .filter { it.isDirectory && File(it, "strings.xml").isFile }
@@ -142,6 +194,9 @@ class SenderVolumeCopyTest {
 
     private companion object {
         val STRING = Regex("""<string name="([^"]+)">(.*?)</string>""", RegexOption.DOT_MATCHES_ALL)
+
+        /** One `<item>` of a `<plurals>`, with its quantity. */
+        val ITEM = Regex("""<item quantity="(\w+)">(.*?)</item>""", RegexOption.DOT_MATCHES_ALL)
 
         /** Mailbox role → the label the app prints for it. */
         val ROLE_LABELS = mapOf(

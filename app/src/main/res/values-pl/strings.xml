@@ -693,10 +693,10 @@
     <string name="sender_volume_title">Poczta wg nadawcy</string>
     <string name="sender_volume_empty">Brak poczty zapisanej na tym telefonie.</string>
     <plurals name="sender_volume_cached">
-        <item quantity="one">%1$d wiadomość zapisana na tym telefonie</item>
-        <item quantity="few">%1$d wiadomości zapisane na tym telefonie</item>
-        <item quantity="many">%1$d wiadomości zapisanych na tym telefonie</item>
-        <item quantity="other">%1$d wiadomości zapisanych na tym telefonie</item>
+        <item quantity="one">%1$d wiadomość tego konta zapisana na tym telefonie</item>
+        <item quantity="few">%1$d wiadomości tego konta zapisane na tym telefonie</item>
+        <item quantity="many">%1$d wiadomości tego konta zapisanych na tym telefonie</item>
+        <item quantity="other">%1$d wiadomości tego konta zapisanych na tym telefonie</item>
     </plurals>
     <string name="sender_volume_scope">%1$s. Wysłane, Wersje robocze, Kosz i Spam nie są liczone, podobnie jak odłożone wiadomości.</string>
     <plurals name="sender_volume_unread">
