@@ -320,6 +320,7 @@
     <string name="settings_vacation_account">Аккаунт: %1$s</string>
     <string name="settings_vacation_enabled_title">Включить автоответ</string>
     <string name="settings_vacation_enabled_subtitle">Сервер будет отвечать автоматически, пока вас нет.</string>
+    <string name="settings_vacation_suspends_filters">Включение автоответа приостановит ваши правила фильтрации.</string>
     <string name="settings_vacation_subject_label">Тема</string>
     <string name="settings_vacation_message_label">Сообщение</string>
     <string name="settings_vacation_period_section">Период (необязательно)</string>
@@ -345,6 +346,7 @@
     <string name="settings_filters_saved">Фильтры сохранены</string>
     <string name="settings_filters_untitled">Безымянное правило</string>
     <string name="settings_filters_foreign_warning">На сервере активен другой скрипт фильтрации; при сохранении активным станет скрипт Sterna Mail.</string>
+    <string name="settings_filters_not_running">Ваши правила фильтрации сейчас не применяются.</string>
     <string name="settings_filters_edit_title">Изменить правило</string>
     <string name="settings_filter_name">Название правила</string>
     <string name="settings_filter_if">Если</string>

@@ -62,3 +62,16 @@
 # ordinary code but wrong for a compiler-managed calling convention.
 -keep class app.sterna.ui.components.MonogramKt { *; }
 -keep class app.sterna.ui.components.ContactAvatarKt { *; }
+
+# Same family, and pre-emptive this time (#120). IncognitoKeyboard is a small, non-inline
+# @Composable whose whole body is "provide an interceptor, call content()" — exactly the shape R8
+# inlined above. What it installs is the request that asks the keyboard not to learn from a message
+# being written, and unlike a missing avatar its loss is INVISIBLE: the composer looks and behaves
+# the same, only the privacy request is gone, and only in a minified build. Keeping the file's
+# class costs a few bytes and removes the one failure nobody would notice.
+-keep class app.sterna.ui.compose.IncognitoKeyboardKt { *; }
+# And the anonymous classes of that file, which is where the behaviour actually lives: the
+# interceptor and the request it wraps around the field's own compile to
+# IncognitoKeyboardKt$INCOGNITO_INTERCEPTOR$1 and a nested $1 of it. The rule above keeps the
+# facade and would have left those two to be merged, renamed or inlined on their own.
+-keep class app.sterna.ui.compose.IncognitoKeyboardKt$** { *; }

@@ -320,6 +320,7 @@
     <string name="settings_vacation_account">Cuenta: %1$s</string>
     <string name="settings_vacation_enabled_title">Activar respuesta automática</string>
     <string name="settings_vacation_enabled_subtitle">Tu servidor responde automáticamente mientras estás fuera.</string>
+    <string name="settings_vacation_suspends_filters">Activar la respuesta automática suspenderá tus reglas de filtrado.</string>
     <string name="settings_vacation_subject_label">Asunto</string>
     <string name="settings_vacation_message_label">Mensaje</string>
     <string name="settings_vacation_period_section">Periodo (opcional)</string>
@@ -345,6 +346,7 @@
     <string name="settings_filters_saved">Filtros guardados</string>
     <string name="settings_filters_untitled">Regla sin título</string>
     <string name="settings_filters_foreign_warning">Hay otro script de filtrado activo en el servidor; al guardar, el de Sterna Mail pasará a ser el activo.</string>
+    <string name="settings_filters_not_running">Tus reglas de filtrado no se están aplicando en este momento.</string>
     <string name="settings_filters_edit_title">Editar regla</string>
     <string name="settings_filter_name">Nombre de la regla</string>
     <string name="settings_filter_if">Si</string>

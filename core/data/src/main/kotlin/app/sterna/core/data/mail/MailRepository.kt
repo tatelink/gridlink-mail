@@ -18,7 +18,10 @@ import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.OAuthCredentials
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.filter.FilterRule
+import app.sterna.core.data.filter.FilterScriptStatus
 import app.sterna.core.data.filter.SieveCodec
+import app.sterna.core.data.filter.VACATION_SCRIPT_NAME
+import app.sterna.core.data.filter.enabledRuleCount
 import app.sterna.core.data.db.AccountMailboxRole
 import app.sterna.core.data.unsubscribe.UnsubscribeClient
 import app.sterna.core.data.unsubscribe.UnsubscribeResult
@@ -5430,6 +5433,50 @@ class MailRepository(
         }
         val foreign = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }
         return FilterRulesState.Loaded(rules, foreign)
+    }
+
+    /**
+     * Whether the account's filter rules are actually running server-side, and whether this
+     * server materialises its vacation responder as a Sieve script.
+     *
+     * A function of its own rather than a field on [FilterRulesState.Loaded]: that type is shared
+     * and consumed elsewhere, and this is needed by a screen (the vacation responder) that has no
+     * business loading rules at all. It costs one extra `SieveScript/get` (plus the script blob)
+     * on the filters screen; a settings screen opened by hand can pay that to keep the shared type
+     * still.
+     *
+     * A server keeps ONE active Sieve script per account, so switching the responder on makes its
+     * script the active one and the Sterna script stops filtering — and switching the responder
+     * off leaves NO script active at all (measured against Stalwart, 2026-08-03/04). The active
+     * flag on our own script is therefore the fact the screens were missing; `foreignActiveScript`
+     * is not, since it is false in exactly the state where the rules are dead.
+     *
+     * Failures are swallowed to the "nothing known" value: this is advisory, and a screen whose
+     * responder loaded fine must not be replaced by an error page because a second read failed —
+     * the outcome is then simply the silence there was before. [getOrElseUnlessCancelled], not
+     * `getOrDefault`: a cancelled load is an instruction to stop, not a failure to paper over.
+     */
+    suspend fun loadFilterScriptStatus(credentials: AccountCredentials): FilterScriptStatus {
+        if (credentials.protocol == MailProtocol.IMAP) return FilterScriptStatus()
+        return runCatching {
+            val ctx = connect(credentials)
+            if (!ctx.session.capabilities.containsKey(app.sterna.core.jmap.Jmap.SIEVE_CAPABILITY)) {
+                return@runCatching FilterScriptStatus()
+            }
+            val scripts = client.getSieveScripts(ctx.session, ctx.accountId, ctx.auth)
+            val vacation = scripts.any { it.name == VACATION_SCRIPT_NAME }
+            val managed = scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }
+                ?: return@runCatching FilterScriptStatus(vacationScriptExists = vacation)
+            val bytes = client.downloadBlob(
+                ctx.session, ctx.accountId, managed.blobId, "application/sieve", "sterna.siv", ctx.auth,
+            )
+            FilterScriptStatus(
+                scriptExists = true,
+                scriptActive = managed.isActive,
+                enabledRuleCount = enabledRuleCount(SieveCodec.parseRules(bytes.toString(Charsets.UTF_8))),
+                vacationScriptExists = vacation,
+            )
+        }.getOrElseUnlessCancelled { FilterScriptStatus() }
     }
 
     /**

@@ -320,6 +320,7 @@
     <string name="settings_vacation_account">Account: %1$s</string>
     <string name="settings_vacation_enabled_title">Automatisch antwoorden inschakelen</string>
     <string name="settings_vacation_enabled_subtitle">Je server antwoordt automatisch terwijl je weg bent.</string>
+    <string name="settings_vacation_suspends_filters">Het automatische antwoord inschakelen schort je filterregels op.</string>
     <string name="settings_vacation_subject_label">Onderwerp</string>
     <string name="settings_vacation_message_label">Bericht</string>
     <string name="settings_vacation_period_section">Periode (optioneel)</string>
@@ -345,6 +346,7 @@
     <string name="settings_filters_saved">Filters opgeslagen</string>
     <string name="settings_filters_untitled">Naamloze regel</string>
     <string name="settings_filters_foreign_warning">Er is al een ander filterscript actief op de server; door op te slaan wordt dat van Sterna Mail het actieve script.</string>
+    <string name="settings_filters_not_running">Je filterregels worden op dit moment niet toegepast.</string>
     <string name="settings_filters_edit_title">Regel bewerken</string>
     <string name="settings_filter_name">Regelnaam</string>
     <string name="settings_filter_if">Als</string>

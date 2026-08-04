@@ -452,6 +452,7 @@
     <string name="settings_vacation_account">Account: %1$s</string>
     <string name="settings_vacation_enabled_title">Enable auto-reply</string>
     <string name="settings_vacation_enabled_subtitle">Your server replies automatically while you\'re away.</string>
+    <string name="settings_vacation_suspends_filters">Turning the auto-reply on will suspend your filter rules.</string>
     <string name="settings_vacation_subject_label">Subject</string>
     <string name="settings_vacation_message_label">Message</string>
     <string name="settings_vacation_period_section">Period (optional)</string>
@@ -477,6 +478,7 @@
     <string name="settings_filters_saved">Filters saved</string>
     <string name="settings_filters_untitled">Untitled rule</string>
     <string name="settings_filters_foreign_warning">Another filter script is active on the server; saving will make Sterna Mail\'s the active one.</string>
+    <string name="settings_filters_not_running">Your filter rules are not being applied at the moment.</string>
     <string name="settings_filters_edit_title">Edit rule</string>
     <string name="settings_filter_name">Rule name</string>
     <string name="settings_filter_if">If</string>

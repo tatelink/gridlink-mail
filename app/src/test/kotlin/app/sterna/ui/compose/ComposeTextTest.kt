@@ -180,7 +180,7 @@ class ComposeTextTest {
             textBody = listOf(EmailBodyPart(partId = "1", type = "text/plain")),
             bodyValues = mapOf("1" to EmailBodyValue("first line\nsecond line")),
         )
-        val fields = draftFieldsOf(draft)
+        val fields = draftFieldsOf(draft, cached = null)
         assertEquals("a@example.com, b@example.com", fields.to)
         assertEquals("c@example.com", fields.cc)
         assertEquals("d@example.com", fields.bcc)
@@ -199,17 +199,176 @@ class ComposeTextTest {
             htmlBody = listOf(EmailBodyPart(partId = "h", type = "text/html")),
             bodyValues = mapOf("h" to EmailBodyValue("<p>one</p><p>two &amp; three</p>")),
         )
-        val fields = draftFieldsOf(draft)
+        val fields = draftFieldsOf(draft, cached = null)
         assertEquals("one\ntwo & three", fields.body)
         assertFalse("no cc/bcc row", fields.expand)
     }
 
     @Test fun draftFieldsTolerateEmptyDraft() {
-        val fields = draftFieldsOf(Email(id = "d3"))
+        val fields = draftFieldsOf(Email(id = "d3"), cached = null)
         assertEquals("", fields.to)
         assertEquals("", fields.subject)
         assertEquals("", fields.body)
         assertFalse(fields.expand)
+    }
+
+    // --- A recipient the server can only give back as a name (#96) ---
+
+    @Test fun draftFieldsKeepARecipientThatCameBackWithoutAnAddress() {
+        // The reported case: "aa" was typed, holds no @, and comes back with an empty address and
+        // the typed string in the name. The list row shows it (display()); the composer opened
+        // without it, and a dropped Cc also folded the Cc/Bcc row back shut.
+        val draft = Email(
+            id = "d4",
+            to = listOf(EmailAddress(name = "aa", email = "")),
+            cc = listOf(EmailAddress(name = "bb", email = "")),
+            bcc = listOf(EmailAddress(name = "cc", email = "")),
+        )
+        val fields = draftFieldsOf(draft, cached = null)
+        assertEquals("aa", fields.to)
+        assertEquals("bb", fields.cc)
+        assertEquals("cc", fields.bcc)
+        assertTrue("cc/bcc row revealed by a name-only recipient", fields.expand)
+    }
+
+    @Test fun draftFieldsPreferTheAddressOverTheDisplayNameInEveryField() {
+        // The fallback must never outrank a real address, in any of the three fields: the field is
+        // a comma-joined string that gets sent as-is, so reopening `Bob <bob@example.com>` as "Bob"
+        // would mail the draft to `Bob`.
+        val draft = Email(
+            id = "d5",
+            to = listOf(EmailAddress(name = "Bob", email = "bob@example.com")),
+            cc = listOf(EmailAddress(name = "Carol", email = "carol@example.com")),
+            bcc = listOf(EmailAddress(name = "Dave", email = "dave@example.com")),
+        )
+        val fields = draftFieldsOf(draft, cached = null)
+        assertEquals("bob@example.com", fields.to)
+        assertEquals("carol@example.com", fields.cc)
+        assertEquals("dave@example.com", fields.bcc)
+    }
+
+    @Test fun draftFieldsDropAnEntryCarryingNeitherAddressNorName() {
+        val draft = Email(
+            id = "d6",
+            to = listOf(
+                EmailAddress(name = null, email = ""),
+                EmailAddress(email = "a@example.com"),
+                EmailAddress(name = "   ", email = "  "),
+            ),
+        )
+        assertEquals("a@example.com", draftFieldsOf(draft, cached = null).to)
+    }
+
+    @Test fun draftFieldsKeepOrderAndSeparatorWhenMixingAddressesAndNames() {
+        val draft = Email(
+            id = "d7",
+            to = listOf(
+                EmailAddress(email = "a@example.com"),
+                EmailAddress(name = "aa", email = ""),
+                // An address of spaces is not an address either: the name is what is left.
+                EmailAddress(name = "zz", email = " "),
+                EmailAddress(name = "Bob", email = "b@example.com"),
+            ),
+        )
+        assertEquals("a@example.com, aa, zz, b@example.com", draftFieldsOf(draft, cached = null).to)
+    }
+
+    // --- A recipient the server dropped altogether, still held by our cached row (#96) ---
+
+    @Test fun draftFieldsFallBackOnTheCachedRowForAFieldTheServerReturnedEmpty() {
+        // Measured on the bench: a server can refuse an address it judges invalid and hand the
+        // field back empty. The typed string then survives in exactly one place — the row this app
+        // cached, the one the Drafts list draws — so that is what the field reopens with.
+        val draft = Email(id = "d8", to = emptyList())
+        val cached = Email(id = "d8", to = listOf(EmailAddress(name = "aa", email = "")))
+        assertEquals("aa", draftFieldsOf(draft, cached).to)
+    }
+
+    @Test fun draftFieldsNeverOverwriteAFieldTheServerFilled() {
+        // The whole freshness rule, and the reason it is "the server returned NOTHING" and not
+        // "the cache holds more": another client may have deliberately removed a recipient, and
+        // our row is then simply stale. Putting it back would re-address the message behind the
+        // user's back, which is worse than leaving a partial loss uncorrected.
+        val draft = Email(id = "d9", to = listOf(EmailAddress(email = "b@example.com")))
+        val cached = Email(
+            id = "d9",
+            to = listOf(EmailAddress(email = "a@example.com"), EmailAddress(email = "b@example.com")),
+        )
+        assertEquals("b@example.com", draftFieldsOf(draft, cached).to)
+    }
+
+    @Test fun draftFieldsFallBackFieldByFieldAndTheCcBccRowFollows() {
+        // Per field, not per draft: a To the server kept is kept, while a Cc it dropped comes back
+        // from the cache — and the reveal is computed from the recovered field, or the recipient
+        // would be restored into a row folded shut.
+        val draft = Email(id = "d10", to = listOf(EmailAddress(email = "a@example.com")))
+        val cached = Email(
+            id = "d10",
+            to = listOf(EmailAddress(email = "zzz@example.com")),
+            cc = listOf(EmailAddress(name = "bb", email = "")),
+        )
+        val fields = draftFieldsOf(draft, cached)
+        assertEquals("a@example.com", fields.to)
+        assertEquals("bb", fields.cc)
+        assertTrue("cc/bcc row revealed by the recovered Cc", fields.expand)
+    }
+
+    @Test fun draftFieldsRecoveredFromTheCacheStayInTheirOwnField() {
+        // Each field falls back on the SAME field of the cached row, and the other two stay empty.
+        // Feed a recovered To to the Bcc — one token, `cached?.to` where `cached?.bcc` belongs —
+        // and the recipient reopens in blind copy: the mail then leaves addressed to them twice,
+        // one of the copies hidden. The cache holds no Cc/Bcc today, so the field it is read from
+        // has to be pinned here, in the one test that names all three, or nothing sees the swap.
+        val draft = Email(id = "d14", to = emptyList(), cc = emptyList(), bcc = emptyList())
+        val cached = Email(id = "d14", to = listOf(EmailAddress(name = "aa", email = "")))
+        val fields = draftFieldsOf(draft, cached)
+        assertEquals("aa", fields.to)
+        assertEquals("", fields.cc)
+        assertEquals("", fields.bcc)
+        assertFalse("nothing was recovered into Cc/Bcc, so their row stays folded", fields.expand)
+    }
+
+    @Test fun draftFieldsRecoverEveryCachedRecipientOfTheField() {
+        // The fallback hands the field back whole: two typed recipients come back as two, in the
+        // order and with the separator the field is parsed and sent with. A fallback that took the
+        // first one would drop the rest silently, which is the very loss being repaired.
+        val draft = Email(id = "d15", to = emptyList())
+        val cached = Email(
+            id = "d15",
+            to = listOf(
+                EmailAddress(name = "aa", email = ""),
+                EmailAddress(name = "Bob", email = "bob@example.com"),
+                EmailAddress(name = "zz", email = ""),
+            ),
+        )
+        assertEquals("aa, bob@example.com, zz", draftFieldsOf(draft, cached).to)
+    }
+
+    @Test fun draftFieldsTolerateACachedRowThatCarriesNothing() {
+        // Two cases that must change nothing: no cached row at all, and a row cached before schema
+        // v17 (recipientsJson null, never backfilled) which decodes to an empty recipient list.
+        val draft = Email(id = "d11", to = emptyList(), subject = "s")
+        assertEquals("", draftFieldsOf(draft, cached = null).to)
+        assertEquals("", draftFieldsOf(draft, Email(id = "d11")).to)
+        assertEquals("s", draftFieldsOf(draft, Email(id = "d11")).subject)
+    }
+
+    // --- The Cc/Bcc row reveal, one field at a time (#96) ---
+
+    @Test fun draftFieldsRevealTheCcBccRowForACcWithNoBcc() {
+        val draft = Email(id = "d12", cc = listOf(EmailAddress(email = "c@example.com")))
+        val fields = draftFieldsOf(draft, cached = null)
+        assertEquals("c@example.com", fields.cc)
+        assertEquals("", fields.bcc)
+        assertTrue("a Cc alone must reveal the row it sits in", fields.expand)
+    }
+
+    @Test fun draftFieldsRevealTheCcBccRowForABccWithNoCc() {
+        val draft = Email(id = "d13", bcc = listOf(EmailAddress(email = "d@example.com")))
+        val fields = draftFieldsOf(draft, cached = null)
+        assertEquals("", fields.cc)
+        assertEquals("d@example.com", fields.bcc)
+        assertTrue("a Bcc alone must reveal the row it sits in", fields.expand)
     }
 
     // --- Which field opens focused (#63, #83) ---
@@ -685,7 +844,7 @@ class ComposeTextTest {
         )
         assertEquals("Hello", quotedOriginalText(mail))
         // A draft is the user's own text: cutting it at its delimiter would delete their signature.
-        assertEquals("Hello\n\n-- \nAlice", draftFieldsOf(mail).body)
+        assertEquals("Hello\n\n-- \nAlice", draftFieldsOf(mail, cached = null).body)
     }
 
     // --- Forwarded header: labels translated, format untouched (D7) ---

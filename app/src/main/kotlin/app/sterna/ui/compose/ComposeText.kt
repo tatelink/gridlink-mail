@@ -5,6 +5,7 @@ import app.sterna.core.data.text.htmlEscape
 import app.sterna.core.data.text.htmlEscapeMultiline
 import app.sterna.core.data.text.htmlToText
 import app.sterna.core.jmap.model.Email
+import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.send.SendOutbox
 import app.sterna.util.isValidEmail
 
@@ -557,11 +558,15 @@ internal fun recipientsWithChipEdited(value: String, index: Int): String {
  * Compose's initial fields when reopening a saved draft for editing (#63): every addressing
  * field as typed-out addresses, the subject verbatim, and the body flattened to the plain-text
  * editor's format. Cc/Bcc are revealed when the draft used them.
+ *
+ * [o] is what the server just handed back, [cached] the row this app kept for that same draft — the
+ * row the Drafts list itself is drawn from — or null when there is none. See [draftRecipientField]
+ * for what the cached row is allowed to do, which is very little.
  */
-internal fun draftFieldsOf(o: Email): DraftFields {
-    val to = o.to.joinToString(", ") { it.email }
-    val cc = o.cc.joinToString(", ") { it.email }
-    val bcc = o.bcc.joinToString(", ") { it.email }
+internal fun draftFieldsOf(o: Email, cached: Email?): DraftFields {
+    val to = draftRecipientField(o.to, cached?.to)
+    val cc = draftRecipientField(o.cc, cached?.cc)
+    val bcc = draftRecipientField(o.bcc, cached?.bcc)
     return DraftFields(
         to = to,
         cc = cc,
@@ -571,6 +576,49 @@ internal fun draftFieldsOf(o: Email): DraftFields {
         expand = cc.isNotBlank() || bcc.isNotBlank(),
     )
 }
+
+/**
+ * One addressing field of a reopened draft, comma-joined: for each stored recipient, the address
+ * whenever there is one, and only otherwise the display name (#96).
+ *
+ * The address has to win wherever it exists, because this string is not a list of models: it is
+ * what the send path parses and mails. Reopening `Bob <bob@example.com>` as "Bob" would address the
+ * message to `Bob`, which is worse than the loss this repairs.
+ *
+ * The fallback is for the recipient a server hands back with an empty address, the string typed
+ * sitting in the name (`aa`, no @): the draft list row already shows it, since it reads display(),
+ * while the composer used to open with the field silently emptied — and an emptied Cc also folded
+ * the Cc/Bcc row shut, so nothing on screen said anything had gone. Giving the name back puts the
+ * exact typed string in the field, where the user can fix it or send it as they meant to.
+ *
+ * An entry carrying neither is not a recipient and contributes nothing, not even a separator.
+ *
+ * [cachedAddresses] is the same field of the row this app cached for that draft, and it is used in
+ * ONE case: the server gave nothing for this field and the cache has something. Measured on the
+ * bench, a server can drop an address it considers invalid outright — the field then comes back
+ * empty and the typed string survives nowhere but in our own row, the one the list is drawn from.
+ *
+ * It is deliberately not "take the cache whenever it holds more". The cache can be stale: another
+ * client may have deliberately REMOVED a recipient, and bringing it back would re-address a message
+ * behind the user's back. So a field the server filled is never touched, whatever the cache holds —
+ * a partial loss is left uncorrected rather than risk resurrecting a deleted recipient. A null
+ * cached row (no row, or one cached before schema v17, which never got a backfill) simply changes
+ * nothing.
+ */
+private fun draftRecipientField(
+    addresses: List<EmailAddress>,
+    cachedAddresses: List<EmailAddress>?,
+): String {
+    val fromServer = recipientFieldOf(addresses)
+    return if (fromServer.isNotBlank()) fromServer else recipientFieldOf(cachedAddresses.orEmpty())
+}
+
+/** [addresses] as the composer's comma-joined field: the address if there is one, else the name. */
+private fun recipientFieldOf(addresses: List<EmailAddress>): String =
+    addresses
+        .map { it.email.ifBlank { it.name.orEmpty() } }
+        .filter { it.isNotBlank() }
+        .joinToString(", ")
 
 /**
  * Split an addressing field into its trimmed, non-empty address tokens (comma or semicolon
