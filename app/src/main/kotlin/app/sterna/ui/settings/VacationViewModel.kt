@@ -4,9 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sterna.container
-import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.filter.FilterScriptWarning
-import app.sterna.core.data.filter.filterScriptWarning
+import app.sterna.core.data.filter.refreshedFilterWarning
 import app.sterna.core.data.mail.VacationState
 import app.sterna.core.jmap.model.VacationResponse
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -96,7 +95,11 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
                         // warning that can be outrun is not a warning. The screen therefore stays
                         // on its spinner for one more round trip. That cost is why the read is
                         // narrow (scripts only) and why its failure is silent rather than fatal.
-                        val warning = filterWarningFor(credentials, responderEnabled = r.isEnabled)
+                        val warning = refreshedFilterWarning(
+                            previous = null,
+                            status = repo.loadFilterScriptStatus(credentials),
+                            responderEnabled = r.isEnabled,
+                        )
                         _state.value = VacationUiState(
                             loading = false,
                             supported = true,
@@ -121,33 +124,6 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
                 }
             }
         }
-    }
-
-    /**
-     * Ask the server what its Sieve scripts say about the user's filter rules.
-     *
-     * Returns the verdict instead of writing it: at load it belongs in the state the screen is
-     * first drawn from (see above), and after a save it is applied on its own. A failure of the
-     * read comes back as "nothing known" (the repo swallows it), so the screen falls back to the
-     * silence it had before rather than being replaced by an error page over a responder that
-     * loaded perfectly well.
-     *
-     * @param responderEnabled what the SERVER holds, not what the switch shows: the prediction is
-     *   about a state the user has not reached yet, so an unsaved flick of the switch must not
-     *   retire it.
-     */
-    private suspend fun filterWarningFor(
-        credentials: AccountCredentials,
-        responderEnabled: Boolean,
-    ): FilterScriptWarning? {
-        val scripts = repo.loadFilterScriptStatus(credentials)
-        return filterScriptWarning(
-            scriptExists = scripts.scriptExists,
-            scriptActive = scripts.scriptActive,
-            enabledRuleCount = scripts.enabledRuleCount,
-            vacationScriptExists = scripts.vacationScriptExists,
-            responderEnabled = responderEnabled,
-        )
     }
 
     fun setEnabled(value: Boolean) = edit { it.copy(enabled = value) }
@@ -202,9 +178,23 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
             // server has already taken. What it buys, for the user who stays: having just switched
             // the responder on, the line becomes the statement of fact instead of predicting what
             // has already happened.
+            //
+            // `responderEnabled = s.enabled`: what was just WRITTEN to the server, not what the
+            // switch shows — they are the same here and only here. And a read that FAILS keeps the
+            // line that was on screen (previous), because the case where it fails is the case
+            // where it matters: switching the responder off leaves no script active at all, so the
+            // rules are dead exactly when a swallowed failure would blank the warning.
             if (written) {
-                val warning = filterWarningFor(credentials, responderEnabled = s.enabled)
-                _state.update { it.copy(filterWarning = warning) }
+                val status = repo.loadFilterScriptStatus(credentials)
+                _state.update {
+                    it.copy(
+                        filterWarning = refreshedFilterWarning(
+                            previous = it.filterWarning,
+                            status = status,
+                            responderEnabled = s.enabled,
+                        ),
+                    )
+                }
             }
         }
     }

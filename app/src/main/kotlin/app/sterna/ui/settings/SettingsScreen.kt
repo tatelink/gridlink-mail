@@ -2393,13 +2393,20 @@ private fun VacationForm(state: VacationUiState, viewModel: VacationViewModel) {
         // Save: it is about the state the account is in, not about the write being prepared.
         state.filterWarning?.let { warning ->
             Text(
-                stringResource(
-                    when (warning) {
-                        FilterScriptWarning.RULES_NOT_RUNNING -> R.string.settings_filters_not_running
-                        FilterScriptWarning.RESPONDER_WILL_SUSPEND_RULES ->
-                            R.string.settings_vacation_suspends_filters
-                    },
-                ),
+                // Here, and NOT on the filters screen, the sentence says where the remedy is: the
+                // way back is Save on the filters screen, which is one screen away and has no
+                // reason to be pressed — this screen's own Save is grey, since nothing is edited.
+                // Text and not a button, like the note at the foot of the by-sender screen: taking
+                // a script back over belongs to the screen that warns in red first.
+                when (warning) {
+                    FilterScriptWarning.RULES_NOT_RUNNING -> stringResource(
+                        R.string.settings_vacation_filters_not_running,
+                        stringResource(R.string.inbox_settings),
+                        stringResource(R.string.settings_filters_title),
+                    )
+                    FilterScriptWarning.RESPONDER_WILL_SUSPEND_RULES ->
+                        stringResource(R.string.settings_vacation_suspends_filters)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),

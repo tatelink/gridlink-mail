@@ -1,5 +1,6 @@
 package app.sterna.ui.settings
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -16,16 +17,30 @@ import java.io.File
  * - the two cases mapped to each other's sentence — the statement of fact printed where the
  *   prediction belongs reads as a lie about the present, and the prediction printed where the
  *   fact belongs is a warning about something that has already happened;
- * - the four observations shuffled on their way into the decision. They are all booleans but one,
- *   so the compiler cannot see a swap, and the decision would then be right about the wrong facts.
+ * - the decision reached with the wrong arguments: a warning refreshed from `previous = null`
+ *   (which is the M2 bug written back in), or a state folded from a status nobody read.
+ *
+ * The observations themselves are no longer handed to `filterScriptWarning` here: they travel
+ * inside a `FilterScriptStatus`, and the mapping is executed fact by fact in
+ * `app.sterna.core.data.filter.FilterStatusRefreshTest` and in [FiltersStatusUpdateTest].
  */
 class FilterWarningWiringTest {
 
     @Test fun `the responder screen prints the statement of fact for the inactive script`() {
         assertTrue(
-            "SettingsScreen must map RULES_NOT_RUNNING to R.string.settings_filters_not_running — " +
-                "the case where the rules are already stopped is the one the screen was silent about",
+            "SettingsScreen must map RULES_NOT_RUNNING to R.string.settings_vacation_filters_not_running " +
+                "— the responder screen states the problem and its own Save is grey, so its sentence " +
+                "is the one that has to say where the remedy is",
             ARM_NOT_RUNNING.containsMatchIn(text(SETTINGS_SCREEN)),
+        )
+    }
+
+    @Test fun `the responder screen names the path to the remedy, not just the problem`() {
+        assertTrue(
+            "the sentence takes its two arguments from the strings the user actually reads on " +
+                "screen (Settings → Filters), like sender_volume_block_body does: written as " +
+                "literals they drift out of the menu and out of the eight translations",
+            ARM_NOT_RUNNING_ARGS.containsMatchIn(text(SETTINGS_SCREEN)),
         )
     }
 
@@ -66,14 +81,51 @@ class FilterWarningWiringTest {
         )
     }
 
-    @Test fun `the filters view model reads the verdict through the tested function`() {
-        // Written back as `warning == FilterScriptWarning.RULES_NOT_RUNNING` here, the reading
-        // leaves the reach of every test again: one character turns it into `!=`, the screen
-        // shouts in the nominal state and goes quiet when the rules are dead, and nothing fails.
+    @Test fun `the filters screen chooses its foreign-script line through the tested decision`() {
+        val source = text(FILTERS_SCREEN)
         assertTrue(
-            "FiltersViewModel must go through rulesAreNotRunning(...) rather than comparing the " +
-                "enum in place",
-            Regex("rulesAreNotRunning\\(").containsMatchIn(text(FILTERS_VM)),
+            "FiltersScreen must ask foreignScriptNotice(...) with BOTH facts: without " +
+                "vacationScriptExists the line falls back to \"another filter script is active\", " +
+                "which names the cause and hides what pressing Save costs",
+            Regex(
+                "foreignScriptNotice\\(\\s*foreignActive = state\\.foreignActive,\\s*" +
+                    "vacationScriptExists = state\\.vacationScriptExists,",
+            ).containsMatchIn(source),
+        )
+        assertTrue(
+            "the auto-reply case must print R.string.settings_filters_stops_auto_reply",
+            Regex(
+                "ForeignScriptNotice\\.STOPS_AUTO_REPLY\\s*->\\s*R\\.string\\.settings_filters_stops_auto_reply",
+            ).containsMatchIn(source),
+        )
+        assertTrue(
+            "and the case where nothing says what the other script is keeps the generic sentence",
+            Regex(
+                "ForeignScriptNotice\\.ANOTHER_SCRIPT\\s*->\\s*R\\.string\\.settings_filters_foreign_warning",
+            ).containsMatchIn(source),
+        )
+    }
+
+    @Test fun `the filters view model folds a status read into the state, at load and after a save`() {
+        // Written back as `it.copy(rulesNotRunning = ...)` here, the update leaves the reach of
+        // every test again — and it is where it was wrong: two of the three facts were never
+        // refreshed after a save, and a failed read wiped the third.
+        val source = text(FILTERS_VM)
+        assertEquals(
+            "FiltersViewModel must fold BOTH reads through filtersStateWithStatus(...) — the load " +
+                "and the re-read after a save",
+            2,
+            Regex("filtersStateWithStatus\\(").findAll(source).count(),
+        )
+        assertTrue(
+            "the status handed over must be one this run actually read",
+            Regex("status = repo\\.loadFilterScriptStatus\\(credentials\\)").containsMatchIn(source) &&
+                Regex("status = status").containsMatchIn(source),
+        )
+        assertTrue(
+            "the state folded into after a save must be the CURRENT one (`state = it`): rebuilt " +
+                "from scratch, the save would drop the rules and the label with it",
+            Regex("filtersStateWithStatus\\(state = it, status = status\\)").containsMatchIn(source),
         )
     }
 
@@ -89,18 +141,22 @@ class FilterWarningWiringTest {
         )
     }
 
-    @Test fun `both view models hand the decision the facts under their own names`() {
-        for (file in listOf(VACATION_VM, FILTERS_VM)) {
-            val source = text(file)
-            for (field in FACTS) {
-                assertTrue(
-                    "${file.name} must pass `$field = scripts.$field` to filterScriptWarning: the " +
-                        "four observations are three booleans and a count, so a swapped pair " +
-                        "compiles and the decision is then right about the wrong facts",
-                    Regex("$field = scripts\\.$field\\b").containsMatchIn(source),
-                )
-            }
-        }
+    @Test fun `the responder view model keeps the line it has when the re-read fails`() {
+        // `previous = null` here IS the bug, written back: a save whose follow-up read fails then
+        // clears the warning — over the account where the responder has just been switched off and
+        // the server left no script active at all.
+        val source = text(VACATION_VM)
+        assertTrue(
+            "VacationViewModel must refresh through refreshedFilterWarning(previous = it.filterWarning, …) " +
+                "after a save, so a read that failed leaves what is on screen alone",
+            Regex(
+                "refreshedFilterWarning\\(\\s*previous = it\\.filterWarning,\\s*status = status,",
+            ).containsMatchIn(source),
+        )
+        assertTrue(
+            "and the status it folds in must be one this run actually read",
+            Regex("val status = repo\\.loadFilterScriptStatus\\(credentials\\)").containsMatchIn(source),
+        )
     }
 
     /** Comment lines dropped whole: a false match is a false failure, not a false pass. */
@@ -109,13 +165,18 @@ class FilterWarningWiringTest {
         .joinToString("\n")
 
     private companion object {
-        val FACTS = listOf("scriptExists", "scriptActive", "enabledRuleCount", "vacationScriptExists")
-
-        val ARM_NOT_RUNNING =
-            Regex("FilterScriptWarning\\.RULES_NOT_RUNNING\\s*->\\s*R\\.string\\.settings_filters_not_running")
+        val ARM_NOT_RUNNING = Regex(
+            "FilterScriptWarning\\.RULES_NOT_RUNNING\\s*->\\s*stringResource\\(\\s*" +
+                "R\\.string\\.settings_vacation_filters_not_running,",
+        )
+        val ARG_MENU = Regex("stringResource\\(R\\.string\\.inbox_settings\\)")
+        val ARG_FILTERS = Regex("stringResource\\(R\\.string\\.settings_filters_title\\)")
+        val ARM_NOT_RUNNING_ARGS = Regex(
+            ARM_NOT_RUNNING.pattern + "\\s*" + ARG_MENU.pattern + ",\\s*" + ARG_FILTERS.pattern + ",",
+        )
         val ARM_WILL_SUSPEND = Regex(
             "FilterScriptWarning\\.RESPONDER_WILL_SUSPEND_RULES\\s*->\\s*" +
-                "R\\.string\\.settings_vacation_suspends_filters",
+                "stringResource\\(R\\.string\\.settings_vacation_suspends_filters\\)",
         )
 
         const val SETTINGS_SCREEN_PATH = "app/src/main/kotlin/app/sterna/ui/settings/SettingsScreen.kt"

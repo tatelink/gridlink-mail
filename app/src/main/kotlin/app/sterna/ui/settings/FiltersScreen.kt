@@ -42,8 +42,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sterna.R
 import app.sterna.core.data.filter.FilterRule
+import app.sterna.core.data.filter.ForeignScriptNotice
 import app.sterna.core.data.filter.RuleField
 import app.sterna.core.data.filter.RuleMatch
+import app.sterna.core.data.filter.foreignScriptNotice
 
 /**
  * Server-side filter rules (JMAP Sieve) for the current account. Rules are
@@ -163,9 +165,22 @@ private fun FiltersList(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        if (state.foreignActive) {
+        // ONE line, not two: when a `vacation` script is what the save would switch off, the
+        // generic sentence is REPLACED by the one that names the auto-reply. "Another filter
+        // script is active" is true and useless — nothing in this app calls the auto-reply a
+        // filter script, so the sentence read as a fault to repair, above a button this release
+        // offers with nothing edited.
+        foreignScriptNotice(
+            foreignActive = state.foreignActive,
+            vacationScriptExists = state.vacationScriptExists,
+        )?.let { notice ->
             Text(
-                stringResource(R.string.settings_filters_foreign_warning),
+                stringResource(
+                    when (notice) {
+                        ForeignScriptNotice.STOPS_AUTO_REPLY -> R.string.settings_filters_stops_auto_reply
+                        ForeignScriptNotice.ANOTHER_SCRIPT -> R.string.settings_filters_foreign_warning
+                    },
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),

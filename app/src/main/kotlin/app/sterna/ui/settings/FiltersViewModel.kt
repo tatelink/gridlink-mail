@@ -4,11 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sterna.container
-import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.filter.FilterRule
-import app.sterna.core.data.filter.FilterScriptWarning
-import app.sterna.core.data.filter.filterScriptWarning
-import app.sterna.core.data.filter.rulesAreNotRunning
 import app.sterna.core.data.mail.FilterRulesState
 import app.sterna.ui.inbox.mailboxFilePath
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +29,13 @@ data class FiltersUiState(
      * being switched on and off again leaves NO script active at all.
      */
     val rulesNotRunning: Boolean = false,
+    /**
+     * A script named `vacation` sits next to ours on the server — the only evidence this repo has
+     * that this server materialises the auto-reply as a Sieve script, and therefore that Save,
+     * which ACTIVATES Sterna's script, switches that auto-reply off. Read here so the warning
+     * above the button can name the thing the user would lose instead of naming a script.
+     */
+    val vacationScriptExists: Boolean = false,
     val accountLabel: String = "",
     val rules: List<FilterRule> = emptyList(),
     /**
@@ -99,18 +102,20 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
                     }
                     is FilterRulesState.Loaded -> {
                         serverRules = result.rules
-                        // Before the list is published, not after: this flag also decides whether
-                        // Save is offered, and a list drawn without it is a screen that says the
-                        // rules are running and greys out the gesture that would put them back.
-                        val notRunning = rulesAreNotRunning(filterWarningFor(credentials))
-                        _state.value = FiltersUiState(
-                            loading = false,
-                            supported = true,
-                            foreignActive = result.foreignActiveScript,
-                            accountLabel = store.accountLabel(),
-                            rules = result.rules,
-                            folders = folders,
-                            rulesNotRunning = notRunning,
+                        // Before the list is published, not after: these flags also decide whether
+                        // Save is offered and what the red line above it says, and a list drawn
+                        // without them is a screen that says the rules are running and greys out
+                        // the gesture that would put them back.
+                        _state.value = filtersStateWithStatus(
+                            state = FiltersUiState(
+                                loading = false,
+                                supported = true,
+                                accountLabel = store.accountLabel(),
+                                rules = result.rules,
+                                folders = folders,
+                            ),
+                            status = repo.loadFilterScriptStatus(credentials),
+                            foreignFromRulesRead = result.foreignActiveScript,
                         )
                     }
                 }
@@ -124,30 +129,6 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
         }
-    }
-
-    /**
-     * Ask the server whether the rules on screen are actually running.
-     *
-     * A failure comes back as "nothing known" (the repo swallows it), i.e. the silence there was
-     * before — never an error page over a list that loaded fine. Re-read after a save because the
-     * save is what changes the answer: it activates the Sterna script again, so the line must go
-     * out and the Save button close behind it.
-     *
-     * `responderEnabled = null` — unknown, deliberately: this screen never loads the responder, and
-     * only the statement of fact is read out of the verdict ([rulesAreNotRunning]). The prediction
-     * belongs to the responder screen, next to the switch that triggers it, and would be a guess
-     * made here.
-     */
-    private suspend fun filterWarningFor(credentials: AccountCredentials): FilterScriptWarning? {
-        val scripts = repo.loadFilterScriptStatus(credentials)
-        return filterScriptWarning(
-            scriptExists = scripts.scriptExists,
-            scriptActive = scripts.scriptActive,
-            enabledRuleCount = scripts.enabledRuleCount,
-            vacationScriptExists = scripts.vacationScriptExists,
-            responderEnabled = null,
-        )
     }
 
     fun addRule() = edit { it.copy(rules = it.rules + FilterRule()) }
@@ -200,9 +181,14 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
             // not wait on a read the write does not need, and that exit is exactly what CANCELS
             // this read — inside the catch above, a cancellation would be painted as a failed save
             // over rules the server has already taken and activated.
+            // Re-read because the save is what changes the answer: it activates the Sterna script
+            // again, so the "not running" line goes out, the Save button closes behind it, and the
+            // "another script is active" line — which the save has just made false — goes out with
+            // them. All three from THIS read, so they cannot describe two different moments; and
+            // if the read fails, none of them moves (see filtersStateWithStatus).
             if (written) {
-                val notRunning = rulesAreNotRunning(filterWarningFor(credentials))
-                _state.update { it.copy(rulesNotRunning = notRunning) }
+                val status = repo.loadFilterScriptStatus(credentials)
+                _state.update { filtersStateWithStatus(state = it, status = status) }
             }
         }
     }

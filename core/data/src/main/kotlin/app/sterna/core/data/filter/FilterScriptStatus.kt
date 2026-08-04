@@ -11,11 +11,13 @@ const val VACATION_SCRIPT_NAME = "vacation"
 
 /**
  * What the account's Sieve scripts say about the user's filter rules, as observed on the
- * server. Four facts, nothing else: enough to decide [filterScriptWarning], and small
- * enough that no screen has to reason about scripts.
+ * server. Five facts, nothing else: enough to decide [filterScriptWarning] and
+ * [foreignScriptNotice], and small enough that no screen has to reason about scripts.
  *
  * The default is the "we know nothing" value: no script, so no warning. It is what an IMAP
- * account, a server without the Sieve capability, and a failed read all produce.
+ * account and a server without the Sieve capability produce. A FAILED read is NOT this value —
+ * it is `null`, because "nothing to report" and "I could not look" are different things and the
+ * screens act on the difference (see [refreshedFilterWarning]).
  */
 data class FilterScriptStatus(
     /** A script named `sterna` exists on the server. */
@@ -26,6 +28,12 @@ data class FilterScriptStatus(
     val enabledRuleCount: Int = 0,
     /** A script named [VACATION_SCRIPT_NAME] exists next to it. */
     val vacationScriptExists: Boolean = false,
+    /**
+     * Some script OTHER than `sterna` is the active one — so a save, which activates Sterna's
+     * script, switches that other one off. Read from the same script list as the rest: no
+     * second round trip.
+     */
+    val foreignActive: Boolean = false,
 )
 
 /** What a screen must tell the user about the state of their filter rules, or null for nothing. */
@@ -79,6 +87,70 @@ fun filterScriptWarning(
     !scriptActive -> FilterScriptWarning.RULES_NOT_RUNNING
     vacationScriptExists && responderEnabled == false -> FilterScriptWarning.RESPONDER_WILL_SUSPEND_RULES
     else -> null
+}
+
+/**
+ * The warning to show after a status read that may have failed.
+ *
+ * `status == null` means the read failed, NOT "nothing to report", and the two must not be
+ * confused: the clean case is the return from holiday. The responder is switched off, the server
+ * leaves no script active at all, the rules are dead — and if the read that follows the save
+ * fails, replacing the warning with "nothing" ERASES the line at the exact moment it becomes
+ * true, over a screen that has just written to the server. So a failed read changes nothing:
+ * what was on screen stays on screen, right or wrong, until a read succeeds.
+ *
+ * It is also the shape of the fix for the other half: a read that DOES succeed replaces the
+ * warning outright, including with `null`. A stale red line that survives a good read is the
+ * same lie the other way round.
+ */
+fun refreshedFilterWarning(
+    previous: FilterScriptWarning?,
+    status: FilterScriptStatus?,
+    responderEnabled: Boolean?,
+): FilterScriptWarning? = if (status == null) {
+    previous
+} else {
+    filterScriptWarning(
+        scriptExists = status.scriptExists,
+        scriptActive = status.scriptActive,
+        enabledRuleCount = status.enabledRuleCount,
+        vacationScriptExists = status.vacationScriptExists,
+        responderEnabled = responderEnabled,
+    )
+}
+
+/** Which "another script is active" line the filters screen must carry, or null for none. */
+enum class ForeignScriptNotice {
+    /** Some other script is active. Whose, and what it does, is unknown — so nothing is claimed. */
+    ANOTHER_SCRIPT,
+
+    /**
+     * The other active script is, on the evidence available, the vacation responder's — so what
+     * Save costs is the auto-reply, and that is what the line must say.
+     */
+    STOPS_AUTO_REPLY,
+}
+
+/**
+ * Which foreign-script line the filters screen shows above its Save button.
+ *
+ * Save does not merely write Sterna's script, it ACTIVATES it, and a server keeps one active
+ * script per account: pressing Save while away switches the vacation responder off. The screen
+ * did say something — "another filter script is active on the server" — but nothing in this app
+ * ever calls the auto-reply a *filter script*, so the sentence named the cause and hid the
+ * consequence, above a button this release opens without any edit having been made.
+ *
+ * [vacationScriptExists] is the same evidence [filterScriptWarning] already predicts on: a script
+ * named [VACATION_SCRIPT_NAME] beside ours. It does not prove that script is the active one, so
+ * the wording promised is about the responder stopping, never about which script is running.
+ *
+ * It REPLACES the generic line rather than adding to it: two red sentences stacked above one
+ * button is how both stop being read.
+ */
+fun foreignScriptNotice(foreignActive: Boolean, vacationScriptExists: Boolean): ForeignScriptNotice? = when {
+    !foreignActive -> null
+    vacationScriptExists -> ForeignScriptNotice.STOPS_AUTO_REPLY
+    else -> ForeignScriptNotice.ANOTHER_SCRIPT
 }
 
 /**

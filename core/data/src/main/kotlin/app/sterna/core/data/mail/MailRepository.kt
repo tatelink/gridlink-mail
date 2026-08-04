@@ -5455,12 +5455,17 @@ class MailRepository(
      * flag on our own script is therefore the fact the screens were missing; `foreignActiveScript`
      * is not, since it is false in exactly the state where the rules are dead.
      *
-     * Failures are swallowed to the "nothing known" value: this is advisory, and a screen whose
-     * responder loaded fine must not be replaced by an error page because a second read failed —
-     * the outcome is then simply the silence there was before. [getOrElseUnlessCancelled], not
-     * `getOrDefault`: a cancelled load is an instruction to stop, not a failure to paper over.
+     * A FAILED read answers `null`, and that is the whole point of the nullable return: it is NOT
+     * the "nothing known" value. Read as "nothing to report", a failure erases a warning at the
+     * moment it becomes true — switch the responder off and the server leaves no script active at
+     * all, so the rules are dead precisely when the screen would go quiet. The callers apply
+     * [refreshedFilterWarning], which keeps what was on screen when the answer is null. IMAP and a
+     * server with no Sieve capability stay NON-null: those are known facts, not failures.
+     * [getOrElseUnlessCancelled], not `getOrDefault`: a cancelled load is an instruction to stop,
+     * not a failure to paper over. It is still advisory — no error page for a screen whose
+     * responder loaded fine.
      */
-    suspend fun loadFilterScriptStatus(credentials: AccountCredentials): FilterScriptStatus {
+    suspend fun loadFilterScriptStatus(credentials: AccountCredentials): FilterScriptStatus? {
         if (credentials.protocol == MailProtocol.IMAP) return FilterScriptStatus()
         return runCatching {
             val ctx = connect(credentials)
@@ -5469,8 +5474,9 @@ class MailRepository(
             }
             val scripts = client.getSieveScripts(ctx.session, ctx.accountId, ctx.auth)
             val vacation = scripts.any { it.name == VACATION_SCRIPT_NAME }
+            val foreign = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }
             val managed = scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }
-                ?: return@runCatching FilterScriptStatus(vacationScriptExists = vacation)
+                ?: return@runCatching FilterScriptStatus(vacationScriptExists = vacation, foreignActive = foreign)
             val bytes = client.downloadBlob(
                 ctx.session, ctx.accountId, managed.blobId, "application/sieve", "sterna.siv", ctx.auth,
             )
@@ -5479,8 +5485,9 @@ class MailRepository(
                 scriptActive = managed.isActive,
                 enabledRuleCount = enabledRuleCount(SieveCodec.parseRules(bytes.toString(Charsets.UTF_8))),
                 vacationScriptExists = vacation,
+                foreignActive = foreign,
             )
-        }.getOrElseUnlessCancelled { FilterScriptStatus() }
+        }.getOrElseUnlessCancelled { null }
     }
 
     /**
