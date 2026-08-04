@@ -2173,6 +2173,12 @@ private fun PgpStatusCard(crypto: CryptoUiState, onAction: () -> Unit) {
  * build (that is why `MonogramKt` sits in proguard-rules.pro's -keep list — and it was already a
  * top-level function in its own file when it happened, so living in this file protects nothing).
  * Any change here needs a release-build check on the device, not just a debug one.
+ *
+ * ⚠ **Precaution, not proof: do not move this composable into a small file of its own.** That is
+ * the exact shape the inlining happened to, and `MessageScreenKt` carries no `-keep` rule. Nothing
+ * here demonstrates that staying makes it safe; what is known is that leaving is the arrangement
+ * it went wrong in. If it ever has to move, the move is verified by looking at a RELEASE build on
+ * a device — a debug build cannot see it.
  */
 @Composable
 private fun UnsubscribeStrip(
