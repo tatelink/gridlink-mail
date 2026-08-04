@@ -22,6 +22,7 @@ import app.sterna.core.data.filter.FilterScriptStatus
 import app.sterna.core.data.filter.SieveCodec
 import app.sterna.core.data.filter.VACATION_SCRIPT_NAME
 import app.sterna.core.data.filter.enabledRuleCount
+import app.sterna.core.data.filter.loadedFilterRules
 import app.sterna.core.data.db.AccountMailboxRole
 import app.sterna.core.data.unsubscribe.UnsubscribeClient
 import app.sterna.core.data.unsubscribe.UnsubscribeResult
@@ -5414,6 +5415,10 @@ class MailRepository(
      * Load the account's Sterna-managed filter rules (server-side Sieve).
      * [FilterRulesState.Unsupported] for IMAP accounts and JMAP servers without
      * the sieve capability.
+     *
+     * Everything this decides once the bytes are in hand is [loadedFilterRules], which a JVM
+     * test executes: what an unreadable script means, and when the answer must warn instead of
+     * reporting an empty rule list.
      */
     suspend fun loadFilterRules(credentials: AccountCredentials): FilterRulesState {
         if (credentials.protocol == MailProtocol.IMAP) return FilterRulesState.Unsupported
@@ -5423,16 +5428,15 @@ class MailRepository(
         }
         val scripts = client.getSieveScripts(ctx.session, ctx.accountId, ctx.auth)
         val managed = scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }
-        val rules = if (managed != null) {
-            val bytes = client.downloadBlob(
-                ctx.session, ctx.accountId, managed.blobId, "application/sieve", "sterna.siv", ctx.auth,
-            )
-            SieveCodec.parseRules(bytes.toString(Charsets.UTF_8))
-        } else {
-            emptyList()
+        val script = managed?.let {
+            client.downloadBlob(
+                ctx.session, ctx.accountId, it.blobId, "application/sieve", "sterna.siv", ctx.auth,
+            ).toString(Charsets.UTF_8)
         }
-        val foreign = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }
-        return FilterRulesState.Loaded(rules, foreign)
+        return loadedFilterRules(
+            sternaScript = script,
+            otherActiveScript = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME },
+        )
     }
 
     /**
