@@ -9,32 +9,69 @@ import org.junit.Test
 import java.sql.DriverManager
 
 /**
- * The upgrade purge of the cached message bodies: ONCE per version bump, and not one time more.
+ * The upgrade purge of the cached message bodies: ONCE, on crossing ONE threshold, and never
+ * again for the life of the app.
  *
- * Both halves matter and they pull in opposite directions. Never purging leaves a new reader
- * feature invisible on the mail already in the cache — which, thanks to the prefetch, is the
- * twenty newest messages of the inbox, i.e. the newsletters this lot is about. Purging too often
- * throws away every body on every start and turns each message back into a network round trip.
+ * Both halves matter and they pull in opposite directions. Not purging at that threshold leaves
+ * a new reader feature invisible on the mail already in the cache — which, thanks to the
+ * prefetch, is the twenty newest messages of the inbox, i.e. the newsletters this lot is about.
+ * Purging on every version bump throws away every body on the first start after each update, for
+ * ever: every message read again becomes a network round trip, and nothing already read opens
+ * offline. The threshold buys the first without signing up for the second.
  */
 class BodyCacheUpgradeTest {
 
-    @Test fun `a version bump purges, and records the version it purged for`() {
-        assertEquals(167, bodyCachePurgeVersion(purgedForVersion = 166, currentVersion = 167))
+    @Test fun `arriving at the threshold purges, and records the version it purged for`() {
+        assertEquals(
+            BODY_CACHE_PURGE_VERSION,
+            bodyCachePurgeVersion(purgedForVersion = 0, currentVersion = BODY_CACHE_PURGE_VERSION),
+        )
+    }
+
+    /**
+     * ⛔ CROSSED, not equalled. Someone who skips the release that introduced the need — 1.4.6
+     * straight to 1.4.9 — still arrives with a cache written before it, and must purge once.
+     */
+    @Test fun `jumping over the threshold purges on arrival`() {
+        assertEquals(169, bodyCachePurgeVersion(purgedForVersion = 167, currentVersion = 169))
+        assertEquals(200, bodyCachePurgeVersion(purgedForVersion = 166, currentVersion = 200))
+    }
+
+    /**
+     * ⛔ THE BUG. Every version bump used to purge, for ever: `currentVersion > purgedForVersion`.
+     * A purge is the answer to ONE need, not to the act of updating.
+     */
+    @Test fun `a version bump past the threshold never purges again`() {
+        for (version in 169..171) {
+            assertNull(
+                "already purged at the threshold; version $version has no reason to purge",
+                bodyCachePurgeVersion(purgedForVersion = BODY_CACHE_PURGE_VERSION, currentVersion = version),
+            )
+        }
+        assertNull(bodyCachePurgeVersion(purgedForVersion = 171, currentVersion = 172))
+        assertNull(bodyCachePurgeVersion(purgedForVersion = 200, currentVersion = 999))
     }
 
     /** ⛔ The witness. Same version, second start: nothing to do. */
     @Test fun `the same version does not purge again`() {
-        assertNull(bodyCachePurgeVersion(purgedForVersion = 166, currentVersion = 166))
+        assertNull(
+            bodyCachePurgeVersion(
+                purgedForVersion = BODY_CACHE_PURGE_VERSION,
+                currentVersion = BODY_CACHE_PURGE_VERSION,
+            ),
+        )
     }
 
-    /** A fresh install records the version without ever having had anything to drop. */
-    @Test fun `a first launch records the version`() {
-        assertEquals(166, bodyCachePurgeVersion(purgedForVersion = 0, currentVersion = 166))
+    /** A build older than the threshold has nothing to do with it — it is not why the purge exists. */
+    @Test fun `a version bump below the threshold does nothing`() {
+        assertNull(bodyCachePurgeVersion(purgedForVersion = 166, currentVersion = 167))
+        assertNull(bodyCachePurgeVersion(purgedForVersion = 0, currentVersion = 167))
     }
 
     /** A downgrade (a sideloaded older build) purges nothing: its own bodies are its own. */
     @Test fun `an older build does not purge`() {
         assertNull(bodyCachePurgeVersion(purgedForVersion = 167, currentVersion = 166))
+        assertNull(bodyCachePurgeVersion(purgedForVersion = 169, currentVersion = 166))
     }
 
     /**
@@ -76,16 +113,20 @@ class BodyCacheUpgradeTest {
             st.executeQuery("SELECT COUNT(*) FROM $table").use { rs -> rs.next(); rs.getInt(1) }
         }
 
-    /** Two launches of the same build, played out: the second one is a no-op. */
-    @Test fun `the purge happens exactly once across restarts`() {
-        var recorded = 166
+    /**
+     * The life of one install, played out: restarts, then update after update. Exactly one purge,
+     * on the launch that crosses the threshold, and nothing ever again.
+     */
+    @Test fun `the purge happens exactly once over the life of an install`() {
+        var recorded = 0
         val purges = mutableListOf<Int>()
-        repeat(3) {
-            bodyCachePurgeVersion(recorded, 167)?.let { version ->
-                purges += version
-                recorded = version
+        val launches = listOf(166, 166, 167, BODY_CACHE_PURGE_VERSION, BODY_CACHE_PURGE_VERSION, 169, 170, 171)
+        for (version in launches) {
+            bodyCachePurgeVersion(recorded, version)?.let {
+                purges += it
+                recorded = it
             }
         }
-        assertEquals(listOf(167), purges)
+        assertEquals(listOf(BODY_CACHE_PURGE_VERSION), purges)
     }
 }

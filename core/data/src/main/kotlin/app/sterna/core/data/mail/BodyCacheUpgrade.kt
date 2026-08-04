@@ -3,6 +3,21 @@ package app.sterna.core.data.mail
 import android.content.Context
 
 /**
+ * The ONE version whose arrival needs the cached message bodies gone: the release that taught
+ * the reader to look for the unsubscribe headers (`versionCode` 168, i.e. the release after
+ * 1.4.7 = 167). A literal on purpose — it is a fact about a past upgrade, not the current build
+ * number, and it must not move when the version does.
+ *
+ * ⚠ **The day another change needs the cached bodies dropped, add a SECOND constant and a second
+ * threshold; do not raise this one and do not go back to "purge on every version bump".** A
+ * threshold is a one-off answer to a one-off need. "Every version bump" is a permanent policy
+ * that throws away every body on the first start after each update — every message read again
+ * becoming a network round trip, and nothing openable offline — in exchange for a need that
+ * arose exactly once.
+ */
+const val BODY_CACHE_PURGE_VERSION = 168
+
+/**
  * Which version to record after dropping the cached message bodies at startup, or null when
  * there is nothing to do — the whole decision behind [BodyCachePurge], as one executed function.
  *
@@ -18,11 +33,16 @@ import android.content.Context
  * A cache is the one store where this is free: it refills itself from the server on the next open.
  * Hence no migration, no column, no schema change — a DELETE and a number in a preference file.
  *
- * `>` and not `>=`: the same version must purge exactly once, or every start of the app would
- * throw away the bodies it just fetched and every message would be a network round trip.
+ * **A threshold CROSSED, not a version bump.** Purge if and only if the cache has not yet been
+ * purged for [BODY_CACHE_PURGE_VERSION] and the build now running is that version or later.
+ * Crossed, not equalled: someone who skips from 1.4.6 straight to 1.4.9 must purge once on
+ * arrival, and someone already past the threshold must never purge again, at 169, at 170, or at
+ * any version this app ever ships.
  */
 fun bodyCachePurgeVersion(purgedForVersion: Int, currentVersion: Int): Int? =
-    currentVersion.takeIf { it > purgedForVersion }
+    currentVersion.takeIf {
+        purgedForVersion < BODY_CACHE_PURGE_VERSION && it >= BODY_CACHE_PURGE_VERSION
+    }
 
 /**
  * The once-per-upgrade purge of the cached message bodies, remembered in its own small preference
