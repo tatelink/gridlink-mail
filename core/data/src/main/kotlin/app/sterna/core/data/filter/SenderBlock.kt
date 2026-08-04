@@ -47,6 +47,33 @@ fun alreadyBlocked(rules: List<FilterRule>, address: String): Boolean = rules.an
 }
 
 /**
+ * Whether a block rule may target [address] AT ALL — asked before anything the account's script
+ * says, because these two noes are about the ADDRESS and no state of the server changes them.
+ *
+ * Both were found on a device, on the gesture offered from the open message (`banc-1.4.8.md`
+ * § 4 and § 5.3):
+ *
+ *  - **one's own address.** `FROM :is <me> → Trash, marked read` files one's OWN mail away:
+ *    every message sent to oneself, every reply a mailing list echoes back, everything an alias
+ *    of the account posts. It is the one rule in this file that cannot be undone by ignoring it,
+ *    because the mail it eats is the mail one would have gone looking for. The reader reaches it
+ *    from the Sent folder; the per-sender screen reaches it too — a message from oneself filed in
+ *    an ordinary folder is counted like any other, and its row then offers the gesture.
+ *  - **no address at all.** A `From:` carrying only a display name maps to `email = ""`
+ *    (`EmailMapper`), and `FROM :is ""` is a rule about nobody: it matches no mail, it cannot be
+ *    read back as anything, and it sits in the account's script for ever.
+ *
+ * [ownAddresses] is the account's send-as identities plus the login it authenticates with. They
+ * are compared the way [alreadyBlocked] compares — trimmed, case ignored — because that is how
+ * the rule is written and how Sieve's `address :is "from"` reads it back.
+ */
+fun blockableSender(address: String, ownAddresses: List<String>): Boolean {
+    val target = address.trim()
+    if (target.isEmpty()) return false
+    return ownAddresses.none { it.trim().equals(target, ignoreCase = true) }
+}
+
+/**
  * [loaded] plus the new rule — ADDED, never substituted.
  *
  * This is the trap the whole path exists around: `MailRepository.saveFilterRules` recompiles and

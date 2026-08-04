@@ -85,6 +85,44 @@ class SenderBlockTest {
         assertFalse(alreadyBlocked(emptyList(), "news@example.com"))
     }
 
+    // -- the two addresses no rule may target ----------------------------------------------------
+
+    @Test fun `no rule may be aimed at one of the account's own addresses`() {
+        // The defect this function exists for (banc-1.4.8.md § 4, R6): the gesture was offered on
+        // a message the account itself sent, and the rule it would have written files the
+        // account's OWN mail into the Trash, marked read, for ever.
+        val own = listOf("alex.rivera@masto.top", "alex@alias.example")
+        assertFalse(blockableSender("alex.rivera@masto.top", own))
+        assertFalse("an alias is just as much oneself", blockableSender("alex@alias.example", own))
+        assertTrue("and somebody else is not", blockableSender("news@example.com", own))
+    }
+
+    @Test fun `one's own address is recognised the way the rule is written`() {
+        // Same comparison alreadyBlocked makes, and it has to be: the rule is stored as the
+        // address is spelled, and `address :is "from"` reads it back case-insensitively. A guard
+        // that only caught the exact spelling would be walked past by tapping the same gesture on
+        // the same message with a capital in it.
+        val own = listOf("  Alex.Rivera@Masto.TOP  ")
+        assertFalse(blockableSender("alex.rivera@masto.top", own))
+        assertFalse(blockableSender("ALEX.RIVERA@MASTO.TOP", own))
+        assertFalse(blockableSender(" alex.rivera@masto.top ", own))
+    }
+
+    @Test fun `an address that is not one is no rule at all`() {
+        // A From: carrying only a display name maps to email = "" (EmailMapper). `FROM :is ""`
+        // matches nothing and can never be read back as anything; it would sit in the account's
+        // script for good.
+        assertFalse(blockableSender("", listOf("me@example.com")))
+        assertFalse(blockableSender("   ", listOf("me@example.com")))
+        assertFalse("…and with no identities known either", blockableSender("", emptyList()))
+    }
+
+    @Test fun `an account whose identities are unknown still rules on other senders`() {
+        // The list is read from the store, so it is never legitimately empty — but an empty list
+        // must degrade to "cannot say this is me", not to "nothing can be ruled".
+        assertTrue(blockableSender("news@example.com", emptyList()))
+    }
+
     // -- the order of the two server calls -------------------------------------------------------
 
     @Test fun `the save receives everything that was loaded, plus one`() = runBlocking {

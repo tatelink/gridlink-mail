@@ -20,6 +20,7 @@ import app.sterna.core.data.calendar.ParsedEvent
 import app.sterna.core.data.filter.BlockOutcome
 import app.sterna.core.data.filter.addBlockRule
 import app.sterna.core.data.filter.alreadyBlocked
+import app.sterna.core.data.filter.blockableSender
 import app.sterna.core.data.mail.FilterRulesState
 import app.sterna.core.data.mail.UnsubscribeAction
 import app.sterna.core.data.mail.UnsubscribeHeader
@@ -132,6 +133,26 @@ enum class SenderRuleEntry {
 }
 
 /**
+ * What the reader knows about the account's Sieve script — and it is THREE states because two of
+ * them used to be one, which is half of what R6 was.
+ *
+ * "Not read yet" and "read and got no answer" were both a null [FilterRulesState], and the entry
+ * treated them alike: offered. They are not alike. Nothing has been asked of the server in the
+ * first, so the entry names four answers it has no grounds for; a question WAS asked and failed
+ * in the second, and that is a state the gesture survives (see [senderRuleEntry]).
+ */
+sealed interface SenderScript {
+    /** Nothing has been asked. The panel arms the read; until it answers there is no opinion. */
+    data object Unread : SenderScript
+
+    /** A read was made and did not answer — offline, a dead connection, a server that threw. */
+    data object Unreachable : SenderScript
+
+    /** The server answered, with whatever it had to say. */
+    data class Read(val state: FilterRulesState) : SenderScript
+}
+
+/**
  * Whether the reader may add "file future mail from this address into the Trash, marked read"
  * from the message it is reading, and in what state the entry appears.
  *
@@ -143,7 +164,13 @@ enum class SenderRuleEntry {
  * [isSender] — the row is in the From group. To and Cc are not who wrote, and a FROM rule on a
  * recipient is a rule about mail that person has not sent; the entry is not offered there.
  *
- * The three noes are the screen's, with ONE deliberate difference. [trashPath] null and
+ * [address] and [ownAddresses] are the two noes that belong to the ADDRESS rather than to the
+ * account's script — one's own address, and no address at all. They are
+ * [app.sterna.core.data.filter.blockableSender]'s, written once and asked by both surfaces,
+ * because the reader reached them from the Sent folder and the per-sender screen reaches them
+ * from any ordinary folder: neither is a case the other can be trusted to have caught.
+ *
+ * The rest are the screen's noes, with ONE deliberate difference. [trashPath] null and
  * [FilterRulesState.Unsupported] take the entry away exactly as they do on the screen: nothing
  * honest to offer, and nothing invented to stand in. But `foreignActiveScript` GREYS the entry
  * here instead of hiding it — the difference is that a dialog has room for the reason and a list
@@ -151,29 +178,42 @@ enum class SenderRuleEntry {
  * nothing that would offer to take the running script over: that decision belongs to the Filters
  * screen, which warns in red above its Save button.
  *
- * A state of null — the script has not been read yet, or the read failed — leaves the entry
- * OFFERED. Hiding it there would make an unreachable server look like an IMAP account, with no
- * word and no retry; tapping it runs
- * [app.sterna.core.data.filter.addBlockRule], which reads again at the moment of writing and
- * reports what happened. That read is the guard, and it is absolute: nothing here can talk it
- * into writing over another script.
+ * The two halves of what used to be "null" part company here, and the line between them is the
+ * one the per-sender screen already draws:
+ *
+ *  - [SenderScript.Unread] — **absent**. The panel has only just armed the read; an entry drawn
+ *    before the answer is a promise made on no information, and the four states it can be in are
+ *    exactly what has not been read yet. The screen holds it absent for the same span.
+ *  - [SenderScript.Unreachable] — **offered**. Hiding it there would make an unreachable server
+ *    look like an IMAP account, with no word and no retry, and the gesture is merely unavailable
+ *    rather than wrong: tapping it runs [app.sterna.core.data.filter.addBlockRule], which reads
+ *    again at the moment of writing and reports what happened. That read is the guard, and it is
+ *    absolute: nothing here can talk it into writing over another script.
  */
 fun senderRuleEntry(
     isSender: Boolean,
     trashPath: String?,
-    rules: FilterRulesState?,
+    script: SenderScript,
     address: String,
-): SenderRuleEntry = when {
-    !isSender -> SenderRuleEntry.ABSENT
-    trashPath == null -> SenderRuleEntry.ABSENT
-    rules is FilterRulesState.Unsupported -> SenderRuleEntry.ABSENT
-    // "Already there" answers before "cannot", for the same reason addBlockRule does: neither
-    // case writes anything, they differ only in what the reader is told, and "another script is
-    // active" on an address that is already handled reports an obstacle where there is none.
-    rules is FilterRulesState.Loaded && alreadyBlocked(rules.rules, address) ->
-        SenderRuleEntry.ALREADY_RULED
-    rules is FilterRulesState.Loaded && rules.foreignActiveScript -> SenderRuleEntry.FOREIGN_SCRIPT
-    else -> SenderRuleEntry.OFFERED
+    ownAddresses: List<String>,
+): SenderRuleEntry {
+    val rules = (script as? SenderScript.Read)?.state
+    return when {
+        !isSender -> SenderRuleEntry.ABSENT
+        // Before the account's script is consulted at all: no state of the server makes a rule
+        // on one's own address, or on no address, into something worth offering.
+        !blockableSender(address, ownAddresses) -> SenderRuleEntry.ABSENT
+        trashPath == null -> SenderRuleEntry.ABSENT
+        script is SenderScript.Unread -> SenderRuleEntry.ABSENT
+        rules is FilterRulesState.Unsupported -> SenderRuleEntry.ABSENT
+        // "Already there" answers before "cannot", for the same reason addBlockRule does: neither
+        // case writes anything, they differ only in what the reader is told, and "another script is
+        // active" on an address that is already handled reports an obstacle where there is none.
+        rules is FilterRulesState.Loaded && alreadyBlocked(rules.rules, address) ->
+            SenderRuleEntry.ALREADY_RULED
+        rules is FilterRulesState.Loaded && rules.foreignActiveScript -> SenderRuleEntry.FOREIGN_SCRIPT
+        else -> SenderRuleEntry.OFFERED
+    }
 }
 
 /** The words each state of the entry wears — greyed entries say WHY, they do not just look dead. */
@@ -451,16 +491,28 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * The account's filter rules as last read, or null when they have not been read (or the read
-     * failed) — see [senderRuleEntry] for what null means to the entry.
+     * The account's filter rules as last read — [SenderScript.Unread] until a read is made, and
+     * [SenderScript.Unreachable] when one was made and did not answer. See [senderRuleEntry] for
+     * what each of the three means to the entry; the first two are NOT the same answer.
      *
      * Read ONLY when the participants panel is opened ([loadSenderRules]), never on opening a
      * message: it is a network round-trip, and paying for one on every message read — including
      * every message merely swiped past — to decide the state of an entry nobody has looked for
      * yet is not a trade this app makes.
      */
-    private val _senderRules = MutableStateFlow<FilterRulesState?>(null)
+    private val _senderRules = MutableStateFlow<SenderScript>(SenderScript.Unread)
     val senderRules = _senderRules.asStateFlow()
+
+    /**
+     * Every address that IS the user on the open message's account, so the rule gesture can
+     * refuse its own sender — see [app.sterna.core.data.filter.blockableSender].
+     *
+     * Per message and not per app: the reader is a pager and the unified inbox makes it cross
+     * ACCOUNTS, so the addresses that are "oneself" change under it exactly as the script does.
+     * Read from the store, so it costs nothing and needs no network.
+     */
+    private val _accountAddresses = MutableStateFlow<List<String>>(emptyList())
+    val accountAddresses = _accountAddresses.asStateFlow()
 
     /** One-shot word about the rule gesture (added / already there / failed), shown and cleared. */
     private val _senderRuleStatus = MutableStateFlow<String?>(null)
@@ -471,17 +523,24 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
     /**
      * Read the account's script, once, when the participants panel opens.
      *
-     * Idempotent while it holds an answer: reopening the panel does not go back to the server.
-     * A read that failed leaves null, so the next opening tries again — and until then the entry
-     * is offered, which is what a merely unreachable server deserves.
+     * Idempotent while it holds an ANSWER — [SenderScript.Read] — so reopening the panel does not
+     * go back to the server. A read that failed leaves [SenderScript.Unreachable], which is not
+     * an answer: the next opening tries again, and until then the entry is offered, which is what
+     * a merely unreachable server deserves. [SenderScript.Unread], the state before any of this,
+     * is the one that holds the entry back.
      */
     fun loadSenderRules() {
-        if (_senderRules.value != null) return
+        if (_senderRules.value is SenderScript.Read) return
         val credentials = credentials() ?: return
         viewModelScope.launch {
-            _senderRules.value = runCatching { repo.loadFilterRules(credentials) }.getOrNull()
+            _senderRules.value = readSenderScript(credentials)
         }
     }
+
+    /** One read of the account's script, as the three-state answer the entry is decided on. */
+    private suspend fun readSenderScript(credentials: AccountCredentials): SenderScript =
+        runCatching { SenderScript.Read(repo.loadFilterRules(credentials)) }
+            .getOrDefault(SenderScript.Unreachable)
 
     /**
      * Add the "future mail to Trash, marked read" rule for [address] to the account's script.
@@ -516,7 +575,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
             )
             // Re-read, so the entry greys itself out for the address just handled instead of
             // going on offering a rule that is now there.
-            _senderRules.value = runCatching { repo.loadFilterRules(credentials) }.getOrNull()
+            _senderRules.value = readSenderScript(credentials)
         }
     }
 
@@ -726,14 +785,18 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _manualShowImages.value = false
         _headers.value = null
         _attachmentStatus.value = null
-        // The per-sender rule, both halves. The status is the answer to a gesture made on the
-        // message we are leaving ("Rule added"), and it would be read as this message's. The
+        // The per-sender rule, all three halves. The status is the answer to a gesture made on
+        // the message we are leaving ("Rule added"), and it would be read as this message's. The
         // script is worse than stale: the pager crosses ACCOUNTS in the unified inbox, so the
         // previous account's rules would decide whether THIS account's sender is already ruled
-        // — a grey "already there" on an address nothing files away, or the reverse. Null costs
+        // — a grey "already there" on an address nothing files away, or the reverse. Unread costs
         // nothing: the script is read lazily, only when the participants panel is opened.
-        _senderRules.value = null
+        // The account's own addresses cross accounts with it, and they are read from the store,
+        // so they are taken here rather than left to a round-trip: the one thing that must never
+        // arrive late is the reason the gesture is refused.
+        _senderRules.value = SenderScript.Unread
         _senderRuleStatus.value = null
+        _accountAddresses.value = ownAddresses()
         viewModelScope.launch {
             // Account-scoped: a snooze belongs to one account's message (issue #31).
             _snoozedUntil.value = runCatching {

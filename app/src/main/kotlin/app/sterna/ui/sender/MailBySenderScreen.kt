@@ -186,6 +186,7 @@ fun MailBySenderScreen(
                         row = row,
                         canDelete = state.canDelete,
                         canBlock = state.canBlock,
+                        ownAddresses = state.ownAddresses,
                         blocked = viewModel.isBlocked(row.email),
                         working = state.working,
                         onSearch = { onOpenSearch(row.email) },
@@ -261,6 +262,7 @@ private fun SenderRow(
     row: SenderVolume,
     canDelete: Boolean,
     canBlock: Boolean,
+    ownAddresses: List<String>,
     blocked: Boolean,
     working: Boolean,
     onSearch: () -> Unit,
@@ -310,9 +312,12 @@ private fun SenderRow(
             ) {
                 // Which entries exist, and which of them can be tapped, is senderMenuEntries()'s
                 // decision — a plain function a JVM test runs. An entry is ABSENT only when this
-                // account cannot perform the gesture at all; "not right now" is a greyed entry,
-                // never a missing one.
-                senderMenuEntries(canDelete, canBlock, blocked, working).forEach { entry ->
+                // account cannot perform the gesture at all, or when THIS ROW is an address no
+                // rule may target (one's own, or none); "not right now" is a greyed entry, never
+                // a missing one.
+                val entries =
+                    senderMenuEntries(canDelete, canBlock, blocked, working, row.email, ownAddresses)
+                entries.forEach { entry ->
                     DropdownMenuItem(
                         enabled = entry.enabled,
                         text = { Text(stringResource(entry.labelRes)) },

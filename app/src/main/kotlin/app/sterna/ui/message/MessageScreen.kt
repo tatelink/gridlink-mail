@@ -1143,9 +1143,11 @@ private fun MessageContent(
     val showRemote = manualShow || senderAllowed
     // The per-sender filter rule offered from the participants panel. The Trash is named from
     // the account's OWN cached folder list (no network), the script state is read once when the
-    // panel opens, and which of the four answers this makes is senderRuleEntry()'s — the same
-    // decision the per-sender screen takes, executed by a test.
+    // panel opens, the account's own addresses come from the store, and which of the four answers
+    // all that makes is senderRuleEntry()'s — the same decision the per-sender screen takes,
+    // executed by a test.
     val senderRules by viewModel.senderRules.collectAsStateWithLifecycle()
+    val accountAddresses by viewModel.accountAddresses.collectAsStateWithLifecycle()
     val accountMailboxes by viewModel.accountMailboxes.collectAsStateWithLifecycle()
     val senderRuleStatus by viewModel.senderRuleStatus.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -1156,7 +1158,13 @@ private fun MessageContent(
     }
     val senderRule = SenderRuleOffer(
         entryFor = { isSender, address ->
-            senderRuleEntry(isSender, trashFilePath(accountMailboxes), senderRules, address)
+            senderRuleEntry(
+                isSender,
+                trashFilePath(accountMailboxes),
+                senderRules,
+                address,
+                accountAddresses,
+            )
         },
         onOpened = viewModel::loadSenderRules,
         onBlock = viewModel::blockSender,

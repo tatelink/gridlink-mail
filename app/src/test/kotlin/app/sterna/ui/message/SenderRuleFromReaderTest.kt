@@ -23,62 +23,107 @@ class SenderRuleFromReaderTest {
 
     private val address = "news@example.com"
 
+    /** The account doing the reading — an identity and an alias, as a two-alias account has. */
+    private val own = listOf("alex.rivera@masto.top", "alex@alias.example")
+
     private fun ruled(vararg addresses: String) = FilterRulesState.Loaded(
         addresses.map {
             FilterRule(name = it, field = RuleField.FROM, match = RuleMatch.IS, value = it)
         },
     )
 
+    private fun read(state: FilterRulesState) = SenderScript.Read(state)
+
+    /**
+     * The decision, with everything that is not the subject of a given test held at its ordinary
+     * value: the From row of a message from somebody else, on an account that has a Trash and
+     * whose script has been read. Each test overrides exactly what it is about.
+     */
+    private fun entry(
+        isSender: Boolean = true,
+        trashPath: String? = "Trash",
+        script: SenderScript = read(ruled()),
+        address: String = this.address,
+        ownAddresses: List<String> = own,
+    ) = senderRuleEntry(isSender, trashPath, script, address, ownAddresses)
+
     @Test fun `the sender of the open message gets the entry`() {
-        assertEquals(
-            SenderRuleEntry.OFFERED,
-            senderRuleEntry(isSender = true, trashPath = "Trash", rules = ruled(), address = address),
-        )
+        assertEquals(SenderRuleEntry.OFFERED, entry())
     }
 
     @Test fun `a recipient does not`() {
         // A rule on FROM aimed at someone who was only in To or Cc is a rule about mail that
         // person has not sent. The panel lists all three groups with the same row, so the group
         // is an argument of the decision and not "whichever group happened to get a callback".
-        assertEquals(
-            SenderRuleEntry.ABSENT,
-            senderRuleEntry(isSender = false, trashPath = "Trash", rules = ruled(), address = address),
-        )
+        assertEquals(SenderRuleEntry.ABSENT, entry(isSender = false))
         assertEquals(
             "and no state of the account brings it back on a recipient's row",
             listOf(SenderRuleEntry.ABSENT, SenderRuleEntry.ABSENT, SenderRuleEntry.ABSENT),
             listOf(ruled(), ruled(address), FilterRulesState.Unsupported).map {
-                senderRuleEntry(isSender = false, trashPath = "Trash", rules = it, address = address)
+                entry(isSender = false, script = read(it))
             },
         )
     }
+
+    // -- the two noes about the ADDRESS, asked before anything the account's script says ---------
+
+    @Test fun `the reader is never offered a rule against itself`() {
+        // R6, seen on a device (banc-1.4.8.md § 4): a message opened from the Sent folder carries
+        // the account's own identity in From, the entry was ACTIVE on it, and the dialog it
+        // opened read "send future mail from alex.rivera@masto.top to the Trash?" — about the
+        // very account reading it. The rule files away every message that account sends itself,
+        // and every reply a mailing list echoes back, marked read, for ever.
+        assertEquals(SenderRuleEntry.ABSENT, entry(address = "alex.rivera@masto.top"))
+        assertEquals(
+            "an alias of the account is just as much oneself",
+            SenderRuleEntry.ABSENT,
+            entry(address = "alex@alias.example"),
+        )
+        assertEquals(
+            "…and case is no way around it: the rule matches the address, not its spelling",
+            SenderRuleEntry.ABSENT,
+            entry(address = "Alex.Rivera@Masto.TOP"),
+        )
+    }
+
+    @Test fun `no state of the account's script brings the entry back on one's own address`() {
+        // The refusal is asked BEFORE anything the server said, so nothing the server says can
+        // undo it — not a script nobody read, not an unreachable one, not another script running.
+        // If any of these ever reads OFFERED, the gesture is on offer against oneself again.
+        val states = listOf(
+            SenderScript.Unread,
+            SenderScript.Unreachable,
+            read(ruled()),
+            read(ruled("alex.rivera@masto.top")),
+            read(FilterRulesState.Loaded(emptyList(), foreignActiveScript = true)),
+            read(FilterRulesState.Unsupported),
+        )
+        assertEquals(
+            states.map { SenderRuleEntry.ABSENT },
+            states.map { entry(script = it, address = "alex.rivera@masto.top") },
+        )
+    }
+
+    @Test fun `a From with no address at all has nothing to rule on`() {
+        // A From: carrying only a display name maps to email = "" (EmailMapper). `FROM :is ""`
+        // is a rule about nobody: no mail matches it, nothing reads it back, and it stays in the
+        // account's script.
+        assertEquals(SenderRuleEntry.ABSENT, entry(address = ""))
+        assertEquals(SenderRuleEntry.ABSENT, entry(address = "   "))
+    }
+
+    // -- the noes that ARE about the account ----------------------------------------------------
 
     @Test fun `no Trash to name, and no server support, take the entry away`() {
         // The screen's own two silences, kept: with nothing to file the mail into there is
         // nothing honest to offer, and on an account whose server has no Sieve the rule would be
         // refused. Neither can be explained here any better than it is on the Filters screen.
-        assertEquals(
-            SenderRuleEntry.ABSENT,
-            senderRuleEntry(isSender = true, trashPath = null, rules = ruled(), address = address),
-        )
-        assertEquals(
-            SenderRuleEntry.ABSENT,
-            senderRuleEntry(
-                isSender = true,
-                trashPath = "Trash",
-                rules = FilterRulesState.Unsupported,
-                address = address,
-            ),
-        )
+        assertEquals(SenderRuleEntry.ABSENT, entry(trashPath = null))
+        assertEquals(SenderRuleEntry.ABSENT, entry(script = read(FilterRulesState.Unsupported)))
     }
 
     @Test fun `an address the script already handles keeps its entry, greyed, and says why`() {
-        val entry = senderRuleEntry(
-            isSender = true,
-            trashPath = "Trash",
-            rules = ruled(address),
-            address = address,
-        )
+        val entry = entry(script = read(ruled(address)))
         assertEquals(SenderRuleEntry.ALREADY_RULED, entry)
         assertEquals(app.sterna.R.string.sender_volume_block_done, senderRuleLabel(entry))
     }
@@ -86,14 +131,11 @@ class SenderRuleFromReaderTest {
     @Test fun `the address is matched the way the rule matches it`() {
         // alreadyBlocked compares FROM/IS rules case-insensitively, which is how the per-sender
         // screen groups. A second identical rule would file the same mail twice.
-        assertEquals(
-            SenderRuleEntry.ALREADY_RULED,
-            senderRuleEntry(true, "Trash", ruled("News@Example.com"), address),
-        )
+        assertEquals(SenderRuleEntry.ALREADY_RULED, entry(script = read(ruled("News@Example.com"))))
         assertEquals(
             "a rule about somebody else is not this address's rule",
             SenderRuleEntry.OFFERED,
-            senderRuleEntry(true, "Trash", ruled("other@example.com"), address),
+            entry(script = read(ruled("other@example.com"))),
         )
     }
 
@@ -101,11 +143,8 @@ class SenderRuleFromReaderTest {
         // ⭐ The one place this location beats the list row: the reason can be SAID. On the
         // per-sender screen the entry disappears with no word anywhere; here it stays, disabled,
         // wearing the reason.
-        val entry = senderRuleEntry(
-            isSender = true,
-            trashPath = "Trash",
-            rules = FilterRulesState.Loaded(emptyList(), foreignActiveScript = true),
-            address = address,
+        val entry = entry(
+            script = read(FilterRulesState.Loaded(emptyList(), foreignActiveScript = true)),
         )
         assertEquals(SenderRuleEntry.FOREIGN_SCRIPT, entry)
         assertEquals(app.sterna.R.string.sender_volume_block_foreign, senderRuleLabel(entry))
@@ -118,31 +157,37 @@ class SenderRuleFromReaderTest {
         // same reason (that one went red with "expected:<ALREADY_PRESENT> but was:<FAILED>").
         assertEquals(
             SenderRuleEntry.ALREADY_RULED,
-            senderRuleEntry(
-                isSender = true,
-                trashPath = "Trash",
-                rules = FilterRulesState.Loaded(
-                    ruled(address).rules,
-                    foreignActiveScript = true,
+            entry(
+                script = read(
+                    FilterRulesState.Loaded(ruled(address).rules, foreignActiveScript = true),
                 ),
-                address = address,
             ),
         )
     }
 
-    @Test fun `a script nobody has read yet leaves the entry offered`() {
-        // Null is "not read, or the read failed". Hiding the entry there makes an unreachable
-        // server look like an IMAP account — no word, no retry — while tapping it runs
-        // addBlockRule, which reads AGAIN at the moment of writing and reports what happened.
-        // That read is the guard, and it is the reason this state is safe.
-        assertEquals(
-            SenderRuleEntry.OFFERED,
-            senderRuleEntry(isSender = true, trashPath = "Trash", rules = null, address = address),
-        )
+    // -- "not asked yet" and "asked, no answer" are two different states -------------------------
+
+    @Test fun `a script nobody has read yet holds the entry back`() {
+        // The other half of R6: "not read" and "the read failed" were ONE null state, and the
+        // entry was offered in both. Before the panel's read answers, nothing is known — whether
+        // the server does Sieve at all, whether another script is running, whether this address
+        // is already handled — so an entry drawn then is a promise made on no information, and a
+        // tap on it is answered with "couldn't complete the action". The per-sender screen holds
+        // it absent for exactly that span; this is the parity that was missing.
+        assertEquals(SenderRuleEntry.ABSENT, entry(script = SenderScript.Unread))
+    }
+
+    @Test fun `a read that got no answer leaves the entry offered`() {
+        // And this is the state that must NOT be hidden — which is the whole reason the two are
+        // told apart. Hiding the entry offline makes an unreachable server look like an IMAP
+        // account, with no word and no retry, while tapping it runs addBlockRule, which reads
+        // AGAIN at the moment of writing and reports what happened. That read is the guard, and
+        // it is what makes this state safe.
+        assertEquals(SenderRuleEntry.OFFERED, entry(script = SenderScript.Unreachable))
         assertEquals(
             "…but a Trash that cannot be named is still nothing to offer",
             SenderRuleEntry.ABSENT,
-            senderRuleEntry(isSender = true, trashPath = null, rules = null, address = address),
+            entry(script = SenderScript.Unreachable, trashPath = null),
         )
     }
 
@@ -163,9 +208,20 @@ class SenderRuleFromReaderTest {
         val screen = SOURCE.readText()
         assertTrue(
             "the participants panel must ask senderRuleEntry(isSender, trashFilePath(" +
-                "accountMailboxes), senderRules, address) — the account's OWN cached folder " +
-                "list, and the script as last read",
-            "senderRuleEntry(isSender, trashFilePath(accountMailboxes), senderRules, address)" in screen,
+                "accountMailboxes), senderRules, address, accountAddresses) — the account's OWN " +
+                "cached folder list, the script as last read, and the addresses that ARE this " +
+                "account. Without the last one the gesture is offered on the reader's own mail",
+            Regex(
+                "senderRuleEntry\\(\\s*isSender,\\s*trashFilePath\\(accountMailboxes\\),\\s*" +
+                    "senderRules,\\s*address,\\s*accountAddresses,?\\s*\\)",
+            ).containsMatchIn(screen),
+        )
+        assertTrue(
+            "…and that list must be the ViewModel's, re-read for the message the pager landed " +
+                "on: 'val accountAddresses by viewModel.accountAddresses" +
+                ".collectAsStateWithLifecycle()'. A constant there, or a list read once for the " +
+                "app, is a rule offered against oneself on the next account of the unified inbox",
+            "val accountAddresses by viewModel.accountAddresses.collectAsStateWithLifecycle()" in screen,
         )
         assertTrue(
             "the From group must be the only one flagged as the sender",
@@ -203,10 +259,9 @@ class SenderRuleFromReaderTest {
      */
     @Test fun `opening the panel is what reads the account's script`() {
         // The mutation that survived: delete the one line that arms the read. The state then
-        // stays null for ever, so senderRuleEntry answers OFFERED every time — "a rule already
-        // exists for this sender" and "another filter script is active" are then WORDS THAT CAN
-        // NEVER APPEAR, and every test above goes on passing because each of them hands the
-        // decision a state directly.
+        // stays Unread for ever — which now HIDES the entry instead of offering it wrongly, so
+        // the gesture disappears with no word anywhere, and every test above goes on passing
+        // because each of them hands the decision a state directly.
         val screen = SOURCE.readText()
         assertTrue(
             "the participants panel must arm the read, as 'LaunchedEffect(Unit) { " +
@@ -221,6 +276,49 @@ class SenderRuleFromReaderTest {
             "the entry's state must come from the script the panel read — 'senderRules' — and " +
                 "not from a constant",
             "val senderRules by viewModel.senderRules.collectAsStateWithLifecycle()" in screen,
+        )
+    }
+
+    @Test fun `the ViewModel tells 'no answer' apart from 'not asked'`() {
+        // The two states R6 collapsed into one, and neither half can be reached from a JVM test.
+        // A read that answers Unread where it should answer Unreachable strands the entry on any
+        // network hiccup; a reset to Unreachable offers the gesture on a message whose account
+        // nobody has asked anything about — the defect, back, with every decision above green
+        // because each is handed its state directly.
+        val vm = VIEW_MODEL.readText()
+        assertTrue(
+            "a read that fails must answer SenderScript.Unreachable: " +
+                "'.getOrDefault(SenderScript.Unreachable)'",
+            ".getOrDefault(SenderScript.Unreachable)" in vm,
+        )
+        assertTrue(
+            "and the pager's reset must put it back to 'nothing has been asked': " +
+                "'_senderRules.value = SenderScript.Unread'",
+            "_senderRules.value = SenderScript.Unread" in vm,
+        )
+        assertTrue(
+            "re-opening the panel may only skip the round-trip once the server ANSWERED — " +
+                "'if (_senderRules.value is SenderScript.Read) return'. Skipping on Unreachable " +
+                "as well would strand the entry on one failed read until the message is left",
+            "if (_senderRules.value is SenderScript.Read) return" in vm,
+        )
+    }
+
+    @Test fun `the account's own addresses are re-read for every message the pager lands on`() {
+        // The reader crosses ACCOUNTS in the unified inbox. Own addresses read once, or read
+        // late, are the PREVIOUS account's — and "is this me?" answered with somebody else's
+        // identities is the state R6 was found in. ReaderStateResetOnLoadTest holds the general
+        // rule; this one holds what the value must be.
+        val vm = VIEW_MODEL.readText()
+        assertTrue(
+            "load() must refill the account's own addresses: '_accountAddresses.value = " +
+                "ownAddresses()'",
+            "_accountAddresses.value = ownAddresses()" in vm,
+        )
+        assertTrue(
+            "…and those must be the account's identities plus its login, not a hard-coded list",
+            Regex("private fun ownAddresses\\(\\): List<String> =\\s*\\n\\s*store\\.identities\\(accountId\\)")
+                .containsMatchIn(vm),
         )
     }
 

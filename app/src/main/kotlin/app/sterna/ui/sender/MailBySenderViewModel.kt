@@ -11,6 +11,7 @@ import app.sterna.core.data.filter.BlockOutcome
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.filter.addBlockRule
 import app.sterna.core.data.filter.alreadyBlocked
+import app.sterna.core.data.filter.blockableSender
 import app.sterna.core.data.mail.EmailKey
 import app.sterna.core.data.mail.FilterRulesState
 import app.sterna.core.data.mail.MailRepository
@@ -171,19 +172,30 @@ internal enum class SenderAction { SEARCH, DELETE, BLOCK }
  * the two does not remove the trap (the row can still be emptied on purpose), it stops the menu
  * PROPOSING it — and it puts the destructive entry last, which is the convention this project
  * already writes down in `InboxScreen.kt` ("Destructive, so it sits last (#48)").
+ *
+ * [address] and [ownAddresses] are the fourth reason the rule entry can be absent, and the only
+ * one that is about the ROW rather than the account: a rule on one's own address, or on no
+ * address at all ([blockableSender]). The screen was believed to be out of reach of both — the
+ * counting query drops Sent, Drafts, Trash and Junk, and an empty `fromEmail` — and it is not: a
+ * message from oneself filed in an ordinary folder is counted like any other, and its row was
+ * offering to file all future mail from oneself into the Trash. Found on a device, `banc-1.4.8.md`
+ * § 5.3. The decision is asked HERE, of the row's own address, and not of the screen: `canBlock`
+ * answers for the account, one address at a time is what this menu is about.
  */
 internal fun senderMenuEntries(
     canDelete: Boolean,
     canBlock: Boolean,
     blocked: Boolean,
     working: Boolean,
+    address: String,
+    ownAddresses: List<String>,
 ): List<SenderMenuEntry> = buildList {
     // Always there, always tappable: it writes nothing, destroys nothing, and reading what a
     // batch is about to sweep is exactly what one wants while that batch is on its way. The
     // screen stays on the back stack, so its ViewModel — and the batch in flight — outlive the
     // navigation.
     add(SenderMenuEntry(SenderAction.SEARCH, R.string.sender_volume_search, enabled = true))
-    if (canBlock) {
+    if (canBlock && blockableSender(address, ownAddresses)) {
         add(
             SenderMenuEntry(
                 SenderAction.BLOCK,
@@ -243,6 +255,13 @@ data class MailBySenderUiState(
     val blockNote: Int? = null,
     /** The rules the account's script carries, as last read — for the duplicate check. */
     val rules: List<FilterRule> = emptyList(),
+    /**
+     * The account's own addresses (its send-as identities plus its login), so a row that IS the
+     * account does not offer to file the account's own mail away — see [senderMenuEntries] and
+     * [blockableSender]. Read from the store with the counts, never from the network: an empty
+     * list here is a row menu that offers the gesture on oneself.
+     */
+    val ownAddresses: List<String> = emptyList(),
     /**
      * Why the counting query could not be read, when it could not.
      *
@@ -361,6 +380,10 @@ class MailBySenderViewModel(application: Application) : AndroidViewModel(applica
                 canDelete = canDeleteFrom(mailboxes),
                 canBlock = false,
                 rules = emptyList(),
+                // Written with the rows, not with the script: the row that is the account itself
+                // must be refused from the moment it is drawn, and the script read that follows
+                // may never come back.
+                ownAddresses = ownAddresses(credentials),
             )
             val loaded = runCatching { repo.loadFilterRules(credentials) }
                 .getOrElseUnlessCancelled { null }
@@ -373,6 +396,14 @@ class MailBySenderViewModel(application: Application) : AndroidViewModel(applica
             )
         }
     }
+
+    /**
+     * Every address that IS this account: its send-as identities plus the login it authenticates
+     * with — the same pair the reader uses, and the same reason. A linked sub-account resolves
+     * through its login (issue #31), which `AccountStore.identities` already does.
+     */
+    private fun ownAddresses(credentials: AccountCredentials): List<String> =
+        store.identities(credentials.id).map { it.email } + credentials.username
 
     /**
      * Open the confirmation for [sender], reading the ids it will act on NOW.

@@ -21,6 +21,20 @@ class MailBySenderTest {
     private fun volume(email: String, total: Int, unread: Int = 0) =
         SenderVolume(email = email, name = null, total = total, unread = unread, latest = 0)
 
+    /** The account whose screen this is — one identity and one alias. */
+    private val own = listOf("alex.rivera@masto.top", "alex@alias.example")
+
+    /**
+     * [senderMenuEntries] for an ordinary row — somebody else's address, on this account. The
+     * tests that are ABOUT the address call the decision directly, with theirs.
+     */
+    private fun menu(
+        canDelete: Boolean,
+        canBlock: Boolean,
+        blocked: Boolean,
+        working: Boolean,
+    ) = senderMenuEntries(canDelete, canBlock, blocked, working, "news@example.com", own)
+
     @Test fun `the header number is the sum of the lines`() {
         val rows = listOf(volume("a@x", 3), volume("b@x", 2), volume("c@x", 1))
         assertEquals(6, cachedTotal(rows))
@@ -221,7 +235,7 @@ class MailBySenderTest {
         // The defect the greying replaces: with both entries taken away, every tap on the row's
         // ⋮ during a batch opens an EMPTY 280 dp menu, with no word anywhere on the screen about
         // why. A greyed entry says "not now" and keeps the gesture where the finger left it.
-        val entries = senderMenuEntries(canDelete = true, canBlock = true, blocked = false, working = true)
+        val entries = menu(canDelete = true, canBlock = true, blocked = false, working = true)
         assertEquals(
             "all three entries must still be there while a batch is on its way",
             listOf(SenderAction.SEARCH, SenderAction.BLOCK, SenderAction.DELETE),
@@ -244,23 +258,69 @@ class MailBySenderTest {
         assertEquals(
             "the search needs nothing of the account and never goes away",
             listOf(SenderAction.SEARCH),
-            senderMenuEntries(canDelete = false, canBlock = false, blocked = false, working = false)
+            menu(canDelete = false, canBlock = false, blocked = false, working = false)
                 .map { it.action },
         )
         assertEquals(
             listOf(SenderAction.SEARCH, SenderAction.BLOCK),
-            senderMenuEntries(canDelete = false, canBlock = true, blocked = false, working = false)
+            menu(canDelete = false, canBlock = true, blocked = false, working = false)
                 .map { it.action },
         )
         assertEquals(
             listOf(SenderAction.SEARCH, SenderAction.DELETE),
-            senderMenuEntries(canDelete = true, canBlock = false, blocked = false, working = false)
+            menu(canDelete = true, canBlock = false, blocked = false, working = false)
                 .map { it.action },
         )
     }
 
+    // -- R6: the two addresses this screen may not rule on, whatever the account can do ----------
+
+    @Test fun `the row that IS the account does not offer to file the account's own mail away`() {
+        // Believed unreachable from this screen and it is not (banc-1.4.8.md § 5.3): the counting
+        // query drops Sent, Drafts, Trash and Junk, so a message from oneself filed in an
+        // ORDINARY folder — sent to oneself, echoed back by a mailing list — is counted like any
+        // other and gets a row. That row was offering "send future mail from me to the Trash",
+        // and on this screen the entry writes at the FIRST tap, with no dialog in between.
+        assertEquals(
+            "the account's own row keeps the two gestures that are about mail already here, and " +
+                "loses the one that is about mail to come",
+            listOf(SenderAction.SEARCH, SenderAction.DELETE),
+            senderMenuEntries(
+                canDelete = true,
+                canBlock = true,
+                blocked = false,
+                working = false,
+                address = "alex.rivera@masto.top",
+                ownAddresses = own,
+            ).map { it.action },
+        )
+        assertEquals(
+            "an alias of the account is just as much oneself",
+            listOf(SenderAction.SEARCH, SenderAction.DELETE),
+            senderMenuEntries(true, true, false, false, "ALEX@alias.example", own).map { it.action },
+        )
+    }
+
+    @Test fun `a row with no address at all cannot be ruled on either`() {
+        // The counting query already drops an empty fromEmail, so this is the belt to that
+        // brace: `FROM :is ""` is a rule about nobody that would sit in the script for ever.
+        assertEquals(
+            listOf(SenderAction.SEARCH, SenderAction.DELETE),
+            senderMenuEntries(true, true, false, false, "", own).map { it.action },
+        )
+    }
+
+    @Test fun `somebody else's row still gets the rule, on the same account`() {
+        // The witness that the refusal above is about the ADDRESS and not about the account: same
+        // arguments, same identities, another sender.
+        assertEquals(
+            listOf(SenderAction.SEARCH, SenderAction.BLOCK, SenderAction.DELETE),
+            senderMenuEntries(true, true, false, false, "news@example.com", own).map { it.action },
+        )
+    }
+
     @Test fun `an account that can do both, with nothing in flight, gets three tappable entries`() {
-        val entries = senderMenuEntries(canDelete = true, canBlock = true, blocked = false, working = false)
+        val entries = menu(canDelete = true, canBlock = true, blocked = false, working = false)
         assertEquals(
             listOf(
                 app.sterna.R.string.sender_volume_search,
@@ -280,7 +340,7 @@ class MailBySenderTest {
         // unreachable for that sender: the address then has to be retyped by hand in Filters.
         // Nothing on screen says the order, and the menu used to propose the destructive one
         // first, against the convention the project already writes down in InboxScreen ("#48").
-        val entries = senderMenuEntries(canDelete = true, canBlock = true, blocked = false, working = false)
+        val entries = menu(canDelete = true, canBlock = true, blocked = false, working = false)
         assertEquals(
             "the rule must be offered BEFORE the delete that can take its row away, and the " +
                 "destructive entry must sit last",
@@ -290,7 +350,7 @@ class MailBySenderTest {
         assertTrue(
             "…and that holds however the row is: a rule already there, a batch in flight",
             listOf(true to true, true to false, false to true, false to false).all { (blocked, working) ->
-                senderMenuEntries(canDelete = true, canBlock = true, blocked = blocked, working = working)
+                menu(canDelete = true, canBlock = true, blocked = blocked, working = working)
                     .map { it.action } ==
                     listOf(SenderAction.SEARCH, SenderAction.BLOCK, SenderAction.DELETE)
             },
@@ -305,7 +365,7 @@ class MailBySenderTest {
         // there for every row of every account, and it leads the menu.
         listOf(true, false).forEach { canDelete ->
             listOf(true, false).forEach { canBlock ->
-                val entries = senderMenuEntries(canDelete, canBlock, blocked = false, working = false)
+                val entries = menu(canDelete, canBlock, blocked = false, working = false)
                 assertEquals(
                     "canDelete=$canDelete canBlock=$canBlock must still open on the search",
                     SenderAction.SEARCH,
@@ -394,7 +454,7 @@ class MailBySenderTest {
     }
 
     @Test fun `a sender the script already handles keeps its entry, greyed, and says why`() {
-        val entries = senderMenuEntries(canDelete = true, canBlock = true, blocked = true, working = false)
+        val entries = menu(canDelete = true, canBlock = true, blocked = true, working = false)
         val block = entries.single { it.action == SenderAction.BLOCK }
         assertEquals(app.sterna.R.string.sender_volume_block_done, block.labelRes)
         assertFalse("adding a second identical rule would file the mail twice", block.enabled)

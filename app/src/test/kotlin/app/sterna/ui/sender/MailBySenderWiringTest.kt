@@ -85,15 +85,19 @@ class MailBySenderWiringTest {
         // flag folded into the availability (the entries vanish instead of greying).
         val screen = code(SCREEN)
         assertTrue(
-            "the menu must be built by senderMenuEntries(canDelete, canBlock, blocked, working) " +
-                "— the decision a test executes — and each item's `enabled` must come from it",
-            "senderMenuEntries(canDelete, canBlock, blocked, working)" in screen &&
+            "the menu must be built by senderMenuEntries(canDelete, canBlock, blocked, working, " +
+                "row.email, ownAddresses) — the decision a test executes — and each item's " +
+                "`enabled` must come from it. The last two are the row's own address and the " +
+                "addresses that ARE this account: without them the row that is the account " +
+                "itself offers to file the account's own mail into the Trash (R6)",
+            "senderMenuEntries(canDelete, canBlock, blocked, working, row.email, ownAddresses)" in screen &&
                 "enabled = entry.enabled" in screen,
         )
         val row = callArguments(screen, "SenderRow").single { "row = row" in it }
         listOf(
             "canDelete = state.canDelete,",
             "canBlock = state.canBlock,",
+            "ownAddresses = state.ownAddresses,",
             "working = state.working,",
             "blocked = viewModel.isBlocked(row.email),",
         ).forEach { expected ->
@@ -187,6 +191,28 @@ class MailBySenderWiringTest {
         // warns in red above its own Save button — but the `when` branch this note lives in runs
         // to the end of the file, so any rule about what it does NOT contain would be a rule
         // about the whole screen.
+    }
+
+    @Test fun `the rule entry is held back until the script has actually been read`() {
+        // R6's second half, on this side: the entry may not be offered on what nobody has asked
+        // the server yet. The screen already had it right and nothing pinned it — canBlock is
+        // written FALSE with the counts, which land at once from the local query, and only the
+        // second write, after the round-trip, may let canBlockSender decide. A mutation that
+        // hoists canBlockSender into the first write offers the gesture on a state read from
+        // nothing at all, and every decision test stays green because each is handed its state.
+        val body = functionBody(VIEW_MODEL, "load")
+        val counts = body.substringBefore("val loaded = ")
+        assertTrue(
+            "the state written with the counts must set 'canBlock = false' — the script has not " +
+                "been read at that point, and there is nothing to decide from. Body was:\n$counts",
+            "canBlock = false," in counts && "canBlockSender(" !in counts,
+        )
+        assertTrue(
+            "…and the account's own addresses must be written THERE, with the rows, not with the " +
+                "script: the row that is the account itself must be refused from the moment it " +
+                "is drawn, and the round-trip that follows may never come back. Body was:\n$counts",
+            "ownAddresses = ownAddresses(credentials)," in counts,
+        )
     }
 
     @Test fun `the script is only ever saved as addBlockRule's save callback`() {
