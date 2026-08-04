@@ -689,14 +689,18 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 try {
                     val credentials = credentials() ?: return@launch
                     val draft = repo.fetchEmail(credentials, draftId)
-                    _prefill.value = draftFieldsOf(draft)
+                    // The row the Delete button would act on (#127), taken now, from the cache the
+                    // Drafts list itself was drawn from. Only here: a draft that could not be read
+                    // must not be offered a delete (see [editingDraft]). Read scoped to this
+                    // account (#31): two sub-accounts of one login can mint the same draft id.
+                    _editingDraft.value = runCatching { repo.cachedEmail(credentials.id, draftId) }.getOrNull()
+                    // That same row is also the ONLY place a recipient the server dropped can still
+                    // be found (#96), so the prefill is handed it — it fills an addressing field the
+                    // server returned empty, and never touches one the server filled.
+                    _prefill.value = draftFieldsOf(draft, _editingDraft.value)
                     inReplyTo = draft.inReplyTo
                     references = draft.references
                     editingDraftId = draftId
-                    // The row the Delete button would act on (#127), taken now, from the cache the
-                    // Drafts list itself was drawn from. Only here: a draft that could not be read
-                    // must not be offered a delete (see [editingDraft]).
-                    _editingDraft.value = runCatching { repo.cachedEmail(credentials.id, draftId) }.getOrNull()
                     // What this editor cannot give back on a re-save: rich formatting (the HTML
                     // body is flattened to text), inline images and calendar parts (not carried).
                     editingDraftLossy = draft.htmlContent() != null ||
