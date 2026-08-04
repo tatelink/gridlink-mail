@@ -42,8 +42,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sterna.R
 import app.sterna.core.data.filter.FilterRule
+import app.sterna.core.data.filter.ForeignScriptNotice
 import app.sterna.core.data.filter.RuleField
 import app.sterna.core.data.filter.RuleMatch
+import app.sterna.core.data.filter.foreignScriptNotice
+import app.sterna.core.data.filter.showsNoRulesNote
 
 /**
  * Server-side filter rules (JMAP Sieve) for the current account. Rules are
@@ -153,31 +156,61 @@ private fun FiltersList(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
-        if (state.foreignActive) {
+        // Before the "another script is active" line, and independent of it: the rules can be
+        // stopped with no foreign script active at all, which is exactly the state this says.
+        if (state.rulesNotRunning) {
             Text(
-                stringResource(R.string.settings_filters_foreign_warning),
+                stringResource(R.string.settings_filters_not_running),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        if (state.rules.isEmpty()) {
+        // ONE line, not two: an unreadable script of our own comes first (Save replaces content
+        // nobody read), then the `vacation` script being the ACTIVE one, which names what the
+        // save costs — the auto-reply — instead of the generic "another filter script is active",
+        // true and useless since nothing in this app calls the auto-reply a filter script.
+        foreignScriptNotice(
+            scriptUnreadable = state.scriptUnreadable,
+            foreignActive = state.foreignActive,
+            vacationScriptActive = state.vacationScriptActive,
+        )?.let { notice ->
             Text(
-                stringResource(R.string.settings_filters_empty),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(16.dp),
+                stringResource(
+                    when (notice) {
+                        ForeignScriptNotice.UNREADABLE_SCRIPT -> R.string.settings_filters_unreadable
+                        ForeignScriptNotice.STOPS_AUTO_REPLY -> R.string.settings_filters_stops_auto_reply
+                        ForeignScriptNotice.ANOTHER_SCRIPT -> R.string.settings_filters_foreign_warning
+                    },
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
-        } else {
-            state.rules.forEachIndexed { index, rule ->
+        }
+        when {
+            state.rules.isNotEmpty() -> {
+                state.rules.forEachIndexed { index, rule ->
+                    HorizontalDivider()
+                    RuleRow(
+                        rule = rule,
+                        onToggle = { viewModel.setRuleEnabled(index, it) },
+                        onEdit = { onEdit(index) },
+                    )
+                }
                 HorizontalDivider()
-                RuleRow(
-                    rule = rule,
-                    onToggle = { viewModel.setRuleEnabled(index, it) },
-                    onEdit = { onEdit(index) },
-                )
             }
-            HorizontalDivider()
+            // …and an empty list is not always "no rules". Over an unreadable script the line
+            // above already says a save would replace content nobody read; "No rules yet" under
+            // it is the same screen contradicting itself, reassuringly and wrongly. Which of the
+            // two speaks is showsNoRulesNote(), executed in FilterStatusRefreshTest.
+            showsNoRulesNote(ruleCount = state.rules.size, scriptUnreadable = state.scriptUnreadable) ->
+                Text(
+                    stringResource(R.string.settings_filters_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
         }
 
         OutlinedButton(onClick = onAdd, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -196,8 +229,13 @@ private fun FiltersList(
         }
         Button(
             onClick = viewModel::save,
-            // Nothing to push until a rule actually differs from what the server holds (#34).
-            enabled = !state.saving && state.dirty,
+            // Nothing to push until a rule differs from what the server holds (#34) — unless the
+            // server is not running the rules it holds, and Save is the way to put them back.
+            enabled = filtersSaveEnabled(
+                saving = state.saving,
+                dirty = state.dirty,
+                rulesNotRunning = state.rulesNotRunning,
+            ),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             if (state.saving) {

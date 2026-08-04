@@ -36,14 +36,36 @@ object SieveCodec {
         return sb.toString()
     }
 
-    /** Parse the rule list out of a script's JSON metadata comment (empty if none). */
-    fun parseRules(script: String): List<FilterRule> {
+    /**
+     * The rules a script carries, or **null when this script cannot be read as ours**: it has
+     * content, but no `# STERNA-RULES-V1:` line, or a line whose JSON does not decode.
+     *
+     * The distinction is the whole point, and it is not cosmetic. "This script holds no rules"
+     * and "I do not understand this script" collapse to the same empty list, and whoever saves
+     * recompiles the WHOLE script from the list it was handed — so treating the second as the
+     * first turns "add one rule" into "replace everything that was in there with one rule".
+     * The content nobody could read is exactly the content nobody can get back.
+     *
+     * A blank script is NOT unreadable: it is a script that says nothing, filters nothing and
+     * loses nothing when it is rewritten. Zero rules, and no alarm.
+     */
+    fun parseRulesOrNull(script: String): List<FilterRule>? {
+        if (script.isBlank()) return emptyList()
         val line = script.lineSequence()
             .map { it.trim() }
-            .firstOrNull { it.startsWith(MARKER) } ?: return emptyList()
+            .firstOrNull { it.startsWith(MARKER) } ?: return null
         val payload = line.removePrefix(MARKER).trim()
-        return runCatching { json.decodeFromString(serializer, payload) }.getOrDefault(emptyList())
+        return runCatching { json.decodeFromString(serializer, payload) }.getOrNull()
     }
+
+    /**
+     * Parse the rule list out of a script's JSON metadata comment (empty if none).
+     *
+     * Only for callers that have nothing to lose by not knowing — counting the enabled rules of
+     * a script, say. Anything that leads to a WRITE must ask [parseRulesOrNull] instead and stop
+     * on null.
+     */
+    fun parseRules(script: String): List<FilterRule> = parseRulesOrNull(script) ?: emptyList()
 
     private fun ruleToSieve(rule: FilterRule): String {
         val matchTag = if (rule.match == RuleMatch.IS) ":is" else ":contains"

@@ -149,6 +149,37 @@
     <string name="outbox_delete_body">It hasn\'t been sent and isn\'t saved anywhere else. The message and its attachments will be lost.</string>
     <string name="outbox_delete_permanently">Delete permanently</string>
     <string name="outbox_banner_failed">Some messages didn\'t send. Tap to review.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">By sender</string>
+    <string name="sender_volume_title">Mail by sender</string>
+    <string name="sender_volume_empty">No mail stored on this phone.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d message in this account stored on this phone</item>
+        <item quantity="other">%1$d messages in this account stored on this phone</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Sent, Drafts, Trash and Spam are not counted, and neither are snoozed messages.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d unread message</item>
+        <item quantity="other">%1$d unread messages</item>
+    </plurals>
+    <string name="sender_volume_delete">Delete these messages</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">Delete %1$d message from %2$s?</item>
+        <item quantity="other">Delete %1$d messages from %2$s?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">They go to the Trash. This covers every folder of this account stored on this phone, except Sent, Drafts, Trash and Spam; messages you snoozed are not counted either. Older mail from this sender may remain on the server.</string>
+    <string name="sender_volume_block">Send future mail to Trash, marked read</string>
+    <string name="sender_volume_block_done">A filter rule already exists for this sender</string>
+    <string name="sender_volume_block_added">Filter rule added</string>
+    <string name="sender_volume_search">Search this sender</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d message deleted</item>
+        <item quantity="other">%1$d messages deleted</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Another filter script is active on this account, so no filter rule can be added from here. %1$s → %2$s is where this account\'s rules are edited.</string>
+    <string name="sender_volume_block_foreign">Another filter script is active</string>
+    <string name="sender_volume_block_title">Send future mail from %1$s to Trash?</string>
+    <string name="sender_volume_block_body">A rule on the server will send future mail from this address to Trash, marked read. Nothing already received moves. The rule can be changed or removed in %1$s → %2$s.</string>
     <string name="offline_banner">You\'re offline</string>
     <!-- A refresh that failed while the device IS online: never the offline wording. %1$s is the
          failure's own text (a status line or an exception message, never mail content). -->
@@ -225,6 +256,22 @@
     <string name="message_report_spam">Report spam</string>
     <string name="message_not_spam">Not spam</string>
     <string name="message_snooze">Snooze…</string>
+    <!-- Reader: one-gesture unsubscribe (RFC 2369 / RFC 8058). "Open page" is a separate label on purpose: that path loads a page in a browser, the other two do not. -->
+    <string name="message_unsubscribe">Unsubscribe</string>
+    <string name="message_unsubscribe_banner">This sender offers a way to unsubscribe</string>
+    <string name="message_unsubscribe_open_page">Open page</string>
+    <string name="message_unsubscribe_confirm_title">Unsubscribe?</string>
+    <string name="message_unsubscribe_confirm_post">Sterna will send an unsubscribe request to %1$s. No browser, no page, nothing loaded.</string>
+    <string name="message_unsubscribe_confirm_mail">Sterna will send an unsubscribe email to %1$s.</string>
+    <string name="message_unsubscribe_confirm_mail_preview">The subject and text come from the sender and are sent as written.\n\nSubject: %1$s\nMessage: %2$s</string>
+    <string name="message_unsubscribe_confirm_open">This sender offers no automatic unsubscribe. Opening %1$s in a browser can show them your IP address.</string>
+    <string name="message_unsubscribe_sending">Unsubscribing…</string>
+    <string name="message_unsubscribe_sent">Unsubscribe request sent</string>
+    <string name="message_unsubscribe_queued">Unsubscribe email queued</string>
+    <string name="message_unsubscribe_failed">Unsubscribe failed</string>
+    <string name="message_unsubscribe_failed_redirect">The sender\'s server asked to redirect the request, which would turn it into a page load. Sterna refused.</string>
+    <string name="message_unsubscribe_failed_offline">No network. Try again later.</string>
+    <string name="message_unsubscribe_failed_unreachable">The sender\'s unsubscribe server could not be reached.</string>
     <!-- Reader overflow: view the message's raw headers (issue #60) -->
     <string name="message_view_headers">View headers</string>
     <string name="message_headers_title">Message headers</string>
@@ -406,6 +453,8 @@
     <string name="settings_vacation_account">Account: %1$s</string>
     <string name="settings_vacation_enabled_title">Enable auto-reply</string>
     <string name="settings_vacation_enabled_subtitle">Your server replies automatically while you\'re away.</string>
+    <string name="settings_vacation_suspends_filters">Turning the auto-reply on will suspend your filter rules.</string>
+    <string name="settings_vacation_filters_not_running">Your filter rules are not being applied at the moment. You can put them back in %1$s → %2$s.</string>
     <string name="settings_vacation_subject_label">Subject</string>
     <string name="settings_vacation_message_label">Message</string>
     <string name="settings_vacation_period_section">Period (optional)</string>
@@ -431,6 +480,9 @@
     <string name="settings_filters_saved">Filters saved</string>
     <string name="settings_filters_untitled">Untitled rule</string>
     <string name="settings_filters_foreign_warning">Another filter script is active on the server; saving will make Sterna Mail\'s the active one.</string>
+    <string name="settings_filters_not_running">Your filter rules are not being applied at the moment.</string>
+    <string name="settings_filters_stops_auto_reply">Your auto-reply is running on the server. Saving these filters will stop it.</string>
+    <string name="settings_filters_unreadable">Sterna Mail cannot read this account\'s filter script; saving will replace it.</string>
     <string name="settings_filters_edit_title">Edit rule</string>
     <string name="settings_filter_name">Rule name</string>
     <string name="settings_filter_if">If</string>

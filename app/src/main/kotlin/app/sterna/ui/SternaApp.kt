@@ -47,6 +47,7 @@ import app.sterna.core.data.account.StoredAccount
 import app.sterna.push.PushController
 import app.sterna.security.LockScreen
 import app.sterna.ui.compose.ComposeScreen
+import app.sterna.ui.compose.IncognitoKeyboard
 import app.sterna.ui.connect.ConnectScreen
 import app.sterna.core.jmap.model.Email
 import app.sterna.ui.inbox.InboxScreen
@@ -57,6 +58,7 @@ import app.sterna.ui.message.MessageScreen
 import app.sterna.ui.message.NavFadeGuard
 import app.sterna.ui.outbox.OutboxScreen
 import app.sterna.ui.scheduled.ScheduledSendsScreen
+import app.sterna.ui.sender.MailBySenderScreen
 import app.sterna.ui.snoozed.SnoozedScreen
 import app.sterna.ui.search.SearchScreen
 import app.sterna.ui.onboarding.WelcomeScreen
@@ -348,6 +350,7 @@ private fun MainNavHost(
                 onOpenScheduled = { entry.navigateOnce { nav.navigate("scheduled") } },
                 onOpenSnoozed = { entry.navigateOnce { nav.navigate("snoozed") } },
                 onOpenOutbox = { entry.navigateOnce { nav.navigate("outbox") } },
+                onOpenMailBySender = { entry.navigateOnce { nav.navigate("bysender") } },
                 accounts = accounts,
                 currentAccountId = currentAccountId,
                 onSwitchAccount = onSwitchAccount,
@@ -491,45 +494,57 @@ private fun MainNavHost(
             // list this pops back to. The reader's delete is wired exactly this way (#23, #127).
             val inboxEntry = remember(entry) { nav.getBackStackEntry("inbox") }
             val inboxViewModel: InboxViewModel = viewModel(inboxEntry)
-            ComposeScreen(
-                // After a send (new mail, reply or forward) return to the inbox rather than
-                // the message that was open underneath compose.
-                onDone = { entry.navigateOnce { nav.popBackStack("inbox", inclusive = false) } },
-                onCancel = { entry.navigateOnce { nav.popBackStack() } },
-                // A single pop, like onCancel and unlike onDone: the composer was opened from the
-                // Drafts list, and that list is where the "Message deleted / Undo" snackbar has to
-                // appear. Deliberately NOT through ComposeState.Done, which flies the tern away —
-                // that animation belongs to a message that went out.
-                // The draft is TAKEN inside the guard, not before it (#127): takeEditingDraft()
-                // hands the row over exactly once, so consuming it outside meant a tap the guard
-                // drops — two fingers, the X and the trash in one frame — had thrown the draft
-                // away without deleting anything. Same shape as onDelete above: the mutation and
-                // the pop live inside navigateOnce together.
-                onDeleteDraft = { take ->
-                    entry.navigateOnce {
-                        val email = take() ?: return@navigateOnce
-                        inboxViewModel.delete(email)
-                        nav.popBackStack()
-                    }
-                },
-                replyTo = entry.arguments?.getString("replyTo")?.let { Uri.decode(it) },
-                mode = entry.arguments?.getString("mode"),
-                accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null },
-                restore = entry.arguments?.getString("restore") == "true",
-                to = entry.arguments?.getString("to")?.let { Uri.decode(it) }?.ifBlank { null },
-                cc = entry.arguments?.getString("cc")?.let { Uri.decode(it) }?.ifBlank { null },
-                bcc = entry.arguments?.getString("bcc")?.let { Uri.decode(it) }?.ifBlank { null },
-                subject = entry.arguments?.getString("subject")?.let { Uri.decode(it) }?.ifBlank { null },
-                body = entry.arguments?.getString("body")?.let { Uri.decode(it) }?.ifBlank { null },
-                draftId = entry.arguments?.getString("draftId")?.let { Uri.decode(it) }?.ifBlank { null },
-            )
+            // The composer, and only the composer, asks the keyboard not to learn from what is
+            // typed in it (#120). Wrapped HERE, at the single route that mounts it, rather than
+            // inside ComposeScreen: the scope is identical (the interceptor is a CompositionLocal
+            // read at each field's own node), and this costs no reindentation of the most-edited
+            // file in the app. ComposeScreenIncognitoTest holds both ends: every call site of
+            // ComposeScreen must be wrapped, and every field of ComposeScreen.kt must belong to
+            // that screen. Search and settings are deliberately left alone.
+            IncognitoKeyboard {
+                ComposeScreen(
+                    // After a send (new mail, reply or forward) return to the inbox rather than
+                    // the message that was open underneath compose.
+                    onDone = { entry.navigateOnce { nav.popBackStack("inbox", inclusive = false) } },
+                    onCancel = { entry.navigateOnce { nav.popBackStack() } },
+                    // A single pop, like onCancel and unlike onDone: the composer was opened from the
+                    // Drafts list, and that list is where the "Message deleted / Undo" snackbar has to
+                    // appear. Deliberately NOT through ComposeState.Done, which flies the tern away —
+                    // that animation belongs to a message that went out.
+                    // The draft is TAKEN inside the guard, not before it (#127): takeEditingDraft()
+                    // hands the row over exactly once, so consuming it outside meant a tap the guard
+                    // drops — two fingers, the X and the trash in one frame — had thrown the draft
+                    // away without deleting anything. Same shape as onDelete above: the mutation and
+                    // the pop live inside navigateOnce together.
+                    onDeleteDraft = { take ->
+                        entry.navigateOnce {
+                            val email = take() ?: return@navigateOnce
+                            inboxViewModel.delete(email)
+                            nav.popBackStack()
+                        }
+                    },
+                    replyTo = entry.arguments?.getString("replyTo")?.let { Uri.decode(it) },
+                    mode = entry.arguments?.getString("mode"),
+                    accountId = entry.arguments?.getString("accountId")?.let { Uri.decode(it) }?.ifBlank { null },
+                    restore = entry.arguments?.getString("restore") == "true",
+                    to = entry.arguments?.getString("to")?.let { Uri.decode(it) }?.ifBlank { null },
+                    cc = entry.arguments?.getString("cc")?.let { Uri.decode(it) }?.ifBlank { null },
+                    bcc = entry.arguments?.getString("bcc")?.let { Uri.decode(it) }?.ifBlank { null },
+                    subject = entry.arguments?.getString("subject")?.let { Uri.decode(it) }?.ifBlank { null },
+                    body = entry.arguments?.getString("body")?.let { Uri.decode(it) }?.ifBlank { null },
+                    draftId = entry.arguments?.getString("draftId")?.let { Uri.decode(it) }?.ifBlank { null },
+                )
+            }
         }
         composable(
-            route = "search?q={q}",
+            route = "search?q={q}&from={from}",
             // The initial term is read straight from the entry's SavedStateHandle by
             // SearchViewModel, so it survives a process death like the rest of the criteria.
+            // `from` arrives the same way, from "search this sender" on the per-sender screen,
+            // and does exactly as much as `q`: it fills its field, it does not run the search.
             arguments = listOf(
                 navArgument("q") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("from") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
             SearchScreen(
@@ -575,6 +590,16 @@ private fun MainNavHost(
             OutboxScreen(
                 onBack = { entry.navigateOnce { nav.popBackStack() } },
                 onEditDraft = { entry.navigateOnce { nav.navigate("compose?restore=true") } },
+            )
+        }
+        composable("bysender") { entry ->
+            MailBySenderScreen(
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
+                // Look before destroying: the address travels as the search's `from` criterion,
+                // the same way the inbox's bar hands its words over as `q`.
+                onOpenSearch = { from ->
+                    entry.navigateOnce { nav.navigate("search?from=${Uri.encode(from)}") }
+                },
             )
         }
     }

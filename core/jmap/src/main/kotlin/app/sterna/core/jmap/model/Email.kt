@@ -1,5 +1,6 @@
 package app.sterna.core.jmap.model
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /** An email address with optional display name (RFC 8621 §4.1.2.3). */
@@ -98,6 +99,23 @@ data class Email(
      * (issue #60). Empty for every normal fetch, so the ordinary reader path is unchanged.
      */
     val headers: List<EmailHeader> = emptyList(),
+    /**
+     * `List-Unsubscribe` (RFC 2369), raw — the way out of a mailing list the sender offers.
+     * Requested only by the two body-bearing fetches, so no list view pays for it.
+     *
+     * ⚠ The `@SerialName` is what makes this field EXIST: the JMAP property is literally named
+     * `header:List-Unsubscribe:asText`, and `DefaultJson` is `ignoreUnknownKeys = true`, so
+     * without it kotlinx drops the server's answer without a word and the reader silently never
+     * offers the button. Same for [listUnsubscribePost].
+     *
+     * Filled by the IMAP path too, from the message source already in hand (see
+     * `MailRepository.openEmailImap`), so the reader behaves identically on both protocols.
+     */
+    @SerialName("header:List-Unsubscribe:asText")
+    val listUnsubscribe: String? = null,
+    /** `List-Unsubscribe-Post` (RFC 8058) — the sender's promise that a bare POST is enough. */
+    @SerialName("header:List-Unsubscribe-Post:asText")
+    val listUnsubscribePost: String? = null,
 ) {
     /** Whether the message has been read ($seen keyword). */
     val isSeen: Boolean get() = keywords["\$seen"] == true

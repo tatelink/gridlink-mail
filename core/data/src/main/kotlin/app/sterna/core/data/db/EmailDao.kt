@@ -12,6 +12,84 @@ import app.sterna.core.data.mail.reconcileEvictions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Hides messages snoozed into the future — the list's own predicate
+ * ([app.sterna.core.data.mail.notSnoozedSql] for the `emails` table), spelled out as a constant
+ * because a Room `@Query` needs a compile-time one and that function is parameterised by table.
+ * `SenderVolumeSqlTest` asserts the two are the SAME TEXT, so a change to one reddens rather than
+ * quietly leaving this screen counting rows no list shows.
+ *
+ * Correlated on `accountId` as well as the id: snoozes are keyed per account (#31).
+ */
+const val NOT_SNOOZED_EMAILS_SQL: String =
+    "NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
+        "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
+        "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
+
+/**
+ * WHICH cached rows the per-sender screen speaks for — the ONE clause behind both
+ * [SENDER_VOLUMES_SQL] (the numbers it prints) and [SENDER_MESSAGE_IDS_SQL] (the ids its delete
+ * hands to the repository). Written once and concatenated into both, so "the count shown" and
+ * "the set removed" are the same set BY CONSTRUCTION; two hand-kept copies would drift and the
+ * screen would announce a number it does not act on.
+ *
+ * Scoped by (account, folder) PAIRS, never by a bare `mailboxId`: servers like Stalwart number
+ * mailboxes per account, so two accounts' inboxes can share an id (#121) — and the sub-query is
+ * account-scoped for the same reason the outer `WHERE` is. It also drops the `accountId = ''`
+ * ghost rows an install upgraded from before 1.4.6 can still carry.
+ *
+ * `role IS NULL OR …` is not decoration: in SQL `role NOT IN (…)` is NULL — hence false — when
+ * `role` is NULL, so a server that types none of its folders would have its INBOX silently
+ * excluded and the screen would count nothing at all. The accepted cost of the other direction:
+ * on such a server the Sent folder IS counted, and the user's own address tops the list. That is
+ * visible; an empty screen is not, and filtering "my own addresses" instead would need a second
+ * mechanism (aliases, delegated sub-accounts #31) to be no more than half right.
+ *
+ * A message with no usable `fromEmail` makes no row: there is nothing to group, nothing to
+ * delete "from", and no address to write into a rule. Which is why the total in the header is
+ * the SUM OF THE ROWS and never a separate `COUNT(*)`.
+ *
+ * A message snoozed into the future is out, [NOT_SNOOZED_EMAILS_SQL]: it is in no list and in no
+ * unread badge, because its owner deliberately put it aside — counting it here would be the one
+ * place it comes back, and (the clause being shared) the delete would carry off mail she cannot
+ * see. It counts again on its own the moment the deadline passes.
+ */
+const val SENDER_VOLUME_SCOPE_SQL: String =
+    "accountId = :accountId AND fromEmail IS NOT NULL AND fromEmail != '' " +
+        "AND mailboxId IN (SELECT id FROM mailboxes WHERE accountId = :accountId " +
+        "AND (role IS NULL OR LOWER(role) NOT IN ('sent','drafts','trash','junk','spam'))) " +
+        "AND " + NOT_SNOOZED_EMAILS_SQL
+
+/**
+ * Cached mail per sender for one account: how many messages this phone holds from each address,
+ * and how many of those are unread.
+ *
+ * Grouped on `LOWER(fromEmail)` — the address is authoritative, the display name is not (it is
+ * free text and changes from one message to the next). Nothing beyond case is normalised: a
+ * `+tag` makes a DIFFERENT subscription, and a Sieve `address :is "from"` written on the untagged
+ * address would filter both.
+ *
+ * `name` is a bare column beside a `MAX()`, which in SQLite means "from the row that won the
+ * MAX" — deliberately the name of the most recent message, and pinned by a test rather than
+ * tolerated as a side effect.
+ *
+ * No `LIMIT`: the header total is the sum of these rows, and a silent truncation would make it a
+ * lie. No index either — a full scan of a few thousand rows is cheap, an index is a migration.
+ */
+const val SENDER_VOLUMES_SQL: String =
+    "SELECT fromEmail AS email, fromName AS name, COUNT(*) AS total, " +
+        "SUM(CASE WHEN seen = 0 THEN 1 ELSE 0 END) AS unread, MAX(sortKey) AS latest " +
+        "FROM emails WHERE " + SENDER_VOLUME_SCOPE_SQL +
+        " GROUP BY LOWER(fromEmail) ORDER BY total DESC, latest DESC"
+
+/**
+ * The ids behind ONE line of [SENDER_VOLUMES_SQL] — the same rows that line counted, because the
+ * clause is the same text. `LOWER(:email)` matches the `GROUP BY LOWER(fromEmail)` above, so a
+ * line reached from the screen answers for every casing that fed it.
+ */
+const val SENDER_MESSAGE_IDS_SQL: String =
+    "SELECT id FROM emails WHERE " + SENDER_VOLUME_SCOPE_SQL + " AND LOWER(fromEmail) = LOWER(:email)"
+
 @Dao
 interface EmailDao {
 
@@ -40,6 +118,21 @@ interface EmailDao {
             "GROUP BY LOWER(fromEmail) ORDER BY MAX(sortKey) DESC LIMIT :limit",
     )
     suspend fun suggestSenders(q: String, limit: Int): List<ContactRow>
+
+    /**
+     * Cached mail per sender for one account ([SENDER_VOLUMES_SQL]).
+     *
+     * `suspend`, deliberately not a `Flow`: Room invalidates on every write to `emails`, so a
+     * reactive version would replay a full table scan on every page of every sync — for a screen
+     * that is opened once and read. Same shape as [countsByAccount], which the Storage screen
+     * reads the same way.
+     */
+    @Query(SENDER_VOLUMES_SQL)
+    suspend fun senderVolumes(accountId: String): List<SenderVolumeRow>
+
+    /** The ids of one sender's counted messages ([SENDER_MESSAGE_IDS_SQL]). */
+    @Query(SENDER_MESSAGE_IDS_SQL)
+    suspend fun senderMessageIds(accountId: String, email: String): List<String>
 
     // Scoped by accountId as well as mailboxId: servers (e.g. Stalwart) number
     // mailboxes per-account, so two accounts' inboxes can share an id — without the
@@ -440,6 +533,23 @@ data class EmailRetentionRow(
 data class EmailKeyRow(
     val accountId: String,
     val id: String,
+)
+
+/**
+ * Projection for [EmailDao.senderVolumes]: one sender's cached volume.
+ *
+ * [email] is the address as stored (the grouping is case-insensitive, the spelling shown is the
+ * one a row carries), [name] the display name of the most recent message, [latest] that message's
+ * `sortKey`. [total] and [unread] are counts of MESSAGES, not conversations — and "unread" is the
+ * word on purpose: `seen` is set in bulk by "mark all read" and by the mark-on-move settings, so
+ * it never means "never opened".
+ */
+data class SenderVolumeRow(
+    val email: String,
+    val name: String?,
+    val total: Int,
+    val unread: Int,
+    val latest: Long,
 )
 
 /** Projection for [EmailDao.countsByAccount]. */

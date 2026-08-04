@@ -147,6 +147,22 @@
     <string name="message_report_spam">Als Spam melden</string>
     <string name="message_not_spam">Kein Spam</string>
     <string name="message_snooze">Zurückstellen…</string>
+    <!-- Abbestellen (RFC 2369 / RFC 8058) -->
+    <string name="message_unsubscribe">Abbestellen</string>
+    <string name="message_unsubscribe_banner">Dieser Absender bietet eine Möglichkeit zum Abbestellen</string>
+    <string name="message_unsubscribe_open_page">Seite öffnen</string>
+    <string name="message_unsubscribe_confirm_title">Abbestellen?</string>
+    <string name="message_unsubscribe_confirm_post">Sterna sendet eine Abbestellanfrage an %1$s. Kein Browser, keine Seite, nichts wird geladen.</string>
+    <string name="message_unsubscribe_confirm_mail">Sterna sendet eine Abbestell-E-Mail an %1$s.</string>
+    <string name="message_unsubscribe_confirm_mail_preview">Betreff und Text stammen vom Absender und werden unverändert gesendet.\n\nBetreff: %1$s\nNachricht: %2$s</string>
+    <string name="message_unsubscribe_confirm_open">Dieser Absender bietet kein automatisches Abbestellen. Das Öffnen von %1$s im Browser kann ihm Ihre IP-Adresse zeigen.</string>
+    <string name="message_unsubscribe_sending">Wird abbestellt…</string>
+    <string name="message_unsubscribe_sent">Abbestellanfrage gesendet</string>
+    <string name="message_unsubscribe_queued">Abbestell-E-Mail in der Warteschlange</string>
+    <string name="message_unsubscribe_failed">Abbestellen fehlgeschlagen</string>
+    <string name="message_unsubscribe_failed_redirect">Der Server des Absenders wollte die Anfrage umleiten, was sie in einen Seitenaufruf verwandeln würde. Sterna hat abgelehnt.</string>
+    <string name="message_unsubscribe_failed_offline">Kein Netzwerk. Bitte später erneut versuchen.</string>
+    <string name="message_unsubscribe_failed_unreachable">Der Abmeldeserver des Absenders ist nicht erreichbar.</string>
     <string name="message_view_headers">Kopfzeilen anzeigen</string>
     <string name="message_headers_title">Nachrichten-Kopfzeilen</string>
     <string name="message_headers_empty">Keine Kopfzeilen vorhanden</string>
@@ -305,6 +321,8 @@
     <string name="settings_vacation_account">Konto: %1$s</string>
     <string name="settings_vacation_enabled_title">Automatische Antwort aktivieren</string>
     <string name="settings_vacation_enabled_subtitle">Ihr Server antwortet automatisch, während Sie abwesend sind.</string>
+    <string name="settings_vacation_suspends_filters">Das Einschalten der automatischen Antwort setzt die Filterregeln aus.</string>
+    <string name="settings_vacation_filters_not_running">Die Filterregeln werden derzeit nicht angewendet. Unter %1$s → %2$s lassen sie sich wieder in Gang setzen.</string>
     <string name="settings_vacation_subject_label">Betreff</string>
     <string name="settings_vacation_message_label">Nachricht</string>
     <string name="settings_vacation_period_section">Zeitraum (optional)</string>
@@ -330,6 +348,9 @@
     <string name="settings_filters_saved">Filter gespeichert</string>
     <string name="settings_filters_untitled">Unbenannte Regel</string>
     <string name="settings_filters_foreign_warning">Auf dem Server ist ein anderes Filterskript aktiv; beim Speichern wird das von Sterna Mail aktiviert.</string>
+    <string name="settings_filters_not_running">Die Filterregeln werden derzeit nicht angewendet.</string>
+    <string name="settings_filters_stops_auto_reply">Auf dem Server läuft deine automatische Antwort. Beim Speichern dieser Filter wird sie beendet.</string>
+    <string name="settings_filters_unreadable">Sterna Mail kann das Filterskript dieses Kontos nicht lesen; beim Speichern wird es ersetzt.</string>
     <string name="settings_filters_edit_title">Regel bearbeiten</string>
     <string name="settings_filter_name">Regelname</string>
     <string name="settings_filter_if">Wenn</string>
@@ -665,6 +686,37 @@
     <string name="outbox_delete_body">Sie wurde nicht gesendet und ist nirgendwo sonst gespeichert. Die Nachricht und ihre Anhänge gehen verloren.</string>
     <string name="outbox_delete_permanently">Endgültig löschen</string>
     <string name="outbox_banner_failed">Einige Nachrichten wurden nicht gesendet. Zum Prüfen tippen.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">Nach Absender</string>
+    <string name="sender_volume_title">E-Mail nach Absender</string>
+    <string name="sender_volume_empty">Keine E-Mails auf diesem Telefon gespeichert.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d Nachricht dieses Kontos auf diesem Telefon gespeichert</item>
+        <item quantity="other">%1$d Nachrichten dieses Kontos auf diesem Telefon gespeichert</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Gesendet, Entwürfe, Papierkorb und Spam werden nicht gezählt, zurückgestellte Nachrichten ebenso wenig.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d ungelesene Nachricht</item>
+        <item quantity="other">%1$d ungelesene Nachrichten</item>
+    </plurals>
+    <string name="sender_volume_delete">Diese Nachrichten löschen</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">%1$d Nachricht von %2$s löschen?</item>
+        <item quantity="other">%1$d Nachrichten von %2$s löschen?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">Sie wandern in den Papierkorb. Das betrifft jeden Ordner dieses Kontos, der auf diesem Telefon gespeichert ist, außer Gesendet, Entwürfe, Papierkorb und Spam; zurückgestellte Nachrichten werden ebenfalls nicht gezählt. Ältere E-Mails dieses Absenders können auf dem Server bleiben.</string>
+    <string name="sender_volume_block">Künftige E-Mails in den Papierkorb, als gelesen markiert</string>
+    <string name="sender_volume_block_done">Für diesen Absender gibt es bereits eine Filterregel</string>
+    <string name="sender_volume_block_added">Filterregel hinzugefügt</string>
+    <string name="sender_volume_search">Nach diesem Absender suchen</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d Nachricht gelöscht</item>
+        <item quantity="other">%1$d Nachrichten gelöscht</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Auf diesem Konto ist ein anderes Filterskript aktiv, daher lässt sich hier keine Regel hinzufügen. Unter %1$s → %2$s werden die Regeln dieses Kontos bearbeitet.</string>
+    <string name="sender_volume_block_foreign">Ein anderes Filterskript ist aktiv</string>
+    <string name="sender_volume_block_title">Künftige Nachrichten von %1$s in den Papierkorb?</string>
+    <string name="sender_volume_block_body">Eine Regel auf dem Server verschiebt künftige Nachrichten von dieser Adresse in den Papierkorb und markiert sie als gelesen. Bereits empfangene Nachrichten bleiben unberührt. Die Regel lässt sich unter %1$s → %2$s ändern oder entfernen.</string>
     <string name="offline_banner">Du bist offline</string>
     <string name="sync_error_banner">Abgleich fehlgeschlagen: %1$s</string>
     <string name="settings_conversation_section">Konversationen</string>

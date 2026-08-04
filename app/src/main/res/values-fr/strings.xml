@@ -147,6 +147,22 @@
     <string name="message_report_spam">Signaler comme spam</string>
     <string name="message_not_spam">Non spam</string>
     <string name="message_snooze">Reporter…</string>
+    <!-- Désabonnement en un geste (RFC 2369 / RFC 8058) -->
+    <string name="message_unsubscribe">Se désabonner</string>
+    <string name="message_unsubscribe_banner">Cet expéditeur propose un moyen de se désabonner</string>
+    <string name="message_unsubscribe_open_page">Ouvrir la page</string>
+    <string name="message_unsubscribe_confirm_title">Se désabonner ?</string>
+    <string name="message_unsubscribe_confirm_post">Sterna enverra une demande de désabonnement à %1$s. Aucun navigateur, aucune page, rien de chargé.</string>
+    <string name="message_unsubscribe_confirm_mail">Sterna enverra un e-mail de désabonnement à %1$s.</string>
+    <string name="message_unsubscribe_confirm_mail_preview">L\'objet et le texte viennent de l\'expéditeur et sont envoyés tels quels.\n\nObjet : %1$s\nMessage : %2$s</string>
+    <string name="message_unsubscribe_confirm_open">Cet expéditeur ne propose pas de désabonnement automatique. Ouvrir %1$s dans un navigateur peut lui révéler votre adresse IP.</string>
+    <string name="message_unsubscribe_sending">Désabonnement…</string>
+    <string name="message_unsubscribe_sent">Demande de désabonnement envoyée</string>
+    <string name="message_unsubscribe_queued">E-mail de désabonnement en file d\'attente</string>
+    <string name="message_unsubscribe_failed">Échec du désabonnement</string>
+    <string name="message_unsubscribe_failed_redirect">Le serveur de l\'expéditeur a demandé une redirection, ce qui transformerait la requête en chargement de page. Sterna a refusé.</string>
+    <string name="message_unsubscribe_failed_offline">Pas de réseau. Réessayez plus tard.</string>
+    <string name="message_unsubscribe_failed_unreachable">Le serveur de désabonnement de l\'expéditeur est injoignable.</string>
     <string name="message_view_headers">Afficher les en-têtes</string>
     <string name="message_headers_title">En-têtes du message</string>
     <string name="message_headers_empty">Aucun en-tête à afficher</string>
@@ -305,6 +321,8 @@
     <string name="settings_vacation_account">Compte : %1$s</string>
     <string name="settings_vacation_enabled_title">Activer la réponse automatique</string>
     <string name="settings_vacation_enabled_subtitle">Votre serveur répond automatiquement pendant votre absence.</string>
+    <string name="settings_vacation_suspends_filters">Activer la réponse automatique suspendra vos règles de filtrage.</string>
+    <string name="settings_vacation_filters_not_running">Vos règles de filtrage ne s\'appliquent pas en ce moment. Vous pouvez les relancer dans %1$s → %2$s.</string>
     <string name="settings_vacation_subject_label">Objet</string>
     <string name="settings_vacation_message_label">Message</string>
     <string name="settings_vacation_period_section">Période (facultatif)</string>
@@ -330,6 +348,9 @@
     <string name="settings_filters_saved">Filtres enregistrés</string>
     <string name="settings_filters_untitled">Règle sans titre</string>
     <string name="settings_filters_foreign_warning">Un autre script de filtrage est actif sur le serveur ; l\'enregistrement activera celui de Sterna Mail.</string>
+    <string name="settings_filters_not_running">Vos règles de filtrage ne s\'appliquent pas en ce moment.</string>
+    <string name="settings_filters_stops_auto_reply">Votre réponse automatique est active sur le serveur. Enregistrer ces filtres l\'arrêtera.</string>
+    <string name="settings_filters_unreadable">Sterna Mail ne sait pas lire le script de filtrage de ce compte ; l\'enregistrement le remplacera.</string>
     <string name="settings_filters_edit_title">Modifier la règle</string>
     <string name="settings_filter_name">Nom de la règle</string>
     <string name="settings_filter_if">Si</string>
@@ -667,6 +688,41 @@
     <string name="outbox_delete_body">Il n\'a pas été envoyé et n\'est enregistré nulle part ailleurs. Le message et ses pièces jointes seront perdus.</string>
     <string name="outbox_delete_permanently">Supprimer définitivement</string>
     <string name="outbox_banner_failed">Certains messages ne sont pas partis. Touchez pour vérifier.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">Par expéditeur</string>
+    <string name="sender_volume_title">Courrier par expéditeur</string>
+    <string name="sender_volume_empty">Aucun message stocké sur ce téléphone.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d message de ce compte stocké sur ce téléphone</item>
+        <item quantity="many">%1$d de messages de ce compte stockés sur ce téléphone</item>
+        <item quantity="other">%1$d messages de ce compte stockés sur ce téléphone</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Les dossiers Envoyés, Brouillons, Corbeille et Spam ne sont pas comptés, ni les messages reportés.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d message non lu</item>
+        <item quantity="many">%1$d de messages non lus</item>
+        <item quantity="other">%1$d messages non lus</item>
+    </plurals>
+    <string name="sender_volume_delete">Supprimer ces messages</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">Supprimer %1$d message de %2$s ?</item>
+        <item quantity="many">Supprimer %1$d de messages de %2$s ?</item>
+        <item quantity="other">Supprimer %1$d messages de %2$s ?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">Ils partent à la corbeille. Cela concerne tous les dossiers de ce compte stockés sur ce téléphone, sauf Envoyés, Brouillons, Corbeille et Spam ; les messages reportés ne sont pas comptés non plus. Du courrier plus ancien de cet expéditeur peut rester sur le serveur.</string>
+    <string name="sender_volume_block">Envoyer le courrier à venir à la corbeille, marqué lu</string>
+    <string name="sender_volume_block_done">Une règle de filtrage existe déjà pour cet expéditeur</string>
+    <string name="sender_volume_block_added">Règle de filtrage ajoutée</string>
+    <string name="sender_volume_search">Rechercher cet expéditeur</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d message supprimé</item>
+        <item quantity="many">%1$d de messages supprimés</item>
+        <item quantity="other">%1$d messages supprimés</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Un autre script de filtrage est actif sur ce compte : aucune règle ne peut être ajoutée d\'ici. C\'est dans %1$s → %2$s que les règles de ce compte se modifient.</string>
+    <string name="sender_volume_block_foreign">Un autre script de filtrage est actif</string>
+    <string name="sender_volume_block_title">Envoyer le courrier à venir de %1$s à la corbeille ?</string>
+    <string name="sender_volume_block_body">Une règle sur le serveur enverra le courrier à venir de cette adresse à la corbeille, marqué lu. Rien de ce qui est déjà reçu ne bouge. La règle se modifie ou se retire dans %1$s → %2$s.</string>
     <string name="offline_banner">Vous êtes hors ligne</string>
     <string name="sync_error_banner">Échec de la synchronisation : %1$s</string>
     <string name="settings_conversation_section">Conversations</string>

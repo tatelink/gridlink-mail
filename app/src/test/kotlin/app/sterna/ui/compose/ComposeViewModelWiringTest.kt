@@ -63,6 +63,36 @@ class ComposeViewModelWiringTest {
         )
     }
 
+    @Test fun `the reopened draft's prefill is handed the cached row, account-scoped`() {
+        // The behaviour lives in draftFieldsOf, which is pure and executed by ComposeTextTest; what
+        // no test here can see is whether this class still FEEDS it the cached row. Without the
+        // second argument the fallback is simply never armed, and every recipient test stays green.
+        // The arguments are pinned, not just the call: `credentials.id` is the account scope (#31),
+        // and dropping it would let one sub-account's cached row prefill another's draft.
+        val body = prepareBody().replace(Regex("""\s+"""), " ")
+        assertTrue(
+            "prepare() must build the draft prefill as draftFieldsOf(draft, _editingDraft.value): " +
+                "the cached row is the only place a recipient the server dropped still exists " +
+                "(#96). Body was:\n$body",
+            "_prefill.value = draftFieldsOf(draft, _editingDraft.value)" in body,
+        )
+        val cache = body.indexOf(
+            "_editingDraft.value = runCatching { repo.cachedEmail(credentials.id, draftId) }.getOrNull()",
+        )
+        val prefill = body.indexOf("_prefill.value = draftFieldsOf(")
+        assertTrue(
+            "the cached row must be read from repo.cachedEmail(credentials.id, draftId) — " +
+                "account-scoped (#31). Body was:\n$body",
+            cache >= 0,
+        )
+        assertTrue(
+            "the cached row must be taken BEFORE the prefill is built, or the prefill is handed a " +
+                "flow that is still null and the fallback is dead code — the composer opens with " +
+                "the field the server emptied, which is the whole defect. Body was:\n$body",
+            prefill > cache,
+        )
+    }
+
     // -- reading the source ---------------------------------------------------------------------
 
     /** The body of `fun prepare(`, braces balanced, comments cut. */

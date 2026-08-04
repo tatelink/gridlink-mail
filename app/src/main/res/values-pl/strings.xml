@@ -147,6 +147,22 @@
     <string name="message_report_spam">Zgłoś jako spam</string>
     <string name="message_not_spam">To nie spam</string>
     <string name="message_snooze">Odłóż…</string>
+    <!-- Wypisanie się (RFC 2369 / RFC 8058) -->
+    <string name="message_unsubscribe">Wypisz się</string>
+    <string name="message_unsubscribe_banner">Ten nadawca udostępnia sposób wypisania się</string>
+    <string name="message_unsubscribe_open_page">Otwórz stronę</string>
+    <string name="message_unsubscribe_confirm_title">Wypisać się?</string>
+    <string name="message_unsubscribe_confirm_post">Sterna wyśle żądanie wypisania do %1$s. Bez przeglądarki, bez strony, nic nie jest wczytywane.</string>
+    <string name="message_unsubscribe_confirm_mail">Sterna wyśle e-mail z prośbą o wypisanie do %1$s.</string>
+    <string name="message_unsubscribe_confirm_mail_preview">Temat i treść pochodzą od nadawcy i zostaną wysłane bez zmian.\n\nTemat: %1$s\nWiadomość: %2$s</string>
+    <string name="message_unsubscribe_confirm_open">Ten nadawca nie udostępnia automatycznego wypisania. Otwarcie %1$s w przeglądarce może ujawnić mu Twój adres IP.</string>
+    <string name="message_unsubscribe_sending">Wypisywanie…</string>
+    <string name="message_unsubscribe_sent">Żądanie wypisania wysłane</string>
+    <string name="message_unsubscribe_queued">E-mail z prośbą o wypisanie w kolejce</string>
+    <string name="message_unsubscribe_failed">Nie udało się wypisać</string>
+    <string name="message_unsubscribe_failed_redirect">Serwer nadawcy poprosił o przekierowanie żądania, co zamieniłoby je we wczytanie strony. Sterna odmówiła.</string>
+    <string name="message_unsubscribe_failed_offline">Brak sieci. Spróbuj ponownie później.</string>
+    <string name="message_unsubscribe_failed_unreachable">Nie można połączyć się z serwerem wypisywania nadawcy.</string>
     <string name="message_view_headers">Pokaż nagłówki</string>
     <string name="message_headers_title">Nagłówki wiadomości</string>
     <string name="message_headers_empty">Brak nagłówków do wyświetlenia</string>
@@ -305,6 +321,8 @@
     <string name="settings_vacation_account">Konto: %1$s</string>
     <string name="settings_vacation_enabled_title">Włącz automatyczną odpowiedź</string>
     <string name="settings_vacation_enabled_subtitle">Twój serwer odpowiada automatycznie podczas Twojej nieobecności.</string>
+    <string name="settings_vacation_suspends_filters">Włączenie automatycznej odpowiedzi zawiesi Twoje reguły filtrowania.</string>
+    <string name="settings_vacation_filters_not_running">Twoje reguły filtrowania nie są obecnie stosowane. Możesz je przywrócić w %1$s → %2$s.</string>
     <string name="settings_vacation_subject_label">Temat</string>
     <string name="settings_vacation_message_label">Wiadomość</string>
     <string name="settings_vacation_period_section">Okres (opcjonalnie)</string>
@@ -330,6 +348,9 @@
     <string name="settings_filters_saved">Filtry zapisane</string>
     <string name="settings_filters_untitled">Reguła bez nazwy</string>
     <string name="settings_filters_foreign_warning">Na serwerze jest aktywny inny skrypt filtrujący; zapisanie sprawi, że aktywny stanie się skrypt Sterna Mail.</string>
+    <string name="settings_filters_not_running">Twoje reguły filtrowania nie są obecnie stosowane.</string>
+    <string name="settings_filters_stops_auto_reply">Twoja automatyczna odpowiedź działa na serwerze. Zapisanie tych filtrów ją wyłączy.</string>
+    <string name="settings_filters_unreadable">Sterna Mail nie potrafi odczytać skryptu filtrującego tego konta; zapisanie go zastąpi.</string>
     <string name="settings_filters_edit_title">Edytuj regułę</string>
     <string name="settings_filter_name">Nazwa reguły</string>
     <string name="settings_filter_if">Jeżeli</string>
@@ -669,6 +690,45 @@
     <string name="outbox_delete_body">Nie została wysłana i nie jest nigdzie indziej zapisana. Wiadomość i jej załączniki zostaną utracone.</string>
     <string name="outbox_delete_permanently">Usuń trwale</string>
     <string name="outbox_banner_failed">Niektóre wiadomości nie zostały wysłane. Dotknij, aby sprawdzić.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">Wg nadawcy</string>
+    <string name="sender_volume_title">Poczta wg nadawcy</string>
+    <string name="sender_volume_empty">Brak poczty zapisanej na tym telefonie.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d wiadomość tego konta zapisana na tym telefonie</item>
+        <item quantity="few">%1$d wiadomości tego konta zapisane na tym telefonie</item>
+        <item quantity="many">%1$d wiadomości tego konta zapisanych na tym telefonie</item>
+        <item quantity="other">%1$d wiadomości tego konta zapisanych na tym telefonie</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Wysłane, Wersje robocze, Kosz i Spam nie są liczone, podobnie jak odłożone wiadomości.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d nieprzeczytana wiadomość</item>
+        <item quantity="few">%1$d nieprzeczytane wiadomości</item>
+        <item quantity="many">%1$d nieprzeczytanych wiadomości</item>
+        <item quantity="other">%1$d nieprzeczytanych wiadomości</item>
+    </plurals>
+    <string name="sender_volume_delete">Usuń te wiadomości</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">Usunąć %1$d wiadomość od %2$s?</item>
+        <item quantity="few">Usunąć %1$d wiadomości od %2$s?</item>
+        <item quantity="many">Usunąć %1$d wiadomości od %2$s?</item>
+        <item quantity="other">Usunąć %1$d wiadomości od %2$s?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">Trafią do kosza. Dotyczy to każdego folderu tego konta zapisanego na tym telefonie, oprócz Wysłane, Wersje robocze, Kosz i Spam; odłożone wiadomości również nie są liczone. Starsza poczta od tego nadawcy może pozostać na serwerze.</string>
+    <string name="sender_volume_block">Przyszłą pocztę do kosza, oznaczoną jako przeczytana</string>
+    <string name="sender_volume_block_done">Dla tego nadawcy istnieje już reguła filtrowania</string>
+    <string name="sender_volume_block_added">Dodano regułę filtrowania</string>
+    <string name="sender_volume_search">Szukaj tego nadawcy</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">Usunięto %1$d wiadomość</item>
+        <item quantity="few">Usunięto %1$d wiadomości</item>
+        <item quantity="many">Usunięto %1$d wiadomości</item>
+        <item quantity="other">Usunięto %1$d wiadomości</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Na tym koncie działa inny skrypt filtrujący, więc nie można stąd dodać reguły. Reguły tego konta edytuje się w %1$s → %2$s.</string>
+    <string name="sender_volume_block_foreign">Działa inny skrypt filtrujący</string>
+    <string name="sender_volume_block_title">Wysyłać przyszłe wiadomości od %1$s do kosza?</string>
+    <string name="sender_volume_block_body">Reguła na serwerze będzie wysyłać przyszłe wiadomości z tego adresu do kosza, oznaczone jako przeczytane. Nic z tego, co już odebrano, nie zostanie przeniesione. Regułę można zmienić lub usunąć w %1$s → %2$s.</string>
     <string name="offline_banner">Jesteś offline</string>
     <string name="sync_error_banner">Synchronizacja nie powiodła się: %1$s</string>
     <string name="settings_conversation_section">Konwersacje</string>

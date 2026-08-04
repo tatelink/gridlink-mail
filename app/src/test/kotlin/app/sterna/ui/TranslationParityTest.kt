@@ -36,6 +36,32 @@ class TranslationParityTest {
         assertEquals("strings left in a translation", emptyMap<String, Set<String>>(), orphans)
     }
 
+    /**
+     * The third way a translated string goes wrong, and the only one that CRASHES: a format
+     * argument that does not survive the translation. `getString(id, x)` on a text whose `%1$s`
+     * was dropped renders without it — the sentence loses the very thing it was naming, which for
+     * "Sterna will send an unsubscribe request to %1$s." means a confirmation that no longer says
+     * to whom — and an extra or renumbered specifier throws `IllegalFormatException` outright, in
+     * one language, on one screen, where nothing in the build had anything to say about it.
+     */
+    @Test
+    fun `every format argument survives every translation`() {
+        val base = placeholdersOf(File(res, "values/strings.xml"))
+        val broken = translations().flatMap { file ->
+            val translated = placeholdersOf(file)
+            base.mapNotNull { (key, args) ->
+                val theirs = translated[key] ?: return@mapNotNull null
+                if (theirs == args) null else "${file.parentFile.name}/$key: $args vs $theirs"
+            }
+        }
+        assertEquals("format arguments lost or added in a translation", emptyList<String>(), broken)
+    }
+
+    /** Every `%s` / `%1$s` / `%d` … a string carries, as a set (order is the translator's to choose). */
+    private fun placeholdersOf(file: File): Map<String, Set<String>> = STRING
+        .findAll(file.readText())
+        .associate { it.groupValues[1] to PLACEHOLDER.findAll(it.groupValues[2]).map { m -> m.value }.toSet() }
+
     private fun translations(): List<File> = (res.listFiles() ?: emptyArray<File>())
         .filter { it.isDirectory && it.name.startsWith("values-") }
         .map { File(it, "strings.xml") }
@@ -50,6 +76,12 @@ class TranslationParityTest {
     private companion object {
         /** The name of a `<string>` or `<plurals>`, which is what has to match across languages. */
         val NAME = Regex("<(?:string|plurals)\\s+name=\"([^\"]+)\"")
+
+        /** A `<string>` with its text, for the format-argument check. */
+        val STRING = Regex("<string\\s+name=\"([^\"]+)\"[^>]*>(.*?)</string>", RegexOption.DOT_MATCHES_ALL)
+
+        /** A Java format specifier as Android uses them: `%s`, `%d`, `%1${'$'}s`, `%2${'$'}d`. */
+        val PLACEHOLDER = Regex("%(?:\\d+\\$)?[sd]")
 
         /** Repo root, found by walking up from the module's working directory. */
         val res: File by lazy {

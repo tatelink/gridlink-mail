@@ -20,6 +20,32 @@ data class FiltersUiState(
     val noAccount: Boolean = false,
     val supported: Boolean = true,
     val foreignActive: Boolean = false,
+    /**
+     * The rules below are on the server but are NOT running: the script carrying them is not the
+     * active one. The list would otherwise be displayed exactly as if it were filtering mail.
+     *
+     * Not [foreignActive]: that one is about somebody else's script being active, and it is false
+     * in the very state this flag exists for — a server that has been through a vacation responder
+     * being switched on and off again leaves NO script active at all.
+     */
+    val rulesNotRunning: Boolean = false,
+    /**
+     * The script named `vacation` is the ACTIVE one on the server: the auto-reply is running, and
+     * Save, which activates Sterna's script, is what would switch it off. Read here so the
+     * warning above the button can name the thing the user would lose instead of naming a script.
+     *
+     * Activity, not existence. An inactive `vacation` script beside a third active one (a webmail
+     * writes those) had the app announcing the auto-reply would stop while Save was about to
+     * switch off something else entirely.
+     */
+    val vacationScriptActive: Boolean = false,
+    /**
+     * This account's `sterna` script is there and could not be parsed, so Save would REPLACE
+     * content nobody read. Carried separately from [foreignActive], which the rules read folds it
+     * into: that fold is what refuses the per-sender gesture, and it also made this the one cause
+     * the screen could never name.
+     */
+    val scriptUnreadable: Boolean = false,
     val accountLabel: String = "",
     val rules: List<FilterRule> = emptyList(),
     /**
@@ -86,13 +112,21 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
                     }
                     is FilterRulesState.Loaded -> {
                         serverRules = result.rules
-                        _state.value = FiltersUiState(
-                            loading = false,
-                            supported = true,
-                            foreignActive = result.foreignActiveScript,
-                            accountLabel = store.accountLabel(),
-                            rules = result.rules,
-                            folders = folders,
+                        // Before the list is published, not after: these flags also decide whether
+                        // Save is offered and what the red line above it says, and a list drawn
+                        // without them is a screen that says the rules are running and greys out
+                        // the gesture that would put them back.
+                        _state.value = filtersStateWithStatus(
+                            state = FiltersUiState(
+                                loading = false,
+                                supported = true,
+                                accountLabel = store.accountLabel(),
+                                rules = result.rules,
+                                folders = folders,
+                            ),
+                            status = repo.loadFilterScriptStatus(credentials),
+                            foreignFromRulesRead = result.foreignActiveScript,
+                            unreadableFromRulesRead = result.scriptUnreadable,
                         )
                     }
                 }
@@ -139,10 +173,12 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
         val rules = _state.value.rules.filterNot { it.isEmpty }
         _state.update { it.copy(rules = rules, saving = true, errorKind = null) }
         viewModelScope.launch {
+            var written = false
             try {
                 repo.saveFilterRules(credentials, rules)
                 serverRules = rules
                 _state.update { it.copy(saving = false, savedTick = it.savedTick + 1, dirty = false) }
+                written = true
             } catch (t: Throwable) {
                 _state.update {
                     it.copy(
@@ -151,6 +187,19 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
                         errorDetail = t.message ?: t.javaClass.simpleName,
                     )
                 }
+            }
+            // OUTSIDE the try, and after the state that lets a "save then leave" go: the exit must
+            // not wait on a read the write does not need, and that exit is exactly what CANCELS
+            // this read — inside the catch above, a cancellation would be painted as a failed save
+            // over rules the server has already taken and activated.
+            // Re-read because the save is what changes the answer: it activates the Sterna script
+            // again, so the "not running" line goes out, the Save button closes behind it, and the
+            // "another script is active" line — which the save has just made false — goes out with
+            // them. All three from THIS read, so they cannot describe two different moments; and
+            // if the read fails, none of them moves (see filtersStateWithStatus).
+            if (written) {
+                val status = repo.loadFilterScriptStatus(credentials)
+                _state.update { filtersStateWithStatus(state = it, status = status) }
             }
         }
     }

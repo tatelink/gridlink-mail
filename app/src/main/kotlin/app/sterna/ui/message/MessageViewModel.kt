@@ -15,19 +15,38 @@ import app.sterna.push.Notifications
 import app.sterna.snooze.Snoozes
 import app.sterna.ui.compose.receivingAddress
 import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.account.accountAddresses
 import app.sterna.core.data.calendar.ICalendar
 import app.sterna.core.data.calendar.ParsedEvent
+import app.sterna.core.data.getOrElseUnlessCancelled
+import app.sterna.core.data.filter.BlockOutcome
+import app.sterna.core.data.filter.addBlockRule
+import app.sterna.core.data.filter.alreadyBlocked
+import app.sterna.core.data.filter.blockableSender
+import app.sterna.core.data.mail.FilterRulesState
+import app.sterna.core.data.mail.UnsubscribeAction
+import app.sterna.core.data.mail.UnsubscribeHeader
+import app.sterna.core.data.mail.UnsubscribeMailPreview
+import app.sterna.core.data.mail.UnsubscribeOptions
+import app.sterna.core.data.mail.confirmationTarget
+import app.sterna.core.data.mail.preferredAction
+import app.sterna.core.data.mail.unsubscribePreview
 import app.sterna.core.data.settings.REPLY_BAR_DEFAULT
 import app.sterna.core.data.settings.MessageTextSize
+import app.sterna.core.data.unsubscribe.UnsubscribeFailure
+import app.sterna.core.data.unsubscribe.UnsubscribeResult
 import app.sterna.core.jmap.ContentTooLargeException
 import app.sterna.core.jmap.DownloadLimits
 import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.EmailHeader
 import app.sterna.core.jmap.model.Mailbox
+import app.sterna.net.hasUsableNetwork
 import app.sterna.ui.inbox.isSelfAuthored
 import app.sterna.ui.inbox.moveTargets
+import app.sterna.ui.sender.trashFilePath
 import app.sterna.ui.showsRecipients
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -100,6 +119,225 @@ sealed interface CryptoUiState {
 
     /** Decrypt/verify failed; null message = no OpenPGP provider installed. */
     data class Failed(val message: String?) : CryptoUiState
+}
+
+/** What the sender's row in the participants panel offers about the per-sender filter rule. */
+enum class SenderRuleEntry {
+    /** No entry at all. */
+    ABSENT,
+
+    /** There, and tappable. */
+    OFFERED,
+
+    /** There, greyed: the account's script already sends this address away. */
+    ALREADY_RULED,
+
+    /** There, greyed: another Sieve script is active, so saving would switch it off. */
+    FOREIGN_SCRIPT,
+}
+
+/**
+ * What the reader knows about the account's Sieve script — and it is THREE states because two of
+ * them used to be one, which is half of what R6 was.
+ *
+ * "Not read yet" and "read and got no answer" were both a null [FilterRulesState], and the entry
+ * treated them alike: offered. They are not alike. Nothing has been asked of the server in the
+ * first, so the entry names four answers it has no grounds for; a question WAS asked and failed
+ * in the second, and that is a state the gesture survives (see [senderRuleEntry]).
+ */
+sealed interface SenderScript {
+    /** Nothing has been asked. The panel arms the read; until it answers there is no opinion. */
+    data object Unread : SenderScript
+
+    /** A read was made and did not answer — offline, a dead connection, a server that threw. */
+    data object Unreachable : SenderScript
+
+    /** The server answered, with whatever it had to say. */
+    data class Read(val state: FilterRulesState) : SenderScript
+}
+
+/**
+ * Whether the reader may add "file future mail from this address into the Trash, marked read"
+ * from the message it is reading, and in what state the entry appears.
+ *
+ * The same gesture the per-sender screen carries, and it is HERE for the reason the screen alone
+ * could not cover: the screen's aggregate excludes the Trash, so deleting a sender's mail takes
+ * its row away and the gesture with it, and the moment one actually wants the rule is the moment
+ * one is reading the mail that prompted it.
+ *
+ * [isSender] — the row is in the From group. To and Cc are not who wrote, and a FROM rule on a
+ * recipient is a rule about mail that person has not sent; the entry is not offered there.
+ *
+ * [address] and [ownAddresses] are the two noes that belong to the ADDRESS rather than to the
+ * account's script — one's own address, and no address at all. They are
+ * [app.sterna.core.data.filter.blockableSender]'s, written once and asked by both surfaces,
+ * because the reader reached them from the Sent folder and the per-sender screen reaches them
+ * from any ordinary folder: neither is a case the other can be trusted to have caught.
+ *
+ * The rest are the screen's noes, with ONE deliberate difference. [trashPath] null and
+ * [FilterRulesState.Unsupported] take the entry away exactly as they do on the screen: nothing
+ * honest to offer, and nothing invented to stand in. But `foreignActiveScript` GREYS the entry
+ * here instead of hiding it — the difference is that a dialog has room for the reason and a list
+ * row has not, which is the whole benefit of this location. It stays disabled, and it opens
+ * nothing that would offer to take the running script over: that decision belongs to the Filters
+ * screen, which warns in red above its Save button.
+ *
+ * The two halves of what used to be "null" part company here, and the line between them is the
+ * one the per-sender screen already draws:
+ *
+ *  - [SenderScript.Unread] — **absent**. The panel has only just armed the read; an entry drawn
+ *    before the answer is a promise made on no information, and the four states it can be in are
+ *    exactly what has not been read yet. The screen holds it absent for the same span.
+ *  - [SenderScript.Unreachable] — **offered**. Hiding it there would make an unreachable server
+ *    look like an IMAP account, with no word and no retry, and the gesture is merely unavailable
+ *    rather than wrong: tapping it runs [app.sterna.core.data.filter.addBlockRule], which reads
+ *    again at the moment of writing and reports what happened. That read is the guard, and it is
+ *    absolute: nothing here can talk it into writing over another script.
+ */
+fun senderRuleEntry(
+    isSender: Boolean,
+    trashPath: String?,
+    script: SenderScript,
+    address: String,
+    ownAddresses: List<String>,
+): SenderRuleEntry {
+    val rules = (script as? SenderScript.Read)?.state
+    return when {
+        !isSender -> SenderRuleEntry.ABSENT
+        // Before the account's script is consulted at all: no state of the server makes a rule
+        // on one's own address, or on no address, into something worth offering.
+        !blockableSender(address, ownAddresses) -> SenderRuleEntry.ABSENT
+        trashPath == null -> SenderRuleEntry.ABSENT
+        script is SenderScript.Unread -> SenderRuleEntry.ABSENT
+        rules is FilterRulesState.Unsupported -> SenderRuleEntry.ABSENT
+        // "Already there" answers before "cannot", for the same reason addBlockRule does: neither
+        // case writes anything, they differ only in what the reader is told, and "another script is
+        // active" on an address that is already handled reports an obstacle where there is none.
+        rules is FilterRulesState.Loaded && alreadyBlocked(rules.rules, address) ->
+            SenderRuleEntry.ALREADY_RULED
+        rules is FilterRulesState.Loaded && rules.foreignActiveScript -> SenderRuleEntry.FOREIGN_SCRIPT
+        else -> SenderRuleEntry.OFFERED
+    }
+}
+
+/** The words each state of the entry wears — greyed entries say WHY, they do not just look dead. */
+fun senderRuleLabel(entry: SenderRuleEntry): Int = when (entry) {
+    SenderRuleEntry.ALREADY_RULED -> R.string.sender_volume_block_done
+    SenderRuleEntry.FOREIGN_SCRIPT -> R.string.sender_volume_block_foreign
+    else -> R.string.sender_volume_block
+}
+
+/**
+ * Lifecycle of an unsubscribe on the open message, reflected on the banner above the body.
+ * Session-only, like [InviteResponse]: remembering that a list was left would mean a column in
+ * the message table, and that is a later piece of work with its own migration.
+ */
+sealed interface UnsubscribeState {
+    data object Idle : UnsubscribeState
+
+    /** The POST is in flight (the `mailto:` form never lingers here — the outbox takes it). */
+    data object Sending : UnsubscribeState
+
+    /** The sender's server accepted the one-click request. */
+    data object Sent : UnsubscribeState
+
+    /** The unsubscribe mail is in the outbox; delivery and retry are the outbox's business. */
+    data object Queued : UnsubscribeState
+
+    data class Failed(val reason: UnsubscribeFailure) : UnsubscribeState
+}
+
+/**
+ * An unsubscribe waiting for the reader to confirm it, WITH the options it was offered for.
+ *
+ * The options travel with the pending gesture instead of being read again when the button is
+ * pressed, so what the dialog names and what the request goes to cannot come apart. They can:
+ * the reader is a pager over live state, and the message behind an open dialog can be reloaded
+ * (a settle, a refresh, a swipe) — the second read then answers for another message, or for
+ * none, and the button would have sent an unsubscribe to the previous list, or to nothing.
+ */
+data class PendingUnsubscribe(
+    val action: UnsubscribeAction,
+    val options: UnsubscribeOptions,
+) {
+    /** What the confirmation names — the same decision the action itself follows. */
+    val target: String? get() = options.confirmationTarget(action)
+
+    /**
+     * The subject and body the mail would carry, or null when this gesture is not a mail.
+     *
+     * Read from [unsubscribePreview], which is also what `MailRepository.sendUnsubscribeMail`
+     * builds the outbox row from: the dialog cannot show one text and send another. Both come
+     * from the sender of the received message and go out under the account's identity, so they
+     * are shown before the send, not described in the abstract.
+     */
+    val mailPreview: UnsubscribeMailPreview? get() = options.mailto?.let { unsubscribePreview(it) }
+}
+
+/**
+ * The gesture still on offer for [options] in [state], or null when there is nothing left to
+ * press. ONE decision, executed by the banner, the overflow entry and the action itself, because
+ * the three disagreeing is precisely how a list gets left twice.
+ *
+ * [UnsubscribeState.Sent] and [UnsubscribeState.Queued] are done: the request went out (or is in
+ * the outbox, which will send it), and offering the button again invites a second POST to a
+ * server that already answered — for a large sender, from an address that just proved it is read.
+ * [UnsubscribeState.Sending] is in flight. A [UnsubscribeState.Failed] IS offered again: a
+ * refusal or a dead network is a retry, not a dead end.
+ *
+ * ⚠ Bounded by the PAGE's composition, and deliberately so — not by the process. This state lives
+ * in the per-page [MessageViewModel], whose store is cleared as soon as the page leaves the pager
+ * (see `rememberDisposableViewModelStoreOwner`), so a rotation, a back-and-return, or swiping two
+ * messages away and back is enough for the button to come back. Remembering it any longer is a
+ * column in the message table, which this lot does not open.
+ */
+fun offeredUnsubscribeAction(options: UnsubscribeOptions?, state: UnsubscribeState): UnsubscribeAction? =
+    when (state) {
+        UnsubscribeState.Sending, UnsubscribeState.Sent, UnsubscribeState.Queued -> null
+        UnsubscribeState.Idle, is UnsubscribeState.Failed -> options?.preferredAction()
+    }
+
+/**
+ * Which of its four shapes the unsubscribe strip draws — the decision taken out of the
+ * `@Composable` so a JVM test can RUN it.
+ *
+ * [ACTION] and [SENDING] and [DONE] are the same height on purpose, and that is not a taste: the
+ * measured height of the header is part of the key of the `remember` that builds the body's HTML
+ * document, so a strip that changes size **cancels the body load in flight and starts another**.
+ * The header is where an unsubscribe happens, so before this the reader reloaded the message
+ * every time someone left a list. [FAILED] is the one shape allowed to grow — it carries a
+ * sentence the reader has to read, and it only appears after a deliberate gesture.
+ */
+enum class UnsubscribeStripBody {
+    /** Nothing done yet: one button, no sentence. */
+    ACTION,
+
+    /** In flight: the same button, its icon replaced by a spinner, and it cannot be pressed. */
+    SENDING,
+
+    /** Sent or queued: no button at all, one terminal line. */
+    DONE,
+
+    /** Refused, or the network died: the reason, and the button again. */
+    FAILED,
+    ;
+
+    /**
+     * Whether the strip's button may START an unsubscribe here.
+     *
+     * It must agree with [offeredUnsubscribeAction] in every state, and a test holds the two
+     * together: the strip drawing a live button where the action refuses to run is a button that
+     * does nothing, and the reverse is the second POST to a list that already answered.
+     */
+    val acts: Boolean get() = this == ACTION || this == FAILED
+}
+
+/** See [UnsubscribeStripBody]. */
+fun unsubscribeStripBody(state: UnsubscribeState): UnsubscribeStripBody = when (state) {
+    UnsubscribeState.Idle -> UnsubscribeStripBody.ACTION
+    UnsubscribeState.Sending -> UnsubscribeStripBody.SENDING
+    UnsubscribeState.Sent, UnsubscribeState.Queued -> UnsubscribeStripBody.DONE
+    is UnsubscribeState.Failed -> UnsubscribeStripBody.FAILED
 }
 
 /**
@@ -268,6 +506,102 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         if (id == null) flowOf(emptyList()) else repo.observeMailboxes(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * The account's filter rules as last read — [SenderScript.Unread] until a read is made, and
+     * [SenderScript.Unreachable] when one was made and did not answer. See [senderRuleEntry] for
+     * what each of the three means to the entry; the first two are NOT the same answer.
+     *
+     * Read ONLY when the participants panel is opened ([loadSenderRules]), never on opening a
+     * message: it is a network round-trip, and paying for one on every message read — including
+     * every message merely swiped past — to decide the state of an entry nobody has looked for
+     * yet is not a trade this app makes.
+     */
+    private val _senderRules = MutableStateFlow<SenderScript>(SenderScript.Unread)
+    val senderRules = _senderRules.asStateFlow()
+
+    /**
+     * Every address that IS the user on the open message's account, so the rule gesture can
+     * refuse its own sender — see [app.sterna.core.data.filter.blockableSender].
+     *
+     * Per message and not per app: the reader is a pager and the unified inbox makes it cross
+     * ACCOUNTS, so the addresses that are "oneself" change under it exactly as the script does.
+     * Read from the store, so it costs nothing and needs no network.
+     */
+    private val _accountAddresses = MutableStateFlow<List<String>>(emptyList())
+    val accountAddresses = _accountAddresses.asStateFlow()
+
+    /** One-shot word about the rule gesture (added / already there / failed), shown and cleared. */
+    private val _senderRuleStatus = MutableStateFlow<String?>(null)
+    val senderRuleStatus = _senderRuleStatus.asStateFlow()
+
+    fun clearSenderRuleStatus() { _senderRuleStatus.value = null }
+
+    /**
+     * Read the account's script, once, when the participants panel opens.
+     *
+     * Idempotent while it holds an ANSWER — [SenderScript.Read] — so reopening the panel does not
+     * go back to the server. A read that failed leaves [SenderScript.Unreachable], which is not
+     * an answer: the next opening tries again, and until then the entry is offered, which is what
+     * a merely unreachable server deserves. [SenderScript.Unread], the state before any of this,
+     * is the one that holds the entry back.
+     */
+    fun loadSenderRules() {
+        if (_senderRules.value is SenderScript.Read) return
+        val credentials = credentials() ?: return
+        viewModelScope.launch {
+            _senderRules.value = readSenderScript(credentials)
+        }
+    }
+
+    /**
+     * One read of the account's script, as the three-state answer the entry is decided on.
+     *
+     * `getOrElseUnlessCancelled` and not `getOrDefault` (issue #99): a cancelled read is not a
+     * failed one. The reader is a pager, so this coroutine dies every time a page is swiped away
+     * — and swallowing that as "unreachable" would answer for a message nobody is looking at,
+     * including on the re-read that follows a rule just written.
+     */
+    private suspend fun readSenderScript(credentials: AccountCredentials): SenderScript =
+        runCatching { SenderScript.Read(repo.loadFilterRules(credentials)) }
+            .getOrElseUnlessCancelled { SenderScript.Unreachable }
+
+    /**
+     * Add the "future mail to Trash, marked read" rule for [address] to the account's script.
+     *
+     * The whole gesture is [addBlockRule] — read the rules, then save them WITH one more —
+     * handed the read and the write, because `saveFilterRules` rewrites the ENTIRE script: a
+     * save that did not start from a successful read would delete the account's filters instead
+     * of adding one. It is also where the refusal on a foreign active script lives, and that
+     * guard takes no argument that could switch it off.
+     */
+    fun blockSender(address: String) {
+        val credentials = credentials() ?: return
+        viewModelScope.launch {
+            val trashPath = trashFilePath(accountMailboxes.value)
+            if (trashPath == null) {
+                _senderRuleStatus.value =
+                    getApplication<Application>().getString(R.string.status_action_failed)
+                return@launch
+            }
+            val outcome = addBlockRule(
+                address = address,
+                trashFolder = trashPath,
+                load = { repo.loadFilterRules(credentials) },
+                save = { rules -> repo.saveFilterRules(credentials, rules) },
+            )
+            _senderRuleStatus.value = getApplication<Application>().getString(
+                when (outcome) {
+                    BlockOutcome.ADDED -> R.string.sender_volume_block_added
+                    BlockOutcome.ALREADY_PRESENT -> R.string.sender_volume_block_done
+                    BlockOutcome.FAILED -> R.string.status_action_failed
+                },
+            )
+            // Re-read, so the entry greys itself out for the address just handled instead of
+            // going on offering a rule that is now there.
+            _senderRules.value = readSenderScript(credentials)
+        }
+    }
+
     /** OpenPGP state of the opened message (status card + header badges). */
     private val _crypto = MutableStateFlow<CryptoUiState>(CryptoUiState.None)
     val crypto = _crypto.asStateFlow()
@@ -318,6 +652,99 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _headers.value = null
     }
 
+    // ---- unsubscribe (RFC 2369 / RFC 8058) ----
+
+    /** What the open message offers as a way out of its mailing list; null = no banner, no menu
+     *  entry, and no error either — a message that offers nothing is simply mail. */
+    private val _unsubscribe = MutableStateFlow<UnsubscribeOptions?>(null)
+    val unsubscribe = _unsubscribe.asStateFlow()
+
+    private val _unsubscribeState = MutableStateFlow<UnsubscribeState>(UnsubscribeState.Idle)
+    val unsubscribeState = _unsubscribeState.asStateFlow()
+
+    /** The gesture awaiting confirmation, or null when no dialog is up. Confirmation is
+     *  systematic and has no setting (decision D7): the dialog is where the app says what is
+     *  about to leave and to whom, which is the whole of WYSIWYG applied to a network call. */
+    private val _unsubscribeConfirm = MutableStateFlow<PendingUnsubscribe?>(null)
+    val unsubscribeConfirm = _unsubscribeConfirm.asStateFlow()
+
+    /** Ask before acting; a no-op when the message offers nothing, or when it is already done. */
+    fun askUnsubscribe() {
+        val options = _unsubscribe.value ?: return
+        val action = offeredUnsubscribeAction(options, _unsubscribeState.value) ?: return
+        // The options are CAPTURED here, not read again when the button is pressed: the dialog
+        // then names, and the action then uses, one and the same target. A reload behind the open
+        // dialog (the pager settling, a refresh) would otherwise leave the two disagreeing — or
+        // leave the dialog naming nothing at all.
+        _unsubscribeConfirm.value = PendingUnsubscribe(action, options)
+    }
+
+    fun dismissUnsubscribeConfirm() {
+        _unsubscribeConfirm.value = null
+    }
+
+    /**
+     * Carry out the confirmed unsubscribe: the one-click POST, or the mail through the outbox.
+     * [UnsubscribeAction.OPEN_PAGE] is not handled here — handing a URL to a browser is the
+     * screen's job, and it deliberately looks nothing like the other two.
+     *
+     * It acts on the target the confirmation NAMED (see [askUnsubscribe]), and only while
+     * [offeredUnsubscribeAction] still offers it — so a dialog left open across a completed
+     * unsubscribe cannot send a second request to a list that already answered.
+     *
+     * The result is applied only if this ViewModel still holds the SAME message of the SAME
+     * account. The reader is a pager: a swipe while the POST is in flight would otherwise land
+     * "Unsubscribed" on the neighbouring message (ids are per account — issue #31).
+     */
+    fun unsubscribe() {
+        val pending = _unsubscribeConfirm.value ?: return
+        if (offeredUnsubscribeAction(pending.options, _unsubscribeState.value) == null) return
+        _unsubscribeConfirm.value = null
+        val ownerId = loadedId ?: return
+        val ownerAccount = accountId
+        val app = getApplication<Application>()
+        _unsubscribeState.value = UnsubscribeState.Sending
+        viewModelScope.launch {
+            val outcome: UnsubscribeState = try {
+                val credentials = credentials() ?: error(app.getString(R.string.status_no_saved_account))
+                when (pending.action) {
+                    UnsubscribeAction.ONE_CLICK -> {
+                        val url = pending.options.oneClickUrl ?: error("no one-click url")
+                        // The connectivity read is handed over as a lambda, so it is answered when
+                        // the POST fails and not now: this is the app's one connectivity check
+                        // ([hasUsableNetwork], the same one that picks "Sending…" over "queued" at
+                        // send time, #70), and `core:data` must not reach for Android to get it.
+                        // Without it a dead unsubscribe endpoint — an expired domain, a shut-down
+                        // list — is reported as "No network" to a phone that is plainly online.
+                        when (val result = repo.unsubscribeOneClick(url) { hasUsableNetwork(app) }) {
+                            is UnsubscribeResult.Sent -> UnsubscribeState.Sent
+                            is UnsubscribeResult.Failed -> UnsubscribeState.Failed(result.reason)
+                        }
+                    }
+                    UnsubscribeAction.MAIL -> {
+                        val mailto = pending.options.mailto ?: error("no mailto")
+                        repo.sendUnsubscribeMail(credentials, mailto)
+                        UnsubscribeState.Queued
+                    }
+                    // Not ours to run; leaving the state untouched keeps the banner as it was.
+                    UnsubscribeAction.OPEN_PAGE -> UnsubscribeState.Idle
+                }
+            } catch (cancelled: CancellationException) {
+                // A cancellation is not a failure to report: the page it belonged to is gone.
+                throw cancelled
+            } catch (t: Throwable) {
+                // Said out loud, because the screen cannot say it: "Unsubscribe failed" is one
+                // sentence for a refused enqueueSend, a missing identity and a broken database
+                // alike, and without this line the reason left no trace anywhere at all.
+                android.util.Log.w("SternaUnsubscribe", "unsubscribe failed: ${pending.action}", t)
+                UnsubscribeState.Failed(UnsubscribeFailure.REFUSED)
+            }
+            if (loadedId == ownerId && accountId == ownerAccount) {
+                _unsubscribeState.value = outcome
+            }
+        }
+    }
+
     /** One automatic decrypt attempt per opened message (when the page settles). */
     private var autoDecryptTried = false
 
@@ -354,6 +781,14 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         }
         loadedId = emailId
         this.accountId = accountId
+        // FIRST, before anything else and before the coroutine below: the unsubscribe of the
+        // message we are leaving. Everything under it is a label that would merely look wrong on
+        // the new message; this one is a BUTTON, and until the fetch returns it would still be
+        // wired to the previous message's list — a tap unsubscribing from something the reader is
+        // no longer looking at, with a confirmation naming a sender they did not choose.
+        _unsubscribe.value = null
+        _unsubscribeState.value = UnsubscribeState.Idle
+        _unsubscribeConfirm.value = null
         // Re-point the move picker at the account this page's message belongs to, before any
         // of its state is read (the folders come from the cache, so no network is involved).
         _ownerAccountId.value = credentials()?.id
@@ -373,6 +808,18 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
         _manualShowImages.value = false
         _headers.value = null
         _attachmentStatus.value = null
+        // The per-sender rule, all three halves. The status is the answer to a gesture made on
+        // the message we are leaving ("Rule added"), and it would be read as this message's. The
+        // script is worse than stale: the pager crosses ACCOUNTS in the unified inbox, so the
+        // previous account's rules would decide whether THIS account's sender is already ruled
+        // — a grey "already there" on an address nothing files away, or the reverse. Unread costs
+        // nothing: the script is read lazily, only when the participants panel is opened.
+        // The account's own addresses cross accounts with it, and they are read from the store,
+        // so they are taken here rather than left to a round-trip: the one thing that must never
+        // arrive late is the reason the gesture is refused.
+        _senderRules.value = SenderScript.Unread
+        _senderRuleStatus.value = null
+        _accountAddresses.value = ownAddresses()
         viewModelScope.launch {
             // Account-scoped: a snooze belongs to one account's message (issue #31).
             _snoozedUntil.value = runCatching {
@@ -424,6 +871,9 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 // erases what the cache already found (#81).
                 _deliveredTo.value = receivingAddress(anchor, ownAddresses()) ?: _deliveredTo.value
                 _mailboxId.value = anchor.mailboxId ?: listEmail?.mailboxId
+                // Read off the OPENED message: the two headers only ever ride with the body
+                // fetch, never with the cached list row painted a moment ago.
+                _unsubscribe.value = UnsubscribeHeader.parse(anchor.listUnsubscribe, anchor.listUnsubscribePost)
                 // OpenPGP: reflect the crypto state; a decrypt is attempted once the
                 // page settles in front of the user (see onActiveChanged), not while
                 // the pager pre-composes neighbours.
@@ -450,6 +900,13 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
                 // The reader shows the single opened message; the conversation (the rest of the
                 // thread) now lives only in the list's inline unfold, so no thread merge here.
             } catch (t: Throwable) {
+                // The unsubscribe again, and for a different reason than in the prologue: the
+                // read may have failed AFTER the options were set, or with a dialog open on them.
+                // Nothing here can be acted on any more — there is no message on screen — and a
+                // banner that outlives its message is a banner that never goes away.
+                _unsubscribe.value = null
+                _unsubscribeState.value = UnsubscribeState.Idle
+                _unsubscribeConfirm.value = null
                 _state.value = MessageState.Error(readFailureText(t))
             }
         }
@@ -473,7 +930,7 @@ class MessageViewModel(application: Application) : AndroidViewModel(application)
      *  login it authenticates with. A delegated sub-account needs no special case — the store
      *  already resolves its own address, or its login's, for it (issue #31). */
     private fun ownAddresses(): List<String> =
-        store.identities(accountId).map { it.email } + listOfNotNull(credentials()?.username)
+        accountAddresses(store.identities(accountId), credentials()?.username)
 
     /**
      * Whether the reader shows this message by its recipients instead of its sender — the SAME

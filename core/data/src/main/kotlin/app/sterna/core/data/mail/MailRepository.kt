@@ -18,8 +18,14 @@ import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.OAuthCredentials
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.filter.FilterRule
+import app.sterna.core.data.filter.FilterScriptStatus
 import app.sterna.core.data.filter.SieveCodec
+import app.sterna.core.data.filter.VACATION_SCRIPT_NAME
+import app.sterna.core.data.filter.enabledRuleCount
+import app.sterna.core.data.filter.loadedFilterRules
 import app.sterna.core.data.db.AccountMailboxRole
+import app.sterna.core.data.unsubscribe.UnsubscribeClient
+import app.sterna.core.data.unsubscribe.UnsubscribeResult
 import app.sterna.core.data.db.EmailDao
 import app.sterna.core.data.db.EmailFtsDao
 import app.sterna.core.data.db.EmailBodyDao
@@ -93,6 +99,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -371,6 +378,22 @@ internal suspend fun <T> readCachedOrPurge(
     runCatching { purge() }
     null
 }
+
+/**
+ * The `List-Unsubscribe` / `List-Unsubscribe-Post` pair as read off an IMAP message's raw source,
+ * in that order — the IMAP half of what JMAP asks the server for by property name.
+ *
+ * A named function rather than two lines inside `openEmailImap`, so WHICH headers are read (and
+ * that both are) is a decision a test can execute: the repository itself needs Room and an Android
+ * context, so nothing inside it can be reached from a JVM test.
+ *
+ * [MimeParser.headerOf] unfolds continuation lines already, which matters here more than anywhere:
+ * a `List-Unsubscribe` carrying two URIs is very often folded, and a naive read would hand the
+ * parser half a header. It is a Map, so a message repeating a header keeps the LAST occurrence —
+ * accepted for this lot, and stated here rather than discovered later.
+ */
+internal fun unsubscribeHeadersOf(raw: String): Pair<String?, String?> =
+    MimeParser.headerOf(raw, "List-Unsubscribe") to MimeParser.headerOf(raw, "List-Unsubscribe-Post")
 
 /**
  * Run [stage] — persisting an outbox item's payload/attachments after its row is already inserted —
@@ -704,6 +727,22 @@ data class InboxRow(
  */
 data class EmailKey(val accountId: String?, val emailId: String)
 
+/**
+ * One line of the per-sender screen: what this phone holds from [email].
+ *
+ * [email] is the grouping key (case-insensitively) and the value a filter rule would be written
+ * on; [name] is only what the most recent message called them, and never decides anything.
+ * [total] and [unread] count MESSAGES in the cached, non-outgoing folders of one account — not
+ * what the server still holds.
+ */
+data class SenderVolume(
+    val email: String,
+    val name: String?,
+    val total: Int,
+    val unread: Int,
+    val latest: Long,
+)
+
 /** The [EmailKey] of an email as the cache/UI sees it. */
 fun Email.emailKey(): EmailKey = EmailKey(accountId, id)
 
@@ -758,8 +797,19 @@ sealed interface FilterRulesState {
     data object Unsupported : FilterRulesState
     data class Loaded(
         val rules: List<FilterRule>,
-        /** True if another script (not Sterna's) is the active one — saving will take over. */
+        /**
+         * True if the write must be refused: another script (not Sterna's) is the active one and
+         * saving will take it over, OR this account's own `sterna` script could not be parsed and
+         * saving would replace content nobody read. The two ADD UP here, deliberately (see
+         * [app.sterna.core.data.filter.loadedFilterRules]).
+         */
         val foreignActiveScript: Boolean = false,
+        /**
+         * The second of those two causes, kept apart from the first so a screen can NAME it. It
+         * cannot be recovered from the script list — that list carries names and active flags,
+         * never content — so it travels from this read or it is lost.
+         */
+        val scriptUnreadable: Boolean = false,
     ) : FilterRulesState
 }
 
@@ -1578,6 +1628,27 @@ class MailRepository(
     }
 
     /**
+     * What this phone holds from each sender, for one account ([EmailDao.senderVolumes]).
+     *
+     * A one-shot read on [Dispatchers.IO], like [app.sterna.core.data.storage.StorageRepository
+     * .usage] and for the same reason: it is a full scan of `emails`, and a reactive version
+     * would replay it on every sync write.
+     */
+    suspend fun senderVolumes(accountId: String): List<SenderVolume> = withContext(Dispatchers.IO) {
+        emailDao.senderVolumes(accountId).map {
+            SenderVolume(email = it.email, name = it.name, total = it.total, unread = it.unread, latest = it.latest)
+        }
+    }
+
+    /**
+     * The ids [senderVolumes] counted for [email] in [accountId] — the exact set a per-sender
+     * delete may act on, produced by the same scope clause as the count itself
+     * ([app.sterna.core.data.db.SENDER_VOLUME_SCOPE_SQL]).
+     */
+    suspend fun senderMessageIds(accountId: String, email: String): List<String> =
+        withContext(Dispatchers.IO) { emailDao.senderMessageIds(accountId, email) }
+
+    /**
      * Every unread message id in [mailboxId], resolved SERVER-side (uncollapsed Email/query
      * filtered on `notKeyword $seen`, paginated and bounded) — so "Mark all read" reaches
      * unread mail the cache doesn't hold (non-representative thread members, mail past the
@@ -2195,9 +2266,21 @@ class MailRepository(
         }
         // The cache holds no threading headers; lift them from the source so a reply
         // built from this email carries In-Reply-To/References.
+        //
+        // The unsubscribe headers ride along for FREE: the whole source is already in hand, so
+        // this costs no extra round trip and no change to any FETCH command — which matters,
+        // because a `BODY.PEEK[HEADER.FIELDS (…)]` would break ImapParser's tokenisation (it
+        // stops on parentheses) and return an empty string with no error at all.
+        //
+        // ⚠ `headerOf` is a Map, so a message carrying `List-Unsubscribe` TWICE keeps the last
+        // one. Accepted for this lot: both are the sender's own, and picking one of two is not
+        // the failure mode worth a second parser.
+        val unsubscribe = unsubscribeHeadersOf(raw)
         return cached.withBody(body).copy(
             messageId = headerIds(MimeParser.headerOf(raw, "Message-ID")),
             references = headerIds(MimeParser.headerOf(raw, "References")),
+            listUnsubscribe = unsubscribe.first,
+            listUnsubscribePost = unsubscribe.second,
         )
     }
 
@@ -2510,6 +2593,18 @@ class MailRepository(
         },
         purge = { emailBodyDao.deleteById(accountId, emailId) },
     )
+
+    /**
+     * Drop every cached message body, for every account. The bodies ONLY — the message list, the
+     * attachments and the search index are untouched.
+     *
+     * Called once after an upgrade (see [BodyCachePurge]): a body serialised by an older build
+     * cannot grow a field the new one reads, and `openMessage` serves the cache before looking at
+     * anything. Cheap by construction — the next open refetches, which is what a cache is for.
+     */
+    suspend fun clearCachedBodies() {
+        emailBodyDao.deleteAll()
+    }
 
     /** Inline images present if the body needs them; downloads + persists them on first open. */
     private suspend fun ensureInlineImages(
@@ -5178,6 +5273,50 @@ class MailRepository(
         )
     }
 
+    // ---- unsubscribe (RFC 2369 / RFC 8058) ----
+
+    /** Built once, on first use: nothing else in the app talks to third-party domains. */
+    private val unsubscribeClient by lazy { UnsubscribeClient() }
+
+    /**
+     * Send the RFC 8058 one-click unsubscribe to [url]: one POST, no browser, no page, and no
+     * `Authorization` header — [UnsubscribeClient] exists precisely so this request cannot
+     * inherit the account's credentials on their way to a stranger's server.
+     *
+     * [isOnline] is passed through, not answered here: this module has no business reading
+     * `ConnectivityManager`. It decides, when the POST dies on the transport, whether the reader
+     * is off the network or the sender's host is dead — see `oneClickFailure`. It has no default
+     * on purpose: a caller that has no connectivity to report would silently reintroduce the
+     * "No network" lie every failed unsubscribe used to tell.
+     */
+    suspend fun unsubscribeOneClick(url: String, isOnline: () -> Boolean): UnsubscribeResult =
+        unsubscribeClient.oneClick(url, isOnline)
+
+    /**
+     * Queue the `mailto:` form of an unsubscribe through the ordinary outbox, so it retries and
+     * survives like any other send rather than being a special one-shot request.
+     *
+     * Built on [sendCalendarReply]'s pattern, identity included: a delegated sub-account submits
+     * through its login (issue #31), and a list unsubscribes the address it sees in `From`.
+     * The subject, when the URI names none, is [UNSUBSCRIBE_SUBJECT] — deliberately not a
+     * translated label, since it is read by the list's software and not by a person.
+     */
+    suspend fun sendUnsubscribeMail(
+        credentials: AccountCredentials,
+        mailto: MailtoUnsubscribe,
+    ) {
+        val identity = accountStore.identities(credentials.id).firstOrNull()
+        val mail = unsubscribeMail(mailto, identity?.name, identity?.email)
+        enqueueSend(
+            credentials = credentials,
+            to = mail.to,
+            subject = mail.subject,
+            body = mail.body,
+            fromName = mail.fromName,
+            fromEmail = mail.fromEmail,
+        )
+    }
+
     // ---- scheduled send ----
 
     /** Persist a message to send later; returns its row id (used to schedule the worker). */
@@ -5287,6 +5426,10 @@ class MailRepository(
      * Load the account's Sterna-managed filter rules (server-side Sieve).
      * [FilterRulesState.Unsupported] for IMAP accounts and JMAP servers without
      * the sieve capability.
+     *
+     * Everything this decides once the bytes are in hand is [loadedFilterRules], which a JVM
+     * test executes: what an unreadable script means, and when the answer must warn instead of
+     * reporting an empty rule list.
      */
     suspend fun loadFilterRules(credentials: AccountCredentials): FilterRulesState {
         if (credentials.protocol == MailProtocol.IMAP) return FilterRulesState.Unsupported
@@ -5296,16 +5439,76 @@ class MailRepository(
         }
         val scripts = client.getSieveScripts(ctx.session, ctx.accountId, ctx.auth)
         val managed = scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }
-        val rules = if (managed != null) {
+        val script = managed?.let {
+            client.downloadBlob(
+                ctx.session, ctx.accountId, it.blobId, "application/sieve", "sterna.siv", ctx.auth,
+            ).toString(Charsets.UTF_8)
+        }
+        return loadedFilterRules(
+            sternaScript = script,
+            otherActiveScript = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME },
+        )
+    }
+
+    /**
+     * Whether the account's filter rules are actually running server-side, and whether this
+     * server materialises its vacation responder as a Sieve script.
+     *
+     * A function of its own rather than a field on [FilterRulesState.Loaded]: that type is shared
+     * and consumed elsewhere, and this is needed by a screen (the vacation responder) that has no
+     * business loading rules at all. It costs one extra `SieveScript/get` (plus the script blob)
+     * on the filters screen; a settings screen opened by hand can pay that to keep the shared type
+     * still.
+     *
+     * A server keeps ONE active Sieve script per account, so switching the responder on makes its
+     * script the active one and the Sterna script stops filtering — and switching the responder
+     * off leaves NO script active at all (measured against Stalwart, 2026-08-03/04). The active
+     * flag on our own script is therefore the fact the screens were missing; `foreignActiveScript`
+     * is not, since it is false in exactly the state where the rules are dead.
+     *
+     * A FAILED read answers `null`, and that is the whole point of the nullable return: it is NOT
+     * the "nothing known" value. Read as "nothing to report", a failure erases a warning at the
+     * moment it becomes true — switch the responder off and the server leaves no script active at
+     * all, so the rules are dead precisely when the screen would go quiet. The callers apply
+     * [refreshedFilterWarning], which keeps what was on screen when the answer is null. IMAP and a
+     * server with no Sieve capability stay NON-null: those are known facts, not failures.
+     * [getOrElseUnlessCancelled], not `getOrDefault`: a cancelled load is an instruction to stop,
+     * not a failure to paper over. It is still advisory — no error page for a screen whose
+     * responder loaded fine.
+     */
+    suspend fun loadFilterScriptStatus(credentials: AccountCredentials): FilterScriptStatus? {
+        if (credentials.protocol == MailProtocol.IMAP) return FilterScriptStatus()
+        return runCatching {
+            val ctx = connect(credentials)
+            if (!ctx.session.capabilities.containsKey(app.sterna.core.jmap.Jmap.SIEVE_CAPABILITY)) {
+                return@runCatching FilterScriptStatus()
+            }
+            val scripts = client.getSieveScripts(ctx.session, ctx.accountId, ctx.auth)
+            val vacation = scripts.any { it.name == VACATION_SCRIPT_NAME }
+            // Existence and activity are two different facts read off the same object, one line
+            // apart and at no extra cost: the prediction needs the first (this server puts the
+            // responder in a Sieve script), the red line above Save needs the second (that script
+            // is the one running right now, so Save is what stops it).
+            val vacationActive = scripts.any { it.name == VACATION_SCRIPT_NAME && it.isActive }
+            val foreign = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }
+            val managed = scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }
+                ?: return@runCatching FilterScriptStatus(
+                    vacationScriptExists = vacation,
+                    vacationScriptActive = vacationActive,
+                    foreignActive = foreign,
+                )
             val bytes = client.downloadBlob(
                 ctx.session, ctx.accountId, managed.blobId, "application/sieve", "sterna.siv", ctx.auth,
             )
-            SieveCodec.parseRules(bytes.toString(Charsets.UTF_8))
-        } else {
-            emptyList()
-        }
-        val foreign = scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME }
-        return FilterRulesState.Loaded(rules, foreign)
+            FilterScriptStatus(
+                scriptExists = true,
+                scriptActive = managed.isActive,
+                enabledRuleCount = enabledRuleCount(SieveCodec.parseRules(bytes.toString(Charsets.UTF_8))),
+                vacationScriptExists = vacation,
+                vacationScriptActive = vacationActive,
+                foreignActive = foreign,
+            )
+        }.getOrElseUnlessCancelled { null }
     }
 
     /**

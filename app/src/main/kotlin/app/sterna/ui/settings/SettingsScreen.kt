@@ -123,6 +123,8 @@ import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.account.SyncWindow
+import app.sterna.core.data.filter.VacationFilterLine
+import app.sterna.core.data.filter.vacationFilterLine
 import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.data.settings.PreviewLines
@@ -2386,6 +2388,37 @@ private fun VacationForm(state: VacationUiState, viewModel: VacationViewModel) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        // In the head of the screen, where the filters screen puts its own warning, and not above
+        // Save: it is about the state the account is in, not about the write being prepared.
+        // Which of the three sentences is vacationFilterLine(), executed by a test — the switch
+        // three rows below decides between two of them and reading it here is the whole point.
+        vacationFilterLine(state.filterWarning, responderEnabled = state.enabled)?.let { line ->
+            Text(
+                when (line) {
+                    // Here, and NOT on the filters screen, the sentence says where the remedy is:
+                    // the way back is Save on the filters screen, which is one screen away and has
+                    // no reason to be pressed — this screen's own Save is grey, since nothing is
+                    // edited. Text and not a button, like the note at the foot of the by-sender
+                    // screen: taking a script back over belongs to the screen that warns in red
+                    // first.
+                    VacationFilterLine.RULES_NOT_RUNNING_WITH_REMEDY -> stringResource(
+                        R.string.settings_vacation_filters_not_running,
+                        stringResource(R.string.inbox_settings),
+                        stringResource(R.string.settings_filters_title),
+                    )
+                    // Switch ON: the rules are stopped BECAUSE the responder is running, so that
+                    // remedy would switch off what this screen has just been used to turn on, and
+                    // the sentence says none of that. The fact, then, and no path.
+                    VacationFilterLine.RULES_NOT_RUNNING_FACT ->
+                        stringResource(R.string.settings_filters_not_running)
+                    VacationFilterLine.RESPONDER_WILL_SUSPEND_RULES ->
+                        stringResource(R.string.settings_vacation_suspends_filters)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
         SettingsSection(stringResource(R.string.settings_vacation_section)) {

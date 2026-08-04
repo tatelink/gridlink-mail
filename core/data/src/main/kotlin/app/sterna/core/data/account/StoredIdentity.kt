@@ -39,3 +39,22 @@ data class StoredIdentity(
             this
         }
 }
+
+/**
+ * Every address that IS the user on one account: what it can send as, plus the login it
+ * authenticates with.
+ *
+ * A plain function, and here rather than inside the two ViewModels that need it, for one reason:
+ * it is the DATA a refusal is decided on ([app.sterna.core.data.filter.blockableSender] asks "is
+ * this address one of these?"), and a decision executed by a test over a list nobody builds
+ * proves only that the decision is right. Changing `it.email` to `it.name` one line inside a
+ * ViewModel leaves every such test green and quietly empties the list of everything but the
+ * login — which is how a rule against one's own alias becomes offerable again.
+ *
+ * [username] is added even when the identities already name it: a linked sub-account resolves its
+ * identities through its LOGIN (issue #31), and an account whose identity list has not synced yet
+ * has only its login to go on. Duplicates cost nothing here — every caller asks "is X in this
+ * list", never "how many".
+ */
+fun accountAddresses(identities: List<StoredIdentity>, username: String?): List<String> =
+    identities.map { it.email } + listOfNotNull(username)

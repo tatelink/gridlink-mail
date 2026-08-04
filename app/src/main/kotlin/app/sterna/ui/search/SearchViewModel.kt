@@ -44,8 +44,29 @@ internal fun searchResultKey(email: Email): String = "${email.accountId}|${email
  */
 private const val SEARCH_LIMIT = 200
 
+/**
+ * One criterion as the screen opens: what was [saved] — a value the user has since typed into
+ * the field — wins over the [argument] the caller navigated with.
+ *
+ * The precedence is the whole rule, and it is only visible after a process death: the caller's
+ * argument is still attached to the entry for ever, so preferring it would overwrite whatever
+ * the user had edited every time the process came back. An absent saved value is not the same as
+ * an empty one — a field cleared on purpose is a saved "" and must stay cleared.
+ */
+internal fun initialCriterion(saved: String?, argument: String?): String = saved ?: argument.orEmpty()
+
 /** Nav argument: the words already typed in the inbox's search bar, so they aren't retyped here. */
 const val SEARCH_QUERY_ARG = "q"
+
+/**
+ * Nav argument: the address the screen opens on, so "search this sender" from the per-sender
+ * screen lands on a search that is already about that sender.
+ *
+ * It behaves EXACTLY like [SEARCH_QUERY_ARG] and deliberately not one step further: it fills the
+ * criterion and stops there. Neither argument runs the search on arrival — that only happens for
+ * a form restored after a process death, which is a search the user had already submitted.
+ */
+const val SEARCH_FROM_ARG = "from"
 
 private const val KEY_TEXT = "form.text"
 private const val KEY_FROM = "form.from"
@@ -143,9 +164,11 @@ class SearchViewModel(
     private fun restoreForm(): SearchForm = SearchForm(
         query = SearchQuery(
             // The inbox's search bar hands its words over as a nav argument; a value saved here
-            // (the user has since edited the field) wins over it after a process death.
-            text = handle[KEY_TEXT] ?: handle.get<String>(SEARCH_QUERY_ARG).orEmpty(),
-            from = handle[KEY_FROM] ?: "",
+            // (the user has since edited the field) wins over it after a process death. Both
+            // criteria that can arrive by navigation go through the SAME decision, so they
+            // cannot come to differ — see initialCriterion.
+            text = initialCriterion(handle[KEY_TEXT], handle[SEARCH_QUERY_ARG]),
+            from = initialCriterion(handle[KEY_FROM], handle[SEARCH_FROM_ARG]),
             recipient = handle[KEY_RECIPIENT] ?: "",
             subject = handle[KEY_SUBJECT] ?: "",
             hasAttachment = handle[KEY_ATTACHMENT] ?: false,

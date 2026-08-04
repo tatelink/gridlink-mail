@@ -147,6 +147,22 @@
     <string name="message_report_spam">Spam melden</string>
     <string name="message_not_spam">Geen spam</string>
     <string name="message_snooze">Snoozen…</string>
+    <!-- Uitschrijven (RFC 2369 / RFC 8058) -->
+    <string name="message_unsubscribe">Uitschrijven</string>
+    <string name="message_unsubscribe_banner">Deze afzender biedt een manier om je uit te schrijven</string>
+    <string name="message_unsubscribe_open_page">Pagina openen</string>
+    <string name="message_unsubscribe_confirm_title">Uitschrijven?</string>
+    <string name="message_unsubscribe_confirm_post">Sterna stuurt een uitschrijfverzoek naar %1$s. Geen browser, geen pagina, niets geladen.</string>
+    <string name="message_unsubscribe_confirm_mail">Sterna stuurt een uitschrijf-e-mail naar %1$s.</string>
+    <string name="message_unsubscribe_confirm_mail_preview">Het onderwerp en de tekst komen van de afzender en worden ongewijzigd verzonden.\n\nOnderwerp: %1$s\nBericht: %2$s</string>
+    <string name="message_unsubscribe_confirm_open">Deze afzender biedt geen automatische uitschrijving. %1$s in een browser openen kan je IP-adres tonen.</string>
+    <string name="message_unsubscribe_sending">Bezig met uitschrijven…</string>
+    <string name="message_unsubscribe_sent">Uitschrijfverzoek verzonden</string>
+    <string name="message_unsubscribe_queued">Uitschrijf-e-mail in de wachtrij</string>
+    <string name="message_unsubscribe_failed">Uitschrijven mislukt</string>
+    <string name="message_unsubscribe_failed_redirect">De server van de afzender vroeg om een omleiding, wat het verzoek in een paginabezoek zou veranderen. Sterna heeft dat geweigerd.</string>
+    <string name="message_unsubscribe_failed_offline">Geen netwerk. Probeer het later opnieuw.</string>
+    <string name="message_unsubscribe_failed_unreachable">De afmeldserver van de afzender is niet bereikbaar.</string>
     <string name="message_view_headers">Headers weergeven</string>
     <string name="message_headers_title">Berichtheaders</string>
     <string name="message_headers_empty">Geen headers om weer te geven</string>
@@ -305,6 +321,8 @@
     <string name="settings_vacation_account">Account: %1$s</string>
     <string name="settings_vacation_enabled_title">Automatisch antwoorden inschakelen</string>
     <string name="settings_vacation_enabled_subtitle">Je server antwoordt automatisch terwijl je weg bent.</string>
+    <string name="settings_vacation_suspends_filters">Het automatische antwoord inschakelen schort je filterregels op.</string>
+    <string name="settings_vacation_filters_not_running">Je filterregels worden op dit moment niet toegepast. Je kunt ze weer aanzetten via %1$s → %2$s.</string>
     <string name="settings_vacation_subject_label">Onderwerp</string>
     <string name="settings_vacation_message_label">Bericht</string>
     <string name="settings_vacation_period_section">Periode (optioneel)</string>
@@ -330,6 +348,9 @@
     <string name="settings_filters_saved">Filters opgeslagen</string>
     <string name="settings_filters_untitled">Naamloze regel</string>
     <string name="settings_filters_foreign_warning">Er is al een ander filterscript actief op de server; door op te slaan wordt dat van Sterna Mail het actieve script.</string>
+    <string name="settings_filters_not_running">Je filterregels worden op dit moment niet toegepast.</string>
+    <string name="settings_filters_stops_auto_reply">Je automatische antwoord loopt op de server. Als je deze filters opslaat, stopt het.</string>
+    <string name="settings_filters_unreadable">Sterna Mail kan het filterscript van dit account niet lezen; door op te slaan wordt het vervangen.</string>
     <string name="settings_filters_edit_title">Regel bewerken</string>
     <string name="settings_filter_name">Regelnaam</string>
     <string name="settings_filter_if">Als</string>
@@ -665,6 +686,37 @@
     <string name="outbox_delete_body">Het is niet verzonden en staat nergens anders opgeslagen. Het bericht en de bijlagen gaan verloren.</string>
     <string name="outbox_delete_permanently">Definitief verwijderen</string>
     <string name="outbox_banner_failed">Sommige berichten zijn niet verzonden. Tik om te bekijken.</string>
+    <!-- Mail by sender (F1): what this phone holds, per sender, for one account. -->
+    <string name="inbox_by_sender">Op afzender</string>
+    <string name="sender_volume_title">Post per afzender</string>
+    <string name="sender_volume_empty">Geen post op deze telefoon opgeslagen.</string>
+    <plurals name="sender_volume_cached">
+        <item quantity="one">%1$d bericht van dit account op deze telefoon opgeslagen</item>
+        <item quantity="other">%1$d berichten van dit account op deze telefoon opgeslagen</item>
+    </plurals>
+    <string name="sender_volume_scope">%1$s. Verzonden, Concepten, Prullenbak en Spam tellen niet mee, gesnoozede berichten evenmin.</string>
+    <plurals name="sender_volume_unread">
+        <item quantity="one">%1$d ongelezen bericht</item>
+        <item quantity="other">%1$d ongelezen berichten</item>
+    </plurals>
+    <string name="sender_volume_delete">Deze berichten verwijderen</string>
+    <plurals name="sender_volume_delete_title">
+        <item quantity="one">%1$d bericht van %2$s verwijderen?</item>
+        <item quantity="other">%1$d berichten van %2$s verwijderen?</item>
+    </plurals>
+    <string name="sender_volume_delete_body">Ze gaan naar de prullenbak. Dit betreft elke map van dit account die op deze telefoon is opgeslagen, behalve Verzonden, Concepten, Prullenbak en Spam; gesnoozede berichten tellen ook niet mee. Oudere post van deze afzender kan op de server blijven staan.</string>
+    <string name="sender_volume_block">Toekomstige post naar de prullenbak, als gelezen gemarkeerd</string>
+    <string name="sender_volume_block_done">Er bestaat al een filterregel voor deze afzender</string>
+    <string name="sender_volume_block_added">Filterregel toegevoegd</string>
+    <string name="sender_volume_search">Deze afzender zoeken</string>
+    <plurals name="sender_volume_deleted">
+        <item quantity="one">%1$d bericht verwijderd</item>
+        <item quantity="other">%1$d berichten verwijderd</item>
+    </plurals>
+    <string name="sender_volume_foreign_script">Er is een ander filterscript actief op dit account, dus hier kan geen regel worden toegevoegd. De regels van dit account bewerk je in %1$s → %2$s.</string>
+    <string name="sender_volume_block_foreign">Er is een ander filterscript actief</string>
+    <string name="sender_volume_block_title">Toekomstige post van %1$s naar de prullenbak?</string>
+    <string name="sender_volume_block_body">Een regel op de server stuurt toekomstige post van dit adres naar de prullenbak, gemarkeerd als gelezen. Al ontvangen berichten blijven staan. De regel kun je wijzigen of verwijderen in %1$s → %2$s.</string>
     <string name="offline_banner">Je bent offline</string>
     <string name="sync_error_banner">Synchroniseren mislukt: %1$s</string>
 
