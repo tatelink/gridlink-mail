@@ -11,6 +11,11 @@
 </p>
 
 <p align="center">
+  <a href="https://sternamail.org"><b>sternamail.org</b></a>
+</p>
+
+<p align="center">
+  <a href="https://sternamail.org"><img alt="Website" src="https://img.shields.io/badge/website-sternamail.org-2F5E59"></a>
   <a href="https://codeberg.org/emon/sterna-mail/actions"><img alt="CI" src="https://codeberg.org/emon/sterna-mail/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://f-droid.org/packages/app.sterna/"><img alt="F-Droid" src="https://img.shields.io/f-droid/v/app.sterna?logo=fdroid&color=1976D2"></a>
   <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22app.sterna%22%2C%22url%22%3A%22https%3A%2F%2Fcodeberg.org%2Femon%2Fsterna-mail%22%2C%22author%22%3A%22emon%22%2C%22name%22%3A%22Sterna%20Mail%22%7D"><img alt="Obtainium" src="https://img.shields.io/badge/Obtainium-add-43A047"></a>

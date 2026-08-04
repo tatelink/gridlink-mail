@@ -1,0 +1,60 @@
+# sternamail.org — textos de la página, español. Reglas en en.txt.
+
+language_name = Español
+page_title = Sterna Mail, cliente de correo JMAP e IMAP privado para Android
+skip_link = Ir al contenido
+lang_label = Idioma
+nav_install = Instalar
+theme_label = Tema
+theme_auto = Seguir el sistema
+theme_light = Claro
+theme_dark = Oscuro
+
+tagline = Todo tu correo. Sin el lastre.
+hero_note = Software libre bajo la GPLv3. Sin anuncios, sin rastreo, sin servicios de Google.
+cta_primary = Consíguelo en F-Droid
+cta_secondary = Otras formas de instalar
+tern_note = Lleva el nombre del charrán ártico, que realiza la migración más larga del reino animal. Me gustaba la idea de un correo que viaja ligero y siempre encuentra el camino de vuelta.
+
+jmap_kicker = El protocolo
+jmap_title = Hecho para JMAP, con soltura en IMAP
+jmap_body = JMAP es el sucesor moderno de IMAP. En lugar de preguntar a cada carpeta qué ha cambiado, una sola petición trae todo lo nuevo, así el correo llega antes y la batería dura más. El IMAP y el SMTP clásicos funcionan igual de bien, de modo que ningún buzón existente queda fuera de alcance.
+jmap_old_label = IMAP: una ida y vuelta por carpeta, en cada consulta
+jmap_new_label = JMAP: una petición, todo lo que ha cambiado
+
+promises_kicker = Garantías
+promises_title = Lo que hace, y lo que nunca hará
+promise_1_title = Sin Google, sin FCM
+promise_1_body = El correo nuevo llega desde tu propio servidor a tu teléfono mediante JMAP EventSource, IMAP IDLE o UnifiedPush. Los servicios de Play nunca hacen falta.
+promise_2_title = Nadie te observa
+promise_2_body = Sin analítica, sin publicidad, sin informes de fallos, sin SDK de terceros. La aplicación habla con tu servidor de correo y con nada más.
+promise_3_title = Contenido remoto bloqueado
+promise_3_body = Las imágenes remotas y los píxeles de seguimiento no se cargan hasta que los pidas, y los parámetros de rastreo pueden eliminarse de los enlaces antes de abrirlos.
+promise_4_title = Compilaciones reproducibles
+promise_4_body = F-Droid vuelve a compilar cada versión desde el código publicado y la compara byte a byte con la aplicación que te entrega. Ese código puede leerlo y auditarlo cualquiera.
+
+features_kicker = En el día a día
+features_title = Un cliente de correo completo
+screens_kicker = Un vistazo
+screens_title = Claro y oscuro, en casa los dos
+shot_inbox_light = Bandeja unificada, tema claro Arctic
+shot_inbox_dark = La misma bandeja, tema oscuro Pelagic
+shot_message = Leyendo un mensaje, contenido remoto bloqueado
+shot_compose = Redactando, con identidades y adjuntos
+shot_settings = Ajustes de apariencia
+
+install_kicker = Instalación
+install_title = Ponlo en tu teléfono
+install_fdroid_title = F-Droid
+install_fdroid_body = La vía sencilla. Instálalo desde la aplicación F-Droid o desde su web, y las actualizaciones llegan solas.
+install_obtainium_title = Obtainium
+install_obtainium_body = Sigue directamente las publicaciones del proyecto y se actualiza en cuanto aparece una nueva.
+install_apk_title = APK directo
+install_apk_body = Descarga la última versión, abre el archivo en tu teléfono y permite la instalación desde tu navegador.
+install_fingerprint_label = Certificado de firma, SHA-256
+
+footer_source = Código fuente
+footer_issues = Informar de un fallo
+footer_licence = Licencia (GPLv3)
+footer_privacy = Privacidad
+footer_note = Esta página no carga ninguna tipografía, ningún script ni ninguna imagen de otro sitio, no deja ninguna cookie y no cuenta ninguna visita. Por eso tampoco lleva aviso de consentimiento.

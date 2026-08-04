@@ -1,0 +1,60 @@
+# sternamail.org — teksty strony, polski. Zasady w en.txt.
+
+language_name = Polski
+page_title = Sterna Mail, prywatny klient poczty JMAP i IMAP dla Androida
+skip_link = Przejdź do treści
+lang_label = Język
+nav_install = Zainstaluj
+theme_label = Motyw
+theme_auto = Zgodnie z systemem
+theme_light = Jasny
+theme_dark = Ciemny
+
+tagline = Cała twoja poczta. Bez zbędnego bagażu.
+hero_note = Wolne oprogramowanie na licencji GPLv3. Bez reklam, bez śledzenia, bez usług Google.
+cta_primary = Pobierz z F-Droid
+cta_secondary = Inne sposoby instalacji
+tern_note = Nazwa pochodzi od rybitwy popielatej, która odbywa najdłuższą wędrówkę w świecie zwierząt. Spodobała mi się myśl o poczcie, która podróżuje lekko i zawsze trafia do domu.
+
+jmap_kicker = Protokół
+jmap_title = Zbudowany dla JMAP, biegły w IMAP
+jmap_body = JMAP to nowoczesny następca IMAP. Zamiast pytać każdy folder z osobna, co się zmieniło, jedno zapytanie przynosi wszystkie nowości, dzięki czemu poczta dociera szybciej, a bateria starcza na dłużej. Klasyczny IMAP i SMTP działają tak samo dobrze, więc żadna istniejąca skrzynka nie pozostaje poza zasięgiem.
+jmap_old_label = IMAP: jedna wymiana na folder, przy każdym sprawdzeniu
+jmap_new_label = JMAP: jedno zapytanie, wszystko co się zmieniło
+
+promises_kicker = Gwarancje
+promises_title = Co robi i czego nigdy nie zrobi
+promise_1_title = Bez Google, bez FCM
+promise_1_body = Nowe wiadomości trafiają z twojego własnego serwera prosto na telefon przez JMAP EventSource, IMAP IDLE lub UnifiedPush. Usługi Play nigdy nie są potrzebne.
+promise_2_title = Nikt cię nie obserwuje
+promise_2_body = Bez analityki, bez reklam, bez raportów awarii, bez zewnętrznych SDK. Aplikacja rozmawia z twoim serwerem poczty i z niczym więcej.
+promise_3_title = Treści zdalne zablokowane
+promise_3_body = Zdalne obrazy i piksele śledzące pozostają niewczytane, dopóki o nie nie poprosisz, a parametry śledzące można usunąć z odnośników przed ich otwarciem.
+promise_4_title = Powtarzalne kompilacje
+promise_4_body = F-Droid buduje każde wydanie na nowo z opublikowanego kodu i porównuje je bajt po bajcie z aplikacją, którą ci daje. Ten kod każdy może przeczytać i sprawdzić.
+
+features_kicker = W codziennym użyciu
+features_title = Kompletny klient poczty
+screens_kicker = Rzut oka
+screens_title = Jasny i ciemny, oba u siebie
+shot_inbox_light = Wspólna skrzynka odbiorcza, jasny motyw Arctic
+shot_inbox_dark = Ta sama skrzynka, ciemny motyw Pelagic
+shot_message = Czytanie wiadomości, treści zdalne zablokowane
+shot_compose = Pisanie, z tożsamościami i załącznikami
+shot_settings = Ustawienia wyglądu
+
+install_kicker = Instalacja
+install_title = Zainstaluj na telefonie
+install_fdroid_title = F-Droid
+install_fdroid_body = Najprostsza droga. Zainstaluj z aplikacji F-Droid lub z jej strony, a aktualizacje przyjdą same.
+install_obtainium_title = Obtainium
+install_obtainium_body = Śledzi wydania projektu bezpośrednio i aktualizuje aplikację, gdy tylko pojawi się nowe.
+install_apk_title = APK bezpośrednio
+install_apk_body = Pobierz najnowsze wydanie, otwórz plik na telefonie i zezwól na instalację z przeglądarki.
+install_fingerprint_label = Certyfikat podpisu, SHA-256
+
+footer_source = Kod źródłowy
+footer_issues = Zgłoś błąd
+footer_licence = Licencja (GPLv3)
+footer_privacy = Prywatność
+footer_note = Ta strona nie wczytuje żadnego kroju pisma, skryptu ani obrazu z zewnątrz, nie zapisuje ciasteczek i nie liczy odwiedzin. Dlatego też nie ma na niej banera zgody.
