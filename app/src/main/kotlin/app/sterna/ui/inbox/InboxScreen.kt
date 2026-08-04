@@ -1688,7 +1688,17 @@ fun InboxScreen(
                                 else -> Unit
                             }
                         }
-                    ui.refreshing || refreshLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    // A refresh is already spoken for by the tern at the top (the PullToRefreshBox
+                    // indicator above, driven by the same ui.refreshing): a second, centred
+                    // indicator says the same thing twice, in another visual language, for one
+                    // event (Codeberg #63 — the reporter's screenshot caught both at once).
+                    // The centre stays EMPTY rather than falling through to the branches below:
+                    // the empty-folder scene would claim the folder holds nothing while the very
+                    // fetch that could fill it is still running.
+                    ui.refreshing -> Unit
+                    // No tern for a paging refresh (it isn't the pull gesture's state), so here
+                    // the centred indicator is the only thing saying anything, and it stays.
+                    refreshLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                     notice == RefreshNotice.OFFLINE -> PullableCenter {
                         EmptyState(
                             art = EmptyArt.OFFLINE,
