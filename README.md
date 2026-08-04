@@ -86,8 +86,8 @@ Sterna also speaks classic **IMAP and SMTP**, so it works with any standard mail
 provider — pick the protocol when you add an account, or just type your email and
 let autodiscovery find the server for you.
 
-Running your own server with a certificate you issued yourself? See
-[Self-hosted server with a self-signed certificate](docs/SELF-HOSTED-TLS.md).
+Running your own server, with a free certificate or one you issued yourself? See
+[Self-hosted server: getting its certificate accepted](docs/SELF-HOSTED-TLS.md).
 
 ## 💚 What Sterna stands for
 
