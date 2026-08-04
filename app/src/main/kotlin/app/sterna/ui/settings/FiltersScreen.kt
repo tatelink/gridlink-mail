@@ -153,6 +153,16 @@ private fun FiltersList(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
+        // Before the "another script is active" line, and independent of it: the rules can be
+        // stopped with no foreign script active at all, which is exactly the state this says.
+        if (state.rulesNotRunning) {
+            Text(
+                stringResource(R.string.settings_filters_not_running),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
         if (state.foreignActive) {
             Text(
                 stringResource(R.string.settings_filters_foreign_warning),
@@ -196,8 +206,13 @@ private fun FiltersList(
         }
         Button(
             onClick = viewModel::save,
-            // Nothing to push until a rule actually differs from what the server holds (#34).
-            enabled = !state.saving && state.dirty,
+            // Nothing to push until a rule differs from what the server holds (#34) — unless the
+            // server is not running the rules it holds, and Save is the way to put them back.
+            enabled = filtersSaveEnabled(
+                saving = state.saving,
+                dirty = state.dirty,
+                rulesNotRunning = state.rulesNotRunning,
+            ),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             if (state.saving) {

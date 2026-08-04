@@ -305,6 +305,7 @@
     <string name="settings_vacation_account">Konto: %1$s</string>
     <string name="settings_vacation_enabled_title">Włącz automatyczną odpowiedź</string>
     <string name="settings_vacation_enabled_subtitle">Twój serwer odpowiada automatycznie podczas Twojej nieobecności.</string>
+    <string name="settings_vacation_suspends_filters">Włączenie automatycznej odpowiedzi zawiesi Twoje reguły filtrowania.</string>
     <string name="settings_vacation_subject_label">Temat</string>
     <string name="settings_vacation_message_label">Wiadomość</string>
     <string name="settings_vacation_period_section">Okres (opcjonalnie)</string>
@@ -330,6 +331,7 @@
     <string name="settings_filters_saved">Filtry zapisane</string>
     <string name="settings_filters_untitled">Reguła bez nazwy</string>
     <string name="settings_filters_foreign_warning">Na serwerze jest aktywny inny skrypt filtrujący; zapisanie sprawi, że aktywny stanie się skrypt Sterna Mail.</string>
+    <string name="settings_filters_not_running">Twoje reguły filtrowania nie są obecnie stosowane.</string>
     <string name="settings_filters_edit_title">Edytuj regułę</string>
     <string name="settings_filter_name">Nazwa reguły</string>
     <string name="settings_filter_if">Jeżeli</string>

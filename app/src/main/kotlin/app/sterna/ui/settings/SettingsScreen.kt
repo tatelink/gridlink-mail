@@ -123,6 +123,7 @@ import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.account.SyncWindow
+import app.sterna.core.data.filter.FilterScriptWarning
 import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.data.settings.PreviewLines
@@ -2386,6 +2387,22 @@ private fun VacationForm(state: VacationUiState, viewModel: VacationViewModel) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        // In the head of the screen, where the filters screen puts its own warning, and not above
+        // Save: it is about the state the account is in, not about the write being prepared.
+        state.filterWarning?.let { warning ->
+            Text(
+                stringResource(
+                    when (warning) {
+                        FilterScriptWarning.RULES_NOT_RUNNING -> R.string.settings_filters_not_running
+                        FilterScriptWarning.RESPONDER_WILL_SUSPEND_RULES ->
+                            R.string.settings_vacation_suspends_filters
+                    },
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
         SettingsSection(stringResource(R.string.settings_vacation_section)) {

@@ -4,6 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sterna.container
+import app.sterna.core.data.account.AccountCredentials
+import app.sterna.core.data.filter.FilterScriptWarning
+import app.sterna.core.data.filter.filterScriptWarning
 import app.sterna.core.data.mail.VacationState
 import app.sterna.core.jmap.model.VacationResponse
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +44,12 @@ data class VacationUiState(
      * undone by hand.
      */
     val dirty: Boolean = false,
+    /**
+     * What the account's Sieve scripts say about the user's filter rules, or null for nothing to
+     * say. Read after the responder itself, and never part of [edits]: it describes the server,
+     * not the form, so it can neither be edited nor saved.
+     */
+    val filterWarning: FilterScriptWarning? = null,
 ) {
     /** The fields a Save actually writes — what "changed" is measured on. */
     internal fun edits(): List<Any?> = listOf(enabled, subject, message, fromDate, toDate)
@@ -81,6 +90,13 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
                         )
                     is VacationState.Loaded -> {
                         val r = result.response
+                        // BEFORE the form is published, not after. The warning this screen carries
+                        // is about the switch three rows below it: published late, it arrives after
+                        // a fast hand has already flipped that switch and pressed Save, and a
+                        // warning that can be outrun is not a warning. The screen therefore stays
+                        // on its spinner for one more round trip. That cost is why the read is
+                        // narrow (scripts only) and why its failure is silent rather than fatal.
+                        val warning = filterWarningFor(credentials, responderEnabled = r.isEnabled)
                         _state.value = VacationUiState(
                             loading = false,
                             supported = true,
@@ -90,6 +106,7 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
                             message = r.textBody.orEmpty(),
                             fromDate = r.fromDate?.let { parseMillis(it) },
                             toDate = r.toDate?.let { parseMillis(it) },
+                            filterWarning = warning,
                         )
                         serverEdits = _state.value.edits()
                     }
@@ -104,6 +121,33 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
                 }
             }
         }
+    }
+
+    /**
+     * Ask the server what its Sieve scripts say about the user's filter rules.
+     *
+     * Returns the verdict instead of writing it: at load it belongs in the state the screen is
+     * first drawn from (see above), and after a save it is applied on its own. A failure of the
+     * read comes back as "nothing known" (the repo swallows it), so the screen falls back to the
+     * silence it had before rather than being replaced by an error page over a responder that
+     * loaded perfectly well.
+     *
+     * @param responderEnabled what the SERVER holds, not what the switch shows: the prediction is
+     *   about a state the user has not reached yet, so an unsaved flick of the switch must not
+     *   retire it.
+     */
+    private suspend fun filterWarningFor(
+        credentials: AccountCredentials,
+        responderEnabled: Boolean,
+    ): FilterScriptWarning? {
+        val scripts = repo.loadFilterScriptStatus(credentials)
+        return filterScriptWarning(
+            scriptExists = scripts.scriptExists,
+            scriptActive = scripts.scriptActive,
+            enabledRuleCount = scripts.enabledRuleCount,
+            vacationScriptExists = scripts.vacationScriptExists,
+            responderEnabled = responderEnabled,
+        )
     }
 
     fun setEnabled(value: Boolean) = edit { it.copy(enabled = value) }
@@ -128,6 +172,7 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
         }
         _state.update { it.copy(saving = true, errorKind = null) }
         viewModelScope.launch {
+            var written = false
             try {
                 val vacation = VacationResponse(
                     isEnabled = s.enabled,
@@ -140,6 +185,7 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
                 repo.saveVacation(credentials, vacation)
                 serverEdits = s.edits()
                 _state.update { it.copy(saving = false, savedTick = it.savedTick + 1, dirty = false) }
+                written = true
             } catch (t: Throwable) {
                 _state.update {
                     it.copy(
@@ -148,6 +194,17 @@ class VacationViewModel(application: Application) : AndroidViewModel(application
                         errorDetail = t.message ?: t.javaClass.simpleName,
                     )
                 }
+            }
+            // OUTSIDE the try, and after the state that lets a "save then leave" go. Two reasons,
+            // both learned the hard way: the exit gesture must not wait on a read the write does
+            // not need, and this read is the one that gets CANCELLED by that very exit — inside
+            // the catch above, a cancellation would be painted as a failed save over a write the
+            // server has already taken. What it buys, for the user who stays: having just switched
+            // the responder on, the line becomes the statement of fact instead of predicting what
+            // has already happened.
+            if (written) {
+                val warning = filterWarningFor(credentials, responderEnabled = s.enabled)
+                _state.update { it.copy(filterWarning = warning) }
             }
         }
     }
