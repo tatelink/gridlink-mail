@@ -1,0 +1,836 @@
+/*  sternamail.org — one hand-written stylesheet, no build step, no framework.
+ *
+ *  Colours are the app's own two schemes, taken from ui/theme/Color.kt:
+ *  Arctic (light) and Pelagic (dark). The page follows prefers-color-scheme
+ *  exactly as the app follows the phone, so a visitor in dark mode is already
+ *  looking at the app they will install.
+ *
+ *  Type is a system stack. No web font is loaded from anywhere: a page whose
+ *  argument is "nothing watches you" cannot ship a Google font.
+ *
+ *  Rules borrowed from DESIGN.md: hierarchy comes from space and type, not
+ *  colour; one accent; coral is the tern's beak and stays marginal; motion is
+ *  under 250 ms, eased out, never bouncing.
+ */
+
+/* ------------------------------------------------------------------ tokens */
+
+/* Both palettes on one line each, `light-dark(arctic, pelagic)`. Which one is
+   used follows the `color-scheme` of the root element, so the whole theme
+   switch below is three lines and no colour is ever written twice. */
+:root {
+  color-scheme: light dark;
+
+  --bg: light-dark(#f7f8fa, #0e1a1f);
+  --bg-deep: light-dark(#eceff2, #091317);
+  --surface: light-dark(#ffffff, #16222b);
+  --ink: light-dark(#2b313a, #dee3e7);
+  --ink-2: light-dark(#51606e, #bcc6ce);
+  --line: light-dark(#c2c8cf, #3c4750);
+  --line-soft: light-dark(#dfe3e8, #26323b);
+  --accent: light-dark(#2f5e59, #6fb1ab);
+  --accent-ink: light-dark(#ffffff, #06302c);
+  --accent-2: light-dark(#2e6e7e, #6fc9dc);
+  --accent-wash: light-dark(#c6e6e1, #1e4b47);
+  --coral: light-dark(#d33e28, #ff6a4d);
+  --halo-1: light-dark(rgba(47, 94, 89, 0.10), rgba(111, 177, 171, 0.10));
+  --halo-2: light-dark(rgba(46, 110, 126, 0.09), rgba(111, 201, 220, 0.07));
+  --hairline: light-dark(rgba(43, 49, 58, 0.045), rgba(222, 227, 231, 0.045));
+  --shadow-sm:
+    0 1px 2px light-dark(rgba(20, 32, 38, 0.06), rgba(0, 0, 0, 0.4)),
+    0 4px 14px light-dark(rgba(20, 32, 38, 0.05), transparent);
+  --shadow-lg:
+    0 18px 50px light-dark(rgba(20, 32, 38, 0.14), rgba(0, 0, 0, 0.55)),
+    0 3px 10px light-dark(rgba(20, 32, 38, 0.07), transparent);
+  /* A gradient is not a colour, so the two stops are the switchable part. */
+  --bezel-edge: light-dark(#cfd6db, #2f3a42);
+  --bezel-core: light-dark(#8e9aa3, #131c22);
+  --bezel: linear-gradient(160deg, var(--bezel-edge), var(--bezel-core) 45%, var(--bezel-edge));
+
+  /* Which hero screenshot shows. `display` cannot go through light-dark(). */
+  --shot-light: block;
+  --shot-dark: none;
+
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", sans-serif;
+  --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, "Georgia", serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --wrap: 68rem;
+  --radius: 16px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { --shot-light: none; --shot-dark: block; }
+}
+
+/* The theme switch, with no JavaScript and nothing stored: three radio buttons
+   in the top bar, read through `:has()`. Forcing `color-scheme` is enough to
+   repaint every token above, so a theme has one line here, not a palette. The
+   choice is deliberately not remembered — remembering it would mean writing to
+   the visitor's device on a page whose whole argument is that it does not. */
+:root:has(#theme-light:checked) {
+  color-scheme: light;
+  --shot-light: block;
+  --shot-dark: none;
+}
+:root:has(#theme-dark:checked) {
+  color-scheme: dark;
+  --shot-light: none;
+  --shot-dark: block;
+}
+
+/* Browsers older than light-dark() (roughly pre-2024) get the light palette and
+   no switch, rather than a page with no colours at all. */
+@supports not (color: light-dark(#000, #fff)) {
+  :root {
+    --bg: #f7f8fa;
+    --bg-deep: #eceff2;
+    --surface: #ffffff;
+    --ink: #2b313a;
+    --ink-2: #51606e;
+    --line: #c2c8cf;
+    --line-soft: #dfe3e8;
+    --accent: #2f5e59;
+    --accent-ink: #ffffff;
+    --accent-2: #2e6e7e;
+    --accent-wash: #c6e6e1;
+    --coral: #d33e28;
+    --halo-1: rgba(47, 94, 89, 0.10);
+    --halo-2: rgba(46, 110, 126, 0.09);
+    --hairline: rgba(43, 49, 58, 0.045);
+    --shadow-sm: 0 1px 2px rgba(20, 32, 38, 0.06), 0 4px 14px rgba(20, 32, 38, 0.05);
+    --shadow-lg: 0 18px 50px rgba(20, 32, 38, 0.14), 0 3px 10px rgba(20, 32, 38, 0.07);
+    --bezel-edge: #cfd6db;
+    --bezel-core: #8e9aa3;
+  }
+  .themepick { display: none; }
+}
+
+/* ------------------------------------------------------------------- base */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/* `clip`, not `hidden`: the hero's background and the flight arc deliberately
+   run past the text column, and `hidden` would turn the page into a scroll
+   container and break the sticky top bar. */
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  overflow-x: clip;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: clamp(1rem, 0.96rem + 0.2vw, 1.075rem);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3 {
+  font-family: var(--serif);
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+  margin: 0;
+}
+
+p { margin: 0; }
+
+a { color: inherit; }
+
+img, svg, picture { max-width: 100%; }
+
+code { font-family: var(--mono); }
+
+:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 20;
+  padding: 0.7rem 1.1rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: 0 0 12px 0;
+  text-decoration: none;
+}
+.skip:focus { left: 0; }
+
+.wrap {
+  width: min(100% - 2.5rem, var(--wrap));
+  margin-inline: auto;
+}
+.wrap-narrow { width: min(100% - 2.5rem, 48rem); }
+
+/* ----------------------------------------------------------------- topbar */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem clamp(1rem, 4vw, 2.5rem);
+  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-decoration: none;
+}
+.brand-mark { border-radius: 10px; }
+.brand-name {
+  font-family: var(--serif);
+  font-size: 1.2rem;
+  letter-spacing: -0.01em;
+}
+.brand-name em {
+  font-style: normal;
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Language picker: a <details>, because the page carries no JavaScript. */
+.langpick { position: relative; }
+.langpick summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-size: 0.92rem;
+  cursor: pointer;
+  list-style: none;
+  transition: background 160ms var(--ease), color 160ms var(--ease);
+}
+.langpick summary::-webkit-details-marker { display: none; }
+.langpick summary:hover { background: var(--bg-deep); color: var(--ink); }
+.langpick summary svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+}
+.langlist {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  margin: 0;
+  padding: 0.4rem;
+  list-style: none;
+  min-width: 11rem;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+}
+.langlist a {
+  display: block;
+  padding: 0.4rem 0.7rem;
+  border-radius: 9px;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+.langlist a:hover { background: var(--bg-deep); }
+.langlist a[aria-current] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Theme switch: three radios, hidden from sight but not from the keyboard. */
+.themepick {
+  position: relative;
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: var(--bg-deep);
+}
+.themepick input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.themepick label {
+  display: inline-flex;
+  padding: 0.32rem 0.55rem;
+  border-radius: 999px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background 160ms var(--ease), color 160ms var(--ease);
+}
+.themepick label:hover { color: var(--ink); }
+.themepick svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.themepick input:checked + label {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+.themepick input:focus-visible + label {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+/* The label text is for screen readers; the icon carries it visually. */
+.themepick label span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* --------------------------------------------------------------- buttons */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1.5rem;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 550;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: transform 160ms var(--ease), background 160ms var(--ease),
+              border-color 160ms var(--ease), box-shadow 160ms var(--ease);
+}
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: var(--shadow-sm);
+}
+.btn-primary:hover { transform: translateY(-1px); }
+.btn-primary:active { transform: translateY(0); }
+.btn-quiet {
+  border-color: var(--line);
+  color: var(--ink);
+}
+.btn-quiet:hover { background: var(--bg-deep); border-color: var(--ink-2); }
+.btn-small {
+  padding: 0.45rem 1rem;
+  font-size: 0.92rem;
+  border-color: var(--line);
+}
+.btn-small:hover { background: var(--bg-deep); }
+
+.link-arrow {
+  text-decoration: none;
+  color: var(--accent);
+  font-weight: 550;
+  border-bottom: 1px solid var(--line);
+  border-bottom-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.link-arrow::after { content: " \2192"; }
+.link-arrow:hover { border-bottom-color: currentColor; }
+
+/* ------------------------------------------------------------------ hero */
+
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  align-items: center;
+  gap: clamp(2rem, 5vw, 4rem);
+  width: min(100% - 2.5rem, var(--wrap));
+  margin-inline: auto;
+  padding: clamp(3rem, 7vw, 6rem) 0 clamp(2.5rem, 5vw, 4rem);
+}
+
+/* Sea chart: faint latitudes, two soft currents. Pure CSS, no image. */
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: -6rem -50vw 0;
+  z-index: -1;
+  background:
+    radial-gradient(60rem 32rem at 78% 6%, var(--halo-1), transparent 62%),
+    radial-gradient(46rem 30rem at 8% 42%, var(--halo-2), transparent 65%),
+    repeating-linear-gradient(to bottom, var(--hairline) 0 1px, transparent 1px 5.5rem);
+  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent);
+  mask-image: linear-gradient(to bottom, #000 62%, transparent);
+}
+
+.hero h1 {
+  font-size: clamp(2.9rem, 1.6rem + 4.6vw, 4.6rem);
+  letter-spacing: -0.03em;
+}
+.tagline {
+  font-family: var(--serif);
+  font-size: clamp(1.25rem, 1.05rem + 0.8vw, 1.7rem);
+  line-height: 1.25;
+  color: var(--accent);
+  margin-top: 0.6rem;
+  text-wrap: balance;
+}
+.lede {
+  margin-top: 1.1rem;
+  max-width: 34ch;
+  color: var(--ink-2);
+  font-size: 1.05em;
+}
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.9rem;
+}
+.hero-note {
+  margin-top: 1.1rem;
+  font-size: 0.9rem;
+  color: var(--ink-2);
+}
+
+/* One width for the phone and for the flock laid over it, so the birds keep
+   their position relative to the screenshot at every size and the two can never
+   drift apart. */
+.hero-art {
+  position: relative;
+  display: grid;
+  place-items: center;
+  --phone-w: min(100%, 17.5rem);
+}
+
+/* The flock sits on the phone's box and deliberately overflows it: the birds
+   live around the device, not inside that frame. */
+.flock {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--phone-w);
+  aspect-ratio: 9 / 16;
+  transform: translate(-50%, -50%);
+  overflow: visible;
+  pointer-events: none;
+}
+.flock-all { transform-box: view-box; transform-origin: 90px 160px; }
+.tern { fill: var(--accent); }
+/* The single warm note, kept small and far away: the last bird. */
+.tern-warm { fill: var(--coral); }
+
+/* Life without a trajectory: each bird drifts a couple of units on its own slow
+   cycle, so the group never sits still and never marches in step. */
+.drift-1 { animation: drift-1 19s ease-in-out -3s infinite alternate; }
+.drift-2 { animation: drift-2 23s ease-in-out -11s infinite alternate; }
+.drift-3 { animation: drift-3 27s ease-in-out -7s infinite alternate; }
+.drift-4 { animation: drift-4 31s ease-in-out -17s infinite alternate; }
+
+@keyframes drift-1 { from { transform: translate(0, 0); } to { transform: translate(1.6px, -2.2px); } }
+@keyframes drift-2 { from { transform: translate(0, 0); } to { transform: translate(-1.2px, 1.8px); } }
+@keyframes drift-3 { from { transform: translate(0, 0); } to { transform: translate(2.2px, -1.4px); } }
+@keyframes drift-4 { from { transform: translate(0, 0); } to { transform: translate(-1.4px, -2px); } }
+
+/* The sheet's global reduced-motion rule only shortens durations; a drift with
+   no name is what actually stops the flock. */
+@media (prefers-reduced-motion: reduce) {
+  .drift-1, .drift-2, .drift-3, .drift-4 { animation: none; }
+}
+@media (max-width: 420px) {
+  .flock-all { transform: scale(0.86); }
+}
+
+.phone {
+  padding: 5px;
+  background: var(--bezel);
+  border-radius: 30px;
+  box-shadow: var(--shadow-lg);
+}
+.phone img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 25px;
+  background: var(--bg-deep);
+}
+.phone-hero { width: var(--phone-w); }
+/* The hero screenshot follows the theme in use, switch included, not just the
+   system setting a <picture> element would have seen. Both selectors have to
+   outweigh `.phone img { display: block }` above, or the two shots stack. */
+.phone img.shot-light { display: var(--shot-light); }
+.phone img.shot-dark { display: var(--shot-dark); }
+
+@media (max-width: 900px) {
+  .hero { grid-template-columns: 1fr; padding-bottom: 1rem; }
+  .hero-art { order: -1; --phone-w: min(100%, 14rem); }
+  .lede { max-width: 46ch; }
+}
+
+/* The story the app is named after: one line, set apart, never a paragraph. */
+.tern-note {
+  width: min(100% - 2.5rem, 46rem);
+  margin: clamp(2rem, 4vw, 3rem) auto 0;
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  color: var(--ink-2);
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.02rem;
+  line-height: 1.5;
+  text-align: center;
+}
+.tern-note::before, .tern-note::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--line), transparent);
+}
+.tern-note span { flex: 0 1 auto; text-wrap: balance; }
+
+/* ------------------------------------------------------- flight path rule */
+
+.flightpath {
+  width: min(100%, 90rem);
+  margin: clamp(2.5rem, 6vw, 4.5rem) auto;
+  line-height: 0;
+}
+.flightpath svg { width: 100%; height: 48px; }
+.flightpath path {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1;
+  stroke-dasharray: 3 8;
+  stroke-linecap: round;
+}
+.flightpath-flip svg { transform: scaleX(-1); }
+
+/* ----------------------------------------------------------------- bands */
+
+.band { padding: clamp(2.5rem, 5vw, 4rem) 0; }
+.band-tint {
+  background: var(--bg-deep);
+  border-block: 1px solid var(--line-soft);
+}
+.band-deep {
+  background: var(--bg-deep);
+  border-block: 1px solid var(--line-soft);
+  padding-bottom: clamp(2rem, 4vw, 3rem);
+}
+
+.kicker {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+  margin-bottom: 0.7rem;
+}
+.band h2 {
+  font-size: clamp(1.7rem, 1.3rem + 1.6vw, 2.5rem);
+  max-width: 22ch;
+}
+.body {
+  margin-top: 1.2rem;
+  color: var(--ink-2);
+  max-width: 60ch;
+}
+.body-wide { max-width: 72ch; }
+
+/* -------------------------------------------------- round-trips, drawn */
+
+.sync {
+  margin: 2.5rem 0 0;
+  display: grid;
+  gap: 1.4rem;
+}
+.sync-row {
+  display: grid;
+  grid-template-columns: 4.6rem 1fr;
+  align-items: center;
+  gap: 0.4rem 1rem;
+}
+.sync-tag {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  padding: 0.2rem 0;
+}
+.sync-track {
+  display: flex;
+  gap: 4px;
+  height: 14px;
+}
+.sync-track i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+.sync-track-many i {
+  flex: 0 0 auto;
+  width: 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+}
+.sync-track-one i {
+  flex: 1;
+  background: linear-gradient(to right, var(--accent), var(--accent-2));
+}
+.sync-note {
+  grid-column: 2;
+  font-size: 0.9rem;
+  color: var(--ink-2);
+}
+.sync-row-new .sync-tag { color: var(--accent); font-weight: 600; }
+.sync-row-new .sync-note { color: var(--ink); }
+
+/* -------------------------------------------------------------- promises */
+
+.promises {
+  margin-top: 2.2rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1px;
+  background: var(--line-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.promise {
+  background: var(--bg-deep);
+  padding: 1.6rem 1.5rem;
+}
+.promise-icon {
+  display: inline-flex;
+  padding: 0.55rem;
+  border-radius: 12px;
+  background: var(--accent-wash);
+  color: var(--accent);
+  margin-bottom: 0.9rem;
+}
+.promise-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.promise h3 { font-size: 1.15rem; }
+.promise p {
+  margin-top: 0.5rem;
+  color: var(--ink-2);
+  font-size: 0.96rem;
+}
+
+/* -------------------------------------------------------------- features */
+
+.features {
+  margin-top: 2.4rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(21rem, 1fr));
+  gap: clamp(1.5rem, 3vw, 2.5rem);
+}
+.feature h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.2rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+.feature-icon { display: inline-flex; color: var(--accent); }
+.feature-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.feature ul {
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.75rem;
+}
+.feature li {
+  position: relative;
+  padding-left: 1.4rem;
+  color: var(--ink-2);
+  font-size: 0.97rem;
+  line-height: 1.55;
+}
+.feature li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+/* --------------------------------------------------------------- gallery */
+
+/* `width: fit-content` + auto margins centre the row when the five screenshots
+   fit, and `max-width: 100%` hands it back to horizontal scrolling when they do
+   not. Centring with `justify-content` instead would cut off the first shot on a
+   narrow screen, out of reach of the scroll. */
+.gallery {
+  margin-top: 2rem;
+  margin-inline: auto;
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  gap: clamp(1rem, 2.5vw, 1.75rem);
+  padding: 0.5rem clamp(1.25rem, 4vw, 3rem) 1.5rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+}
+.shot {
+  flex: 0 0 auto;
+  width: clamp(11rem, 40vw, 14.5rem);
+  margin: 0;
+  scroll-snap-align: center;
+}
+.shot figcaption {
+  margin-top: 0.9rem;
+  font-size: 0.88rem;
+  color: var(--ink-2);
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* --------------------------------------------------------------- install */
+
+.install {
+  margin-top: 2.2rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+.card {
+  padding: 1.7rem 1.6rem;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.card-lead {
+  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line-soft));
+  box-shadow: var(--shadow-lg);
+}
+.card h3 { font-size: 1.25rem; }
+.card p { margin-top: 0.6rem; color: var(--ink-2); font-size: 0.97rem; }
+.card p:has(.btn), .card p:has(.link-arrow) { margin-top: 1.2rem; color: var(--ink); }
+
+.fingerprint {
+  margin-top: 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.9rem;
+  padding: 1rem 1.2rem;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  font-size: 0.86rem;
+  color: var(--ink-2);
+}
+.fingerprint code {
+  font-size: 0.85em;
+  line-height: 1.5;
+  word-break: break-all;
+  color: var(--ink);
+}
+
+/* ---------------------------------------------------------------- footer */
+
+.footer {
+  margin-top: clamp(3rem, 6vw, 5rem);
+  padding: clamp(2rem, 4vw, 3rem) 0 3rem;
+  border-top: 1px solid var(--line-soft);
+  background: var(--bg-deep);
+}
+.footer-grid {
+  display: grid;
+  gap: 1.4rem;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+.footer-brand { display: inline-flex; align-items: center; gap: 0.6rem; }
+.footer-brand img { border-radius: 8px; }
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.6rem;
+  justify-content: flex-end;
+  font-size: 0.95rem;
+}
+.footer-links a {
+  text-decoration: none;
+  color: var(--ink-2);
+  border-bottom: 1px solid transparent;
+  transition: color 160ms var(--ease), border-color 160ms var(--ease);
+}
+.footer-links a:hover { color: var(--ink); border-bottom-color: var(--line); }
+.footer-note {
+  grid-column: 1 / -1;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line-soft);
+  font-size: 0.85rem;
+  color: var(--ink-2);
+  max-width: 62ch;
+}
+
+@media (max-width: 640px) {
+  .footer-grid { grid-template-columns: 1fr; }
+  .footer-links { justify-content: flex-start; }
+}
+
+/* ------------------------------------------------------------ deference */
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}

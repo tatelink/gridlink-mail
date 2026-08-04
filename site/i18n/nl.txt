@@ -1,0 +1,60 @@
+# sternamail.org — paginateksten, Nederlands. Regels staan in en.txt.
+
+language_name = Nederlands
+page_title = Sterna Mail, een privacyvriendelijke JMAP- en IMAP-mailclient voor Android
+skip_link = Naar de inhoud
+lang_label = Taal
+nav_install = Installeren
+theme_label = Thema
+theme_auto = Systeem volgen
+theme_light = Licht
+theme_dark = Donker
+
+tagline = Al je post. Zonder de ballast.
+hero_note = Vrije software onder de GPLv3. Geen advertenties, geen tracking, geen Google-diensten.
+cta_primary = Haal het op F-Droid
+cta_secondary = Andere manieren om te installeren
+tern_note = Vernoemd naar de noordse stern, die de langste trek van alle dieren vliegt. Het idee van post die licht reist en altijd de weg naar huis vindt, sprak me aan.
+
+jmap_kicker = Het protocol
+jmap_title = Gebouwd voor JMAP, thuis in IMAP
+jmap_body = JMAP is de moderne opvolger van IMAP. In plaats van elke map apart te vragen wat er veranderd is, haalt één verzoek alles nieuwe op. Post komt dus eerder binnen en de accu gaat langer mee. Klassiek IMAP en SMTP werken net zo goed, zodat geen bestaande mailbox buiten bereik blijft.
+jmap_old_label = IMAP: één heen en weer per map, bij elke controle
+jmap_new_label = JMAP: één verzoek, alles wat veranderd is
+
+promises_kicker = Garanties
+promises_title = Wat de app doet, en wat ze nooit zal doen
+promise_1_title = Geen Google, geen FCM
+promise_1_body = Nieuwe post komt rechtstreeks van je eigen server naar je telefoon, via JMAP EventSource, IMAP IDLE of UnifiedPush. Play-services zijn nooit nodig.
+promise_2_title = Niemand kijkt mee
+promise_2_body = Geen analytics, geen advertenties, geen crashrapporten, geen SDK van derden. De app praat met jouw mailserver en verder met niets.
+promise_3_title = Externe inhoud geblokkeerd
+promise_3_body = Externe afbeeldingen en trackingpixels blijven ongeladen tot je erom vraagt, en trackingparameters kunnen uit links worden gehaald voordat die opengaan.
+promise_4_title = Reproduceerbare builds
+promise_4_body = F-Droid bouwt elke versie opnieuw uit de gepubliceerde broncode en vergelijkt die byte voor byte met de app die je krijgt. Iedereen kan die broncode lezen en controleren.
+
+features_kicker = In dagelijks gebruik
+features_title = Een volwaardige mailclient
+screens_kicker = Een blik
+screens_title = Licht en donker, allebei thuis
+shot_inbox_light = Gedeelde postvak IN, licht Arctic-thema
+shot_inbox_dark = Hetzelfde postvak, donker Pelagic-thema
+shot_message = Een bericht lezen, externe inhoud geblokkeerd
+shot_compose = Schrijven, met identiteiten en bijlagen
+shot_settings = Instellingen voor het uiterlijk
+
+install_kicker = Installatie
+install_title = Zet het op je telefoon
+install_fdroid_title = F-Droid
+install_fdroid_body = De makkelijke weg. Installeer vanuit de F-Droid-app of via hun website, updates komen vanzelf.
+install_obtainium_title = Obtainium
+install_obtainium_body = Volgt de uitgaven van het project rechtstreeks en werkt bij zodra er een nieuwe verschijnt.
+install_apk_title = APK rechtstreeks
+install_apk_body = Download de nieuwste versie, open het bestand op je telefoon en sta installatie vanuit je browser toe.
+install_fingerprint_label = Ondertekeningscertificaat, SHA-256
+
+footer_source = Broncode
+footer_issues = Een fout melden
+footer_licence = Licentie (GPLv3)
+footer_privacy = Privacy
+footer_note = Deze pagina laadt geen lettertype, geen script en geen afbeelding van elders, plaatst geen cookie en telt geen bezoek. Ook daarom staat er geen toestemmingsbanner op.

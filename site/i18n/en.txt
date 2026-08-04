@@ -1,0 +1,69 @@
+# sternamail.org — page chrome, English (reference file).
+#
+# One `key = value` per line. Values are plain text: they are escaped before
+# they reach the page, so no HTML and no markup here. Every other language
+# file must carry exactly these keys, no more and no less: build.py refuses to
+# build otherwise.
+#
+# Everything that is NOT here comes from fastlane/metadata/android/<locale>/,
+# already written and already translated. Do not copy app features into this
+# file, or the page will drift from the app.
+
+language_name = English
+page_title = Sterna Mail, a private JMAP and IMAP email client for Android
+skip_link = Skip to content
+lang_label = Language
+nav_install = Install
+theme_label = Theme
+theme_auto = Follow the system
+theme_light = Light
+theme_dark = Dark
+
+tagline = All your mail. None of the baggage.
+hero_note = Free software under the GPLv3. No ads, no tracking, no Google services.
+cta_primary = Get it on F-Droid
+cta_secondary = Other ways to install
+tern_note = Named after the Arctic tern, which flies the longest migration of any animal. I liked the idea of mail that travels light and always finds its way home.
+
+jmap_kicker = The protocol
+jmap_title = Built for JMAP, fluent in IMAP
+jmap_body = JMAP is the modern successor to IMAP. Instead of asking every folder what has changed, a single request brings back everything new, so mail arrives sooner and the battery lasts longer. Classic IMAP and SMTP work just as well, so no existing mailbox is ever out of reach.
+jmap_old_label = IMAP: one round trip per folder, on every check
+jmap_new_label = JMAP: one request, everything that changed
+
+promises_kicker = Guarantees
+promises_title = What it does, and what it will never do
+promise_1_title = No Google, no FCM
+promise_1_body = New mail is pushed from your own server to your phone over JMAP EventSource, IMAP IDLE or UnifiedPush. Play Services are never required.
+promise_2_title = Nothing watches you
+promise_2_body = No analytics, no advertising, no crash reporting, no third-party SDK. The app talks to your mail server, and to nothing else.
+promise_3_title = Remote content blocked
+promise_3_body = Remote images and tracking pixels stay unloaded until you ask for them, and tracking parameters can be stripped from links before they open.
+promise_4_title = Reproducible builds
+promise_4_body = F-Droid rebuilds each release from the published source and checks it byte for byte against the app it hands you. Anyone can read and audit that source.
+
+features_kicker = In daily use
+features_title = A complete mail client
+screens_kicker = A look
+screens_title = Light and dark, both at home
+shot_inbox_light = Unified inbox, light Arctic theme
+shot_inbox_dark = The same inbox, dark Pelagic theme
+shot_message = Reading a message, remote content blocked
+shot_compose = Writing, with identities and attachments
+shot_settings = Appearance settings
+
+install_kicker = Install
+install_title = Put it on your phone
+install_fdroid_title = F-Droid
+install_fdroid_body = The easy way. Install it from the F-Droid app or its website, and updates arrive on their own.
+install_obtainium_title = Obtainium
+install_obtainium_body = Follows the project releases directly, and updates as soon as a new one lands.
+install_apk_title = Direct APK
+install_apk_body = Download the latest release, open the file on your phone, and allow installation from your browser.
+install_fingerprint_label = Signing certificate, SHA-256
+
+footer_source = Source code
+footer_issues = Report a bug
+footer_licence = Licence (GPLv3)
+footer_privacy = Privacy
+footer_note = This page loads no font, no script and no image from anywhere else, sets no cookie and counts no visit. That is also why it carries no consent banner.

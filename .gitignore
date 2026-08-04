@@ -27,3 +27,6 @@ Thumbs.db
 ci/data/
 .env
 .kotlin/
+
+# Generated brochure (site/build.py)
+site/_out/
