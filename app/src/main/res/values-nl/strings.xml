@@ -154,6 +154,7 @@
     <string name="message_unsubscribe_confirm_title">Uitschrijven?</string>
     <string name="message_unsubscribe_confirm_post">Sterna stuurt een uitschrijfverzoek naar %1$s. Geen browser, geen pagina, niets geladen.</string>
     <string name="message_unsubscribe_confirm_mail">Sterna stuurt een uitschrijf-e-mail naar %1$s.</string>
+    <string name="message_unsubscribe_confirm_mail_preview">Het onderwerp en de tekst komen van de afzender en worden ongewijzigd verzonden.\n\nOnderwerp: %1$s\nBericht: %2$s</string>
     <string name="message_unsubscribe_confirm_open">Deze afzender biedt geen automatische uitschrijving. %1$s in een browser openen kan je IP-adres tonen.</string>
     <string name="message_unsubscribe_sending">Bezig met uitschrijven…</string>
     <string name="message_unsubscribe_sent">Uitschrijfverzoek verzonden</string>

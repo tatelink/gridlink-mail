@@ -154,6 +154,7 @@
     <string name="message_unsubscribe_confirm_title">Se désabonner ?</string>
     <string name="message_unsubscribe_confirm_post">Sterna enverra une demande de désabonnement à %1$s. Aucun navigateur, aucune page, rien de chargé.</string>
     <string name="message_unsubscribe_confirm_mail">Sterna enverra un e-mail de désabonnement à %1$s.</string>
+    <string name="message_unsubscribe_confirm_mail_preview">L\'objet et le texte viennent de l\'expéditeur et sont envoyés tels quels.\n\nObjet : %1$s\nMessage : %2$s</string>
     <string name="message_unsubscribe_confirm_open">Cet expéditeur ne propose pas de désabonnement automatique. Ouvrir %1$s dans un navigateur peut lui révéler votre adresse IP.</string>
     <string name="message_unsubscribe_sending">Désabonnement…</string>
     <string name="message_unsubscribe_sent">Demande de désabonnement envoyée</string>

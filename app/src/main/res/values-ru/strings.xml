@@ -154,6 +154,7 @@
     <string name="message_unsubscribe_confirm_title">Отписаться?</string>
     <string name="message_unsubscribe_confirm_post">Sterna отправит запрос на отписку на %1$s. Без браузера, без страницы, ничего не загружается.</string>
     <string name="message_unsubscribe_confirm_mail">Sterna отправит письмо с отпиской на %1$s.</string>
+    <string name="message_unsubscribe_confirm_mail_preview">Тема и текст взяты от отправителя и отправляются без изменений.\n\nТема: %1$s\nСообщение: %2$s</string>
     <string name="message_unsubscribe_confirm_open">Этот отправитель не предлагает автоматической отписки. Открытие %1$s в браузере может показать ему ваш IP-адрес.</string>
     <string name="message_unsubscribe_sending">Отписка…</string>
     <string name="message_unsubscribe_sent">Запрос на отписку отправлен</string>

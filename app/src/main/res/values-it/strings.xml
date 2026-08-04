@@ -154,6 +154,7 @@
     <string name="message_unsubscribe_confirm_title">Annullare l\'iscrizione?</string>
     <string name="message_unsubscribe_confirm_post">Sterna invierà una richiesta di cancellazione a %1$s. Nessun browser, nessuna pagina, nulla di caricato.</string>
     <string name="message_unsubscribe_confirm_mail">Sterna invierà un\'e-mail di cancellazione a %1$s.</string>
+    <string name="message_unsubscribe_confirm_mail_preview">L\'oggetto e il testo provengono dal mittente e vengono inviati così come sono.\n\nOggetto: %1$s\nMessaggio: %2$s</string>
     <string name="message_unsubscribe_confirm_open">Questo mittente non offre una cancellazione automatica. Aprire %1$s in un browser può mostrargli il tuo indirizzo IP.</string>
     <string name="message_unsubscribe_sending">Annullamento in corso…</string>
     <string name="message_unsubscribe_sent">Richiesta di cancellazione inviata</string>

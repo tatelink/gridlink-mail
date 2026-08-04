@@ -29,11 +29,42 @@ internal data class UnsubscribeMail(
 internal const val UNSUBSCRIBE_SUBJECT = "Unsubscribe"
 
 /**
+ * The text an unsubscribe mail will carry: the [subject] on the line and the [body] in the mail,
+ * exactly as they will leave the device.
+ *
+ * It exists so the confirmation dialog can show them. Not a second wording of the same idea — the
+ * very strings [unsubscribeMail] puts in the outbox row, because a dialog that names one text
+ * while another leaves is worse than a dialog that names nothing.
+ */
+data class UnsubscribeMailPreview(
+    val subject: String,
+    val body: String,
+)
+
+/**
+ * The subject and body a `mailto:` unsubscribe sends — ONE executed decision, read both by
+ * [unsubscribeMail] (which sends them) and by the reader's confirmation (which shows them).
+ *
+ * Both come from the sender of the received message, verbatim: `List-Unsubscribe:
+ * <mailto:hr@example.org?subject=I%20resign&body=Effective%20today.>` is a legal header, it is
+ * preferred over a page link by [UnsubscribeOptions.preferredAction], and the mail then goes out
+ * under the account's own identity with a copy in Sent. Keeping them is deliberate (some lists
+ * key the unsubscribe off the subject line, so dropping it sends a mail that does nothing); what
+ * was missing is that the reader was never shown what they were agreeing to send.
+ *
+ * The fallbacks are part of the promise too: with nothing in the URI this returns
+ * [UNSUBSCRIBE_SUBJECT] and an empty body, which is what will be sent, so that is what is shown.
+ */
+fun unsubscribePreview(mailto: MailtoUnsubscribe): UnsubscribeMailPreview = UnsubscribeMailPreview(
+    subject = mailto.subject ?: UNSUBSCRIBE_SUBJECT,
+    body = mailto.body.orEmpty(),
+)
+
+/**
  * Build the unsubscribe mail for [mailto].
  *
- * Subject and body are the sender's own when the URI carries them (some lists key the
- * unsubscribe off the subject line, so dropping it would send a mail that does nothing);
- * otherwise [UNSUBSCRIBE_SUBJECT] and an empty body.
+ * Subject and body are [unsubscribePreview]'s — the same function the confirmation dialog reads,
+ * so what the reader was shown and what leaves cannot come apart.
  *
  * [identityName]/[identityEmail] are the ACCOUNT's own identity, carried explicitly for the same
  * reason `sendCalendarReply` carries it: a delegated sub-account is submitted through its login
@@ -44,10 +75,13 @@ internal fun unsubscribeMail(
     mailto: MailtoUnsubscribe,
     identityName: String?,
     identityEmail: String?,
-): UnsubscribeMail = UnsubscribeMail(
-    to = listOf(mailto.address),
-    subject = mailto.subject ?: UNSUBSCRIBE_SUBJECT,
-    body = mailto.body.orEmpty(),
-    fromName = identityName,
-    fromEmail = identityEmail,
-)
+): UnsubscribeMail {
+    val preview = unsubscribePreview(mailto)
+    return UnsubscribeMail(
+        to = listOf(mailto.address),
+        subject = preview.subject,
+        body = preview.body,
+        fromName = identityName,
+        fromEmail = identityEmail,
+    )
+}

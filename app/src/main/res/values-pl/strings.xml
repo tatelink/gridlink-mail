@@ -154,6 +154,7 @@
     <string name="message_unsubscribe_confirm_title">Wypisać się?</string>
     <string name="message_unsubscribe_confirm_post">Sterna wyśle żądanie wypisania do %1$s. Bez przeglądarki, bez strony, nic nie jest wczytywane.</string>
     <string name="message_unsubscribe_confirm_mail">Sterna wyśle e-mail z prośbą o wypisanie do %1$s.</string>
+    <string name="message_unsubscribe_confirm_mail_preview">Temat i treść pochodzą od nadawcy i zostaną wysłane bez zmian.\n\nTemat: %1$s\nWiadomość: %2$s</string>
     <string name="message_unsubscribe_confirm_open">Ten nadawca nie udostępnia automatycznego wypisania. Otwarcie %1$s w przeglądarce może ujawnić mu Twój adres IP.</string>
     <string name="message_unsubscribe_sending">Wypisywanie…</string>
     <string name="message_unsubscribe_sent">Żądanie wypisania wysłane</string>

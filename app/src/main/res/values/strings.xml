@@ -263,6 +263,7 @@
     <string name="message_unsubscribe_confirm_title">Unsubscribe?</string>
     <string name="message_unsubscribe_confirm_post">Sterna will send an unsubscribe request to %1$s. No browser, no page, nothing loaded.</string>
     <string name="message_unsubscribe_confirm_mail">Sterna will send an unsubscribe email to %1$s.</string>
+    <string name="message_unsubscribe_confirm_mail_preview">The subject and text come from the sender and are sent as written.\n\nSubject: %1$s\nMessage: %2$s</string>
     <string name="message_unsubscribe_confirm_open">This sender offers no automatic unsubscribe. Opening %1$s in a browser can show them your IP address.</string>
     <string name="message_unsubscribe_sending">Unsubscribing…</string>
     <string name="message_unsubscribe_sent">Unsubscribe request sent</string>

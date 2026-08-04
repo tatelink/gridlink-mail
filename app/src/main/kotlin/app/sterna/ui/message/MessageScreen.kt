@@ -978,23 +978,51 @@ private fun MessageActions(
                 // characters string that would eat the whole slot and leave the button measured
                 // at zero height — gone, not merely crowded.
                 Column {
-                    Text(
-                        text = when (action) {
-                            UnsubscribeAction.ONE_CLICK ->
-                                stringResource(R.string.message_unsubscribe_confirm_post, target.orEmpty())
-                            UnsubscribeAction.MAIL ->
-                                stringResource(R.string.message_unsubscribe_confirm_mail, target.orEmpty())
-                            // The full URL, not just the host, exactly like the reader's ordinary
-                            // external-link dialog: this is the one unsubscribe that opens a page
-                            // in a browser, and consenting to "open a page on this host" is not
-                            // the same as consenting to open THIS address.
-                            UnsubscribeAction.OPEN_PAGE ->
-                                stringResource(R.string.message_unsubscribe_confirm_open, target.orEmpty())
-                        },
+                    // Both lines scroll together, inside the SAME bounded box the single line used
+                    // to occupy — for the reason just above, and now also because the previewed
+                    // body is a stranger's text of unknown length.
+                    Column(
                         modifier = Modifier
                             .weight(1f, fill = false)
                             .verticalScroll(rememberScrollState()),
-                    )
+                    ) {
+                        Text(
+                            text = when (action) {
+                                UnsubscribeAction.ONE_CLICK ->
+                                    stringResource(R.string.message_unsubscribe_confirm_post, target.orEmpty())
+                                UnsubscribeAction.MAIL ->
+                                    stringResource(R.string.message_unsubscribe_confirm_mail, target.orEmpty())
+                                // The full URL, not just the host, exactly like the reader's ordinary
+                                // external-link dialog: this is the one unsubscribe that opens a page
+                                // in a browser, and consenting to "open a page on this host" is not
+                                // the same as consenting to open THIS address.
+                                UnsubscribeAction.OPEN_PAGE ->
+                                    stringResource(R.string.message_unsubscribe_confirm_open, target.orEmpty())
+                            },
+                        )
+                        // The mail path, and only it, sends a TEXT chosen by the sender of the
+                        // received message: `?subject=` and `?body=` of the `mailto:` are used
+                        // verbatim (some lists key the unsubscribe off the subject line), under
+                        // the account's own identity, with a copy in Sent. Naming only the
+                        // address described a narrower gesture than the one being run, so the
+                        // subject and the body are shown here, before the send, as plain text —
+                        // never rendered, never a link. They come from `unsubscribePreview`,
+                        // which is also what the outbox row is built from: what is shown here
+                        // and what leaves are the same two strings, including the default
+                        // subject and the empty body when the URI carried neither.
+                        pending.mailPreview?.takeIf { action == UnsubscribeAction.MAIL }?.let { preview ->
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                text = stringResource(
+                                    R.string.message_unsubscribe_confirm_mail_preview,
+                                    preview.subject,
+                                    preview.body,
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -2141,10 +2169,10 @@ private fun PgpStatusCard(crypto: CryptoUiState, onAction: () -> Unit) {
  * because that gesture loads a page and hands over an IP address, and dressing it as the one-click
  * POST would be selling the same word for two very different things.
  *
- * ⚠ Kept in this file, and deliberately not extracted to a small private @Composable of its own in
- * another one: R8 inlines short composables and the result draws NOTHING in a release build
- * (`MessageScreenKt` is not in proguard-rules.pro's -keep list, unlike MonogramKt). Any change
- * here needs a release-build check on the device, not just a debug one.
+ * ⚠ A short @Composable is exactly the shape R8 once inlined into drawing NOTHING in a release
+ * build (that is why `MonogramKt` sits in proguard-rules.pro's -keep list — and it was already a
+ * top-level function in its own file when it happened, so living in this file protects nothing).
+ * Any change here needs a release-build check on the device, not just a debug one.
  */
 @Composable
 private fun UnsubscribeStrip(

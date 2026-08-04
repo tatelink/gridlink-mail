@@ -82,9 +82,17 @@ class UnsubscribeConfirmationNamesTargetTest {
     private companion object {
         val STRING = Regex("""<string\s+name="([^"]+)"[^>]*>(.*?)</string>""", RegexOption.DOT_MATCHES_ALL)
 
-        /** A `stringResource(R.string.message_unsubscribe_confirm_X` and whatever follows the id. */
+        /**
+         * A `stringResource(R.string.message_unsubscribe_confirm_X` and whatever follows the id.
+         *
+         * The lookahead is load-bearing, not tidiness: `…_confirm_mail_preview` is a DIFFERENT
+         * string (the subject/body shown on the mail path) and it starts with `…_confirm_mail`.
+         * Without it, that call was read as a second, argument-less `mail` confirmation and this
+         * test failed on a call site that is correct.
+         */
         val CONFIRM_CALL = Regex(
-            """stringResource\(\s*R\.string\.message_unsubscribe_confirm_(post|mail|open)\s*(.?)""",
+            """stringResource\(\s*R\.string\.message_unsubscribe_confirm_(post|mail|open)""" +
+                """(?![A-Za-z0-9_])\s*(.?)""",
         )
 
         val repoRoot: File by lazy {

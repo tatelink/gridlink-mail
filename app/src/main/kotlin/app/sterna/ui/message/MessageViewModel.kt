@@ -26,9 +26,11 @@ import app.sterna.core.data.filter.blockableSender
 import app.sterna.core.data.mail.FilterRulesState
 import app.sterna.core.data.mail.UnsubscribeAction
 import app.sterna.core.data.mail.UnsubscribeHeader
+import app.sterna.core.data.mail.UnsubscribeMailPreview
 import app.sterna.core.data.mail.UnsubscribeOptions
 import app.sterna.core.data.mail.confirmationTarget
 import app.sterna.core.data.mail.preferredAction
+import app.sterna.core.data.mail.unsubscribePreview
 import app.sterna.core.data.settings.REPLY_BAR_DEFAULT
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.data.unsubscribe.UnsubscribeFailure
@@ -260,6 +262,16 @@ data class PendingUnsubscribe(
 ) {
     /** What the confirmation names — the same decision the action itself follows. */
     val target: String? get() = options.confirmationTarget(action)
+
+    /**
+     * The subject and body the mail would carry, or null when this gesture is not a mail.
+     *
+     * Read from [unsubscribePreview], which is also what `MailRepository.sendUnsubscribeMail`
+     * builds the outbox row from: the dialog cannot show one text and send another. Both come
+     * from the sender of the received message and go out under the account's identity, so they
+     * are shown before the send, not described in the abstract.
+     */
+    val mailPreview: UnsubscribeMailPreview? get() = options.mailto?.let { unsubscribePreview(it) }
 }
 
 /**
@@ -273,9 +285,11 @@ data class PendingUnsubscribe(
  * [UnsubscribeState.Sending] is in flight. A [UnsubscribeState.Failed] IS offered again: a
  * refusal or a dead network is a retry, not a dead end.
  *
- * ⚠ Session-only, and deliberately so: this state lives in the ViewModel, so it is forgotten when
- * the app is restarted and the button comes back. Remembering it across restarts is a column in
- * the message table, which this lot does not open.
+ * ⚠ Bounded by the PAGE's composition, and deliberately so — not by the process. This state lives
+ * in the per-page [MessageViewModel], whose store is cleared as soon as the page leaves the pager
+ * (see `rememberDisposableViewModelStoreOwner`), so a rotation, a back-and-return, or swiping two
+ * messages away and back is enough for the button to come back. Remembering it any longer is a
+ * column in the message table, which this lot does not open.
  */
 fun offeredUnsubscribeAction(options: UnsubscribeOptions?, state: UnsubscribeState): UnsubscribeAction? =
     when (state) {

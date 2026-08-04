@@ -154,6 +154,7 @@
     <string name="message_unsubscribe_confirm_title">Cancelar subscrição?</string>
     <string name="message_unsubscribe_confirm_post">O Sterna enviará um pedido de cancelamento para %1$s. Sem navegador, sem página, nada é carregado.</string>
     <string name="message_unsubscribe_confirm_mail">O Sterna enviará um e-mail de cancelamento para %1$s.</string>
+    <string name="message_unsubscribe_confirm_mail_preview">O assunto e o texto vêm do remetente e são enviados tal como estão.\n\nAssunto: %1$s\nMensagem: %2$s</string>
     <string name="message_unsubscribe_confirm_open">Este remetente não oferece cancelamento automático. Abrir %1$s num navegador pode revelar-lhe o seu endereço IP.</string>
     <string name="message_unsubscribe_sending">A cancelar subscrição…</string>
     <string name="message_unsubscribe_sent">Pedido de cancelamento enviado</string>
