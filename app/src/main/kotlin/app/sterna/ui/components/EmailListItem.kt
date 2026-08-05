@@ -41,6 +41,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -127,6 +129,23 @@ fun EmailListItem(
         }
         onHighlightShown()
     }
+    // Entering multi-select ticks, the way K-9 and every list built on the old View system do:
+    // there, View.performLongClick() fires the haptic itself. Compose's combinedClickable does
+    // not (foundation 1.7), so a long-press dropped the reader into selection mode with no
+    // confirmation at all — the one gesture in the list that changes what every later tap means.
+    // Kept here rather than at the two call sites so the top-level row and the conversation
+    // child cannot drift apart, and so a row with no selection to enter (search results pass no
+    // onLongClick) stays silent.
+    // NOTE when Compose is next bumped: foundation 1.8 added `hapticFeedbackEnabled = true` to
+    // combinedClickable, which performs this same tick itself. Drop this wrapper then, or the
+    // long-press buzzes twice.
+    val haptics = LocalHapticFeedback.current
+    val enterSelection = onLongClick?.let { enter ->
+        {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            enter()
+        }
+    }
     val baseColor = if (selected) MaterialTheme.colorScheme.secondaryContainer
     else MaterialTheme.colorScheme.surface
     val rowColor = if (highlight.value > 0f)
@@ -136,7 +155,7 @@ fun EmailListItem(
         modifier = modifier
             .fillMaxWidth()
             .background(rowColor)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(onClick = onClick, onLongClick = enterSelection)
             .padding(start = 16.dp, end = 4.dp, top = rowPadding, bottom = rowPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
