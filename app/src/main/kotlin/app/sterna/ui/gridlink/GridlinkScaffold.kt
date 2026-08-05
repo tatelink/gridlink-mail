@@ -108,8 +108,8 @@ fun GridlinkScaffold(
     onCompose: () -> Unit = {},
     belowHeader: (@Composable () -> Unit)? = null,
     /**
-     * §7's reading pane. Null is the compact layout and is the only thing three of the four
-     * destinations ever pass: folders, calendar and contacts have no detail view to put here yet.
+     * §7's reading pane. Null is the compact layout, and it is also all Folders ever passes, because
+     * Folders is the last destination without a detail view to put here.
      *
      * Non-null switches this scaffold to two panes. It does NOT decide *whether* the window is wide
      * enough for that. The caller measures, because the caller is also the one that has to keep the
@@ -419,6 +419,13 @@ fun GridlinkRoot(
      * one destination is showing at a time.
      */
     initialContactId: String? = null,
+    /**
+     * The appointment whose card is already open, by [GridlinkEvent.id].
+     *
+     * The Calendar tab's equivalent of [initialOpenId], sharing [initialOpenFraction] with the other
+     * two for the same reason: one destination shows at a time, so at most one detail exists.
+     */
+    initialEventId: String? = null,
     initialOpenFraction: Float = 1f,
     /**
      * Harness override for §7's layout: true forces two panes, false forces one, null measures.
@@ -522,11 +529,25 @@ fun GridlinkRoot(
      */
     var openContactId by rememberSaveable(initialContactId) { mutableStateOf(initialContactId) }
 
+    /** The open appointment, by id, for the reason [openContactId] is one: folding destroys the activity. */
+    var openEventId by rememberSaveable(initialEventId) { mutableStateOf(initialEventId) }
+
+    /**
+     * Which day the calendar opens pointed at, when something else already decided what is open.
+     *
+     * 🔴 Keyless `remember` ON PURPOSE, so it is captured once and then never moves. Feeding the
+     * currently-open event's date in instead would re-point the calendar on every tap and, worse,
+     * snap it back to today the moment the card was closed, dragging the user out of whatever month
+     * they were reading. This is a starting position, not a binding.
+     */
+    val calendarStart = remember { openEventId?.let { GridlinkSampleTree.eventById(it)?.date } }
+
     // The pane's emptiness is derived, never assigned. One place decides whether what is open is
     // still real, so the row highlight, the back handler and the pane cannot end up disagreeing.
     val visibleOpenId = openId?.takeIf { it != filedOpenId }
     val open = visibleOpenId?.let(GridlinkSample::messageById)
     val openContact = openContactId?.let(GridlinkSampleContacts::byId)
+    val openEvent = openEventId?.let(GridlinkSampleTree::eventById)
 
     /**
      * What is open on the tab that is showing, or null if nothing is.
@@ -539,14 +560,21 @@ fun GridlinkRoot(
     val detail: GridlinkDetail? = when (destination) {
         GridlinkDestination.INBOX -> open?.let(GridlinkDetail::Thread)
         GridlinkDestination.CONTACTS -> openContact?.let(GridlinkDetail::Contact)
-        // Neither has a detail view yet. Both are next.
-        GridlinkDestination.FOLDERS, GridlinkDestination.CALENDAR -> null
+        GridlinkDestination.CALENDAR -> openEvent?.let(GridlinkDetail::Event)
+        // No detail view yet. It is next.
+        GridlinkDestination.FOLDERS -> null
     }
 
     // Seeded from the RESTORED ids rather than from the parameters, so a detail that survived the
     // hinge comes back at rest instead of replaying its entrance across the recreated activity.
-    val progress = remember(initialOpenId, initialContactId) {
-        Animatable(if (openId == null && openContactId == null) 0f else initialOpenFraction)
+    val progress = remember(initialOpenId, initialContactId, initialEventId) {
+        Animatable(
+            if (openId == null && openContactId == null && openEventId == null) {
+                0f
+            } else {
+                initialOpenFraction
+            },
+        )
     }
 
     // 🔴 Travel is shared by every detail view, so it has to be reset when there is nothing open.
@@ -563,6 +591,7 @@ fun GridlinkRoot(
         when (target) {
             is GridlinkDetail.Thread -> openId = null
             is GridlinkDetail.Contact -> openContactId = null
+            is GridlinkDetail.Event -> openEventId = null
             null -> Unit
         }
     }
@@ -693,12 +722,33 @@ fun GridlinkRoot(
                     onWrite = { composing = gridlinkWriteTo(it) },
                     embedded = embedded,
                 )
+
+                is GridlinkDetail.Event -> GridlinkEventScreen(
+                    event = current.event,
+                    onBack = { if (embedded) clearDetail(current) else closeDetail() },
+                    // Same hand-off the contact card makes, and for the same reason: reading mail
+                    // means being on the tab that reads mail. The event stays open behind it, so
+                    // Calendar is where you left it when you come back.
+                    onOpenMessage = { message ->
+                        destination = GridlinkDestination.INBOX
+                        openId = message.id
+                        filedOpenId = null
+                        if (!twoPane) scope.launch { progress.snapTo(1f) }
+                    },
+                    // Swaps the card in place, exactly as tapping a different row in the reading pane
+                    // does. 🔴 No animation in either layout: in two panes nothing travels, and in one
+                    // the card being replaced is already fully in, so running the entrance would slide
+                    // the screen out and back for what is one appointment becoming another.
+                    onOpenEvent = { openEventId = it.id },
+                    onWrite = { composing = gridlinkWriteTo(it) },
+                    embedded = embedded,
+                )
             }
         }
 
         // §7's reading pane, or null when the window is compact or the destination has no detail view.
-        // Folders and Calendar stay full-width until they have one: a placeholder beside a screen that
-        // can never fill it is a permanently empty half of the display.
+        // Folders stays full-width until it has one: a placeholder beside a screen that can never fill
+        // it is a permanently empty half of the display.
         //
         // The label is the test as well as the text. Every destination with a detail view names what
         // its empty pane is waiting for, and "Select a message" beside a list of people would be the
@@ -706,7 +756,8 @@ fun GridlinkRoot(
         val paneLabel: String? = when (destination) {
             GridlinkDestination.INBOX -> "Select a message"
             GridlinkDestination.CONTACTS -> "Select a contact"
-            GridlinkDestination.FOLDERS, GridlinkDestination.CALENDAR -> null
+            GridlinkDestination.CALENDAR -> "Select an event"
+            GridlinkDestination.FOLDERS -> null
         }
         val readingPane: (@Composable () -> Unit)? =
             if (twoPane && paneLabel != null) {
@@ -797,10 +848,27 @@ fun GridlinkRoot(
                         destination = destination,
                         onSelectDestination = { destination = it },
                         initialView = initialCalendarView,
-                        // The raw override, not the measured `twoPane`. The month view splits on its
-                        // own panel width and should go on doing so; what it must not do is ignore a
-                        // harness that has explicitly asked for one layout or the other.
-                        forceSplit = forceTwoPane,
+                        initialDate = calendarStart,
+                        sidePane = readingPane,
+                        // Same rule as the other two lists: only in two panes, or the marked block
+                        // sits under a full-screen card and just looks stuck.
+                        currentId = if (twoPane) openEventId else null,
+                        onOpenEvent = { event ->
+                            openEventId = event.id
+                            // 🔴 No animation in two panes, exactly as the inbox and contacts do it.
+                            if (!twoPane) {
+                                scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
+                            }
+                        },
+                        // 🔴 Null once the calendar HAS a reading pane, and this is not tidying. The
+                        // month view splits on its own panel width, and in two panes that panel is
+                        // the 380dp list column. `forceTwoPane = true` reaching it there would force
+                        // the 2:1 grid-plus-list into roughly 420dp: seven columns of about 50dp
+                        // beside a day list with no width left, which is precisely the "distorted and
+                        // stretched" month `31ae393` was written to fix. The override exists to make
+                        // the STACKED month photographable on a wide emulator, and that case is the
+                        // one where the pane is collapsed, so it is the only case that still passes it.
+                        forceSplit = if (twoPane) null else forceTwoPane,
                     )
 
                     GridlinkDestination.CONTACTS -> GridlinkContactsScreen(
@@ -934,11 +1002,13 @@ private val GRIDLINK_UNDO_SAMPLE = GridlinkComposeRequest(GridlinkComposeDraft.R
  * code that draws a detail is handed the thing it draws instead of looking it up again. The lookup
  * happens exactly once, where the id lives.
  *
- * Folders and Calendar are absent on purpose. They get entries when they get detail views, and until
- * then their absence from this type is what keeps them out of every branch above.
+ * Folders is absent on purpose. It gets an entry when it gets a detail view, and until then its
+ * absence from this type is what keeps it out of every branch above.
  */
 private sealed interface GridlinkDetail {
     data class Thread(val message: GridlinkMessage) : GridlinkDetail
 
     data class Contact(val contact: GridlinkContact) : GridlinkDetail
+
+    data class Event(val event: GridlinkEvent) : GridlinkDetail
 }

@@ -399,6 +399,27 @@ object GridlinkSample {
      */
     fun messagesFrom(contact: GridlinkSampleContacts.GridlinkContact): List<GridlinkMessage> =
         messages.filter { GridlinkSampleContacts.forSender(it.sender, it.domain)?.id == contact.id }
+
+    /**
+     * This account's own domain: the one Brandon and his colleagues send from.
+     *
+     * 🔴 Written down once because two screens now have to tell an internal counterparty from an
+     * external one, and the wrong answer is invisible. [GridlinkEventScreen] uses it to decide that a
+     * daily huddle is not an appointment "with gridlink.me"; without it, every internal event would
+     * have listed nine colleagues under a heading claiming they were connected to it.
+     */
+    const val OWN_DOMAIN: String = "gridlink.me"
+
+    /**
+     * Everything in the sample sent from [domain], newest first, for [GridlinkEventScreen].
+     *
+     * ⚠️ Deliberately NOT the same rule as [messagesFrom]. That one resolves a *person* and is right
+     * to, because a contact card is about one human. An event names an organisation and nothing
+     * finer, so matching it to one contact would drop the other three people at that company. This
+     * matches the domain and says so in the heading it feeds.
+     */
+    fun messagesFromDomain(domain: String): List<GridlinkMessage> =
+        messages.filter { it.domain.equals(domain, ignoreCase = true) }
 }
 
 /** Which timeline heading a human message falls under. Bundled robots sit outside the timeline. */
