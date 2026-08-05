@@ -134,8 +134,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
@@ -149,6 +147,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -159,6 +158,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
@@ -1869,6 +1870,15 @@ private fun SwipeableEmailRow(
     // Where this row starts in the window, so the edge strip is measured from the screen
     // edge and not from the row's own left — conversation children are indented.
     var rowLeftPx by remember { mutableFloatStateOf(0f) }
+    // The speed of the swipe in progress, published from the drag block so COMPOSITION can
+    // see it (Codeberg #125). The reveal below promises to arm "the moment releasing would
+    // trigger the action"; now that a flick commits too, the reveal has to know how fast the
+    // finger is going or that promise becomes a lie — a quick swipe would fire the action off
+    // a neutral, on the OLED-black theme invisible, background. Zero means "no finger, or the
+    // finger has left": the reveal must never read the velocity of a gesture that is over,
+    // least of all while the row is springing home.
+    var swipeVelocityX by remember { mutableFloatStateOf(0f) }
+    var swipeVelocityY by remember { mutableFloatStateOf(0f) }
 
     // The drag handler below lives in a pointerInput block that only restarts when the
     // configured actions change — it must NOT capture onSwipe directly. The paged row
@@ -1908,16 +1918,37 @@ private fun SwipeableEmailRow(
                 val slop = viewConfiguration.touchSlop
                 val minOffset = if (leftAction == SwipeAction.NONE) 0f else -rowWidth.toFloat()
                 val maxOffset = if (rightAction == SwipeAction.NONE) 0f else rowWidth.toFloat()
+                // Codeberg #125: a flick commits without travelling the distance, so the
+                // gesture's speed has to be measured. addPointerInputChange, never addPosition
+                // by hand — it unfolds the sub-frame `historical` samples and accumulates
+                // DELTAS rather than absolute positions, so it is blind both to the row moving
+                // under the finger and to the change being consumed. A flick lasts two or three
+                // frames; frame-rate sampling would not measure it.
+                val tracker = VelocityTracker()
+                // "This gesture is over, and nothing may be read from it." The same while(true)
+                // scope serves every gesture the row ever sees: without this, the samples of one
+                // swipe leak into the next, and the published velocity keeps arming the reveal
+                // while the row springs back with nobody touching it.
+                fun forgetVelocity() {
+                    tracker.resetTracking()
+                    swipeVelocityX = 0f
+                    swipeVelocityY = 0f
+                }
                 coroutineScope {
                     while (true) {
                         val down = awaitPointerEventScope {
                             awaitFirstDown(requireUnconsumed = false)
                         }
                         val pointerId = down.id
+                        forgetVelocity()
+                        tracker.addPointerInputChange(down)
                         // Codeberg #30: a drag STARTING in the start-edge strip belongs to
                         // the drawer, so nothing here consumes it (the strip is 0-wide, and
                         // this never triggers, wherever the system owns that edge).
-                        if (startsInDrawerBand(rowLeftPx + down.position.x, drawerBandPx)) continue
+                        if (startsInDrawerBand(rowLeftPx + down.position.x, drawerBandPx)) {
+                            forgetVelocity()
+                            continue
+                        }
                         // Direction-lock: only treat this as a swipe once it is clearly
                         // more horizontal than vertical, otherwise leave the gesture to
                         // the list's vertical scroll. This stops accidental swipes when
@@ -1932,6 +1963,14 @@ private fun SwipeableEmailRow(
                                 val event = awaitPointerEvent()
                                 val change = event.changes.firstOrNull { it.id == pointerId }
                                 if (change == null || !change.pressed) return@awaitPointerEventScope false
+                                // Fed HERE as well as in horizontalDrag, and that is the whole
+                                // point: the travel of this phase is thrown away (offsetX only
+                                // starts following below), so a short sharp flick is almost
+                                // entirely consumed by it. A tracker started at horizontalDrag
+                                // would see the last sample or two of the gesture — usually the
+                                // deceleration — and report a low, noisy speed for exactly the
+                                // gestures this is meant to commit.
+                                tracker.addPointerInputChange(change)
                                 dx += change.positionChange().x
                                 dy += change.positionChange().y
                                 when (swipeDirectionLock(dx, dy, slop)) {
@@ -1951,26 +1990,71 @@ private fun SwipeableEmailRow(
                             }
                             @Suppress("UNREACHABLE_CODE") false
                         }
-                        if (!horizontal) continue
+                        if (!horizontal) {
+                            forgetVelocity()
+                            continue
+                        }
 
                         offsetX.stop()
-                        awaitPointerEventScope {
+                        // horizontalDrag answers false when the drag was CANCELLED — another
+                        // node consumed the pointer — rather than ended by the finger lifting.
+                        // The answer used to be dropped, harmlessly while distance was the only
+                        // rule; with a flick in the rule it is a way in, carrying the speed of
+                        // the instant the gesture was snatched away.
+                        val dragCompleted = awaitPointerEventScope {
                             horizontalDrag(pointerId) { change ->
+                                tracker.addPointerInputChange(change)
+                                val moving = tracker.calculateVelocity()
+                                swipeVelocityX = moving.x
+                                swipeVelocityY = moving.y
                                 val target = (offsetX.value + change.positionChange().x)
                                     .coerceIn(minOffset, maxOffset)
                                 launch { offsetX.snapTo(target) }
                                 change.consume()
                             }
                         }
+                        val release = tracker.calculateVelocity()
+                        // Read the release speed, THEN forget it — before the row is animated
+                        // anywhere. The reveal reads the published velocity in composition, and
+                        // the row spends the next few frames springing home with a non-zero
+                        // offset: left set, a stale speed would light the reveal on the way back,
+                        // an armed flash for an action that is not going to happen.
+                        forgetVelocity()
 
-                        val width = rowWidth.toFloat().coerceAtLeast(1f)
-                        val fraction = offsetX.value / width
-                        when {
-                            fraction >= SWIPE_COMMIT_FRACTION && rightAction != SwipeAction.NONE ->
-                                commitSwipe(rightAction, 1, width, motionOn, offsetX, lift, { currentOnSwipe(it) }) { flyDir = it }
-                            -fraction >= SWIPE_COMMIT_FRACTION && leftAction != SwipeAction.NONE ->
-                                commitSwipe(leftAction, -1, width, motionOn, offsetX, lift, { currentOnSwipe(it) }) { flyDir = it }
-                            else -> launch { offsetX.animateTo(0f) }
+                        // What commits, and what arms the reveal below, are the SAME call:
+                        // two hand-written copies of this had already drifted apart (see
+                        // SwipeCommit.kt). The threshold is computed HERE, inside the
+                        // block, and never read from composition — a value captured from
+                        // outside would freeze at the block's first run, exactly like the
+                        // stale onSwipe of 6f4f1cc3 above; adding it as a key instead
+                        // would restart the gesture under the finger on every remeasure.
+                        // The scope is a PointerInputScope, which is a Density, so the dp
+                        // converts right here.
+                        val commitThresholdPx = swipeCommitThresholdPx(
+                            rowWidthPx = rowWidth.toFloat(),
+                            distancePx = SWIPE_COMMIT_DISTANCE_DP.dp.toPx(),
+                        )
+                        val committed = swipeCommitDirection(
+                            offsetPx = offsetX.value,
+                            thresholdPx = commitThresholdPx,
+                            velocityPxPerSec = release.x,
+                            crossVelocityPxPerSec = release.y,
+                            escapeVelocityPxPerSec = SWIPE_ESCAPE_VELOCITY_DP_PER_SEC.dp.toPx(),
+                            slopPx = slop,
+                            dragCompleted = dragCompleted,
+                        )
+                        val action = when (committed) {
+                            1 -> rightAction
+                            -1 -> leftAction
+                            else -> SwipeAction.NONE
+                        }
+                        if (action == SwipeAction.NONE) {
+                            launch { offsetX.animateTo(0f) }
+                        } else {
+                            // width here is the FLIGHT distance, not a threshold: how far
+                            // the row travels as it clears the screen.
+                            val width = rowWidth.toFloat().coerceAtLeast(1f)
+                            commitSwipe(action, committed, width, motionOn, offsetX, lift, { currentOnSwipe(it) }) { flyDir = it }
                         }
                     }
                 }
@@ -1995,10 +2079,37 @@ private fun SwipeableEmailRow(
                 else -> MaterialTheme.colorScheme.onSecondaryContainer
             }
             // Commit-threshold feedback: the reveal stays neutral while the swipe is short
-            // of committing, then snaps to the action colour with a label pop and a haptic
-            // tick the moment releasing would trigger the action — so mid-swipe ambiguity
-            // ("is this far enough?") never arises. Crossing back mutes it again.
-            val armed = rowWidth > 0 && abs(offsetX.value) / rowWidth >= SWIPE_COMMIT_FRACTION
+            // of committing, then snaps to the action colour with a label pop the moment
+            // releasing would trigger the action — so mid-swipe ambiguity ("is this far
+            // enough?") never arises. Crossing back mutes it again.
+            // The same call the drag handler makes when the finger lifts, so the two cannot
+            // say different things — which is what the promise above amounts to. That is why
+            // the LIVE velocity is read here too: a flick commits, so a flick has to light the
+            // reveal, or the row is archived off a neutral background nobody was shown.
+            // This deliberately does NOT tick. It used to, back when distance alone decided and
+            // crossing the threshold was a single, slow, unmistakable event. Once a flick can
+            // commit, arming follows the speed of the finger, so a hesitant gesture buzzed over
+            // and over as it sped up and slowed down. Long-pressing a row into multi-select is
+            // the tick this list has, and it should stay the only one: two different meanings
+            // on the same tactile channel, a few millimetres apart, teach the thumb nothing.
+            // The colour and the label pop still carry the state, so nothing is hidden.
+            val density = LocalDensity.current
+            val viewConfiguration = LocalViewConfiguration.current
+            val commitThresholdPx = remember(rowWidth, density) {
+                swipeCommitThresholdPx(
+                    rowWidthPx = rowWidth.toFloat(),
+                    distancePx = with(density) { SWIPE_COMMIT_DISTANCE_DP.dp.toPx() },
+                )
+            }
+            val armed = swipeCommitDirection(
+                offsetPx = offsetX.value,
+                thresholdPx = commitThresholdPx,
+                velocityPxPerSec = swipeVelocityX,
+                crossVelocityPxPerSec = swipeVelocityY,
+                escapeVelocityPxPerSec = with(density) { SWIPE_ESCAPE_VELOCITY_DP_PER_SEC.dp.toPx() },
+                slopPx = viewConfiguration.touchSlop,
+                dragCompleted = true,
+            ) != 0
             val bg by animateColorAsState(
                 targetValue = if (armed) color else MaterialTheme.colorScheme.surfaceContainerHigh,
                 animationSpec = if (motionOn) tween(120) else snap(),
@@ -2014,10 +2125,6 @@ private fun SwipeableEmailRow(
                 animationSpec = if (motionOn) spring() else snap(),
                 label = "swipeRevealScale",
             )
-            val haptics = LocalHapticFeedback.current
-            LaunchedEffect(armed) {
-                if (armed) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            }
             Box(
                 Modifier.matchParentSize().background(bg).padding(horizontal = 24.dp),
                 contentAlignment = if (draggingRight) Alignment.CenterStart else Alignment.CenterEnd,
@@ -2088,9 +2195,6 @@ private const val SWIPE_SLOP_FACTOR = 1.5f
  * The same ratio gates the vertical veto below, so the two decisions stay complementary.
  */
 private const val SWIPE_HORIZONTAL_DOMINANCE = 2.0f
-
-/** Fraction of the row width a swipe must reach to commit its action. */
-private const val SWIPE_COMMIT_FRACTION = 0.4f
 
 /** Outcome of the row's direction-lock for the accumulated drag (dx, dy). */
 internal enum class SwipeLock { PENDING, HORIZONTAL, VERTICAL }
