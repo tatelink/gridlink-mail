@@ -82,6 +82,17 @@ fun GridlinkCalendarScreen(
     modifier: Modifier = Modifier,
     initialView: GridlinkCalendarView = GridlinkCalendarView.MONTH,
     onCompose: () -> Unit = {},
+    /**
+     * Harness override for the month view's split: true forces grid-plus-list, false forces the
+     * stacked layout, null measures the panel.
+     *
+     * ⚠️ Screenshot affordance only, and it is the same override §7's `--es wide` already carries,
+     * threaded through rather than duplicated. Without it the stacked month view is unphotographable
+     * on a wide emulator: the split measures the panel, so `--es wide one` collapses the reading pane
+     * and leaves the month exactly where it was, and a capture filed as "the phone layout" would be
+     * the tablet one.
+     */
+    forceSplit: Boolean? = null,
 ) {
     val today = GridlinkSampleTree.TODAY
     var view by remember(initialView) { mutableStateOf(initialView) }
@@ -147,6 +158,7 @@ fun GridlinkCalendarScreen(
                 today = today,
                 selected = selectedDate,
                 onSelect = { selectedDate = it },
+                forceSplit = forceSplit,
             )
 
             GridlinkCalendarView.THREE_DAY -> GridlinkTimeGrid(
@@ -330,17 +342,42 @@ private fun GridlinkViewSwitcher(
 }
 
 /**
- * The month grid, and under it the selected day's events.
+ * The width at which the month view stops stacking and splits into grid + day list.
+ *
+ * ## 🔴 Why the split exists at all
+ * Stacked, the month view is a grid of a fixed 44dp-tall cells with a list under it, and that is
+ * correct on a phone. Given a whole unfolded display it fell apart: the seven columns grew past
+ * 100dp each while the rows stayed 44, so every cell became a wide flat letterbox holding one
+ * centred number, and the list under it stretched a 62dp time column and a title across 800dp of
+ * empty space. Tate's word for it was "distorted and stretched", and that is exactly what it was:
+ * the same layout, inflated, rather than a layout for the room it was given.
+ *
+ * Split two-to-one, the grid gets a shape it can actually be square in and the day's appointments
+ * get a column narrow enough to read as a list. It is the same two halves as before, turned ninety
+ * degrees, and it is what a calendar on a large screen has looked like since desk blotters.
+ *
+ * ## Why this number and not [GRIDLINK_PANE_BREAKPOINT]
+ * That constant is about the *window*; this is about the *panel*, which is the window less the
+ * scaffold's chrome on both sides, so measuring the window here would turn the split on slightly
+ * before there was room for it. Measured where it is used, this is simply "is there 520dp of glass",
+ * and it lands in the same place the reading pane does because the chrome is what separates them.
+ */
+private val MONTH_SPLIT_WIDTH: Dp = 520.dp
+
+/** How wide the day list gets in the split: one third, so the grid keeps two. Tate's ratio. */
+private const val MONTH_GRID_WEIGHT = 2f
+
+/**
+ * The month grid, and the selected day's events: under it on a phone, beside it when there is room.
  *
  * ## Why the day list is here and not a separate screen
- * A month grid on a phone can show that something is happening on the 4th; it cannot show what.
- * Making the user tap through to find out turns the default view into a menu. The grid is a density
- * map and the list underneath is the answer, and the two are the same screen because you read them
- * in one movement.
+ * A month grid can show that something is happening on the 4th; it cannot show what. Making the user
+ * tap through to find out turns the default view into a menu. The grid is a density map and the list
+ * is the answer, and the two are the same screen because you read them in one movement.
  *
  * 🔴 The grid is always six rows tall, even in a month that fits in five. A grid that changes height
- * with the month makes the list under it jump by 44dp when you page from one month to the next, and
- * the jump reads as a layout bug rather than as a shorter month.
+ * with the month makes the day list jump when you page from one month to the next, and the jump
+ * reads as a layout bug rather than as a shorter month.
  */
 @Composable
 private fun GridlinkMonthView(
@@ -348,16 +385,98 @@ private fun GridlinkMonthView(
     today: LocalDate,
     selected: LocalDate,
     onSelect: (LocalDate) -> Unit,
+    forceSplit: Boolean?,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val selectedEvents = remember(selected) { GridlinkSampleTree.eventsOn(selected) }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val split = forceSplit ?: (maxWidth >= MONTH_SPLIT_WIDTH)
+        if (split) {
+            Row(Modifier.fillMaxSize()) {
+                GridlinkMonthGrid(
+                    month = month,
+                    today = today,
+                    selected = selected,
+                    onSelect = onSelect,
+                    // 🔴 The whole point of the split. Stretched to the full height of the panel the
+                    // cells become as tall as they are wide, which is the only thing that stops a
+                    // wide grid reading as squashed, and a cell that shape has room for event names
+                    // instead of dots.
+                    fillHeight = true,
+                    modifier = Modifier
+                        .weight(MONTH_GRID_WEIGHT)
+                        .fillMaxHeight(),
+                )
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = GridlinkSpacing.s12)
+                        .width(GridlinkDimens.hairline)
+                        .fillMaxHeight()
+                        .background(colors.divider),
+                )
+                GridlinkMonthDayList(
+                    date = selected,
+                    events = selectedEvents,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                )
+            }
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                GridlinkMonthGrid(
+                    month = month,
+                    today = today,
+                    selected = selected,
+                    onSelect = onSelect,
+                    fillHeight = false,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = GridlinkSpacing.rowHorizontal,
+                            vertical = GridlinkSpacing.s12,
+                        )
+                        .height(GridlinkDimens.hairline)
+                        .background(colors.divider),
+                )
+                GridlinkMonthDayList(
+                    date = selected,
+                    events = selectedEvents,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The seven columns and six rows, with the weekday initials over them.
+ *
+ * [fillHeight] is the difference between the two layouts and it is one decision, not two: rows that
+ * share the available height instead of standing at [GridlinkDimens.calendarDayCell] produce cells
+ * tall enough to list event names, so the same flag drives the cell's contents.
+ */
+@Composable
+private fun GridlinkMonthGrid(
+    month: YearMonth,
+    today: LocalDate,
+    selected: LocalDate,
+    onSelect: (LocalDate) -> Unit,
+    fillHeight: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
     val firstCell = remember(month) {
         val first = month.atDay(1)
         first.minusDays(first.sundayIndex().toLong())
     }
-    val selectedEvents = remember(selected) { GridlinkSampleTree.eventsOn(selected) }
-
-    Column(Modifier.fillMaxSize()) {
+    Column(modifier) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -375,7 +494,15 @@ private fun GridlinkMonthView(
         }
 
         repeat(6) { week ->
-            Row(Modifier.fillMaxWidth()) {
+            Row(
+                modifier = if (fillHeight) {
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                } else {
+                    Modifier.fillMaxWidth()
+                },
+            ) {
                 repeat(7) { day ->
                     val date = firstCell.plusDays((week * 7 + day).toLong())
                     GridlinkDayCell(
@@ -384,33 +511,47 @@ private fun GridlinkMonthView(
                         isToday = date == today,
                         isSelected = date == selected,
                         events = GridlinkSampleTree.eventsOn(date),
+                        detailed = fillHeight,
                         onClick = { onSelect(date) },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(if (fillHeight) Modifier.fillMaxHeight() else Modifier),
                     )
                 }
             }
         }
+    }
+}
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = GridlinkSpacing.rowHorizontal, vertical = GridlinkSpacing.s12)
-                .height(GridlinkDimens.hairline)
-                .background(colors.divider),
-        )
-
+/**
+ * What is on the selected day. The bottom half of the stacked layout and the right third of the
+ * split, unchanged between them: the same heading and the same rows, so paging from one layout to
+ * the other never changes what the day says about itself.
+ */
+@Composable
+private fun GridlinkMonthDayList(
+    date: LocalDate,
+    events: List<GridlinkEvent>,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    val mode = GridlinkTheme.mode
+    Column(modifier) {
         Text(
-            text = selected.format(AGENDA_DAY),
+            text = date.format(AGENDA_DAY),
             style = GridlinkType.sectionLabel,
             color = colors.textSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(
                 start = GridlinkSpacing.rowHorizontal,
                 end = GridlinkSpacing.rowHorizontal,
+                top = GridlinkSpacing.s12,
                 bottom = GridlinkSpacing.s4,
             ),
         )
 
-        if (selectedEvents.isEmpty()) {
+        if (events.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -437,10 +578,10 @@ private fun GridlinkMonthView(
                     .gridlinkEdgeFade(fadeTop = false),
                 contentPadding = PaddingValues(bottom = GridlinkDimens.listFade),
             ) {
-                items(selectedEvents.size, key = { selectedEvents[it].id }) { index ->
+                items(events.size, key = { events[it].id }) { index ->
                     GridlinkAgendaRow(
-                        event = selectedEvents[index],
-                        accent = gridlinkSenderBarColor(mode, selectedEvents[index].domain),
+                        event = events[index],
+                        accent = gridlinkSenderBarColor(mode, events[index].domain),
                     )
                 }
             }
@@ -451,8 +592,16 @@ private fun GridlinkMonthView(
 /**
  * One day in the month grid.
  *
- * Dots rather than titles: at seven columns on a folded screen a cell is about 50dp wide, which
- * fits roughly four characters. "Ecol…" is not information. Three dots and a tap is.
+ * ## Dots or names, decided by the room
+ * At seven columns on a folded screen a cell is about 50dp wide, which fits roughly four characters.
+ * "Ecol…" is not information; three dots and a tap is. In the split layout the same cell is over
+ * 90dp wide and as tall again, and there dots are the wrong answer for the opposite reason: they
+ * hide what a cell has plenty of space to say, and the day list beside them is no longer the only
+ * place the answer could live.
+ *
+ * The names are drawn the way every other identity in this app is, as a 3dp domain-coloured bar with
+ * the text beside it, so an event is the same colour in the grid, in the day list and in the mail it
+ * came from.
  */
 @Composable
 private fun GridlinkDayCell(
@@ -461,6 +610,7 @@ private fun GridlinkDayCell(
     isToday: Boolean,
     isSelected: Boolean,
     events: List<GridlinkEvent>,
+    detailed: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -468,10 +618,14 @@ private fun GridlinkDayCell(
     val mode = GridlinkTheme.mode
     Column(
         modifier = modifier
-            .height(GridlinkDimens.calendarDayCell)
-            .clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .then(if (detailed) Modifier else Modifier.height(GridlinkDimens.calendarDayCell))
+            .clickable(onClick = onClick)
+            .then(if (detailed) Modifier.padding(DETAILED_CELL_INSET) else Modifier),
+        // 🔴 Centred when it is a number in a box, start-aligned when it is a number over a list.
+        // Centred names would leave every chip's coloured bar at a different x and the column would
+        // stop reading as a column.
+        horizontalAlignment = if (detailed) Alignment.Start else Alignment.CenterHorizontally,
+        verticalArrangement = if (detailed) Arrangement.Top else Arrangement.Center,
     ) {
         Box(
             modifier = Modifier
@@ -504,24 +658,79 @@ private fun GridlinkDayCell(
                 },
             )
         }
-        Row(
-            modifier = Modifier.height(GridlinkSpacing.s8),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Capped at three. A cell wide enough for four dots is a cell wide enough to have
-            // shown the first event's name, and past three the count stops being readable at a
-            // glance anyway — which is the only thing dots are for.
-            events.take(3).forEach { event ->
-                Box(
+        if (detailed) {
+            // Two names, and the count of what did not fit rides on the second one.
+            //
+            // 🔴 The count is NOT its own line. It was, and it was clipped: a cell holds a 26dp
+            // number plus whatever the row height leaves, and two chips already spend that, so the
+            // third line was drawn half inside the next week. A trailing "+1" costs no height at all
+            // and it is where a calendar puts an overflow count anyway.
+            val shown = events.take(DETAILED_CELL_EVENTS)
+            shown.forEachIndexed { index, event ->
+                Row(
                     modifier = Modifier
-                        .size(GridlinkDimens.calendarEventDot)
-                        .background(gridlinkSenderBarColor(mode, event.domain), CircleShape),
-                )
+                        .fillMaxWidth()
+                        .padding(top = 2.dp)
+                        .height(DETAILED_CHIP_HEIGHT),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(GridlinkDimens.senderBarWidth)
+                            .fillMaxHeight()
+                            .background(gridlinkSenderBarColor(mode, event.domain)),
+                    )
+                    Text(
+                        text = event.title,
+                        style = GridlinkType.badge,
+                        color = if (inMonth) colors.textPrimary else colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = GridlinkSpacing.s4),
+                    )
+                    val hidden = events.size - shown.size
+                    if (hidden > 0 && index == shown.lastIndex) {
+                        Text(
+                            text = "+$hidden",
+                            style = GridlinkType.badge,
+                            color = colors.textSecondary,
+                            maxLines = 1,
+                            modifier = Modifier.padding(start = 2.dp),
+                        )
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.height(GridlinkSpacing.s8),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Capped at three. A cell wide enough for four dots is a cell wide enough to have
+                // shown the first event's name, and past three the count stops being readable at a
+                // glance anyway — which is the only thing dots are for.
+                events.take(3).forEach { event ->
+                    Box(
+                        modifier = Modifier
+                            .size(GridlinkDimens.calendarEventDot)
+                            .background(gridlinkSenderBarColor(mode, event.domain), CircleShape),
+                    )
+                }
             }
         }
     }
 }
+
+/** Keeps a detailed cell's chips off its neighbours' cell edges without needing a drawn border. */
+private val DETAILED_CELL_INSET = 3.dp
+
+/** Names shown in a detailed cell before it gives up and counts. */
+private const val DETAILED_CELL_EVENTS = 2
+
+/** Tall enough for [GridlinkType.badge] and no taller: a chip is a label, not a row. */
+private val DETAILED_CHIP_HEIGHT = 14.dp
 
 /** First and last hour drawn in the time grids. Outside these the sample day is empty, and an
  *  always-scrolled-to-the-middle grid that starts at midnight wastes a third of the screen. */
