@@ -27,11 +27,13 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -197,6 +199,29 @@ fun GridlinkMessageListScreen(
      * from a swipe are the same code path and cannot drift apart.
      */
     removeRequest: GridlinkRemoveRequest? = null,
+    /**
+     * §7's reading pane, or null for the compact layout. Forwarded to [GridlinkScaffold] verbatim.
+     *
+     * ⚠️ This screen does not decide whether the window is wide enough. [GridlinkRoot] measures and
+     * either passes a pane or does not. What this screen owns is the consequence: with a pane
+     * present, [currentId] is filled and tapping a row swaps the pane's contents instead of pushing
+     * a screen.
+     */
+    sidePane: (@Composable () -> Unit)? = null,
+    /**
+     * The message showing in the reading pane, so its row can say so. Null in the compact layout,
+     * where the thread covers the list and no row needs to claim to be the current one.
+     *
+     * It shares [GridlinkMessageRow]'s fill with multi-select, but it is passed as that row's separate
+     * `current` flag and not as `selected`, because `selected` also drops a tick into the selection
+     * gutter. See the 🔴 note on [GridlinkMessageRow] for the bug that made the distinction.
+     *
+     * 🔴 And the fill is suppressed outright while a selection is open. Two rows filled the same
+     * colour, one ticked and one not, is a list asking to be misread, and during a multi-select the
+     * question on screen is "what have I picked", not "what is in the pane". The pane still shows the
+     * open message, so nothing is lost; the row stops shouting about it until the selection ends.
+     */
+    currentId: String? = null,
     onOpenMessage: (GridlinkMessage) -> Unit = {},
     onCompose: () -> Unit = {},
 ) {
@@ -208,9 +233,25 @@ fun GridlinkMessageListScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // ⚠️ remember, not rememberSaveable: a Set has no built-in Saver, so surviving a rotation needs
-    // a listSaver. Worth adding when this screen owns real state; the mock does not.
-    var selectedIds by remember(initiallySelected) { mutableStateOf(initiallySelected) }
+    // 🔴 Saved, not merely remembered. The note that used to sit here said a listSaver was "worth
+    // adding when this screen owns real state". §7 made it load-bearing before that happened. The
+    // brief requires the selection to survive the fold, neither activity declares `configChanges`,
+    // so unfolding recreates the activity: without this, selecting eleven messages and opening the
+    // phone to deal with them clears all eleven at the hinge, silently, with the toolbar folding
+    // away as if the user had cancelled.
+    //
+    // A Set has no built-in Saver because a Bundle has no set type. It survives as a list and comes
+    // back as a set, which is lossless here (these are ids, so order was never information).
+    // ⚠️ The saver wraps the MutableState, not the Set. `rememberSaveable { mutableStateOf(x) }`
+    // auto-wraps only when it is left to pick the saver itself; hand it one and it is handed the
+    // state holder, so a saver written over `Set<String>` type-checks nowhere useful.
+    var selectedIds by rememberSaveable(
+        initiallySelected,
+        saver = listSaver<MutableState<Set<String>>, String>(
+            save = { it.value.toList() },
+            restore = { mutableStateOf(it.toSet()) },
+        ),
+    ) { mutableStateOf(initiallySelected) }
     val selecting = selectedIds.isNotEmpty()
 
     // 🔴 The message lists are STATE, not constants read out of the sample object.
@@ -433,6 +474,7 @@ fun GridlinkMessageListScreen(
         selecting = selecting,
         onSelectionAction = ::applySelectionAction,
         onCompose = onCompose,
+        sidePane = sidePane,
         header = {
             GridlinkHeader(
                 title = "Inbox",
@@ -616,6 +658,8 @@ fun GridlinkMessageListScreen(
                                                 message = child,
                                                 onClick = { onRowTap(child) },
                                                 selected = child.id in selectedIds,
+                                                current = child.id == currentId &&
+                                                    selectedIds.isEmpty(),
                                                 gutter = gutter,
                                                 onLongClick = {
                                                     selectedIds = selectedIds + child.id
@@ -667,6 +711,8 @@ fun GridlinkMessageListScreen(
                                         message = message,
                                         onClick = { onRowTap(message) },
                                         selected = message.id in selectedIds,
+                                        current = message.id == currentId &&
+                                            selectedIds.isEmpty(),
                                         gutter = gutter,
                                         onLongClick = {
                                             selectedIds = selectedIds + message.id

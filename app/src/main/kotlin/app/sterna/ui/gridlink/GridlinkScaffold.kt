@@ -1,5 +1,6 @@
 package app.sterna.ui.gridlink
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
@@ -7,17 +8,21 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
@@ -37,6 +43,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import app.sterna.ui.theme.GridlinkDimens
 import app.sterna.ui.theme.GridlinkMotion
@@ -77,6 +84,18 @@ import kotlinx.coroutines.launch
  * 🔴 The sheet's open state is owned here too, so nothing above the scaffold has to thread it. That
  * is fine while every menu item is a stub; the moment Settings is a real screen, whoever owns the
  * navigation owns this instead.
+ *
+ * ## Why §7's second pane is a slot here rather than a layout above the scaffold
+ * The tempting shape is to leave this composable alone and have [GridlinkRoot] put a scaffold and a
+ * thread side by side in a Row. That produces two auroras. [GridlinkBackground] sizes its blobs off
+ * the width of the box it is given (`size.width * blob.radius`), so two of them side by side are not
+ * one backdrop split in half, they are two differently-scaled backdrops meeting at a seam, and that
+ * seam lands exactly down the middle of the widest screen the app runs on.
+ *
+ * Passing the reading pane in as [sidePane] keeps one background, one drawer and one set of window
+ * insets spanning the whole window, and it puts the nav pill inside the 380dp column for free. That
+ * last part is not a bonus, it is §7's requirement: the selection toolbar morphs out of the nav pill,
+ * and the toolbar is specified to span the list pane only, so the pill has to live in that column.
  */
 @Composable
 fun GridlinkScaffold(
@@ -87,6 +106,15 @@ fun GridlinkScaffold(
     onSelectionAction: (GridlinkSelectionAction) -> Unit = {},
     onCompose: () -> Unit = {},
     belowHeader: (@Composable () -> Unit)? = null,
+    /**
+     * §7's reading pane. Null is the compact layout and is the only thing three of the four
+     * destinations ever pass: folders, calendar and contacts have no detail view to put here yet.
+     *
+     * Non-null switches this scaffold to two panes. It does NOT decide *whether* the window is wide
+     * enough for that. The caller measures, because the caller is also the one that has to keep the
+     * open message when the answer changes mid-session.
+     */
+    sidePane: (@Composable () -> Unit)? = null,
     header: @Composable () -> Unit,
     panel: @Composable BoxScope.() -> Unit,
 ) {
@@ -98,6 +126,9 @@ fun GridlinkScaffold(
     val chrome = LocalGridlinkChrome.current
     val sync = chrome.sync
     var menuOpen by rememberSaveable(chrome.menuOpenAtStart) { mutableStateOf(chrome.menuOpenAtStart) }
+    // The list header's height, so §7's reading pane can start its glass on the same line.
+    val density = LocalDensity.current
+    var headerHeight by remember { mutableStateOf(0.dp) }
     // What the drawer looks through. Null on API 30 and below, where the frost is composed instead.
     val backdrop = rememberGridlinkBackdrop()
     Box(modifier = modifier.fillMaxSize()) {
@@ -107,66 +138,128 @@ fun GridlinkScaffold(
         GridlinkBackground(
             modifier = Modifier.gridlinkBackdropSource(backdrop, active = menuOpen),
         ) {
+            // The mail column, as a slot, because it is composed at one of two widths: the whole
+            // window in the compact layout, and a fixed 380dp beside the reading pane in §7's.
+            // Everything inside it is identical either way, which is the point. A second copy of
+            // this body for the wide case is how a header ends up padded differently on a Fold than
+            // on the same app's cover display.
+            //
+            // 🔴 [GridlinkChromeRow] is deliberately NOT in here. It is app chrome (the hamburger,
+            // the sync chip), so in two panes it spans both, above the split. Left inside the
+            // column it would sit over the list only, which is wrong twice: the sync state would
+            // read as a property of the inbox rather than of the account, and the reading pane would
+            // start one chrome row higher than the list header beside it, so the two glass panels
+            // would never line up.
+            val mailColumn: @Composable (Modifier) -> Unit = { columnModifier ->
+                Column(modifier = columnModifier) {
+                    if (sidePane == null) {
+                        header()
+                    } else {
+                        // Measured only in two panes, so the single-pane layout keeps exactly the
+                        // composition it had. See [LocalGridlinkPaneHeaderHeight] for why the number
+                        // is taken off the real header rather than written down.
+                        Box(
+                            modifier = Modifier.onSizeChanged { size ->
+                                headerHeight = with(density) { size.height.toDp() }
+                            },
+                        ) {
+                            header()
+                        }
+                    }
+                    if (belowHeader != null) {
+                        Box(
+                            modifier = Modifier.padding(
+                                start = GridlinkSpacing.chrome,
+                                end = GridlinkSpacing.chrome,
+                                bottom = GridlinkSpacing.s16,
+                            ),
+                        ) {
+                            belowHeader()
+                        }
+                    }
+
+                    // The panel: a floating sheet of glass, not a system surface.
+                    //
+                    // 🔴 Inset by the same [GridlinkSpacing.chrome] the header text and the nav
+                    // pill use, so all three share one pad line down both edges. The inset is also
+                    // what lets the aurora show down the sides, which is the only reason to have
+                    // painted it.
+                    val panelShape = RoundedCornerShape(GridlinkRadii.card)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(horizontal = GridlinkSpacing.chrome)
+                            .clip(panelShape)
+                            .background(colors.listSurface, panelShape)
+                            .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
+                        content = panel,
+                    )
+
+                    // One line of floating controls, not two. The compose button is detached from
+                    // the nav pill but shares its baseline and its height, so the bottom of the
+                    // screen stays a single band and the panel keeps the vertical space a stacked
+                    // FAB would have taken.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                start = GridlinkSpacing.chrome,
+                                top = GridlinkSpacing.s16,
+                                end = GridlinkSpacing.chrome,
+                                bottom = GridlinkSpacing.chrome,
+                            ),
+                        horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        GridlinkNavPill(
+                            selected = destination,
+                            onSelect = onSelectDestination,
+                            selecting = selecting,
+                            onSelectionAction = onSelectionAction,
+                            modifier = Modifier.weight(1f),
+                        )
+                        GridlinkComposeButton(onClick = onCompose, destination = destination)
+                    }
+                }
+            }
+
+            // 🔴 The system-bar inset is applied ONCE, on the outer Column, rather than by each
+            // pane. Two siblings each insetting themselves from `systemBars` would each take the
+            // full left AND right cutout, so the gutter between the panes would silently inherit
+            // padding that belongs to the outside edges of the window.
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.systemBars),
             ) {
                 GridlinkChromeRow(onOpenMenu = { menuOpen = true }, sync = sync)
-                header()
-                if (belowHeader != null) {
-                    Box(
-                        modifier = Modifier.padding(
-                            start = GridlinkSpacing.chrome,
-                            end = GridlinkSpacing.chrome,
-                            bottom = GridlinkSpacing.s16,
-                        ),
-                    ) {
-                        belowHeader()
+                if (sidePane == null) {
+                    mailColumn(Modifier.weight(1f).fillMaxWidth())
+                } else {
+                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        mailColumn(
+                            Modifier
+                                .width(GridlinkDimens.listPaneWidth)
+                                .fillMaxHeight(),
+                        )
+                        // No divider down the seam. Both panes inset their glass by the same
+                        // [GridlinkSpacing.chrome], so the gap between the two panels is already
+                        // twice that with the aurora showing through it. The backdrop IS the
+                        // separator, and a hairline drawn on top of a 40dp channel of colour would
+                        // be a line separating two things that are already demonstrably apart.
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                        ) {
+                            CompositionLocalProvider(
+                                LocalGridlinkPaneHeaderHeight provides headerHeight,
+                            ) {
+                                sidePane()
+                            }
+                        }
                     }
-                }
-
-                // The panel: a floating sheet of glass, not a system surface.
-                //
-                // 🔴 Inset by the same [GridlinkSpacing.chrome] the header text and the nav pill
-                // use, so all three share one pad line down both edges. The inset is also what lets
-                // the aurora show down the sides, which is the only reason to have painted it.
-                val panelShape = RoundedCornerShape(GridlinkRadii.card)
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(horizontal = GridlinkSpacing.chrome)
-                        .clip(panelShape)
-                        .background(colors.listSurface, panelShape)
-                        .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
-                    content = panel,
-                )
-
-                // One line of floating controls, not two. The compose button is detached from the
-                // nav pill but shares its baseline and its height, so the bottom of the screen
-                // stays a single band and the panel keeps the vertical space a stacked FAB would
-                // have taken.
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            start = GridlinkSpacing.chrome,
-                            top = GridlinkSpacing.s16,
-                            end = GridlinkSpacing.chrome,
-                            bottom = GridlinkSpacing.chrome,
-                        ),
-                    horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    GridlinkNavPill(
-                        selected = destination,
-                        onSelect = onSelectDestination,
-                        selecting = selecting,
-                        onSelectionAction = onSelectionAction,
-                        modifier = Modifier.weight(1f),
-                    )
-                    GridlinkComposeButton(onClick = onCompose, destination = destination)
                 }
             }
         }
@@ -318,6 +411,15 @@ fun GridlinkRoot(
     initiallyLoading: Boolean = false,
     initialOpenId: String? = null,
     initialOpenFraction: Float = 1f,
+    /**
+     * Harness override for §7's layout: true forces two panes, false forces one, null measures.
+     *
+     * ⚠️ Screenshot affordance only. The emulator can be folded and unfolded from the command line,
+     * but a capture of the two-pane layout should not depend on the AVD being in the right posture
+     * at the right moment, and the compact layout has to stay capturable on a device that is already
+     * wide. Nothing in the shipping app passes this.
+     */
+    forceTwoPane: Boolean? = null,
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
     // Not `rememberSaveable`: a request holds contacts and attachments, which is a parcelable
@@ -350,19 +452,28 @@ fun GridlinkRoot(
     // The open thread, and how far in it is. Two pieces of state and not one, because they do not
     // change together: the message arrives on the tap and leaves one animation LATER, and clearing
     // it on the same frame as the close would rip the thread out mid-slide.
+    //
+    // 🔴 The ID is `rememberSaveable` and the message is derived from it. §7 requires the open
+    // thread and the selection to survive the fold, and neither activity in this app declares
+    // `configChanges`, so unfolding a Fold DESTROYS and recreates the activity. Anything held in a
+    // plain `remember` is gone by the time the second pane exists to show it, so the user would open
+    // a message, unfold to read it larger, and land on the placeholder. A [GridlinkMessage] is not
+    // parcelable and should not become so for this; the id is the identity, and the sample object
+    // resolves it exactly the way a real build would resolve it from the store.
     val colors = GridlinkTheme.colors
     val scope = rememberCoroutineScope()
-    var open by remember(initialOpenId) {
-        mutableStateOf(initialOpenId?.let(GridlinkSample::messageById))
-    }
+    var openId by rememberSaveable(initialOpenId) { mutableStateOf(initialOpenId) }
+    val open = openId?.let(GridlinkSample::messageById)
+    // Seeded from the RESTORED id rather than from `initialOpenId`, so a thread that survived the
+    // hinge comes back at rest instead of replaying its entrance across the recreated activity.
     val progress = remember(initialOpenId) {
-        Animatable(if (initialOpenId == null) 0f else initialOpenFraction)
+        Animatable(if (openId == null) 0f else initialOpenFraction)
     }
 
     fun closeThread() {
         scope.launch {
             progress.animateTo(0f, GridlinkMotion.standard())
-            open = null
+            openId = null
         }
     }
 
@@ -388,180 +499,246 @@ fun GridlinkRoot(
         closeThread()
     }
 
-    // 🔴 PredictiveBackHandler, not BackHandler. The difference is the whole point of building the
-    // open as one scrubable value: this delivers the drag as a flow of progress, so the thread
-    // follows the finger and follows it back if the finger changes its mind. Normal completion of
-    // the flow means committed; a CancellationException means the user let go and it should go back.
-    // The coroutine is still live inside that catch, which is what makes animating from it legal.
-    PredictiveBackHandler(enabled = open != null && composing == null) { events ->
-        try {
-            events.collect { event -> progress.snapTo(1f - event.progress) }
-            progress.animateTo(0f, GridlinkMotion.standard())
-            open = null
-        } catch (cancelled: CancellationException) {
-            progress.animateTo(1f, GridlinkMotion.standard())
+    BoxWithConstraints(modifier = modifier) {
+        // §7's only decision, made here and nowhere else. Everything downstream is handed the answer
+        // rather than re-deriving it, so there is exactly one place where "is this wide" is defined.
+        val twoPane = forceTwoPane ?: (maxWidth >= GRIDLINK_PANE_BREAKPOINT)
+
+        // 🔴 The travel value is PINNED in two panes rather than bypassed. The reading pane does not
+        // slide, it is simply there, but folding the device back to one pane has to land on a thread
+        // that is fully in. Left at whatever fraction the last back-drag stopped at, the first fold
+        // after a cancelled swipe would show the thread parked half off the screen.
+        LaunchedEffect(twoPane, openId) {
+            if (twoPane && openId != null) progress.snapTo(1f)
         }
-    }
 
-    Box(modifier = modifier) {
-        // 🔴 The destination keeps composing under the thread rather than being swapped out. Same
-        // reason the composer is drawn over it: the list must come back with its scroll position,
-        // its selection and its swipe state intact, and it is also visible through the parallax the
-        // whole time the thread is arriving, so there is nothing to swap to.
-        Box(
-            modifier = Modifier.graphicsLayer {
-                // Recedes a fraction of the distance the thread travels. Equal travel would read as
-                // two screens on a conveyor; a slower back layer is what makes one look further away.
-                translationX = -size.width * THREAD_PARALLAX * progress.value
-            },
-        ) {
-            when (destination) {
-                GridlinkDestination.INBOX -> GridlinkMessageListScreen(
-                    destination = destination,
-                    onSelectDestination = { destination = it },
-                    onCompose = { composing = GridlinkComposeRequest.Fresh },
-                    onOpenMessage = { message ->
-                        open = message
-                        scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
-                    },
-                    initiallyExpanded = initiallyExpanded,
-                    initiallySelected = initiallySelected,
-                    initialSearchExpanded = initialSearchExpanded,
-                    initialSwipeId = initialSwipeId,
-                    initialSwipeFraction = initialSwipeFraction,
-                    demoRecycle = demoRecycle,
-                    initiallyEmpty = initiallyEmpty,
-                    loading = initiallyLoading,
-                    removeRequest = removeRequest,
-                )
-
-                GridlinkDestination.FOLDERS -> GridlinkFolderScreen(
-                    destination = destination,
-                    onSelectDestination = { destination = it },
-                    onCompose = { composing = GridlinkComposeRequest.Fresh },
-                    initialActionFolderId = initialFolderActionId,
-                    initialStage = initialFolderStage,
-                    initialCreateUnder = initialCreateUnder,
-                )
-
-                // Calendar and Contacts deliberately do NOT open the composer. Their compose button
-                // is already a "+" that promises a new appointment or a new contact, and having it
-                // write an email instead would be the app lying about what a button does.
-                GridlinkDestination.CALENDAR -> GridlinkCalendarScreen(
-                    destination = destination,
-                    onSelectDestination = { destination = it },
-                    initialView = initialCalendarView,
-                )
-
-                GridlinkDestination.CONTACTS -> GridlinkContactsScreen(
-                    destination = destination,
-                    onSelectDestination = { destination = it },
-                    initialScrubLetter = initialScrubLetter,
-                )
+        if (twoPane) {
+            // A plain BackHandler, because there is nothing to scrub. The list is not underneath the
+            // thread here, it is beside it, so a drag that reveals the list by degrees would be
+            // revealing something already fully visible. Back empties the reading pane.
+            BackHandler(enabled = open != null && composing == null) { openId = null }
+        } else {
+            // 🔴 PredictiveBackHandler, not BackHandler. The difference is the whole point of building
+            // the open as one scrubable value: this delivers the drag as a flow of progress, so the
+            // thread follows the finger and follows it back if the finger changes its mind. Normal
+            // completion of the flow means committed; a CancellationException means the user let go and
+            // it should go back. The coroutine is still live inside that catch, which is what makes
+            // animating from it legal.
+            PredictiveBackHandler(enabled = open != null && composing == null) { events ->
+                try {
+                    events.collect { event -> progress.snapTo(1f - event.progress) }
+                    progress.animateTo(0f, GridlinkMotion.standard())
+                    openId = null
+                } catch (cancelled: CancellationException) {
+                    progress.animateTo(1f, GridlinkMotion.standard())
+                }
             }
         }
 
-        // Depth, in one draw pass: the destination darkens as it recedes, and the thread casts a
-        // shadow onto it from its leading edge. Both are read straight off the same value the slide
-        // uses, so a back drag scrubs them exactly as far as it scrubs the screen.
-        //
-        // 🔴 Not `colors.scrim`. That token is tuned for a modal sitting ON the app, and Day's is
-        // 50% of the same blue as the backdrop, which over the backdrop barely darkens anything. A
-        // layer moving AWAY has to lose light, so this is plain black, and the palette's own colour
-        // is the thing showing through it.
-        if (progress.value > 0f) {
-            val edgeShadow = colors.usesShadows
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .drawBehind {
-                        val fraction = progress.value
-                        drawRect(
-                            color = Color.Black,
-                            alpha = THREAD_RECEDE_SCRIM * fraction,
-                        )
-                        if (!edgeShadow) return@drawBehind
-                        // Tracks the thread's leading edge across the screen rather than sitting at
-                        // a fixed offset, so the shadow arrives with the screen instead of fading up
-                        // underneath it.
-                        val edge = size.width * (1f - fraction)
-                        val width = THREAD_EDGE_SHADOW.toPx()
-                        drawRect(
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = THREAD_EDGE_SHADOW_ALPHA * fraction),
-                                ),
-                                startX = edge - width,
-                                endX = edge,
-                            ),
-                            topLeft = Offset(edge - width, 0f),
-                            size = Size(width, size.height),
-                        )
-                    },
-            )
+        /** What the thread's action buttons do, wherever the thread is being drawn. */
+        val threadActions: (GridlinkMessage) -> (GridlinkThreadAction) -> Unit = { message ->
+            { action ->
+                when (action) {
+                    GridlinkThreadAction.REPLY -> composing = gridlinkReplyTo(message)
+                    GridlinkThreadAction.REPLY_ALL -> composing = gridlinkReplyAllTo(message)
+                    GridlinkThreadAction.FORWARD -> composing = gridlinkForward(message)
+
+                    // All three file the message and leave. ⚠️ They are the same code today and they
+                    // must not stay that way: archive moves it, spam moves it AND trains the filter, and
+                    // unsubscribe sends a request first. The list only knows how to make a row leave, so
+                    // that is all any of them can do until there is a server on the other end. What each
+                    // one is *supposed* to do is written down here so the difference is not lost.
+                    GridlinkThreadAction.ARCHIVE,
+                    GridlinkThreadAction.SPAM,
+                    GridlinkThreadAction.UNSUBSCRIBE,
+                    -> fileOpenThread(message.id)
+                }
+            }
         }
 
-        open?.let { message ->
+        // §7's reading pane, or null when the window is compact or the destination has no detail view.
+        // Folders, Calendar and Contacts stay full-width: each has a detail view worth building one day
+        // and none has one today, and a placeholder beside three screens that can never fill it would be
+        // three permanently empty halves of the display.
+        val readingPane: (@Composable () -> Unit)? =
+            if (twoPane && destination == GridlinkDestination.INBOX) {
+                {
+                    val message = open
+                    if (message == null) {
+                        GridlinkThreadPlaceholder()
+                    } else {
+                        GridlinkThreadScreen(
+                            message = message,
+                            // Never reached: the pane hides its back button. Wired anyway so the
+                            // parameter is not a lie if something else ever calls back into it.
+                            onBack = { openId = null },
+                            onAction = threadActions(message),
+                            embedded = true,
+                        )
+                    }
+                }
+            } else {
+                null
+            }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            // 🔴 The destination keeps composing under the thread rather than being swapped out. Same
+            // reason the composer is drawn over it: the list must come back with its scroll position,
+            // its selection and its swipe state intact, and it is also visible through the parallax the
+            // whole time the thread is arriving, so there is nothing to swap to.
             Box(
                 modifier = Modifier.graphicsLayer {
-                    translationX = size.width * (1f - progress.value)
+                    // Recedes a fraction of the distance the thread travels. Equal travel would read as
+                    // two screens on a conveyor; a slower back layer is what makes one look further away.
+                    //
+                    // 🔴 Zero in two panes, and NOT because the maths happens to cancel. It does not.
+                    // `progress` is pinned at 1 while a thread is open, so without this guard the whole
+                    // scaffold, both panes of it, would sit shoved a third of the window off the left
+                    // edge for as long as anything was being read.
+                    translationX =
+                        if (twoPane) 0f else -size.width * THREAD_PARALLAX * progress.value
                 },
             ) {
-                GridlinkThreadScreen(
-                    message = message,
-                    onBack = ::closeThread,
-                    onAction = { action ->
-                        when (action) {
-                            GridlinkThreadAction.REPLY ->
-                                composing = gridlinkReplyTo(message)
+                when (destination) {
+                    GridlinkDestination.INBOX -> GridlinkMessageListScreen(
+                        destination = destination,
+                        onSelectDestination = { destination = it },
+                        onCompose = { composing = GridlinkComposeRequest.Fresh },
+                        sidePane = readingPane,
+                        // Only in two panes. In one, the row that would be marked is underneath a
+                        // full-screen thread, and it would be marked for the benefit of nobody.
+                        currentId = if (twoPane) openId else null,
+                        onOpenMessage = { message ->
+                            openId = message.id
+                            // 🔴 No animation in two panes. The thread is not travelling anywhere, and
+                            // running the entrance would slide the reading pane in from off-screen every
+                            // time you tapped a different row in a list sitting right next to it.
+                            if (!twoPane) {
+                                scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
+                            }
+                        },
+                        initiallyExpanded = initiallyExpanded,
+                        initiallySelected = initiallySelected,
+                        initialSearchExpanded = initialSearchExpanded,
+                        initialSwipeId = initialSwipeId,
+                        initialSwipeFraction = initialSwipeFraction,
+                        demoRecycle = demoRecycle,
+                        initiallyEmpty = initiallyEmpty,
+                        loading = initiallyLoading,
+                        removeRequest = removeRequest,
+                    )
 
-                            GridlinkThreadAction.REPLY_ALL ->
-                                composing = gridlinkReplyAllTo(message)
+                    GridlinkDestination.FOLDERS -> GridlinkFolderScreen(
+                        destination = destination,
+                        onSelectDestination = { destination = it },
+                        onCompose = { composing = GridlinkComposeRequest.Fresh },
+                        initialActionFolderId = initialFolderActionId,
+                        initialStage = initialFolderStage,
+                        initialCreateUnder = initialCreateUnder,
+                    )
 
-                            GridlinkThreadAction.FORWARD ->
-                                composing = gridlinkForward(message)
+                    // Calendar and Contacts deliberately do NOT open the composer. Their compose button
+                    // is already a "+" that promises a new appointment or a new contact, and having it
+                    // write an email instead would be the app lying about what a button does.
+                    GridlinkDestination.CALENDAR -> GridlinkCalendarScreen(
+                        destination = destination,
+                        onSelectDestination = { destination = it },
+                        initialView = initialCalendarView,
+                    )
 
-                            // All three file the message and leave. ⚠️ They are the same code today
-                            // and they must not stay that way: archive moves it, spam moves it AND
-                            // trains the filter, and unsubscribe sends a request first. The list
-                            // only knows how to make a row leave, so that is all any of them can do
-                            // until there is a server on the other end. What each one is *supposed*
-                            // to do is written down here so the difference is not lost.
-                            GridlinkThreadAction.ARCHIVE,
-                            GridlinkThreadAction.SPAM,
-                            GridlinkThreadAction.UNSUBSCRIBE,
-                            -> fileOpenThread(message.id)
-                        }
-                    },
+                    GridlinkDestination.CONTACTS -> GridlinkContactsScreen(
+                        destination = destination,
+                        onSelectDestination = { destination = it },
+                        initialScrubLetter = initialScrubLetter,
+                    )
+                }
+            }
+
+            // Depth, in one draw pass: the destination darkens as it recedes, and the thread casts a
+            // shadow onto it from its leading edge. Both are read straight off the same value the slide
+            // uses, so a back drag scrubs them exactly as far as it scrubs the screen.
+            //
+            // 🔴 Not `colors.scrim`. That token is tuned for a modal sitting ON the app, and Day's is
+            // 50% of the same blue as the backdrop, which over the backdrop barely darkens anything. A
+            // layer moving AWAY has to lose light, so this is plain black, and the palette's own colour
+            // is the thing showing through it.
+            if (progress.value > 0f && !twoPane) {
+                val edgeShadow = colors.usesShadows
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .drawBehind {
+                            val fraction = progress.value
+                            drawRect(
+                                color = Color.Black,
+                                alpha = THREAD_RECEDE_SCRIM * fraction,
+                            )
+                            if (!edgeShadow) return@drawBehind
+                            // Tracks the thread's leading edge across the screen rather than sitting at
+                            // a fixed offset, so the shadow arrives with the screen instead of fading up
+                            // underneath it.
+                            val edge = size.width * (1f - fraction)
+                            val width = THREAD_EDGE_SHADOW.toPx()
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = THREAD_EDGE_SHADOW_ALPHA * fraction),
+                                    ),
+                                    startX = edge - width,
+                                    endX = edge,
+                                ),
+                                topLeft = Offset(edge - width, 0f),
+                                size = Size(width, size.height),
+                            )
+                        },
                 )
             }
-        }
 
-        composing?.let { request ->
-            GridlinkComposeScreen(
-                onClose = { composing = null },
-                onSend = ::sendWithUndo,
-                draft = request.draft,
-                initialFocus = request.focus,
-                initiallyScheduling = request.scheduling,
-            )
-        }
+            // The compact layout's thread: a screen drawn OVER the list. In two panes the same
+            // composable is inside the scaffold as [readingPane] instead, so this must not also render
+            // or the thread would be on screen twice, once beside the list and once on top of it.
+            if (!twoPane) {
+                open?.let { message ->
+                    Box(
+                        modifier = Modifier.graphicsLayer {
+                            translationX = size.width * (1f - progress.value)
+                        },
+                    ) {
+                        GridlinkThreadScreen(
+                            message = message,
+                            onBack = ::closeThread,
+                            onAction = threadActions(message),
+                        )
+                    }
+                }
+            }
 
-        // 🔴 Last, and therefore on top of everything including the composer. That ordering is not
-        // cosmetic: undo, and the composer comes back OVER the bar, which is exactly right because
-        // the bar has served its purpose and is on its way out. If this were declared above
-        // `composing` the reopened composer would appear underneath the countdown it just cancelled.
-        undoing?.let { send ->
-            GridlinkUndoBar(
-                send = send,
-                onUndo = {
-                    undoing = null
-                    composing = send.request
-                },
-                onExpire = { undoing = null },
-                frozenAt = initialUndoFrame?.remaining,
-            )
+            composing?.let { request ->
+                GridlinkComposeScreen(
+                    onClose = { composing = null },
+                    onSend = ::sendWithUndo,
+                    draft = request.draft,
+                    initialFocus = request.focus,
+                    initiallyScheduling = request.scheduling,
+                )
+            }
+
+            // 🔴 Last, and therefore on top of everything including the composer. That ordering is not
+            // cosmetic: undo, and the composer comes back OVER the bar, which is exactly right because
+            // the bar has served its purpose and is on its way out. If this were declared above
+            // `composing` the reopened composer would appear underneath the countdown it just cancelled.
+            undoing?.let { send ->
+                GridlinkUndoBar(
+                    send = send,
+                    onUndo = {
+                        undoing = null
+                        composing = send.request
+                    },
+                    onExpire = { undoing = null },
+                    frozenAt = initialUndoFrame?.remaining,
+                )
+            }
         }
     }
 }

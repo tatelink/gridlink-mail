@@ -72,12 +72,42 @@ private const val MARK_GRID_ALPHA = 0.06f
  */
 private const val MARK_BLOOM_RADIUS = 14.5f
 
+/** Where the bloom is centred, in mark units: the hot node's own centre, 32 + 16/2. */
+private const val MARK_BLOOM_CENTRE = 40f
+
 /** How much brighter and wider the bloom runs at full [GridlinkMark] glow. See the parameter's doc. */
 private const val MARK_BLOOM_GLOW_GAIN = 0.45f
 private const val MARK_BLOOM_GLOW_SPREAD = 0.30f
 
 /** Default drawn size. Large enough that the grid and the hairlines survive; smaller loses both. */
 val GRIDLINK_MARK_SIZE = 96.dp
+
+/**
+ * How far the bloom spills past the mark's own box, for callers that have to reserve room for it.
+ *
+ * The bloom is centred on the node at [MARK_BLOOM_CENTRE] and carries [MARK_BLOOM_RADIUS] outward, so
+ * it reaches unit 54.5 at rest inside a box that is only [MARK_UNITS] wide. It overhangs the right and
+ * bottom edges on purpose (that is what light does) and [Canvas] does not clip, so ordinarily nothing
+ * notices and nobody needs this function.
+ *
+ * ## 🔴 It becomes load-bearing the moment the mark goes inside a layer
+ * `Modifier.graphicsLayer { alpha = ... }` allocates an offscreen buffer sized to the **layout node**,
+ * and anything drawn outside that buffer is cut off square. Compose's `clip = false` does not save
+ * you: the clip comes from the alpha compositing pass, not from `clipToBounds`. §7's reading-pane
+ * placeholder shipped exactly that bug, a halo ending in a visible hard corner, and it is invisible
+ * until someone looks at the artwork rather than the layout.
+ *
+ * So a caller that composites the mark pads it by this much *inside* the layer, and then takes the
+ * same amount back out of whatever gap follows, because the padding is empty space the layout would
+ * otherwise treat as part of the mark.
+ *
+ * @param glow the same value being passed to [GridlinkMark]. A lit node's bloom is wider, so a caller
+ *   fading a glowing mark needs more room than one fading a mark at rest.
+ */
+fun gridlinkMarkBloomOverflow(size: Dp = GRIDLINK_MARK_SIZE, glow: Float = 0f): Dp {
+    val reach = MARK_BLOOM_CENTRE + MARK_BLOOM_RADIUS * (1f + MARK_BLOOM_GLOW_SPREAD * glow.coerceIn(0f, 1f))
+    return size * ((reach - MARK_UNITS) / MARK_UNITS).coerceAtLeast(0f)
+}
 
 /**
  * One variant's worth of colour. Everything structural is shared, so this is the entire difference
@@ -203,7 +233,7 @@ private fun DrawScope.drawGrid(palette: GridlinkMarkPalette, unit: Float) {
  */
 private fun DrawScope.drawBloom(palette: GridlinkMarkPalette, unit: Float, lit: Float) {
     val bloom = palette.bloom
-    val centre = Offset(40f * unit, 40f * unit)
+    val centre = Offset(MARK_BLOOM_CENTRE * unit, MARK_BLOOM_CENTRE * unit)
     val radius = MARK_BLOOM_RADIUS * unit * (1f + MARK_BLOOM_GLOW_SPREAD * lit)
     val gain = 1f + MARK_BLOOM_GLOW_GAIN * lit
     drawCircle(

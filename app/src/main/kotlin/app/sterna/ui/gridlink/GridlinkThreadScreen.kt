@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -96,6 +97,18 @@ fun GridlinkThreadScreen(
     onAction: (GridlinkThreadAction) -> Unit,
     modifier: Modifier = Modifier,
     initiallyConfirmingUnsubscribe: Boolean = false,
+    /**
+     * True when this is §7's reading pane rather than a screen over the list.
+     *
+     * Three things change, and all three are consequences of the same fact: something else already
+     * owns the window. The backdrop is not painted again (the scaffold painted one across both
+     * panes), the system-bar inset is not taken again (the scaffold's Row took it), and there is no
+     * back button (the list it would go back to is on screen, six inches to the left).
+     *
+     * ⚠️ It is NOT a different screen. Everything below the header is the identical composable at
+     * identical metrics, which is what stops the fork's two reading experiences from drifting.
+     */
+    embedded: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     val panelShape = RoundedCornerShape(GridlinkRadii.card)
@@ -103,21 +116,28 @@ fun GridlinkThreadScreen(
         mutableStateOf(initiallyConfirmingUnsubscribe)
     }
 
-    GridlinkBackground(
-        // 🔴 Swallows every touch that nothing inside handled. This screen is drawn OVER the message
-        // list rather than replacing it, and Compose hit-testing walks every sibling under the
-        // pointer, so a tap on a dead area of the thread used to land on whatever the list had in
-        // the same place. That is not theoretical: the bottom-right of the thread's action pill sits
-        // exactly over the list's Compose button, so tapping Archive opened the composer. Children
-        // still win, because the main pass runs bottom-up and this only sees what they ignored.
-        modifier = modifier.pointerInput(Unit) { detectTapGestures { } },
-    ) {
+    val body: @Composable () -> Unit = {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.systemBars),
+            modifier = if (embedded) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)
+            },
         ) {
-            GridlinkThreadHeader(subject = message.subject, onBack = onBack)
+            GridlinkThreadHeader(
+                subject = message.subject,
+                onBack = onBack,
+                // 🔴 The back button goes, and the space it occupied does NOT collapse to zero. The
+                // thread header keeps the same height either way so the reading pane's glass panel
+                // starts on the same line as the list's, and Tate reads a layout by whether its
+                // edges line up. See [GridlinkThreadHeader].
+                showBack = !embedded,
+                // With no chrome row above it, the standing thread screen spends 40 here to hold the
+                // top of the window open. The pane sits under the scaffold's chrome row, which has
+                // already spent it, so it drops to the same 16 [GridlinkHeader] uses for exactly the
+                // same reason.
+                topPadding = if (embedded) GridlinkSpacing.s16 else GridlinkSpacing.s40,
+            )
 
             Box(
                 modifier = Modifier
@@ -200,6 +220,26 @@ fun GridlinkThreadScreen(
         }
     }
 
+    if (embedded) {
+        // No backdrop and no touch-swallowing. Both exist for a screen sitting ON the list; a pane
+        // sitting BESIDE it has the scaffold's single backdrop underneath it and no sibling behind
+        // it to leak taps into.
+        Box(modifier = modifier) { body() }
+    } else {
+        GridlinkBackground(
+            // 🔴 Swallows every touch that nothing inside handled. This screen is drawn OVER the
+            // message list rather than replacing it, and Compose hit-testing walks every sibling
+            // under the pointer, so a tap on a dead area of the thread used to land on whatever the
+            // list had in the same place. That is not theoretical: the bottom-right of the thread's
+            // action pill sits exactly over the list's Compose button, so tapping Archive opened the
+            // composer. Children still win, because the main pass runs bottom-up and this only sees
+            // what they ignored.
+            modifier = modifier.pointerInput(Unit) { detectTapGestures { } },
+        ) {
+            body()
+        }
+    }
+
     if (confirmingUnsubscribe) {
         GridlinkDialog(
             title = "Unsubscribe from ${message.sender}?",
@@ -240,24 +280,44 @@ private fun GridlinkThreadHeader(
     subject: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    showBack: Boolean = true,
+    topPadding: Dp = GridlinkSpacing.s40,
 ) {
     val colors = GridlinkTheme.colors
+    // 🔴 A floor, not a height. §7's reading pane has no back button, and a subject that happens to
+    // fit on one line would otherwise make that header shorter than the list header beside it and
+    // start the two glass panels on different lines. Two floors, whichever is taller:
+    //
+    //  - the circle button's own size, so dropping the back control never shrinks the header;
+    //  - the list header's MEASURED height, which is the one that actually matters, because the two
+    //    headers hold different things and there is no arithmetic that makes them agree. Zero
+    //    outside the two-pane layout, and zero for the first frame inside it. See
+    //    [LocalGridlinkPaneHeaderHeight].
+    //
+    // A subject long enough to wrap past the floor is left alone. At that point the reading pane's
+    // panel starts lower than the list's and that is honest: the alternative is truncating a subject
+    // to protect an edge, and the subject is the content.
+    val ownFloor = GridlinkDimens.headerControl + topPadding + GridlinkSpacing.s20
+    val paneFloor = LocalGridlinkPaneHeaderHeight.current
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .heightIn(min = maxOf(ownFloor, paneFloor))
             .padding(
                 start = GridlinkSpacing.chrome,
                 end = GridlinkSpacing.chrome,
-                top = GridlinkSpacing.s40,
+                top = topPadding,
                 bottom = GridlinkSpacing.s20,
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GridlinkThreadCircleButton(
-            icon = Icons.AutoMirrored.Outlined.ArrowBack,
-            label = "Back to the message list",
-            onClick = onBack,
-        )
+        if (showBack) {
+            GridlinkThreadCircleButton(
+                icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                label = "Back to the message list",
+                onClick = onBack,
+            )
+        }
         Text(
             text = subject,
             style = GridlinkType.threadTitle,
@@ -266,7 +326,9 @@ private fun GridlinkThreadHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .weight(1f)
-                .padding(start = GridlinkSpacing.s16),
+                // The gap belongs to the button, so it goes when the button does. Kept, it would
+                // indent the subject past the panel's leading edge for no reason the eye can name.
+                .padding(start = if (showBack) GridlinkSpacing.s16 else 0.dp),
         )
     }
 }
