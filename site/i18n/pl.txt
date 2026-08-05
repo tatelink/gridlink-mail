@@ -23,7 +23,7 @@ jmap_old_label = IMAP: jedna wymiana na folder, przy każdym sprawdzeniu
 jmap_new_label = JMAP: jedno zapytanie, wszystko co się zmieniło
 
 promises_kicker = Gwarancje
-promises_title = Co robi i czego nigdy nie zrobi
+promises_title = Co robi i czego nie robi
 promise_1_title = Bez Google, bez FCM
 promise_1_body = Nowe wiadomości trafiają z twojego własnego serwera prosto na telefon przez JMAP EventSource, IMAP IDLE lub UnifiedPush. Usługi Play nigdy nie są potrzebne.
 promise_2_title = Nikt cię nie obserwuje

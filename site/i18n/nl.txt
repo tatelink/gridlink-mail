@@ -23,7 +23,7 @@ jmap_old_label = IMAP: één heen en weer per map, bij elke controle
 jmap_new_label = JMAP: één verzoek, alles wat veranderd is
 
 promises_kicker = Garanties
-promises_title = Wat de app doet, en wat ze nooit zal doen
+promises_title = Wat de app doet, en wat ze niet doet
 promise_1_title = Geen Google, geen FCM
 promise_1_body = Nieuwe post komt rechtstreeks van je eigen server naar je telefoon, via JMAP EventSource, IMAP IDLE of UnifiedPush. Play-services zijn nooit nodig.
 promise_2_title = Niemand kijkt mee

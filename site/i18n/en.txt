@@ -32,7 +32,7 @@ jmap_old_label = IMAP: one round trip per folder, on every check
 jmap_new_label = JMAP: one request, everything that changed
 
 promises_kicker = Guarantees
-promises_title = What it does, and what it will never do
+promises_title = What it does, and what it doesn't
 promise_1_title = No Google, no FCM
 promise_1_body = New mail is pushed from your own server to your phone over JMAP EventSource, IMAP IDLE or UnifiedPush. Play Services are never required.
 promise_2_title = Nothing watches you

@@ -23,7 +23,7 @@ jmap_old_label = IMAP: по одному обмену на каждую папк
 jmap_new_label = JMAP: один запрос и всё, что изменилось
 
 promises_kicker = Обещания
-promises_title = Что приложение делает и чего не сделает никогда
+promises_title = Что приложение делает и чего не делает
 promise_1_title = Без Google и FCM
 promise_1_body = Новые письма приходят с вашего собственного сервера прямо на телефон через JMAP EventSource, IMAP IDLE или UnifiedPush. Сервисы Play не нужны никогда.
 promise_2_title = За вами никто не наблюдает
