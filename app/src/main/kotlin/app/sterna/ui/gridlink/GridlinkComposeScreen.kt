@@ -135,6 +135,16 @@ fun GridlinkComposeScreen(
     draft: GridlinkComposeDraft = GridlinkComposeDraft.Fresh,
     initialFocus: GridlinkComposeField = GridlinkComposeField.TO,
     initiallyScheduling: Boolean = false,
+    /**
+     * Why the last send attempt did not happen, from [GridlinkSender.check], or null.
+     *
+     * 🔴 Shown HERE, on the composer, and that placement is the point. A refusal has to reach the
+     * user while the draft that caused it is still in front of them and still editable — the whole
+     * reason [GridlinkSender.check] is synchronous. Reporting it after the composer closed would
+     * leave the message recoverable only through the undo bar, which is the one control on screen
+     * that means the opposite of "this did not send".
+     */
+    error: String? = null,
 ) {
     val colors = GridlinkTheme.colors
     var focused by remember(draft) { mutableStateOf(initialFocus) }
@@ -211,17 +221,46 @@ fun GridlinkComposeScreen(
         }
     }
 
-    /** What was actually on screen when send was tapped, edits and all. */
-    fun sendRequest() = GridlinkComposeRequest(
-        draft = draft.copy(
-            recipients = recipients,
-            recipientQuery = query.text,
-            subject = subject.text,
-            body = body.text,
-            attachments = attachments,
-        ),
-        focus = focused,
-    )
+    /** Turn whatever is half-typed in TO into a recipient, if it is an address. Returns true if so. */
+    fun commitTypedRecipient(): Boolean {
+        val typed = gridlinkTypedRecipient(query.text) ?: return false
+        // Silently idempotent rather than adding a duplicate chip: committing on space and then
+        // again on the send tap is the ordinary path, not an error worth telling anyone about.
+        if (recipients.none { it.email.equals(typed.email, ignoreCase = true) }) {
+            recipients = recipients + typed
+        }
+        query = TextFieldValue()
+        return true
+    }
+
+    /**
+     * What was actually on screen when send was tapped, edits and all.
+     *
+     * 🔴 Folds a half-typed address in TO into the recipients first. Typing an address and hitting
+     * send without pressing space is the single most ordinary way to send a message, and before
+     * this the query was carried along as `recipientQuery` and quietly dropped by everything
+     * downstream: the send went out to whoever was already chipped, or was refused as having no
+     * recipient, with the address still legible on screen. A field that visibly contains the
+     * address it is about to ignore is worse than an empty one.
+     */
+    fun sendRequest(): GridlinkComposeRequest {
+        val typed = gridlinkTypedRecipient(query.text)
+        val outgoing = when {
+            typed == null -> recipients
+            recipients.any { it.email.equals(typed.email, ignoreCase = true) } -> recipients
+            else -> recipients + typed
+        }
+        return GridlinkComposeRequest(
+            draft = draft.copy(
+                recipients = outgoing,
+                recipientQuery = if (typed == null) query.text else "",
+                subject = subject.text,
+                body = body.text,
+                attachments = attachments,
+            ),
+            focus = focused,
+        )
+    }
 
     BackHandler(enabled = true) {
         when {
@@ -292,6 +331,29 @@ fun GridlinkComposeScreen(
                 },
             )
 
+            // Why the send did not happen, above the form it is about.
+            //
+            // ⚠️ `caution` is right here and was wrong for the folder dialogs, which is worth saying
+            // out loud because [GridlinkFolderScreen]'s validation was deliberately moved OFF amber
+            // onto `textSecondary`. Amber is reserved for a destructive act being staged. A rename
+            // colliding with an existing name is a form not yet valid; mail that the user believes
+            // has gone and has not is a different order of thing, and it is the one case in this app
+            // where nothing was destroyed but something was still lost.
+            error?.let { reason ->
+                Text(
+                    text = reason,
+                    style = GridlinkType.metadata,
+                    color = colors.caution,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = GridlinkSpacing.chrome + GridlinkSpacing.rowHorizontal,
+                            end = GridlinkSpacing.chrome + GridlinkSpacing.rowHorizontal,
+                            bottom = GridlinkSpacing.s12,
+                        ),
+                )
+            }
+
             val panelShape = RoundedCornerShape(GridlinkRadii.card)
             Box(
                 modifier = Modifier
@@ -322,18 +384,55 @@ fun GridlinkComposeScreen(
                     GridlinkRecipientField(
                         recipients = recipients,
                         query = query,
-                        onQueryChange = { query = it },
+                        // 🔴 Space and comma end an address, the way they do in every mail client.
+                        // Without this the only way to add anyone was tapping a suggestion, and the
+                        // suggestions come only from the sample address book — so the composer could
+                        // not be given a real recipient at all, which made a working send button
+                        // meaningless. Checked on the SEPARATOR rather than on every keystroke so a
+                        // half-typed `b@gr` is never eagerly chipped out from under the caret.
+                        onQueryChange = { next ->
+                            val ends = next.text.lastOrNull()
+                            if (ends == ' ' || ends == ',') {
+                                val typed = gridlinkTypedRecipient(next.text.dropLast(1))
+                                if (typed != null) {
+                                    if (recipients.none { it.email.equals(typed.email, ignoreCase = true) }) {
+                                        recipients = recipients + typed
+                                    }
+                                    query = TextFieldValue()
+                                } else {
+                                    // Not an address yet. Keep the separator: the user may be typing
+                                    // a name to search for, and swallowing their space would make
+                                    // the field feel broken for the commoner of the two uses.
+                                    query = next
+                                }
+                            } else {
+                                query = next
+                            }
+                        },
                         focusRequester = toFocus,
                         onFocused = { focused = GridlinkComposeField.TO },
                         // Next rather than Done: TO is the first of three fields and the keyboard's
                         // action key should walk the form, not close it.
-                        onNext = { subjectFocus.requestFocus() },
+                        //
+                        // ⚠️ Unless there is an address sitting uncommitted, in which case Next
+                        // chips it and stays put. Same reasoning as tapping a suggestion, which also
+                        // keeps the caret in TO: picking one recipient is how you start picking a
+                        // second, and walking to SUBJECT here would make two recipients a four-tap job.
+                        onNext = { if (!commitTypedRecipient()) subjectFocus.requestFocus() },
                         onRemove = { gone -> recipients = recipients.filterNot { it.id == gone.id } },
                     )
                     // Suggestions live inside the field's own block, above the divider that closes
                     // it, because they are part of answering "who" and not a separate section. The
                     // divider under them is therefore the field's divider, arriving later.
-                    val suggestions = gridlinkRecipientSuggestions(query.text, recipients)
+                    // 🔴 From the book, not from [GridlinkSampleContacts] directly, so somebody
+                    // added through the "+" on the address book can be written to in the same
+                    // session. A contact you can see in the A-Z list and cannot address is worse
+                    // than not being able to add one at all.
+                    val suggestions = gridlinkRecipientSuggestions(
+                        query = query.text,
+                        people = LocalGridlinkBook.current.contacts,
+                        already = recipients,
+                    )
                     suggestions.forEach { contact ->
                         GridlinkSuggestionRow(
                             contact = contact,
@@ -347,9 +446,25 @@ fun GridlinkComposeScreen(
                             },
                         )
                     }
-                    GridlinkComposeDivider()
+                    // The typed address, offered as its own row. Space and Next already commit it,
+                    // but neither is discoverable, and this is the row that tells a first-time user
+                    // the field takes addresses at all rather than only the names it suggests.
+                    //
+                    // ⚠️ Shown only when it is not already chipped, so it does not sit there inviting
+                    // a tap that would do nothing.
+                    gridlinkTypedRecipient(query.text)
+                        ?.takeIf { typed ->
+                            recipients.none { it.email.equals(typed.email, ignoreCase = true) }
+                        }
+                        ?.let { typed ->
+                            GridlinkTypedRecipientRow(
+                                address = typed.email,
+                                onClick = { commitTypedRecipient() },
+                            )
+                        }
+                    GridlinkFormDivider()
 
-                    GridlinkComposeTextRow(
+                    GridlinkFormTextRow(
                         value = subject,
                         onValueChange = { subject = it },
                         // 🔴 The caps label IS the placeholder here, and there is no separate label
@@ -368,9 +483,9 @@ fun GridlinkComposeScreen(
                         imeAction = ImeAction.Next,
                         onImeAction = { bodyFocus.requestFocus() },
                     )
-                    GridlinkComposeDivider()
+                    GridlinkFormDivider()
 
-                    GridlinkComposeTextRow(
+                    GridlinkFormTextRow(
                         value = body,
                         onValueChange = { body = it },
                         // Sentence case, unlike the two fields above it. Those labels name a slot in
@@ -574,12 +689,13 @@ private const val IME_SETTLE_MS = 400L
  */
 private fun gridlinkRecipientSuggestions(
     query: String,
+    people: List<GridlinkContact>,
     already: List<GridlinkContact>,
 ): List<GridlinkContact> {
     val needle = query.trim().lowercase()
     if (needle.isEmpty()) return emptyList()
     val taken = already.map { it.id }.toSet()
-    return GridlinkSampleContacts.all
+    return people
         .asSequence()
         .filterNot { it.id in taken }
         .filter { contact ->
@@ -589,6 +705,95 @@ private fun gridlinkRecipientSuggestions(
         }
         .take(SUGGESTION_LIMIT)
         .toList()
+}
+
+/**
+ * A recipient the user typed, rather than one picked out of the address book, or null if [text] is
+ * not an address.
+ *
+ * ## 🔴 The id is what keeps the send guard honest
+ * `typed:` prefixed, so it can never equal a [GridlinkSampleContacts] id. That is the whole basis of
+ * [GridlinkSampleContacts.isSample], which is what stands between the demo address book and a live
+ * outbox. Someone typing a sample person's address by hand is deliberately NOT re-identified as that
+ * contact: they typed it, they meant it, and it goes out.
+ *
+ * Rendered as an organisation ([given] empty) so [GridlinkContact.displayName] is the address
+ * itself. A typed address has no name to show, and inventing one from the local part would put
+ * "M Bell" on a chip for `m.bell@` while the address book's Marcus Bell sits elsewhere in the same
+ * field looking like a different person.
+ */
+fun gridlinkTypedRecipient(text: String): GridlinkContact? {
+    val address = text.trim().trim(',').trim()
+    if (!GRIDLINK_ADDRESS.matches(address)) return null
+    return GridlinkContact(
+        id = "typed:${address.lowercase()}",
+        given = "",
+        family = address,
+        role = "",
+        email = address,
+    )
+}
+
+/**
+ * Deliberately loose: one `@`, something either side, a dot in the domain, no whitespace.
+ *
+ * ⚠️ Not RFC 5322. A full parser rejects addresses that work and accepts ones that do not, and the
+ * authority on whether an address is deliverable is the server, which will say so through the outbox
+ * either way. This is only strict enough that a name being typed into the search field ("marcus")
+ * is not offered as an address, which is the one confusion the field can actually cause.
+ */
+private val GRIDLINK_ADDRESS = Regex("""[^\s@,]+@[^\s@,.]+(\.[^\s@,.]+)+""")
+
+/** The "use what you typed" row under the suggestions. */
+@Composable
+private fun GridlinkTypedRecipientRow(
+    address: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    val mode = GridlinkTheme.mode
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(GridlinkDimens.compactRow)
+            .clickable(onClick = onClick),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(GridlinkDimens.senderBarWidth)
+                .fillMaxHeight()
+                // Coloured off the typed domain exactly as a suggestion is, so an address you type
+                // and the same address arriving as mail carry one identity colour.
+                .background(gridlinkSenderBarColor(mode, address.substringAfter('@'))),
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = GridlinkSpacing.rowHorizontal + GridlinkDimens.senderBarWidth,
+                    end = GridlinkSpacing.rowHorizontal,
+                ),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = address,
+                style = GridlinkType.senderName,
+                color = colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                // States the fact rather than the instruction. "Use this address" would be a second
+                // way of saying what a tappable row already says; "not in your contacts" is the bit
+                // the user cannot see for themselves, and it explains why no suggestion matched.
+                text = "Not in your contacts",
+                style = GridlinkType.metadata,
+                color = colors.textSecondary,
+                maxLines = 1,
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -642,39 +847,9 @@ private fun GridlinkComposeHeader(
     }
 }
 
-/**
- * A bordered glyph circle: close, attach. The quiet counterpart to the accent-filled send.
- *
- * Hairline and a transparent middle, so it reads as chrome rather than as a second action competing
- * with the one that is actually filled. 🔴 Not a dimmed accent circle: the app's standing rule is
- * that alpha never encodes state, and an accent circle at 40% is exactly that.
- */
-@Composable
-private fun GridlinkCircleButton(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    size: Dp = GridlinkDimens.headerControl,
-) {
-    val colors = GridlinkTheme.colors
-    Box(
-        modifier = modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(colors.surface, CircleShape)
-            .border(GridlinkDimens.hairline, colors.surfaceBorder, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = colors.textPrimary,
-            modifier = Modifier.size(20.dp),
-        )
-    }
-}
+// GridlinkCircleButton, the bordered glyph circle behind close and attach, moved to
+// [GridlinkForm.kt] when the new-event and new-contact forms needed the same close button. Nothing
+// about it was composer-specific; leaving a private copy here would have meant two of them drifting.
 
 /**
  * Send.
@@ -744,16 +919,9 @@ private fun GridlinkAttachButton(onClick: () -> Unit, modifier: Modifier = Modif
 // Fields
 // ---------------------------------------------------------------------------------------------
 
-/** The hairline between one field and the next. Same rule as the list: separate, never gap. */
-@Composable
-private fun GridlinkComposeDivider() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(GridlinkDimens.hairline)
-            .background(GridlinkTheme.colors.divider),
-    )
-}
+// The field hairline and the placeholder-behind-the-editor row both moved to [GridlinkForm.kt] as
+// GridlinkFormDivider and GridlinkFormTextRow, so the two new-item forms build their fields out of
+// the same parts this screen does rather than out of copies of them.
 
 /**
  * TO: a persistent caps label, the recipients already resolved, and the caret.
@@ -979,81 +1147,6 @@ private fun gridlinkHighlight(text: String, match: String, accent: Color) = buil
         }
         cursor = hit + needle.length
     }
-}
-
-/**
- * SUBJECT and the body: a real editor, with a placeholder standing behind it while it is empty.
- *
- * One composable for both because the only differences are the placeholder's wording, its type
- * style, how tall the row is when empty, and whether the return key breaks a line. Splitting them
- * would duplicate the decoration box twice over for the sake of four arguments.
- *
- * ## 🔴 The placeholder is drawn BEHIND the field, not instead of it
- * The obvious shape is `if (value.text.isEmpty()) Text(placeholder) else BasicTextField(...)`, and it
- * breaks on the first character typed: the composable that had focus is replaced by a different one,
- * focus dies with it, and the keyboard closes after exactly one letter. Drawing both in the same
- * [decorationBox] means the editor is composed once and never swapped, and the placeholder is just
- * something painted under it when there is nothing to cover it. Same trick as the search pill.
- */
-@Composable
-private fun GridlinkComposeTextRow(
-    value: TextFieldValue,
-    onValueChange: (TextFieldValue) -> Unit,
-    placeholder: String,
-    placeholderStyle: TextStyle,
-    style: TextStyle,
-    focusRequester: FocusRequester,
-    onFocused: () -> Unit,
-    singleLine: Boolean,
-    capitalization: KeyboardCapitalization,
-    imeAction: ImeAction,
-    onImeAction: (() -> Unit)?,
-    modifier: Modifier = Modifier,
-    minHeight: Dp = 0.dp,
-) {
-    val colors = GridlinkTheme.colors
-    BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
-        singleLine = singleLine,
-        textStyle = style.copy(color = colors.textPrimary),
-        cursorBrush = SolidColor(colors.accent),
-        keyboardOptions = KeyboardOptions(capitalization = capitalization, imeAction = imeAction),
-        keyboardActions = KeyboardActions(
-            // One handler covers whichever action this row asked for. [KeyboardActions] dispatches by
-            // the action the options declared, so wiring `onAny` avoids a when-block that would have
-            // to be kept in step with [imeAction] by hand.
-            onAny = { onImeAction?.invoke() },
-        ),
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = minHeight)
-            .focusRequester(focusRequester)
-            .onFocusChanged { if (it.isFocused) onFocused() },
-        // 🔴 The row's padding lives in here and NOT in the modifier chain above. Everything passed
-        // in `modifier` sits outside the field's own pointer handling, so padding there would shrink
-        // what is tappable to the text itself: the body row would be 96dp tall with a 16dp dead band
-        // at the top and bottom, and tapping the empty space below a one-line message would do
-        // nothing. Inside the decoration box the padding is drawn by the field, so the whole row
-        // takes the tap.
-        decorationBox = { field ->
-            Box(
-                modifier = Modifier.padding(
-                    horizontal = GridlinkSpacing.rowHorizontal,
-                    vertical = GridlinkSpacing.s16,
-                ),
-            ) {
-                if (value.text.isEmpty()) {
-                    Text(
-                        text = placeholder,
-                        style = placeholderStyle,
-                        color = colors.textSecondary,
-                    )
-                }
-                field()
-            }
-        },
-    )
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -103,8 +103,9 @@ fun GridlinkEventScreen(
     // What else is on that date. Real, derivable, and the one piece of context an appointment always
     // has: an internal event with no location says nothing about anybody, but "what else am I doing
     // that day" is the question you open a calendar entry with.
-    val sameDay = remember(event.id) {
-        GridlinkSampleTree.eventsOn(event.date).filter { it.id != event.id }
+    val book = LocalGridlinkBook.current
+    val sameDay = remember(event.id, book) {
+        book.eventsOn(event.date).filter { it.id != event.id }
     }
 
     GridlinkDetailFrame(

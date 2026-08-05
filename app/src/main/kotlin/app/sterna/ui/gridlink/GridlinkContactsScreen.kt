@@ -98,7 +98,8 @@ fun GridlinkContactsScreen(
      */
     currentId: String? = null,
 ) {
-    val sections = GridlinkSampleContacts.sections
+    val book = LocalGridlinkBook.current
+    val sections = book.sections
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -137,7 +138,7 @@ fun GridlinkContactsScreen(
                 unread = 0,
                 // Same reasoning as the folder tree's "N mailboxes": the second line summarises the
                 // screen, and a phonebook's summary is how many entries are in it.
-                subline = "${GridlinkSampleContacts.all.size} people and teams",
+                subline = "${book.contacts.size} people and teams",
             )
         },
     ) {

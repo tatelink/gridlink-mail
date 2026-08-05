@@ -51,9 +51,14 @@ import kotlinx.coroutines.launch
  * Ten seconds, from §6c. Long enough to catch the "wait, wrong Marcus" that arrives about a second
  * after your thumb leaves the button, short enough that nobody is left wondering whether their mail
  * is stuck.
+ *
+ * 🔴 Public, and [GridlinkOutboxSender] passes it to the outbox as the hold. The ring and the hold
+ * are one number seen from two ends: shorten the hold and the message leaves while the bar still
+ * offers to stop it, lengthen it and the mail stays recallable after the offer is gone. Neither
+ * failure shows up on screen, which is exactly why they must not be two constants.
  */
-private const val UNDO_WINDOW_MS = 10_000L
-private const val UNDO_WINDOW_NANOS = UNDO_WINDOW_MS * 1_000_000L
+const val GRIDLINK_UNDO_WINDOW_MS = 10_000L
+private const val UNDO_WINDOW_NANOS = GRIDLINK_UNDO_WINDOW_MS * 1_000_000L
 
 /** Thickness of the countdown ring, and how far it is inset inside the control's touch target. */
 private val RING_STROKE = 3.dp

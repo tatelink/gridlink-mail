@@ -93,7 +93,16 @@ fun GridlinkCalendarScreen(
      * screen. Two halves of one screen disagreeing about the date is worse than either half alone.
      */
     initialDate: LocalDate? = null,
-    onCompose: () -> Unit = {},
+    /**
+     * The "+", which on this screen adds an appointment rather than writing an email.
+     *
+     * 🔴 Takes the day the user is looking at, not today. Opening the form on today while the grid
+     * shows September means every event added from a month you paged to lands in July unless you
+     * notice and change it, and the one thing a calendar's "+" must get right is which day it meant.
+     * In the month view that is the SELECTED day (the one whose events are listed underneath); in the
+     * others it is the anchor, which is the first day of what is on screen.
+     */
+    onNewEvent: (LocalDate) -> Unit = {},
     /** Opening an appointment. See [GridlinkEventScreen]. */
     onOpenEvent: (GridlinkEvent) -> Unit = {},
     /**
@@ -132,15 +141,21 @@ fun GridlinkCalendarScreen(
     val range = remember(view, anchor, today) {
         if (view == GridlinkCalendarView.AGENDA) view.rangeAround(today) else view.rangeAround(anchor)
     }
-    val inRange = remember(range) {
-        GridlinkSampleTree.events.filter { it.date >= range.first && it.date <= range.second }
+    // 🔴 The book, not [GridlinkSampleTree], and `book` is a remember KEY rather than only a source.
+    // Without it here the filtered list is cached against the range alone, so an event saved onto the
+    // month you are already looking at would not appear until you paged away and back.
+    val book = LocalGridlinkBook.current
+    val inRange = remember(range, book) {
+        book.events.filter { it.date >= range.first && it.date <= range.second }
     }
 
     GridlinkScaffold(
         modifier = modifier,
         destination = destination,
         onSelectDestination = onSelectDestination,
-        onCompose = onCompose,
+        onCompose = {
+            onNewEvent(if (view == GridlinkCalendarView.MONTH) selectedDate else anchor)
+        },
         sidePane = sidePane,
         header = {
             GridlinkHeader(
@@ -223,17 +238,24 @@ enum class GridlinkCalendarView(val label: String) {
     AGENDA("Agenda"),
 }
 
-private val MONTH_TITLE = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)
+/** Internal so [GridlinkDatePickerSheet]'s grid heads its month the same way this screen does. */
+internal val MONTH_TITLE: DateTimeFormatter = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)
 private val RANGE_SAME_MONTH = DateTimeFormatter.ofPattern("d", Locale.US)
 private val RANGE_END = DateTimeFormatter.ofPattern("d MMM", Locale.US)
 private val AGENDA_DAY = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.US)
 private val COLUMN_DAY = DateTimeFormatter.ofPattern("EEE", Locale.US)
 
-/** 🔴 Sunday-first. Brandon is US; a Monday-first grid puts the weekend in two different places. */
-private val WEEKDAY_INITIALS = listOf("S", "M", "T", "W", "T", "F", "S")
+/**
+ * 🔴 Sunday-first. Brandon is US; a Monday-first grid puts the weekend in two different places.
+ *
+ * Internal, along with [sundayIndex], because the date picker draws a month grid too and a picker
+ * whose columns were offset by one from the calendar behind it would be a genuinely disorienting bug:
+ * both grids are on screen at once.
+ */
+internal val WEEKDAY_INITIALS = listOf("S", "M", "T", "W", "T", "F", "S")
 
-/** How many days back from [date] to the Sunday that starts its week. */
-private fun LocalDate.sundayIndex(): Int = dayOfWeek.value % 7
+/** How many days back from this date to the Sunday that starts its week. */
+internal fun LocalDate.sundayIndex(): Int = dayOfWeek.value % 7
 
 private fun GridlinkCalendarView.rangeAround(anchor: LocalDate): Pair<LocalDate, LocalDate> =
     when (this) {
@@ -298,7 +320,7 @@ internal fun LocalTime.compact(): String {
 /** Header step control. Deliberately not an M3 IconButton: those come with a 48dp ripple that does
  *  not fit beside a screen title, and the app has no other filled icon buttons to match. */
 @Composable
-private fun GridlinkStepButton(forward: Boolean, onClick: () -> Unit) {
+internal fun GridlinkStepButton(forward: Boolean, onClick: () -> Unit) {
     val colors = GridlinkTheme.colors
     Box(
         modifier = Modifier
@@ -428,7 +450,8 @@ private fun GridlinkMonthView(
     forceSplit: Boolean?,
 ) {
     val colors = GridlinkTheme.colors
-    val selectedEvents = remember(selected) { GridlinkSampleTree.eventsOn(selected) }
+    val book = LocalGridlinkBook.current
+    val selectedEvents = remember(selected, book) { book.eventsOn(selected) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val split = forceSplit ?: (maxWidth >= MONTH_SPLIT_WIDTH)
@@ -516,6 +539,7 @@ private fun GridlinkMonthGrid(
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
+    val book = LocalGridlinkBook.current
     val firstCell = remember(month) {
         val first = month.atDay(1)
         first.minusDays(first.sundayIndex().toLong())
@@ -554,7 +578,7 @@ private fun GridlinkMonthGrid(
                         inMonth = YearMonth.from(date) == month,
                         isToday = date == today,
                         isSelected = date == selected,
-                        events = GridlinkSampleTree.eventsOn(date),
+                        events = book.eventsOn(date),
                         detailed = fillHeight,
                         onClick = { onSelect(date) },
                         modifier = Modifier
@@ -814,6 +838,7 @@ private fun GridlinkTimeGrid(
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
+    val book = LocalGridlinkBook.current
     val scroll = rememberScrollState()
     val days = remember(startDate, dayCount) {
         List(dayCount) { startDate.plusDays(it.toLong()) }
@@ -874,7 +899,7 @@ private fun GridlinkTimeGrid(
 
         // All-day strip. Above the scroll, because an all-day item has no position in the timeline
         // and parking it at the top of the hour grid would claim it starts at 6 AM.
-        val allDay = days.flatMap { day -> GridlinkSampleTree.eventsOn(day).filter { it.allDay } }
+        val allDay = days.flatMap { day -> book.eventsOn(day).filter { it.allDay } }
         if (allDay.isNotEmpty()) {
             Row(
                 modifier = Modifier
@@ -884,7 +909,7 @@ private fun GridlinkTimeGrid(
                 Spacer(Modifier.width(GridlinkDimens.calendarGutterWidth))
                 days.forEach { day ->
                     Box(Modifier.weight(1f).padding(horizontal = 1.dp)) {
-                        GridlinkSampleTree.eventsOn(day).firstOrNull { it.allDay }?.let { event ->
+                        book.eventsOn(day).firstOrNull { it.allDay }?.let { event ->
                             GridlinkEventBlock(
                                 event = event,
                                 accent = gridlinkSenderBarColor(mode, event.domain),
@@ -942,7 +967,7 @@ private fun GridlinkTimeGrid(
                 }
                 days.forEach { day ->
                     GridlinkDayColumn(
-                        events = GridlinkSampleTree.eventsOn(day).filterNot { it.allDay },
+                        events = book.eventsOn(day).filterNot { it.allDay },
                         hourHeight = hourHeight,
                         hours = hours,
                         onOpenEvent = onOpenEvent,

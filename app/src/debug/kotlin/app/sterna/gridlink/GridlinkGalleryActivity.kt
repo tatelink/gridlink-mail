@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import app.sterna.container
 import app.sterna.ui.gridlink.GRIDLINK_BUNDLE_SWIPE_ID
 import app.sterna.ui.gridlink.GridlinkApp
 import app.sterna.ui.gridlink.GridlinkCalendarView
@@ -13,10 +14,12 @@ import app.sterna.ui.gridlink.GridlinkComposeField
 import app.sterna.ui.gridlink.GridlinkComposeRequest
 import app.sterna.ui.gridlink.GridlinkDestination
 import app.sterna.ui.gridlink.GridlinkFolderStage
+import app.sterna.ui.gridlink.GridlinkOutboxSender
 import app.sterna.ui.gridlink.GridlinkRoot
 import app.sterna.ui.gridlink.GridlinkSample
 import app.sterna.ui.gridlink.GridlinkSampleContacts
 import app.sterna.ui.gridlink.GridlinkSampleTree
+import app.sterna.ui.gridlink.GridlinkSender
 import app.sterna.ui.gridlink.GridlinkSyncState
 import app.sterna.ui.gridlink.GridlinkUndoFrame
 import app.sterna.ui.theme.GridlinkMode
@@ -413,8 +416,22 @@ class GridlinkGalleryActivity : ComponentActivity() {
                     "the single-pane list, or leave it off to measure the real width."
             )
         }
+        // 🔴 The real outbox, not a harness stub. This activity is currently the ONLY way into the
+        // Gridlink screens — the shipping icon still opens upstream's UI — so a gallery holding a
+        // pretend sender would mean send is still theatre everywhere it can actually be tapped.
+        // Built here rather than inside the composable because it needs the Application, and because
+        // assembling it once at the edge is what keeps GridlinkRoot renderable from a @Preview.
+        //
+        // The account comes from the store the stock Sterna icon writes to: the two launcher entries
+        // in this build are one app sharing one account and one database.
+        val sender = GridlinkOutboxSender(
+            context = applicationContext,
+            repository = application.container.mailRepository,
+            accounts = application.container.accountStore,
+        )
         setContent {
             GridlinkGallery(
+                sender = sender,
                 initialOverride = mode,
                 initiallyExpanded = expanded,
                 initiallySelected = selected,
@@ -447,6 +464,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
 
 @Composable
 private fun GridlinkGallery(
+    sender: GridlinkSender,
     initialOverride: GridlinkMode? = null,
     initiallyExpanded: Boolean = false,
     initiallySelected: Set<String> = emptySet(),
@@ -488,6 +506,7 @@ private fun GridlinkGallery(
         menuOpenAtStart = menuOpenAtStart,
     ) {
         GridlinkRoot(
+            sender = sender,
             initialDestination = initialDestination,
             initiallyExpanded = initiallyExpanded,
             initiallySelected = initiallySelected,
