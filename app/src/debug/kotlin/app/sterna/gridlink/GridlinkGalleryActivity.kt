@@ -347,19 +347,45 @@ class GridlinkGalleryActivity : ComponentActivity() {
             "event='$eventId' is an appointment, so it only means anything on the calendar tab. " +
                 "Add --es tab calendar."
         }
-        // 🔴 One list, not a ladder of pairwise checks. Three ids means three pairs today and six the
-        // moment Folders lands, and the pair somebody forgets is the one that silently draws two
-        // details at once.
-        val openIds = listOfNotNull(openId, contactId, eventId)
+        // The folder's message list, already open. Fourth of the same shape, sharing `openAt` for the
+        // same reason the other three do: one tab shows at a time, so one detail exists at a time.
+        //   am start -S -n .../GridlinkGalleryActivity --es tab folders --es mailbox ops-604
+        //
+        // ⚠️ `mailbox`, NOT `folder`. `--es folder` is the long-press sheet ON a mailbox and this is
+        // the mail INSIDE one: two frames of two different features that happen to name the same
+        // noun. A shared extra with a modifier to tell them apart would be one flag away from a
+        // capture of the wrong feature.
+        val mailboxId = intent?.getStringExtra("mailbox")?.trim()?.takeIf { it.isNotEmpty() }
+        mailboxId?.let { id ->
+            requireNotNull(GridlinkSampleTree.allFolders.firstOrNull { it.id == id }) {
+                "Unknown mailbox '$id'. Known: " +
+                    GridlinkSampleTree.allFolders.joinToString { it.id }
+            }
+        }
+        require(mailboxId == null || tab == GridlinkDestination.FOLDERS) {
+            "mailbox='$mailboxId' is a folder's mail, so it only means anything on the folder tab. " +
+                "Add --es tab folders."
+        }
+        // 🔴 Both would draw the long-press sheet UNDERNEATH the message list, because the sheet
+        // belongs to the tree (the destination layer) and the list is the detail drawn over it. The
+        // result is a capture of a sheet nobody can see, filed as a sheet frame.
+        require(mailboxId == null || folderId == null) {
+            "mailbox='$mailboxId' and folder='$folderId' are both about a mailbox but they are two " +
+                "different frames: one opens its mail, the other opens the long-press sheet on it. " +
+                "Pick one."
+        }
+        // 🔴 One list, not a ladder of pairwise checks. Four ids would be six pairs, and the pair
+        // somebody forgets is the one that silently draws two details at once.
+        val openIds = listOfNotNull(openId, contactId, eventId, mailboxId)
         require(openIds.size <= 1) {
-            "open='$openId', contact='$contactId' and event='$eventId' are on different tabs, so " +
-                "only one of them can be the thing that is open. Pick one."
+            "open='$openId', contact='$contactId', event='$eventId' and mailbox='$mailboxId' are " +
+                "on different tabs, so only one of them can be the thing that is open. Pick one."
         }
         val openAt = intent?.getFloatExtra("openAt", 1f) ?: 1f
         require(openAt in 0f..1f) { "openAt=$openAt must be between 0 and 1." }
         require(openIds.isNotEmpty() || openAt == 1f) {
-            "openAt=$openAt without --es open, --es contact or --es event would hold nothing " +
-                "part-way. Add --es open jonah-dogs."
+            "openAt=$openAt without --es open, --es contact, --es event or --es mailbox would hold " +
+                "nothing part-way. Add --es open jonah-dogs."
         }
         require(openId == null || tab == GridlinkDestination.INBOX) {
             "open='$openId' is a mail thread, so it only means anything on the inbox tab."
@@ -411,6 +437,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialOpenId = openId,
                 initialContactId = contactId,
                 initialEventId = eventId,
+                initialFolderId = mailboxId,
                 initialOpenFraction = openAt,
                 forceTwoPane = forceTwoPane,
             )
@@ -442,6 +469,7 @@ private fun GridlinkGallery(
     initialOpenId: String? = null,
     initialContactId: String? = null,
     initialEventId: String? = null,
+    initialFolderId: String? = null,
     initialOpenFraction: Float = 1f,
     forceTwoPane: Boolean? = null,
 ) {
@@ -479,6 +507,7 @@ private fun GridlinkGallery(
             initialOpenId = initialOpenId,
             initialContactId = initialContactId,
             initialEventId = initialEventId,
+            initialFolderId = initialFolderId,
             initialOpenFraction = initialOpenFraction,
             forceTwoPane = forceTwoPane,
         )

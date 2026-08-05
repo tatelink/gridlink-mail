@@ -36,41 +36,44 @@ object GridlinkSampleTree {
      * user's own mailboxes nested under Inbox because that is where they were filed from. Three
      * levels deep at the deepest, which is the point — §6d's indent rule and its continuous vertical
      * guide have nothing to prove on a flat list.
+     *
+     * 🔴 No folder states its own unread count. [withDerivedUnread] fills every one of them from
+     * [GridlinkSampleFolders], which is the only place that knows what is inside a mailbox. Writing
+     * the numbers here was fine while a folder was a label; now that tapping one shows the mail, a
+     * badge and the list behind it are two claims about the same thing, and only one of them can be
+     * edited without the other noticing.
      */
     val mailboxes: List<GridlinkFolder> = listOf(
         GridlinkFolder(
             id = "inbox",
             name = "Inbox",
             role = GridlinkFolderRole.INBOX,
-            unread = 21,
             children = listOf(
                 GridlinkFolder(
                     id = "ops",
                     name = "Ops",
-                    unread = 6,
                     children = listOf(
-                        GridlinkFolder(id = "ops-604", name = "Store 604", unread = 3),
-                        GridlinkFolder(id = "ops-hillcrest", name = "2043 Hillcrest", unread = 2),
+                        GridlinkFolder(id = "ops-604", name = "Store 604"),
+                        GridlinkFolder(id = "ops-hillcrest", name = "2043 Hillcrest"),
                         GridlinkFolder(id = "ops-kirkwood", name = "2071 Kirkwood"),
-                        GridlinkFolder(id = "ops-ellsworth", name = "2118 Ellsworth", unread = 1),
+                        GridlinkFolder(id = "ops-ellsworth", name = "2118 Ellsworth"),
                         GridlinkFolder(id = "ops-fernhill", name = "2096 Fernhill Rd"),
                     ),
                 ),
                 GridlinkFolder(
                     id = "vendors",
                     name = "Vendors",
-                    unread = 2,
                     children = listOf(
-                        GridlinkFolder(id = "vendor-sanivex", name = "Sanivex", unread = 2),
+                        GridlinkFolder(id = "vendor-sanivex", name = "Sanivex"),
                         GridlinkFolder(id = "vendor-verdant", name = "Verdant"),
                         GridlinkFolder(id = "vendor-brightmar", name = "Brightmar"),
                     ),
                 ),
                 GridlinkFolder(id = "people", name = "People"),
-                GridlinkFolder(id = "receipts", name = "Receipts", unread = 1),
+                GridlinkFolder(id = "receipts", name = "Receipts"),
             ),
         ),
-        GridlinkFolder(id = "drafts", name = "Drafts", role = GridlinkFolderRole.DRAFTS, unread = 2),
+        GridlinkFolder(id = "drafts", name = "Drafts", role = GridlinkFolderRole.DRAFTS),
         GridlinkFolder(id = "sent", name = "Sent", role = GridlinkFolderRole.SENT),
         GridlinkFolder(
             id = "archive",
@@ -81,9 +84,24 @@ object GridlinkSampleTree {
                 GridlinkFolder(id = "archive-2025", name = "2025"),
             ),
         ),
-        GridlinkFolder(id = "junk", name = "Junk", role = GridlinkFolderRole.JUNK, unread = 4),
+        GridlinkFolder(id = "junk", name = "Junk", role = GridlinkFolderRole.JUNK),
         GridlinkFolder(id = "trash", name = "Trash", role = GridlinkFolderRole.TRASH),
-    )
+    ).withDerivedUnread()
+
+    /**
+     * Stamps each folder with the unread count of the mail actually in it.
+     *
+     * ⚠️ Own mail only, not a rolled-up total including children. Ops reading 2 while Store 604 under
+     * it reads 2 as well is not a contradiction, they are two different lists; a parent that summed
+     * its children would claim mail its own message list does not show. The tree was already written
+     * this way by hand, so this only makes the existing rule enforceable.
+     */
+    private fun List<GridlinkFolder>.withDerivedUnread(): List<GridlinkFolder> = map { folder ->
+        folder.copy(
+            unread = GridlinkSampleFolders.unreadIn(folder.id),
+            children = folder.children.withDerivedUnread(),
+        )
+    }
 
     /**
      * Every folder in the SEED tree, flattened. Used for harness id validation.

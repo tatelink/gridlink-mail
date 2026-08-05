@@ -461,17 +461,15 @@ fun GridlinkMessageListScreen(
     fun isPresent(message: GridlinkMessage) = message.id !in removedIds
 
     // The bundle declares more unread than it carries children: §5's mock reads "14 new" against a
-    // shorter sample list. That surplus is content the mock does not have rows for, so it is held
-    // as a constant and everything else is tallied for real, which keeps the badge responsive to
-    // swipes instead of frozen at a number from the brief.
+    // shorter sample list. That surplus is content the mock does not have rows for, so it comes in
+    // whole from `phantomUnread` and everything else is tallied for real, which keeps the badge
+    // responsive to swipes instead of frozen at a number from the brief. 🔴 The folder tree's Inbox
+    // badge adds the same surplus from the same property, so the two counts cannot drift apart.
     val bundleGone = robots.all { !isPresent(it) }
-    val phantomUnread = remember(bundleTemplate) {
-        (bundleTemplate.unreadCount - bundleTemplate.messages.count { it.unread }).coerceAtLeast(0)
-    }
     val bundleUnread = if (bundleGone) {
         0
     } else {
-        robots.count { isPresent(it) && it.unread } + phantomUnread
+        robots.count { isPresent(it) && it.unread } + bundleTemplate.phantomUnread
     }
 
     // Everything unread that is actually in this inbox, robots included. The header count has to
