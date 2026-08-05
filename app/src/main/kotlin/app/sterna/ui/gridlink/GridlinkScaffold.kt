@@ -797,6 +797,10 @@ fun GridlinkRoot(
                         destination = destination,
                         onSelectDestination = { destination = it },
                         initialView = initialCalendarView,
+                        // The raw override, not the measured `twoPane`. The month view splits on its
+                        // own panel width and should go on doing so; what it must not do is ignore a
+                        // harness that has explicitly asked for one layout or the other.
+                        forceSplit = forceTwoPane,
                     )
 
                     GridlinkDestination.CONTACTS -> GridlinkContactsScreen(
