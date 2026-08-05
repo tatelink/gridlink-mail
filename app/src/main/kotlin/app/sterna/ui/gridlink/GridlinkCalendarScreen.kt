@@ -1,5 +1,6 @@
 package app.sterna.ui.gridlink
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.sterna.ui.theme.GridlinkDimens
+import app.sterna.ui.theme.GridlinkMotion
 import app.sterna.ui.theme.GridlinkRadii
 import app.sterna.ui.theme.GridlinkSpacing
 import app.sterna.ui.theme.GridlinkTheme
@@ -81,7 +83,29 @@ fun GridlinkCalendarScreen(
     onSelectDestination: (GridlinkDestination) -> Unit,
     modifier: Modifier = Modifier,
     initialView: GridlinkCalendarView = GridlinkCalendarView.MONTH,
+    /**
+     * Which day the views open pointed at. Null is today, which is what the app always passes.
+     *
+     * 🔴 It is here for the case where something ELSE decided what is open: a card restored after a
+     * fold, or a harness launched with `--es event`. Half the sample events are in August and the
+     * anchor starts at today in July, so without this the pane would show an appointment while the
+     * month beside it displayed a different month entirely, and the marked block would be nowhere on
+     * screen. Two halves of one screen disagreeing about the date is worse than either half alone.
+     */
+    initialDate: LocalDate? = null,
     onCompose: () -> Unit = {},
+    /** Opening an appointment. See [GridlinkEventScreen]. */
+    onOpenEvent: (GridlinkEvent) -> Unit = {},
+    /**
+     * The event the pane is showing, so the view can mark it.
+     *
+     * 🔴 Null in one pane, always, for the reason the message list and the contacts list both take it
+     * that way: a block highlighted for a card that is underneath a full-screen detail is a block that
+     * looks stuck.
+     */
+    currentId: String? = null,
+    /** §7's detail pane, or null when the window is too narrow for one. */
+    sidePane: (@Composable () -> Unit)? = null,
     /**
      * Harness override for the month view's split: true forces grid-plus-list, false forces the
      * stacked layout, null measures the panel.
@@ -95,11 +119,12 @@ fun GridlinkCalendarScreen(
     forceSplit: Boolean? = null,
 ) {
     val today = GridlinkSampleTree.TODAY
+    val start = initialDate ?: today
     var view by remember(initialView) { mutableStateOf(initialView) }
     // Where the view is pointed. One anchor shared by all four, so switching from a week you were
     // reading to the month it belongs to lands on that month rather than snapping back to today.
-    var anchor by remember { mutableStateOf(today) }
-    var selectedDate by remember { mutableStateOf(today) }
+    var anchor by remember(start) { mutableStateOf(start) }
+    var selectedDate by remember(start) { mutableStateOf(start) }
 
     // The agenda ignores the anchor and always starts at today. It has no steppers, so the anchor
     // could only reach it as a leftover from whichever view you were last paging — arriving at
@@ -116,6 +141,7 @@ fun GridlinkCalendarScreen(
         destination = destination,
         onSelectDestination = onSelectDestination,
         onCompose = onCompose,
+        sidePane = sidePane,
         header = {
             GridlinkHeader(
                 title = view.title(anchor),
@@ -158,6 +184,8 @@ fun GridlinkCalendarScreen(
                 today = today,
                 selected = selectedDate,
                 onSelect = { selectedDate = it },
+                onOpenEvent = onOpenEvent,
+                currentId = currentId,
                 forceSplit = forceSplit,
             )
 
@@ -165,17 +193,23 @@ fun GridlinkCalendarScreen(
                 startDate = range.first,
                 dayCount = 3,
                 today = today,
+                onOpenEvent = onOpenEvent,
+                currentId = currentId,
             )
 
             GridlinkCalendarView.WEEK -> GridlinkTimeGrid(
                 startDate = range.first,
                 dayCount = 7,
                 today = today,
+                onOpenEvent = onOpenEvent,
+                currentId = currentId,
             )
 
             GridlinkCalendarView.AGENDA -> GridlinkAgendaView(
                 events = inRange,
                 today = today,
+                onOpenEvent = onOpenEvent,
+                currentId = currentId,
             )
         }
     }
@@ -250,8 +284,12 @@ private fun GridlinkCalendarView.title(anchor: LocalDate): String = when (this) 
  * Written out rather than taken from a formatter because a formatter cannot drop ":00" without a
  * second pattern and a branch anyway, and every column in the week view is about 50dp wide. Three
  * characters of "":00"" is the difference between a label that fits and one that ellipsises.
+ *
+ * Internal rather than file-private so [GridlinkEventScreen] can use it. 🔴 Shared rather than
+ * copied: an event card that wrote "1:00 PM" beside a grid that wrote "1 PM" for the same appointment
+ * would look like two different times to anyone not counting characters.
  */
-private fun LocalTime.compact(): String {
+internal fun LocalTime.compact(): String {
     val h = if (hour % 12 == 0) 12 else hour % 12
     val suffix = if (hour < 12) "AM" else "PM"
     return if (minute == 0) "$h $suffix" else "$h:${minute.toString().padStart(2, '0')} $suffix"
@@ -385,6 +423,8 @@ private fun GridlinkMonthView(
     today: LocalDate,
     selected: LocalDate,
     onSelect: (LocalDate) -> Unit,
+    onOpenEvent: (GridlinkEvent) -> Unit,
+    currentId: String?,
     forceSplit: Boolean?,
 ) {
     val colors = GridlinkTheme.colors
@@ -418,6 +458,8 @@ private fun GridlinkMonthView(
                 GridlinkMonthDayList(
                     date = selected,
                     events = selectedEvents,
+                    onOpenEvent = onOpenEvent,
+                    currentId = currentId,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
@@ -446,6 +488,8 @@ private fun GridlinkMonthView(
                 GridlinkMonthDayList(
                     date = selected,
                     events = selectedEvents,
+                    onOpenEvent = onOpenEvent,
+                    currentId = currentId,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
@@ -532,6 +576,8 @@ private fun GridlinkMonthGrid(
 private fun GridlinkMonthDayList(
     date: LocalDate,
     events: List<GridlinkEvent>,
+    onOpenEvent: (GridlinkEvent) -> Unit,
+    currentId: String?,
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
@@ -582,6 +628,8 @@ private fun GridlinkMonthDayList(
                     GridlinkAgendaRow(
                         event = events[index],
                         accent = gridlinkSenderBarColor(mode, events[index].domain),
+                        onClick = { onOpenEvent(events[index]) },
+                        current = events[index].id == currentId,
                     )
                 }
             }
@@ -761,6 +809,8 @@ private fun GridlinkTimeGrid(
     startDate: LocalDate,
     dayCount: Int,
     today: LocalDate,
+    onOpenEvent: (GridlinkEvent) -> Unit,
+    currentId: String?,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -838,6 +888,8 @@ private fun GridlinkTimeGrid(
                             GridlinkEventBlock(
                                 event = event,
                                 accent = gridlinkSenderBarColor(mode, event.domain),
+                                onClick = { onOpenEvent(event) },
+                                current = event.id == currentId,
                                 showTime = false,
                                 modifier = Modifier.height(22.dp),
                             )
@@ -893,6 +945,8 @@ private fun GridlinkTimeGrid(
                         events = GridlinkSampleTree.eventsOn(day).filterNot { it.allDay },
                         hourHeight = hourHeight,
                         hours = hours,
+                        onOpenEvent = onOpenEvent,
+                        currentId = currentId,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -907,6 +961,8 @@ private fun GridlinkDayColumn(
     events: List<GridlinkEvent>,
     hourHeight: Dp,
     hours: Int,
+    onOpenEvent: (GridlinkEvent) -> Unit,
+    currentId: String?,
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
@@ -950,6 +1006,8 @@ private fun GridlinkDayColumn(
             GridlinkEventBlock(
                 event = event,
                 accent = gridlinkSenderBarColor(mode, event.domain),
+                onClick = { onOpenEvent(event) },
+                current = event.id == currentId,
                 showTime = heightDp >= 40.dp,
                 modifier = Modifier
                     .fillMaxWidth(1f / block.columns)
@@ -1032,16 +1090,30 @@ private fun layOutOverlaps(events: List<GridlinkEvent>): List<GridlinkTimeBlock>
 private fun GridlinkEventBlock(
     event: GridlinkEvent,
     accent: Color,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    current: Boolean = false,
     showTime: Boolean = true,
 ) {
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkSpacing.s4)
+    // 🔴 A block cannot be marked with `colors.selection` the way an agenda row is. That fill is a
+    // neutral wash laid over a transparent row; laid over a block that is already an 18% wash of its
+    // own accent it becomes a third muddy colour that differs per event, and on a week grid of them
+    // nothing reads as marked. So the block states it in its own colour instead: the same accent,
+    // denser, with a solid outline. Hue never changes, which is what keeps the identity readable.
+    val fill by animateColorAsState(
+        targetValue = accent.copy(alpha = if (current) 0.38f else 0.18f),
+        animationSpec = GridlinkMotion.standard(),
+        label = "blockCurrent",
+    )
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(accent.copy(alpha = 0.18f), shape),
+            .background(fill, shape)
+            .then(if (current) Modifier.border(1.5.dp, accent, shape) else Modifier)
+            .clickable(onClick = onClick),
     ) {
         Box(
             modifier = Modifier
@@ -1093,6 +1165,8 @@ private fun GridlinkEventBlock(
 private fun GridlinkAgendaView(
     events: List<GridlinkEvent>,
     today: LocalDate,
+    onOpenEvent: (GridlinkEvent) -> Unit,
+    currentId: String?,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -1152,6 +1226,8 @@ private fun GridlinkAgendaView(
                 GridlinkAgendaRow(
                     event = dayEvents[index],
                     accent = gridlinkSenderBarColor(mode, dayEvents[index].domain),
+                    onClick = { onOpenEvent(dayEvents[index]) },
+                    current = dayEvents[index].id == currentId,
                 )
             }
         }
@@ -1169,13 +1245,27 @@ private fun GridlinkAgendaView(
 private fun GridlinkAgendaRow(
     event: GridlinkEvent,
     accent: Color,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    current: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
+    // 🔴 `colors.selection`, the same fill the message list marks its open row with, and NOT a tint of
+    // the event's own accent. Every row on a day carries a different accent, so an accent-derived
+    // highlight would be a different colour on every row and would read as decoration rather than as
+    // "this is the one showing". Animated for the reason [GridlinkMessageRow] animates it: at this row
+    // height a hard colour flip reads as the list glitching.
+    val fill by animateColorAsState(
+        targetValue = if (current) colors.selection else Color.Transparent,
+        animationSpec = GridlinkMotion.standard(),
+        label = "agendaCurrent",
+    )
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(GridlinkDimens.folderRowHeight)
+            .clickable(onClick = onClick)
+            .background(fill)
             .padding(horizontal = GridlinkSpacing.rowHorizontal),
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -170,6 +170,25 @@ object GridlinkSampleContacts {
             }
     }
 
+    /**
+     * Who [domain] belongs to, or null if the address book has nobody there.
+     *
+     * For [GridlinkEventScreen], which knows its counterparty only as a domain. An appointment is
+     * with an organisation rather than with one person, so this prefers the organisation entry: those
+     * carry their whole name in [GridlinkContact.family] and leave [GridlinkContact.given] empty,
+     * which is already how the phonebook distinguishes them and is not a second flag that could
+     * disagree with the names.
+     *
+     * ⚠️ Falls back to the first person at the domain rather than to null. An event with Sanivex where
+     * the book holds only the technician should name the technician, not shrug; and there is no
+     * sample domain today where that fallback picks between several people, so it cannot be made to
+     * look arbitrary by the data that exists.
+     */
+    fun forDomain(domain: String): GridlinkContact? {
+        val sameDomain = all.filter { it.domain.equals(domain, ignoreCase = true) }
+        return sameDomain.firstOrNull { it.given.isEmpty() } ?: sameDomain.firstOrNull()
+    }
+
     /** The same transform [GridlinkMessage.address] uses, so the two can be compared at all. */
     private fun flattenToLocalPart(name: String): String =
         name.lowercase().replace(NON_ADDRESS_CHARS, ".").trim('.')

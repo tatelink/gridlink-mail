@@ -217,6 +217,15 @@ object GridlinkSampleTree {
         ),
     )
 
+    /**
+     * One appointment by id, the way [GridlinkSample.messageById] resolves a message.
+     *
+     * 🔴 It exists because the open event is SAVED as an id, not as an object. Folding a Fold
+     * destroys the activity, a [GridlinkEvent] is not parcelable, and this is the lookup that puts
+     * the card back afterwards. A real build resolves it from the store here.
+     */
+    fun eventById(id: String): GridlinkEvent? = events.firstOrNull { it.id == id }
+
     fun eventsOn(date: LocalDate): List<GridlinkEvent> = events
         .filter { it.date == date }
         // All-day items first, then by start time. An all-day item has no position in a timeline,

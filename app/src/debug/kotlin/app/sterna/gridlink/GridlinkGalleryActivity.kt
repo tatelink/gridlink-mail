@@ -330,15 +330,36 @@ class GridlinkGalleryActivity : ComponentActivity() {
             "contact='$contactId' is an address book card, so it only means anything on the " +
                 "contacts tab. Add --es tab contacts."
         }
-        require(openId == null || contactId == null) {
-            "open='$openId' and contact='$contactId' are on different tabs, so only one of them " +
-                "can be the thing that is open. Pick one."
+        // The event card, already open. Third of the same shape, sharing `openAt` for the same reason.
+        //   am start -S -n .../GridlinkGalleryActivity --es tab calendar --es event recert-expires
+        //
+        // 🔴 It also decides which day the calendar opens on. Half the sample events are in August and
+        // the anchor starts at today in July, so a capture without that would show a card beside a
+        // month that does not contain it. See GridlinkCalendarScreen's `initialDate`.
+        val eventId = intent?.getStringExtra("event")?.trim()?.takeIf { it.isNotEmpty() }
+        eventId?.let {
+            requireNotNull(GridlinkSampleTree.eventById(it)) {
+                "Unknown event '$it'. Known: " +
+                    GridlinkSampleTree.events.joinToString { event -> event.id }
+            }
+        }
+        require(eventId == null || tab == GridlinkDestination.CALENDAR) {
+            "event='$eventId' is an appointment, so it only means anything on the calendar tab. " +
+                "Add --es tab calendar."
+        }
+        // 🔴 One list, not a ladder of pairwise checks. Three ids means three pairs today and six the
+        // moment Folders lands, and the pair somebody forgets is the one that silently draws two
+        // details at once.
+        val openIds = listOfNotNull(openId, contactId, eventId)
+        require(openIds.size <= 1) {
+            "open='$openId', contact='$contactId' and event='$eventId' are on different tabs, so " +
+                "only one of them can be the thing that is open. Pick one."
         }
         val openAt = intent?.getFloatExtra("openAt", 1f) ?: 1f
         require(openAt in 0f..1f) { "openAt=$openAt must be between 0 and 1." }
-        require(openId != null || contactId != null || openAt == 1f) {
-            "openAt=$openAt without --es open or --es contact would hold nothing part-way. Add " +
-                "--es open jonah-dogs."
+        require(openIds.isNotEmpty() || openAt == 1f) {
+            "openAt=$openAt without --es open, --es contact or --es event would hold nothing " +
+                "part-way. Add --es open jonah-dogs."
         }
         require(openId == null || tab == GridlinkDestination.INBOX) {
             "open='$openId' is a mail thread, so it only means anything on the inbox tab."
@@ -389,6 +410,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initiallyLoading = loading,
                 initialOpenId = openId,
                 initialContactId = contactId,
+                initialEventId = eventId,
                 initialOpenFraction = openAt,
                 forceTwoPane = forceTwoPane,
             )
@@ -419,6 +441,7 @@ private fun GridlinkGallery(
     initiallyLoading: Boolean = false,
     initialOpenId: String? = null,
     initialContactId: String? = null,
+    initialEventId: String? = null,
     initialOpenFraction: Float = 1f,
     forceTwoPane: Boolean? = null,
 ) {
@@ -455,6 +478,7 @@ private fun GridlinkGallery(
             initiallyLoading = initiallyLoading,
             initialOpenId = initialOpenId,
             initialContactId = initialContactId,
+            initialEventId = initialEventId,
             initialOpenFraction = initialOpenFraction,
             forceTwoPane = forceTwoPane,
         )
