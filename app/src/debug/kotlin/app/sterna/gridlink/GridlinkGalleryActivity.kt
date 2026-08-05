@@ -321,6 +321,29 @@ class GridlinkGalleryActivity : ComponentActivity() {
         require(openId == null || tab == GridlinkDestination.INBOX) {
             "open='$openId' is a mail thread, so it only means anything on the inbox tab."
         }
+        // §7. Which layout to draw, overriding the measured width.
+        //   am start -n .../GridlinkGalleryActivity --es wide two --es open jeff-dogs
+        //   am start -n .../GridlinkGalleryActivity --es wide one
+        //
+        // 🔴 A string, not `--ez`, because a boolean extra cannot say "don't override". Absent has to
+        // stay distinguishable from false: the default is to measure, and `getBooleanExtra` collapses
+        // "unset" and "narrow" into the same `false`, which would pin the whole gallery to one pane
+        // forever and hide the very branch this extra exists to photograph.
+        //
+        // Forcing two panes on a folded screen is deliberately allowed. It produces a squeezed layout
+        // that is not a real posture, and that is the point: it is how the pane split gets captured
+        // without depending on an AVD's fold state, which is a per-device setting the capture script
+        // has no reliable way to assert.
+        val wide = intent?.getStringExtra("wide")?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        val forceTwoPane = when (wide) {
+            null -> null
+            "two", "true" -> true
+            "one", "false" -> false
+            else -> throw IllegalArgumentException(
+                "wide='$wide' is not a layout. Use 'two' to force the reading pane, 'one' to force " +
+                    "the single-pane list, or leave it off to measure the real width."
+            )
+        }
         setContent {
             GridlinkGallery(
                 initialOverride = mode,
@@ -344,6 +367,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initiallyLoading = loading,
                 initialOpenId = openId,
                 initialOpenFraction = openAt,
+                forceTwoPane = forceTwoPane,
             )
         }
     }
@@ -372,6 +396,7 @@ private fun GridlinkGallery(
     initiallyLoading: Boolean = false,
     initialOpenId: String? = null,
     initialOpenFraction: Float = 1f,
+    forceTwoPane: Boolean? = null,
 ) {
     // 🔴 The gallery no longer owns the palette, it seeds it. Day / Night / OLED is a real app
     // setting now, living in GridlinkApp and reachable from the menu panel's Appearance track, so a
@@ -406,6 +431,7 @@ private fun GridlinkGallery(
             initiallyLoading = initiallyLoading,
             initialOpenId = initialOpenId,
             initialOpenFraction = initialOpenFraction,
+            forceTwoPane = forceTwoPane,
         )
     }
 }

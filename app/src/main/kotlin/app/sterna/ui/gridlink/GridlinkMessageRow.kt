@@ -76,9 +76,20 @@ private fun Dp.asGutter(): Dp = coerceAtLeast(0.dp)
  * Unread is carried by weight, colour and a 6dp amber dot — never by a background fill, per §4.
  * A filled row would fight the hairline separation and turn the list back into cards.
  *
- * [selected] is the single exception, and it is only coherent because of that ban: since no other
- * state fills a row, a fill can only mean selected. The same treatment marks the open thread in the
- * unfolded two-pane list (§7), so the two states never need separate visuals.
+ * The fill is the single exception, and it is only coherent because of that ban: since no other state
+ * fills a row, a fill can only mean "this row is the one being acted on".
+ *
+ * ## 🔴 [selected] and [current] are two states, not one
+ * They look identical, which is deliberate, and an earlier pass took that as licence to collapse them
+ * into one flag: §7's two-pane list simply passed `selected = id == currentId` and reused the fill.
+ * That was wrong, and the emulator showed it in one screenshot. [selected] does not only fill the row,
+ * it also drops a **ticked disc** into the selection gutter, so the moment a multi-select opened that
+ * gutter the open thread's row grew a tick and claimed to be part of a selection it was not in. The
+ * header said "1 selected" over two ticked rows.
+ *
+ * So the fill is shared and the tick is not. [selected] means "in the multi-select set" and owns both;
+ * [current] means "open in the reading pane" and owns only the fill. Whether the two can be on screen
+ * at once is the caller's call, not this row's.
  *
  * ## Why [gutter] is a Dp handed down rather than a Boolean animated here
  * 🔴 Every row, every section label and every divider slides by the same amount at the same moment.
@@ -93,6 +104,7 @@ fun GridlinkMessageRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    current: Boolean = false,
     gutter: Dp = 0.dp,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -101,7 +113,7 @@ fun GridlinkMessageRow(
     // Animated so entering and leaving a selection is a wash of colour across the rows rather than
     // a hard flicker, which at 64dp and this density reads as the list glitching.
     val fill by animateColorAsState(
-        targetValue = if (selected) colors.selection else Color.Transparent,
+        targetValue = if (selected || current) colors.selection else Color.Transparent,
         animationSpec = GridlinkMotion.standard(),
         label = "rowSelection",
     )
@@ -446,6 +458,7 @@ fun GridlinkBundledChildRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    current: Boolean = false,
     gutter: Dp = 0.dp,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -477,6 +490,7 @@ fun GridlinkBundledChildRow(
             onClick = onClick,
             modifier = Modifier.weight(1f),
             selected = selected,
+            current = current,
             gutter = gutter,
             onLongClick = onLongClick,
         )
