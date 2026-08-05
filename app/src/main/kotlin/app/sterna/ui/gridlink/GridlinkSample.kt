@@ -495,4 +495,15 @@ data class GridlinkBundle(
     val unreadCount: Int,
     val senderSummary: String,
     val messages: List<GridlinkMessage>,
-)
+) {
+    /**
+     * The unread this bundle claims beyond the children it actually holds.
+     *
+     * 🔴 Two separate screens have to agree about this number, so it lives here rather than being
+     * recomputed at each of them. The inbox header counts it into "21 unread" and
+     * [GridlinkSampleFolders.unreadIn] counts it into the folder tree's Inbox badge; if one of them
+     * dropped it, the tab and the tree would sit on screen together disagreeing by ten.
+     */
+    val phantomUnread: Int
+        get() = (unreadCount - messages.count { it.unread }).coerceAtLeast(0)
+}

@@ -112,23 +112,40 @@ import app.sterna.ui.theme.GridlinkType
 fun GridlinkFolderScreen(
     destination: GridlinkDestination,
     onSelectDestination: (GridlinkDestination) -> Unit,
+    /**
+     * The tree, and the way to rewrite it. Rename, delete and create all go through [onTreeChange].
+     *
+     * 🔴 Owned by the caller, not by this screen, and that moved out of here the moment a folder
+     * became something you could open. The scaffold has to hold the open mailbox as an id (folding
+     * destroys the activity, and a [GridlinkFolder] is not parcelable), so it has to be able to
+     * resolve that id against the SAME tree these rows are drawn from. With a private copy in here,
+     * renaming the open folder retitled its row and left the panel beside it on the old name, and
+     * deleting it left the panel showing a mailbox that was no longer in the tree.
+     */
+    tree: List<GridlinkFolder>,
+    onTreeChange: (List<GridlinkFolder>) -> Unit,
     modifier: Modifier = Modifier,
     /** Screen-capture hook: which folders start open, for §6d's collapsed and expanded frames. */
     initiallyExpanded: Set<String> = setOf("inbox"),
-    initialOpenFolderId: String = "inbox",
     /** Screen-capture hook: open the long-press sheet on this folder without long-pressing it. */
     initialActionFolderId: String? = null,
     initialStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
     /** Screen-capture hook: start with one New folder row already editing. "root" for the top level. */
     initialCreateUnder: String? = null,
+    /** §7's detail pane, or null when the window is too narrow for one. */
+    sidePane: (@Composable () -> Unit)? = null,
+    /**
+     * The folder the pane is showing, so the tree can mark it.
+     *
+     * 🔴 Null in one pane, always, for the reason the message list and the contact list are: a row
+     * marked as open for a panel that is not on screen is a row that looks stuck. This used to
+     * default to "inbox" and be written locally on every tap, which was a highlight that meant
+     * nothing, because tapping a folder did not open anything to be highlighted for.
+     */
+    currentId: String? = null,
     onOpenFolder: (GridlinkFolder) -> Unit = {},
     onCompose: () -> Unit = {},
 ) {
-    // 🔴 A `var`, and that is the point of this pass. Rename and delete rewrite the tree in place so
-    // the result can actually be looked at, exactly like the swipe demo's disappearing rows. The
-    // seed is the sample; nothing writes back to [GridlinkSampleTree], so leaving the tab and
-    // returning restores it.
-    var tree by remember { mutableStateOf(GridlinkSampleTree.mailboxes) }
     // Ancestors of a harness-requested folder are forced open, so `--es folderSheet ops-456` cannot
     // produce a sheet floating over a tree that does not visibly contain the row it names. Same
     // no-plausible-wrong-picture rule the gallery's other extras enforce by crashing.
@@ -146,7 +163,6 @@ fun GridlinkFolderScreen(
         initiallyExpanded + ancestors + createTarget
     }
     var expandedIds by remember(seedExpanded) { mutableStateOf(seedExpanded) }
-    var openFolderId by remember(initialOpenFolderId) { mutableStateOf(initialOpenFolderId) }
 
     // Which folder the long-press sheet is about, and how far into the flow it has got. Two pieces
     // of state rather than one sealed value because the folder survives the stage changing: the
@@ -184,6 +200,7 @@ fun GridlinkFolderScreen(
         destination = destination,
         onSelectDestination = onSelectDestination,
         onCompose = onCompose,
+        sidePane = sidePane,
         header = {
             GridlinkHeader(
                 title = "Folders",
@@ -217,7 +234,7 @@ fun GridlinkFolderScreen(
                 when (item) {
                     is GridlinkFolderTreeItem.Row -> GridlinkFolderRow(
                         row = item,
-                        open = item.folder.id == openFolderId,
+                        open = item.folder.id == currentId,
                         onToggle = {
                             expandedIds = if (item.folder.id in expandedIds) {
                                 expandedIds - item.folder.id
@@ -225,10 +242,7 @@ fun GridlinkFolderScreen(
                                 expandedIds + item.folder.id
                             }
                         },
-                        onOpen = {
-                            openFolderId = item.folder.id
-                            onOpenFolder(item.folder)
-                        },
+                        onOpen = { onOpenFolder(item.folder) },
                         // 🔴 Null is the whole protection mechanism for the role mailboxes. Not a
                         // callback that checks a flag and returns: `combinedClickable` with a
                         // non-null onLongClick consumes the gesture and fires the platform's own
@@ -256,9 +270,11 @@ fun GridlinkFolderScreen(
                         onCancel = { creating = null },
                         onCreate = { name ->
                             created += 1
-                            tree = tree.addFolder(
-                                parentId = item.parentId,
-                                folder = GridlinkFolder(id = "made-$created", name = name),
+                            onTreeChange(
+                                tree.addFolder(
+                                    parentId = item.parentId,
+                                    folder = GridlinkFolder(id = "made-$created", name = name),
+                                ),
                             )
                             // The parent has children now, so it has a chevron now, and a folder
                             // that was expanded stays expanded. A root create needs nothing.
@@ -287,7 +303,7 @@ fun GridlinkFolderScreen(
                 folder = actionFolder,
                 takenNames = tree.siblingNames(actionFolder.id).orEmpty(),
                 onRename = { name ->
-                    tree = tree.updateFolder(actionFolder.id) { it.copy(name = name) }
+                    onTreeChange(tree.updateFolder(actionFolder.id) { it.copy(name = name) })
                     dismiss()
                 },
                 onDismiss = ::dismiss,
@@ -296,13 +312,13 @@ fun GridlinkFolderScreen(
             GridlinkFolderStage.DELETE -> GridlinkDeleteFolderDialog(
                 folder = actionFolder,
                 onDelete = {
-                    tree = tree.removeFolder(actionFolder.id)
+                    onTreeChange(tree.removeFolder(actionFolder.id))
                     expandedIds = expandedIds - actionFolder.id
-                    // The tree can no longer show what is open, so fall back to the one mailbox that
-                    // is guaranteed to still be there. Leaving [openFolderId] pointing at a deleted
-                    // folder is silent: nothing renders as open and the screen looks like it lost
-                    // its selection for no reason.
-                    if (openFolderId == actionFolder.id) openFolderId = "inbox"
+                    // 🔴 Nothing is done about the open folder here, and that is the payoff for the
+                    // caller owning the tree. Its open mailbox is an id resolved against this same
+                    // list, so a deleted folder stops resolving and the panel empties by itself. The
+                    // old local version had to reset the highlight to "inbox" by hand, which was a
+                    // second place that had to remember the folder had gone.
                     dismiss()
                 },
                 onDismiss = ::dismiss,

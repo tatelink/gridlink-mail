@@ -426,6 +426,14 @@ fun GridlinkRoot(
      * two for the same reason: one destination shows at a time, so at most one detail exists.
      */
     initialEventId: String? = null,
+    /**
+     * The mailbox whose message list is already open, by [GridlinkFolder.id].
+     *
+     * The Folders tab's equivalent of [initialOpenId]. ⚠️ Distinct from [initialFolderActionId],
+     * which opens the long-press sheet ON a folder rather than opening the folder: one is a frame of
+     * the rename flow, the other is a frame of the mail inside a mailbox.
+     */
+    initialFolderId: String? = null,
     initialOpenFraction: Float = 1f,
     /**
      * Harness override for §7's layout: true forces two panes, false forces one, null measures.
@@ -532,6 +540,24 @@ fun GridlinkRoot(
     /** The open appointment, by id, for the reason [openContactId] is one: folding destroys the activity. */
     var openEventId by rememberSaveable(initialEventId) { mutableStateOf(initialEventId) }
 
+    /** The open mailbox, by id, for the reason the three above are ids: folding destroys the activity. */
+    var openFolderId by rememberSaveable(initialFolderId) { mutableStateOf(initialFolderId) }
+
+    /**
+     * The folder tree, which [GridlinkFolderScreen] used to own privately.
+     *
+     * 🔴 It had to come up here the moment a folder could be opened. [openFolderId] is an id, and an
+     * id is only useful against the tree the rows are actually drawn from: with the editable copy
+     * still down in the tree screen, renaming the open mailbox would retitle its row and leave the
+     * panel next to it on the old name, and deleting it would leave the panel showing a folder that
+     * no longer exists. One list, resolved in one place, and both of those stop being possible.
+     *
+     * A plain `remember`, unlike the ids: this is the whole tree and it is a demo edit buffer, so it
+     * is the one thing here that legitimately does not survive the activity being destroyed. Nothing
+     * writes back to [GridlinkSampleTree], so leaving the app restores the sample either way.
+     */
+    var folderTree by remember { mutableStateOf(GridlinkSampleTree.mailboxes) }
+
     /**
      * Which day the calendar opens pointed at, when something else already decided what is open.
      *
@@ -548,6 +574,10 @@ fun GridlinkRoot(
     val open = visibleOpenId?.let(GridlinkSample::messageById)
     val openContact = openContactId?.let(GridlinkSampleContacts::byId)
     val openEvent = openEventId?.let(GridlinkSampleTree::eventById)
+    // 🔴 Against the LIVE tree, not the sample. That is what makes deleting the open mailbox empty
+    // the panel on its own: the id stops resolving, so `detail` goes null and every consumer of it
+    // (both back handlers, the pane, the row highlight) agrees at once without being told.
+    val openFolder = openFolderId?.let { folderTree.findFolder(it) }
 
     /**
      * What is open on the tab that is showing, or null if nothing is.
@@ -561,15 +591,16 @@ fun GridlinkRoot(
         GridlinkDestination.INBOX -> open?.let(GridlinkDetail::Thread)
         GridlinkDestination.CONTACTS -> openContact?.let(GridlinkDetail::Contact)
         GridlinkDestination.CALENDAR -> openEvent?.let(GridlinkDetail::Event)
-        // No detail view yet. It is next.
-        GridlinkDestination.FOLDERS -> null
+        GridlinkDestination.FOLDERS -> openFolder?.let(GridlinkDetail::Folder)
     }
 
     // Seeded from the RESTORED ids rather than from the parameters, so a detail that survived the
     // hinge comes back at rest instead of replaying its entrance across the recreated activity.
-    val progress = remember(initialOpenId, initialContactId, initialEventId) {
+    val progress = remember(initialOpenId, initialContactId, initialEventId, initialFolderId) {
         Animatable(
-            if (openId == null && openContactId == null && openEventId == null) {
+            if (openId == null && openContactId == null && openEventId == null &&
+                openFolderId == null
+            ) {
                 0f
             } else {
                 initialOpenFraction
@@ -592,6 +623,7 @@ fun GridlinkRoot(
             is GridlinkDetail.Thread -> openId = null
             is GridlinkDetail.Contact -> openContactId = null
             is GridlinkDetail.Event -> openEventId = null
+            is GridlinkDetail.Folder -> openFolderId = null
             null -> Unit
         }
     }
@@ -743,24 +775,41 @@ fun GridlinkRoot(
                     onWrite = { composing = gridlinkWriteTo(it) },
                     embedded = embedded,
                 )
+
+                is GridlinkDetail.Folder -> GridlinkFolderMailScreen(
+                    folder = current.folder,
+                    onBack = { if (embedded) clearDetail(current) else closeDetail() },
+                    // The third screen to make this hand-off, and the reason has not changed: reading
+                    // mail means being on the tab that reads mail. ⚠️ It is the most tempting one to
+                    // do differently, because a folder list and a thread genuinely could nest, and
+                    // that is exactly what "paint order is the stack" cannot survive. The folder stays
+                    // open behind it, so Folders is where you left it when you come back.
+                    onOpenMessage = { message ->
+                        destination = GridlinkDestination.INBOX
+                        openId = message.id
+                        filedOpenId = null
+                        if (!twoPane) scope.launch { progress.snapTo(1f) }
+                    },
+                    embedded = embedded,
+                )
             }
         }
 
-        // §7's reading pane, or null when the window is compact or the destination has no detail view.
-        // Folders stays full-width until it has one: a placeholder beside a screen that can never fill
-        // it is a permanently empty half of the display.
+        // §7's reading pane, or null when the window is compact. All four destinations have a detail
+        // view now, so the type stays nullable for the compact case and for whatever gets added next.
         //
-        // The label is the test as well as the text. Every destination with a detail view names what
-        // its empty pane is waiting for, and "Select a message" beside a list of people would be the
-        // app naming the wrong noun.
-        val paneLabel: String? = when (destination) {
+        // The label is the test as well as the text. Every destination names what its empty pane is
+        // waiting for, and "Select a message" beside a list of people would be the app naming the
+        // wrong noun. ⚠️ Folders says "folder" and not "message": the pane holds a mailbox's mail, but
+        // what the tree beside it asks you to pick is a mailbox.
+        val paneLabel: String = when (destination) {
             GridlinkDestination.INBOX -> "Select a message"
             GridlinkDestination.CONTACTS -> "Select a contact"
             GridlinkDestination.CALENDAR -> "Select an event"
-            GridlinkDestination.FOLDERS -> null
+            GridlinkDestination.FOLDERS -> "Select a folder"
         }
         val readingPane: (@Composable () -> Unit)? =
-            if (twoPane && paneLabel != null) {
+            if (twoPane) {
                 {
                     val current = detail
                     if (current == null) {
@@ -835,10 +884,26 @@ fun GridlinkRoot(
                     GridlinkDestination.FOLDERS -> GridlinkFolderScreen(
                         destination = destination,
                         onSelectDestination = { destination = it },
+                        tree = folderTree,
+                        onTreeChange = { folderTree = it },
                         onCompose = { composing = GridlinkComposeRequest.Fresh },
                         initialActionFolderId = initialFolderActionId,
                         initialStage = initialFolderStage,
                         initialCreateUnder = initialCreateUnder,
+                        sidePane = readingPane,
+                        // Same rule as the other three lists: only in two panes, or the marked row
+                        // sits under a full-screen panel and just looks stuck.
+                        currentId = if (twoPane) openFolderId else null,
+                        onOpenFolder = { folder ->
+                            openFolderId = folder.id
+                            // 🔴 No animation in two panes, for the reason none of the others run one
+                            // either: the panel is not travelling anywhere, and playing the entrance
+                            // would slide it in from off-screen every time you tapped a different
+                            // mailbox in a tree sitting right beside it.
+                            if (!twoPane) {
+                                scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
+                            }
+                        },
                     )
 
                     // Calendar and Contacts deliberately do NOT open the composer. Their compose button
@@ -1002,8 +1067,9 @@ private val GRIDLINK_UNDO_SAMPLE = GridlinkComposeRequest(GridlinkComposeDraft.R
  * code that draws a detail is handed the thing it draws instead of looking it up again. The lookup
  * happens exactly once, where the id lives.
  *
- * Folders is absent on purpose. It gets an entry when it gets a detail view, and until then its
- * absence from this type is what keeps it out of every branch above.
+ * ⚠️ [Folder] resolves against the scaffold's editable tree rather than against [GridlinkSampleTree],
+ * which is what lets a deleted mailbox close its own panel: the lookup simply stops finding it, this
+ * value goes null, and every branch that asks about it agrees on the same frame.
  */
 private sealed interface GridlinkDetail {
     data class Thread(val message: GridlinkMessage) : GridlinkDetail
@@ -1011,4 +1077,6 @@ private sealed interface GridlinkDetail {
     data class Contact(val contact: GridlinkContact) : GridlinkDetail
 
     data class Event(val event: GridlinkEvent) : GridlinkDetail
+
+    data class Folder(val folder: GridlinkFolder) : GridlinkDetail
 }
