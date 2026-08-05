@@ -28,7 +28,7 @@ Sterna Mail is open-source and built for **JMAP**, the new and faster internet
 standard for email, with full support for classic **IMAP/SMTP** too. Just your
 mail, on the server *you* choose.
 
-> _Named after **Sterna**, the genus of terns 🐦 — the Arctic tern flies the
+> _Named after **Sterna**, the genus of terns 🐦, the Arctic tern flies the
 > longest migration of any animal, carrying itself clear across the world and back
 > every single year. I liked the idea of mail that travels light and always finds
 > its way home._
@@ -46,11 +46,11 @@ mail, on the server *you* choose.
 | ![Inbox, light theme](docs/screenshots/inbox-light.png) | ![Inbox, dark theme](docs/screenshots/inbox-dark.png) | ![Reading a message](docs/screenshots/message.png) | ![Composing](docs/screenshots/compose.png) | ![Appearance settings](docs/screenshots/settings.png) |
 
 *Light "Arctic" and dark "Pelagic" themes, a calm sea-teal accent with a warm
-coral touch — the tern's beak. 🪸*
+coral touch, the tern's beak. 🪸*
 
 ## 📲 Download & install
 
-**The easy way — [get it on F-Droid](https://f-droid.org/packages/app.sterna/)** 🎉
+**The easy way, [get it on F-Droid](https://f-droid.org/packages/app.sterna/)** 🎉
 Install it from the F-Droid app (or its website) and updates arrive automatically.
 
 Using [Obtainium](https://github.com/ImranR98/Obtainium)? [Add Sterna in one tap](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22app.sterna%22%2C%22url%22%3A%22https%3A%2F%2Fcodeberg.org%2Femon%2Fsterna-mail%22%2C%22author%22%3A%22emon%22%2C%22name%22%3A%22Sterna%20Mail%22%7D)
@@ -60,12 +60,12 @@ Prefer a direct download? Grab the **latest APK** yourself:
 
 1. **[⬇️ Download the latest APK](https://codeberg.org/emon/sterna-mail/releases/latest)** (under *Assets*).
 2. Open the downloaded `.apk` on your phone. Android will ask whether to **allow
-   installing apps from this source** — accept it for your browser or file manager.
+   installing apps from this source**, accept it for your browser or file manager.
 3. Tap **Install**, then open Sterna and add your account.
 
 > ℹ️ Sterna's builds are **reproducible**, and F-Droid verifies them: the APK it
 > distributes is byte-for-byte the one released here, signed with Sterna's own
-> key — so the two install sources update cleanly over each other. No Google
+> key, so the two install sources update cleanly over each other. No Google
 > account or app store needed, ever.
 
 > 🔑 **Verify the signature.** Every release APK is signed with Sterna's own key.
@@ -88,7 +88,7 @@ for today's phones. Servers like [Stalwart](https://stalw.art/) speak JMAP, and
 Sterna is built to make the most of it. ⚡
 
 Sterna also speaks classic **IMAP and SMTP**, so it works with any standard mail
-provider — pick the protocol when you add an account, or just type your email and
+provider, pick the protocol when you add an account, or just type your email and
 let autodiscovery find the server for you.
 
 Running your own server, with a free certificate or one you issued yourself? See
@@ -99,7 +99,7 @@ Running your own server, with a free certificate or one you issued yourself? See
 - **🔒 Privacy first.** No tracking, no ads, no analytics, no Google services.
   Remote images and tracking pixels are blocked by default; tapped links can be
   stripped of tracking parameters and confirmed before opening.
-- **🆓 Free and open.** Licensed under the GPLv3 — anyone can read, audit, and
+- **🆓 Free and open.** Licensed under the GPLv3, anyone can read, audit, and
   improve the code.
 - **🎨 Modern and calm.** A clean, fast Material 3 interface with its own brand
   identity that follows your phone's theme and language.
@@ -110,7 +110,7 @@ Running your own server, with a free certificate or one you issued yourself? See
 - Unified inbox across multiple accounts (JMAP and/or IMAP/SMTP), fully offline
   (local cache); large folders page in as you scroll, fetching older mail from
   the server
-- Conversation view — threads collapse into one row with a message count
+- Conversation view, threads collapse into one row with a message count
 - Nested folders shown as a collapsible tree; create / rename / delete, plus
   subfolders
 - Configurable swipe actions, star, archive & delete with undo, multi-select
@@ -187,11 +187,11 @@ being read, built and tested by a human who is accountable for it.
 
 Sterna is free and open, and always will be. If it's useful to you and you'd like
 to help fuel its development, you can **[buy me a coffee on Ko-fi](https://ko-fi.com/emoncode)**.
-Entirely optional — thank you for even considering it. 💚
+Entirely optional, thank you for even considering it. 💚
 
 ## 🙏 Acknowledgements
 
-Sterna's interface is freely inspired by **[K-9 Mail](https://github.com/thunderbird/thunderbird-android)** (now Thunderbird for Android), the venerable open-source Android mail client. Many of its interaction patterns — the way you swipe, triage, and read your mail — are the fruit of years of work by the K-9 community, and Sterna is better for standing on their shoulders. Heartfelt thanks to the K-9 / Thunderbird for Android developers for building, and freely sharing, such a fine app. 💚
+Sterna's interface is freely inspired by **[K-9 Mail](https://github.com/thunderbird/thunderbird-android)** (now Thunderbird for Android), the venerable open-source Android mail client. Many of its interaction patterns, the way you swipe, triage, and read your mail, are the fruit of years of work by the K-9 community, and Sterna is better for standing on their shoulders. Heartfelt thanks to the K-9 / Thunderbird for Android developers for building, and freely sharing, such a fine app. 💚
 
 ## 📄 License
 
