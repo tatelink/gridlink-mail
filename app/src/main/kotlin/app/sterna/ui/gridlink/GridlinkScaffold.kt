@@ -51,6 +51,7 @@ import app.sterna.ui.theme.GridlinkMotion
 import app.sterna.ui.theme.GridlinkRadii
 import app.sterna.ui.theme.GridlinkSpacing
 import app.sterna.ui.theme.GridlinkTheme
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -444,6 +445,14 @@ fun GridlinkRoot(
      * wide. Nothing in the shipping app passes this.
      */
     forceTwoPane: Boolean? = null,
+    /**
+     * What the send button does.
+     *
+     * Defaults to [GridlinkNullSender], which refuses: a screen tree rendered with nothing behind it
+     * must not be able to claim it sent mail. The gallery supplies [GridlinkOutboxSender] when the
+     * shared account store has an account in it.
+     */
+    sender: GridlinkSender = GridlinkNullSender,
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
     // Not `rememberSaveable`: a request holds contacts and attachments, which is a parcelable
@@ -466,11 +475,52 @@ fun GridlinkRoot(
     }
     var undoNonce by remember { mutableIntStateOf(0) }
 
+    /** Why the last send attempt was refused, shown on the composer that still holds the draft. */
+    var sendError by remember { mutableStateOf<String?>(null) }
+
+    /**
+     * The send whose undo window is currently open, and how to take it back.
+     *
+     * 🔴 A holder rather than a plain lambda, because the row id does not exist yet at the moment
+     * the bar appears. [GridlinkSender.enqueue] is a database write and the bar has to be on screen
+     * on the send frame, so for the first instants the window is open there is genuinely nothing to
+     * cancel. If the user beats the write — ten seconds is long, but a tap at 80ms is not exotic —
+     * [undone] is what the write finds when it lands, and it cancels itself. Without it that undo
+     * would be silently ignored and the mail would go.
+     */
+    val pending = remember { GridlinkPendingSend() }
+
+    // ⚠️ Declared here rather than beside the thread-animation state below, because [sendWithUndo]
+    // is a local function and Kotlin will not let it close over a val declared after it.
+    val scope = rememberCoroutineScope()
+
     /** Send: close the composer, start the clock, keep everything needed to put it back. */
     fun sendWithUndo(request: GridlinkComposeRequest) {
+        // 🔴 Refusals are decided before anything closes. See [GridlinkSender.check].
+        val refusal = sender.check(request)
+        if (refusal != null) {
+            sendError = refusal
+            return
+        }
+        sendError = null
         undoNonce += 1
         undoing = GridlinkUndoSend(request, undoNonce)
         composing = null
+
+        pending.reset()
+        scope.launch {
+            val cancel = runCatching { sender.enqueue(request) }.getOrElse { failure ->
+                // The queue write failed, so nothing is held and nothing will be delivered. Take the
+                // bar down and put the draft back with the reason on it: leaving a countdown running
+                // over a message that was never queued is the exact lie this change exists to remove.
+                undoing = null
+                composing = request
+                sendError = failure.message ?: "Couldn't queue that message."
+                return@launch
+            }
+            // Undone while the write was still in flight: honour it now.
+            if (pending.undone) cancel() else pending.cancel = cancel
+        }
     }
 
     // The open thread, and how far in it is. Two pieces of state and not one, because they do not
@@ -485,7 +535,6 @@ fun GridlinkRoot(
     // parcelable and should not become so for this; the id is the identity, and the sample object
     // resolves it exactly the way a real build would resolve it from the store.
     val colors = GridlinkTheme.colors
-    val scope = rememberCoroutineScope()
     var openId by rememberSaveable(initialOpenId) { mutableStateOf(initialOpenId) }
 
     /**
@@ -559,6 +608,31 @@ fun GridlinkRoot(
     var folderTree by remember { mutableStateOf(GridlinkSampleTree.mailboxes) }
 
     /**
+     * The calendar and the address book, plus whatever was added this run.
+     *
+     * Two lists and one derived [GridlinkBook] rather than a mutable book, so the value handed down
+     * the tree is immutable and changes identity when something is added. That is what makes the
+     * `remember(..., book)` keys in the calendar work: a book that mutated in place would be the same
+     * object before and after a save, and every cached day list would go on showing the old day.
+     *
+     * A plain `remember` and not `rememberSaveable`, matching [folderTree]. Both are demo edit
+     * buffers, and unfolding a Fold destroys this activity, so a saver would have to parcel events
+     * and contacts to preserve state that is deliberately gone at the next launch anyway.
+     */
+    var addedEvents by remember { mutableStateOf(emptyList<GridlinkEvent>()) }
+    var addedContacts by remember { mutableStateOf(emptyList<GridlinkContact>()) }
+    val book = remember(addedEvents, addedContacts) { GridlinkBook(addedEvents, addedContacts) }
+
+    /**
+     * Which "+" form is open, if any.
+     *
+     * The same shape as [composing] and mutually exclusive with it by construction: the compose
+     * button opens exactly one of the three depending on which destination is showing, so nothing has
+     * to keep them apart.
+     */
+    var creating by remember { mutableStateOf<GridlinkCreation?>(null) }
+
+    /**
      * Which day the calendar opens pointed at, when something else already decided what is open.
      *
      * 🔴 Keyless `remember` ON PURPOSE, so it is captured once and then never moves. Feeding the
@@ -566,14 +640,18 @@ fun GridlinkRoot(
      * snap it back to today the moment the card was closed, dragging the user out of whatever month
      * they were reading. This is a starting position, not a binding.
      */
-    val calendarStart = remember { openEventId?.let { GridlinkSampleTree.eventById(it)?.date } }
+    val calendarStart = remember { openEventId?.let { book.eventById(it)?.date } }
 
     // The pane's emptiness is derived, never assigned. One place decides whether what is open is
     // still real, so the row highlight, the back handler and the pane cannot end up disagreeing.
     val visibleOpenId = openId?.takeIf { it != filedOpenId }
     val open = visibleOpenId?.let(GridlinkSample::messageById)
-    val openContact = openContactId?.let(GridlinkSampleContacts::byId)
-    val openEvent = openEventId?.let(GridlinkSampleTree::eventById)
+    // 🔴 Against the book rather than the sample, for the same reason [openFolder] resolves against
+    // the live tree below: a contact or an event added this run has to be openable, and an id that
+    // only the sample can resolve would make the row you just created the one row that does nothing
+    // when tapped.
+    val openContact = openContactId?.let(book::contactById)
+    val openEvent = openEventId?.let(book::eventById)
     // 🔴 Against the LIVE tree, not the sample. That is what makes deleting the open mailbox empty
     // the panel on its own: the id stops resolving, so `detail` goes null and every consumer of it
     // (both back handlers, the pane, the row highlight) agrees at once without being told.
@@ -661,383 +739,434 @@ fun GridlinkRoot(
         closeDetail()
     }
 
-    BoxWithConstraints(modifier = modifier) {
-        // §7's only decision, made here and nowhere else. Everything downstream is handed the answer
-        // rather than re-deriving it, so there is exactly one place where "is this wide" is defined.
-        val twoPane = forceTwoPane ?: (maxWidth >= GRIDLINK_PANE_BREAKPOINT)
+    // 🔴 Everything below reads its calendar and address book from here. Provided at the root and
+    // not at the two screens that obviously need it: the composer suggests recipients from it, the
+    // event card lists what else is on the day, and the reading pane renders inside the scaffold, so
+    // a provider placed lower would leave some of those on the sample and some on the book. See
+    // [GridlinkBook] for why this is a CompositionLocal at all.
+    CompositionLocalProvider(LocalGridlinkBook provides book) {
+        BoxWithConstraints(modifier = modifier) {
+            // §7's only decision, made here and nowhere else. Everything downstream is handed the answer
+            // rather than re-deriving it, so there is exactly one place where "is this wide" is defined.
+            val twoPane = forceTwoPane ?: (maxWidth >= GRIDLINK_PANE_BREAKPOINT)
 
-        // 🔴 The travel value is PINNED in two panes rather than bypassed. The reading pane does not
-        // slide, it is simply there, but folding the device back to one pane has to land on a thread
-        // that is fully in. Left at whatever fraction the last back-drag stopped at, the first fold
-        // after a cancelled swipe would show the thread parked half off the screen.
-        LaunchedEffect(twoPane, detail) {
-            if (twoPane && detail != null) progress.snapTo(1f)
-        }
-
-        if (twoPane) {
-            // A plain BackHandler, because there is nothing to scrub. The list is not underneath the
-            // thread here, it is beside it, so a drag that reveals the list by degrees would be
-            // revealing something already fully visible. Back empties the reading pane.
-            BackHandler(enabled = detail != null && composing == null) { clearDetail(detail) }
-        } else {
-            // 🔴 PredictiveBackHandler, not BackHandler. The difference is the whole point of building
-            // the open as one scrubable value: this delivers the drag as a flow of progress, so the
-            // thread follows the finger and follows it back if the finger changes its mind. Normal
-            // completion of the flow means committed; a CancellationException means the user let go and
-            // it should go back. The coroutine is still live inside that catch, which is what makes
-            // animating from it legal.
-            PredictiveBackHandler(enabled = detail != null && composing == null) { events ->
-                val closing = detail
-                try {
-                    events.collect { event -> progress.snapTo(1f - event.progress) }
-                    progress.animateTo(0f, GridlinkMotion.standard())
-                    clearDetail(closing)
-                } catch (cancelled: CancellationException) {
-                    progress.animateTo(1f, GridlinkMotion.standard())
-                }
+            // 🔴 The travel value is PINNED in two panes rather than bypassed. The reading pane does not
+            // slide, it is simply there, but folding the device back to one pane has to land on a thread
+            // that is fully in. Left at whatever fraction the last back-drag stopped at, the first fold
+            // after a cancelled swipe would show the thread parked half off the screen.
+            LaunchedEffect(twoPane, detail) {
+                if (twoPane && detail != null) progress.snapTo(1f)
             }
-        }
 
-        /** What the thread's action buttons do, wherever the thread is being drawn. */
-        val threadActions: (GridlinkMessage) -> (GridlinkThreadAction) -> Unit = { message ->
-            { action ->
-                when (action) {
-                    GridlinkThreadAction.REPLY -> composing = gridlinkReplyTo(message)
-                    GridlinkThreadAction.REPLY_ALL -> composing = gridlinkReplyAllTo(message)
-                    GridlinkThreadAction.FORWARD -> composing = gridlinkForward(message)
-
-                    // All three file the message and leave. ⚠️ They are the same code today and they
-                    // must not stay that way: archive moves it, spam moves it AND trains the filter, and
-                    // unsubscribe sends a request first. The list only knows how to make a row leave, so
-                    // that is all any of them can do until there is a server on the other end. What each
-                    // one is *supposed* to do is written down here so the difference is not lost.
-                    GridlinkThreadAction.ARCHIVE,
-                    GridlinkThreadAction.SPAM,
-                    GridlinkThreadAction.UNSUBSCRIBE,
-                    -> fileOpenThread(message.id)
-                }
-            }
-        }
-
-        /**
-         * Whatever is open, drawn once. The reading pane and the compact push layer both call this,
-         * so the two layouts cannot drift into showing different things for the same state.
-         *
-         * `embedded` is the pane; the back it wires is never reached there because the pane hides its
-         * back button, but it is wired anyway so the parameter is not a lie if something else ever
-         * calls into it.
-         */
-        val detailScreen: @Composable (GridlinkDetail, Boolean) -> Unit = { current, embedded ->
-            when (current) {
-                is GridlinkDetail.Thread -> GridlinkThreadScreen(
-                    message = current.message,
-                    onBack = { if (embedded) clearDetail(current) else closeDetail() },
-                    onAction = threadActions(current.message),
-                    embedded = embedded,
-                )
-
-                is GridlinkDetail.Contact -> GridlinkContactScreen(
-                    contact = current.contact,
-                    onBack = { if (embedded) clearDetail(current) else closeDetail() },
-                    // Reading a message means being on the tab that reads messages, so the card sends
-                    // you there rather than growing its own thread view. The contact stays open
-                    // behind it, so Contacts is where you left it when you come back.
-                    onOpenMessage = { message ->
-                        destination = GridlinkDestination.INBOX
-                        openId = message.id
-                        filedOpenId = null
-                        // Already at 1 in a compact window, because the card that was tapped is
-                        // itself fully in. The thread replaces it in place, which is the same swap
-                        // the reading pane does when you tap a different row.
-                        if (!twoPane) scope.launch { progress.snapTo(1f) }
-                    },
-                    onWrite = { composing = gridlinkWriteTo(it) },
-                    embedded = embedded,
-                )
-
-                is GridlinkDetail.Event -> GridlinkEventScreen(
-                    event = current.event,
-                    onBack = { if (embedded) clearDetail(current) else closeDetail() },
-                    // Same hand-off the contact card makes, and for the same reason: reading mail
-                    // means being on the tab that reads mail. The event stays open behind it, so
-                    // Calendar is where you left it when you come back.
-                    onOpenMessage = { message ->
-                        destination = GridlinkDestination.INBOX
-                        openId = message.id
-                        filedOpenId = null
-                        if (!twoPane) scope.launch { progress.snapTo(1f) }
-                    },
-                    // Swaps the card in place, exactly as tapping a different row in the reading pane
-                    // does. 🔴 No animation in either layout: in two panes nothing travels, and in one
-                    // the card being replaced is already fully in, so running the entrance would slide
-                    // the screen out and back for what is one appointment becoming another.
-                    onOpenEvent = { openEventId = it.id },
-                    onWrite = { composing = gridlinkWriteTo(it) },
-                    embedded = embedded,
-                )
-
-                is GridlinkDetail.Folder -> GridlinkFolderMailScreen(
-                    folder = current.folder,
-                    onBack = { if (embedded) clearDetail(current) else closeDetail() },
-                    // The third screen to make this hand-off, and the reason has not changed: reading
-                    // mail means being on the tab that reads mail. ⚠️ It is the most tempting one to
-                    // do differently, because a folder list and a thread genuinely could nest, and
-                    // that is exactly what "paint order is the stack" cannot survive. The folder stays
-                    // open behind it, so Folders is where you left it when you come back.
-                    onOpenMessage = { message ->
-                        destination = GridlinkDestination.INBOX
-                        openId = message.id
-                        filedOpenId = null
-                        if (!twoPane) scope.launch { progress.snapTo(1f) }
-                    },
-                    embedded = embedded,
-                )
-            }
-        }
-
-        // §7's reading pane, or null when the window is compact. All four destinations have a detail
-        // view now, so the type stays nullable for the compact case and for whatever gets added next.
-        //
-        // The label is the test as well as the text. Every destination names what its empty pane is
-        // waiting for, and "Select a message" beside a list of people would be the app naming the
-        // wrong noun. ⚠️ Folders says "folder" and not "message": the pane holds a mailbox's mail, but
-        // what the tree beside it asks you to pick is a mailbox.
-        val paneLabel: String = when (destination) {
-            GridlinkDestination.INBOX -> "Select a message"
-            GridlinkDestination.CONTACTS -> "Select a contact"
-            GridlinkDestination.CALENDAR -> "Select an event"
-            GridlinkDestination.FOLDERS -> "Select a folder"
-        }
-        val readingPane: (@Composable () -> Unit)? =
             if (twoPane) {
-                {
-                    val current = detail
-                    if (current == null) {
-                        GridlinkThreadPlaceholder(label = paneLabel)
-                    } else {
-                        detailScreen(current, true)
-                    }
-                }
+                // A plain BackHandler, because there is nothing to scrub. The list is not underneath the
+                // thread here, it is beside it, so a drag that reveals the list by degrees would be
+                // revealing something already fully visible. Back empties the reading pane.
+                BackHandler(enabled = detail != null && composing == null) { clearDetail(detail) }
             } else {
-                null
-            }
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            // 🔴 The destination keeps composing under the thread rather than being swapped out. Same
-            // reason the composer is drawn over it: the list must come back with its scroll position,
-            // its selection and its swipe state intact, and it is also visible through the parallax the
-            // whole time the thread is arriving, so there is nothing to swap to.
-            Box(
-                modifier = Modifier.graphicsLayer {
-                    // Recedes a fraction of the distance the thread travels. Equal travel would read as
-                    // two screens on a conveyor; a slower back layer is what makes one look further away.
-                    //
-                    // 🔴 Zero in two panes, and NOT because the maths happens to cancel. It does not.
-                    // `progress` is pinned at 1 while a thread is open, so without this guard the whole
-                    // scaffold, both panes of it, would sit shoved a third of the window off the left
-                    // edge for as long as anything was being read.
-                    translationX =
-                        if (twoPane) 0f else -size.width * THREAD_PARALLAX * progress.value
-                },
-            ) {
-                when (destination) {
-                    GridlinkDestination.INBOX -> GridlinkMessageListScreen(
-                        destination = destination,
-                        onSelectDestination = { destination = it },
-                        onCompose = { composing = GridlinkComposeRequest.Fresh },
-                        sidePane = readingPane,
-                        // Only in two panes. In one, the row that would be marked is underneath a
-                        // full-screen thread, and it would be marked for the benefit of nobody.
-                        currentId = if (twoPane) visibleOpenId else null,
-                        onFiled = { ids ->
-                            // Only the message the pane is actually showing. Archiving four rows
-                            // none of which is open must leave the pane exactly where it was.
-                            if (visibleOpenId != null && visibleOpenId in ids) {
-                                filedOpenId = visibleOpenId
-                            }
-                        },
-                        onOpenMessage = { message ->
-                            openId = message.id
-                            // 🔴 Cleared on every open, not only when it matches. The demo recycle
-                            // returns a filed message to the top of the list, so the same id can be
-                            // opened again minutes after being parked, and a stale park would make
-                            // that tap silently do nothing at all.
-                            filedOpenId = null
-                            // 🔴 No animation in two panes. The thread is not travelling anywhere, and
-                            // running the entrance would slide the reading pane in from off-screen every
-                            // time you tapped a different row in a list sitting right next to it.
-                            if (!twoPane) {
-                                scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
-                            }
-                        },
-                        initiallyExpanded = initiallyExpanded,
-                        initiallySelected = initiallySelected,
-                        initialSearchExpanded = initialSearchExpanded,
-                        initialSwipeId = initialSwipeId,
-                        initialSwipeFraction = initialSwipeFraction,
-                        demoRecycle = demoRecycle,
-                        initiallyEmpty = initiallyEmpty,
-                        loading = initiallyLoading,
-                        removeRequest = removeRequest,
-                    )
-
-                    GridlinkDestination.FOLDERS -> GridlinkFolderScreen(
-                        destination = destination,
-                        onSelectDestination = { destination = it },
-                        tree = folderTree,
-                        onTreeChange = { folderTree = it },
-                        onCompose = { composing = GridlinkComposeRequest.Fresh },
-                        initialActionFolderId = initialFolderActionId,
-                        initialStage = initialFolderStage,
-                        initialCreateUnder = initialCreateUnder,
-                        sidePane = readingPane,
-                        // Same rule as the other three lists: only in two panes, or the marked row
-                        // sits under a full-screen panel and just looks stuck.
-                        currentId = if (twoPane) openFolderId else null,
-                        onOpenFolder = { folder ->
-                            openFolderId = folder.id
-                            // 🔴 No animation in two panes, for the reason none of the others run one
-                            // either: the panel is not travelling anywhere, and playing the entrance
-                            // would slide it in from off-screen every time you tapped a different
-                            // mailbox in a tree sitting right beside it.
-                            if (!twoPane) {
-                                scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
-                            }
-                        },
-                    )
-
-                    // Calendar and Contacts deliberately do NOT open the composer. Their compose button
-                    // is already a "+" that promises a new appointment or a new contact, and having it
-                    // write an email instead would be the app lying about what a button does.
-                    GridlinkDestination.CALENDAR -> GridlinkCalendarScreen(
-                        destination = destination,
-                        onSelectDestination = { destination = it },
-                        initialView = initialCalendarView,
-                        initialDate = calendarStart,
-                        sidePane = readingPane,
-                        // Same rule as the other two lists: only in two panes, or the marked block
-                        // sits under a full-screen card and just looks stuck.
-                        currentId = if (twoPane) openEventId else null,
-                        onOpenEvent = { event ->
-                            openEventId = event.id
-                            // 🔴 No animation in two panes, exactly as the inbox and contacts do it.
-                            if (!twoPane) {
-                                scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
-                            }
-                        },
-                        // 🔴 Null once the calendar HAS a reading pane, and this is not tidying. The
-                        // month view splits on its own panel width, and in two panes that panel is
-                        // the 380dp list column. `forceTwoPane = true` reaching it there would force
-                        // the 2:1 grid-plus-list into roughly 420dp: seven columns of about 50dp
-                        // beside a day list with no width left, which is precisely the "distorted and
-                        // stretched" month `31ae393` was written to fix. The override exists to make
-                        // the STACKED month photographable on a wide emulator, and that case is the
-                        // one where the pane is collapsed, so it is the only case that still passes it.
-                        forceSplit = if (twoPane) null else forceTwoPane,
-                    )
-
-                    GridlinkDestination.CONTACTS -> GridlinkContactsScreen(
-                        destination = destination,
-                        onSelectDestination = { destination = it },
-                        initialScrubLetter = initialScrubLetter,
-                        sidePane = readingPane,
-                        // Same rule as the inbox: only in two panes. In one, the marked row is
-                        // underneath a full-screen card and marked for the benefit of nobody.
-                        currentId = if (twoPane) openContactId else null,
-                        onOpenContact = { contact ->
-                            openContactId = contact.id
-                            // 🔴 No animation in two panes, for the reason the inbox does not run one
-                            // either: the card is not travelling anywhere, and playing the entrance
-                            // would slide the pane in from off-screen every time you tapped a
-                            // different name in a list sitting right beside it.
-                            if (!twoPane) {
-                                scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
-                            }
-                        },
-                    )
-                }
-            }
-
-            // Depth, in one draw pass: the destination darkens as it recedes, and the thread casts a
-            // shadow onto it from its leading edge. Both are read straight off the same value the slide
-            // uses, so a back drag scrubs them exactly as far as it scrubs the screen.
-            //
-            // 🔴 Not `colors.scrim`. That token is tuned for a modal sitting ON the app, and Day's is
-            // 50% of the same blue as the backdrop, which over the backdrop barely darkens anything. A
-            // layer moving AWAY has to lose light, so this is plain black, and the palette's own colour
-            // is the thing showing through it.
-            if (progress.value > 0f && !twoPane) {
-                val edgeShadow = colors.usesShadows
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .drawBehind {
-                            val fraction = progress.value
-                            drawRect(
-                                color = Color.Black,
-                                alpha = THREAD_RECEDE_SCRIM * fraction,
-                            )
-                            if (!edgeShadow) return@drawBehind
-                            // Tracks the thread's leading edge across the screen rather than sitting at
-                            // a fixed offset, so the shadow arrives with the screen instead of fading up
-                            // underneath it.
-                            val edge = size.width * (1f - fraction)
-                            val width = THREAD_EDGE_SHADOW.toPx()
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(
-                                        Color.Transparent,
-                                        Color.Black.copy(alpha = THREAD_EDGE_SHADOW_ALPHA * fraction),
-                                    ),
-                                    startX = edge - width,
-                                    endX = edge,
-                                ),
-                                topLeft = Offset(edge - width, 0f),
-                                size = Size(width, size.height),
-                            )
-                        },
-                )
-            }
-
-            // The compact layout's detail: a screen drawn OVER the list. In two panes the same
-            // composable is inside the scaffold as [readingPane] instead, so this must not also render
-            // or it would be on screen twice, once beside the list and once on top of it.
-            if (!twoPane) {
-                detail?.let { current ->
-                    Box(
-                        modifier = Modifier.graphicsLayer {
-                            translationX = size.width * (1f - progress.value)
-                        },
-                    ) {
-                        detailScreen(current, false)
+                // 🔴 PredictiveBackHandler, not BackHandler. The difference is the whole point of building
+                // the open as one scrubable value: this delivers the drag as a flow of progress, so the
+                // thread follows the finger and follows it back if the finger changes its mind. Normal
+                // completion of the flow means committed; a CancellationException means the user let go and
+                // it should go back. The coroutine is still live inside that catch, which is what makes
+                // animating from it legal.
+                PredictiveBackHandler(enabled = detail != null && composing == null) { events ->
+                    val closing = detail
+                    try {
+                        events.collect { event -> progress.snapTo(1f - event.progress) }
+                        progress.animateTo(0f, GridlinkMotion.standard())
+                        clearDetail(closing)
+                    } catch (cancelled: CancellationException) {
+                        progress.animateTo(1f, GridlinkMotion.standard())
                     }
                 }
             }
 
-            composing?.let { request ->
-                GridlinkComposeScreen(
-                    onClose = { composing = null },
-                    onSend = ::sendWithUndo,
-                    draft = request.draft,
-                    initialFocus = request.focus,
-                    initiallyScheduling = request.scheduling,
-                )
+            /** What the thread's action buttons do, wherever the thread is being drawn. */
+            val threadActions: (GridlinkMessage) -> (GridlinkThreadAction) -> Unit = { message ->
+                { action ->
+                    when (action) {
+                        GridlinkThreadAction.REPLY -> composing = gridlinkReplyTo(message)
+                        GridlinkThreadAction.REPLY_ALL -> composing = gridlinkReplyAllTo(message)
+                        GridlinkThreadAction.FORWARD -> composing = gridlinkForward(message)
+
+                        // All three file the message and leave. ⚠️ They are the same code today and they
+                        // must not stay that way: archive moves it, spam moves it AND trains the filter, and
+                        // unsubscribe sends a request first. The list only knows how to make a row leave, so
+                        // that is all any of them can do until there is a server on the other end. What each
+                        // one is *supposed* to do is written down here so the difference is not lost.
+                        GridlinkThreadAction.ARCHIVE,
+                        GridlinkThreadAction.SPAM,
+                        GridlinkThreadAction.UNSUBSCRIBE,
+                        -> fileOpenThread(message.id)
+                    }
+                }
             }
 
-            // 🔴 Last, and therefore on top of everything including the composer. That ordering is not
-            // cosmetic: undo, and the composer comes back OVER the bar, which is exactly right because
-            // the bar has served its purpose and is on its way out. If this were declared above
-            // `composing` the reopened composer would appear underneath the countdown it just cancelled.
-            undoing?.let { send ->
-                GridlinkUndoBar(
-                    send = send,
-                    onUndo = {
-                        undoing = null
-                        composing = send.request
+            /**
+             * Whatever is open, drawn once. The reading pane and the compact push layer both call this,
+             * so the two layouts cannot drift into showing different things for the same state.
+             *
+             * `embedded` is the pane; the back it wires is never reached there because the pane hides its
+             * back button, but it is wired anyway so the parameter is not a lie if something else ever
+             * calls into it.
+             */
+            val detailScreen: @Composable (GridlinkDetail, Boolean) -> Unit = { current, embedded ->
+                when (current) {
+                    is GridlinkDetail.Thread -> GridlinkThreadScreen(
+                        message = current.message,
+                        onBack = { if (embedded) clearDetail(current) else closeDetail() },
+                        onAction = threadActions(current.message),
+                        embedded = embedded,
+                    )
+
+                    is GridlinkDetail.Contact -> GridlinkContactScreen(
+                        contact = current.contact,
+                        onBack = { if (embedded) clearDetail(current) else closeDetail() },
+                        // Reading a message means being on the tab that reads messages, so the card sends
+                        // you there rather than growing its own thread view. The contact stays open
+                        // behind it, so Contacts is where you left it when you come back.
+                        onOpenMessage = { message ->
+                            destination = GridlinkDestination.INBOX
+                            openId = message.id
+                            filedOpenId = null
+                            // Already at 1 in a compact window, because the card that was tapped is
+                            // itself fully in. The thread replaces it in place, which is the same swap
+                            // the reading pane does when you tap a different row.
+                            if (!twoPane) scope.launch { progress.snapTo(1f) }
+                        },
+                        onWrite = { composing = gridlinkWriteTo(it) },
+                        embedded = embedded,
+                    )
+
+                    is GridlinkDetail.Event -> GridlinkEventScreen(
+                        event = current.event,
+                        onBack = { if (embedded) clearDetail(current) else closeDetail() },
+                        // Same hand-off the contact card makes, and for the same reason: reading mail
+                        // means being on the tab that reads mail. The event stays open behind it, so
+                        // Calendar is where you left it when you come back.
+                        onOpenMessage = { message ->
+                            destination = GridlinkDestination.INBOX
+                            openId = message.id
+                            filedOpenId = null
+                            if (!twoPane) scope.launch { progress.snapTo(1f) }
+                        },
+                        // Swaps the card in place, exactly as tapping a different row in the reading pane
+                        // does. 🔴 No animation in either layout: in two panes nothing travels, and in one
+                        // the card being replaced is already fully in, so running the entrance would slide
+                        // the screen out and back for what is one appointment becoming another.
+                        onOpenEvent = { openEventId = it.id },
+                        onWrite = { composing = gridlinkWriteTo(it) },
+                        embedded = embedded,
+                    )
+
+                    is GridlinkDetail.Folder -> GridlinkFolderMailScreen(
+                        folder = current.folder,
+                        onBack = { if (embedded) clearDetail(current) else closeDetail() },
+                        // The third screen to make this hand-off, and the reason has not changed: reading
+                        // mail means being on the tab that reads mail. ⚠️ It is the most tempting one to
+                        // do differently, because a folder list and a thread genuinely could nest, and
+                        // that is exactly what "paint order is the stack" cannot survive. The folder stays
+                        // open behind it, so Folders is where you left it when you come back.
+                        onOpenMessage = { message ->
+                            destination = GridlinkDestination.INBOX
+                            openId = message.id
+                            filedOpenId = null
+                            if (!twoPane) scope.launch { progress.snapTo(1f) }
+                        },
+                        embedded = embedded,
+                    )
+                }
+            }
+
+            // §7's reading pane, or null when the window is compact. All four destinations have a detail
+            // view now, so the type stays nullable for the compact case and for whatever gets added next.
+            //
+            // The label is the test as well as the text. Every destination names what its empty pane is
+            // waiting for, and "Select a message" beside a list of people would be the app naming the
+            // wrong noun. ⚠️ Folders says "folder" and not "message": the pane holds a mailbox's mail, but
+            // what the tree beside it asks you to pick is a mailbox.
+            val paneLabel: String = when (destination) {
+                GridlinkDestination.INBOX -> "Select a message"
+                GridlinkDestination.CONTACTS -> "Select a contact"
+                GridlinkDestination.CALENDAR -> "Select an event"
+                GridlinkDestination.FOLDERS -> "Select a folder"
+            }
+            val readingPane: (@Composable () -> Unit)? =
+                if (twoPane) {
+                    {
+                        val current = detail
+                        if (current == null) {
+                            GridlinkThreadPlaceholder(label = paneLabel)
+                        } else {
+                            detailScreen(current, true)
+                        }
+                    }
+                } else {
+                    null
+                }
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                // 🔴 The destination keeps composing under the thread rather than being swapped out. Same
+                // reason the composer is drawn over it: the list must come back with its scroll position,
+                // its selection and its swipe state intact, and it is also visible through the parallax the
+                // whole time the thread is arriving, so there is nothing to swap to.
+                Box(
+                    modifier = Modifier.graphicsLayer {
+                        // Recedes a fraction of the distance the thread travels. Equal travel would read as
+                        // two screens on a conveyor; a slower back layer is what makes one look further away.
+                        //
+                        // 🔴 Zero in two panes, and NOT because the maths happens to cancel. It does not.
+                        // `progress` is pinned at 1 while a thread is open, so without this guard the whole
+                        // scaffold, both panes of it, would sit shoved a third of the window off the left
+                        // edge for as long as anything was being read.
+                        translationX =
+                            if (twoPane) 0f else -size.width * THREAD_PARALLAX * progress.value
                     },
-                    onExpire = { undoing = null },
-                    frozenAt = initialUndoFrame?.remaining,
-                )
+                ) {
+                    when (destination) {
+                        GridlinkDestination.INBOX -> GridlinkMessageListScreen(
+                            destination = destination,
+                            onSelectDestination = { destination = it },
+                            onCompose = { composing = GridlinkComposeRequest.Fresh },
+                            sidePane = readingPane,
+                            // Only in two panes. In one, the row that would be marked is underneath a
+                            // full-screen thread, and it would be marked for the benefit of nobody.
+                            currentId = if (twoPane) visibleOpenId else null,
+                            onFiled = { ids ->
+                                // Only the message the pane is actually showing. Archiving four rows
+                                // none of which is open must leave the pane exactly where it was.
+                                if (visibleOpenId != null && visibleOpenId in ids) {
+                                    filedOpenId = visibleOpenId
+                                }
+                            },
+                            onOpenMessage = { message ->
+                                openId = message.id
+                                // 🔴 Cleared on every open, not only when it matches. The demo recycle
+                                // returns a filed message to the top of the list, so the same id can be
+                                // opened again minutes after being parked, and a stale park would make
+                                // that tap silently do nothing at all.
+                                filedOpenId = null
+                                // 🔴 No animation in two panes. The thread is not travelling anywhere, and
+                                // running the entrance would slide the reading pane in from off-screen every
+                                // time you tapped a different row in a list sitting right next to it.
+                                if (!twoPane) {
+                                    scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
+                                }
+                            },
+                            initiallyExpanded = initiallyExpanded,
+                            initiallySelected = initiallySelected,
+                            initialSearchExpanded = initialSearchExpanded,
+                            initialSwipeId = initialSwipeId,
+                            initialSwipeFraction = initialSwipeFraction,
+                            demoRecycle = demoRecycle,
+                            initiallyEmpty = initiallyEmpty,
+                            loading = initiallyLoading,
+                            removeRequest = removeRequest,
+                        )
+
+                        GridlinkDestination.FOLDERS -> GridlinkFolderScreen(
+                            destination = destination,
+                            onSelectDestination = { destination = it },
+                            tree = folderTree,
+                            onTreeChange = { folderTree = it },
+                            onCompose = { composing = GridlinkComposeRequest.Fresh },
+                            initialActionFolderId = initialFolderActionId,
+                            initialStage = initialFolderStage,
+                            initialCreateUnder = initialCreateUnder,
+                            sidePane = readingPane,
+                            // Same rule as the other three lists: only in two panes, or the marked row
+                            // sits under a full-screen panel and just looks stuck.
+                            currentId = if (twoPane) openFolderId else null,
+                            onOpenFolder = { folder ->
+                                openFolderId = folder.id
+                                // 🔴 No animation in two panes, for the reason none of the others run one
+                                // either: the panel is not travelling anywhere, and playing the entrance
+                                // would slide it in from off-screen every time you tapped a different
+                                // mailbox in a tree sitting right beside it.
+                                if (!twoPane) {
+                                    scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
+                                }
+                            },
+                        )
+
+                        // Calendar and Contacts deliberately do NOT open the composer. Their compose button
+                        // is already a "+" that promises a new appointment or a new contact, and having it
+                        // write an email instead would be the app lying about what a button does. Until
+                        // the two forms below existed that meant the button did nothing at all, which was
+                        // the honest placeholder rather than the intended end state.
+                        GridlinkDestination.CALENDAR -> GridlinkCalendarScreen(
+                            destination = destination,
+                            onSelectDestination = { destination = it },
+                            onNewEvent = { day -> creating = GridlinkCreation.Event(day) },
+                            initialView = initialCalendarView,
+                            initialDate = calendarStart,
+                            sidePane = readingPane,
+                            // Same rule as the other two lists: only in two panes, or the marked block
+                            // sits under a full-screen card and just looks stuck.
+                            currentId = if (twoPane) openEventId else null,
+                            onOpenEvent = { event ->
+                                openEventId = event.id
+                                // 🔴 No animation in two panes, exactly as the inbox and contacts do it.
+                                if (!twoPane) {
+                                    scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
+                                }
+                            },
+                            // 🔴 Null once the calendar HAS a reading pane, and this is not tidying. The
+                            // month view splits on its own panel width, and in two panes that panel is
+                            // the 380dp list column. `forceTwoPane = true` reaching it there would force
+                            // the 2:1 grid-plus-list into roughly 420dp: seven columns of about 50dp
+                            // beside a day list with no width left, which is precisely the "distorted and
+                            // stretched" month `31ae393` was written to fix. The override exists to make
+                            // the STACKED month photographable on a wide emulator, and that case is the
+                            // one where the pane is collapsed, so it is the only case that still passes it.
+                            forceSplit = if (twoPane) null else forceTwoPane,
+                        )
+
+                        GridlinkDestination.CONTACTS -> GridlinkContactsScreen(
+                            destination = destination,
+                            onSelectDestination = { destination = it },
+                            onCompose = { creating = GridlinkCreation.Contact },
+                            initialScrubLetter = initialScrubLetter,
+                            sidePane = readingPane,
+                            // Same rule as the inbox: only in two panes. In one, the marked row is
+                            // underneath a full-screen card and marked for the benefit of nobody.
+                            currentId = if (twoPane) openContactId else null,
+                            onOpenContact = { contact ->
+                                openContactId = contact.id
+                                // 🔴 No animation in two panes, for the reason the inbox does not run one
+                                // either: the card is not travelling anywhere, and playing the entrance
+                                // would slide the pane in from off-screen every time you tapped a
+                                // different name in a list sitting right beside it.
+                                if (!twoPane) {
+                                    scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
+                                }
+                            },
+                        )
+                    }
+                }
+
+                // Depth, in one draw pass: the destination darkens as it recedes, and the thread casts a
+                // shadow onto it from its leading edge. Both are read straight off the same value the slide
+                // uses, so a back drag scrubs them exactly as far as it scrubs the screen.
+                //
+                // 🔴 Not `colors.scrim`. That token is tuned for a modal sitting ON the app, and Day's is
+                // 50% of the same blue as the backdrop, which over the backdrop barely darkens anything. A
+                // layer moving AWAY has to lose light, so this is plain black, and the palette's own colour
+                // is the thing showing through it.
+                if (progress.value > 0f && !twoPane) {
+                    val edgeShadow = colors.usesShadows
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .drawBehind {
+                                val fraction = progress.value
+                                drawRect(
+                                    color = Color.Black,
+                                    alpha = THREAD_RECEDE_SCRIM * fraction,
+                                )
+                                if (!edgeShadow) return@drawBehind
+                                // Tracks the thread's leading edge across the screen rather than sitting at
+                                // a fixed offset, so the shadow arrives with the screen instead of fading up
+                                // underneath it.
+                                val edge = size.width * (1f - fraction)
+                                val width = THREAD_EDGE_SHADOW.toPx()
+                                drawRect(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = THREAD_EDGE_SHADOW_ALPHA * fraction),
+                                        ),
+                                        startX = edge - width,
+                                        endX = edge,
+                                    ),
+                                    topLeft = Offset(edge - width, 0f),
+                                    size = Size(width, size.height),
+                                )
+                            },
+                    )
+                }
+
+                // The compact layout's detail: a screen drawn OVER the list. In two panes the same
+                // composable is inside the scaffold as [readingPane] instead, so this must not also render
+                // or it would be on screen twice, once beside the list and once on top of it.
+                if (!twoPane) {
+                    detail?.let { current ->
+                        Box(
+                            modifier = Modifier.graphicsLayer {
+                                translationX = size.width * (1f - progress.value)
+                            },
+                        ) {
+                            detailScreen(current, false)
+                        }
+                    }
+                }
+
+                // The two "+" forms, in the same overlay slot the composer uses and for the same reason:
+                // they are full-screen things drawn over whichever list opened them, not destinations,
+                // so nothing about the nav pill or the back stack changes while one is up.
+                when (val current = creating) {
+                    is GridlinkCreation.Event -> GridlinkNewEventScreen(
+                        date = current.date,
+                        onClose = { creating = null },
+                        onSave = { event ->
+                            // 🔴 The id is minted HERE, off the count, because the form cannot know it.
+                            // See [gridlinkNewId].
+                            addedEvents = addedEvents +
+                                event.copy(id = gridlinkNewId("event", addedEvents.size))
+                            creating = null
+                        },
+                    )
+
+                    GridlinkCreation.Contact -> GridlinkNewContactScreen(
+                        onClose = { creating = null },
+                        onSave = { contact ->
+                            addedContacts = addedContacts +
+                                contact.copy(id = gridlinkNewId("contact", addedContacts.size))
+                            creating = null
+                        },
+                    )
+
+                    null -> Unit
+                }
+
+                composing?.let { request ->
+                    GridlinkComposeScreen(
+                        // Closing is the user abandoning the attempt, so the refusal goes with it. It
+                        // is about a send, not about the draft, and a reopened composer showing why a
+                        // previous send failed would be reporting history.
+                        onClose = { composing = null; sendError = null },
+                        onSend = ::sendWithUndo,
+                        draft = request.draft,
+                        initialFocus = request.focus,
+                        initiallyScheduling = request.scheduling,
+                        error = sendError,
+                    )
+                }
+
+                // 🔴 Last, and therefore on top of everything including the composer. That ordering is not
+                // cosmetic: undo, and the composer comes back OVER the bar, which is exactly right because
+                // the bar has served its purpose and is on its way out. If this were declared above
+                // `composing` the reopened composer would appear underneath the countdown it just cancelled.
+                undoing?.let { send ->
+                    GridlinkUndoBar(
+                        send = send,
+                        onUndo = {
+                            undoing = null
+                            composing = send.request
+                            // 🔴 Take the queued row back out. The bar closing is not what stops the
+                            // message any more: the outbox is holding a real row with a real worker
+                            // armed behind it, and without this the composer would reopen with the
+                            // draft while the original went out on schedule ten seconds later.
+                            pending.undo(scope)
+                        },
+                        // Nothing to do on expiry, and that is the point: the hold the outbox is
+                        // running IS this ring, so the worker delivers at the same moment the arc
+                        // reaches zero. Cancelling here would un-send every message that was not undone.
+                        onExpire = { undoing = null },
+                        frozenAt = initialUndoFrame?.remaining,
+                    )
+                }
             }
         }
     }
@@ -1050,6 +1179,18 @@ fun GridlinkRoot(
  * is the recipient. A fresh draft would capture three frames of a bar with nothing to say.
  */
 private val GRIDLINK_UNDO_SAMPLE = GridlinkComposeRequest(GridlinkComposeDraft.Reply)
+
+/**
+ * What the "+" is currently adding, as one value.
+ *
+ * Mirrors [GridlinkDetail]: one nullable state instead of a boolean per form, so two of them cannot
+ * be true at once and there is one place that says what is on screen. The event branch carries its
+ * day because the button knows it and the form cannot work it out.
+ */
+sealed interface GridlinkCreation {
+    data class Event(val date: LocalDate) : GridlinkCreation
+    data object Contact : GridlinkCreation
+}
 
 /**
  * What a destination can have open, as one value.

@@ -131,6 +131,21 @@ object GridlinkSampleContacts {
     fun byId(id: String): GridlinkContact? = all.firstOrNull { it.id == id }
 
     /**
+     * True when [contact] came out of this address book rather than being typed into the composer.
+     *
+     * 🔴 The guard [GridlinkOutboxSender] uses before putting anything on the wire, and the reason
+     * it matters is the domains: these are invented local parts at invented companies (dalton-energy.example,
+     * sanivex.example, tallyman.example, riverbendwater.example, mardenmma.example). Legible sample mail and a live
+     * outbox are individually fine and together are a way to mail a stranger by tapping the demo.
+     *
+     * ⚠️ Matched on id, not on address. A typed recipient is built by [gridlinkTypedRecipient] with
+     * an id that cannot collide with a sample one, so someone typing `p.ashby@gridlink.me` by hand
+     * is not silently re-identified as the sample contact and refused for it. Identity here means
+     * "this object came from the fixture", which is exactly the question being asked.
+     */
+    fun isSample(contact: GridlinkContact): Boolean = all.any { it.id == contact.id }
+
+    /**
      * The contact a message came from, or null if the sender is not in the address book.
      *
      * ## 🔴 Why this is not `email == address`
