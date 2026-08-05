@@ -15,6 +15,7 @@ import app.sterna.ui.gridlink.GridlinkDestination
 import app.sterna.ui.gridlink.GridlinkFolderStage
 import app.sterna.ui.gridlink.GridlinkRoot
 import app.sterna.ui.gridlink.GridlinkSample
+import app.sterna.ui.gridlink.GridlinkSampleContacts
 import app.sterna.ui.gridlink.GridlinkSampleTree
 import app.sterna.ui.gridlink.GridlinkSyncState
 import app.sterna.ui.gridlink.GridlinkUndoFrame
@@ -313,10 +314,31 @@ class GridlinkGalleryActivity : ComponentActivity() {
         // Validated here rather than left to the lookup, so the failure names the extra that is
         // wrong. GridlinkSample.messageById throws on a miss and lists the ids.
         openId?.let(GridlinkSample::messageById)
+        // The contact card, already open. Same shape as `open` and it shares `openAt`, because the
+        // two are open on different tabs and one tab is showing at a time.
+        //   am start -S -n .../GridlinkGalleryActivity --es tab contacts --es contact marisol-rivera
+        val contactId = intent?.getStringExtra("contact")?.trim()?.takeIf { it.isNotEmpty() }
+        contactId?.let {
+            // Validated here rather than left to the lookup, so the failure names the extra that is
+            // wrong and lists what would have worked. byId returns null on a miss.
+            requireNotNull(GridlinkSampleContacts.byId(it)) {
+                "Unknown contact '$it'. Known: " +
+                    GridlinkSampleContacts.all.joinToString { contact -> contact.id }
+            }
+        }
+        require(contactId == null || tab == GridlinkDestination.CONTACTS) {
+            "contact='$contactId' is an address book card, so it only means anything on the " +
+                "contacts tab. Add --es tab contacts."
+        }
+        require(openId == null || contactId == null) {
+            "open='$openId' and contact='$contactId' are on different tabs, so only one of them " +
+                "can be the thing that is open. Pick one."
+        }
         val openAt = intent?.getFloatExtra("openAt", 1f) ?: 1f
         require(openAt in 0f..1f) { "openAt=$openAt must be between 0 and 1." }
-        require(openId != null || openAt == 1f) {
-            "openAt=$openAt without --es open would hold nothing part-way. Add --es open jeff-dogs."
+        require(openId != null || contactId != null || openAt == 1f) {
+            "openAt=$openAt without --es open or --es contact would hold nothing part-way. Add " +
+                "--es open jeff-dogs."
         }
         require(openId == null || tab == GridlinkDestination.INBOX) {
             "open='$openId' is a mail thread, so it only means anything on the inbox tab."
@@ -366,6 +388,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initiallyEmpty = empty,
                 initiallyLoading = loading,
                 initialOpenId = openId,
+                initialContactId = contactId,
                 initialOpenFraction = openAt,
                 forceTwoPane = forceTwoPane,
             )
@@ -395,6 +418,7 @@ private fun GridlinkGallery(
     initiallyEmpty: Boolean = false,
     initiallyLoading: Boolean = false,
     initialOpenId: String? = null,
+    initialContactId: String? = null,
     initialOpenFraction: Float = 1f,
     forceTwoPane: Boolean? = null,
 ) {
@@ -430,6 +454,7 @@ private fun GridlinkGallery(
             initiallyEmpty = initiallyEmpty,
             initiallyLoading = initiallyLoading,
             initialOpenId = initialOpenId,
+            initialContactId = initialContactId,
             initialOpenFraction = initialOpenFraction,
             forceTwoPane = forceTwoPane,
         )

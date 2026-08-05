@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import app.sterna.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.sterna.ui.theme.GridlinkDimens
 import app.sterna.ui.theme.GridlinkMotion
 import app.sterna.ui.theme.GridlinkRadii
@@ -410,6 +411,14 @@ fun GridlinkRoot(
     initiallyEmpty: Boolean = false,
     initiallyLoading: Boolean = false,
     initialOpenId: String? = null,
+    /**
+     * The contact whose card is already open, by [GridlinkContact.id].
+     *
+     * The Contacts tab's equivalent of [initialOpenId], and it shares [initialOpenFraction] with it
+     * because the two can never be open at once: the destination decides which detail exists, and
+     * one destination is showing at a time.
+     */
+    initialContactId: String? = null,
     initialOpenFraction: Float = 1f,
     /**
      * Harness override for §7's layout: true forces two panes, false forces one, null measures.
@@ -503,20 +512,69 @@ fun GridlinkRoot(
      */
     var filedOpenId by rememberSaveable(initialOpenId) { mutableStateOf<String?>(null) }
 
+    /**
+     * The open contact card, by id, for the same reason [openId] is an id: folding destroys the
+     * activity and a [GridlinkContact] is not parcelable.
+     *
+     * Its own state rather than a shared "open thing", because a message and a contact are open on
+     * two different tabs and switching between them must not throw either away. Open a message,
+     * flick to Contacts, open somebody, flick back: the thread is still there.
+     */
+    var openContactId by rememberSaveable(initialContactId) { mutableStateOf(initialContactId) }
+
     // The pane's emptiness is derived, never assigned. One place decides whether what is open is
     // still real, so the row highlight, the back handler and the pane cannot end up disagreeing.
     val visibleOpenId = openId?.takeIf { it != filedOpenId }
     val open = visibleOpenId?.let(GridlinkSample::messageById)
-    // Seeded from the RESTORED id rather than from `initialOpenId`, so a thread that survived the
-    // hinge comes back at rest instead of replaying its entrance across the recreated activity.
-    val progress = remember(initialOpenId) {
-        Animatable(if (openId == null) 0f else initialOpenFraction)
+    val openContact = openContactId?.let(GridlinkSampleContacts::byId)
+
+    /**
+     * What is open on the tab that is showing, or null if nothing is.
+     *
+     * 🔴 Derived from the destination, so a tab with no detail view cannot accidentally inherit
+     * another tab's. Everything downstream (the back handlers, the reading pane, the screen drawn
+     * over a compact list) asks this one value instead of testing `open != null` and then quietly
+     * disagreeing with each other about which tab that was true for.
+     */
+    val detail: GridlinkDetail? = when (destination) {
+        GridlinkDestination.INBOX -> open?.let(GridlinkDetail::Thread)
+        GridlinkDestination.CONTACTS -> openContact?.let(GridlinkDetail::Contact)
+        // Neither has a detail view yet. Both are next.
+        GridlinkDestination.FOLDERS, GridlinkDestination.CALENDAR -> null
     }
 
-    fun closeThread() {
+    // Seeded from the RESTORED ids rather than from the parameters, so a detail that survived the
+    // hinge comes back at rest instead of replaying its entrance across the recreated activity.
+    val progress = remember(initialOpenId, initialContactId) {
+        Animatable(if (openId == null && openContactId == null) 0f else initialOpenFraction)
+    }
+
+    // 🔴 Travel is shared by every detail view, so it has to be reset when there is nothing open.
+    // Without this, opening a thread (which leaves `progress` at 1), switching to Contacts and
+    // tapping somebody would run the entrance from 1 to 1: the card would appear with no arrival at
+    // all, on the one tab where the animation had never played. Snapping is safe because the close
+    // path animates to 0 BEFORE it clears the id, so by the time this fires it is already there.
+    LaunchedEffect(detail == null) {
+        if (detail == null) progress.snapTo(0f)
+    }
+
+    /** Drops [target] with no animation. Two panes have nothing to slide, so this is the whole close. */
+    fun clearDetail(target: GridlinkDetail?) {
+        when (target) {
+            is GridlinkDetail.Thread -> openId = null
+            is GridlinkDetail.Contact -> openContactId = null
+            null -> Unit
+        }
+    }
+
+    // 🔴 What is being closed is captured BEFORE the animation, not read after it. The clear happens
+    // a few hundred milliseconds later, and reading `detail` then would read whatever tab the user
+    // had flicked to in the meantime, closing something they never asked to close.
+    fun closeDetail() {
+        val closing = detail
         scope.launch {
             progress.animateTo(0f, GridlinkMotion.standard())
-            openId = null
+            clearDetail(closing)
         }
     }
 
@@ -539,7 +597,7 @@ fun GridlinkRoot(
     fun fileOpenThread(id: String) {
         removeNonce += 1
         removeRequest = GridlinkRemoveRequest(setOf(id), removeNonce)
-        closeThread()
+        closeDetail()
     }
 
     BoxWithConstraints(modifier = modifier) {
@@ -551,15 +609,15 @@ fun GridlinkRoot(
         // slide, it is simply there, but folding the device back to one pane has to land on a thread
         // that is fully in. Left at whatever fraction the last back-drag stopped at, the first fold
         // after a cancelled swipe would show the thread parked half off the screen.
-        LaunchedEffect(twoPane, visibleOpenId) {
-            if (twoPane && visibleOpenId != null) progress.snapTo(1f)
+        LaunchedEffect(twoPane, detail) {
+            if (twoPane && detail != null) progress.snapTo(1f)
         }
 
         if (twoPane) {
             // A plain BackHandler, because there is nothing to scrub. The list is not underneath the
             // thread here, it is beside it, so a drag that reveals the list by degrees would be
             // revealing something already fully visible. Back empties the reading pane.
-            BackHandler(enabled = open != null && composing == null) { openId = null }
+            BackHandler(enabled = detail != null && composing == null) { clearDetail(detail) }
         } else {
             // 🔴 PredictiveBackHandler, not BackHandler. The difference is the whole point of building
             // the open as one scrubable value: this delivers the drag as a flow of progress, so the
@@ -567,11 +625,12 @@ fun GridlinkRoot(
             // completion of the flow means committed; a CancellationException means the user let go and
             // it should go back. The coroutine is still live inside that catch, which is what makes
             // animating from it legal.
-            PredictiveBackHandler(enabled = open != null && composing == null) { events ->
+            PredictiveBackHandler(enabled = detail != null && composing == null) { events ->
+                val closing = detail
                 try {
                     events.collect { event -> progress.snapTo(1f - event.progress) }
                     progress.animateTo(0f, GridlinkMotion.standard())
-                    openId = null
+                    clearDetail(closing)
                 } catch (cancelled: CancellationException) {
                     progress.animateTo(1f, GridlinkMotion.standard())
                 }
@@ -599,25 +658,64 @@ fun GridlinkRoot(
             }
         }
 
+        /**
+         * Whatever is open, drawn once. The reading pane and the compact push layer both call this,
+         * so the two layouts cannot drift into showing different things for the same state.
+         *
+         * `embedded` is the pane; the back it wires is never reached there because the pane hides its
+         * back button, but it is wired anyway so the parameter is not a lie if something else ever
+         * calls into it.
+         */
+        val detailScreen: @Composable (GridlinkDetail, Boolean) -> Unit = { current, embedded ->
+            when (current) {
+                is GridlinkDetail.Thread -> GridlinkThreadScreen(
+                    message = current.message,
+                    onBack = { if (embedded) clearDetail(current) else closeDetail() },
+                    onAction = threadActions(current.message),
+                    embedded = embedded,
+                )
+
+                is GridlinkDetail.Contact -> GridlinkContactScreen(
+                    contact = current.contact,
+                    onBack = { if (embedded) clearDetail(current) else closeDetail() },
+                    // Reading a message means being on the tab that reads messages, so the card sends
+                    // you there rather than growing its own thread view. The contact stays open
+                    // behind it, so Contacts is where you left it when you come back.
+                    onOpenMessage = { message ->
+                        destination = GridlinkDestination.INBOX
+                        openId = message.id
+                        filedOpenId = null
+                        // Already at 1 in a compact window, because the card that was tapped is
+                        // itself fully in. The thread replaces it in place, which is the same swap
+                        // the reading pane does when you tap a different row.
+                        if (!twoPane) scope.launch { progress.snapTo(1f) }
+                    },
+                    onWrite = { composing = gridlinkWriteTo(it) },
+                    embedded = embedded,
+                )
+            }
+        }
+
         // §7's reading pane, or null when the window is compact or the destination has no detail view.
-        // Folders, Calendar and Contacts stay full-width: each has a detail view worth building one day
-        // and none has one today, and a placeholder beside three screens that can never fill it would be
-        // three permanently empty halves of the display.
+        // Folders and Calendar stay full-width until they have one: a placeholder beside a screen that
+        // can never fill it is a permanently empty half of the display.
+        //
+        // The label is the test as well as the text. Every destination with a detail view names what
+        // its empty pane is waiting for, and "Select a message" beside a list of people would be the
+        // app naming the wrong noun.
+        val paneLabel: String? = when (destination) {
+            GridlinkDestination.INBOX -> "Select a message"
+            GridlinkDestination.CONTACTS -> "Select a contact"
+            GridlinkDestination.FOLDERS, GridlinkDestination.CALENDAR -> null
+        }
         val readingPane: (@Composable () -> Unit)? =
-            if (twoPane && destination == GridlinkDestination.INBOX) {
+            if (twoPane && paneLabel != null) {
                 {
-                    val message = open
-                    if (message == null) {
-                        GridlinkThreadPlaceholder()
+                    val current = detail
+                    if (current == null) {
+                        GridlinkThreadPlaceholder(label = paneLabel)
                     } else {
-                        GridlinkThreadScreen(
-                            message = message,
-                            // Never reached: the pane hides its back button. Wired anyway so the
-                            // parameter is not a lie if something else ever calls back into it.
-                            onBack = { openId = null },
-                            onAction = threadActions(message),
-                            embedded = true,
-                        )
+                        detailScreen(current, true)
                     }
                 }
             } else {
@@ -705,6 +803,20 @@ fun GridlinkRoot(
                         destination = destination,
                         onSelectDestination = { destination = it },
                         initialScrubLetter = initialScrubLetter,
+                        sidePane = readingPane,
+                        // Same rule as the inbox: only in two panes. In one, the marked row is
+                        // underneath a full-screen card and marked for the benefit of nobody.
+                        currentId = if (twoPane) openContactId else null,
+                        onOpenContact = { contact ->
+                            openContactId = contact.id
+                            // 🔴 No animation in two panes, for the reason the inbox does not run one
+                            // either: the card is not travelling anywhere, and playing the entrance
+                            // would slide the pane in from off-screen every time you tapped a
+                            // different name in a list sitting right beside it.
+                            if (!twoPane) {
+                                scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
+                            }
+                        },
                     )
                 }
             }
@@ -750,21 +862,17 @@ fun GridlinkRoot(
                 )
             }
 
-            // The compact layout's thread: a screen drawn OVER the list. In two panes the same
+            // The compact layout's detail: a screen drawn OVER the list. In two panes the same
             // composable is inside the scaffold as [readingPane] instead, so this must not also render
-            // or the thread would be on screen twice, once beside the list and once on top of it.
+            // or it would be on screen twice, once beside the list and once on top of it.
             if (!twoPane) {
-                open?.let { message ->
+                detail?.let { current ->
                     Box(
                         modifier = Modifier.graphicsLayer {
                             translationX = size.width * (1f - progress.value)
                         },
                     ) {
-                        GridlinkThreadScreen(
-                            message = message,
-                            onBack = ::closeThread,
-                            onAction = threadActions(message),
-                        )
+                        detailScreen(current, false)
                     }
                 }
             }
@@ -805,3 +913,28 @@ fun GridlinkRoot(
  * is the recipient. A fresh draft would capture three frames of a bar with nothing to say.
  */
 private val GRIDLINK_UNDO_SAMPLE = GridlinkComposeRequest(GridlinkComposeDraft.Reply)
+
+/**
+ * What a destination can have open, as one value.
+ *
+ * ## Why this exists at all
+ * Before it, the scaffold tested `open != null` in five places: two back handlers, the reading pane,
+ * the layer drawn over a compact list, and the row highlight. Adding a second kind of detail to that
+ * shape means five more tests that all have to agree about which tab they are talking about, and the
+ * first one that forgets is a back button that empties the wrong pane. One nullable value derived
+ * from the destination makes the disagreement impossible to write.
+ *
+ * ## Why the payload is the object and not another id
+ * The ids are the saved state, because ids survive the activity being destroyed and objects do not.
+ * This is the resolved form of that state, built fresh on every composition, and it exists so the
+ * code that draws a detail is handed the thing it draws instead of looking it up again. The lookup
+ * happens exactly once, where the id lives.
+ *
+ * Folders and Calendar are absent on purpose. They get entries when they get detail views, and until
+ * then their absence from this type is what keeps them out of every branch above.
+ */
+private sealed interface GridlinkDetail {
+    data class Thread(val message: GridlinkMessage) : GridlinkDetail
+
+    data class Contact(val contact: GridlinkContact) : GridlinkDetail
+}

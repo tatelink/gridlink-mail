@@ -126,4 +126,53 @@ object GridlinkSampleContacts {
 
     /** The rail always draws all twenty-six, populated or not. See the note on X. */
     val alphabet: List<Char> = ('A'..'Z').toList()
+
+    /** By id, or null. Used by the harness, which is handed an id off the command line. */
+    fun byId(id: String): GridlinkContact? = all.firstOrNull { it.id == id }
+
+    /**
+     * The contact a message came from, or null if the sender is not in the address book.
+     *
+     * ## 🔴 Why this is not `email == address`
+     * The obvious version, matching [GridlinkMessage.address] against [GridlinkContact.email], works
+     * for people and fails for every organisation, and it fails *silently* by returning null. A
+     * message's address is derived from its From name, so "Duke Energy" produces
+     * `duke.energy@duke-energy.com` while the card says `service@duke-energy.com`. Both are
+     * plausible, neither is wrong, and nothing in the data says they are the same counterparty.
+     * Measured across the whole sample: exact matching resolves nine senders out of twenty-odd, and
+     * loses Duke Energy, Steritech, HR Benefits, Training Team, Guest Relations, Facilities Dispatch,
+     * Sysco Charlotte, Marsh McLennan, Mecklenburg County, Inspire Brands Talent and Ecolab Service.
+     * A contact card that says "no recent mail" from someone with four messages in the inbox is a
+     * card that reads as broken.
+     *
+     * So two rules, both scoped to the domain, which is what actually identifies the counterparty:
+     *
+     *  1. the display names agree ("Duke Energy" is Duke Energy at duke-energy.com);
+     *  2. the local parts agree once the sender's name is flattened the same way
+     *     [GridlinkMessage.address] flattens it ("M. Rivera" against `m.rivera`).
+     *
+     * ⚠️ Rule 1 before rule 2, not the other way round. Under rule 2 alone, `no-reply@microsoft.com`
+     * would match nothing and Power BI Service would drop out despite being filed by name.
+     *
+     * ## Altametrics stays unmatched, deliberately
+     * "Altametrics" sends mail and the card is filed as "Altametrics Support", so neither rule fires
+     * and its card shows no recent mail. The fix would be renaming the contact or giving it a second
+     * address, and both make the phonebook worse to make one screen look better: an address book
+     * entry whose address is a support alias nobody writes to is not an improvement. One unresolved
+     * counterparty out of twenty is also the honest picture of what name matching does against real
+     * mail, and it keeps the "no recent mail" state reachable on a card that is otherwise populated.
+     */
+    fun forSender(sender: String, domain: String): GridlinkContact? {
+        val sameDomain = all.filter { it.domain.equals(domain, ignoreCase = true) }
+        return sameDomain.firstOrNull { it.displayName.equals(sender, ignoreCase = true) }
+            ?: sameDomain.firstOrNull {
+                it.email.substringBefore('@').equals(flattenToLocalPart(sender), ignoreCase = true)
+            }
+    }
+
+    /** The same transform [GridlinkMessage.address] uses, so the two can be compared at all. */
+    private fun flattenToLocalPart(name: String): String =
+        name.lowercase().replace(NON_ADDRESS_CHARS, ".").trim('.')
+
+    private val NON_ADDRESS_CHARS = Regex("[^a-z0-9]+")
 }
