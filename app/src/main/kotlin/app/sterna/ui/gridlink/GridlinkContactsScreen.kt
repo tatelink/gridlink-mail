@@ -1,5 +1,6 @@
 package app.sterna.ui.gridlink
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -86,6 +88,15 @@ fun GridlinkContactsScreen(
     initialScrubLetter: Char? = null,
     onOpenContact: (GridlinkContact) -> Unit = {},
     onCompose: () -> Unit = {},
+    /** §7's detail pane, or null when the window is too narrow for one. */
+    sidePane: (@Composable () -> Unit)? = null,
+    /**
+     * The contact the pane is showing, so the list can mark it.
+     *
+     * 🔴 Null in one pane, always. A row highlighted for a card that is not on screen is a row that
+     * looks stuck, and the same defect was already fixed once in the message list.
+     */
+    currentId: String? = null,
 ) {
     val sections = GridlinkSampleContacts.sections
     val listState = rememberLazyListState()
@@ -119,6 +130,7 @@ fun GridlinkContactsScreen(
         destination = destination,
         onSelectDestination = onSelectDestination,
         onCompose = onCompose,
+        sidePane = sidePane,
         header = {
             GridlinkHeader(
                 title = "Contacts",
@@ -152,6 +164,7 @@ fun GridlinkContactsScreen(
                         GridlinkContactRow(
                             contact = contact,
                             onClick = { onOpenContact(contact) },
+                            current = contact.id == currentId,
                         )
                         // No rule under the last row of a letter: the next thing down is a section
                         // label, which already separates. A hairline there reads as an orphaned
@@ -196,13 +209,25 @@ private fun GridlinkContactRow(
     contact: GridlinkContact,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** True when the detail pane beside this list is showing this contact. */
+    current: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
+    // The same wash the message list uses for the row its pane is showing, on the same token and the
+    // same curve, so "this is the one you are looking at" is one visual idea across the app rather
+    // than two that nearly match. No tick disc: that belongs to multi-select, and there is no
+    // multi-select here.
+    val fill by animateColorAsState(
+        targetValue = if (current) colors.selection else Color.Transparent,
+        animationSpec = GridlinkMotion.standard(),
+        label = "contactSelection",
+    )
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(GridlinkDimens.messageRowHeight)
+            .background(fill)
             .clickable(onClick = onClick),
     ) {
         // The avatar's replacement, exactly as on a message row: identity as a colour, not a disc

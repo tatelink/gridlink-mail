@@ -380,6 +380,25 @@ object GridlinkSample {
         ?: error(
             "No sample message '$id'. Known ids: " + messages.joinToString { it.id },
         )
+
+    /**
+     * Everything in the sample that came from [contact], for their contact card, in the order the
+     * inbox lists it.
+     *
+     * ⚠️ Returns empty for a contact nobody has written from, which is most of the address book and
+     * is not a failure. 47 people exist so the A-Z rail has something to scrub; about twenty of them
+     * send mail. A card with no recent mail is the normal case, not the broken one, so this returns
+     * a list rather than throwing the way [messageById] does.
+     *
+     * Includes the bundled robots. They are pulled out of the *timeline* because a morning of
+     * automated reports buries the mail a human sent, and that reasoning is about the inbox. On Power
+     * BI Service's own card, the reports are the entire point of the card.
+     *
+     * 🔴 Matched through [GridlinkSampleContacts.forSender], not by address, so this list and the
+     * address printed above it can never disagree about who someone is.
+     */
+    fun messagesFrom(contact: GridlinkSampleContacts.GridlinkContact): List<GridlinkMessage> =
+        messages.filter { GridlinkSampleContacts.forSender(it.sender, it.domain)?.id == contact.id }
 }
 
 /** Which timeline heading a human message falls under. Bundled robots sit outside the timeline. */
@@ -430,13 +449,20 @@ data class GridlinkMessage(
      * almost always are, and people get their display name flattened. It exists because a thread
      * view that shows only "M. Ridley" hides the one thing you check a header for, which is whether
      * the sender is who the name claims. Replace it with the real header the moment JMAP is wired.
+     *
+     * 🔴 **The address book wins when it knows this sender.** Two screens now show an address for the
+     * same counterparty (this header and their contact card), and deriving one while the card states
+     * the other would have the app claim Dalton Energy is `dalton.energy@` here and `service@` two taps
+     * away. Only one of those can be true, and the one a human wrote down is the one to trust. See
+     * [GridlinkSampleContacts.forSender] for how the match is made and why it is not string equality.
      */
     val address: String
-        get() = if (automated) {
-            "no-reply@$domain"
-        } else {
-            sender.lowercase().replace(NON_ADDRESS_CHARS, ".").trim('.') + "@" + domain
-        }
+        get() = GridlinkSampleContacts.forSender(sender, domain)?.email
+            ?: if (automated) {
+                "no-reply@$domain"
+            } else {
+                sender.lowercase().replace(NON_ADDRESS_CHARS, ".").trim('.') + "@" + domain
+            }
 
     private companion object {
         val NON_ADDRESS_CHARS = Regex("[^a-z0-9]+")
