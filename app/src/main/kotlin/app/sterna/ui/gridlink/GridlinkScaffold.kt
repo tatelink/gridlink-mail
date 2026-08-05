@@ -463,7 +463,50 @@ fun GridlinkRoot(
     val colors = GridlinkTheme.colors
     val scope = rememberCoroutineScope()
     var openId by rememberSaveable(initialOpenId) { mutableStateOf(initialOpenId) }
-    val open = openId?.let(GridlinkSample::messageById)
+
+    /**
+     * The open message, once the user has filed it out of the list from somewhere other than the
+     * thread itself. Null whenever what is open is still in the list, which is almost always.
+     *
+     * ## Why the pane empties at all
+     * In two panes the list is beside the reading pane rather than under it, so a row can be archived
+     * while its message is open. Left alone, the pane goes on showing mail that is no longer in the
+     * list it sits next to, and the two halves of one screen then disagree about what exists. So
+     * filing the open message empties the pane back to [GridlinkThreadPlaceholder].
+     *
+     * ## 🔴 Why it empties rather than advancing to the next message
+     * Auto-advance is the obvious alternative and it is the same mistake the placeholder exists to
+     * avoid: opening a message is not a neutral act. It marks it read, and against a real server it
+     * fetches a body and fires whatever the sender embedded in it. Archiving twice quickly would
+     * then have read and loaded a message nobody chose. What "next" even means is also decided by
+     * the sort order rather than by the user, and during a selection archive of six messages it is
+     * effectively arbitrary. If this ever wants to be fast to triage, the honest shape is an
+     * explicit "archive and next" control in the pane, where the advance is the thing being tapped.
+     *
+     * ## 🔴 Why the id is PARKED here rather than thrown away
+     * The one-line version of all this is `openId = null`, and it destroys the only fact §6a's undo
+     * will need. Undoing an archive has to put the message back in the pane, not leave the reader on
+     * a placeholder wondering where it went, and by then nothing would remember what had been there.
+     * Kept as its own value, the pane's emptiness is derived and the undo is one assignment:
+     * `filedOpenId = null` and the message is back, at the scroll position it already had.
+     *
+     * `rememberSaveable` for the same reason [openId] is: folding destroys the activity, and a pane
+     * that resurrected a filed message on unfold would be a worse bug than the one this fixes.
+     *
+     * ## ⚠️ This is for removals the USER made, and only those
+     * A message that disappears because a background sync found it archived on another device is a
+     * different event with a different right answer. Yanking the pane out from under someone who is
+     * mid-paragraph is rude, and the app has no business making the reader lose their place over
+     * something they did not do: that case wants the message left up with a quiet "archived
+     * elsewhere" note on it. Nothing in this fork syncs, so there is no second path to write yet.
+     * When there is, it must not come through [GridlinkMessageListScreen]'s `onFiled`.
+     */
+    var filedOpenId by rememberSaveable(initialOpenId) { mutableStateOf<String?>(null) }
+
+    // The pane's emptiness is derived, never assigned. One place decides whether what is open is
+    // still real, so the row highlight, the back handler and the pane cannot end up disagreeing.
+    val visibleOpenId = openId?.takeIf { it != filedOpenId }
+    val open = visibleOpenId?.let(GridlinkSample::messageById)
     // Seeded from the RESTORED id rather than from `initialOpenId`, so a thread that survived the
     // hinge comes back at rest instead of replaying its entrance across the recreated activity.
     val progress = remember(initialOpenId) {
@@ -508,8 +551,8 @@ fun GridlinkRoot(
         // slide, it is simply there, but folding the device back to one pane has to land on a thread
         // that is fully in. Left at whatever fraction the last back-drag stopped at, the first fold
         // after a cancelled swipe would show the thread parked half off the screen.
-        LaunchedEffect(twoPane, openId) {
-            if (twoPane && openId != null) progress.snapTo(1f)
+        LaunchedEffect(twoPane, visibleOpenId) {
+            if (twoPane && visibleOpenId != null) progress.snapTo(1f)
         }
 
         if (twoPane) {
@@ -607,9 +650,21 @@ fun GridlinkRoot(
                         sidePane = readingPane,
                         // Only in two panes. In one, the row that would be marked is underneath a
                         // full-screen thread, and it would be marked for the benefit of nobody.
-                        currentId = if (twoPane) openId else null,
+                        currentId = if (twoPane) visibleOpenId else null,
+                        onFiled = { ids ->
+                            // Only the message the pane is actually showing. Archiving four rows
+                            // none of which is open must leave the pane exactly where it was.
+                            if (visibleOpenId != null && visibleOpenId in ids) {
+                                filedOpenId = visibleOpenId
+                            }
+                        },
                         onOpenMessage = { message ->
                             openId = message.id
+                            // 🔴 Cleared on every open, not only when it matches. The demo recycle
+                            // returns a filed message to the top of the list, so the same id can be
+                            // opened again minutes after being parked, and a stale park would make
+                            // that tap silently do nothing at all.
+                            filedOpenId = null
                             // 🔴 No animation in two panes. The thread is not travelling anywhere, and
                             // running the entrance would slide the reading pane in from off-screen every
                             // time you tapped a different row in a list sitting right next to it.

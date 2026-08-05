@@ -222,6 +222,22 @@ fun GridlinkMessageListScreen(
      * open message, so nothing is lost; the row stops shouting about it until the selection ends.
      */
     currentId: String? = null,
+    /**
+     * What the user just filed out of this list, by swiping a row or by using the selection toolbar.
+     *
+     * ## 🔴 Why this is not simply called from [remove]
+     * [remove] is the mechanism and it has two callers with opposite needs. A swipe or a selection
+     * action is news: nothing outside this screen knew it was coming, and the reading pane may be
+     * showing one of the rows that just left. A [removeRequest] is not news, it is the answer to
+     * something [GridlinkRoot] asked for a frame ago, and it is already closing the thread itself.
+     * Reporting that one back would blank the thread's own content out from under the close
+     * animation, which on the compact layout means the screen you are sliding away from goes empty
+     * while you are still looking at it.
+     *
+     * So the two user-facing entry points report and the mechanism stays quiet. "The user did
+     * something in the list" is the fact being published, not "a row left".
+     */
+    onFiled: (Set<String>) -> Unit = {},
     onOpenMessage: (GridlinkMessage) -> Unit = {},
     onCompose: () -> Unit = {},
 ) {
@@ -394,8 +410,13 @@ fun GridlinkMessageListScreen(
 
     fun applySwipe(ids: Set<String>, action: GridlinkSwipeAction) {
         when (action) {
+            // Deliberately NOT reported through [onFiled]. Marking unread leaves the row exactly
+            // where it is, so a reading pane showing it is still showing something that exists.
             GridlinkSwipeAction.MARK_UNREAD -> edit(ids) { it.copy(unread = true) }
-            GridlinkSwipeAction.ARCHIVE, GridlinkSwipeAction.DELETE -> remove(ids)
+            GridlinkSwipeAction.ARCHIVE, GridlinkSwipeAction.DELETE -> {
+                remove(ids)
+                onFiled(ids)
+            }
         }
     }
 
@@ -409,7 +430,10 @@ fun GridlinkMessageListScreen(
             GridlinkSelectionAction.ARCHIVE,
             GridlinkSelectionAction.MOVE,
             GridlinkSelectionAction.DELETE,
-            -> remove(ids)
+            -> {
+                remove(ids)
+                onFiled(ids)
+            }
 
             GridlinkSelectionAction.MARK_READ -> {
                 edit(ids) { it.copy(unread = false) }
