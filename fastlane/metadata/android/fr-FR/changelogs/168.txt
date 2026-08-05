@@ -1,0 +1,31 @@
+Listes de diffusion
+
+- Se désabonner d'une liste de diffusion tient maintenant en un geste, à partir de l'adresse de désabonnement publiée par l'expéditeur. Sterna vous montre le message qu'il enverrait avant de l'envoyer, et ne l'envoie jamais deux fois.
+- Quand un désabonnement échoue, il dit que le serveur de l'expéditeur l'a refusé, au lieu d'accuser votre connexion.
+
+Courrier par expéditeur
+
+- Un nouvel écran rassemble le courrier en cache d'un expéditeur, indique combien il y en a, et propose de le supprimer.
+- Depuis cet écran, ou depuis un message que vous lisez, vous pouvez ajouter une règle qui traitera le courrier de cet expéditeur à l'avenir. Elle demande confirmation, et dit ce qu'elle va faire.
+- Les messages en report sont laissés hors du décompte, et hors de la suppression.
+
+Règles de filtrage
+
+- Sterna n'écrase plus un script de filtrage qu'il n'a pas su lire. Il nomme le script en cours d'exécution, et dit clairement quand vos règles ne tournent pas, avec un moyen de les remettre.
+- Il vous dit ce que coûte l'enregistrement des filtres pendant qu'une réponse automatique est active.
+
+Gestes
+
+- Le balayage d'un message est environ deux fois plus court qu'avant, et un geste vif suffit désormais à lui seul, comme dans K-9 et Thunderbird.
+- L'appui long qui sélectionne un message donne une brève vibration, pour que vous sentiez la liste passer en sélection.
+
+Lecture et écriture
+
+- Un destinataire qu'un brouillon perdait à la réouverture revient.
+- Le clavier est prié de ne rien apprendre d'un message en cours d'écriture.
+- Tirer pour rafraîchir la boîte de réception n'affiche plus qu'un seul indicateur, au lieu de deux.
+- Les demandes de confirmation ne cachent plus Annuler dans le bouton de validation, et ne coupent plus la phrase qui explique comment revenir en arrière.
+
+Stockage
+
+- Les corps de messages en cache sont vidés une fois avec cette mise à jour, pour que le lecteur récupère les informations de liste de diffusion. C'est ponctuel, pas quelque chose qui se reproduira à chaque mise à jour.

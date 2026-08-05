@@ -1,0 +1,31 @@
+Mailing lists
+
+- Unsubscribing from a mailing list now takes one gesture, using the unsubscribe address the sender publishes. Sterna shows you the message it would send before it goes, and never sends it twice.
+- When an unsubscribe fails, it says the sender's host refused it, rather than blaming your connection.
+
+Mail by sender
+
+- A new screen gathers the cached mail from one sender, shows how much there is, and offers to delete it.
+- From that screen, or from a message you are reading, you can add a rule that handles that sender's mail from now on. It asks first, and says what it will do.
+- Snoozed messages are left out of the count, and out of the delete.
+
+Filter rules
+
+- Sterna no longer writes over a filter script it could not read. It names the script that is running, and says plainly when your rules are not running, with a way to put them back.
+- It tells you what saving the filters costs while an auto-reply is running.
+
+Gestures
+
+- Swiping a message is about half as long as it was, and a quick flick now works on its own, the way it does in K-9 and Thunderbird.
+- Long-pressing a message to select it gives a short vibration, so you can feel the list switch to selection.
+
+Reading and writing
+
+- A recipient that a draft dropped when you reopened it comes back.
+- The keyboard is asked not to learn from a message being written.
+- Pulling to refresh the Inbox shows one indicator, not two.
+- Prompts no longer hide Cancel inside the confirm button, and no longer cut off the sentence that tells you how to undo.
+
+Storage
+
+- Cached message bodies are dropped once with this update, so the reader can pick up the mailing list information. This is a one-off, not something that happens on every update.
