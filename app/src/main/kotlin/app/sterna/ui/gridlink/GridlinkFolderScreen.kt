@@ -790,6 +790,7 @@ private fun GridlinkRenameFolderDialog(
         mutableStateOf(TextFieldValue(folder.name, TextRange(0, folder.name.length)))
     }
     val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     val trimmed = value.text.trim()
     val duplicate = trimmed.isNotEmpty() && trimmed.lowercase() in takenNames
     val valid = trimmed.isNotEmpty() && !duplicate
@@ -855,9 +856,15 @@ private fun GridlinkRenameFolderDialog(
         // and [FocusRequester.requestFocus] on a node that was never composed throws
         // `FocusRequester is not initialized`. And it waits a frame, because composing the node is
         // not attaching it — the focus target is only reachable once the dialog window has laid out.
+        //
+        // ⚠️ And it asks for the keyboard explicitly as well, exactly as the create-folder field
+        // does. Focus alone raises the IME on most builds and silently does not on some, and this
+        // dialog seeds the name fully selected: a keyboard that failed to appear would leave a
+        // highlighted name that looks one keystroke from being replaced and is not.
         LaunchedEffect(folder.id) {
             withFrameNanos { }
             focusRequester.requestFocus()
+            keyboard?.show()
         }
     }
 }

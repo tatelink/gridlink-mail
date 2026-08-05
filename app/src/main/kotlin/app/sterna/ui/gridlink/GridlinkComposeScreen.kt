@@ -12,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,14 +23,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -41,19 +48,32 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
@@ -66,6 +86,7 @@ import app.sterna.ui.theme.GridlinkSpacing
 import app.sterna.ui.theme.GridlinkTheme
 import app.sterna.ui.theme.GridlinkType
 import app.sterna.ui.theme.gridlinkSenderBarColor
+import kotlinx.coroutines.delay
 
 /**
  * The composer: §1c fresh, §1d reply with an attachment, §1e the schedule-send sheet.
@@ -96,6 +117,7 @@ import app.sterna.ui.theme.gridlinkSenderBarColor
  * placement change, and if this ever reads as a pop rather than a move, that machinery is the fix
  * and not a longer duration.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GridlinkComposeScreen(
     onClose: () -> Unit,
@@ -117,28 +139,85 @@ fun GridlinkComposeScreen(
     val colors = GridlinkTheme.colors
     var focused by remember(draft) { mutableStateOf(initialFocus) }
     var recipients by remember(draft) { mutableStateOf(draft.recipients) }
-    var query by remember(draft) { mutableStateOf(draft.recipientQuery) }
     var attachments by remember(draft) { mutableStateOf(draft.attachments) }
     var quotedExpanded by remember(draft) { mutableStateOf(false) }
     var scheduling by remember(draft) { mutableStateOf(initiallyScheduling) }
 
-    // The keyboard is up exactly when a field has focus. Not read off `WindowInsets.ime`, which is
-    // the same fact arriving one animation late and which reports nothing at all on an emulator
-    // running with a hardware keyboard, i.e. every screenshot this prototype gets captured on.
+    // 🔴 [TextFieldValue] and not String, for all three. A String-valued field re-derives its
+    // selection on every recomposition, and every one of these is recomposed by something other
+    // than its own keystrokes: the query by the suggestion list, the subject and body by the send
+    // button changing places. The caret jumps to the end of the line mid-word when that happens,
+    // which is the classic Compose text bug and is invisible until someone edits the MIDDLE of a
+    // subject. Seeded with the caret after the seeded text rather than before it, so a reply opens
+    // ready to type instead of ready to type in front of its own subject line.
+    var query by remember(draft) {
+        mutableStateOf(draft.recipientQuery.let { TextFieldValue(it, TextRange(it.length)) })
+    }
+    var subject by remember(draft) {
+        mutableStateOf(draft.subject.let { TextFieldValue(it, TextRange(it.length)) })
+    }
+    var body by remember(draft) {
+        mutableStateOf(draft.body.let { TextFieldValue(it, TextRange(it.length)) })
+    }
+
+    val toFocus = remember { FocusRequester() }
+    val subjectFocus = remember { FocusRequester() }
+    val bodyFocus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    // The keyboard is up exactly when a field has focus.
+    //
+    // 🔴 Still derived from which field owns the caret, NOT from `WindowInsets.ime`, even now that
+    // the fields are real and the ime inset is real with them. Two reasons, and the second is the
+    // one that matters. The inset is the same fact arriving one animation late, so the send button
+    // would change places a beat after the keyboard rather than with it. And the inset reports flat
+    // zero on an emulator running with a hardware keyboard, which is every machine this prototype
+    // gets photographed on: reading it would make the composer's two documented frames impossible
+    // to capture. Focus is the cause, the inset is the effect, and the layout follows the cause.
     val keyboardUp = focused != GridlinkComposeField.NONE
 
-    /**
-     * What was actually on screen when send was tapped.
-     *
-     * ⚠️ Subject and body are copied straight through because neither is editable yet:
-     * [GridlinkComposeTextRow] renders the draft's string and has nowhere to put a new one. The
-     * moment either becomes a real field this has to read its state instead, and undo restoring a
-     * stale subject is the bug that will announce it.
-     */
+    // 🔴 The one case where the inset has to be listened to anyway: the system can close the keyboard
+    // without telling the focus system. Back is consumed by the IME itself before any app back
+    // handler runs, and the "hide keyboard" chevron on a large-screen Gboard does the same thing.
+    // Focus survives both, so without this the composer sits with the keys gone, a caret still
+    // blinking in the body and the send button still parked in its keyboard-up position: the layout
+    // goes on describing a keyboard that is not there, and the next Back closes the whole composer
+    // when the user expected it to close the keyboard they can already see is shut.
+    //
+    // ⚠️ Only the true→false edge, and only after a real true. On the emulator this prototype gets
+    // photographed on the IME never appears at all, so [imeWasUp] stays false and this never fires,
+    // which is what keeps [keyboardUp] driven by focus and the two documented frames capturable.
+    //
+    // 🔴 The [delay] is the whole reason this is not a two-line effect, and it was earned: without
+    // it, launching the composer while a keyboard was already up (the harness does this on every
+    // `am start -S`, and a fold does it by recreating the activity) sees the OLD window's IME as a
+    // rising edge, watches it go as the new window takes over, and clears the focus this screen just
+    // finished requesting. The composer would come up with no caret and no keyboard, and the first
+    // Back would close it instead of the keyboard. Arming late fixes it because that phantom is over
+    // in a frame or two: a keyboard the user is actually looking at stands open for seconds, and one
+    // that belonged to a window being torn down cancels this coroutine before it ever arms.
+    val imeVisible = WindowInsets.isImeVisible
+    var imeWasUp by remember(draft) { mutableStateOf(false) }
+    LaunchedEffect(imeVisible) {
+        if (imeVisible) {
+            delay(IME_SETTLE_MS)
+            imeWasUp = true
+        } else if (imeWasUp) {
+            imeWasUp = false
+            // Clears real focus rather than assigning the enum, for the same reason the back handler
+            // does: the caret has to leave the field, not just the label describing where it was.
+            focusManager.clearFocus()
+        }
+    }
+
+    /** What was actually on screen when send was tapped, edits and all. */
     fun sendRequest() = GridlinkComposeRequest(
         draft = draft.copy(
             recipients = recipients,
-            recipientQuery = query,
+            recipientQuery = query.text,
+            subject = subject.text,
+            body = body.text,
             attachments = attachments,
         ),
         focus = focused,
@@ -147,16 +226,48 @@ fun GridlinkComposeScreen(
     BackHandler(enabled = true) {
         when {
             scheduling -> scheduling = false
-            keyboardUp -> focused = GridlinkComposeField.NONE
+            // 🔴 Clears real focus rather than just setting the enum. Assigning `focused = NONE`
+            // moves the send button and leaves the caret exactly where it was, so the keyboard
+            // stays up over a composer that has already rearranged itself for it being down. The
+            // focus change is what closes the keyboard; the enum follows it, via [onFocusChanged].
+            keyboardUp -> focusManager.clearFocus()
             else -> onClose()
         }
+    }
+
+    // 🔴 Waits a frame before asking. Composing a text field is not attaching it, and
+    // [FocusRequester.requestFocus] on an unattached node throws `FocusRequester is not
+    // initialized` rather than doing nothing. Same lesson as the folder rename dialog.
+    //
+    // ⚠️ `keyboard?.show()` as well as the focus request, and it is not redundant. Focus alone
+    // raises the IME on most builds and silently does not on some, which is a bad thing to leave to
+    // chance on the one screen whose entire purpose is typing.
+    LaunchedEffect(draft, initialFocus) {
+        withFrameNanos { }
+        when (initialFocus) {
+            GridlinkComposeField.TO -> toFocus.requestFocus()
+            GridlinkComposeField.SUBJECT -> subjectFocus.requestFocus()
+            GridlinkComposeField.BODY -> bodyFocus.requestFocus()
+            GridlinkComposeField.NONE -> return@LaunchedEffect
+        }
+        keyboard?.show()
     }
 
     GridlinkBackground(modifier = modifier) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.systemBars),
+                // 🔴 `union`, not `.windowInsetsPadding(systemBars).imePadding()`. The two insets
+                // overlap: the IME's inset is measured from the bottom of the DISPLAY, so it
+                // already contains the gesture bar's height. Applied one after the other the
+                // composer floats a navigation bar's worth of empty glass above the keys. Union
+                // takes the larger of each edge, which is the gesture bar with the keyboard down
+                // and the keyboard with it up, and never both.
+                //
+                // ⚠️ This is also the line that makes typing possible at all. Without it the panel
+                // keeps its full height under a keyboard drawn on top of it, and the body field,
+                // being the last one, is the part that ends up behind the keys.
+                .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime)),
         ) {
             GridlinkComposeHeader(
                 title = draft.title,
@@ -195,33 +306,52 @@ fun GridlinkComposeScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .gridlinkEdgeFade(fadeTop = false),
+                        .gridlinkEdgeFade(fadeTop = false)
+                        // 🔴 One watcher for the whole form, and this is why the per-field callbacks
+                        // below only ever set focus and never clear it. Moving from SUBJECT to BODY
+                        // fires the loser's callback before the winner's, so a field that cleared
+                        // the enum on its way out would put the composer through a frame of NONE:
+                        // the send button would start crossfading down to the nav baseline and back
+                        // on every tap between two fields. A parent sees `hasFocus` stay true across
+                        // that handover and only reports the one transition that is real, the form
+                        // as a whole losing the caret.
+                        .onFocusChanged { state ->
+                            if (!state.hasFocus) focused = GridlinkComposeField.NONE
+                        },
                 ) {
                     GridlinkRecipientField(
                         recipients = recipients,
                         query = query,
-                        focused = focused == GridlinkComposeField.TO,
-                        onFocus = { focused = GridlinkComposeField.TO },
+                        onQueryChange = { query = it },
+                        focusRequester = toFocus,
+                        onFocused = { focused = GridlinkComposeField.TO },
+                        // Next rather than Done: TO is the first of three fields and the keyboard's
+                        // action key should walk the form, not close it.
+                        onNext = { subjectFocus.requestFocus() },
                         onRemove = { gone -> recipients = recipients.filterNot { it.id == gone.id } },
                     )
                     // Suggestions live inside the field's own block, above the divider that closes
                     // it, because they are part of answering "who" and not a separate section. The
                     // divider under them is therefore the field's divider, arriving later.
-                    val suggestions = gridlinkRecipientSuggestions(query, recipients)
+                    val suggestions = gridlinkRecipientSuggestions(query.text, recipients)
                     suggestions.forEach { contact ->
                         GridlinkSuggestionRow(
                             contact = contact,
-                            match = query,
+                            match = query.text,
                             onClick = {
                                 recipients = recipients + contact
-                                query = ""
+                                query = TextFieldValue()
+                                // Focus stays in TO on purpose. Picking one recipient is the common
+                                // way to start picking a second, and dropping the caret into SUBJECT
+                                // here would make adding two people a four-tap job.
                             },
                         )
                     }
                     GridlinkComposeDivider()
 
                     GridlinkComposeTextRow(
-                        text = draft.subject,
+                        value = subject,
+                        onValueChange = { subject = it },
                         // 🔴 The caps label IS the placeholder here, and there is no separate label
                         // above it. TO needs a persistent one because it holds chips and a chip row
                         // with no label is a row of unexplained pills; a subject line is one string
@@ -229,20 +359,35 @@ fun GridlinkComposeScreen(
                         placeholder = "SUBJECT",
                         placeholderStyle = GridlinkType.sectionLabel,
                         style = GridlinkType.senderName,
-                        focused = focused == GridlinkComposeField.SUBJECT,
-                        onFocus = { focused = GridlinkComposeField.SUBJECT },
+                        focusRequester = subjectFocus,
+                        onFocused = { focused = GridlinkComposeField.SUBJECT },
+                        singleLine = true,
+                        // Sentence case. A subject is a sentence; the CAPS in the placeholder is the
+                        // label's styling and not an instruction about what to type.
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Next,
+                        onImeAction = { bodyFocus.requestFocus() },
                     )
                     GridlinkComposeDivider()
 
                     GridlinkComposeTextRow(
-                        text = draft.body,
+                        value = body,
+                        onValueChange = { body = it },
                         // Sentence case, unlike the two fields above it. Those labels name a slot in
                         // a form; this one is an invitation to write, and shouting it is wrong.
                         placeholder = "Message",
                         placeholderStyle = GridlinkType.body,
                         style = GridlinkType.body,
-                        focused = focused == GridlinkComposeField.BODY,
-                        onFocus = { focused = GridlinkComposeField.BODY },
+                        focusRequester = bodyFocus,
+                        onFocused = { focused = GridlinkComposeField.BODY },
+                        // 🔴 Multi-line, and therefore NO ime action. The last field in the form is
+                        // the one place where the action key has to stay a return key: a Done here
+                        // would mean the composer cannot contain a paragraph break, which is most of
+                        // what an email is.
+                        singleLine = false,
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Default,
+                        onImeAction = null,
                         minHeight = 96.dp,
                     )
 
@@ -407,6 +552,16 @@ data class GridlinkComposeDraft(
  * the user is already typing.
  */
 private const val SUGGESTION_LIMIT = 3
+
+/**
+ * How long the IME has to stay up before its disappearance counts as the user dismissing it.
+ *
+ * Comfortably longer than the keyboard's own slide-in (about 250ms on stock Android) and far shorter
+ * than any real editing session, which is the whole spread it has to separate: a keyboard belonging
+ * to a window being torn down is gone well inside this, and one the user is typing on stays for
+ * orders of magnitude longer. Nothing waits on this value, so it costs nothing to be generous.
+ */
+private const val IME_SETTLE_MS = 400L
 
 /**
  * Who the typed prefix could mean.
@@ -609,9 +764,11 @@ private fun GridlinkComposeDivider() {
 @Composable
 private fun GridlinkRecipientField(
     recipients: List<GridlinkContact>,
-    query: String,
-    focused: Boolean,
-    onFocus: () -> Unit,
+    query: TextFieldValue,
+    onQueryChange: (TextFieldValue) -> Unit,
+    focusRequester: FocusRequester,
+    onFocused: () -> Unit,
+    onNext: () -> Unit,
     onRemove: (GridlinkContact) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -619,7 +776,6 @@ private fun GridlinkRecipientField(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onFocus)
             .padding(
                 horizontal = GridlinkSpacing.rowHorizontal,
                 vertical = GridlinkSpacing.s12,
@@ -639,17 +795,29 @@ private fun GridlinkRecipientField(
                     modifier = Modifier.padding(end = GridlinkSpacing.s8),
                 )
             }
-            // What has been typed so far, and the caret after it. Not a `BasicTextField`: this
-            // prototype takes no keystrokes, and a real editor here would advertise typing that
-            // does nothing. The seeded query stands in for what was typed.
-            Text(
-                text = query,
-                style = GridlinkType.chip,
-                color = colors.textPrimary,
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                singleLine = true,
+                textStyle = GridlinkType.chip.copy(color = colors.textPrimary),
+                cursorBrush = SolidColor(colors.accent),
+                keyboardOptions = KeyboardOptions(
+                    // 🔴 Email, so the keyboard carries "@" and "." on the front row and does NOT
+                    // autocapitalise. An address is lower case and a capitalising keyboard fights
+                    // the user for the first character of every one of them.
+                    keyboardType = KeyboardType.Email,
+                    autoCorrectEnabled = false,
+                    imeAction = ImeAction.Next,
+                ),
+                keyboardActions = KeyboardActions(onNext = { onNext() }),
+                modifier = Modifier
+                    // 🔴 `weight`, not `fillMaxWidth`. This field shares its Row with however many
+                    // chips are already resolved, and a field that claimed the whole width would
+                    // push every chip off the left edge as soon as there were two of them.
+                    .weight(1f)
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { if (it.isFocused) onFocused() },
             )
-            if (focused) {
-                GridlinkCaret()
-            }
         }
     }
 }
@@ -814,69 +982,77 @@ private fun gridlinkHighlight(text: String, match: String, accent: Color) = buil
 }
 
 /**
- * SUBJECT and the body: a value, or a placeholder standing where the value will go.
+ * SUBJECT and the body: a real editor, with a placeholder standing behind it while it is empty.
  *
  * One composable for both because the only differences are the placeholder's wording, its type
- * style, and how tall the row is when empty. Splitting them would duplicate the caret logic twice
- * over for the sake of two constants.
+ * style, how tall the row is when empty, and whether the return key breaks a line. Splitting them
+ * would duplicate the decoration box twice over for the sake of four arguments.
+ *
+ * ## 🔴 The placeholder is drawn BEHIND the field, not instead of it
+ * The obvious shape is `if (value.text.isEmpty()) Text(placeholder) else BasicTextField(...)`, and it
+ * breaks on the first character typed: the composable that had focus is replaced by a different one,
+ * focus dies with it, and the keyboard closes after exactly one letter. Drawing both in the same
+ * [decorationBox] means the editor is composed once and never swapped, and the placeholder is just
+ * something painted under it when there is nothing to cover it. Same trick as the search pill.
  */
 @Composable
 private fun GridlinkComposeTextRow(
-    text: String,
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
     placeholder: String,
     placeholderStyle: TextStyle,
     style: TextStyle,
-    focused: Boolean,
-    onFocus: () -> Unit,
+    focusRequester: FocusRequester,
+    onFocused: () -> Unit,
+    singleLine: Boolean,
+    capitalization: KeyboardCapitalization,
+    imeAction: ImeAction,
+    onImeAction: (() -> Unit)?,
     modifier: Modifier = Modifier,
     minHeight: Dp = 0.dp,
 ) {
     val colors = GridlinkTheme.colors
-    Row(
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = singleLine,
+        textStyle = style.copy(color = colors.textPrimary),
+        cursorBrush = SolidColor(colors.accent),
+        keyboardOptions = KeyboardOptions(capitalization = capitalization, imeAction = imeAction),
+        keyboardActions = KeyboardActions(
+            // One handler covers whichever action this row asked for. [KeyboardActions] dispatches by
+            // the action the options declared, so wiring `onAny` avoids a when-block that would have
+            // to be kept in step with [imeAction] by hand.
+            onAny = { onImeAction?.invoke() },
+        ),
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = minHeight)
-            .clickable(onClick = onFocus)
-            .padding(
-                horizontal = GridlinkSpacing.rowHorizontal,
-                vertical = GridlinkSpacing.s16,
-            ),
-    ) {
-        if (text.isEmpty()) {
-            Text(
-                text = placeholder,
-                style = placeholderStyle,
-                color = colors.textSecondary,
-            )
-        } else {
-            Text(
-                text = text,
-                style = style,
-                color = colors.textPrimary,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-        }
-        if (focused) {
-            GridlinkCaret()
-        }
-    }
-}
-
-/**
- * Where the next character would go.
- *
- * Static, deliberately. A blinking caret is an infinite animation, and this prototype's frames get
- * captured by `adb screencap`: a blinker is a coin flip on whether the caret is in the shot. It also
- * costs a recomposition every 500ms forever on a screen that is otherwise still.
- */
-@Composable
-private fun GridlinkCaret() {
-    Box(
-        modifier = Modifier
-            .padding(start = 1.dp)
-            .width(2.dp)
-            .height(20.dp)
-            .background(GridlinkTheme.colors.accent),
+            .focusRequester(focusRequester)
+            .onFocusChanged { if (it.isFocused) onFocused() },
+        // 🔴 The row's padding lives in here and NOT in the modifier chain above. Everything passed
+        // in `modifier` sits outside the field's own pointer handling, so padding there would shrink
+        // what is tappable to the text itself: the body row would be 96dp tall with a 16dp dead band
+        // at the top and bottom, and tapping the empty space below a one-line message would do
+        // nothing. Inside the decoration box the padding is drawn by the field, so the whole row
+        // takes the tap.
+        decorationBox = { field ->
+            Box(
+                modifier = Modifier.padding(
+                    horizontal = GridlinkSpacing.rowHorizontal,
+                    vertical = GridlinkSpacing.s16,
+                ),
+            ) {
+                if (value.text.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        style = placeholderStyle,
+                        color = colors.textSecondary,
+                    )
+                }
+                field()
+            }
+        },
     )
 }
 

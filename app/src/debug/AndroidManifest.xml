@@ -21,12 +21,21 @@
           an app-wide behaviour change, and upstream Sterna's MainActivity has not been audited for
           it. Scoped here it cannot affect anything but the gallery, and it cannot ship at all.
         -->
+        <!--
+          🔴 adjustResize, matching the real MainActivity. The gallery calls enableEdgeToEdge(), and
+          the default (adjustPan) shoves the whole window up by the keyboard's height instead of
+          reporting an inset: the composer's own WindowInsets.ime padding then measures against a
+          window that has already moved, and the header slides off the top while the body field
+          still ends up under the keys. Resize hands the keyboard's height to the layout as an
+          inset, which is what every field on these screens is written to consume.
+        -->
         <activity
             android:name="app.sterna.gridlink.GridlinkGalleryActivity"
             android:enableOnBackInvokedCallback="true"
             android:exported="true"
             android:label="Gridlink UI"
-            android:theme="@style/Theme.Sterna">
+            android:theme="@style/Theme.Sterna"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
