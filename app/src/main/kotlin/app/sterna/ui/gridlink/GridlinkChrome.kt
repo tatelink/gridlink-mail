@@ -413,7 +413,12 @@ fun GridlinkSearchPill(
     // attached throws, and AnimatedContent only attaches the expanded branch after this frame, so
     // the request has to be keyed on the transition rather than fired inline.
     LaunchedEffect(expanded) {
-        if (expanded) focusRequester.requestFocus()
+        if (!expanded) return@LaunchedEffect
+        focusRequester.requestFocus()
+        // ⚠️ Not redundant. Focus raises the IME on most builds and silently does not on some, and a
+        // search pill that opens without a keyboard is a search box you cannot type in until you tap
+        // the thing you already tapped.
+        keyboard?.show()
     }
 }
 
