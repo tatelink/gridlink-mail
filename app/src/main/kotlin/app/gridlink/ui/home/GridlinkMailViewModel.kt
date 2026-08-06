@@ -9,9 +9,14 @@ import app.gridlink.core.jmap.model.Email
 import app.gridlink.core.jmap.model.EmailBodyPart
 import app.gridlink.push.FetchAndNotify
 import app.gridlink.ui.gridlink.GridlinkAttachment
+import app.gridlink.ui.gridlink.GridlinkFolder
+import app.gridlink.ui.gridlink.GridlinkFolderContent
+import app.gridlink.ui.gridlink.GridlinkFolderEdit
+import app.gridlink.ui.gridlink.GridlinkFolderMapping
 import app.gridlink.ui.gridlink.GridlinkMailAction
 import app.gridlink.ui.gridlink.GridlinkMailContent
 import app.gridlink.ui.gridlink.GridlinkMailMapping
+import app.gridlink.ui.gridlink.GridlinkOpenFolder
 import app.gridlink.ui.gridlink.GridlinkOpenMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -24,6 +29,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -74,6 +80,35 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     /** The in-flight body fetch, so opening a second message abandons the first. */
     private var openJob: Job? = null
 
+    /** Which mailbox the Folders tab has open, reported by the scaffold. Null when nothing is. */
+    private val openFolderId = MutableStateFlow<String?>(null)
+
+    /**
+     * Whether the folder table has answered at least once for the CURRENT account.
+     *
+     * [primed]'s counterpart for the tree, and separate from it because they are two queries that
+     * answer at two different times. Shared, the Folders tab would say "0 mailboxes" until the first
+     * message read came back.
+     */
+    private val folderPrimed = MutableStateFlow(false)
+
+    /**
+     * Mailboxes whose contents have been fetched this session, whether that worked or not.
+     *
+     * 🔴 This is what separates "this folder is empty" from "nobody has asked the server about this
+     * folder yet", and only the second one deserves a skeleton. A folder other than the Inbox is
+     * normally in the folder table with **no mail cached at all**, because the message sync only
+     * ever fetches the inbox: without this, tapping Sent would say "Nothing in Sent" over a mailbox
+     * nothing had looked in.
+     *
+     * A failed fetch counts as fetched, deliberately. The alternative is a skeleton that never
+     * resolves, and the sync chip already owns saying that the network is not working.
+     */
+    private val folderFetched = MutableStateFlow<Set<String>>(emptySet())
+
+    /** The in-flight fetch for the open mailbox, so tapping a second folder abandons the first. */
+    private var folderJob: Job? = null
+
     /**
      * Point the mailbox at [id], or leave it where it is.
      *
@@ -90,6 +125,13 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         openJob?.cancel()
         opened.value = null
         primed.value = false
+        // The folder half of the same argument. An open mailbox id belongs to the account it was
+        // tapped in, and two accounts on one server routinely share mailbox ids, so carrying it
+        // across would point the panel at whatever the new account happens to number the same.
+        folderJob?.cancel()
+        openFolderId.value = null
+        folderFetched.value = emptySet()
+        folderPrimed.value = false
     }
 
     /** Account id + inbox + how much of it to hold, as the cache query needs them. */
@@ -130,7 +172,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         val zone = ZoneId.systemDefault()
         val mapped = GridlinkMailMapping.map(
             emails = emails,
-            labels = GridlinkMailMapping.Labels(),
+            labels = LABELS,
             zone = zone,
             today = LocalDate.now(zone),
         )
@@ -147,6 +189,173 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         // list there would flash "Inbox zero" at somebody with four hundred messages.
         initialValue = GridlinkMailContent(humans = emptyList(), bundle = null, loading = true),
     )
+
+    // ---------------------------------------------------------------------------------------
+    // Folders
+    //
+    // Two queries, not one. The tree is the folder table and the panel beside it is a window over
+    // the message table, and they answer at different times: the tree is cached from the last sync
+    // and is on screen instantly, while a mailbox nobody has opened before has to be fetched. Kept
+    // apart so the second one's latency cannot hold up the first one's rows.
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * The account's mailboxes, as the tree draws them.
+     *
+     * 🔴 [MailRepository.observeMailboxes] and not the raw folder table, because for a JMAP account
+     * it swaps the server's stored unread counter for a live count over the cached messages. That is
+     * the derived-never-declared rule the folder work runs on: the badge on a folder equals the bold
+     * rows you get when you tap it, rather than a number the server last mentioned.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val folderTree: Flow<List<GridlinkFolder>> = accountId.flatMapLatest { id ->
+        if (id == null) {
+            flowOf(emptyList())
+        } else {
+            repo.observeMailboxes(id)
+                .onEach { folderPrimed.value = true }
+                .map { GridlinkFolderMapping.tree(it) }
+        }
+    }
+
+    /** Account id + open mailbox + how much of it to hold. [Window] with a different mailbox in it. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val folderWindow: Flow<Window?> =
+        combine(accountId, openFolderId, store.accountsFlow) { id, folder, accounts ->
+            val account = accounts.firstOrNull { it.id == id } ?: return@combine null
+            val mailboxId = folder ?: return@combine null
+            Window(account.id, mailboxId, account.syncWindow.limit)
+        }.distinctUntilChanged()
+
+    /** The open mailbox's cached mail, or null when no mailbox is open. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val folderMail: Flow<GridlinkOpenFolder?> = folderWindow.flatMapLatest { w ->
+        if (w == null) {
+            flowOf(null)
+        } else {
+            combine(
+                repo.observeMailboxWindow(w.accountId, w.mailboxId, w.limit),
+                folderFetched,
+            ) { emails, fetched ->
+                val zone = ZoneId.systemDefault()
+                val today = LocalDate.now(zone)
+                GridlinkOpenFolder(
+                    id = w.mailboxId,
+                    messages = emails.map { email ->
+                        // 🔴 The section is re-stated, and it has to be. [GridlinkMailMapping.message]
+                        // marks anything from a no-reply address as AUTOMATED so the inbox can bundle
+                        // it, and the folder list filters that section out (there is no bundle row in
+                        // a folder to put it in). Left alone, opening a mailbox full of receipts would
+                        // show an empty folder. Here every row gets the day heading its date earns and
+                        // nothing is hidden.
+                        GridlinkMailMapping.message(email, LABELS, zone, today)
+                            .copy(section = GridlinkMailMapping.section(email, zone, today))
+                    },
+                    loading = emails.isEmpty() && w.mailboxId !in fetched,
+                )
+            }
+        }
+    }
+
+    /** The Folders tab, as [app.gridlink.ui.gridlink.GridlinkRoot] takes it. */
+    val folders: StateFlow<GridlinkFolderContent> =
+        combine(folderTree, folderPrimed, folderMail) { tree, ready, open ->
+            GridlinkFolderContent(tree = tree, loading = !ready, open = open)
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS),
+            // Loading, not empty, for the reason [mail]'s initial value is: the first frame draws
+            // before Room has answered, and "0 mailboxes" there is a claim about the account.
+            initialValue = GridlinkFolderContent(tree = emptyList(), loading = true),
+        )
+
+    /**
+     * Point the folder panel at [id], or close it when null.
+     *
+     * Fetches that mailbox as a side effect, because a folder other than the Inbox is normally in
+     * the folder table with nothing cached: the message sync only fetches the inbox, so without this
+     * every folder in the account would open onto an empty list. One fetch per open, and the guard
+     * makes re-selecting the same mailbox free.
+     *
+     * ⚠️ Once per open, not once per look. A folder left open while the inbox pulls to refresh does
+     * NOT re-fetch, so its list can be a few minutes behind the tab beside it. Closing and reopening
+     * it is the current way to refresh it, which is a real gap rather than an intended behaviour.
+     */
+    fun openFolder(id: String?) {
+        if (openFolderId.value == id) return
+        openFolderId.value = id
+        // Cancelled whatever the new id is: the previous fetch is for a mailbox nobody is looking at.
+        folderJob?.cancel()
+        if (id == null) return
+        val account = accountId.value ?: return
+        val credentials = store.credentials(account) ?: return
+        folderJob = viewModelScope.launch {
+            try {
+                val window = store.syncWindow(account)
+                repo.refresh(
+                    credentials = credentials,
+                    mailboxId = id,
+                    limit = window.limit,
+                    pruneBeforeMillis = window.maxAgeDays?.let {
+                        System.currentTimeMillis() - it.toLong() * MILLIS_PER_DAY
+                    },
+                )
+                // 🔴 Deliberately NOT store.saveInboxMetaFor. [sync] calls it because the mailbox it
+                // fetched IS the inbox and its id has to be learned; calling it here would re-point
+                // the account's inbox at whatever folder the user just tapped, and the Inbox tab
+                // would quietly start showing Trash.
+            } catch (c: CancellationException) {
+                // Rethrown for [sync]'s reason, and with the same consequence: the fetch is NOT
+                // marked done, so the mailbox still reads as unlooked-at if it is opened again.
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "folder fetch failed", t)
+            }
+            // Both paths, success and failure. See [folderFetched]: a skeleton that never resolves
+            // is worse than an empty list on a network that is not working, and the chip says so.
+            folderFetched.value = folderFetched.value + id
+        }
+    }
+
+    /**
+     * Create, rename or destroy a mailbox on the server.
+     *
+     * Fire and forget on the view model's scope, for [act]'s reason. 🔴 Nothing is written locally
+     * first: all three repository calls re-read the folder list as part of the write, so the tree
+     * redraws from what the server actually has. An optimistic rename that failed would otherwise
+     * sit in the tree with nothing left to correct it.
+     */
+    fun editFolder(edit: GridlinkFolderEdit) {
+        val id = accountId.value ?: return
+        val credentials = store.credentials(id) ?: return
+        viewModelScope.launch {
+            try {
+                when (edit) {
+                    is GridlinkFolderEdit.Create ->
+                        repo.createFolder(credentials, edit.name, edit.parentId)
+
+                    is GridlinkFolderEdit.Rename ->
+                        repo.renameFolder(credentials, edit.id, edit.name)
+
+                    is GridlinkFolderEdit.Delete -> {
+                        repo.deleteFolder(credentials, edit.id)
+                        // The panel is already empty by then (its folder stopped resolving in the
+                        // tree), but the id would still be pointed at a mailbox that no longer
+                        // exists, so re-creating a folder with the same id would open onto a stale
+                        // fetch flag. Cheap to be exact about.
+                        if (openFolderId.value == edit.id) {
+                            folderFetched.value = folderFetched.value - edit.id
+                            openFolderId.value = null
+                        }
+                    }
+                }
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "folder edit failed: $edit", t)
+            }
+        }
+    }
 
     /**
      * Fetch the account's mail, and say whether that worked.
@@ -277,6 +486,15 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
 
     private companion object {
         const val TAG = "GridlinkMail"
+
+        /**
+         * The four strings a mapped row can need that the message itself does not carry.
+         *
+         * One instance, shared by the inbox and by every folder list. They are hard-coded English
+         * defaults (see [GridlinkMailMapping.Labels] on why this package is not translated), so
+         * there is nothing per-account or per-locale in them to go stale.
+         */
+        val LABELS = GridlinkMailMapping.Labels()
         const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
 
         /**

@@ -58,6 +58,7 @@ fun GridlinkHomeHost(
     // the repeats a configuration change causes.
     LaunchedEffect(accountId) { viewModel.bind(accountId) }
     val mail by viewModel.mail.collectAsStateWithLifecycle()
+    val folders by viewModel.folders.collectAsStateWithLifecycle()
 
     // The address the menu sheet states. The username IS the address for every account this app can
     // create; `accountName` is the human label and is frequently empty, which would leave the one
@@ -119,6 +120,9 @@ fun GridlinkHomeHost(
             mail = mail,
             onMailAction = viewModel::act,
             onOpenMail = viewModel::open,
+            folders = folders,
+            onFolderEdit = viewModel::editFolder,
+            onOpenFolder = viewModel::openFolder,
             sender = sender,
         )
     }
