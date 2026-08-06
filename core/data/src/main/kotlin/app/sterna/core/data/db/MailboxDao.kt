@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
+import app.sterna.core.data.mail.mailboxEvictions
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -14,9 +15,6 @@ interface MailboxDao {
 
     @Upsert
     suspend fun upsertAll(mailboxes: List<MailboxEntity>)
-
-    @Query("DELETE FROM mailboxes WHERE accountId = :accountId AND id NOT IN (:keepIds)")
-    suspend fun deleteNotIn(accountId: String, keepIds: List<String>)
 
     @Query("DELETE FROM mailboxes")
     suspend fun deleteAll()
@@ -97,15 +95,39 @@ interface MailboxDao {
     )
     suspend fun adjustCounts(accountId: String, id: String, totalDelta: Int, unreadDelta: Int)
 
+    /**
+     * Every cached folder id of one account — the input of [replaceAll]'s purge.
+     *
+     * Binds ONE variable whatever the size of the folder list, which is the whole point: an
+     * account with 1 040 folders is what broke the purge (Codeberg #142).
+     */
+    @Query("SELECT id FROM mailboxes WHERE accountId = :accountId")
+    suspend fun idsForAccount(accountId: String): List<String>
+
     /** Drop folders from the cache (drawer) — e.g. while a folder delete awaits its undo window. */
     @Query("DELETE FROM mailboxes WHERE accountId = :accountId AND id IN (:ids)")
     suspend fun deleteByIds(accountId: String, ids: List<String>)
 
-    /** Replace ONE account's folder rows; other accounts' rows are untouched. */
+    /**
+     * Replace ONE account's folder rows; other accounts' rows are untouched.
+     *
+     * The purge deletes what the server no longer lists, BY ID and in batches
+     * ([mailboxEvictions]), instead of the `id NOT IN (:keepIds)` this used to run: Room binds one
+     * variable per element there, so an account with more folders than SQLite's 999-variable limit
+     * (1 040 of them, Codeberg #142) could never compile the statement — and since the whole thing
+     * is one transaction, the upsert two lines up rolled back with it and the drawer stayed empty.
+     *
+     * Still one transaction on purpose: a purge that stopped half way would leave the old and the
+     * new lists mixed, which a rename shows as both names in the drawer until the next successful
+     * refresh clears it. And still upsert BEFORE purge, so the drawer never blinks empty.
+     */
     @Transaction
     suspend fun replaceAll(accountId: String, mailboxes: List<MailboxEntity>) {
         upsertAll(mailboxes)
-        deleteNotIn(accountId, mailboxes.map { it.id })
+        val keepIds = mailboxes.mapTo(HashSet()) { it.id }
+        for (batch in mailboxEvictions(idsForAccount(accountId), keepIds)) {
+            deleteByIds(accountId, batch)
+        }
     }
 }
 
