@@ -2,6 +2,7 @@ package app.sterna.core.data.mail
 
 import android.os.SystemClock
 import app.sterna.core.data.db.EmailRetentionRow
+import app.sterna.core.data.getOrElseUnlessCancelled
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -29,6 +30,52 @@ internal fun deltaEvictions(
     destroyed: List<String>,
     isProtected: (String) -> Boolean,
 ): List<String> = ((removed.toSet() - added).toList() + destroyed).filterNot(isProtected)
+
+/**
+ * Which of [candidates] the SERVER confirms have really left [mailboxId] — the gate a notification
+ * banner has to pass before it is taken down (Codeberg #134).
+ *
+ * Why a delta eviction is NOT enough on its own, in [MailRepository]'s own words: "an email stays
+ * in its mailbox after a flag change, but the first `Email/queryChanges` run from the pre-change
+ * queryState can still report it as `removed` (some servers do this for any changed row under
+ * thread-collapsing)". The only spare against that ([MailRepository]'s recently-mutated window)
+ * knows about mutations THIS app made. A star, a label or any keyword put on an UNREAD message
+ * from another client therefore arrives as a "departure" protected by nothing — and cancelling
+ * its banner hides live, unread mail that the user will never see go past. So the delta only ever
+ * NAMES candidates; where the message is, is asked.
+ *
+ * [locate] is the server read (`Email/get` on `mailboxIds`); ids it does not return are ids the
+ * server no longer has, and those are gone for real. It is a supplier rather than a client so this
+ * decision — including its failure behaviour — can be executed by a JVM test.
+ *
+ * ⚠ THE SIGN OF THE ERROR IS THE OPPOSITE OF THE DESTROY PATH'S, and this is the only place in
+ * this file where that is true. `MailRepository.idsStillOnlyIn` deliberately lets a failed location
+ * read PROPAGATE: it destroys mail, so "the server never answered" may not be read as "go ahead".
+ * Here the action is cosmetic and the pass it rides on has new mail to announce, so a failed or
+ * unreadable answer must confirm NOTHING and take the whole notification pass down with it even
+ * less: an offline pass leaves the banners exactly where they are. That is a caught failure on
+ * purpose — not an oversight.
+ *
+ * A cancellation is not a failure and still propagates ([getOrElseUnlessCancelled]): the pass it
+ * belongs to has been called off.
+ */
+internal suspend fun confirmedDepartures(
+    candidates: List<String>,
+    mailboxId: String,
+    locate: suspend (List<String>) -> Map<String, Set<String>>,
+): List<String> {
+    // Nothing to confirm, or no folder to confirm against: ask nothing. The common pass — no
+    // departure, or none with a banner left on screen — costs exactly zero requests here.
+    if (candidates.isEmpty() || mailboxId.isBlank()) return emptyList()
+    val located = runCatching { locate(candidates) }.getOrElseUnlessCancelled { return emptyList() }
+    return candidates.filter { id ->
+        // Absent from the answer = `notFound` = the server does not have it at all (the deletion
+        // from another client that #134 is about). Present, but not in this folder = it moved out.
+        // Present and still in this folder = the flag change above: it keeps its banner.
+        val folders = located[id] ?: return@filter true
+        mailboxId !in folders
+    }
+}
 
 /** Why [deltaEvictions] kept a cached id the delta named. Ordered by severity for the log. */
 internal enum class SpareReason(val log: String) {

@@ -109,6 +109,46 @@ object TrashPurge {
         }
 
     /**
+     * Which of [requested] a destroy wave may still destroy, given where the server says those
+     * ids are right now ([serverMailboxIds], an id → its `mailboxIds` set) and the folder the
+     * user's confirmation was about ([expectedMailboxId]).
+     *
+     * Codeberg #122. The destroy carries ids frozen at the confirmation, and its delay is
+     * UNBOUNDED (the worker waits for connectivity). A JMAP id does not change when the message
+     * changes folder — only `mailboxIds` is patched — so a message that ANOTHER client rescued
+     * out of the Trash in the meantime was still on the list and got destroyed in the folder it
+     * had just been rescued into. [MailRepository.unlistFromTrashPurge] only ever caught the
+     * rescues this app performs itself; nothing catches a rescue from a webmail, a desktop client
+     * or a second phone. So every wave asks the server, and this decides.
+     *
+     * Three cases, and the middle one is why this compares SETS:
+     * - `mailboxIds` is exactly the expected folder → destroy: it is where it was confirmed;
+     * - anything else → SPARE. Not `contains(expected)`: `mailboxIds` is a set, another client
+     *   can file a message into a folder WITHOUT taking it out of the Trash, and destroying it
+     *   then would destroy it in that folder too — the user's own copy, gone;
+     * - absent from [serverMailboxIds] (the server reported it `notFound`) → spare: it does not
+     *   exist any more, there is nothing to destroy and nothing to lose.
+     *
+     * A blank or absent [expectedMailboxId] destroys NOTHING. That is the case of a destroy
+     * enqueued by a version predating this check, and of a message whose cached row named no
+     * folder: the order cannot be verified, so it is not executed. The messages are still on the
+     * server, and the worker's own failure handling re-queries the folder so they come back into
+     * view rather than silently vanishing from the list.
+     *
+     * Pure and total: it never asks anything, so the decision this whole guard rests on can be
+     * executed by a test instead of re-derived by one.
+     */
+    fun destroyableIds(
+        requested: List<String>,
+        expectedMailboxId: String?,
+        serverMailboxIds: Map<String, Set<String>>,
+    ): List<String> {
+        if (expectedMailboxId.isNullOrBlank()) return emptyList()
+        val expected = setOf(expectedMailboxId)
+        return requested.filter { serverMailboxIds[it] == expected }
+    }
+
+    /**
      * The numbering to record with a snapshot: what the server reported when the folder was
      * enumerated, or — when it could not be asked and the CACHED ids stood in — the numbering
      * those cached ids were last known to belong to.

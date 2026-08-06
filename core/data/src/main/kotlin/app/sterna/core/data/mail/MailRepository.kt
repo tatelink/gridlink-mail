@@ -789,6 +789,19 @@ data class FolderRefresh(
     val name: String,
     val role: String?,
     val emails: List<Email>,
+    /**
+     * The ids the SERVER said LEFT this folder during the refresh — a delta eviction or an
+     * existence sweep's `notFound`, and nothing else (see [MailboxSync]). The notification layer
+     * cancels exactly these banners, so a message deleted from another client stops claiming it is
+     * waiting (Codeberg #134).
+     *
+     * ⛔ ALWAYS EMPTY ON IMAP, and that is written down rather than filled in: an IMAP refresh
+     * re-reads the folder and replaces the cache with what it read, so nothing on that path ever
+     * STATES that a message left — a row missing from a page is a row outside the page. Closing
+     * #134 on IMAP needs a signal that does not exist here (an EXPUNGE/VANISHED read); inferring
+     * one from an absence would cancel the banners of live mail, which is worse than the defect.
+     */
+    val departedIds: List<String>,
 )
 
 /** Outcome of loading an account's server-side filter rules. */
@@ -1022,6 +1035,31 @@ class MailRepository(
     }
 
     /**
+     * What one [syncMailbox] pass brought back, in two lists that must never be confused.
+     *
+     * [fetchedIds] is the older of the two and keeps its meaning exactly: what this cycle FETCHED
+     * from the server (the full query's whole page, or the delta's `toFetch`). The retention prune
+     * spares precisely it, so an id fetched and not reported here is deleted in the same cycle it
+     * arrived (Codeberg #110).
+     *
+     * [departedIds] is what the SERVER said left this mailbox in this pass: the delta's evictions
+     * ([deltaEvictions] — reorders subtracted, the recently-mutated spare honoured) plus the ids
+     * an existence sweep proved gone ([ghostEvictions], an explicit per-id `notFound`). Both are
+     * authoritative statements about the message itself, which is what lets the notification layer
+     * take a banner down on them (Codeberg #134).
+     *
+     * ⛔ Nothing else may ever be added to it. A full-query reconcile drops rows merely outside the
+     * page and the retention window drops rows the server still has: cancelling a banner on either
+     * would hide unread mail from the user for good, which is worse than the defect being fixed.
+     * Hence empty on the full-query branch, and empty whenever a pass fails — a failure names
+     * nothing, and only a named id is ever acted on.
+     */
+    internal data class MailboxSync(
+        val fetchedIds: List<String>,
+        val departedIds: List<String>,
+    )
+
+    /**
      * Bring a mailbox's cache up to date. Uses Email/queryChanges + Email/changes when
      * we have prior state; otherwise, or when the server can't compute the delta, falls
      * back to a full query. Both paths are UNCOLLAPSED: the cache holds every in-folder
@@ -1030,7 +1068,8 @@ class MailRepository(
      *
      * Returns THE IDS THIS CYCLE FETCHED FROM THE SERVER, whichever branch ran: the full query's
      * whole page, or the delta's `toFetch`. Never null, and never a partial list — everything in
-     * it has just been written to the cache, and the retention prune spares exactly it.
+     * it has just been written to the cache, and the retention prune spares exactly it. Alongside
+     * it, and never mixed with it, the ids the SERVER said LEFT this mailbox — see [MailboxSync].
      *
      * "The full query's whole page" means EVERY request of the walk, not the last one: a window
      * larger than the server's per-request limit is fetched in several requests and accumulated
@@ -1054,7 +1093,7 @@ class MailRepository(
         // Local StoredAccount id used to tag cached rows (distinct from the JMAP
         // [accountId] used for API calls), so per-account routing and storage work.
         localAccountId: String,
-    ): List<String> {
+    ): MailboxSync {
         // Same belt as [refresh] (#121): this is the other entry point that tags cached rows with
         // a local account id, and a blank one strands every row it writes.
         require(localAccountId.isNotBlank()) {
@@ -1138,18 +1177,27 @@ class MailRepository(
                     "incremental $localAccountId/$mailboxId: +${toFetch.size} -${toRemove.size} " +
                         "spared=${spared.size} sweep=${claim.reason}",
                 )
-                if (claim.sweep) {
-                    val swept = pruneGhostRows(session, accountId, auth, mailboxId, localAccountId)
-                    // A failed sweep pruned nothing, so it must not count as one: give its
-                    // once-per-process credit back and the next sync retries immediately.
-                    if (!swept) ghostSweeps.releaseFailed(localAccountId, mailboxId, claim)
+                val swept = if (claim.sweep) {
+                    val ghosts = pruneGhostRows(session, accountId, auth, mailboxId, localAccountId)
+                    // A failed sweep (null) pruned nothing, so it must not count as one: give its
+                    // once-per-process credit back and the next sync retries immediately. It also
+                    // reports NO departure — an unanswered question is not "the message is gone".
+                    if (ghosts == null) ghostSweeps.releaseFailed(localAccountId, mailboxId, claim)
+                    ghosts.orEmpty()
+                } else {
+                    emptyList()
                 }
                 // The rows this delta just wrote (line above): mostly ids the cache NEVER held —
                 // `added - cachedIds` — so the retention prune has to spare them exactly as it
                 // spares a full query's page. Returning nothing here was Codeberg #110 again on
                 // the other branch: a 2019 message filed into a deep Inbox by a Sieve rule was
                 // fetched, written, and deleted by the prune in the very same refresh.
-                return toFetch
+                //
+                // Beside it, what left: the delta's own evictions plus what the sweep proved gone.
+                // Both come from the server, so a banner may be cancelled on them (#134) — and
+                // `toRemove`, never `queryChanges.removed`, because a favourited message is
+                // reported removed-and-added by a reorder and its banner must survive that.
+                return MailboxSync(fetchedIds = toFetch, departedIds = toRemove + swept)
             }
         }
         // Cold cache, or the server can't compute changes — full query.
@@ -1173,7 +1221,10 @@ class MailRepository(
         } else {
             dropSyncState(key)
         }
-        return page.emails.map { it.id }
+        // NO departures from a full query, deliberately: this branch knows what the folder HOLDS,
+        // not what left it. A cached row that is not in the page can be a message outside the
+        // window we just asked for, and cancelling its banner would bury unread mail (#134).
+        return MailboxSync(fetchedIds = page.emails.map { it.id }, departedIds = emptyList())
     }
 
     /**
@@ -1243,7 +1294,13 @@ class MailRepository(
      * why the recently-mutated spare is deliberately not honoured — a point lookup can't be
      * stale, and a destroyed id can't be protected back to life). Best-effort by design:
      * any transport/parse failure prunes NOTHING (only an explicit notFound may evict) and
-     * returns false so the caller can retry the once-per-session sweep later.
+     * returns NULL so the caller can retry the once-per-session sweep later.
+     *
+     * Returns THE IDS IT PRUNED otherwise (possibly none) — the server having answered "this id
+     * does not exist" is authoritative, so the caller may report them as having left the mailbox
+     * and the notification layer may take their banners down (#134). Null and empty must stay
+     * distinct here for the same reason `notFound` does: a sweep that never answered has not said
+     * that nothing left, it has said nothing at all.
      *
      * A CANCELLED caller is not a failed sweep and does not return at all: leaving the screen
      * mid-sweep would otherwise log a failure and hand the session credit back on behalf of a
@@ -1257,9 +1314,9 @@ class MailRepository(
         auth: JmapAuth,
         mailboxId: String,
         localAccountId: String,
-    ): Boolean {
+    ): List<String>? {
         val cached = emailDao.idsForMailbox(localAccountId, mailboxId)
-        if (cached.isEmpty()) return true
+        if (cached.isEmpty()) return emptyList()
         // null = the check never answered, and that is what [ghostEvictions] prunes nothing for:
         // the eviction cannot be reached from a failure path by construction, rather than by an
         // early return someone has to remember not to move. getOrElseUnlessCancelled, not
@@ -1279,13 +1336,60 @@ class MailRepository(
             // A failed sweep prunes nothing and looks exactly like a clean one from the outside —
             // say so, or a ghost surviving a sweep can't be told from a sweep that never landed.
             android.util.Log.i("MailSync", "ghost sweep $localAccountId/$mailboxId: failed over ${cached.size} cached")
-            return false
+            return null
         }
         android.util.Log.i(
             "MailSync",
             "ghost sweep $localAccountId/$mailboxId: -${ghosts.size} of ${cached.size} cached",
         )
-        return true
+        return ghosts
+    }
+
+    /**
+     * Which of [emailIds] the server says are really out of [mailboxId] — asked on behalf of the
+     * notification layer, which may take a banner down only on those (Codeberg #134).
+     *
+     * WHY it is asked at all, when a delta already reported them as gone: the delta cannot tell a
+     * departure from a KEYWORD CHANGE. `Email/queryChanges` run from a pre-change queryState reports
+     * a merely-flagged row as `removed` (see [recentlyMutated]), and the spare that exists for that
+     * only knows the mutations THIS app performed — so a star or a label put on an unread message
+     * from Thunderbird reaches the notifier as a departure protected by nothing. Cancelling it hides
+     * mail the user never gets to see. The delta names candidates; this decides.
+     *
+     * WHY it is asked HERE, in the repository: the notification layer must not grow a JMAP client of
+     * its own. And it is asked AFTER the notifier has narrowed the candidates down to the ids that
+     * actually still have a banner, so the ordinary pass — no departure, or none on screen — costs
+     * ZERO requests, and the question is only put when its answer changes something.
+     *
+     * ⚠ A failed read confirms NOTHING and does not throw — the OPPOSITE of [idsStillOnlyIn], which
+     * lets its failure propagate because it guards a destroy. Here the pass this rides on has new
+     * mail to announce, so an offline or unreadable answer must leave the banners standing and let
+     * the rest of the pass through. See [confirmedDepartures], which holds that rule.
+     *
+     * IMAP costs nothing and can reach nothing: `FolderRefresh.departedIds` is empty by construction
+     * there, and the guard below says so a second time rather than relying on that.
+     */
+    suspend fun confirmDepartures(
+        credentials: AccountCredentials,
+        mailboxId: String,
+        emailIds: List<String>,
+    ): List<String> {
+        if (emailIds.isEmpty() || credentials.protocol == MailProtocol.IMAP) return emptyList()
+        val confirmed = confirmedDepartures(emailIds, mailboxId) { ids ->
+            // Inside the supplier: a pass with nothing to confirm never even opens a session.
+            val ctx = connect(credentials)
+            client.mailboxIdsOf(ctx.session, ctx.accountId, ids, ctx.auth)
+        }
+        // Only when the server disagreed with the delta, which is the case worth reading on a
+        // bench: it is either the flag-change false positive above, or a read that never answered.
+        if (confirmed.size != emailIds.size) {
+            android.util.Log.i(
+                "MailSync",
+                "banner departures ${credentials.id}/$mailboxId: ${confirmed.size} of " +
+                    "${emailIds.size} confirmed gone by the server",
+            )
+        }
+        return confirmed
     }
 
     /**
@@ -2182,7 +2286,7 @@ class MailRepository(
             // `sizing.retentionFloor`, NEVER `sizing.pageSize`: the floor is the user's window
             // ("keep at least the newest N whatever their age"), and the server's per-request
             // limit has no business shortening it.
-            pruneRetention(credentials.id, target.id, pruneBeforeMillis, sync.getOrNull()?.toSet(), sizing.retentionFloor)
+            pruneRetention(credentials.id, target.id, pruneBeforeMillis, sync.getOrNull()?.fetchedIds?.toSet(), sizing.retentionFloor)
         }
         // Folder counters land AFTER the email rows: badge and list update together, and an
         // optimistic nudge from a concurrent action isn't overwritten mid-refresh by counters
@@ -3322,7 +3426,24 @@ class MailRepository(
     /** Permanently destroy a whole selection (one account) — the held-back bulk destroy
      *  (Codeberg #23/#29). THROWS on a transport-level failure (offline, dead connection) so
      *  the destroy worker retries instead of abandoning a confirmed destroy;
-     *  [BulkResult.failed] only carries per-id rejections (unparsable id, `notDestroyed`).
+     *  [BulkResult.failed] only carries per-id rejections (unparsable id, `notDestroyed`) and,
+     *  on JMAP, the ids this refused to destroy — see below. Both belong there: the rows were
+     *  evicted when the hold-back started, and `failed` is what makes the caller re-query.
+     *
+     *  [expectedMailboxId] is the folder the caller's ids were in WHEN THE USER CONFIRMED. On
+     *  JMAP it is verified against the server before anything is destroyed (Codeberg #122): a
+     *  JMAP id does not change when the message changes folder, the hold-back is unbounded, and
+     *  a message another client rescues in the meantime would otherwise be destroyed in the
+     *  folder it was rescued into. Null or blank destroys NOTHING on JMAP — the order cannot be
+     *  checked, so it is not executed (a destroy enqueued by a version predating the key, a row
+     *  that named no folder). The check is per wave, because the race stays open for as long as
+     *  the destroy does.
+     *
+     *  On IMAP it is IGNORED, and that is not an oversight: an IMAP id carries folder and UID
+     *  (`imap:<account>:<folder>:<uid>`), the ids are grouped by folder and destroyed with a
+     *  `UID STORE`+`UID EXPUNGE` in THAT folder, so a message moved out no longer holds that UID
+     *  there and the command is a no-op — it survives. What protects IMAP against a stale id
+     *  meaning something else again is [expectedUidValidity].
      *
      *  [expectedUidValidity] is the IMAP numbering the ids were read under, when the caller has
      *  one to offer (the Empty-trash snapshot does; an immediate destroy of rows the user is
@@ -3331,6 +3452,7 @@ class MailRepository(
     suspend fun destroyAll(
         credentials: AccountCredentials,
         emailIds: List<String>,
+        expectedMailboxId: String?,
         expectedUidValidity: Long? = null,
     ): BulkResult {
         if (emailIds.isEmpty()) return BulkResult.EMPTY
@@ -3345,7 +3467,46 @@ class MailRepository(
             }
             return BulkResult(succeeded, failed)
         }
-        return jmapDestroyAll(connect(credentials), emailIds)
+        val ctx = connect(credentials)
+        val stillThere = idsStillOnlyIn(ctx, emailIds, expectedMailboxId)
+        val spared = emailIds.toSet() - stillThere.toSet()
+        // ONE line for the whole wave, account+folder then count then ids — the shape of the
+        // delta's own `spared` line, so the tail can be truncated without losing the count.
+        //
+        // It is here because a TOTAL refusal is indistinguishable, from the outside, from a guard
+        // doing its job: a server that never reports `mailboxIds` (RFC 8621 makes it mandatory, so
+        // this is unlikely, but nothing here would notice) spares EVERYTHING, on both entry points,
+        // destroys nothing, for ever, in silence. Nothing falls back on that — the safe meaning is
+        // already the one taken — but a bench log must be able to tell the two apart.
+        if (spared.isNotEmpty()) {
+            android.util.Log.i(
+                "MailSync",
+                "destroy spared ${credentials.id}/$expectedMailboxId: ${spared.size} of " +
+                    "${emailIds.size} not in that folder alone: ${spared.joinToString()}",
+            )
+        }
+        if (stillThere.isEmpty()) return BulkResult(emptySet(), spared)
+        val result = jmapDestroyAll(ctx, stillThere)
+        return BulkResult(result.succeeded, result.failed + spared)
+    }
+
+    /** The ids of [emailIds] the server currently reports in [expectedMailboxId] AND NOWHERE ELSE
+     *  — the survivors of the wave, the only ones a destroy may touch (Codeberg #122).
+     *
+     *  Deliberately unguarded: a location read that fails (offline, refused, timed out) throws,
+     *  the destroy does not happen, and the worker retries it — exactly what `client.destroy`
+     *  already does. Catching it and falling back on [emailIds] would bring the data loss back
+     *  whole, and silently, at the first hiccup.
+     *
+     *  The verdict itself is [TrashPurge.destroyableIds], a pure function, so the rule that
+     *  decides what is destroyed can be RUN by a test rather than restated in one. */
+    private suspend fun idsStillOnlyIn(
+        ctx: Context,
+        emailIds: List<String>,
+        expectedMailboxId: String?,
+    ): List<String> {
+        val located = client.mailboxIdsOf(ctx.session, ctx.accountId, emailIds, ctx.auth)
+        return TrashPurge.destroyableIds(emailIds, expectedMailboxId, located)
     }
 
     /** Report a whole selection as spam (move to Junk) in one batch. */
@@ -3949,6 +4110,13 @@ class MailRepository(
      */
     suspend fun purgeSnapshot(credentials: AccountCredentials, purgeId: String): Int {
         var destroyed = 0
+        // Set by any wave that came back with ids it did NOT destroy: spared by the folder check
+        // (#122), or rejected per id. The confirmation evicted EVERY cached row of the Trash, and a
+        // spared message never left the Trash, so no delta will ever report it as new — without the
+        // re-query below it stays alive on the server and invisible in the app, under a drawer
+        // count that still counts it. This is what [MessageDestroyWorker] already does with a
+        // selection destroy's [BulkResult.failed]; the purge only ever returned a count.
+        var refusedAny = false
         val head = purgeSnapshotDao.head(purgeId, credentials.id)
         val imapPurge = credentials.protocol == MailProtocol.IMAP
         if (imapPurge && head != null && !UidValidity.mayDestroy(head.uidValidity)) {
@@ -3956,15 +4124,22 @@ class MailRepository(
             return 0
         }
         val expectedUidValidity = if (imapPurge) head?.uidValidity else null
+        // The folder the confirmation was about, read off the snapshot itself — not the folder on
+        // screen now. On JMAP every wave is checked against it before anything is destroyed, so a
+        // message rescued out of the Trash by ANOTHER client is left alone (#122).
+        val expectedMailboxId = head?.mailboxId
         try {
             for (wave in 1..TrashPurge.MAX_WAVES) {
                 // Read AND destroy scoped to (purgeId, accountId): an email id means something only
                 // inside its own account (issue #31) and only inside its own confirmation (#99).
                 val ids = purgeSnapshotDao.wave(purgeId, credentials.id, TrashPurge.DESTROY_WAVE)
                 if (ids.isEmpty()) break
-                val result = destroyAll(credentials, ids, expectedUidValidity)
+                val result = destroyAll(credentials, ids, expectedMailboxId, expectedUidValidity)
+                // The WHOLE wave leaves the snapshot, spared ids included: they are not going to
+                // become destroyable, and re-reading them would spin this loop forever.
                 purgeSnapshotDao.deleteIds(purgeId, credentials.id, ids)
                 destroyed += result.succeeded.size
+                if (result.failed.isNotEmpty()) refusedAny = true
             }
         } catch (renumbered: ImapUidValidityChanged) {
             // Not swallowed and not retried: the folder is not the one the user confirmed
@@ -3972,6 +4147,11 @@ class MailRepository(
             purgeSnapshotDao.deleteSnapshot(purgeId)
             refreshMailboxes(credentials)
             return destroyed
+        } finally {
+            // In `finally` because every exit matters and two of them leave early: the abandoned
+            // purge above, and a transport failure propagating to the worker's retry. A wave that
+            // spared has already happened by then, and its rows are already out of the cache.
+            if (refusedAny) resetSyncState()
         }
         purgeSnapshotDao.deleteSnapshot(purgeId)
         // Post-purge reconcile: re-fetch the folder list so the drawer counts reflect the
@@ -4429,8 +4609,10 @@ class MailRepository(
             )
             missing.forEach(onMissing)
             loads.forEach { emailDao.upsertAll(it.messages) }
+            // No departures on IMAP, and none can be invented here: re-reading a folder says what
+            // it holds, never what left it (see [FolderRefresh.departedIds], #134).
             return loads.map { load ->
-                FolderRefresh(load.mailboxId, load.name, load.role, load.messages.map { it.toEmail() })
+                FolderRefresh(load.mailboxId, load.name, load.role, load.messages.map { it.toEmail() }, departedIds = emptyList())
             }
         }
         val resolved = resolve(credentials)
@@ -4449,7 +4631,7 @@ class MailRepository(
             }
         }
         val refreshes = targets.map { mailbox ->
-            syncMailbox(
+            val sync = syncMailbox(
                 resolved.session, resolved.accountId, resolved.auth, mailbox.id,
                 folderSyncSizing(limit, resolved.session.getBatchSize()), credentials.id,
             )
@@ -4457,7 +4639,10 @@ class MailRepository(
                 mailboxId = mailbox.id,
                 name = mailbox.name,
                 role = mailbox.role,
+                // Read AFTER the sync, so a departed id is already out of this list: what the
+                // folder holds now, next to what the server said left it during this very pass.
                 emails = emailDao.getByMailbox(credentials.id, mailbox.id).map { it.toEmail() },
+                departedIds = sync.departedIds,
             )
         }
         // Persist the fetched folder counters (previously discarded): without this, pushed and

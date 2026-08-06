@@ -107,6 +107,49 @@ object Notifications {
     }
 
     /**
+     * Which of [departedIds] a notification pass may unpost: the messages the SERVER said left
+     * the folder that still have a live per-message notification, minus anything the folder still
+     * holds ([stillHeld]).
+     *
+     * CANDIDATES, not a verdict. A delta cannot tell a departure from a keyword change, so what
+     * this returns is put to the server before any banner comes down — see
+     * `MailRepository.confirmDepartures`. The narrowing happens HERE first so that the ordinary
+     * pass, which has no banner among the departures, asks the server nothing at all.
+     *
+     * Codeberg #134: "when deleting an email with a different client, e.g. Thunderbird-Desktop,
+     * the notifications for sterna-mail are still present." Nothing anywhere cancelled a banner
+     * from a server-side disappearance — the one cancel that came from the server needed the
+     * message to still be cached, with `isSeen` set, and a deleted message is not cached at all.
+     *
+     * ⛔ [departedIds] may only ever be fed from a signal that is AUTHORITATIVE about the message:
+     * a delta eviction (reorders subtracted, the recently-mutated spare honoured) or an existence
+     * sweep's `notFound`. A CACHE eviction is not one — a full-query reconcile drops what fell
+     * outside the page, the retention window drops what the user chose not to keep offline, and
+     * both of those messages are alive on the server. The two errors are not symmetrical: one
+     * banner too many is a banner the user dismisses, one banner too few is unread mail that is
+     * never announced at all.
+     *
+     * [stillHeld] is the folder's content AFTER the sync that named the departures: an id that is
+     * in both is not gone, whatever the delta said, and it keeps its banner. Same rule, and same
+     * direction of doubt, as the sync's own "an unanswered question is not a no".
+     *
+     * Liveness is tested with [isChildActive], so BOTH id forms count (a banner posted before #92
+     * carries the bare id) and the account qualifies the id: two accounts on one Stalwart are
+     * routinely handed the same message id, and an unqualified match would cancel the other
+     * account's banner.
+     */
+    fun departuresToCancel(
+        active: Set<Int>,
+        accountId: String,
+        departedIds: Collection<String>,
+        stillHeld: Collection<String>,
+    ): List<String> {
+        if (departedIds.isEmpty()) return emptyList()
+        val held = stillHeld.toSet()
+        return departedIds.distinct().filter { it !in held && isChildActive(active, accountId, it) }
+    }
+
+    /**
      * The notification id of one message. JMAP ids are assigned PER ACCOUNT, so two accounts on
      * the same server routinely hand us the same id: keying on the id alone made account B's
      * notification replace account A's and — because the action intents are built with

@@ -154,6 +154,14 @@ object NewMailNotifier {
     /**
      * Post notifications for a folder's messages not in its baseline, then advance it.
      * [folderName] is shown as notification sub-text; pass null for the inbox.
+     *
+     * [departedIds] are the ids the SERVER reported as having LEFT this folder during the refresh
+     * that produced [emails] (Codeberg #134): the banners of the ones the server CONFIRMS are gone
+     * are taken down, exactly as a message read on another device has its banner taken down. Only a
+     * NAMED id is ever cancelled, so a pass that says nothing — IMAP, an offline pass, a failed one
+     * — cancels nothing; the default is what a caller with no such signal passes. See
+     * [Notifications.departuresToCancel] for what may and may not be fed here, and
+     * `MailRepository.confirmDepartures` for why a delta's word alone is not enough.
      */
     suspend fun notifyDiff(
         context: Context,
@@ -161,6 +169,7 @@ object NewMailNotifier {
         mailboxId: String,
         folderName: String?,
         emails: List<Email>,
+        departedIds: List<String> = emptyList(),
     ) {
         // One notification per conversation: the uncollapsed folder sync hands us every new
         // member of a thread, so a reply burst would otherwise fire one notification per
@@ -179,14 +188,32 @@ object NewMailNotifier {
         val readIds = emails
             .filter { it.isSeen && Notifications.isChildActive(active, credentials.id, it.id) }
             .map { it.id }
-        if (newMail.isNotEmpty() || readIds.isNotEmpty()) {
+        // Codeberg #134: a message deleted from another client (Thunderbird, a webmail) is gone
+        // from this folder, yet its banner stayed on screen and re-opened it on tap. The ids come
+        // from what the SERVER said left the folder, never from a cache eviction, and a folder
+        // that still holds one of them keeps its banner.
+        //
+        // Two steps, and the order is what makes the second one free: this narrows the delta's
+        // report down to the ids that actually have a banner to take down, and only THOSE are put
+        // to the server. A delta cannot tell a departure from a flag change (`Email/queryChanges`
+        // reports a merely-starred row as `removed`, and the app's spare only knows about its OWN
+        // mutations), so a star put on an unread message from another client arrives here as a
+        // departure protected by nothing — and cancelling it hides mail the user never sees.
+        val candidates = Notifications.departuresToCancel(active, credentials.id, departedIds, emails.map { it.id })
+        // The confirmation, from the layer that talks to the server. It confirms NOTHING when it
+        // cannot ask (offline, dead transport, unreadable answer) and does not throw: leaving a
+        // banner up is survivable, and this pass has new mail to announce. That swallowed failure
+        // is deliberate — the destroy path next door does the exact opposite, on purpose.
+        val repository = (context.applicationContext as Application).container.mailRepository
+        val departed = repository.confirmDepartures(credentials, mailboxId, candidates)
+        if (newMail.isNotEmpty() || readIds.isNotEmpty() || departed.isNotEmpty()) {
             val (silent, content) = options(context)
             // Who announces this batch, decided BEFORE anything is posted (Codeberg #56): the
             // group summary if this account is left with enough notifications to get one, the
             // messages themselves otherwise — a single arrival gets no summary, so silencing it
             // "under" one would silence it outright.
             val summarised = Notifications.summaryShownFor(
-                Notifications.liveChildIdsAfter(active, credentials.id, readIds, newMail.map { it.id }).size,
+                Notifications.liveChildIdsAfter(active, credentials.id, readIds + departed, newMail.map { it.id }).size,
             )
             newMail.forEach {
                 // [mailboxId] is the folder this diff pass is for, i.e. where the mail arrived —
@@ -196,10 +223,12 @@ object NewMailNotifier {
                 Notifications.notifyNewMail(context, it, credentials.id, silent, folderName, mailboxId, content, summarised)
             }
             readIds.forEach { Notifications.cancelChild(context, credentials.id, it) }
+            departed.forEach { Notifications.cancelChild(context, credentials.id, it) }
             // Rebuilt from ALL active children so successive per-folder passes accumulate
             // instead of the last folder overwriting the whole account's summary. It re-posts,
             // so it would ring: it may only do so when this pass actually brought new mail —
-            // a message read on another device refreshes the group in silence.
+            // a message read on another device, or deleted from one, refreshes the group in
+            // silence.
             Notifications.updateGroupSummary(
                 context,
                 credentials.id,

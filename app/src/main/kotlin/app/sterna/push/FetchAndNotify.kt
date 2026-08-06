@@ -83,7 +83,10 @@ object FetchAndNotify {
                 // flooding notifications for its whole existing content.
                 NewMailNotifier.seed(context, credentials.id, folder.mailboxId, folder.emails + returned)
             } else {
-                NewMailNotifier.notifyDiff(context, credentials, folder.mailboxId, folderName, folder.emails + returned)
+                // The folder's departures ride along: what the server said left it during THIS
+                // refresh, so a message deleted from another client loses its banner (#134).
+                // Empty on IMAP and on the seed path above, which has no banner to take down.
+                NewMailNotifier.notifyDiff(context, credentials, folder.mailboxId, folderName, folder.emails + returned, folder.departedIds)
             }
         }
     }
@@ -100,6 +103,10 @@ object FetchAndNotify {
      * this hook or a concurrent push pass runs first announces; the other then diffs
      * empty), or a silent seed when the account's notifications are off (nothing may be
      * announced, but the trigger must stay exactly-once so a re-archive is respected).
+     *
+     * No departures travel from here (#134): this reads the CACHE, and a cache read states what
+     * the folder holds, never what left it. The refresh that filled that cache reported its own
+     * departures on its own path — this hook must not guess at them from an absence.
      */
     suspend fun onInboxRefreshed(context: Context, credentials: AccountCredentials, inboxMailboxId: String) {
         if (credentials.protocol == MailProtocol.IMAP) return

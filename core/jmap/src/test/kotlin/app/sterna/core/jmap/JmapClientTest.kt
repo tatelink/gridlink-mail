@@ -663,6 +663,107 @@ class JmapClientTest {
         }
     }
 
+    // ---- where the server says a frozen list of ids actually IS (Codeberg #122) ----
+
+    @Test fun mailboxIdsOf_readsEachIdsFoldersAndAsksForNothingElse() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"methodResponses":[["Email/get",{"accountId":"acc1","state":"g1","list":[
+                   {"id":"e1","mailboxIds":{"mbTrash":true}},
+                   {"id":"e2","mailboxIds":{"mbInbox":true,"mbKeep":true}},
+                   {"id":"e4","mailboxIds":{"mbTrash":true,"mbOld":false}}],
+                   "notFound":["e3"]},"g0"]]}""",
+            ),
+        )
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+
+        val located = client.mailboxIdsOf(session, "acc1", listOf("e1", "e2", "e3", "e4"), BasicAuth("u", "p"))
+
+        assertEquals(
+            mapOf(
+                "e1" to setOf("mbTrash"),
+                "e2" to setOf("mbInbox", "mbKeep"),
+                // A false membership is not a membership.
+                "e4" to setOf("mbTrash"),
+            ),
+            located,
+        )
+        // notFound is simply absent — the caller reads that as "nothing left to destroy".
+        assertEquals(null, located["e3"])
+        val sent = server.takeRequest().body.readUtf8()
+        assertEquals(listOf("e1", "e2", "e3", "e4"), getIdsOf(sent))
+        // The whole point of this call: mailboxIds. And nothing heavier — no preview, no bodies.
+        assertTrue(sent.contains("\"properties\":[\"id\",\"mailboxIds\"]"))
+    }
+
+    @Test fun mailboxIdsOf_emptyInputSkipsTheNetwork() = runBlocking {
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        assertTrue(client.mailboxIdsOf(session, "acc1", emptyList(), BasicAuth("u", "p")).isEmpty())
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test fun mailboxIdsOf_throwsOnJmapErrorRatherThanGuessing() {
+        // The caller DESTROYS what this reports as still in place. A method error that came back
+        // as "no rows" would be read as "all these ids moved" — safe here — but the contract is
+        // the same as missingEmailIds': never answer a question the server refused.
+        server.enqueue(MockResponse().setBody(ERROR_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        try {
+            runBlocking { client.mailboxIdsOf(session, "acc1", listOf("e1"), BasicAuth("u", "p")) }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertTrue(e.message!!.contains("accountNotFound"))
+        }
+    }
+
+    @Test fun mailboxIdsOf_splitsIntoRequestsOfAtMostTheAdvertisedGetLimit() = runBlocking {
+        // An Empty-trash wave is 500 ids; a server admitting fewer per get refuses the WHOLE call.
+        val dispatcher = LocateDispatcher()
+        server.dispatcher = dispatcher
+        val ids = (1..12).map { "e$it" }
+
+        val located = client.mailboxIdsOf(sessionAdvertisingGet(5), "acc1", ids, BasicAuth("u", "p"))
+
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(5, 5, 2), dispatcher.bodies.map { getIdsOf(it).size })
+        assertEquals(ids.toSet(), located.keys)
+    }
+
+    @Test fun mailboxIdsOf_throwsRatherThanHandingBackThePartOfTheAnswerItGot() {
+        // A batch that never answered must not come back as "those ids are gone from the folder"
+        // — nor, once the caller inverts it, as anything at all. It throws, the destroy does not
+        // run, and the worker retries it.
+        val dispatcher = LocateDispatcher(failAt = 2)
+        server.dispatcher = dispatcher
+        try {
+            runBlocking {
+                client.mailboxIdsOf(sessionAdvertisingGet(5), "acc1", (1..12).map { "e$it" }, BasicAuth("u", "p"))
+            }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertEquals(500, e.httpCode)
+        }
+        assertEquals(2, server.requestCount)
+    }
+
+    /** Answers an `Email/get` by placing every id it was asked for in one folder; [failAt] refuses
+     *  the n-th request outright, the way a dropped connection does. */
+    private class LocateDispatcher(private val failAt: Int? = null) : Dispatcher() {
+        val bodies = mutableListOf<String>()
+
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val body = request.body.readUtf8()
+            bodies += body
+            if (failAt == bodies.size) return MockResponse().setResponseCode(500)
+            return MockResponse().setBody(
+                """{"methodResponses":[["Email/get",{"accountId":"acc1","state":"g${bodies.size}",
+                   "list":[${
+                    getIdsOf(body).joinToString(",") { "{\"id\":\"$it\",\"mailboxIds\":{\"mbTrash\":true}}" }
+                }],"notFound":[]},"g0"]]}""",
+            )
+        }
+    }
+
     @Test fun move_carriesThePerIdSetErrorType() {
         server.enqueue(MockResponse().setBody(SET_NOTFOUND_JSON))
         val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())

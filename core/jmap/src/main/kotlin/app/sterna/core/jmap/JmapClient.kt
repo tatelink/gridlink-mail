@@ -589,6 +589,62 @@ class JmapClient internal constructor(
     }
 
     /**
+     * WHERE the server says [ids] are: each id it returns mapped to its `mailboxIds` set. Ids the
+     * server does not return (`notFound`) are simply absent from the map.
+     *
+     * The point of asking (Codeberg #122): a JMAP id does not move with its message, so a list of
+     * ids frozen when the user confirmed a permanent destroy says nothing about where those
+     * messages are when the destroy finally runs — which can be days later. Only the server knows,
+     * and only `mailboxIds` answers it. [getEmailsByIds] does NOT request that property, so
+     * reusing it would hand back rows that cannot answer the question at all.
+     *
+     * ids-only + `mailboxIds`: no headers, no preview, nothing that would make this a second
+     * download of the list. Split like every other get ([getInBatches], the server's
+     * `maxObjectsInGet`), and — like [missingEmailIds] — a failed or malformed response THROWS
+     * rather than answering a partial union: the caller DESTROYS what this reports as still in
+     * place, so "the batch never answered" may never be read as "still there". The destroy that
+     * calls this is retried by its worker; guessing here would be irreversible.
+     */
+    suspend fun mailboxIdsOf(
+        session: JmapSession,
+        accountId: String,
+        ids: List<String>,
+        auth: JmapAuth,
+    ): Map<String, Set<String>> = withContext(Dispatchers.IO) {
+        getInBatches(session, ids) { batch ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.MAIL_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Email/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { batch.forEach { add(it) } }
+                            putJsonArray("properties") {
+                                add("id")
+                                add("mailboxIds")
+                            }
+                        }
+                        add("g0")
+                    }
+                }
+            }
+            val args = methodResponseArgs(postJmap(session, auth, payload), "Email/get")
+            args["list"]?.jsonArray?.mapNotNull { entry ->
+                val row = entry.jsonObject
+                val id = row["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                // `{mailboxId: true}` per RFC 8621 §4.1.1; a false value would mean "not in it".
+                val folders = row["mailboxIds"]?.jsonObject.orEmpty()
+                    .filterValues { it.jsonPrimitive.booleanOrNull == true }.keys.toSet()
+                id to folders
+            }.orEmpty()
+        }.toMap()
+    }
+
+    /**
      * Full-text search across the account (Email/query `text` filter + Email/get).
      *
      * Returns both counts — see [SearchPage]: the caller has to know whether the query hit its cap

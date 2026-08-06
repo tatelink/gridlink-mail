@@ -234,8 +234,10 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private val _pendingDelete = MutableStateFlow<String?>(null)
     val pendingDelete: StateFlow<String?> = _pendingDelete.asStateFlow()
     private var pendingDeleteJob: Job? = null
-    /** The messages whose permanent destroy is currently held back (fired when the window ends). */
-    private var pendingDeleteTargets: List<Pair<AccountCredentials, String>> = emptyList()
+    /** The messages whose permanent destroy is currently held back (fired when the window ends):
+     *  account, email id, and the folder the message was in when the user confirmed — the third
+     *  is what the destroy re-checks against the server before touching anything (#122). */
+    private var pendingDeleteTargets: List<Triple<AccountCredentials, String, String>> = emptyList()
 
     /** The held-back messages themselves — kept so [undoDelete] can re-complete their threads,
      *  and so [completeThreadsAfterAction] never re-caches a row whose destroy is pending. */
@@ -1076,7 +1078,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * so holding back several hundred in-Trash messages destroys them in a few shots (#29).
      */
     private fun heldBackDestroy(emails: List<Email>, label: String) {
-        val targets = emails.mapNotNull { e -> credentialsFor(e)?.let { it to e.id } }
+        val targets = emails.mapNotNull { e -> credentialsFor(e)?.let { Triple(it, e.id, e.mailboxId.orEmpty()) } }
         if (targets.isEmpty()) return
         flushPendingDestroy()
         pendingDeleteTargets = targets
@@ -1095,8 +1097,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             }
             dropSearchResults(emails.mapTo(mutableSetOf()) { it.emailKey() })
             _pendingDelete.value = label
-            targets.groupBy({ it.first.id }, { it.second }).forEach { (accountId, ids) ->
-                MessageDestroyWorker.schedule(getApplication(), accountId, ids, PURGE_HOLD_BACK_MS)
+            targets.groupBy { it.first.id }.forEach { (accountId, rows) ->
+                MessageDestroyWorker.schedule(getApplication(), accountId, idsByFolder(rows), PURGE_HOLD_BACK_MS)
             }
             pendingDeleteJob = viewModelScope.launch {
                 delay(PURGE_HOLD_BACK_MS)
@@ -1107,6 +1109,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * One account's held-back rows, grouped by the folder each message was in when the user
+     * confirmed — what the destroy is checked against on JMAP (#122). An empty key means the
+     * cached row named no folder: the destroy then has nothing to verify its order with and
+     * destroys nothing, which is the safe end of that.
+     */
+    private fun idsByFolder(rows: List<Triple<AccountCredentials, String, String>>): Map<String, List<String>> =
+        rows.groupBy({ it.third }, { it.second })
+
     /** Commit any held-back destroy immediately (a new delete supersedes the pending one). */
     private fun flushPendingDestroy() {
         pendingDeleteJob?.cancel()
@@ -1115,8 +1126,8 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         pendingDeleteTargets = emptyList()
         pendingDeleteEmails = emptyList()
         _pendingDelete.value = null
-        targets.groupBy({ it.first.id }, { it.second }).forEach { (accountId, ids) ->
-            MessageDestroyWorker.flushNow(getApplication(), accountId, ids)
+        targets.groupBy { it.first.id }.forEach { (accountId, rows) ->
+            MessageDestroyWorker.flushNow(getApplication(), accountId, idsByFolder(rows))
         }
     }
 

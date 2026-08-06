@@ -40,7 +40,11 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
                 repo.purgeSnapshot(credentials, purgeId)
             } else {
                 val ids = inputData.getStringArray(KEY_EMAIL_IDS)?.toList().orEmpty()
-                if (ids.isNotEmpty() && repo.destroyAll(credentials, ids).failed.isNotEmpty()) {
+                // The folder those ids sat in when the user confirmed. On JMAP the destroy checks
+                // it against the server wave by wave and spares whatever has moved (#122); absent
+                // (a destroy enqueued before this key existed) it destroys nothing.
+                val mailboxId = inputData.getString(KEY_MAILBOX_ID)
+                if (ids.isNotEmpty() && repo.destroyAll(credentials, ids, mailboxId).failed.isNotEmpty()) {
                     // Some ids were rejected: still on the server, but their rows were evicted
                     // when the hold-back started. Drop the sync cursors so the next refresh
                     // does a full re-query and brings the survivors back into view.
@@ -68,6 +72,15 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
         private const val KEY_ACCOUNT_ID = "accountId"
         private const val KEY_EMAIL_IDS = "emailIds"
 
+        /** The folder [KEY_EMAIL_IDS] were in when the user confirmed the destroy — ONE folder
+         *  per request, which is why the ids are grouped by folder before they are chunked.
+         *
+         *  A field, not a table: `Data`'s 10 KiB cap is about the ID LIST (an Empty trash carries
+         *  ten thousand of them, which is why a purge travels as [KEY_PURGE_ID] instead), and one
+         *  folder id costs nothing. A destroy enqueued by a version predating this key arrives
+         *  with it null: on JMAP that destroys nothing, the safe end of an unverifiable order. */
+        private const val KEY_MAILBOX_ID = "mailboxId"
+
         /** The snapshot to destroy. Only the KEY travels in the worker's [androidx.work.Data]:
          *  the ids themselves live in the database, because Data is capped at 10 KiB and an
          *  Empty trash can carry ten thousand of them (see `PurgeSnapshotEntity`).
@@ -86,12 +99,21 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
          *  fixed per-count chunk, so chunk on cumulative size with ample headroom instead. */
         private const val MAX_IDS_BYTES_PER_REQUEST = 6 * 1024
 
-        /** Hold the permanent destroy of [emailIds] (one account) back for [holdBackMs], then run it. */
-        fun schedule(context: Context, accountId: String, emailIds: List<String>, holdBackMs: Long) {
+        /**
+         * Hold the permanent destroy of [idsByMailbox] (one account) back for [holdBackMs], then
+         * run it. The ids come in grouped by the folder they were in when the user confirmed, so
+         * each request can carry its own [KEY_MAILBOX_ID] and the destroy can tell a message that
+         * has since been moved from one that has not (#122).
+         *
+         * The whole account still goes in ONE `enqueueUniqueWork` call: the unique name is per
+         * account, so scheduling folder by folder would have each group REPLACE the previous one
+         * and silently drop a destroy the user confirmed.
+         */
+        fun schedule(context: Context, accountId: String, idsByMailbox: Map<String, List<String>>, holdBackMs: Long) {
             WorkManager.getInstance(context).enqueueUniqueWork(
                 destroyWorkName(accountId),
                 ExistingWorkPolicy.REPLACE,
-                destroyRequests(accountId, emailIds, holdBackMs + DELAY_MARGIN_MS),
+                destroyRequests(accountId, idsByMailbox, holdBackMs + DELAY_MARGIN_MS),
             )
         }
 
@@ -101,9 +123,9 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
          * delay — REPLACE alone would silently drop it, and the superseding hold-back is
          * about to claim the unique slot.
          */
-        fun flushNow(context: Context, accountId: String, emailIds: List<String>) {
+        fun flushNow(context: Context, accountId: String, idsByMailbox: Map<String, List<String>>) {
             cancelDestroy(context, accountId)
-            destroyRequests(accountId, emailIds, delayMs = 0L)
+            destroyRequests(accountId, idsByMailbox, delayMs = 0L)
                 .forEach { WorkManager.getInstance(context).enqueue(it) }
         }
 
@@ -132,13 +154,21 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
             WorkManager.getInstance(context).cancelUniqueWork(purgeWorkName(accountId, mailboxId))
         }
 
-        private fun destroyRequests(accountId: String, emailIds: List<String>, delayMs: Long): List<OneTimeWorkRequest> =
-            chunkBySize(emailIds).map { chunk ->
-                OneTimeWorkRequestBuilder<MessageDestroyWorker>()
-                    .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
-                    .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                    .setInputData(workDataOf(KEY_ACCOUNT_ID to accountId, KEY_EMAIL_IDS to chunk.toTypedArray()))
-                    .build()
+        private fun destroyRequests(
+            accountId: String,
+            idsByMailbox: Map<String, List<String>>,
+            delayMs: Long,
+        ): List<OneTimeWorkRequest> =
+            idsByMailbox.flatMap { (mailboxId, emailIds) ->
+                chunkBySize(emailIds).map { chunk ->
+                    OneTimeWorkRequestBuilder<MessageDestroyWorker>()
+                        .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+                        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                        .setInputData(
+                            workDataOf(KEY_ACCOUNT_ID to accountId, KEY_EMAIL_IDS to chunk.toTypedArray(), KEY_MAILBOX_ID to mailboxId),
+                        )
+                        .build()
+                }
             }
 
         /** Split [emailIds] so each chunk's ids stay under [MAX_IDS_BYTES_PER_REQUEST]. */
