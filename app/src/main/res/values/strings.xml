@@ -640,6 +640,7 @@
     <string name="connect_discovering">Finding your server…</string>
     <string name="connect_server_not_found">Couldn\'t find your server automatically. Enter it below.</string>
     <string name="connect_bad_credentials">Wrong email or password.</string>
+    <string name="connect_host_unresolved">Couldn\'t find a server called \"%1$s\". Check the spelling, and that you\'re online.</string>
     <string name="connect_provider_preset">Quick setup</string>
     <string name="connect_provider_app_password_note">Some providers (Gmail, Yahoo, iCloud…) need an app-specific password, not your normal one.</string>
     <string name="connect_app_password_help">How to create an app password</string>

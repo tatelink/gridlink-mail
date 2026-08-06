@@ -505,6 +505,7 @@
     <string name="connect_discovering">Поиск вашего сервера…</string>
     <string name="connect_server_not_found">Не удалось найти сервер автоматически. Введите его ниже.</string>
     <string name="connect_bad_credentials">Неверный адрес электронной почты или пароль.</string>
+    <string name="connect_host_unresolved">Сервер с именем «%1$s» не найден. Проверьте написание и подключение к интернету.</string>
     <string name="connect_provider_preset">Быстрая настройка</string>
     <string name="connect_provider_app_password_note">Некоторым провайдерам (Gmail, Yahoo, iCloud…) требуется пароль приложения, а не ваш обычный пароль.</string>
     <string name="connect_app_password_help">Как создать пароль приложения</string>

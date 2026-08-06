@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.net.UnknownHostException
 
 /** UI state for the connect/account-setup screen. */
 sealed interface ConnectState {
@@ -683,6 +684,14 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             // Leaving the screen cancels this coroutine: not something to show an error for.
             throw cancelled
         } catch (t: Throwable) {
+            // A typo'd server is the most common way this screen fails, and DNS reports it as
+            // "Unable to resolve host …: No address associated with hostname" — accurate, and
+            // written for whoever wrote the socket library. Named here rather than left raw,
+            // because it is the one failure whose fix is a character in a field on screen.
+            if (t is UnknownHostException) {
+                _state.value = ConnectState.Error(string(R.string.connect_host_unresolved, server))
+                return
+            }
             // Fastmail's endpoint refuses password auth outright (API tokens only, #54):
             // a 401 from it gets the same steer as the inline hint, not just a bare error.
             val msg = t.message ?: t.javaClass.simpleName

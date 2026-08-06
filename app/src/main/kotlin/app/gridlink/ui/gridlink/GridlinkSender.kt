@@ -62,10 +62,13 @@ class GridlinkOutboxSender(
     override fun check(request: GridlinkComposeRequest): String? {
         val draft = request.draft
         if (accounts.load() == null) {
-            // The Gridlink UI has no sign-in of its own and is not getting one: the debug build
-            // installs the stock Gridlink launcher icon beside this one and they share an account
-            // store, so the account is one icon away rather than one screen away.
-            return "No account yet. Sign in with the Gridlink icon first, then send from here."
+            // ⚠️ Reached from the debug GALLERY, which is its own launcher icon beside the app and
+            // shares its account store. The app itself cannot get here: it routes to
+            // [GridlinkSetupHost] the moment no account exists, so its composer is unreachable
+            // without one. Naming the app rather than "the Gridlink icon" is the point — since the
+            // rename BOTH icons say Gridlink, and the old wording pointed at whichever one the
+            // reader happened to be looking at.
+            return "No account yet. Set one up in the Gridlink app first, then send from here."
         }
         if (draft.recipients.isEmpty()) return "Add someone to send this to."
 

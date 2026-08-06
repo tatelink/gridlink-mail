@@ -505,6 +505,7 @@
     <string name="connect_discovering">Server wird gesucht…</string>
     <string name="connect_server_not_found">Dein Server konnte nicht automatisch gefunden werden. Gib ihn unten ein.</string>
     <string name="connect_bad_credentials">Falsche E-Mail-Adresse oder falsches Passwort.</string>
+    <string name="connect_host_unresolved">Es wurde kein Server namens \"%1$s\" gefunden. Prüfe die Schreibweise und ob du online bist.</string>
     <string name="connect_provider_preset">Schnelleinrichtung</string>
     <string name="connect_provider_app_password_note">Einige Anbieter (Gmail, Yahoo, iCloud…) benötigen ein App-spezifisches Passwort, nicht Ihr normales.</string>
     <string name="connect_app_password_help">So erstellen Sie ein App-Passwort</string>

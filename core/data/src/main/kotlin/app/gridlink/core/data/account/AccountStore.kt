@@ -361,6 +361,24 @@ class AccountStore(context: Context) {
         )
     }
 
+    /**
+     * Record which data types this account should sync (see [SyncSelection]). No-op for unknown ids.
+     *
+     * Separate from [add] rather than an argument to it, because the choice is made on a screen that
+     * cannot know the account's id until the add returns, and because it is editable afterwards. The
+     * setup flow therefore adds, then calls this — an add that failed leaves no account for a stale
+     * selection to attach itself to.
+     *
+     * 🔴 Written to the account this id names, NOT to its [StoredAccount.loginKey]. Unlike a password
+     * or an OAuth token, which are one secret shared by a login and every mailbox delegated to it,
+     * this is a per-mailbox preference: a shared calendar you want and a shared mailbox you only read
+     * are different answers, and folding them onto the login would make one overwrite the other.
+     */
+    @Synchronized
+    fun setSyncSelection(id: String, selection: SyncSelection) {
+        saveAccounts(accounts().map { if (it.id == id) it.copy(syncSelection = selection) else it })
+    }
+
     /** Re-encrypt and store a new password for the account (written under its login slot). */
     @Synchronized
     fun updatePassword(id: String, password: String) {

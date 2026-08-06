@@ -47,6 +47,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -82,11 +83,23 @@ import app.gridlink.ui.theme.GridlinkType
 @Composable
 fun GridlinkFormScreen(
     title: String,
-    onClose: () -> Unit,
+    /**
+     * Discard, on the X and on back. **null when there is nowhere to discard to**, which is the
+     * setup screen's case on a first launch: nothing exists behind it, so an X would either do
+     * nothing or close the app while looking like a cancel. A null also leaves back unhandled, so
+     * the system does what it always does at the bottom of a task and leaves.
+     */
+    onClose: (() -> Unit)?,
     confirmLabel: String,
     onConfirm: () -> Unit,
     confirmEnabled: Boolean,
     modifier: Modifier = Modifier,
+    /**
+     * An optional control on the baseline, to the LEFT of the confirm pill: a way out that is not
+     * the main action (setup's hand-off to the advanced connect screen). Left of the pill and never
+     * beside it, so the thumb's target for "do the thing" is in the same place on every form.
+     */
+    baselineLeading: (@Composable () -> Unit)? = null,
     /**
      * What is missing or wrong, in a sentence, or null when the form is ready.
      *
@@ -103,7 +116,9 @@ fun GridlinkFormScreen(
     // Back discards, matching the X. ⚠️ Safe to put here rather than conditionally: an open picker is
     // a [Dialog], and a dialog window takes back before the activity's handlers ever see it, so this
     // cannot swallow the back that was meant to close a picker.
-    BackHandler(onBack = onClose)
+    // `enabled = false` rather than skipping the call: BackHandler is a composable, and one that
+    // appears and disappears with a nullable would break the rule against conditional composition.
+    BackHandler(enabled = onClose != null) { onClose?.invoke() }
     GridlinkBackground(modifier = modifier) {
         Column(
             modifier = Modifier
@@ -162,6 +177,7 @@ fun GridlinkFormScreen(
                 horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                baselineLeading?.invoke()
                 Spacer(Modifier.weight(1f))
                 GridlinkConfirmPill(
                     label = confirmLabel,
@@ -182,7 +198,7 @@ fun GridlinkFormScreen(
 @Composable
 private fun GridlinkFormHeader(
     title: String,
-    onClose: () -> Unit,
+    onClose: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
@@ -197,11 +213,15 @@ private fun GridlinkFormHeader(
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GridlinkCircleButton(
-            icon = Icons.Outlined.Close,
-            label = "Discard",
-            onClick = onClose,
-        )
+        // No close, no circle, and no reserved gap where one would have been: a form with nothing
+        // behind it starts its title at the margin like any other screen's does.
+        onClose?.let {
+            GridlinkCircleButton(
+                icon = Icons.Outlined.Close,
+                label = "Discard",
+                onClick = it,
+            )
+        }
         Text(
             text = title,
             style = GridlinkType.screenTitle,
@@ -210,7 +230,7 @@ private fun GridlinkFormHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .weight(1f)
-                .padding(start = GridlinkSpacing.s16),
+                .padding(start = if (onClose != null) GridlinkSpacing.s16 else 0.dp),
         )
     }
 }
@@ -345,12 +365,21 @@ fun GridlinkFormTextRow(
     modifier: Modifier = Modifier,
     minHeight: Dp = 0.dp,
     keyboardType: KeyboardType = KeyboardType.Text,
+    /**
+     * How the text is drawn, which for a password row is as dots.
+     *
+     * 🔴 [KeyboardType.Password] does NOT mask anything — it only tells the IME to drop
+     * autocorrect and suggestions. Masking is this, and a row that set the keyboard type and
+     * assumed the rest would print the user's password on screen in a shoulder-surfable font.
+     */
+    visualTransformation: VisualTransformation = VisualTransformation.None,
 ) {
     val colors = GridlinkTheme.colors
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
         singleLine = singleLine,
+        visualTransformation = visualTransformation,
         textStyle = style.copy(color = colors.textPrimary),
         cursorBrush = SolidColor(colors.accent),
         keyboardOptions = KeyboardOptions(

@@ -26,6 +26,17 @@ data class StoredAccount(
     val inboxName: String = "Inbox",
     val unread: Int = 0,
     val syncWindow: SyncWindow = SyncWindow.DAYS_90,
+    /**
+     * Which kinds of data the user asked this account to sync, chosen during setup.
+     *
+     * 🔴 Not the same question as [syncWindow], which is how far back MAIL goes. This is which data
+     * types are wanted at all, and today only [SyncSelection.mail] is connected to anything — see
+     * [SyncSelection] for why the other two are stored anyway.
+     *
+     * Defaulted, so an account record written before this field existed decodes as mail-only, which
+     * is exactly what those accounts have always done.
+     */
+    val syncSelection: SyncSelection = SyncSelection(),
     /** Whether new-mail notifications fire for this account (per-account opt-out). */
     val notificationsEnabled: Boolean = true,
     /**
