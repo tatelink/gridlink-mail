@@ -127,7 +127,15 @@ fun GridlinkCalendarScreen(
      */
     forceSplit: Boolean? = null,
 ) {
-    val today = GridlinkSampleTree.TODAY
+    // 🔴 The book, not [GridlinkSampleTree], and `book` is a remember KEY below rather than only a
+    // source. Without it there the filtered list is cached against the range alone, so an event saved
+    // onto the month you are already looking at would not appear until you paged away and back.
+    val book = LocalGridlinkBook.current
+    // 🔴 Today comes from the book too. It is the real date when a real calendar is behind this and
+    // the sample's fixed day otherwise, which is the only way both can be right: the fixtures are
+    // built around one specific week, and a `@Preview` that rang the actual date would sit in a month
+    // with nothing in it.
+    val today = book.today
     val start = initialDate ?: today
     var view by remember(initialView) { mutableStateOf(initialView) }
     // Where the view is pointed. One anchor shared by all four, so switching from a week you were
@@ -141,13 +149,18 @@ fun GridlinkCalendarScreen(
     val range = remember(view, anchor, today) {
         if (view == GridlinkCalendarView.AGENDA) view.rangeAround(today) else view.rangeAround(anchor)
     }
-    // 🔴 The book, not [GridlinkSampleTree], and `book` is a remember KEY rather than only a source.
-    // Without it here the filtered list is cached against the range alone, so an event saved onto the
-    // month you are already looking at would not appear until you paged away and back.
-    val book = LocalGridlinkBook.current
     val inRange = remember(range, book) {
         book.events.filter { it.date >= range.first && it.date <= range.second }
     }
+    /**
+     * What the header may claim about the count.
+     *
+     * ⚠️ Three answers, not two. A real calendar is expanded over a fixed generous window around
+     * today rather than over whatever month is on screen, so paging far enough leaves it: December
+     * three years out holds no events because nobody fetched it, and a header reading "0 events" there
+     * would be a confident statement about a month this app has never seen.
+     */
+    val countable = !book.calendarLoading && book.coversDate(range.first) && book.coversDate(range.second)
 
     GridlinkScaffold(
         modifier = modifier,
@@ -161,8 +174,10 @@ fun GridlinkCalendarScreen(
             GridlinkHeader(
                 title = view.title(anchor),
                 unread = 0,
-                subline = when (view) {
-                    GridlinkCalendarView.AGENDA -> "${inRange.size} upcoming"
+                subline = when {
+                    book.calendarLoading -> "Loading"
+                    !countable -> "Not synced this far out"
+                    view == GridlinkCalendarView.AGENDA -> "${inRange.size} upcoming"
                     else -> "${inRange.size} events"
                 },
                 // 🔴 No steppers on the agenda. The other three views name their position in the

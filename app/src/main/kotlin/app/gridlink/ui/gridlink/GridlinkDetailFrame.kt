@@ -57,13 +57,17 @@ import app.gridlink.ui.theme.GridlinkType
  * So the frame is one composable and the screens are its contents. The thread was migrated onto it
  * rather than left alone, because a shared frame that one screen opts out of is not shared.
  *
- * ## What [embedded] changes, and why it is three things
+ * ## What [embedded] changes, and why it is four things
  * True means §7's reading pane rather than a screen over the list, and every difference follows
  * from the same fact: something else already owns the window. The backdrop is not painted again
  * (the scaffold painted one across both panes), the system-bar inset is not taken again (the
- * scaffold's Row took it), and there is no back control (whatever it would go back to is on screen,
- * beside it). It is NOT a different layout: everything below the header is identical at identical
- * metrics, which is what stops the two halves of the fork's reading experience from drifting.
+ * scaffold's Row took it), there is no back control (whatever it would go back to is on screen,
+ * beside it), and the action row gives up its far-right slot to the scaffold's compose button, which
+ * parks there in two panes.
+ *
+ * It is still not a different *layout*: every metric below the header is the one the standing screen
+ * uses, and the fourth difference is a trailing inset rather than a rearrangement. That is what stops
+ * the two halves of the fork's reading experience from drifting.
  */
 @Composable
 fun GridlinkDetailFrame(
@@ -128,7 +132,26 @@ fun GridlinkDetailFrame(
                         .padding(
                             start = GridlinkSpacing.chrome,
                             top = GridlinkSpacing.s16,
-                            end = GridlinkSpacing.chrome,
+                            // 🔴 In the pane, this row stops one compose button short of the window.
+                            // The scaffold parks its "+" at the far bottom-right whenever two panes
+                            // are showing, and this row's own trailing control is a round accent
+                            // button of exactly the same diameter with exactly the same fill sitting
+                            // on exactly the same baseline — Reply on a thread, Write on a contact or
+                            // an event. Without this they land on top of each other, and the one
+                            // underneath is unreachable.
+                            //
+                            // ⚠️ This is the mirror of the bug recorded further down this file, where
+                            // a standing thread's action pill overlapped the LIST's compose button
+                            // and archiving opened the composer. Same two controls, same corner, and
+                            // the fix there was to swallow the stray tap. Here there is no stray tap
+                            // to swallow: both controls are live and both are wanted, so the row
+                            // moves over instead.
+                            end = if (embedded) {
+                                GridlinkSpacing.chrome + GridlinkDimens.composeButton +
+                                    GridlinkSpacing.s16
+                            } else {
+                                GridlinkSpacing.chrome
+                            },
                             bottom = GridlinkSpacing.chrome,
                         ),
                     horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),

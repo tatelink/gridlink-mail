@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import app.gridlink.core.data.DataFactory
 import app.gridlink.core.data.account.AccountStore
+import app.gridlink.core.data.dav.DavRepository
 import app.gridlink.core.data.mail.MailRepository
 import app.gridlink.core.data.mail.OutboxScheduler
 import app.gridlink.core.data.settings.SettingsRepository
@@ -38,6 +39,9 @@ class AppContainer(context: Context) {
         DataFactory.create(context.applicationContext, jmapClient, accountStore, pgpEngine, settingsRepository)
     val mailRepository: MailRepository = dataLayer.mailRepository
     val storageRepository: StorageRepository = dataLayer.storageRepository
+
+    /** CalDAV and CardDAV for the Calendar and Contacts tabs. Read-only; see [DavRepository]. */
+    val davRepository: DavRepository = dataLayer.davRepository
     val appLock: AppLock = AppLock(accountStore)
 
     /** UnifiedPush transport state machine (issue #17); inert without a distributor. */

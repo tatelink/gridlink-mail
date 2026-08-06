@@ -329,3 +329,93 @@ val MIGRATION_18_19 = object : Migration(18, 19) {
         db.execSQL(MAILBOX_UIDVALIDITY_CREATE_SQL)
     }
 }
+
+/** The `dav_collections` table ([DavCollectionEntity]); shared with the JVM test. */
+const val DAV_COLLECTIONS_CREATE_SQL: String =
+    "CREATE TABLE IF NOT EXISTS `dav_collections` (" +
+        "`accountId` TEXT NOT NULL, " +
+        "`url` TEXT NOT NULL, " +
+        "`kind` TEXT NOT NULL, " +
+        "`displayName` TEXT, " +
+        "`color` TEXT, " +
+        "`syncToken` TEXT, " +
+        "`sortOrder` INTEGER NOT NULL, " +
+        "PRIMARY KEY(`accountId`, `url`))"
+
+/** The `calendar_events` table ([CalendarEventEntity]); shared with the JVM test. */
+const val CALENDAR_EVENTS_CREATE_SQL: String =
+    "CREATE TABLE IF NOT EXISTS `calendar_events` (" +
+        "`accountId` TEXT NOT NULL, " +
+        "`href` TEXT NOT NULL, " +
+        "`collectionUrl` TEXT NOT NULL, " +
+        "`etag` TEXT, " +
+        "`uid` TEXT NOT NULL, " +
+        "`summary` TEXT, " +
+        "`location` TEXT, " +
+        "`organizerEmail` TEXT, " +
+        "`startLocal` TEXT NOT NULL, " +
+        "`endLocal` TEXT, " +
+        "`zoneId` TEXT NOT NULL, " +
+        "`allDay` INTEGER NOT NULL, " +
+        "`cancelled` INTEGER NOT NULL, " +
+        "`rrule` TEXT, " +
+        "`exDates` TEXT NOT NULL, " +
+        "`recurrenceId` TEXT, " +
+        "`startDay` INTEGER NOT NULL, " +
+        "`endDay` INTEGER, " +
+        "`raw` TEXT NOT NULL, " +
+        "PRIMARY KEY(`accountId`, `href`))"
+
+/**
+ * The index behind the month query. Without it every month change is a full table scan, which is
+ * invisible on the 27-event account this was written against and is not on a shared calendar with
+ * ten years of history in it.
+ */
+const val CALENDAR_EVENTS_INDEX_SQL: String =
+    "CREATE INDEX IF NOT EXISTS `index_calendar_events_accountId_startDay` " +
+        "ON `calendar_events` (`accountId`, `startDay`)"
+
+/** The `address_book_contacts` table ([AddressBookContactEntity]); shared with the JVM test. */
+const val ADDRESS_BOOK_CONTACTS_CREATE_SQL: String =
+    "CREATE TABLE IF NOT EXISTS `address_book_contacts` (" +
+        "`accountId` TEXT NOT NULL, " +
+        "`href` TEXT NOT NULL, " +
+        "`collectionUrl` TEXT NOT NULL, " +
+        "`etag` TEXT, " +
+        "`uid` TEXT NOT NULL, " +
+        "`displayName` TEXT NOT NULL, " +
+        "`fileAsFamily` TEXT NOT NULL, " +
+        "`fileAsGiven` TEXT NOT NULL, " +
+        "`organization` TEXT, " +
+        "`title` TEXT, " +
+        "`isOrganization` INTEGER NOT NULL, " +
+        "`primaryEmail` TEXT NOT NULL, " +
+        "`emails` TEXT NOT NULL, " +
+        "`raw` TEXT NOT NULL, " +
+        "PRIMARY KEY(`accountId`, `href`))"
+
+/** The index behind the address book's sort, so opening Contacts is not a sort of the whole table. */
+const val ADDRESS_BOOK_CONTACTS_INDEX_SQL: String =
+    "CREATE INDEX IF NOT EXISTS `index_address_book_contacts_accountId_fileAsFamily` " +
+        "ON `address_book_contacts` (`accountId`, `fileAsFamily`)"
+
+/**
+ * Additive 19→20: the CalDAV and CardDAV mirror.
+ *
+ * Purely additive — three new tables, nothing existing is touched. All three start empty, which is
+ * the correct state: an account upgraded from the previous version has never run a DAV sync, and an
+ * empty `dav_collections` is exactly what makes the next sync discover and fetch everything.
+ *
+ * Written as a migration rather than left to the destructive fallback because that fallback would
+ * take the outbox (unsent mail) with it, and adding a calendar is not a reason to lose a queued
+ * message.
+ */
+val MIGRATION_19_20 = object : Migration(19, 20) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(DAV_COLLECTIONS_CREATE_SQL)
+        db.execSQL(CALENDAR_EVENTS_CREATE_SQL)
+        db.execSQL(CALENDAR_EVENTS_INDEX_SQL)
+        db.execSQL(ADDRESS_BOOK_CONTACTS_CREATE_SQL)
+        db.execSQL(ADDRESS_BOOK_CONTACTS_INDEX_SQL)
+    }
+}

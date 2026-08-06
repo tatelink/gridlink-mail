@@ -29,7 +29,6 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Create
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -455,21 +454,26 @@ fun GridlinkSectionLabel(
  * a time. It now lives in the header as [GridlinkSearchPill], which is where a momentary control
  * belongs. Calendar and Contacts took the space.
  *
- * [composeIcon] and [composeLabel] are here rather than in the screen because the floating button's
- * meaning is entirely a function of where you are: on mail it writes a message, on the other two it
- * adds a thing. Keeping the mapping on the destination means a fifth tab cannot be added without
- * answering the question.
+ * [composeLabel] is here rather than in the screen because the floating button's meaning is entirely
+ * a function of where you are: on mail it writes a message, on the other two it adds a thing.
+ * Keeping the mapping on the destination means a fifth tab cannot be added without answering the
+ * question.
+ *
+ * ⚠️ There is no `composeIcon` any more. Mail used to draw a pencil here and the other tabs a plus,
+ * and Tate's verdict on that was "having a 'write' button is confusing": one landmark that
+ * changes its glyph reads as two different buttons that happen to share a spot. It is a "+"
+ * everywhere now, and what the "+" makes is what this label says. The label is not decoration, it is
+ * the button's whole content description, so it is the only thing a screen reader gets.
  */
 enum class GridlinkDestination(
     val label: String,
     val icon: ImageVector,
-    val composeIcon: ImageVector,
     val composeLabel: String,
 ) {
-    INBOX("Inbox", Icons.Outlined.Inbox, Icons.Outlined.Create, "Compose"),
-    FOLDERS("Folders", Icons.Outlined.FolderOpen, Icons.Outlined.Create, "Compose"),
-    CALENDAR("Calendar", Icons.Outlined.CalendarMonth, Icons.Outlined.Add, "New appointment"),
-    CONTACTS("Contacts", Icons.Outlined.PeopleOutline, Icons.Outlined.Add, "New contact"),
+    INBOX("Inbox", Icons.Outlined.Inbox, "New message"),
+    FOLDERS("Folders", Icons.Outlined.FolderOpen, "New message"),
+    CALENDAR("Calendar", Icons.Outlined.CalendarMonth, "New appointment"),
+    CONTACTS("Contacts", Icons.Outlined.PeopleOutline, "New contact"),
 }
 
 /**
@@ -703,11 +707,20 @@ fun gridlinkAccentFill(accent: Color): Brush = Brush.linearGradient(
  * fill, white glyph, real halo — because it is the only thing down there that creates something
  * rather than navigating to it.
  *
- * ## The glyph follows the tab
- * It is one button that makes the new thing, whatever the new thing currently is: a pencil on mail,
- * a plus on Calendar and Contacts. The alternative was a second button appearing next to it on two
- * of the four tabs, which turns a fixed landmark into a control that moves. The swap crossfades
- * rather than cutting, so the button reads as changing its mind rather than being replaced.
+ * ## 🔴 The glyph does NOT follow the tab any more
+ * It used to: a pencil on mail, a plus on Calendar and Contacts, crossfading between them. Tate
+ * killed it — "having a 'write' button is confusing" — and he is right about why. A landmark that
+ * changes its face is no longer a landmark; you have to read it before you trust it, every time,
+ * which is the opposite of what a fixed button in a fixed place is for. It is always a "+" now, and
+ * what the "+" makes is decided by the tab you are on and stated in [GridlinkDestination.composeLabel].
+ *
+ * That is also why there is no [AnimatedContent] left in here. With one glyph there is nothing to
+ * cross-fade, and a crossfade between two identical icons is a flicker charged to nobody's benefit.
+ * The only thing that changes on a tab switch is the content description, which is not drawn.
+ *
+ * ## Where it sits is the scaffold's business, not this button's
+ * It takes a [modifier] and uses it, and it does not position itself. [GridlinkScaffold] slides it
+ * between the left edge in one pane and the far right of the window in two; see the note there.
  */
 @Composable
 fun GridlinkComposeButton(
@@ -729,20 +742,12 @@ fun GridlinkComposeButton(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        AnimatedContent(
-            targetState = destination.composeIcon to destination.composeLabel,
-            transitionSpec = {
-                fadeIn(GridlinkMotion.standard()) togetherWith fadeOut(GridlinkMotion.standard())
-            },
-            label = "composeGlyph",
-        ) { (icon, label) ->
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = colors.onAccent,
-                modifier = Modifier.size(26.dp),
-            )
-        }
+        Icon(
+            imageVector = Icons.Outlined.Add,
+            contentDescription = destination.composeLabel,
+            tint = colors.onAccent,
+            modifier = Modifier.size(26.dp),
+        )
     }
 }
 

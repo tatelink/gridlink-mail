@@ -51,19 +51,30 @@ fun GridlinkHomeHost(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: GridlinkMailViewModel = viewModel(),
+    davViewModel: GridlinkDavViewModel = viewModel(),
 ) {
     val application = LocalContext.current.applicationContext as Application
     // Before anything renders, so the first composition is already pointed at the right mailbox
     // rather than at a null one. Re-runs on an account switch; [GridlinkMailViewModel.bind] ignores
     // the repeats a configuration change causes.
-    LaunchedEffect(accountId) { viewModel.bind(accountId) }
+    LaunchedEffect(accountId) {
+        viewModel.bind(accountId)
+        davViewModel.bind(accountId)
+    }
     val mail by viewModel.mail.collectAsStateWithLifecycle()
     val folders by viewModel.folders.collectAsStateWithLifecycle()
+    val calendar by davViewModel.calendar.collectAsStateWithLifecycle()
+    val contacts by davViewModel.contacts.collectAsStateWithLifecycle()
 
     // The address the menu sheet states. The username IS the address for every account this app can
     // create; `accountName` is the human label and is frequently empty, which would leave the one
     // line a user checks when mail stops arriving blank.
     val address = accounts.firstOrNull { it.id == accountId }?.username.orEmpty()
+
+    // 🔴 Derived the same way [GridlinkDavViewModel.ownDomain] derives it, and the two MUST agree:
+    // an event with no organiser is stamped with the view model's answer and the event card compares
+    // it against this one. Empty is a working value, not a broken one; see that property.
+    val ownDomain = address.substringAfter('@', "")
 
     val sender = remember(application) {
         GridlinkOutboxSender(
@@ -77,7 +88,7 @@ fun GridlinkHomeHost(
     // remembered across recompositions: a directly captured lambda would go stale and the Settings
     // row would keep calling back into a composition that had moved on.
     val openSettings by rememberUpdatedState(onOpenSettings)
-    val config = remember(address, accounts.size, viewModel) {
+    val config = remember(address, accounts.size, viewModel, davViewModel) {
         GridlinkChromeConfig(
             account = address,
             accountCount = accounts.size,
@@ -96,7 +107,15 @@ fun GridlinkHomeHost(
                     GridlinkMenuItem.SCHEDULED, GridlinkMenuItem.DRAFTS -> Unit
                 }
             },
-            sync = GridlinkSyncAction { viewModel.sync() },
+            // 🔴 The boolean is the MAIL result and only the mail result. The calendar and address
+            // book sync alongside it and report into the log, because a user who never turned them
+            // on, or who signs in with OAuth (no password, so no Basic auth for DAV), would
+            // otherwise sit under a permanent amber chip telling them their mail was broken.
+            sync = GridlinkSyncAction {
+                val mailSynced = viewModel.sync()
+                davViewModel.sync()
+                mailSynced
+            },
         )
     }
 
@@ -123,6 +142,9 @@ fun GridlinkHomeHost(
             folders = folders,
             onFolderEdit = viewModel::editFolder,
             onOpenFolder = viewModel::openFolder,
+            calendar = calendar,
+            contacts = contacts,
+            ownDomain = ownDomain,
             sender = sender,
         )
     }

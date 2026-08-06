@@ -93,20 +93,28 @@ fun GridlinkEventScreen(
     // destination, so this is the activity-scoped guard: it latches until we are RESUMED again.
     val leaveOnce = rememberLeaveOnce()
 
-    val internal = event.domain.equals(GridlinkSample.OWN_DOMAIN, ignoreCase = true)
+    val book = LocalGridlinkBook.current
+    // 🔴 The account's own domain, from the book, NOT [GridlinkSample.OWN_DOMAIN]. This is what
+    // decides an appointment has no outside party, so a constant here would treat every one of a real
+    // user's own meetings as somebody else's and go looking for a stranger to put on it.
+    val internal = event.domain.equals(book.ownDomain, ignoreCase = true)
     // The organisation behind the domain, when the address book knows one. Null is ordinary: an
-    // event can name a counterparty this account has never had in its contacts.
-    val counterpart = remember(event.id) {
-        if (internal) null else GridlinkSampleContacts.forDomain(event.domain)
+    // event can name a counterparty this account has never had in its contacts. Asked of the book so
+    // a real address book answers for a real appointment, and the fixtures answer only for fixtures.
+    val counterpart = remember(event.id, book) {
+        if (internal) null else book.contactForDomain(event.domain)
     }
-    val fromThem = remember(event.id) {
-        if (internal) emptyList() else GridlinkSample.messagesFromDomain(event.domain)
+    // ⚠️ Gated on the calendar being the sample's. [GridlinkSample.messagesFromDomain] can only ever
+    // return invented mail, and listing invented correspondence under a genuine appointment is worse
+    // than listing none: it reads as history. The real version of this panel is a mailbox query,
+    // which is a different piece of work and not one to fake in the meantime.
+    val fromThem = remember(event.id, book) {
+        if (internal || book.calendarLive) emptyList() else GridlinkSample.messagesFromDomain(event.domain)
     }
     val plain = remember(event.id) { event.asPlainText() }
     // What else is on that date. Real, derivable, and the one piece of context an appointment always
     // has: an internal event with no location says nothing about anybody, but "what else am I doing
     // that day" is the question you open a calendar entry with.
-    val book = LocalGridlinkBook.current
     val sameDay = remember(event.id, book) {
         book.eventsOn(event.date).filter { it.id != event.id }
     }

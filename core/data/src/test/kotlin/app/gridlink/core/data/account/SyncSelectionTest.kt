@@ -14,29 +14,30 @@ class SyncSelectionTest {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    @Test fun defaultsToMailOnly() {
+    @Test fun defaultsToTheWholeAccount() {
         val selection = SyncSelection()
 
-        assertTrue("mail is the only thing this build syncs", selection.mail)
+        assertTrue(selection.mail)
+        assertTrue("the calendar that came with the account is part of the account", selection.calendar)
+        assertTrue(selection.contacts)
+    }
+
+    @Test fun mailOnlyIsStillExpressible() {
+        // The point of the toggles. Someone who wants mail and nothing else must be able to say so
+        // and have it stick, or the setup screen is asking a question it does not honour.
+        val selection = SyncSelection(calendar = false, contacts = false)
+
+        assertTrue(selection.mail)
         assertFalse(selection.calendar)
         assertFalse(selection.contacts)
     }
 
-    @Test fun nothingUnbuiltIsSelectedByDefault() {
-        // Drives whether the setup screen shows its "not connected yet" caption. A default that
-        // tripped it would put an admission on screen about a choice the user never made.
-        assertFalse(SyncSelection().hasUnbuiltSelection)
-    }
-
-    @Test fun eitherUnbuiltTypeTripsTheAdmission() {
-        assertTrue(SyncSelection(calendar = true).hasUnbuiltSelection)
-        assertTrue(SyncSelection(contacts = true).hasUnbuiltSelection)
-    }
-
-    @Test fun oldSavedAccount_loadsAsMailOnly() {
-        // A record serialized before this field existed carries no syncSelection key. Those accounts
-        // have only ever synced mail, so mail-only is not merely a safe default here, it is what
-        // they were actually doing.
+    @Test fun oldSavedAccount_picksUpCalendarAndContacts() {
+        // A record serialized before this field existed carries no syncSelection key, so it lands on
+        // the defaults. 🔴 That is deliberate rather than accidental: those accounts were created by
+        // a build with no DAV client in it, where the toggles were documented as storing a preference
+        // and fetching nothing. A `false` from that era records what the app could do, not a choice
+        // the user made, so it must not permanently opt them out.
         val legacyJson = """
             {"id":"acc","server":"example.test","username":"user@example.test"}
         """.trimIndent()
@@ -44,7 +45,8 @@ class SyncSelectionTest {
         val account = json.decodeFromString(StoredAccount.serializer(), legacyJson)
 
         assertEquals(SyncSelection(), account.syncSelection)
-        assertTrue(account.syncSelection.mail)
+        assertTrue(account.syncSelection.calendar)
+        assertTrue(account.syncSelection.contacts)
     }
 
     @Test fun selectionSurvivesARoundTrip() {
