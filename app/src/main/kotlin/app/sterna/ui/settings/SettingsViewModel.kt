@@ -10,6 +10,7 @@ import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.data.settings.PreviewLines
 import app.sterna.core.data.settings.REPLY_BAR_DEFAULT
+import app.sterna.core.data.settings.UNREAD_TINT_DEFAULT
 import app.sterna.core.data.settings.SettingsBackup
 import app.sterna.core.data.settings.SettingsBackupCodec
 import app.sterna.core.data.settings.SettingsRepository
@@ -66,6 +67,19 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = PreviewLines.ONE,
     )
+
+    // UNREAD_TINT_DEFAULT for the first frame, like replyBar below and for the same reason: a
+    // literal here would be a fourth copy of the default, free to disagree with the repository for
+    // as long as DataStore takes to answer.
+    val unreadTint = settings.unreadTint.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = UNREAD_TINT_DEFAULT,
+    )
+
+    fun setUnreadTint(enabled: Boolean) {
+        viewModelScope.launch { settings.setUnreadTint(enabled) }
+    }
 
     val swipeRight = settings.swipeRightAction.stateIn(
         scope = viewModelScope,

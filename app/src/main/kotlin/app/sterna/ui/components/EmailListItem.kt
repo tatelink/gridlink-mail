@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -60,6 +61,94 @@ import app.sterna.util.MailDates
 import kotlinx.coroutines.delay
 
 /**
+ * The background a message row is painted with — one place, three states, in this order.
+ *
+ * Selection comes first and beats everything: the row's own colour is the *only* sign that a row is
+ * selected (no checkbox, no icon, no state description) and selection is what arms the destructive
+ * actions, so it may never be hidden behind another state.
+ *
+ * Failing that, an unread row takes [ColorScheme.surfaceContainerHighest] and a read one plain
+ * [ColorScheme.surface]: in the dark scheme, bold text alone was too faint a difference to read
+ * (#141). surfaceContainerHighest is the role picked because it exists in every Material You
+ * scheme, is opaque, is distinct from secondaryContainer, and is *not* surfaceContainerHigh — the
+ * resting colour of the swipe reveal drawn underneath the row (InboxScreen).
+ *
+ * [unreadTint] is the reader's answer to that second state (Settings → Appearance → Message list,
+ * on by default). Off, this function gives back exactly what it gave before #141: secondaryContainer
+ * when selected, plain surface otherwise, with the flash on top. It governs the BACKGROUND only —
+ * the bold weight of an unread row is decided elsewhere and never consults it, so a reader who finds
+ * the tint too loud still sees which mail is unread.
+ *
+ * [flash] is the return-from-message emphasis: it tints whichever base was retained, never a branch
+ * of its own, so the flash cannot erase the selected or unread state while it plays — and it is not
+ * what [unreadTint] switches off.
+ */
+internal fun rowBackground(
+    scheme: ColorScheme,
+    selected: Boolean,
+    unread: Boolean,
+    unreadTint: Boolean,
+    flash: Float,
+): Color {
+    val base = when {
+        selected -> scheme.secondaryContainer
+        unread && unreadTint -> scheme.surfaceContainerHighest
+        else -> scheme.surface
+    }
+    return if (flash > 0f) lerp(base, scheme.primary, 0.14f * flash) else base
+}
+
+/**
+ * The fill behind the small rounded chips a row carries: the account chip of the unified inbox, the
+ * [ThreadPill] of a collapsed thread, the [DraftLabel]. Decided once per row, because a row is one
+ * state — the chips are painted ON the row and have to know what they sit on.
+ *
+ * Until [rowBackground] grew a state (#141) they did not: every chip was
+ * [ColorScheme.surfaceVariant] over plain [ColorScheme.surface] and that was enough. An unread row
+ * now carries [ColorScheme.surfaceContainerHighest], and in the light scheme those two roles are
+ * 0xFFE0E4E9 and 0xFFE1E5E9 — one step out of 255 per channel. The chips did not fade there, they
+ * disappeared and left their labels floating, on unread rows only, right next to read rows where
+ * the same chips were perfectly visible.
+ *
+ * [ColorScheme.surfaceContainerLowest] is what an unread row's chips take instead: opaque, present
+ * in every Material You scheme, and the best of the free roles at standing clear of the unread
+ * background in BOTH themes (30/255 per channel in light, 35/255 in dark). Not the only one —
+ * `surface` itself clears it by 22/255 — but the one that also carries the chips' own
+ * [ColorScheme.onSurfaceVariant] ink at 6.5:1 in light, where surfaceVariant gave 5.1:1. That ink
+ * ratio is prose: nothing in this repo executes a composable, so no test holds it.
+ *
+ * So a chip is darker than its row when the row is read and lighter when it is unread. The rule is
+ * "a chip steps away from its row", not "a chip is darker": tying it to a fixed direction is what
+ * made the light theme swallow them.
+ *
+ * [unreadTint] is the same setting [rowBackground] takes, and it has to be the same answer: with the
+ * tint off an unread row is plain `surface` again, so lifting its chips to surfaceContainerLowest
+ * would fix a collision that is no longer there and put a pale chip on a pale row.
+ *
+ * **Two rows this function does NOT rescue, both exactly as [ColorScheme.surface] left them before
+ * #141 and both filed rather than fixed here:**
+ *
+ *  - a **selected** row is [ColorScheme.secondaryContainer], and a surfaceVariant chip sits at
+ *    1.02:1 on it in the light scheme — it reads by hue, not by lightness, and under a monochrome
+ *    Material You palette the two roles are the same tone and the chip is simply gone. Saying
+ *    "no unread tint touches it, so it keeps surfaceVariant" is the reasoning-by-role-name that
+ *    produced the defect above; it is true and it is not enough.
+ *  - during the **return flash** [rowBackground] lerps a read row toward `primary`, and around the
+ *    peak it passes within ~5/255 of surfaceVariant: the chip vanishes for a fraction of a second,
+ *    on every return to the list. [flash] is deliberately not a parameter here — adding it would
+ *    make a chip change colour mid-animation, which is a bigger change than the defect.
+ *
+ * Both predate this branch (`main` already lerps a surfaceVariant chip's row under it) and neither
+ * is what #141 reported.
+ */
+internal fun chipFill(
+    scheme: ColorScheme,
+    selected: Boolean,
+    unread: Boolean,
+    unreadTint: Boolean,
+): Color = if (unread && unreadTint && !selected) scheme.surfaceContainerLowest else scheme.surfaceVariant
+
+/**
  * One row in a message list: monogram, sender, subject, preview, time + state.
  * [accountLabel] shows the owning account as a chip — set only in the unified inbox.
  */
@@ -103,6 +192,10 @@ fun EmailListItem(
         senderName
     }
     val density = LocalListDensity.current
+    // Read once, here: both decisions below take it as an argument, so a row cannot answer the
+    // question "is this row tinted?" twice and differently. Not a remember {} — that would freeze
+    // the row on the value it was first composed with and leave the list half-tinted after a change.
+    val unreadTint = LocalUnreadTint.current
     val rowPadding = when (density) {
         ListDensity.COMPACT -> 6.dp
         ListDensity.NORMAL -> 10.dp
@@ -146,11 +239,19 @@ fun EmailListItem(
             enter()
         }
     }
-    val baseColor = if (selected) MaterialTheme.colorScheme.secondaryContainer
-    else MaterialTheme.colorScheme.surface
-    val rowColor = if (highlight.value > 0f)
-        lerp(baseColor, MaterialTheme.colorScheme.primary, 0.14f * highlight.value)
-    else baseColor
+    val chipBackground = chipFill(
+        scheme = MaterialTheme.colorScheme,
+        selected = selected,
+        unread = unread,
+        unreadTint = unreadTint,
+    )
+    val rowColor = rowBackground(
+        scheme = MaterialTheme.colorScheme,
+        selected = selected,
+        unread = unread,
+        unreadTint = unreadTint,
+        flash = highlight.value,
+    )
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -179,7 +280,7 @@ fun EmailListItem(
                 // it "(Draft)" wherever it surfaces (Trash especially) to keep the two apart.
                 if (email.isDraft) {
                     Spacer(Modifier.width(6.dp))
-                    DraftLabel()
+                    DraftLabel(fill = chipBackground)
                 }
                 Spacer(Modifier.width(8.dp))
                 Text(
@@ -212,6 +313,7 @@ fun EmailListItem(
                         count = threadCount,
                         expanded = expanded,
                         onToggleExpand = onToggleExpand,
+                        fill = chipBackground,
                     )
                 }
             }
@@ -240,7 +342,7 @@ fun EmailListItem(
                         .clip(MaterialTheme.shapes.small)
                         .background(
                             if (accountColor != null) accountColor.copy(alpha = 0.16f)
-                            else MaterialTheme.colorScheme.surfaceVariant,
+                            else chipBackground,
                         )
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
@@ -303,12 +405,16 @@ fun EmailListItem(
  * a plain count badge otherwise (e.g. search results, which can't expand in place). The
  * chevron flips on [expanded]; screen readers get a labelled button with an expanded/
  * collapsed state, so the affordance is never conveyed by the glyph alone.
+ *
+ * [fill] is handed down rather than read from the theme here: the pill's fill depends on the row it
+ * sits on, which only the row knows (see [chipFill]).
  */
 @Composable
 private fun ThreadPill(
     count: Int,
     expanded: Boolean,
     onToggleExpand: (() -> Unit)?,
+    fill: Color,
 ) {
     // Belt-and-suspenders: never render a "(1)" (or empty) pill — a conversation is 2+ messages.
     if (count <= 1) return
@@ -324,7 +430,7 @@ private fun ThreadPill(
     )
     val base = Modifier
         .clip(MaterialTheme.shapes.small)
-        .background(MaterialTheme.colorScheme.surfaceVariant)
+        .background(fill)
     val pillModifier = if (onToggleExpand != null) {
         base
             .clickable(onClick = onToggleExpand)
@@ -360,9 +466,12 @@ private fun ThreadPill(
  * A light "(Draft)" chip on a list row whose message is a draft (#69). Matches the static
  * [ThreadPill]'s muted weight so it reads as a marker, not an action; purely informational, so it
  * carries no click or extra semantics (the label text is read out as part of the row).
+ *
+ * [fill] is handed down rather than read from the theme here, for the reason given on [chipFill]:
+ * the chip has to know which row it is painted on.
  */
 @Composable
-private fun DraftLabel() {
+private fun DraftLabel(fill: Color) {
     Text(
         text = stringResource(R.string.draft_label),
         style = MaterialTheme.typography.labelSmall,
@@ -370,7 +479,7 @@ private fun DraftLabel() {
         maxLines = 1,
         modifier = Modifier
             .clip(MaterialTheme.shapes.small)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(fill)
             .padding(horizontal = 6.dp, vertical = 1.dp),
     )
 }

@@ -397,6 +397,8 @@
     <string name="settings_message_list_section">Message list</string>
     <string name="settings_density_title">Density</string>
     <string name="settings_preview_title">Preview</string>
+    <string name="settings_unread_tint_title">Unread background</string>
+    <string name="settings_unread_tint_subtitle">Give unread messages a background of their own, on top of the bold text.</string>
     <string name="settings_theme_auto">Auto</string>
     <string name="settings_theme_light">Light</string>
     <string name="settings_theme_dark">Dark</string>

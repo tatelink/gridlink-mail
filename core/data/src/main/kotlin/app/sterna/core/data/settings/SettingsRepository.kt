@@ -97,6 +97,16 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_PREVIEW_LINES] = value.name }
     }
 
+    /** Whether an unread row in the message list carries a background of its own on top of its bold
+     *  text (#141). ON by default — it is what the app does today. Off, an unread row is painted
+     *  exactly like a read one and the bold text is the only difference again; the weight itself,
+     *  the icons and the folder counts are not touched either way. */
+    val unreadTint: Flow<Boolean> = dataStore.data.map(::unreadTintFrom)
+
+    suspend fun setUnreadTint(enabled: Boolean) {
+        dataStore.edit { it[KEY_UNREAD_TINT] = enabled }
+    }
+
     val swipeRightAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_RIGHT, SwipeAction.TOGGLE_READ)
     val swipeLeftAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_LEFT, SwipeAction.DELETE)
 
@@ -311,6 +321,7 @@ class SettingsRepository(context: Context) {
         signatureBelowQuote = signatureBelowQuote.first(),
         signatureDelimiter = signatureDelimiter.first(),
         replyBar = replyBar.first(),
+        unreadTint = unreadTint.first(),
         deliveryMode = deliveryMode.first().name,
         notificationContent = notificationContent.first().name,
     )
@@ -341,6 +352,7 @@ class SettingsRepository(context: Context) {
         backup.signatureBelowQuote?.let { setSignatureBelowQuote(it) }
         backup.signatureDelimiter?.let { setSignatureDelimiter(it) }
         backup.replyBar?.let { setReplyBar(it) }
+        backup.unreadTint?.let { setUnreadTint(it) }
         backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
         backup.notificationContent?.let { v -> runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }
     }
@@ -441,3 +453,24 @@ const val REPLY_BAR_DEFAULT = true
  * hands it an empty store, a store with the switch on, and one with it off.
  */
 internal fun replyBarFrom(prefs: Preferences): Boolean = prefs[KEY_REPLY_BAR] ?: REPLY_BAR_DEFAULT
+
+/** The key the unread-background switch is stored under. Renaming it loses the setting of every
+ *  user who has turned the tint off, so it is pinned by name in [unreadTintFrom]'s test. */
+internal val KEY_UNREAD_TINT = booleanPreferencesKey("unread_tint")
+
+/**
+ * What the message list does when nobody has touched the switch: tint unread rows, which is what
+ * the app does today (#141). One definition, read by [unreadTintFrom], by the settings screen's
+ * initial value, by the activity's first frame and by the CompositionLocal's own fallback — the
+ * last three are the copies that make a literal here dangerous.
+ */
+const val UNREAD_TINT_DEFAULT = true
+
+/**
+ * Whether unread rows carry a background of their own, read from the stored preferences.
+ *
+ * The LOOKUP is in here and not in the flow, for the reason spelled out on [replyBarFrom]: given
+ * the whole [Preferences] there is no way to defeat the default from outside, and the test can hand
+ * it an empty store, a store with the switch on, and one with it off.
+ */
+internal fun unreadTintFrom(prefs: Preferences): Boolean = prefs[KEY_UNREAD_TINT] ?: UNREAD_TINT_DEFAULT

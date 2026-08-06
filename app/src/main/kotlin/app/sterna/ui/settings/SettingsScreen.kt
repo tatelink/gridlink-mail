@@ -416,6 +416,7 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val dynamicColor by viewModel.dynamicColor.collectAsStateWithLifecycle()
     val density by viewModel.listDensity.collectAsStateWithLifecycle()
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
+    val unreadTint by viewModel.unreadTint.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var language by remember { mutableStateOf(currentAppLanguage()) }
     DetailScaffold(title = stringResource(R.string.settings_appearance_screen_title), onBack = onBack) { padding ->
@@ -473,6 +474,12 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     selected = previewLines,
                     optionLabel = { previewLabel(context, it) },
                     onSelect = viewModel::setPreviewLines,
+                )
+                SettingSwitch(
+                    title = stringResource(R.string.settings_unread_tint_title),
+                    subtitle = stringResource(R.string.settings_unread_tint_subtitle),
+                    checked = unreadTint,
+                    onCheckedChange = viewModel::setUnreadTint,
                 )
             }
         }

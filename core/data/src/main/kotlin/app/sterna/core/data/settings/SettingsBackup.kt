@@ -49,6 +49,8 @@ data class SettingsBackup(
     val signatureDelimiter: Boolean? = null,
     /** Whether the reader shows the Reply/Forward bar along the bottom of a message (#63). */
     val replyBar: Boolean? = null,
+    /** Whether unread rows in the message list carry a background of their own (#141). */
+    val unreadTint: Boolean? = null,
     /** [DeliveryMode] name (Instant / Battery saver). */
     val deliveryMode: String? = null,
     val notificationContent: String? = null,

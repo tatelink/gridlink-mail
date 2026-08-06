@@ -270,6 +270,8 @@
     <string name="settings_message_list_section">Список писем</string>
     <string name="settings_density_title">Плотность</string>
     <string name="settings_preview_title">Предпросмотр</string>
+    <string name="settings_unread_tint_title">Фон непрочитанных писем</string>
+    <string name="settings_unread_tint_subtitle">Непрочитанные письма получают собственный фон в дополнение к жирному тексту.</string>
     <string name="settings_theme_auto">Авто</string>
     <string name="settings_theme_light">Светлая</string>
     <string name="settings_theme_dark">Тёмная</string>

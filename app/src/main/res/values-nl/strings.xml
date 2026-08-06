@@ -270,6 +270,8 @@
     <string name="settings_message_list_section">Berichtenlijst</string>
     <string name="settings_density_title">Dichtheid</string>
     <string name="settings_preview_title">Voorvertoning</string>
+    <string name="settings_unread_tint_title">Achtergrond van ongelezen berichten</string>
+    <string name="settings_unread_tint_subtitle">Geef ongelezen berichten een eigen achtergrond, naast de vetgedrukte tekst.</string>
     <string name="settings_theme_auto">Automatisch</string>
     <string name="settings_theme_light">Licht</string>
     <string name="settings_theme_dark">Donker</string>
