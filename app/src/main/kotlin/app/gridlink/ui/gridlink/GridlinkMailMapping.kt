@@ -1,0 +1,218 @@
+package app.gridlink.ui.gridlink
+
+import app.gridlink.appLocale
+import app.gridlink.core.jmap.model.Email
+import app.gridlink.util.MailDates
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.Locale
+
+/**
+ * Real mail, as the Gridlink screens want it.
+ *
+ * ## Why this is a separate file and not a method on [GridlinkMessage]
+ * Everything under `ui.gridlink` renders data handed to it and knows nothing about JMAP, a cache or
+ * an account — which is what lets the debug gallery draw every screen with no account and no
+ * network. A constructor that took an [Email] would put the whole `core:jmap` model behind that
+ * boundary for one conversion. Here it is one file, on the app side of the line, and it is pure:
+ * given the same message and the same "now" it produces the same row, which is the only reason the
+ * sectioning and the stamping below can be tested at all.
+ *
+ * ## What is genuinely not known here
+ * A list fetch asks the server for headers, not bodies. So a mapped message carries no body (the
+ * thread fetches it on open) and no [GridlinkMessage.attachment], only the `hasAttachment` flag it
+ * arrives with, as [GridlinkMessage.attachmentPending]. Both are absences with a shape, not
+ * defaults to be filled in with something plausible.
+ */
+object GridlinkMailMapping {
+
+    /**
+     * Local parts that mean "do not write back". The automated split reads THIS and nothing else.
+     *
+     * ## 🔴 What this is, stated plainly: a guess, from the address alone
+     * The signals that actually settle the question are headers — `List-Unsubscribe`,
+     * `Auto-Submitted`, `Precedence: bulk` — and none of them are in the list cache, which stores
+     * the columns a row draws. Fetching them for every message to sort a list would be a per-message
+     * round trip on a screen whose whole job is to be instant. So this is the conventional first
+     * pass every mail client makes, and it is wrong in both directions: a person whose company
+     * routes mail through `notifications@` lands in the bundle, and a marketing blast from a
+     * human-looking address does not.
+     *
+     * ## Why being wrong is survivable here, and where it would not be
+     * Nothing is hidden and nothing is deleted. The bundle sits ABOVE the timeline with its exact
+     * unread count on it and opens with one tap, so the worst case is a message one row further
+     * away than it should be. That is the only reason a heuristic is allowed to touch mail at all.
+     * 🔴 The moment anything downstream wants to mute, auto-archive or suppress a notification for
+     * "automated" mail, this stops being good enough and the headers have to be fetched and stored.
+     *
+     * `mailer-daemon` and `postmaster` are in the list and are the one entry worth arguing about: a
+     * bounce is machine-written but it is also frequently the most important thing in the mailbox.
+     * They are here because the bundle is a grouping and not a mute, per the paragraph above; if
+     * that ever changes they come out first.
+     */
+    private val AUTOMATED_LOCAL_PARTS = listOf(
+        "noreply",
+        "no-reply",
+        "no_reply",
+        "donotreply",
+        "do-not-reply",
+        "do_not_reply",
+        "notifications",
+        "notification",
+        "alerts",
+        "alert",
+        "automated",
+        "autoreply",
+        "auto-reply",
+        "bounce",
+        "bounces",
+        "mailer-daemon",
+        "postmaster",
+    )
+
+    /**
+     * The four pieces of text a mapped row can need that the message itself does not carry.
+     *
+     * ## Why these are English constants and not `R.string`
+     * ⚠️ Every label in `ui.gridlink` is hard-coded English: the package implements a written design
+     * brief and its wording is part of that brief. Two of these four (`(unknown sender)`,
+     * `(no subject)`) even exist as translated resources already, for upstream's list. Reaching for
+     * them here would leave the Gridlink list with two translated strings sitting beside two hundred
+     * untranslated ones, which is not "half done", it is a list that changes language mid-row.
+     *
+     * 🔴 So this is a **known debt with a shape**, deliberately taken in one place: when the Gridlink
+     * UI is localised, it is localised as a package, and this data class is where its list strings
+     * are already gathered and waiting to be handed in from resources instead of defaulted. Nothing
+     * else has to move.
+     */
+    data class Labels(
+        val yesterday: String = "Yesterday",
+        val unknownSender: String = "(unknown sender)",
+        val noSubject: String = "(no subject)",
+        val bundleTitle: String = "Automated",
+    )
+
+    /**
+     * One mailbox's worth of cached mail, split the way the list draws it.
+     *
+     * [bundle] is null rather than empty when nothing qualifies: the collapsed bundle row is a claim
+     * that there is machine mail to look at, and drawing it over zero messages would be a permanent
+     * empty drawer at the top of the list.
+     */
+    data class Mail(
+        val humans: List<GridlinkMessage>,
+        val bundle: GridlinkBundle?,
+    )
+
+    /**
+     * Map [emails] (newest first, as the cache returns them) into the two lists the list screen owns.
+     *
+     * [today] and [zone] are the reader's calendar, passed rather than read, so the day headings can
+     * be tested across a midnight and a time-zone change instead of only wherever the test machine
+     * happens to sit.
+     */
+    fun map(
+        emails: List<Email>,
+        labels: Labels,
+        zone: ZoneId = ZoneId.systemDefault(),
+        today: LocalDate = LocalDate.now(zone),
+        locale: Locale = appLocale,
+    ): Mail {
+        val rows = emails.map { message(it, labels, zone, today, locale) }
+        val robots = rows.filter { it.automated }
+        return Mail(
+            humans = rows.filterNot { it.automated },
+            bundle = if (robots.isEmpty()) null else bundle(robots, labels.bundleTitle),
+        )
+    }
+
+    /** One cached [Email] as a list row. */
+    fun message(
+        email: Email,
+        labels: Labels,
+        zone: ZoneId = ZoneId.systemDefault(),
+        today: LocalDate = LocalDate.now(zone),
+        locale: Locale = appLocale,
+    ): GridlinkMessage {
+        val from = email.from.firstOrNull()
+        val address = from?.email.orEmpty()
+        val automated = isAutomated(address)
+        return GridlinkMessage(
+            id = email.id,
+            // The display name if the sender wrote one, otherwise the address itself. Not the local
+            // part prettied up: "accounts.payable" becoming "Accounts Payable" is the app inventing
+            // a name for a correspondent, and the address is both shorter and true.
+            sender = from?.display()?.takeIf { it.isNotBlank() } ?: labels.unknownSender,
+            domain = address.substringAfterLast('@', "").lowercase(),
+            subject = email.subject?.takeIf { it.isNotBlank() } ?: labels.noSubject,
+            timestamp = MailDates.formatGridlinkStamp(
+                iso = email.receivedAt,
+                zone = zone,
+                today = today,
+                locale = locale,
+                yesterday = labels.yesterday,
+            ),
+            unread = !email.isSeen,
+            attachmentPending = email.hasAttachment,
+            automated = automated,
+            section = if (automated) GridlinkSection.AUTOMATED else section(email, zone, today),
+            // Left empty on purpose: the body is not in the list cache. The thread fetches it.
+            body = "",
+            addressOverride = address.takeIf { it.isNotBlank() },
+        )
+    }
+
+    /**
+     * Which day heading a message falls under.
+     *
+     * A message with no readable `receivedAt` sorts to [GridlinkSection.EARLIER] rather than to
+     * today. Undated mail is far more often something the cache is confused about than something
+     * that arrived this minute, and putting it under Today would place it above mail that genuinely
+     * did arrive this minute.
+     *
+     * Mail dated in the FUTURE lands there too (a sender's clock is wrong, or the message was
+     * scheduled). It is not today, and the timeline has no heading above Today to put it under, so
+     * it goes where the stamp beside it already points: a date, rather than a claim about a day.
+     */
+    fun section(email: Email, zone: ZoneId, today: LocalDate): GridlinkSection {
+        val date = MailDates.localDate(email.receivedAt, zone) ?: return GridlinkSection.EARLIER
+        return when (date) {
+            today -> GridlinkSection.TODAY
+            today.minusDays(1) -> GridlinkSection.YESTERDAY
+            else -> GridlinkSection.EARLIER
+        }
+    }
+
+    /** True when [address]'s local part is one of the conventional no-reply forms. */
+    fun isAutomated(address: String): Boolean {
+        if (address.isBlank()) return false
+        val local = address.substringBefore('@').lowercase()
+        // Sub-addressed robots are still robots: `noreply+ticket-4821@` is one address per ticket
+        // and every one of them would otherwise miss the list.
+        val base = local.substringBefore('+')
+        return base in AUTOMATED_LOCAL_PARTS
+    }
+
+    /**
+     * The robots as one collapsed row.
+     *
+     * 🔴 The count is the count. [GridlinkBundle] can carry an unread total larger than the messages
+     * it holds ([GridlinkBundle.phantomUnread]) because the sample's does, and it is exactly the
+     * wrong thing to do here: the sample says "14 new" over six rows because the brief's table is a
+     * sample of a morning, whereas this bundle holds every automated message in the window. A
+     * phantom count on real mail would be a number with nothing behind it.
+     */
+    private fun bundle(robots: List<GridlinkMessage>, title: String): GridlinkBundle =
+        GridlinkBundle(
+            title = title,
+            unreadCount = robots.count { it.unread },
+            // Three names, in the order they appear (which is newest first), and no "+2 more". The
+            // row is a summary of who is in there, not a manifest; the count above it is the number.
+            senderSummary = robots.map { it.sender }.distinct().take(BUNDLE_SUMMARY_SENDERS)
+                .joinToString(", "),
+            messages = robots,
+        )
+
+    /** How many senders the collapsed bundle names. Three fits the row at the brief's type sizes. */
+    private const val BUNDLE_SUMMARY_SENDERS = 3
+}

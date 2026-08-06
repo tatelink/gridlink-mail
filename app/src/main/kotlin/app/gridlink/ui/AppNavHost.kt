@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.EnterExitState
@@ -49,6 +50,7 @@ import app.gridlink.security.LockScreen
 import app.gridlink.ui.compose.ComposeScreen
 import app.gridlink.ui.connect.ConnectScreen
 import app.gridlink.ui.connect.GridlinkSetupHost
+import app.gridlink.ui.home.GridlinkHomeHost
 import app.gridlink.ui.inbox.InboxScreen
 import app.gridlink.ui.inbox.InboxViewModel
 import app.gridlink.ui.inbox.ThreadKey
@@ -198,19 +200,41 @@ fun AppNavHost(
                     )
                 }
             }
-            // No key(accountId) here: switching account updates currentAccountId in place so
-            // the inbox re-points (InboxScreen reacts via onAccountChanged) WITHOUT recreating
-            // the screen — which lets the drawer's account carousel stay open across a switch.
-            is RootState.Authenticated -> MainNavHost(
-                accounts = accounts,
-                currentAccountId = s.accountId,
-                onSwitchAccount = viewModel::switchAccount,
-                onAccountsChanged = viewModel::refresh,
-                pendingMailto = pendingMailto,
-                onMailtoConsumed = onMailtoConsumed,
-                pendingEmailOpen = pendingEmailOpen,
-                onEmailOpenConsumed = onEmailOpenConsumed,
-            )
+            // Signed in: Gridlink's four tabs, over this account's real mail.
+            //
+            // 🔴 [MainNavHost] below is upstream's whole signed-in UI and it no longer composes.
+            // It is kept, and kept compiling, because it is the only route to several screens
+            // Gridlink has no equivalent for yet (advanced search, scheduled sends, snoozed,
+            // outbox) and because deleting three hundred lines of working routing to make a
+            // switch-over look tidy is how those screens become unrecoverable.
+            //
+            // ⚠️ What that costs today: a tapped `mailto:` link and a tapped new-mail
+            // notification are consumed here and go nowhere. Both used to drive that NavHost.
+            // Routing them into [GridlinkHomeHost] needs GridlinkRoot to take a LIVE open
+            // request (it takes an `initialOpenId` at construction only), since both arrive
+            // while the app is already on screen. Stated rather than half-wired.
+            is RootState.Authenticated -> {
+                // Upstream's settings, reached from the Gridlink menu. A boolean rather than a
+                // nav route because it is the only place the Gridlink UI hands off, and it is
+                // saveable so the hand-off survives an unfold.
+                var settingsOpen by rememberSaveable { mutableStateOf(false) }
+                // System Back closes settings instead of leaving the app, which is what the
+                // NavHost's back stack used to do for this screen.
+                BackHandler(enabled = settingsOpen) { settingsOpen = false }
+                if (settingsOpen) {
+                    SettingsScreen(
+                        onBack = { settingsOpen = false },
+                        onAccountsChanged = viewModel::refresh,
+                        initialAccountId = null,
+                    )
+                } else {
+                    GridlinkHomeHost(
+                        accountId = s.accountId,
+                        accounts = accounts,
+                        onOpenSettings = { settingsOpen = true },
+                    )
+                }
+            }
         }
         if (locked) LockScreen(onUnlocked = appLock::unlock)
         DistributorPickerDialog()
@@ -229,8 +253,17 @@ private fun RequestNotificationPermission() {
     }
 }
 
+/**
+ * Upstream's signed-in UI, in full.
+ *
+ * 🔴 Nothing calls this any more: [AppNavHost] lands a signed-in user on [GridlinkHomeHost]
+ * instead. It is `internal` rather than `private` for exactly that reason (an uncalled private
+ * function is a warning, and a warning nobody can act on is noise) and it is kept because it is the
+ * only route to the screens Gridlink has not rebuilt: advanced search, scheduled sends, snoozed
+ * mail, the outbox, and the deep-link handling for `mailto:` and notification taps.
+ */
 @Composable
-private fun MainNavHost(
+internal fun MainNavHost(
     accounts: List<StoredAccount>,
     currentAccountId: String,
     onSwitchAccount: (String) -> Unit,

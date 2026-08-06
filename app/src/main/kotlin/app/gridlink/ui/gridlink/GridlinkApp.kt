@@ -2,6 +2,7 @@ package app.gridlink.ui.gridlink
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -75,7 +76,19 @@ class GridlinkChromeState(
     initialModeOverride: GridlinkMode? = null,
     initialLastSyncedAt: Long? = null,
     val menuOpenAtStart: Boolean = false,
+    initialConfig: GridlinkChromeConfig = GridlinkChromeConfig(),
 ) {
+    /**
+     * The facts the app around this holder supplies: who is signed in, and what the menu does.
+     *
+     * 🔴 A `var`, and written from [GridlinkApp] on every composition, because the account can
+     * CHANGE while this holder lives. Captured once at construction, switching account would leave
+     * the menu sheet stating the address of the mailbox you just left, which is the single line a
+     * user reads to check they are looking at the right mailbox.
+     */
+    var config by mutableStateOf(initialConfig)
+        internal set
+
     /** What the chrome row's chip says, and the dot beside the address in the menu sheet. */
     var sync by mutableStateOf(initialSync)
         private set
@@ -100,14 +113,19 @@ class GridlinkChromeState(
     /**
      * Sync every account, as the mail list's pull gesture asks for.
      *
-     * ⚠️ A mock: it waits and declares victory. The real one fans out one JMAP `Email/changes` per
-     * account and this function does not return until the slowest of them has, which is why it is a
-     * suspend function rather than a fire-and-forget.
+     * With a [GridlinkChromeConfig.sync] wired this fans out one refresh per account and does not
+     * return until the slowest of them has, which is why it is a suspend function rather than
+     * fire-and-forget.
      *
-     * 🔴 A pull while offline stays offline and does NOT restamp [lastSyncedAt]. Writing the clock
-     * on a sync that did not happen is how "Synced just now" ends up on a mailbox that has not
-     * spoken to a server in a day, and that single line is the one thing a user checks first when
-     * mail stops arriving.
+     * ⚠️ Without one it is a mock that waits and leaves the state exactly where it found it. That
+     * asymmetry is deliberate and is why the mock cannot simply "succeed": a gallery seeded OFFLINE
+     * is a screenshot of the offline chip, and a mock that flipped it to SYNCED would destroy the
+     * one state it was launched to photograph. A real sync has a real answer, so it gets to change
+     * the state; a fake one has nothing to report.
+     *
+     * 🔴 A sync that did not succeed does NOT restamp [lastSyncedAt]. Writing the clock on a sync
+     * that failed is how "Synced just now" ends up on a mailbox that has not spoken to a server in
+     * a day, and that single line is the first thing a user checks when mail stops arriving.
      *
      * Re-entrant calls are dropped rather than queued: two overlapping syncs would race on the
      * timestamp, and the second one has nothing to add.
@@ -115,13 +133,19 @@ class GridlinkChromeState(
     suspend fun syncAllAccounts() {
         if (sync == GridlinkSyncState.SYNCING) return
         val wasOffline = sync == GridlinkSyncState.OFFLINE
+        val action = config.sync
         sync = GridlinkSyncState.SYNCING
-        delay(GRIDLINK_MOCK_SYNC_MS)
-        if (wasOffline) {
-            sync = GridlinkSyncState.OFFLINE
+        val succeeded = if (action == null) {
+            delay(GRIDLINK_MOCK_SYNC_MS)
+            !wasOffline
         } else {
+            action.sync()
+        }
+        if (succeeded) {
             sync = GridlinkSyncState.SYNCED
             lastSyncedAt = System.currentTimeMillis()
+        } else {
+            sync = GridlinkSyncState.OFFLINE
         }
     }
 
@@ -134,8 +158,16 @@ class GridlinkChromeState(
          * Nullables are encoded rather than stored: an empty string for "no override" and -1 for
          * "never synced", so every element of the saved list is a type a Bundle takes without
          * question.
+         *
+         * 🔴 A function rather than a value, because [GridlinkChromeConfig] holds lambdas, which
+         * cannot go in a Bundle and must not be dropped on the way through one. A saver that
+         * restored without it would hand back a chrome whose pull-to-refresh had quietly reverted
+         * to the mock: the gesture would still animate, the chip would still say "Synced", and no
+         * mail would be fetched, from the moment the user unfolded the phone. The config is
+         * supplied fresh by the caller on restore, which is correct anyway, since it is live
+         * objects and not saved facts.
          */
-        val Saver: Saver<GridlinkChromeState, Any> = listSaver(
+        fun saver(config: GridlinkChromeConfig): Saver<GridlinkChromeState, Any> = listSaver(
             save = {
                 listOf(
                     it.autoMode.name,
@@ -154,11 +186,67 @@ class GridlinkChromeState(
                         ?.let(GridlinkMode::valueOf),
                     initialLastSyncedAt = (saved[3] as Long).takeIf { it >= 0L },
                     menuOpenAtStart = saved[4] as Boolean,
+                    initialConfig = config,
                 )
             },
         )
     }
 }
+
+/**
+ * What the pull-to-refresh gesture and the empty state's "tap to check" actually do.
+ *
+ * Returns whether the sync succeeded, and nothing else. The chrome does not want the mail, the
+ * error, or the counts: it owns one three-state chip and a timestamp, and both are decided by that
+ * single boolean. Anything richer belongs to whoever is holding the mailbox.
+ */
+fun interface GridlinkSyncAction {
+    suspend fun sync(): Boolean
+}
+
+/**
+ * What the app around the Gridlink screens supplies to their chrome: who is signed in, what the
+ * menu's rows lead to, and what a sync does.
+ *
+ * ## Why one object rather than five parameters
+ * Every one of these is a live thing (a lambda, an address that changes with the account) that the
+ * [GridlinkChromeState.saver] has to be handed again on restore rather than reading out of a Bundle.
+ * As separate parameters that is a saver signature that grows by one argument every time the app
+ * learns to do something else, and each new one is a fresh chance to forget it in the restore path,
+ * where forgetting it looks like nothing at all until the phone is unfolded.
+ *
+ * 🔴 **Every default here is sample data**, which is what makes the debug gallery work without an
+ * account and is exactly what a real build must not accept. A signed-in build passes its own
+ * address, its own counts and its own actions; leaving these at their defaults would put
+ * `tate@gridlink.me` in the menu of somebody else's mailbox with "4 unsent" under a Drafts folder
+ * nobody has looked at.
+ */
+@Stable
+class GridlinkChromeConfig(
+    /** The signed-in address, stated in the menu sheet. */
+    val account: String = GRIDLINK_SAMPLE_ACCOUNT,
+    /** How many accounts exist, for the Accounts row's subtitle. */
+    val accountCount: Int = 1,
+    /**
+     * Counts for the menu's mailbox rows. Empty means "no number", which is the honest answer
+     * before anything counts them, and is why this is not defaulted to zero: a Drafts row reading
+     * "0 unsent" is a claim, and an absent count is not.
+     */
+    val menuCounts: Map<GridlinkMenuItem, Int> = GRIDLINK_SAMPLE_MENU_COUNTS,
+    /**
+     * What a menu row does. The sheet closes either way, so a row wired to nothing is a row that
+     * dismisses rather than one that navigates somewhere empty.
+     */
+    val onSelectMenu: (GridlinkMenuItem) -> Unit = {},
+    /**
+     * What a sync actually does, or null when nothing is wired and the mock stands in.
+     *
+     * 🔴 Null is the sample's answer, not a disabled feature: the mock waits and leaves the state
+     * where it found it, which is what a screenshot of a syncing chip needs and what an account
+     * must never get. See [GridlinkChromeState.syncAllAccounts].
+     */
+    val sync: GridlinkSyncAction? = null,
+)
 
 val LocalGridlinkChrome = staticCompositionLocalOf { GridlinkChromeState() }
 
@@ -178,17 +266,37 @@ fun GridlinkApp(
     initialSync: GridlinkSyncState = GridlinkSyncState.SYNCED,
     initialModeOverride: GridlinkMode? = null,
     menuOpenAtStart: Boolean = false,
+    /**
+     * Who is signed in and what the chrome's actions do. Defaults to the sample; a real build
+     * always passes its own. See [GridlinkChromeConfig].
+     */
+    config: GridlinkChromeConfig = GridlinkChromeConfig(),
+    /**
+     * When the last successful sync was, at launch.
+     *
+     * 🔴 Defaults to a plausible few minutes ago, which is sample data and is why a real build has
+     * to pass null. "Synced 12 minutes ago" on an account that has never once reached a server is
+     * the exact false reassurance [GridlinkChromeState.syncAllAccounts] refuses to write, arriving
+     * by a different door.
+     */
+    initialLastSyncedAt: Long? = System.currentTimeMillis() - GRIDLINK_SAMPLE_SYNC_AGE_MS,
     content: @Composable () -> Unit,
 ) {
-    val chrome = rememberSaveable(saver = GridlinkChromeState.Saver) {
+    val chrome = rememberSaveable(saver = GridlinkChromeState.saver(config)) {
         GridlinkChromeState(
             autoMode = gridlinkModeForHour(LocalTime.now().hour),
             initialSync = initialSync,
             initialModeOverride = initialModeOverride,
-            initialLastSyncedAt = System.currentTimeMillis() - GRIDLINK_SAMPLE_SYNC_AGE_MS,
+            initialLastSyncedAt = initialLastSyncedAt,
             menuOpenAtStart = menuOpenAtStart,
+            initialConfig = config,
         )
     }
+    // 🔴 The holder outlives the call that created it (that is what remembering it means), so the
+    // config it was BORN with goes stale the moment the account changes. Re-stated here every
+    // composition instead. Cheap, because the caller is expected to remember the config object
+    // itself: an equal-but-new instance every frame would recompose the menu sheet every frame.
+    SideEffect { chrome.config = config }
     CompositionLocalProvider(LocalGridlinkChrome provides chrome) {
         ProvideGridlinkTokens(mode = chrome.mode, content = content)
     }

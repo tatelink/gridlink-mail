@@ -4003,6 +4003,22 @@ class MailRepository(
         else emailDao.cachedThreadEmails(accountId, mailboxIds, threadKey).map { rows -> rows.map { it.toEmail() } }
 
     /**
+     * The newest [limit] cached messages of one mailbox, observed: the Gridlink list's source.
+     *
+     * A window rather than a page, because the screen it feeds owns and reorders its own lists —
+     * see [app.gridlink.core.data.db.EmailDao.observeMailboxWindow] for why paging is the wrong
+     * shape there. Cache only, like [observeThreadEmails]: what fills the cache is [refresh],
+     * which the caller runs on its own schedule, so the list draws instantly and offline.
+     *
+     * 🔴 [limit] is the whole of what that list can ever show, so it has NO default: there is no
+     * second page behind it and scrolling to the bottom is the bottom. Pass the account's own
+     * `SyncWindow.limit` and the window is exactly the mail that account chose to keep offline;
+     * pass anything smaller and the app quietly hides mail it already fetched and still holds.
+     */
+    fun observeMailboxWindow(accountId: String, mailboxId: String, limit: Int): Flow<List<Email>> =
+        emailDao.observeMailboxWindow(accountId, mailboxId, limit).map { rows -> rows.map { it.toEmail() } }
+
+    /**
      * One reading of [observeThreadEmails], for callers that act on a thread once (a whole-thread
      * swipe) rather than draw it.
      */
