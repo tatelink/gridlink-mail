@@ -48,6 +48,7 @@ import app.gridlink.push.PushController
 import app.gridlink.security.LockScreen
 import app.gridlink.ui.compose.ComposeScreen
 import app.gridlink.ui.connect.ConnectScreen
+import app.gridlink.ui.connect.GridlinkSetupHost
 import app.gridlink.ui.inbox.InboxScreen
 import app.gridlink.ui.inbox.InboxViewModel
 import app.gridlink.ui.inbox.ThreadKey
@@ -150,7 +151,10 @@ fun AppNavHost(
     RequestNotificationPermission()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
-    val hasSeenWelcome by viewModel.hasSeenWelcome.collectAsStateWithLifecycle()
+    // 🔴 hasSeenWelcome is deliberately NOT collected here any more. The first run goes straight to
+    // the Gridlink setup screen (see the NeedAccount branch), so subscribing to the flag would keep
+    // a DataStore collector alive for the whole session to decide nothing. The view model keeps the
+    // property and the setter: they are what putting the welcome back would use.
     val appLock = (LocalContext.current.applicationContext as Application).container.appLock
     val locked by appLock.locked.collectAsStateWithLifecycle()
 
@@ -169,14 +173,30 @@ fun AppNavHost(
             RootState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                 CircularProgressIndicator()
             }
-            // First genuine launch (no account yet): show the privacy welcome once, then the
-            // connect flow. While the flag is still loading (null) show a brief spinner so we
-            // neither flash the connect screen on first launch nor the welcome for a returning
-            // (signed-out) user who has already seen it.
-            RootState.NeedAccount -> when (hasSeenWelcome) {
-                null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                false -> WelcomeScreen(onDone = viewModel::markWelcomeSeen)
-                true -> ConnectScreen(onConnected = viewModel::refresh, firstRun = true)
+            // First genuine launch (no account yet): Gridlink's setup screen, which asks for the
+            // server, the credentials and the sync selection in one pass.
+            //
+            // 🔴 The privacy welcome no longer gates this, and that is Tate's call rather than an
+            // oversight: the brief was that step one on launch IS the setup form. Upstream showed a
+            // welcome card first and only then the connect screen. [WelcomeScreen] and the
+            // hasSeenWelcome flag are left intact (the preview gate above still uses them) so
+            // putting it back is a two-line change, not an archaeology exercise.
+            //
+            // The spinner-while-loading case goes with it: nothing here reads a DataStore flag any
+            // more, so there is no null state to wait out and no flash to avoid.
+            RootState.NeedAccount -> {
+                // Which of the two setup screens is on: Gridlink's, or upstream's advanced one for
+                // IMAP / OAuth / Outlook. Saveable, so the hand-off survives an unfold — landing
+                // back on the Gridlink form after choosing IMAP would look like the tap was ignored.
+                var advanced by rememberSaveable { mutableStateOf(false) }
+                if (advanced) {
+                    ConnectScreen(onConnected = viewModel::refresh, firstRun = true)
+                } else {
+                    GridlinkSetupHost(
+                        onConnected = viewModel::refresh,
+                        onAdvanced = { advanced = true },
+                    )
+                }
             }
             // No key(accountId) here: switching account updates currentAccountId in place so
             // the inbox re-points (InboxScreen reacts via onAccountChanged) WITHOUT recreating
