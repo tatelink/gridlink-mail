@@ -97,6 +97,22 @@ class GridlinkChromeState(
     var lastSyncedAt by mutableStateOf(initialLastSyncedAt)
         private set
 
+    /**
+     * Whether a sync is genuinely in flight, as opposed to whether the chip merely SAYS so.
+     *
+     * 🔴 These are not the same fact, and conflating them deadlocked the app. [sync] is a display
+     * state that a caller is allowed to seed: the signed-in host opens on SYNCING deliberately, so
+     * the chip does not spend its first second claiming a freshness it has not earned. The
+     * re-entrancy guard in [syncAllAccounts] used to read that same field, so the launch sync looked
+     * like a second overlapping sync, returned immediately, and left the chip spinning forever over
+     * a mailbox that never refreshed through this path. Not a state a test caught, because both
+     * halves are correct alone.
+     *
+     * Deliberately NOT `by mutableStateOf`: nothing draws it, and making it observable would invite
+     * exactly the confusion with [sync] that this field exists to end.
+     */
+    private var syncInFlight = false
+
     /** null = follow [autoMode]; non-null = the user picked a palette and it wins. */
     var modeOverride by mutableStateOf(initialModeOverride)
         private set
@@ -131,15 +147,27 @@ class GridlinkChromeState(
      * timestamp, and the second one has nothing to add.
      */
     suspend fun syncAllAccounts() {
-        if (sync == GridlinkSyncState.SYNCING) return
+        // Guarded on [syncInFlight], NOT on the chip reading SYNCING. See that field: a caller may
+        // legitimately open on SYNCING before any sync has started, and reading the display state
+        // here made the very first sync mistake itself for a duplicate and do nothing.
+        if (syncInFlight) return
         val wasOffline = sync == GridlinkSyncState.OFFLINE
         val action = config.sync
+        syncInFlight = true
         sync = GridlinkSyncState.SYNCING
-        val succeeded = if (action == null) {
-            delay(GRIDLINK_MOCK_SYNC_MS)
-            !wasOffline
-        } else {
-            action.sync()
+        val succeeded = try {
+            if (action == null) {
+                delay(GRIDLINK_MOCK_SYNC_MS)
+                !wasOffline
+            } else {
+                action.sync()
+            }
+        } finally {
+            // In a `finally` so a cancelled pull gesture (the composition leaving mid-sync) does not
+            // leave the flag stuck true and every later sync silently dropped. The chip is left
+            // alone on that path on purpose: a cancelled sync has no result to report, and painting
+            // OFFLINE over a healthy mailbox is the failure this whole class is careful about.
+            syncInFlight = false
         }
         if (succeeded) {
             sync = GridlinkSyncState.SYNCED
