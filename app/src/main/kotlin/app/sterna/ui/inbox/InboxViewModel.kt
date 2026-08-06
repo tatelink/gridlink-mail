@@ -194,29 +194,6 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = SwipeConfig(SwipeAction.TOGGLE_READ, SwipeAction.DELETE),
         )
 
-    /** What the list is showing: a single folder, or the unified inbox. */
-    private sealed interface Sel {
-        data class Folder(val id: String?) : Sel
-        data object Unified : Sel
-    }
-
-    /** Inputs that, together, determine the current paged source. */
-    private data class PageKey(
-        val sel: Sel,
-        // The unified inbox's folders as (account id, inbox id) PAIRS. Bare ids listed the rows
-        // of accounts that are not in this list — a same-server sibling's colliding folder id,
-        // and above all a REMOVED account's leftovers, which no account could then label, sync or
-        // act on (Codeberg #121). MailRepository.folderScopeSql says the rest.
-        val unifiedScopes: List<Pair<String, String>>,
-        val sort: SortOrder,
-        val unreadOnly: Boolean,
-        val conversationView: Boolean,
-        // The active account, so switching accounts re-subscribes the pager even when the
-        // new inbox shares the old one's mailbox id (JMAP servers number mailboxes per
-        // account, so two accounts' inboxes often collide on the same id, e.g. "a").
-        val accountId: String? = null,
-    )
-
     /** A just-performed swipe action that can be undone (move the message back). */
     private val _undo = MutableStateFlow<UndoAction?>(null)
     val undo: StateFlow<UndoAction?> = _undo.asStateFlow()
@@ -683,12 +660,21 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * The browse list, paged from Room. A single folder uses the RemoteMediator-backed
      * pager (scrolling past the cache fetches older mail from the server); the unified
      * inbox just pages the cached rows across accounts.
+     *
+     * The key comes from [pageKeyFlow], which is deduped: every emission here cancels the running
+     * pager and builds one that starts at the first page again, so an equal key must not reach
+     * `flatMapLatest`. [cachedIn] is downstream of that on purpose — it caches the pages, it does
+     * not stop a rebuild.
      */
     val pagedEmails: Flow<PagingData<InboxRow>> =
-        combine(selection, unifiedInboxScopes, settings.sortOrder, unreadOnly, settings.conversationView) {
-                sel, scopes, sort, unread, conversation ->
-            PageKey(sel, scopes, sort, unread, conversation)
-        }.combine(currentAccountId) { key, accountId -> key.copy(accountId = accountId) }
+        pageKeyFlow(
+            selection = selection,
+            unifiedInboxScopes = unifiedInboxScopes,
+            sortOrder = settings.sortOrder,
+            unreadOnly = unreadOnly,
+            conversationView = settings.conversationView,
+            currentAccountId = currentAccountId,
+        )
         .flatMapLatest { key ->
             when (val sel = key.sel) {
                 is Sel.Folder -> {

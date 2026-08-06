@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -118,16 +119,23 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_SWIPE_LEFT] = action.name }
     }
 
+    /** Deduped: DataStore republishes the WHOLE `Preferences` on every write, whatever key was
+     *  touched, so without this an unrelated setting (an image allow-list entry, a swipe action)
+     *  re-emits the sort order that never changed — and the browse list is built off this flow, so
+     *  each such re-emission threw away the running pager and started it at the first page again. */
     val sortOrder: Flow<SortOrder> = dataStore.data.map { prefs ->
         prefs[KEY_SORT_ORDER]?.let { runCatching { SortOrder.valueOf(it) }.getOrNull() } ?: SortOrder.DATE_DESC
-    }
+    }.distinctUntilChanged()
 
     suspend fun setSortOrder(order: SortOrder) {
         dataStore.edit { it[KEY_SORT_ORDER] = order.name }
     }
 
-    /** Collapse threads into one conversation row in the list (on by default). */
+    /** Collapse threads into one conversation row in the list (on by default). Deduped for the
+     *  same reason as [sortOrder]: it is the other settings flow the browse list's paging key is
+     *  built from, so an equal re-emission here rebuilt the pager on its own. */
     val conversationView: Flow<Boolean> = dataStore.data.map { it[KEY_CONVERSATION_VIEW] ?: true }
+        .distinctUntilChanged()
 
     suspend fun setConversationView(enabled: Boolean) {
         dataStore.edit { it[KEY_CONVERSATION_VIEW] = enabled }
